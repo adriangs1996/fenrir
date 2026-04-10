@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
-type Theme = "light" | "dark" | "system";
+type Theme = "light" | "dark" | "system" | "catppuccin-mocha";
 type ThemeSnapshot = {
   theme: Theme;
   systemDark: boolean;
@@ -24,7 +24,7 @@ function getSystemDark(): boolean {
 
 function getStored(): Theme {
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw === "light" || raw === "dark" || raw === "system") return raw;
+  if (raw === "light" || raw === "dark" || raw === "system" || raw === "catppuccin-mocha") return raw;
   return "system";
 }
 
@@ -82,8 +82,10 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
   if (suppressTransitions) {
     document.documentElement.classList.add("no-transitions");
   }
-  const isDark = theme === "dark" || (theme === "system" && getSystemDark());
+  const isCatppuccin = theme === "catppuccin-mocha";
+  const isDark = isCatppuccin || theme === "dark" || (theme === "system" && getSystemDark());
   document.documentElement.classList.toggle("dark", isDark);
+  document.documentElement.classList.toggle("catppuccin-mocha", isCatppuccin);
   syncBrowserChromeTheme();
   syncDesktopTheme(theme);
   if (suppressTransitions) {
@@ -103,7 +105,8 @@ function syncDesktopTheme(theme: Theme) {
   }
 
   lastDesktopTheme = theme;
-  void bridge.setTheme(theme).catch(() => {
+  const bridgeTheme = theme === "catppuccin-mocha" ? "dark" : theme;
+  void bridge.setTheme(bridgeTheme).catch(() => {
     if (lastDesktopTheme === theme) {
       lastDesktopTheme = null;
     }
@@ -157,7 +160,13 @@ export function useTheme() {
   const theme = snapshot.theme;
 
   const resolvedTheme: "light" | "dark" =
-    theme === "system" ? (snapshot.systemDark ? "dark" : "light") : theme;
+    theme === "catppuccin-mocha"
+      ? "dark"
+      : theme === "system"
+        ? snapshot.systemDark
+          ? "dark"
+          : "light"
+        : theme;
 
   const setTheme = useCallback((next: Theme) => {
     localStorage.setItem(STORAGE_KEY, next);
