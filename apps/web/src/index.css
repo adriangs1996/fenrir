@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark, .dark *));
+@custom-variant catppuccin-mocha (&:is(.catppuccin-mocha, .catppuccin-mocha *));
 
 @theme inline {
   --animate-skeleton: skeleton 2s -1s infinite linear;
@@ -124,6 +125,37 @@
     --warning: var(--color-amber-500);
     --warning-foreground: var(--color-amber-400);
   }
+
+  @variant catppuccin-mocha {
+    color-scheme: dark;
+    --background: #1e1e2e;
+    --app-chrome-background: #1e1e2e;
+    --foreground: #cdd6f4;
+    --card: #181825;
+    --card-foreground: #cdd6f4;
+    --popover: #181825;
+    --popover-foreground: #cdd6f4;
+    --primary: #a6e3a1;
+    --primary-foreground: #1e1e2e;
+    --secondary: #313244;
+    --secondary-foreground: #cdd6f4;
+    --muted: #313244;
+    --muted-foreground: #a6adc8;
+    --accent: #313244;
+    --accent-foreground: #cdd6f4;
+    --destructive: #f38ba8;
+    --destructive-foreground: #f38ba8;
+    --border: #45475a;
+    --input: #585b70;
+    --ring: #a6e3a1;
+    --info: #89b4fa;
+    --info-foreground: #89b4fa;
+    --success: #a6e3a1;
+    --success-foreground: #a6e3a1;
+    --warning: #f9e2af;
+    --warning-foreground: #f9e2af;
+    --catppuccin-mauve: rgb(152, 125, 210);
+  }
 }
 
 body {
@@ -204,6 +236,14 @@ code {
 
 .dark ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.18);
+}
+
+.catppuccin-mocha ::-webkit-scrollbar-thumb {
+  background: rgba(69, 71, 90, 0.6);
+}
+
+.catppuccin-mocha ::-webkit-scrollbar-thumb:hover {
+  background: rgba(88, 91, 112, 0.7);
 }
 
 .turn-chip-strip {
