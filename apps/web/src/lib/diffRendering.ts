@@ -1,11 +1,15 @@
 export const DIFF_THEME_NAMES = {
   light: "pierre-light",
   dark: "pierre-dark",
+  "catppuccin-mocha": "catppuccin-mocha",
 } as const;
 
 export type DiffThemeName = (typeof DIFF_THEME_NAMES)[keyof typeof DIFF_THEME_NAMES];
 
-export function resolveDiffThemeName(theme: "light" | "dark"): DiffThemeName {
+export type DiffThemeInput = "light" | "dark" | "catppuccin-mocha";
+
+export function resolveDiffThemeName(theme: DiffThemeInput): DiffThemeName {
+  if (theme === "catppuccin-mocha") return DIFF_THEME_NAMES["catppuccin-mocha"];
   return theme === "dark" ? DIFF_THEME_NAMES.dark : DIFF_THEME_NAMES.light;
 }
 

@@ -116,7 +116,7 @@ function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
   if (cached) return cached;
 
   const promise = getSharedHighlighter({
-    themes: [resolveDiffThemeName("dark"), resolveDiffThemeName("light")],
+    themes: [resolveDiffThemeName("dark"), resolveDiffThemeName("light"), resolveDiffThemeName("catppuccin-mocha")],
     langs: [language as SupportedLanguages],
     preferredHighlighter: "shiki-js",
   }).catch((err) => {
@@ -237,8 +237,8 @@ function SuspenseShikiCodeBlock({
 }
 
 function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
-  const { resolvedTheme } = useTheme();
-  const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const { syntaxTheme } = useTheme();
+  const diffThemeName = resolveDiffThemeName(syntaxTheme);
   const markdownUrlTransform = useCallback((href: string) => {
     return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
   }, []);

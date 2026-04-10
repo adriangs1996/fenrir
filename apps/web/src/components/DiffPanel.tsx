@@ -168,7 +168,7 @@ export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 
 export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const navigate = useNavigate();
-  const { resolvedTheme } = useTheme();
+  const { resolvedTheme, syntaxTheme } = useTheme();
   const settings = useSettings();
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("stacked");
   const [diffWordWrap, setDiffWordWrap] = useState(settings.diffWordWrap);
@@ -625,7 +625,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                           diffStyle: diffRenderMode === "split" ? "split" : "unified",
                           lineDiffType: "none",
                           overflow: diffWordWrap ? "wrap" : "scroll",
-                          theme: resolveDiffThemeName(resolvedTheme),
+                          theme: resolveDiffThemeName(syntaxTheme),
                           themeType: resolvedTheme as DiffThemeType,
                           unsafeCSS: DIFF_PANEL_UNSAFE_CSS,
                         }}

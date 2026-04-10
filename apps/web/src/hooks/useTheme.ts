@@ -179,5 +179,8 @@ export function useTheme() {
     applyTheme(theme);
   }, [theme]);
 
-  return { theme, setTheme, resolvedTheme } as const;
+  const syntaxTheme: "light" | "dark" | "catppuccin-mocha" =
+    theme === "catppuccin-mocha" ? "catppuccin-mocha" : resolvedTheme;
+
+  return { theme, setTheme, resolvedTheme, syntaxTheme } as const;
 }
