@@ -317,12 +317,14 @@ type ChatViewProps =
   | {
       environmentId: EnvironmentId;
       threadId: ThreadId;
+      onDiffPanelOpen?: () => void;
       routeKind: "server";
       draftId?: never;
     }
   | {
       environmentId: EnvironmentId;
       threadId: ThreadId;
+      onDiffPanelOpen?: () => void;
       routeKind: "draft";
       draftId: DraftId;
     };
@@ -580,7 +582,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
 });
 
 export default function ChatView(props: ChatViewProps) {
-  const { environmentId, threadId, routeKind } = props;
+  const { environmentId, threadId, routeKind, onDiffPanelOpen } = props;
   const draftId = routeKind === "draft" ? props.draftId : null;
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
@@ -1481,6 +1483,9 @@ export default function ChatView(props: ChatViewProps) {
     if (!isServerThread) {
       return;
     }
+    if (!diffOpen) {
+      onDiffPanelOpen?.();
+    }
     void navigate({
       to: "/$environmentId/$threadId",
       params: {
@@ -1493,7 +1498,7 @@ export default function ChatView(props: ChatViewProps) {
         return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
       },
     });
-  }, [diffOpen, environmentId, isServerThread, navigate, threadId]);
+  }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3407,6 +3412,7 @@ export default function ChatView(props: ChatViewProps) {
       if (!isServerThread) {
         return;
       }
+      onDiffPanelOpen?.();
       void navigate({
         to: "/$environmentId/$threadId",
         params: {
@@ -3421,7 +3427,7 @@ export default function ChatView(props: ChatViewProps) {
         },
       });
     },
-    [environmentId, isServerThread, navigate, threadId],
+    [environmentId, isServerThread, navigate, onDiffPanelOpen, threadId],
   );
   const onRevertUserMessage = useCallback(
     (messageId: MessageId) => {
