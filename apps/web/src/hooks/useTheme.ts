@@ -8,24 +8,34 @@ type ThemeSnapshot = {
 
 const STORAGE_KEY = "fenrir:theme";
 const MEDIA_QUERY = "(prefers-color-scheme: dark)";
+const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = {
+  theme: "system",
+  systemDark: false,
+};
 const THEME_COLOR_META_NAME = "theme-color";
 const DYNAMIC_THEME_COLOR_SELECTOR = `meta[name="${THEME_COLOR_META_NAME}"][data-dynamic-theme-color="true"]`;
 
 let listeners: Array<() => void> = [];
 let lastSnapshot: ThemeSnapshot | null = null;
 let lastDesktopTheme: Theme | null = null;
+
 function emitChange() {
   for (const listener of listeners) listener();
 }
 
-function getSystemDark(): boolean {
-  return window.matchMedia(MEDIA_QUERY).matches;
+function hasThemeStorage() {
+  return typeof window !== "undefined" && typeof localStorage !== "undefined";
+}
+
+function getSystemDark() {
+  return typeof window !== "undefined" && window.matchMedia(MEDIA_QUERY).matches;
 }
 
 function getStored(): Theme {
+  if (!hasThemeStorage()) return DEFAULT_THEME_SNAPSHOT.theme;
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw === "light" || raw === "dark" || raw === "system" || raw === "catppuccin-mocha") return raw;
-  return "system";
+  return DEFAULT_THEME_SNAPSHOT.theme;
 }
 
 function ensureThemeColorMetaTag(): HTMLMetaElement {
@@ -78,7 +88,7 @@ export function syncBrowserChromeTheme() {
 }
 
 function applyTheme(theme: Theme, suppressTransitions = false) {
-  if (typeof document === "undefined") return;
+  if (typeof document === "undefined" || typeof window === "undefined") return;
   if (suppressTransitions) {
     document.documentElement.classList.add("no-transitions");
   }
@@ -99,6 +109,7 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
 }
 
 function syncDesktopTheme(theme: Theme) {
+  if (typeof window === "undefined") return;
   const bridge = window.desktopBridge;
   if (!bridge || lastDesktopTheme === theme) {
     return;
@@ -114,9 +125,12 @@ function syncDesktopTheme(theme: Theme) {
 }
 
 // Apply immediately on module load to prevent flash
-applyTheme(getStored());
+if (typeof document !== "undefined" && hasThemeStorage()) {
+  applyTheme(getStored());
+}
 
 function getSnapshot(): ThemeSnapshot {
+  if (!hasThemeStorage()) return DEFAULT_THEME_SNAPSHOT;
   const theme = getStored();
   const systemDark = theme === "system" ? getSystemDark() : false;
 
@@ -128,7 +142,12 @@ function getSnapshot(): ThemeSnapshot {
   return lastSnapshot;
 }
 
+function getServerSnapshot() {
+  return DEFAULT_THEME_SNAPSHOT;
+}
+
 function subscribe(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
   listeners.push(listener);
 
   // Listen for system preference changes
@@ -156,7 +175,7 @@ function subscribe(listener: () => void): () => void {
 }
 
 export function useTheme() {
-  const snapshot = useSyncExternalStore(subscribe, getSnapshot);
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const theme = snapshot.theme;
 
   const resolvedTheme: "light" | "dark" =
@@ -169,6 +188,7 @@ export function useTheme() {
         : theme;
 
   const setTheme = useCallback((next: Theme) => {
+    if (!hasThemeStorage()) return;
     localStorage.setItem(STORAGE_KEY, next);
     applyTheme(next, true);
     emitChange();
