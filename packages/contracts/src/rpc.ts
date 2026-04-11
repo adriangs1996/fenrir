@@ -73,6 +73,13 @@ import {
   ServerUpsertKeybindingResult,
 } from "./server";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
+import {
+  Engagement,
+  EngagementStatus,
+  EngagementType,
+  PentestRpcError,
+} from "./pentest";
+import { TrimmedNonEmptyString } from "./baseSchemas";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -112,6 +119,12 @@ export const WS_METHODS = {
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
+
+  // Pentest methods
+  pentestEngagementsList: "pentest.engagements.list",
+  pentestEngagementsCreate: "pentest.engagements.create",
+  pentestEngagementsUpdate: "pentest.engagements.update",
+  pentestEngagementsArchive: "pentest.engagements.archive",
 
   // Streaming subscriptions
   subscribeGitStatus: "subscribeGitStatus",
@@ -342,6 +355,51 @@ export const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess,
   stream: true,
 });
 
+// ---------------------------------------------------------------------------
+// Pentest Engagement RPCs
+// ---------------------------------------------------------------------------
+
+export const PentestEngagementsListRpc = Rpc.make(WS_METHODS.pentestEngagementsList, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(Engagement),
+  error: PentestRpcError,
+});
+
+const CreateEngagementRpcInput = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  type: EngagementType,
+  target: Schema.optional(TrimmedNonEmptyString),
+  platform: Schema.optional(TrimmedNonEmptyString),
+  difficulty: Schema.optional(Schema.Literals(["easy", "medium", "hard", "insane"])),
+  methodologyId: Schema.optional(TrimmedNonEmptyString),
+});
+
+export const PentestEngagementsCreateRpc = Rpc.make(WS_METHODS.pentestEngagementsCreate, {
+  payload: CreateEngagementRpcInput,
+  success: Engagement,
+  error: PentestRpcError,
+});
+
+const UpdateEngagementStatusRpcInput = Schema.Struct({
+  id: Schema.String,
+  status: EngagementStatus,
+});
+
+export const PentestEngagementsUpdateRpc = Rpc.make(WS_METHODS.pentestEngagementsUpdate, {
+  payload: UpdateEngagementStatusRpcInput,
+  error: PentestRpcError,
+});
+
+const ArchiveEngagementRpcInput = Schema.Struct({
+  id: Schema.String,
+});
+
+export const PentestEngagementsArchiveRpc = Rpc.make(WS_METHODS.pentestEngagementsArchive, {
+  payload: ArchiveEngagementRpcInput,
+  success: Schema.Struct({ success: Schema.Boolean }),
+  error: PentestRpcError,
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -379,4 +437,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationReplayEventsRpc,
+  PentestEngagementsListRpc,
+  PentestEngagementsCreateRpc,
+  PentestEngagementsUpdateRpc,
+  PentestEngagementsArchiveRpc,
 );
