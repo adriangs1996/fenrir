@@ -13,6 +13,7 @@ import {
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
+  type EngagementId,
   PentestRpcError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
@@ -915,7 +916,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(
             WS_METHODS.pentestEngagementsList,
             pentestEngagementService.listEngagements().pipe(
-              Effect.map((engagements) => engagements as ReadonlyArray<never>),
+              Effect.map((engagements) => [...engagements]),
               Effect.mapError(
                 (cause) =>
                   new PentestRpcError({
@@ -946,7 +947,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(
             WS_METHODS.pentestEngagementsUpdate,
             pentestEngagementService
-              .updateEngagementStatus(input.id as unknown as never, input.status)
+              .updateEngagementStatus(input.id as EngagementId, input.status)
               .pipe(
                 Effect.mapError(
                   (cause) =>
@@ -963,7 +964,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(
             WS_METHODS.pentestEngagementsArchive,
             pentestEngagementService
-              .archiveEngagement(input.id as unknown as never)
+              .archiveEngagement(input.id as EngagementId)
               .pipe(
                 Effect.map(() => ({ success: true as const })),
                 Effect.mapError(
