@@ -67,6 +67,11 @@ import {
 } from "./auth/http";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth";
+import { PentestDatabaseLive } from "./pentest/Layers/PentestDatabase";
+import { PentestEngagementsRepoLive } from "./pentest/Layers/PentestEngagementsRepo";
+import { PentestMethodologiesRepoLive } from "./pentest/Layers/PentestMethodologiesRepo";
+import { PentestPhasesRepoLive } from "./pentest/Layers/PentestPhasesRepo";
+import { PentestEngagementServiceLive } from "./pentest/Layers/PentestEngagementService";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -209,6 +214,17 @@ const AuthLayerLive = ServerAuthLive.pipe(
   Layer.provide(ServerSecretStoreLive),
 );
 
+const PentestRepoLayerLive = Layer.mergeAll(
+  PentestEngagementsRepoLive,
+  PentestMethodologiesRepoLive,
+  PentestPhasesRepoLive,
+).pipe(Layer.provide(PentestDatabaseLive));
+
+const PentestLayerLive = PentestEngagementServiceLive.pipe(
+  Layer.provide(PentestRepoLayerLive),
+  Layer.provideMerge(PentestRepoLayerLive),
+);
+
 const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
@@ -230,6 +246,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(AnalyticsServiceLayerLive),
   Layer.provideMerge(OpenLive),
   Layer.provideMerge(ServerLifecycleEventsLive),
+  Layer.provideMerge(PentestLayerLive),
 );
 
 const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
