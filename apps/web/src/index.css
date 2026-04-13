@@ -2,6 +2,8 @@
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant catppuccin-mocha (&:is(.catppuccin-mocha, .catppuccin-mocha *));
+/* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */
+@custom-variant wco (&:is(.wco, .wco *));
 
 @theme inline {
   --animate-skeleton: skeleton 2s -1s infinite linear;
