@@ -444,6 +444,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 branch: worktree.worktree.branch,
                 worktreePath: targetWorktreePath,
               });
+              yield* refreshGitStatus(targetWorktreePath);
             }
 
             yield* runSetupProgram();
