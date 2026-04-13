@@ -65,7 +65,6 @@ import {
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 
 interface MessagesTimelineProps {
-  hasMessages: boolean;
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
@@ -101,7 +100,6 @@ interface MessagesTimelineProps {
 }
 
 export const MessagesTimeline = memo(function MessagesTimeline({
-  hasMessages,
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt,
