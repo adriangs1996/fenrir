@@ -1806,7 +1806,7 @@ export const ChatComposer = memo(
                 <div
                   ref={composerFooterLeadingRef}
                   className={cn(
-                    "flex min-w-0 flex-1 items-center",
+                    "-m-1 flex min-w-0 flex-1 items-center p-1",
                     isComposerFooterCompact
                       ? "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                       : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
