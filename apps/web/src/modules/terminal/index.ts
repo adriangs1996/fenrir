@@ -18,6 +18,7 @@ export {
   extractTerminalLinks,
   isTerminalLinkActivation,
   resolvePathLinkTarget,
+  splitPathAndPosition,
   type TerminalLinkKind,
   type TerminalLinkMatch,
 } from "./terminalLinks";
