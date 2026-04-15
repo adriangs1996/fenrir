@@ -34,11 +34,8 @@ import {
   type ElementNode,
   type LexicalNode,
   type SerializedLexicalNode,
-  TextNode,
-  type EditorConfig,
   type EditorState,
   type NodeKey,
-  type SerializedTextNode,
   type Spread,
 } from "lexical";
 import {
@@ -106,7 +103,7 @@ type SerializedComposerMentionNode = Spread<
     type: "composer-mention";
     version: 1;
   },
-  SerializedTextNode
+  SerializedLexicalNode
 >;
 
 type SerializedComposerTerminalContextNode = Spread<
@@ -124,7 +121,40 @@ const ComposerTerminalContextActionsContext = createContext<{
   onRemoveTerminalContext: () => {},
 });
 
-class ComposerMentionNode extends TextNode {
+function ComposerMentionDecorator(props: { path: string }) {
+  const theme = resolvedThemeFromDocument();
+  const chip = (
+    <span
+      className={COMPOSER_INLINE_CHIP_CLASS_NAME}
+      contentEditable={false}
+      spellCheck={false}
+      data-composer-mention-chip="true"
+    >
+      <img
+        alt=""
+        aria-hidden="true"
+        className={COMPOSER_INLINE_CHIP_ICON_CLASS_NAME}
+        loading="lazy"
+        src={getVscodeIconUrlForEntry(props.path, inferEntryKindFromPath(props.path), theme)}
+      />
+      <span className={COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME}>{basenameOfPath(props.path)}</span>
+    </span>
+  );
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={chip} />
+      <TooltipPopup
+        side="top"
+        className="max-w-[30rem] whitespace-normal leading-tight wrap-anywhere"
+      >
+        {props.path}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
+class ComposerMentionNode extends DecoratorNode<ReactElement> {
   __path: string;
 
   static override getType(): string {
@@ -138,12 +168,12 @@ class ComposerMentionNode extends TextNode {
   static override importJSON(
     serializedNode: SerializedComposerMentionNode,
   ): ComposerMentionNode {
-    return $createComposerMentionNode(serializedNode.path);
+    return $createComposerMentionNode(serializedNode.path).updateFromJSON(serializedNode);
   }
 
   constructor(path: string, key?: NodeKey) {
+    super(key);
     const normalizedPath = path.startsWith("@") ? path.slice(1) : path;
-    super(`@${normalizedPath}`, key);
     this.__path = normalizedPath;
   }
 
@@ -156,41 +186,26 @@ class ComposerMentionNode extends TextNode {
     };
   }
 
-  override createDOM(_config: EditorConfig): HTMLElement {
+  override createDOM(): HTMLElement {
     const dom = document.createElement("span");
-    dom.className = COMPOSER_INLINE_CHIP_CLASS_NAME;
-    dom.contentEditable = "false";
-    dom.setAttribute("spellcheck", "false");
-    renderMentionChipDom(dom, this.__path);
+    dom.className = "inline-flex align-middle leading-none";
     return dom;
   }
 
-  override updateDOM(
-    prevNode: ComposerMentionNode,
-    dom: HTMLElement,
-    _config: EditorConfig,
-  ): boolean {
-    dom.contentEditable = "false";
-    if (prevNode.__text !== this.__text || prevNode.__path !== this.__path) {
-      renderMentionChipDom(dom, this.__path);
-    }
+  override updateDOM(): false {
     return false;
   }
 
-  override canInsertTextBefore(): false {
-    return false;
+  override getTextContent(): string {
+    return `@${this.__path}`;
   }
 
-  override canInsertTextAfter(): false {
-    return false;
-  }
-
-  override isTextEntity(): true {
+  override isInline(): true {
     return true;
   }
 
-  override isToken(): true {
-    return true;
+  override decorate(): ReactElement {
+    return <ComposerMentionDecorator path={this.__path} />;
   }
 }
 
@@ -450,12 +465,9 @@ function getAbsoluteOffsetForPoint(
   }
 
   if ($isTextNode(node)) {
-    if (node instanceof ComposerMentionNode) {
-      return getAbsoluteOffsetForInlineTokenPoint(node, offset, pointOffset);
-    }
     return offset + Math.min(pointOffset, node.getTextContentSize());
   }
-  if (node instanceof ComposerTerminalContextNode) {
+  if (node instanceof ComposerTerminalContextNode || node instanceof ComposerMentionNode) {
     return getAbsoluteOffsetForInlineTokenPoint(node, offset, pointOffset);
   }
 
