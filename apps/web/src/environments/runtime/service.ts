@@ -366,6 +366,11 @@ function applyRecoveredEventBatch(
       .getState()
       .clearThreadUi(scopedThreadKey(scopeThreadRef(environmentId, threadId)));
   }
+  for (const event of events) {
+    if (event.type === "project.deleted") {
+      draftStore.clearProjectDraftThreadId(scopeProjectRef(environmentId, event.payload.projectId));
+    }
+  }
   for (const threadId of batchEffects.removeTerminalStateThreadIds) {
     useTerminalStateStore.getState().removeTerminalState(scopeThreadRef(environmentId, threadId));
   }
