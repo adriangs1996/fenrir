@@ -3,6 +3,7 @@ import * as Path from "node:path";
 
 import type { ClientSettings, PersistedSavedEnvironmentRecord } from "@fenrir/contracts";
 import { Predicate } from "effect";
+import * as Schema from "effect/Schema";
 
 interface ClientSettingsDocument {
   readonly settings: ClientSettings;
@@ -83,7 +84,15 @@ function toPersistedSavedEnvironmentRecord(
 }
 
 export function readClientSettings(settingsPath: string): ClientSettings | null {
-  return readJsonFile<ClientSettingsDocument>(settingsPath)?.settings ?? null;
+  const raw = readJsonFile<ClientSettingsDocument>(settingsPath)?.settings;
+  if (!raw) {
+    return null;
+  }
+  try {
+    return Schema.decodeUnknownSync(ClientSettingsSchema)(raw);
+  } catch {
+    return null;
+  }
 }
 
 export function writeClientSettings(settingsPath: string, settings: ClientSettings): void {
