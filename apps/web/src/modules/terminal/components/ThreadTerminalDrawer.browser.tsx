@@ -189,6 +189,7 @@ async function mountTerminalViewport(props: {
       autoFocus={false}
       resizeEpoch={0}
       drawerHeight={320}
+      keybindings={[]}
     />,
     { container: host },
   );
@@ -209,6 +210,7 @@ async function mountTerminalViewport(props: {
           autoFocus={false}
           resizeEpoch={0}
           drawerHeight={320}
+          keybindings={[]}
         />,
       );
     },

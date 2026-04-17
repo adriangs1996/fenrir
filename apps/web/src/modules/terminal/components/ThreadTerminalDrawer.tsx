@@ -10,6 +10,7 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type TerminalEvent,
   type TerminalSessionSnapshot,
@@ -39,7 +40,12 @@ import {
   wrappedTerminalLinkRangeIntersectsBufferLine,
 } from "../terminalLinks";
 import {
+  isDiffToggleShortcut,
   isTerminalClearShortcut,
+  isTerminalCloseShortcut,
+  isTerminalNewShortcut,
+  isTerminalSplitShortcut,
+  isTerminalToggleShortcut,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
 } from "~/keybindings";
@@ -304,6 +310,7 @@ interface TerminalViewportProps {
   mode: "tmux" | "pty";
   /** Explicit projectId — used when thread not yet in server store (draft threads). */
   projectId?: string | null | undefined;
+  keybindings: ResolvedKeybindingsConfig;
 }
 
 export function TerminalViewport({
@@ -323,6 +330,7 @@ export function TerminalViewport({
   drawerHeight,
   mode,
   projectId: projectIdProp,
+  keybindings,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -335,6 +343,7 @@ export function TerminalViewport({
   const selectionActionRequestIdRef = useRef(0);
   const selectionActionOpenRef = useRef(false);
   const selectionActionTimerRef = useRef<number | null>(null);
+  const keybindingsRef = useRef(keybindings);
   const lastAppliedTerminalEventIdRef = useRef(0);
   const terminalHydratedRef = useRef(false);
   const handleSessionExited = useEffectEvent(() => {
@@ -371,6 +380,10 @@ export function TerminalViewport({
       // fit may throw during transitions
     }
   }, [terminalFontFamily, terminalFontSize, terminalLineHeight]);
+
+  useEffect(() => {
+    keybindingsRef.current = keybindings;
+  }, [keybindings]);
 
   useEffect(() => {
     const mount = containerRef.current;
@@ -506,6 +519,18 @@ export function TerminalViewport({
     };
 
     terminal.attachCustomKeyEventHandler((event) => {
+      const currentKeybindings = keybindingsRef.current;
+      const options = { context: { terminalFocus: true, terminalOpen: true } };
+      if (
+        isTerminalToggleShortcut(event, currentKeybindings, options) ||
+        isTerminalSplitShortcut(event, currentKeybindings, options) ||
+        isTerminalNewShortcut(event, currentKeybindings, options) ||
+        isTerminalCloseShortcut(event, currentKeybindings, options) ||
+        isDiffToggleShortcut(event, currentKeybindings, options)
+      ) {
+        return false;
+      }
+
       const navigationData = terminalNavigationShortcutData(event);
       if (navigationData !== null) {
         event.preventDefault();
@@ -994,6 +1019,7 @@ interface ThreadTerminalDrawerProps {
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   /** Explicit projectId for tmux — needed when thread not yet in server store (draft threads). */
   projectId?: string | null;
+  keybindings: ResolvedKeybindingsConfig;
 }
 
 interface TerminalActionButtonProps {
@@ -1060,6 +1086,7 @@ export default function ThreadTerminalDrawer({
   onHeightChange,
   onAddTerminalContext,
   projectId,
+  keybindings,
 }: ThreadTerminalDrawerProps) {
   const [drawerHeight, setDrawerHeight] = useState(() =>
     clampDrawerHeight(height),
@@ -1446,6 +1473,7 @@ export default function ThreadTerminalDrawer({
                         autoFocus={terminalId === resolvedActiveTerminalId}
                         resizeEpoch={resizeEpoch}
                         drawerHeight={drawerHeight}
+                        keybindings={keybindings}
                       />
                     </div>
                   </div>
@@ -1476,6 +1504,7 @@ export default function ThreadTerminalDrawer({
                   autoFocus
                   resizeEpoch={resizeEpoch}
                   drawerHeight={drawerHeight}
+                  keybindings={keybindings}
                 />
               </div>
             )}
