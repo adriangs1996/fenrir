@@ -158,8 +158,8 @@ User clicks Project B in sidebar (or Alt-2)
 | File | Change |
 |------|--------|
 | `apps/server/src/terminal/Layers/Manager.ts` | Add `attachTmux`/`detachTmux` methods |
-| `apps/server/src/serverLayers.ts` | Compose TmuxSessionManager into layer graph |
-| `apps/server/src/ws.ts` | Handle new WebSocket message types |
+| `apps/server/src/server.ts` | Compose TmuxSessionManager into layer graph |
+| `apps/server/src/ws.ts` | Handle new RPC handlers for tmux operations |
 | `packages/contracts/src/terminal.ts` | Add tmux contract schemas |
 | `apps/web/src/components/ThreadTerminalDrawer.tsx` | Workspace terminal uses tmux attach/detach |
 | `apps/web/src/terminalStateStore.ts` | Track active tmux session per project |
