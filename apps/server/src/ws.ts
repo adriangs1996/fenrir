@@ -13,8 +13,6 @@ import {
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
-  type EngagementId,
-  PentestRpcError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
@@ -63,7 +61,6 @@ import {
   type SessionCredentialChange,
 } from "./auth/Services/SessionCredentialService";
 import { respondToAuthError } from "./auth/http";
-import { PentestEngagementService } from "./pentest/Services/PentestEngagementService";
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -130,7 +127,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const serverAuth = yield* ServerAuth;
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
-      const pentestEngagementService = yield* PentestEngagementService;
       const serverCommandId = (tag: string) =>
         CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
 
@@ -911,72 +907,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               );
             }),
             { "rpc.aggregate": "auth" },
-          ),
-        [WS_METHODS.pentestEngagementsList]: (_input) =>
-          observeRpcEffect(
-            WS_METHODS.pentestEngagementsList,
-            pentestEngagementService.listEngagements().pipe(
-              Effect.map((engagements) => [...engagements]),
-              Effect.mapError(
-                (cause) =>
-                  new PentestRpcError({
-                    operation: "engagements.list",
-                    detail: cause.message,
-                    cause,
-                  }),
-              ),
-            ),
-            { "rpc.aggregate": "pentest" },
-          ),
-        [WS_METHODS.pentestEngagementsCreate]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.pentestEngagementsCreate,
-            pentestEngagementService.createEngagement(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new PentestRpcError({
-                    operation: "engagements.create",
-                    detail: cause.message,
-                    cause,
-                  }),
-              ),
-            ),
-            { "rpc.aggregate": "pentest" },
-          ),
-        [WS_METHODS.pentestEngagementsUpdate]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.pentestEngagementsUpdate,
-            pentestEngagementService
-              .updateEngagementStatus(input.id as EngagementId, input.status)
-              .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new PentestRpcError({
-                      operation: "engagements.update",
-                      detail: cause.message,
-                      cause,
-                    }),
-                ),
-              ),
-            { "rpc.aggregate": "pentest" },
-          ),
-        [WS_METHODS.pentestEngagementsArchive]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.pentestEngagementsArchive,
-            pentestEngagementService
-              .archiveEngagement(input.id as EngagementId)
-              .pipe(
-                Effect.map(() => ({ success: true as const })),
-                Effect.mapError(
-                  (cause) =>
-                    new PentestRpcError({
-                      operation: "engagements.archive",
-                      detail: cause.message,
-                      cause,
-                    }),
-                ),
-              ),
-            { "rpc.aggregate": "pentest" },
           ),
       });
     }),

@@ -100,7 +100,6 @@ import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
-import { PentestEngagementService } from "./pentest/Services/PentestEngagementService.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -472,15 +471,6 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provideMerge(authTestLayer),
       Layer.provide(workspaceAndProjectServicesLayer),
-      Layer.provide(
-        Layer.mock(PentestEngagementService)({
-          createEngagement: () => Effect.die(new Error("not implemented in tests")),
-          getEngagement: () => Effect.die(new Error("not implemented in tests")),
-          listEngagements: () => Effect.succeed([]),
-          updateEngagementStatus: () => Effect.die(new Error("not implemented in tests")),
-          archiveEngagement: () => Effect.die(new Error("not implemented in tests")),
-        }),
-      ),
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provide(layerConfig),
     );

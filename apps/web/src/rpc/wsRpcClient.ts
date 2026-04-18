@@ -108,14 +108,6 @@ export interface WsRpcClient {
     readonly replayEvents: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.replayEvents>;
     readonly onDomainEvent: RpcStreamMethod<typeof WS_METHODS.subscribeOrchestrationDomainEvents>;
   };
-  readonly pentest: {
-    readonly engagements: {
-      readonly list: RpcUnaryNoArgMethod<typeof WS_METHODS.pentestEngagementsList>;
-      readonly create: RpcUnaryMethod<typeof WS_METHODS.pentestEngagementsCreate>;
-      readonly update: RpcUnaryMethod<typeof WS_METHODS.pentestEngagementsUpdate>;
-      readonly archive: RpcUnaryMethod<typeof WS_METHODS.pentestEngagementsArchive>;
-    };
-  };
 }
 
 export function createWsRpcClient(transport: WsTransport): WsRpcClient {
@@ -245,17 +237,6 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
           listener,
           options,
         ),
-    },
-    pentest: {
-      engagements: {
-        list: () => transport.request((client) => client[WS_METHODS.pentestEngagementsList]({})),
-        create: (input) =>
-          transport.request((client) => client[WS_METHODS.pentestEngagementsCreate](input)),
-        update: (input) =>
-          transport.request((client) => client[WS_METHODS.pentestEngagementsUpdate](input)),
-        archive: (input) =>
-          transport.request((client) => client[WS_METHODS.pentestEngagementsArchive](input)),
-      },
     },
   };
 }
