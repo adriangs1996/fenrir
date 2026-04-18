@@ -63,6 +63,10 @@ import {
   TerminalRestartInput,
   TerminalSessionSnapshot,
   TerminalWriteInput,
+  TmuxAttachInput,
+  TmuxDetachInput,
+  TmuxError,
+  TmuxSessionSnapshot,
 } from "./terminal";
 import {
   ServerConfigStreamEvent,
@@ -72,7 +76,11 @@ import {
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server";
-import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
+import {
+  ServerSettings,
+  ServerSettingsError,
+  ServerSettingsPatch,
+} from "./settings";
 export const WS_METHODS = {
   // Project registry methods
   projectsList: "projects.list",
@@ -119,13 +127,20 @@ export const WS_METHODS = {
   subscribeServerConfig: "subscribeServerConfig",
   subscribeServerLifecycle: "subscribeServerLifecycle",
   subscribeAuthAccess: "subscribeAuthAccess",
+
+  // Tmux manager
+  terminalAttachTmux: "terminal.attachTmux",
+  terminalDetachTmux: "terminal.detachTmux",
 } as const;
 
-export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
-  payload: ServerUpsertKeybindingInput,
-  success: ServerUpsertKeybindingResult,
-  error: KeybindingsConfigError,
-});
+export const WsServerUpsertKeybindingRpc = Rpc.make(
+  WS_METHODS.serverUpsertKeybinding,
+  {
+    payload: ServerUpsertKeybindingInput,
+    success: ServerUpsertKeybindingResult,
+    error: KeybindingsConfigError,
+  },
+);
 
 export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   payload: Schema.Struct({}),
@@ -133,10 +148,13 @@ export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError]),
 });
 
-export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
-  payload: Schema.Struct({}),
-  success: ServerProviderUpdatedPayload,
-});
+export const WsServerRefreshProvidersRpc = Rpc.make(
+  WS_METHODS.serverRefreshProviders,
+  {
+    payload: Schema.Struct({}),
+    success: ServerProviderUpdatedPayload,
+  },
+);
 
 export const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   payload: Schema.Struct({}),
@@ -144,17 +162,23 @@ export const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   error: ServerSettingsError,
 });
 
-export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
-  payload: Schema.Struct({ patch: ServerSettingsPatch }),
-  success: ServerSettings,
-  error: ServerSettingsError,
-});
+export const WsServerUpdateSettingsRpc = Rpc.make(
+  WS_METHODS.serverUpdateSettings,
+  {
+    payload: Schema.Struct({ patch: ServerSettingsPatch }),
+    success: ServerSettings,
+    error: ServerSettingsError,
+  },
+);
 
-export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
-  payload: ProjectSearchEntriesInput,
-  success: ProjectSearchEntriesResult,
-  error: ProjectSearchEntriesError,
-});
+export const WsProjectsSearchEntriesRpc = Rpc.make(
+  WS_METHODS.projectsSearchEntries,
+  {
+    payload: ProjectSearchEntriesInput,
+    success: ProjectSearchEntriesResult,
+    error: ProjectSearchEntriesError,
+  },
+);
 
 export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   payload: ProjectWriteFileInput,
@@ -186,24 +210,33 @@ export const WsGitRefreshStatusRpc = Rpc.make(WS_METHODS.gitRefreshStatus, {
   error: GitManagerServiceError,
 });
 
-export const WsGitRunStackedActionRpc = Rpc.make(WS_METHODS.gitRunStackedAction, {
-  payload: GitRunStackedActionInput,
-  success: GitActionProgressEvent,
-  error: GitManagerServiceError,
-  stream: true,
-});
+export const WsGitRunStackedActionRpc = Rpc.make(
+  WS_METHODS.gitRunStackedAction,
+  {
+    payload: GitRunStackedActionInput,
+    success: GitActionProgressEvent,
+    error: GitManagerServiceError,
+    stream: true,
+  },
+);
 
-export const WsGitResolvePullRequestRpc = Rpc.make(WS_METHODS.gitResolvePullRequest, {
-  payload: GitPullRequestRefInput,
-  success: GitResolvePullRequestResult,
-  error: GitManagerServiceError,
-});
+export const WsGitResolvePullRequestRpc = Rpc.make(
+  WS_METHODS.gitResolvePullRequest,
+  {
+    payload: GitPullRequestRefInput,
+    success: GitResolvePullRequestResult,
+    error: GitManagerServiceError,
+  },
+);
 
-export const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePullRequestThread, {
-  payload: GitPreparePullRequestThreadInput,
-  success: GitPreparePullRequestThreadResult,
-  error: GitManagerServiceError,
-});
+export const WsGitPreparePullRequestThreadRpc = Rpc.make(
+  WS_METHODS.gitPreparePullRequestThread,
+  {
+    payload: GitPreparePullRequestThreadInput,
+    success: GitPreparePullRequestThreadResult,
+    error: GitManagerServiceError,
+  },
+);
 
 export const WsGitListBranchesRpc = Rpc.make(WS_METHODS.gitListBranches, {
   payload: GitListBranchesInput,
@@ -271,11 +304,14 @@ export const WsTerminalCloseRpc = Rpc.make(WS_METHODS.terminalClose, {
   error: TerminalError,
 });
 
-export const WsOrchestrationGetSnapshotRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getSnapshot, {
-  payload: OrchestrationGetSnapshotInput,
-  success: OrchestrationRpcSchemas.getSnapshot.output,
-  error: OrchestrationGetSnapshotError,
-});
+export const WsOrchestrationGetSnapshotRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getSnapshot,
+  {
+    payload: OrchestrationGetSnapshotInput,
+    success: OrchestrationRpcSchemas.getSnapshot.output,
+    error: OrchestrationGetSnapshotError,
+  },
+);
 
 export const WsOrchestrationDispatchCommandRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.dispatchCommand,
@@ -286,11 +322,14 @@ export const WsOrchestrationDispatchCommandRpc = Rpc.make(
   },
 );
 
-export const WsOrchestrationGetTurnDiffRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getTurnDiff, {
-  payload: OrchestrationGetTurnDiffInput,
-  success: OrchestrationRpcSchemas.getTurnDiff.output,
-  error: OrchestrationGetTurnDiffError,
-});
+export const WsOrchestrationGetTurnDiffRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getTurnDiff,
+  {
+    payload: OrchestrationGetTurnDiffInput,
+    success: OrchestrationRpcSchemas.getTurnDiff.output,
+    error: OrchestrationGetTurnDiffError,
+  },
+);
 
 export const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.getFullThreadDiff,
@@ -301,11 +340,14 @@ export const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(
   },
 );
 
-export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.replayEvents, {
-  payload: OrchestrationReplayEventsInput,
-  success: OrchestrationRpcSchemas.replayEvents.output,
-  error: OrchestrationReplayEventsError,
-});
+export const WsOrchestrationReplayEventsRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.replayEvents,
+  {
+    payload: OrchestrationReplayEventsInput,
+    success: OrchestrationRpcSchemas.replayEvents.output,
+    error: OrchestrationReplayEventsError,
+  },
+);
 
 export const WsSubscribeOrchestrationDomainEventsRpc = Rpc.make(
   WS_METHODS.subscribeOrchestrationDomainEvents,
@@ -316,29 +358,52 @@ export const WsSubscribeOrchestrationDomainEventsRpc = Rpc.make(
   },
 );
 
-export const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTerminalEvents, {
-  payload: Schema.Struct({}),
-  success: TerminalEvent,
-  stream: true,
+export const WsSubscribeTerminalEventsRpc = Rpc.make(
+  WS_METHODS.subscribeTerminalEvents,
+  {
+    payload: Schema.Struct({}),
+    success: TerminalEvent,
+    stream: true,
+  },
+);
+
+export const WsSubscribeServerConfigRpc = Rpc.make(
+  WS_METHODS.subscribeServerConfig,
+  {
+    payload: Schema.Struct({}),
+    success: ServerConfigStreamEvent,
+    error: Schema.Union([KeybindingsConfigError, ServerSettingsError]),
+    stream: true,
+  },
+);
+
+export const WsSubscribeServerLifecycleRpc = Rpc.make(
+  WS_METHODS.subscribeServerLifecycle,
+  {
+    payload: Schema.Struct({}),
+    success: ServerLifecycleStreamEvent,
+    stream: true,
+  },
+);
+
+export const WsSubscribeAuthAccessRpc = Rpc.make(
+  WS_METHODS.subscribeAuthAccess,
+  {
+    payload: Schema.Struct({}),
+    success: AuthAccessStreamEvent,
+    stream: true,
+  },
+);
+
+export const WsTerminalAttachTmuxRpc = Rpc.make(WS_METHODS.terminalAttachTmux, {
+  payload: TmuxAttachInput,
+  success: TmuxSessionSnapshot,
+  error: TmuxError,
 });
 
-export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerConfig, {
-  payload: Schema.Struct({}),
-  success: ServerConfigStreamEvent,
-  error: Schema.Union([KeybindingsConfigError, ServerSettingsError]),
-  stream: true,
-});
-
-export const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecycle, {
-  payload: Schema.Struct({}),
-  success: ServerLifecycleStreamEvent,
-  stream: true,
-});
-
-export const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess, {
-  payload: Schema.Struct({}),
-  success: AuthAccessStreamEvent,
-  stream: true,
+export const WsTerminalDetachTmuxRpc = Rpc.make(WS_METHODS.terminalDetachTmux, {
+  payload: TmuxDetachInput,
+  error: TmuxError,
 });
 
 export const WsRpcGroup = RpcGroup.make(
@@ -378,4 +443,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationReplayEventsRpc,
+  WsTerminalAttachTmuxRpc,
+  WsTerminalDetachTmuxRpc,
 );
