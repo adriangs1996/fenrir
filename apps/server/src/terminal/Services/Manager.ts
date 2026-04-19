@@ -81,17 +81,23 @@ export interface TerminalManagerShape {
   /**
    * Write input bytes to a terminal session.
    */
-  readonly write: (input: TerminalWriteInput) => Effect.Effect<void, TerminalError>;
+  readonly write: (
+    input: TerminalWriteInput,
+  ) => Effect.Effect<void, TerminalError>;
 
   /**
    * Resize the PTY backing a terminal session.
    */
-  readonly resize: (input: TerminalResizeInput) => Effect.Effect<void, TerminalError>;
+  readonly resize: (
+    input: TerminalResizeInput,
+  ) => Effect.Effect<void, TerminalError>;
 
   /**
    * Clear terminal output history.
    */
-  readonly clear: (input: TerminalClearInput) => Effect.Effect<void, TerminalError>;
+  readonly clear: (
+    input: TerminalClearInput,
+  ) => Effect.Effect<void, TerminalError>;
 
   /**
    * Restart a terminal session in place.
@@ -107,7 +113,9 @@ export interface TerminalManagerShape {
    *
    * When `terminalId` is omitted, closes all sessions for the thread.
    */
-  readonly close: (input: TerminalCloseInput) => Effect.Effect<void, TerminalError>;
+  readonly close: (
+    input: TerminalCloseInput,
+  ) => Effect.Effect<void, TerminalError>;
 
   /**
    * Subscribe to terminal runtime events with a direct callback.
@@ -117,11 +125,23 @@ export interface TerminalManagerShape {
   readonly subscribe: (
     listener: (event: TerminalEvent) => Effect.Effect<void>,
   ) => Effect.Effect<() => void>;
+
+  readonly publishTmuxOutput: (
+    projectId: string,
+    data: string,
+  ) => Effect.Effect<void>;
+
+  readonly publishTmuxExit: (
+    projectId: string,
+    exitCode: number,
+    signal: number | null,
+  ) => Effect.Effect<void>;
 }
 
 /**
  * TerminalManager - Service tag for terminal session orchestration.
  */
-export class TerminalManager extends ServiceMap.Service<TerminalManager, TerminalManagerShape>()(
-  "t3/terminal/Services/Manager/TerminalManager",
-) {}
+export class TerminalManager extends ServiceMap.Service<
+  TerminalManager,
+  TerminalManagerShape
+>()("t3/terminal/Services/Manager/TerminalManager") {}
