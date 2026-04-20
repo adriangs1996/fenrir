@@ -1,11 +1,14 @@
 import { memo, useCallback, useState } from "react";
 import {
+  CheckIcon,
+  ClipboardCopyIcon,
   Loader2Icon,
   ShieldAlertIcon,
   ShieldCheckIcon,
   ShieldIcon,
   ShieldOffIcon,
 } from "lucide-react";
+import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useVpnState } from "~/hooks/useVpnState";
 import { Button } from "./ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
@@ -17,6 +20,7 @@ export const VpnToolbarButton = memo(function VpnToolbarButton() {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState(false);
+  const { copyToClipboard, isCopied } = useCopyToClipboard({ timeout: 1500 });
 
   const handleConnect = useCallback(async () => {
     const profileId = selectedProfileId ?? profiles[0]?.id;
@@ -56,7 +60,7 @@ export const VpnToolbarButton = memo(function VpnToolbarButton() {
     : null;
 
   const tooltipText = isConnected
-    ? `VPN: ${state.assignedIp ?? "connected"} via ${activeProfile?.label ?? "unknown"}`
+    ? `VPN: ${state.assignedIp ?? "connected"} via ${activeProfile?.label ?? "unknown"} — click IP to copy`
     : isConnecting
       ? "VPN: Connecting..."
       : isDisconnecting
@@ -84,7 +88,15 @@ export const VpnToolbarButton = memo(function VpnToolbarButton() {
                 >
                   <StatusIcon status={state.status} isBusy={isBusy} />
                   {isConnected && state.assignedIp && (
-                    <span className="hidden sm:inline">{state.assignedIp}</span>
+                    <span
+                      className="hidden cursor-copy sm:inline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        copyToClipboard(state.assignedIp!, undefined as void);
+                      }}
+                    >
+                      {isCopied ? "Copied!" : state.assignedIp}
+                    </span>
                   )}
                 </button>
               }
@@ -149,10 +161,21 @@ export const VpnToolbarButton = memo(function VpnToolbarButton() {
           )}
 
           {isConnected && state.assignedIp && (
-            <div className="rounded-md bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-              Connected: {state.assignedIp}
-              {activeProfile ? ` via ${activeProfile.label}` : ""}
-            </div>
+            <button
+              type="button"
+              onClick={() => copyToClipboard(state.assignedIp!, undefined as void)}
+              className="flex w-full cursor-pointer items-center justify-between rounded-md bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-600 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
+            >
+              <span>
+                {state.assignedIp}
+                {activeProfile ? ` via ${activeProfile.label}` : ""}
+              </span>
+              {isCopied ? (
+                <CheckIcon className="size-3 shrink-0" />
+              ) : (
+                <ClipboardCopyIcon className="size-3 shrink-0 opacity-50" />
+              )}
+            </button>
           )}
 
           {/* Actions */}
