@@ -1,5 +1,6 @@
 import type {
   EnvironmentId,
+  GlobalScriptProjectDefaults,
   ModelSelection,
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
@@ -90,7 +91,11 @@ export interface Project {
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
   scripts: ProjectScript[];
+  globalScriptDefaults: GlobalScriptProjectDefaults[];  // empty array when not set
 }
+
+// Re-export for convenience
+export type { GlobalScriptProjectDefaults } from "@fenrir/contracts";
 
 export interface Thread {
   id: ThreadId;

@@ -99,6 +99,7 @@ function makeState(thread: Thread): AppState {
     createdAt: "2026-02-13T00:00:00.000Z",
     updatedAt: "2026-02-13T00:00:00.000Z",
     scripts: [],
+    globalScriptDefaults: [],
   };
   const threadIdsByProjectId: EnvironmentState["threadIdsByProjectId"] = {
     [thread.projectId]: [thread.id],
@@ -289,6 +290,7 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
         updatedAt: "2026-02-27T00:00:00.000Z",
         deletedAt: null,
         scripts: [],
+        globalScriptDefaults: [],
       },
     ],
     threads: [thread],
@@ -310,6 +312,7 @@ function makeReadModelProject(
     updatedAt: "2026-02-27T00:00:00.000Z",
     deletedAt: null,
     scripts: [],
+    globalScriptDefaults: [],
     ...overrides,
   };
 }
@@ -462,6 +465,7 @@ describe("store read model sync", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
           scripts: [],
+          globalScriptDefaults: [],
         },
         [project1]: {
           id: project1,
@@ -475,6 +479,7 @@ describe("store read model sync", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
           scripts: [],
+          globalScriptDefaults: [],
         },
       },
     });
@@ -569,6 +574,7 @@ describe("incremental orchestration updates", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
           scripts: [],
+          globalScriptDefaults: [],
         },
       },
     });
@@ -584,6 +590,7 @@ describe("incremental orchestration updates", () => {
           model: DEFAULT_MODEL_BY_PROVIDER.codex,
         },
         scripts: [],
+        globalScriptDefaults: [],
         createdAt: "2026-02-27T00:00:01.000Z",
         updatedAt: "2026-02-27T00:00:01.000Z",
       }),
@@ -624,6 +631,7 @@ describe("incremental orchestration updates", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
           scripts: [],
+          globalScriptDefaults: [],
         },
         [recreatedProjectId]: {
           id: recreatedProjectId,
@@ -637,6 +645,7 @@ describe("incremental orchestration updates", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
           scripts: [],
+          globalScriptDefaults: [],
         },
       },
     });

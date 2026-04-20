@@ -99,6 +99,7 @@ function createBaseServerConfig(): ServerConfig {
         claudeAgent: { enabled: true, binaryPath: "", customModels: [] },
       },
     },
+    globalActions: [],
   };
 }
 
@@ -115,6 +116,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
           model: "gpt-5",
         },
         scripts: [],
+        globalScriptDefaults: [],
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
         deletedAt: null,

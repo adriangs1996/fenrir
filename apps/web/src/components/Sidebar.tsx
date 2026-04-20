@@ -2470,6 +2470,7 @@ export default function Sidebar() {
         createdAt: representative.createdAt,
         updatedAt: representative.updatedAt,
         scripts: representative.scripts,
+        globalScriptDefaults: representative.globalScriptDefaults,
         projectKey: logicalKey,
         environmentPresence:
           hasLocal && hasRemote ? "mixed" : hasRemote ? "remote-only" : "local-only",

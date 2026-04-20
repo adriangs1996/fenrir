@@ -13,6 +13,7 @@
 **Testing approach:** TDD throughout. Every task starts with failing tests, then implementation to make them pass.
 
 **Testing patterns used in this codebase:**
+
 - `import { assert, it } from "@effect/vitest"` for Effect-based tests
 - `import { describe, expect, it } from "vitest"` for non-Effect tests
 - `it.effect("desc", () => Effect.gen(function* () { ... }))` auto-runs Effects
@@ -28,39 +29,42 @@
 ## File Structure
 
 ### New Files
-| File | Responsibility |
-|------|---------------|
-| `apps/server/src/terminal/Services/TmuxSessionManager.ts` | Service interface — Effect Tag, input/error schemas |
-| `apps/server/src/terminal/Layers/TmuxSessionManager.ts` | Implementation — spawns tmux commands via PtyAdapter |
-| `apps/server/src/terminal/__tests__/TmuxSessionManager.test.ts` | Unit tests for tmux session lifecycle |
-| `packages/contracts/src/terminal.tmux.test.ts` | Contract schema validation tests |
-| `apps/web/src/keybindings.test.ts` | Tests for project jump helpers (extend existing) |
-| `apps/web/src/terminalStateStore.tmux.test.ts` | Tmux state tracking tests |
+
+| File                                                            | Responsibility                                       |
+| --------------------------------------------------------------- | ---------------------------------------------------- |
+| `apps/server/src/terminal/Services/TmuxSessionManager.ts`       | Service interface — Effect Tag, input/error schemas  |
+| `apps/server/src/terminal/Layers/TmuxSessionManager.ts`         | Implementation — spawns tmux commands via PtyAdapter |
+| `apps/server/src/terminal/__tests__/TmuxSessionManager.test.ts` | Unit tests for tmux session lifecycle                |
+| `packages/contracts/src/terminal.tmux.test.ts`                  | Contract schema validation tests                     |
+| `apps/web/src/keybindings.test.ts`                              | Tests for project jump helpers (extend existing)     |
+| `apps/web/src/terminalStateStore.tmux.test.ts`                  | Tmux state tracking tests                            |
 
 ### Modified Files
-| File | Change |
-|------|--------|
-| `packages/contracts/src/terminal.ts` | Add `TmuxAttachInput`, `TmuxDetachInput` schemas |
-| `packages/contracts/src/rpc.ts` | Add `WS_METHODS.terminalAttachTmux` / `terminalDetachTmux`, RPC definitions, register in `WsRpcGroup` |
-| `packages/contracts/src/keybindings.ts` | Add `PROJECT_JUMP_KEYBINDING_COMMANDS` array, add to `KeybindingCommand` union |
-| `apps/server/src/keybindings.ts` | Add default `alt+1` through `alt+9` bindings for `project.jump.N` |
-| `apps/server/src/terminal/Layers/Manager.ts` | Add `publishTmuxOutput` / `publishTmuxExit` methods using existing `publishEvent` pipeline |
-| `apps/server/src/terminal/Services/Manager.ts` | Extend `TerminalManagerShape` with `publishTmuxOutput` / `publishTmuxExit` |
-| `apps/server/src/server.ts` | Import and compose `TmuxSessionManagerLive` into layer graph |
-| `apps/server/src/ws.ts` | Register new RPC handlers for tmux attach/detach |
-| `apps/web/src/rpc/wsRpcClient.ts` | Add `tmux.attach` / `tmux.detach` to client interface |
-| `apps/web/src/environmentApi.ts` | Expose tmux methods on `EnvironmentApi` |
-| `apps/web/src/components/ThreadTerminalDrawer.tsx` | Tmux-aware terminal mode — attach on mount, detach on project switch |
-| `apps/web/src/terminalStateStore.ts` | Track active tmux session per project |
-| `apps/web/src/keybindings.ts` | Add `projectJumpCommandForIndex` / `projectJumpIndexFromCommand` helpers |
-| `apps/web/src/routes/_chat.tsx` | Handle `project.jump.N` commands in global keydown |
-| `apps/web/src/components/Sidebar.tsx` | Show project jump labels (Alt+N), wire project switching to tmux |
+
+| File                                               | Change                                                                                                |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `packages/contracts/src/terminal.ts`               | Add `TmuxAttachInput`, `TmuxDetachInput` schemas                                                      |
+| `packages/contracts/src/rpc.ts`                    | Add `WS_METHODS.terminalAttachTmux` / `terminalDetachTmux`, RPC definitions, register in `WsRpcGroup` |
+| `packages/contracts/src/keybindings.ts`            | Add `PROJECT_JUMP_KEYBINDING_COMMANDS` array, add to `KeybindingCommand` union                        |
+| `apps/server/src/keybindings.ts`                   | Add default `alt+1` through `alt+9` bindings for `project.jump.N`                                     |
+| `apps/server/src/terminal/Layers/Manager.ts`       | Add `publishTmuxOutput` / `publishTmuxExit` methods using existing `publishEvent` pipeline            |
+| `apps/server/src/terminal/Services/Manager.ts`     | Extend `TerminalManagerShape` with `publishTmuxOutput` / `publishTmuxExit`                            |
+| `apps/server/src/server.ts`                        | Import and compose `TmuxSessionManagerLive` into layer graph                                          |
+| `apps/server/src/ws.ts`                            | Register new RPC handlers for tmux attach/detach                                                      |
+| `apps/web/src/rpc/wsRpcClient.ts`                  | Add `tmux.attach` / `tmux.detach` to client interface                                                 |
+| `apps/web/src/environmentApi.ts`                   | Expose tmux methods on `EnvironmentApi`                                                               |
+| `apps/web/src/components/ThreadTerminalDrawer.tsx` | Tmux-aware terminal mode — attach on mount, detach on project switch                                  |
+| `apps/web/src/terminalStateStore.ts`               | Track active tmux session per project                                                                 |
+| `apps/web/src/keybindings.ts`                      | Add `projectJumpCommandForIndex` / `projectJumpIndexFromCommand` helpers                              |
+| `apps/web/src/routes/_chat.tsx`                    | Handle `project.jump.N` commands in global keydown                                                    |
+| `apps/web/src/components/Sidebar.tsx`              | Show project jump labels (Alt+N), wire project switching to tmux                                      |
 
 ---
 
 ## Task 1: Tmux Contract Schemas (TDD)
 
 **Files:**
+
 - Create: `packages/contracts/src/terminal.tmux.test.ts`
 - Modify: `packages/contracts/src/terminal.ts`
 
@@ -268,6 +272,7 @@ git commit -m "feat(contracts): add tmux attach/detach schemas and TmuxError wit
 ## Task 2: RPC Method Definitions
 
 **Files:**
+
 - Modify: `packages/contracts/src/rpc.ts`
 
 - [ ] **Step 1: Add WS_METHODS entries**
@@ -308,8 +313,8 @@ Add `WsTerminalAttachTmuxRpc` and `WsTerminalDetachTmuxRpc` to the `RpcGroup.mak
 export const WsRpcGroup = RpcGroup.make(
   // ... existing entries ...
   WsTerminalCloseRpc,
-  WsTerminalAttachTmuxRpc,     // ← NEW
-  WsTerminalDetachTmuxRpc,     // ← NEW
+  WsTerminalAttachTmuxRpc, // ← NEW
+  WsTerminalDetachTmuxRpc, // ← NEW
   // ... rest ...
 );
 ```
@@ -331,6 +336,7 @@ git commit -m "feat(contracts): add terminal.attachTmux and terminal.detachTmux 
 ## Task 3: TmuxSessionManager Service Interface
 
 **Files:**
+
 - Create: `apps/server/src/terminal/Services/TmuxSessionManager.ts`
 
 - [ ] **Step 1: Create the service interface**
@@ -344,7 +350,9 @@ import type { PtyProcess } from "./PTY";
 export class TmuxNotFoundError extends Error {
   readonly _tag = "TmuxNotFoundError";
   constructor() {
-    super("tmux binary not found on $PATH. Install tmux or ensure it is in your PATH.");
+    super(
+      "tmux binary not found on $PATH. Install tmux or ensure it is in your PATH.",
+    );
   }
 }
 
@@ -379,9 +387,7 @@ export interface TmuxSessionManagerShape {
     projectId: string,
   ) => Effect.Effect<void, TmuxSessionError>;
 
-  readonly hasSession: (
-    projectId: string,
-  ) => Effect.Effect<boolean>;
+  readonly hasSession: (projectId: string) => Effect.Effect<boolean>;
 
   readonly isTmuxAvailable: Effect.Effect<boolean>;
 
@@ -411,6 +417,7 @@ git commit -m "feat(server): add TmuxSessionManager service interface"
 ## Task 4: TmuxSessionManager Implementation (TDD)
 
 **Files:**
+
 - Create: `apps/server/src/terminal/__tests__/TmuxSessionManager.test.ts`
 - Create: `apps/server/src/terminal/Layers/TmuxSessionManager.ts`
 
@@ -424,7 +431,12 @@ import { assert, it } from "@effect/vitest";
 import { describe, expect } from "vitest";
 import { Effect, Layer, Ref } from "effect";
 import { TmuxSessionManager } from "../Services/TmuxSessionManager";
-import type { PtyAdapterShape, PtyProcess, PtyExitEvent, PtySpawnInput } from "../Services/PTY";
+import type {
+  PtyAdapterShape,
+  PtyProcess,
+  PtyExitEvent,
+  PtySpawnInput,
+} from "../Services/PTY";
 import { PtyAdapter } from "../Services/PTY";
 
 class FakeTmuxPtyProcess implements PtyProcess {
@@ -559,7 +571,10 @@ export const TmuxSessionManagerLive = Layer.effect(
         })
         .pipe(
           Effect.mapError((err) => {
-            if (err.message.includes("ENOENT") || err.message.includes("not found")) {
+            if (
+              err.message.includes("ENOENT") ||
+              err.message.includes("not found")
+            ) {
               return new TmuxNotFoundError();
             }
             return new TmuxSessionError(sessionName, err.message, err.cause);
@@ -572,13 +587,23 @@ export const TmuxSessionManagerLive = Layer.effect(
       createSession: (projectId, cwd) =>
         Effect.gen(function* () {
           const name = sanitizeSessionName(projectId);
-          const proc = yield* execTmux(["new-session", "-d", "-s", name, "-c", cwd], name);
+          const proc = yield* execTmux(
+            ["new-session", "-d", "-s", name, "-c", cwd],
+            name,
+          );
           yield* Effect.async<void, TmuxSessionError>((resume) => {
             proc.onExit((event) => {
               if (event.exitCode === 0) {
                 resume(Effect.void);
               } else {
-                resume(Effect.fail(new TmuxSessionError(name, `tmux new-session exited with code ${event.exitCode}`)));
+                resume(
+                  Effect.fail(
+                    new TmuxSessionError(
+                      name,
+                      `tmux new-session exited with code ${event.exitCode}`,
+                    ),
+                  ),
+                );
               }
             });
           });
@@ -590,17 +615,37 @@ export const TmuxSessionManagerLive = Layer.effect(
           const exists = yield* Effect.gen(function* () {
             const proc = yield* execTmux(["has-session", "-t", name], name);
             return yield* Effect.async<boolean>((resume) => {
-              proc.onExit((event) => resume(Effect.succeed(event.exitCode === 0)));
+              proc.onExit((event) =>
+                resume(Effect.succeed(event.exitCode === 0)),
+              );
             });
           }).pipe(Effect.orElseSucceed(() => false));
 
           if (!exists) {
-            return yield* Effect.fail(new TmuxSessionError(name, `Session ${name} does not exist`));
+            return yield* Effect.fail(
+              new TmuxSessionError(name, `Session ${name} does not exist`),
+            );
           }
 
           const attachProc = yield* ptyAdapter
-            .spawn({ shell: "tmux", args: ["attach-session", "-t", name], cwd: "/tmp", cols, rows, env: process.env as NodeJS.ProcessEnv })
-            .pipe(Effect.mapError((err) => new TmuxSessionError(name, `Failed to attach: ${err.message}`, err.cause)));
+            .spawn({
+              shell: "tmux",
+              args: ["attach-session", "-t", name],
+              cwd: "/tmp",
+              cols,
+              rows,
+              env: process.env as NodeJS.ProcessEnv,
+            })
+            .pipe(
+              Effect.mapError(
+                (err) =>
+                  new TmuxSessionError(
+                    name,
+                    `Failed to attach: ${err.message}`,
+                    err.cause,
+                  ),
+              ),
+            );
 
           attachedProcesses.set(projectId, attachProc);
           return attachProc;
@@ -627,7 +672,15 @@ export const TmuxSessionManagerLive = Layer.effect(
           yield* Effect.async<void, TmuxSessionError>((resume) => {
             killProc.onExit((event) => {
               if (event.exitCode === 0) resume(Effect.void);
-              else resume(Effect.fail(new TmuxSessionError(name, `tmux kill-session exited with code ${event.exitCode}`)));
+              else
+                resume(
+                  Effect.fail(
+                    new TmuxSessionError(
+                      name,
+                      `tmux kill-session exited with code ${event.exitCode}`,
+                    ),
+                  ),
+                );
             });
           });
         }),
@@ -635,16 +688,27 @@ export const TmuxSessionManagerLive = Layer.effect(
       hasSession: (projectId) =>
         Effect.gen(function* () {
           const name = sanitizeSessionName(projectId);
-          const proc = yield* execTmux(["has-session", "-t", name], name).pipe(Effect.orElseSucceed(() => null));
+          const proc = yield* execTmux(["has-session", "-t", name], name).pipe(
+            Effect.orElseSucceed(() => null),
+          );
           if (!proc) return false;
           return yield* Effect.async<boolean>((resume) => {
-            proc.onExit((event) => resume(Effect.succeed(event.exitCode === 0)));
+            proc.onExit((event) =>
+              resume(Effect.succeed(event.exitCode === 0)),
+            );
           });
         }),
 
       isTmuxAvailable: Effect.gen(function* () {
         const proc = yield* ptyAdapter
-          .spawn({ shell: "tmux", args: ["-V"], cwd: "/tmp", cols: 80, rows: 24, env: process.env as NodeJS.ProcessEnv })
+          .spawn({
+            shell: "tmux",
+            args: ["-V"],
+            cwd: "/tmp",
+            cols: 80,
+            rows: 24,
+            env: process.env as NodeJS.ProcessEnv,
+          })
           .pipe(Effect.orElseSucceed(() => null));
         if (!proc) return false;
         return yield* Effect.async<boolean>((resume) => {
@@ -666,100 +730,107 @@ Expected: PASS for sessionName tests.
 Add to the test file:
 
 ```typescript
-  it.effect("createSession spawns tmux new-session with correct args", () =>
-    Effect.gen(function* () {
-      const ptyAdapter = new FakeTmuxPtyAdapter();
-      const { TestLayer } = makeFakeLayer(ptyAdapter);
-      const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
+it.effect("createSession spawns tmux new-session with correct args", () =>
+  Effect.gen(function* () {
+    const ptyAdapter = new FakeTmuxPtyAdapter();
+    const { TestLayer } = makeFakeLayer(ptyAdapter);
+    const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
 
-      yield* manager.createSession("proj-1", "/home/user/project");
+    yield* manager.createSession("proj-1", "/home/user/project");
 
-      expect(ptyAdapter.spawnCalls).toHaveLength(1);
-      const call = ptyAdapter.spawnCalls[0]!;
-      expect(call.shell).toBe("tmux");
-      expect(call.args).toEqual(["new-session", "-d", "-s", "fenrir-proj-1", "-c", "/home/user/project"]);
-    }),
-  );
+    expect(ptyAdapter.spawnCalls).toHaveLength(1);
+    const call = ptyAdapter.spawnCalls[0]!;
+    expect(call.shell).toBe("tmux");
+    expect(call.args).toEqual([
+      "new-session",
+      "-d",
+      "-s",
+      "fenrir-proj-1",
+      "-c",
+      "/home/user/project",
+    ]);
+  }),
+);
 
-  it.effect("createSession fails when tmux exits non-zero", () =>
-    Effect.gen(function* () {
-      const ptyAdapter = new FakeTmuxPtyAdapter();
-      ptyAdapter.exitCodeBySubcommand.set("new-session", 1);
-      const { TestLayer } = makeFakeLayer(ptyAdapter);
-      const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
+it.effect("createSession fails when tmux exits non-zero", () =>
+  Effect.gen(function* () {
+    const ptyAdapter = new FakeTmuxPtyAdapter();
+    ptyAdapter.exitCodeBySubcommand.set("new-session", 1);
+    const { TestLayer } = makeFakeLayer(ptyAdapter);
+    const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
 
-      const result = yield* Effect.exit(manager.createSession("proj-1", "/tmp"));
-      assert.strictEqual(result._tag, "Failure");
-    }),
-  );
+    const result = yield* Effect.exit(manager.createSession("proj-1", "/tmp"));
+    assert.strictEqual(result._tag, "Failure");
+  }),
+);
 
-  it.effect("hasSession returns true when tmux has-session exits 0", () =>
-    Effect.gen(function* () {
-      const ptyAdapter = new FakeTmuxPtyAdapter();
-      const { TestLayer } = makeFakeLayer(ptyAdapter);
-      const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
+it.effect("hasSession returns true when tmux has-session exits 0", () =>
+  Effect.gen(function* () {
+    const ptyAdapter = new FakeTmuxPtyAdapter();
+    const { TestLayer } = makeFakeLayer(ptyAdapter);
+    const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
 
-      const exists = yield* manager.hasSession("proj-1");
-      assert.isTrue(exists);
+    const exists = yield* manager.hasSession("proj-1");
+    assert.isTrue(exists);
 
-      const call = ptyAdapter.spawnCalls[0]!;
-      expect(call.args).toEqual(["has-session", "-t", "fenrir-proj-1"]);
-    }),
-  );
+    const call = ptyAdapter.spawnCalls[0]!;
+    expect(call.args).toEqual(["has-session", "-t", "fenrir-proj-1"]);
+  }),
+);
 
-  it.effect("hasSession returns false when tmux has-session exits non-zero", () =>
-    Effect.gen(function* () {
-      const ptyAdapter = new FakeTmuxPtyAdapter();
-      ptyAdapter.exitCodeBySubcommand.set("has-session", 1);
-      const { TestLayer } = makeFakeLayer(ptyAdapter);
-      const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
+it.effect("hasSession returns false when tmux has-session exits non-zero", () =>
+  Effect.gen(function* () {
+    const ptyAdapter = new FakeTmuxPtyAdapter();
+    ptyAdapter.exitCodeBySubcommand.set("has-session", 1);
+    const { TestLayer } = makeFakeLayer(ptyAdapter);
+    const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
 
-      const exists = yield* manager.hasSession("proj-1");
-      assert.isFalse(exists);
-    }),
-  );
+    const exists = yield* manager.hasSession("proj-1");
+    assert.isFalse(exists);
+  }),
+);
 
-  it.effect("isTmuxAvailable returns true when tmux -V exits 0", () =>
-    Effect.gen(function* () {
-      const ptyAdapter = new FakeTmuxPtyAdapter();
-      const { TestLayer } = makeFakeLayer(ptyAdapter);
-      const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
+it.effect("isTmuxAvailable returns true when tmux -V exits 0", () =>
+  Effect.gen(function* () {
+    const ptyAdapter = new FakeTmuxPtyAdapter();
+    const { TestLayer } = makeFakeLayer(ptyAdapter);
+    const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
 
-      const available = yield* manager.isTmuxAvailable;
-      assert.isTrue(available);
-    }),
-  );
+    const available = yield* manager.isTmuxAvailable;
+    assert.isTrue(available);
+  }),
+);
 
-  it.effect("detachSession kills the attached process", () =>
-    Effect.gen(function* () {
-      const ptyAdapter = new FakeTmuxPtyAdapter();
-      const { TestLayer } = makeFakeLayer(ptyAdapter);
-      const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
+it.effect("detachSession kills the attached process", () =>
+  Effect.gen(function* () {
+    const ptyAdapter = new FakeTmuxPtyAdapter();
+    const { TestLayer } = makeFakeLayer(ptyAdapter);
+    const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
 
-      // Create then attach
-      yield* manager.createSession("proj-1", "/tmp");
-      yield* manager.attachSession("proj-1", 80, 24);
+    // Create then attach
+    yield* manager.createSession("proj-1", "/tmp");
+    yield* manager.attachSession("proj-1", 80, 24);
 
-      // Detach should not throw
-      yield* manager.detachSession("proj-1");
-    }),
-  );
+    // Detach should not throw
+    yield* manager.detachSession("proj-1");
+  }),
+);
 
-  it.effect("killSession spawns tmux kill-session", () =>
-    Effect.gen(function* () {
-      const ptyAdapter = new FakeTmuxPtyAdapter();
-      const { TestLayer } = makeFakeLayer(ptyAdapter);
-      const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
+it.effect("killSession spawns tmux kill-session", () =>
+  Effect.gen(function* () {
+    const ptyAdapter = new FakeTmuxPtyAdapter();
+    const { TestLayer } = makeFakeLayer(ptyAdapter);
+    const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
 
-      yield* manager.killSession("proj-1");
+    yield* manager.killSession("proj-1");
 
-      const killCall = ptyAdapter.spawnCalls.find(
-        (c) => c.args?.includes("kill-session"),
-      );
-      expect(killCall).toBeDefined();
-      expect(killCall!.args).toEqual(["kill-session", "-t", "fenrir-proj-1"]);
-    }),
-  );
+    const killCall = ptyAdapter.spawnCalls.find((c) =>
+      c.args?.includes("kill-session"),
+    );
+    expect(killCall).toBeDefined();
+    expect(killCall!.args).toEqual(["kill-session", "-t", "fenrir-proj-1"]);
+  }),
+);
 ```
 
 - [ ] **Step 7: Run all tests to verify they pass**
@@ -779,6 +850,7 @@ git commit -m "feat(server): implement TmuxSessionManager layer with comprehensi
 ## Task 5: Wire TmuxSessionManager into Server Layer Graph
 
 **Files:**
+
 - Modify: `apps/server/src/server.ts`
 
 - [ ] **Step 1: Import TmuxSessionManagerLive**
@@ -797,9 +869,7 @@ Find where `TerminalManagerLive` is composed. Add `TmuxSessionManagerLive` along
 const TerminalLayerLive = Layer.mergeAll(
   TerminalManagerLive,
   TmuxSessionManagerLive,
-).pipe(
-  Layer.provide(PtyAdapterLive),
-);
+).pipe(Layer.provide(PtyAdapterLive));
 ```
 
 If the composition pattern differs, follow it — key point is `TmuxSessionManagerLive` needs `PtyAdapter` in scope.
@@ -821,6 +891,7 @@ git commit -m "feat(server): compose TmuxSessionManager into server layer graph"
 ## Task 6: Tmux Event Publishing on TerminalManager (TDD)
 
 **Files:**
+
 - Modify: `apps/server/src/terminal/Services/Manager.ts`
 - Modify: `apps/server/src/terminal/Layers/Manager.ts`
 - Existing test: `apps/server/src/terminal/Layers/Manager.test.ts` (extend)
@@ -921,6 +992,7 @@ git commit -m "feat(server): add publishTmuxOutput/publishTmuxExit to TerminalMa
 ## Task 7: RPC Handlers for Tmux Attach/Detach
 
 **Files:**
+
 - Modify: `apps/server/src/ws.ts`
 
 - [ ] **Step 1: Import TmuxSessionManager and TmuxError**
@@ -935,7 +1007,7 @@ import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager";
 Inside the `Effect.gen` block of `makeWsRpcLayer`, add:
 
 ```typescript
-const tmuxSessionManager = yield* TmuxSessionManager;
+const tmuxSessionManager = yield * TmuxSessionManager;
 ```
 
 - [ ] **Step 3: Add RPC handlers with PTY event wiring**
@@ -1009,6 +1081,7 @@ git commit -m "feat(server): add RPC handlers for tmux attach/detach with PTY ev
 ## Task 8: Client RPC Wiring
 
 **Files:**
+
 - Modify: `apps/web/src/rpc/wsRpcClient.ts`
 - Modify: `apps/web/src/environmentApi.ts`
 
@@ -1042,7 +1115,7 @@ detachTmux: (input) => rpcClient.terminal.detachTmux(input as never),
 Run: `bun run typecheck`
 Expected: Pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/rpc/wsRpcClient.ts apps/web/src/environmentApi.ts
@@ -1054,6 +1127,7 @@ git commit -m "feat(web): wire tmux attach/detach RPC methods to client"
 ## Task 9: Terminal State Store — Tmux Tracking (TDD)
 
 **Files:**
+
 - Create: `apps/web/src/terminalStateStore.tmux.test.ts`
 - Modify: `apps/web/src/terminalStateStore.ts`
 
@@ -1078,7 +1152,9 @@ describe("terminalStateStore tmux tracking", () => {
 
   it("setActiveTmuxProject updates the projectId", () => {
     useTerminalStateStore.getState().setActiveTmuxProject("proj-abc");
-    expect(useTerminalStateStore.getState().activeTmuxProjectId).toBe("proj-abc");
+    expect(useTerminalStateStore.getState().activeTmuxProjectId).toBe(
+      "proj-abc",
+    );
   });
 
   it("setActiveTmuxProject(null) clears the projectId", () => {
@@ -1134,6 +1210,7 @@ git commit -m "feat(web): add tmux project tracking to terminal state store with
 ## Task 10: Project Jump Keybinding Commands (TDD)
 
 **Files:**
+
 - Modify: `packages/contracts/src/keybindings.ts`
 - Modify: `apps/server/src/keybindings.ts`
 - Modify: `apps/web/src/keybindings.ts`
@@ -1191,11 +1268,18 @@ In `packages/contracts/src/keybindings.ts`:
 
 ```typescript
 export const PROJECT_JUMP_KEYBINDING_COMMANDS = [
-  "project.jump.1", "project.jump.2", "project.jump.3",
-  "project.jump.4", "project.jump.5", "project.jump.6",
-  "project.jump.7", "project.jump.8", "project.jump.9",
+  "project.jump.1",
+  "project.jump.2",
+  "project.jump.3",
+  "project.jump.4",
+  "project.jump.5",
+  "project.jump.6",
+  "project.jump.7",
+  "project.jump.8",
+  "project.jump.9",
 ] as const;
-export type ProjectJumpKeybindingCommand = (typeof PROJECT_JUMP_KEYBINDING_COMMANDS)[number];
+export type ProjectJumpKeybindingCommand =
+  (typeof PROJECT_JUMP_KEYBINDING_COMMANDS)[number];
 ```
 
 Add `...PROJECT_JUMP_KEYBINDING_COMMANDS` to `STATIC_KEYBINDING_COMMANDS`.
@@ -1216,14 +1300,21 @@ In `apps/server/src/keybindings.ts`, add to `DEFAULT_KEYBINDINGS`:
 In `apps/web/src/keybindings.ts`:
 
 ```typescript
-import { PROJECT_JUMP_KEYBINDING_COMMANDS, type ProjectJumpKeybindingCommand } from "@fenrir/contracts";
+import {
+  PROJECT_JUMP_KEYBINDING_COMMANDS,
+  type ProjectJumpKeybindingCommand,
+} from "@fenrir/contracts";
 
-export function projectJumpCommandForIndex(index: number): ProjectJumpKeybindingCommand | null {
+export function projectJumpCommandForIndex(
+  index: number,
+): ProjectJumpKeybindingCommand | null {
   return PROJECT_JUMP_KEYBINDING_COMMANDS[index] ?? null;
 }
 
 export function projectJumpIndexFromCommand(command: string): number | null {
-  const index = PROJECT_JUMP_KEYBINDING_COMMANDS.indexOf(command as ProjectJumpKeybindingCommand);
+  const index = PROJECT_JUMP_KEYBINDING_COMMANDS.indexOf(
+    command as ProjectJumpKeybindingCommand,
+  );
   return index >= 0 ? index : null;
 }
 ```
@@ -1250,6 +1341,7 @@ git commit -m "feat(keybindings): add project.jump.1-9 commands with Alt+N defau
 ## Task 11: ThreadTerminalDrawer — Tmux Mode
 
 **Files:**
+
 - Modify: `apps/web/src/components/ThreadTerminalDrawer.tsx`
 
 This is the most involved UI change. No unit tests here — integration/manual testing.
@@ -1257,7 +1349,7 @@ This is the most involved UI change. No unit tests here — integration/manual t
 - [ ] **Step 1: Add mode prop to TerminalViewport**
 
 ```typescript
-mode: "tmux" | "pty"
+mode: "tmux" | "pty";
 ```
 
 Parent passes `"tmux"` for workspace terminal, `"pty"` for agent terminals.
@@ -1321,9 +1413,12 @@ if (mode === "tmux") {
 return () => {
   disposed = true;
   if (mode === "tmux") {
-    const currentTmuxProject = useTerminalStateStore.getState().activeTmuxProjectId;
+    const currentTmuxProject =
+      useTerminalStateStore.getState().activeTmuxProjectId;
     if (currentTmuxProject) {
-      void api.terminal.detachTmux({ projectId: currentTmuxProject }).catch(() => {});
+      void api.terminal
+        .detachTmux({ projectId: currentTmuxProject })
+        .catch(() => {});
       useTerminalStateStore.getState().setActiveTmuxProject(null);
     }
   }
@@ -1370,10 +1465,11 @@ git commit -m "feat(web): add tmux mode to ThreadTerminalDrawer with attach/deta
 ## Task 12: Wire Project Jump in Global Shortcuts
 
 **Files:**
+
 - Modify: `apps/web/src/routes/_chat.tsx`
 - Modify: `apps/web/src/components/Sidebar.tsx`
 
-- [ ] **Step 1: Handle project.jump commands in _chat.tsx**
+- [ ] **Step 1: Handle project.jump commands in \_chat.tsx**
 
 In the `onWindowKeyDown` handler, after existing `resolveShortcutCommand`:
 
@@ -1423,6 +1519,7 @@ git commit -m "feat(web): wire Alt+1-9 project jump shortcuts with sidebar label
 ## Task 13: App Control Keybindings
 
 **Files:**
+
 - Modify: `packages/contracts/src/keybindings.ts`
 - Modify: `apps/server/src/keybindings.ts`
 - Modify: `apps/web/src/routes/_chat.tsx`
@@ -1447,19 +1544,19 @@ Add to `STATIC_KEYBINDING_COMMANDS`:
 { key: "ctrl+shift+p", command: "project.switcher" },
 ```
 
-- [ ] **Step 3: Handle in _chat.tsx**
+- [ ] **Step 3: Handle in \_chat.tsx**
 
 Add `data-terminal-focus` attribute to the terminal viewport component and `data-chat-composer` to the chat input. Then handle:
 
 ```typescript
 if (command === "terminal.focus") {
   event.preventDefault();
-  document.querySelector<HTMLElement>('[data-terminal-focus]')?.focus();
+  document.querySelector<HTMLElement>("[data-terminal-focus]")?.focus();
   return;
 }
 if (command === "chat.focus") {
   event.preventDefault();
-  document.querySelector<HTMLElement>('[data-chat-composer]')?.focus();
+  document.querySelector<HTMLElement>("[data-chat-composer]")?.focus();
   return;
 }
 if (command === "chat.togglePanel") {
@@ -1503,6 +1600,7 @@ Expected: Zero errors.
 
 Run: `bun run test`
 Expected: All tests pass — existing + new tests:
+
 - `packages/contracts/src/terminal.tmux.test.ts` (8 tests)
 - `apps/server/src/terminal/__tests__/TmuxSessionManager.test.ts` (9 tests)
 - `apps/server/src/terminal/Layers/Manager.test.ts` (existing + 2 new publishTmux tests)
@@ -1516,23 +1614,23 @@ Expected: Zero warnings/errors.
 
 - [ ] **Step 4: Manual end-to-end verification checklist**
 
-| # | Check | Expected |
-|---|-------|----------|
-| 1 | `bun run dev` starts | No errors |
-| 2 | Open a project | tmux session created (`tmux list-sessions` shows `fenrir-{projectId}`) |
-| 3 | Type commands in terminal | Execute normally |
-| 4 | Open neovim in terminal | Renders correctly |
-| 5 | Split tmux panes `Ctrl-b %` | Splits work |
-| 6 | Click second project in sidebar | Terminal shows new tmux session |
-| 7 | Click back to first project | Neovim + layout intact |
-| 8 | Press `Alt+1` | Jumps to first project |
-| 9 | Press `Alt+2` | Jumps to second project |
-| 10 | Drag-reorder projects | `Alt+N` follows new order |
-| 11 | `Ctrl+Shift+T` | Focuses terminal |
-| 12 | `Ctrl+Shift+C` | Focuses chat |
-| 13 | Kill Fenrir, restart | tmux sessions survive, reattach works |
-| 14 | Start agent task | Agent uses isolated PTY, not tmux |
-| 15 | Uninstall tmux, open project | Falls back to regular shell PTY |
+| #   | Check                           | Expected                                                               |
+| --- | ------------------------------- | ---------------------------------------------------------------------- |
+| 1   | `bun run dev` starts            | No errors                                                              |
+| 2   | Open a project                  | tmux session created (`tmux list-sessions` shows `fenrir-{projectId}`) |
+| 3   | Type commands in terminal       | Execute normally                                                       |
+| 4   | Open neovim in terminal         | Renders correctly                                                      |
+| 5   | Split tmux panes `Ctrl-b %`     | Splits work                                                            |
+| 6   | Click second project in sidebar | Terminal shows new tmux session                                        |
+| 7   | Click back to first project     | Neovim + layout intact                                                 |
+| 8   | Press `Alt+1`                   | Jumps to first project                                                 |
+| 9   | Press `Alt+2`                   | Jumps to second project                                                |
+| 10  | Drag-reorder projects           | `Alt+N` follows new order                                              |
+| 11  | `Ctrl+Shift+T`                  | Focuses terminal                                                       |
+| 12  | `Ctrl+Shift+C`                  | Focuses chat                                                           |
+| 13  | Kill Fenrir, restart            | tmux sessions survive, reattach works                                  |
+| 14  | Start agent task                | Agent uses isolated PTY, not tmux                                      |
+| 15  | Uninstall tmux, open project    | Falls back to regular shell PTY                                        |
 
 - [ ] **Step 5: Final commit**
 

@@ -197,6 +197,7 @@ function createBaseServerConfig(): ServerConfig {
       otlpMetricsEnabled: false,
     },
     settings: DEFAULT_SERVER_SETTINGS,
+    globalActions: [],
   };
 }
 

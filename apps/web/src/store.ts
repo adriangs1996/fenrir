@@ -202,6 +202,7 @@ function mapProject(
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     scripts: mapProjectScripts(project.scripts),
+    globalScriptDefaults: [...(project.globalScriptDefaults ?? [])],
   };
 }
 
@@ -1075,6 +1076,7 @@ function applyEnvironmentOrchestrationEvent(
           repositoryIdentity: event.payload.repositoryIdentity ?? null,
           defaultModelSelection: event.payload.defaultModelSelection,
           scripts: event.payload.scripts,
+          globalScriptDefaults: [...(event.payload.globalScriptDefaults ?? [])],
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
           deletedAt: null,
@@ -1138,6 +1140,9 @@ function applyEnvironmentOrchestrationEvent(
           : {}),
         ...(event.payload.scripts !== undefined
           ? { scripts: mapProjectScripts(event.payload.scripts) }
+          : {}),
+        ...(event.payload.globalScriptDefaults !== undefined
+          ? { globalScriptDefaults: [...event.payload.globalScriptDefaults] }
           : {}),
         updatedAt: event.payload.updatedAt,
       };

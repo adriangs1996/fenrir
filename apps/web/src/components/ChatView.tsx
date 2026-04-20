@@ -3433,7 +3433,7 @@ export default function ChatView(props: ChatViewProps) {
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
-          globalScripts={serverConfig?.globalActions ?? []}
+          globalScripts={[...(serverConfig?.globalActions ?? [])]}
           globalScriptDefaults={activeProject?.globalScriptDefaults ?? []}
           onRunProjectScript={runProjectScript}
           onRunGlobalScript={runGlobalScript}

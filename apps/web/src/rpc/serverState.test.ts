@@ -85,6 +85,7 @@ const baseServerConfig: ServerConfig = {
     otlpMetricsEnabled: false,
   },
   settings: DEFAULT_SERVER_SETTINGS,
+  globalActions: [],
 };
 
 const serverApi = {

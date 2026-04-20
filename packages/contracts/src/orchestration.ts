@@ -152,7 +152,7 @@ export type GlobalScript = typeof GlobalScript.Type;
 
 export const GlobalScriptProjectDefaults = Schema.Struct({
   scriptId: TrimmedNonEmptyString,
-  defaults: Schema.Record({ key: Schema.String, value: Schema.String }),
+  defaults: Schema.Record(Schema.String, Schema.String),
 });
 export type GlobalScriptProjectDefaults = typeof GlobalScriptProjectDefaults.Type;
 

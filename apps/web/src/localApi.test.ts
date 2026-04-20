@@ -271,6 +271,7 @@ const baseServerConfig: ServerConfig = {
     otlpMetricsEnabled: false,
   },
   settings: DEFAULT_SERVER_SETTINGS,
+  globalActions: [],
 };
 
 const baseGitStatus: GitStatusResult = {
@@ -357,6 +358,7 @@ describe("wsApi", () => {
           model: "gpt-5-codex",
         },
         scripts: [],
+        globalScriptDefaults: [],
         createdAt: "2026-02-24T00:00:00.000Z",
         updatedAt: "2026-02-24T00:00:00.000Z",
       },
