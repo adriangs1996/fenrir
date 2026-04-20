@@ -46,6 +46,7 @@ import {
 } from "../codexAccount";
 import { probeCodexAccount } from "../codexAppServer";
 import { CodexProvider } from "../Services/CodexProvider";
+import { expandHomePath } from "../../pathExpansion.ts";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@fenrir/contracts";
 
@@ -323,7 +324,7 @@ const runCodexCommand = Effect.fn("runCodexCommand")(function* (args: ReadonlyAr
     shell: process.platform === "win32",
     env: {
       ...process.env,
-      ...(codexSettings.homePath ? { CODEX_HOME: codexSettings.homePath } : {}),
+      ...(codexSettings.homePath ? { CODEX_HOME: expandHomePath(codexSettings.homePath) } : {}),
     },
   });
   return yield* spawnAndCollect(codexSettings.binaryPath, command);
