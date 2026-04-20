@@ -70,6 +70,8 @@ export interface WsRpcClient {
     >;
     readonly attachTmux: RpcUnaryMethod<typeof WS_METHODS.terminalAttachTmux>;
     readonly detachTmux: RpcUnaryMethod<typeof WS_METHODS.terminalDetachTmux>;
+    readonly writeTmux: RpcUnaryMethod<typeof WS_METHODS.terminalWriteTmux>;
+    readonly resizeTmux: RpcUnaryMethod<typeof WS_METHODS.terminalResizeTmux>;
   };
   readonly projects: {
     readonly searchEntries: RpcUnaryMethod<
@@ -195,6 +197,16 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       detachTmux: (input) =>
         transport.request((client) =>
           client[WS_METHODS.terminalDetachTmux](input),
+        ),
+
+      writeTmux: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.terminalWriteTmux](input),
+        ),
+
+      resizeTmux: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.terminalResizeTmux](input),
         ),
     },
     projects: {

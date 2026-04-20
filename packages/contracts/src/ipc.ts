@@ -40,6 +40,8 @@ import type {
   TerminalWriteInput,
   TmuxAttachInput,
   TmuxDetachInput,
+  TmuxWriteInput,
+  TmuxResizeInput,
 } from "./terminal";
 
 import type { TmuxSessionSnapshot } from "./terminal";
@@ -257,8 +259,9 @@ export interface EnvironmentApi {
     attachTmux: (
       input: typeof TmuxAttachInput.Encoded,
     ) => Promise<TmuxSessionSnapshot>;
-
     detachTmux: (input: typeof TmuxDetachInput.Encoded) => Promise<void>;
+    writeTmux: (input: typeof TmuxWriteInput.Encoded) => Promise<void>;
+    resizeTmux: (input: typeof TmuxResizeInput.Encoded) => Promise<void>;
   };
   projects: {
     searchEntries: (

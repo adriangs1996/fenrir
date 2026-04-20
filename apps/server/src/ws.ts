@@ -130,6 +130,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
       const tmuxSessionManager = yield* TmuxSessionManager;
+      const activeTmuxProcesses = new Map<string, { pid: number }>();
 
       const serverCommandId = (tag: string) =>
         CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
@@ -524,7 +525,12 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         [WS_METHODS.terminalDetachTmux]: (input) =>
           observeRpcEffect(
             WS_METHODS.terminalDetachTmux,
-            tmuxSessionManager.detachSession(input.projectId).pipe(
+            Effect.gen(function* () {
+              // Clear active process ref BEFORE detach so the stale guard
+              // suppresses the exit event from the killed process.
+              activeTmuxProcesses.delete(input.projectId);
+              yield* tmuxSessionManager.detachSession(input.projectId);
+            }).pipe(
               Effect.mapError(
                 (err) =>
                   new TmuxError({
@@ -532,6 +538,36 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   }),
               ),
             ),
+            { "rpc.aggregate": "terminal" },
+          ),
+
+        [WS_METHODS.terminalWriteTmux]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.terminalWriteTmux,
+            tmuxSessionManager.writeToSession(input.projectId, input.data).pipe(
+              Effect.mapError(
+                (err) =>
+                  new TmuxError({
+                    message: err.message ?? "Tmux write failed",
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "terminal" },
+          ),
+
+        [WS_METHODS.terminalResizeTmux]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.terminalResizeTmux,
+            tmuxSessionManager
+              .resizeSession(input.projectId, input.cols, input.rows)
+              .pipe(
+                Effect.mapError(
+                  (err) =>
+                    new TmuxError({
+                      message: err.message ?? "Tmux resize failed",
+                    }),
+                ),
+              ),
             { "rpc.aggregate": "terminal" },
           ),
 
@@ -555,14 +591,21 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 input.rows,
               );
 
+              // Track active process so stale handlers become no-ops
+              const processRef = { pid: ptyProcess.pid };
+              activeTmuxProcesses.set(input.projectId, processRef);
+
               // Wire the PTY output to the Terminal Manager event bus
               ptyProcess.onData((data) => {
+                if (activeTmuxProcesses.get(input.projectId) !== processRef) return;
                 Effect.runFork(
                   terminalManager.publishTmuxOutput(input.projectId, data),
                 );
               });
 
               ptyProcess.onExit((event) => {
+                if (activeTmuxProcesses.get(input.projectId) !== processRef) return;
+                activeTmuxProcesses.delete(input.projectId);
                 Effect.runFork(
                   terminalManager.publishTmuxExit(
                     input.projectId,

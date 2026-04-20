@@ -282,16 +282,19 @@ function createEnvironmentConnectionHandlers() {
     },
     applyTerminalEvent: (event: TerminalEvent, environmentId: EnvironmentId) => {
       const threadRef = scopeThreadRef(environmentId, ThreadId.makeUnsafe(event.threadId));
-      const serverThread = selectThreadByRef(useStore.getState(), threadRef);
-      const hasDraftThread =
-        useComposerDraftStore.getState().getDraftThreadByRef(threadRef) !== null;
-      if (
-        !shouldApplyTerminalEvent({
-          serverThreadArchivedAt: serverThread?.archivedAt,
-          hasDraftThread,
-        })
-      ) {
-        return;
+      const isTmuxEvent = event.threadId.startsWith("tmux:");
+      if (!isTmuxEvent) {
+        const serverThread = selectThreadByRef(useStore.getState(), threadRef);
+        const hasDraftThread =
+          useComposerDraftStore.getState().getDraftThreadByRef(threadRef) !== null;
+        if (
+          !shouldApplyTerminalEvent({
+            serverThreadArchivedAt: serverThread?.archivedAt,
+            hasDraftThread,
+          })
+        ) {
+          return;
+        }
       }
       useTerminalStateStore.getState().applyTerminalEvent(threadRef, event);
     },

@@ -66,7 +66,9 @@ import {
   TmuxAttachInput,
   TmuxDetachInput,
   TmuxError,
+  TmuxResizeInput,
   TmuxSessionSnapshot,
+  TmuxWriteInput,
 } from "./terminal";
 import {
   ServerConfigStreamEvent,
@@ -131,6 +133,8 @@ export const WS_METHODS = {
   // Tmux manager
   terminalAttachTmux: "terminal.attachTmux",
   terminalDetachTmux: "terminal.detachTmux",
+  terminalWriteTmux: "terminal.writeTmux",
+  terminalResizeTmux: "terminal.resizeTmux",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(
@@ -406,6 +410,19 @@ export const WsTerminalDetachTmuxRpc = Rpc.make(WS_METHODS.terminalDetachTmux, {
   error: TmuxError,
 });
 
+export const WsTerminalWriteTmuxRpc = Rpc.make(WS_METHODS.terminalWriteTmux, {
+  payload: TmuxWriteInput,
+  error: TmuxError,
+});
+
+export const WsTerminalResizeTmuxRpc = Rpc.make(
+  WS_METHODS.terminalResizeTmux,
+  {
+    payload: TmuxResizeInput,
+    error: TmuxError,
+  },
+);
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -445,4 +462,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationReplayEventsRpc,
   WsTerminalAttachTmuxRpc,
   WsTerminalDetachTmuxRpc,
+  WsTerminalWriteTmuxRpc,
+  WsTerminalResizeTmuxRpc,
 );

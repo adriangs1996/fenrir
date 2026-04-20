@@ -166,6 +166,7 @@ async function mountTerminalViewport(props: {
 
   const screen = await render(
     <TerminalViewport
+      mode="pty"
       threadRef={props.threadRef}
       threadId={THREAD_ID}
       terminalId="default"
@@ -185,6 +186,7 @@ async function mountTerminalViewport(props: {
     rerender: async (nextProps: { threadRef: ReturnType<typeof scopeThreadRef> }) => {
       await screen.rerender(
         <TerminalViewport
+          mode="pty"
           threadRef={nextProps.threadRef}
           threadId={THREAD_ID}
           terminalId="default"

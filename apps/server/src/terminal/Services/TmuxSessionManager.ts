@@ -47,6 +47,17 @@ export interface TmuxSessionManagerShape {
 
   readonly isTmuxAvailable: Effect.Effect<boolean>;
 
+  readonly writeToSession: (
+    projectId: string,
+    data: string,
+  ) => Effect.Effect<void, TmuxSessionError>;
+
+  readonly resizeSession: (
+    projectId: string,
+    cols: number,
+    rows: number,
+  ) => Effect.Effect<void, TmuxSessionError>;
+
   readonly sessionName: (projectId: string) => string;
 }
 

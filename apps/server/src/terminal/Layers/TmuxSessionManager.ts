@@ -138,6 +138,22 @@ export const TmuxSessionManagerLive = Layer.effect(
           }
         }),
 
+      writeToSession: (projectId: string, data: string) =>
+        Effect.sync(() => {
+          const proc = attachedProcesses.get(projectId);
+          if (proc) {
+            proc.write(data);
+          }
+        }),
+
+      resizeSession: (projectId: string, cols: number, rows: number) =>
+        Effect.sync(() => {
+          const proc = attachedProcesses.get(projectId);
+          if (proc) {
+            proc.resize(cols, rows);
+          }
+        }),
+
       attachSession: (projectId, cols, rows) =>
         Effect.gen(function* () {
           const name = sanitizeSessionName(projectId);
@@ -156,9 +172,16 @@ export const TmuxSessionManagerLive = Layer.effect(
             );
           }
 
+          // Kill previous attached client to avoid duplicate output forwarding
+          const previousProc = attachedProcesses.get(projectId);
+          if (previousProc) {
+            previousProc.kill();
+            attachedProcesses.delete(projectId);
+          }
+
           const attachProc = yield* ptyAdapter.spawn({
             shell: "tmux",
-            args: ["attach-sesion", "-t", name],
+            args: ["attach-session", "-t", name],
             cwd: "/tmp",
             cols,
             rows,

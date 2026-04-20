@@ -266,6 +266,21 @@ export const TmuxSessionSnapshot = Schema.Struct({
 });
 export type TmuxSessionSnapshot = typeof TmuxSessionSnapshot.Type;
 
+export const TmuxWriteInput = Schema.Struct({
+  projectId: Schema.NonEmptyString,
+  data: Schema.String.check(Schema.isNonEmpty()).check(
+    Schema.isMaxLength(65_536),
+  ),
+});
+export type TmuxWriteInput = typeof TmuxWriteInput.Type;
+
+export const TmuxResizeInput = Schema.Struct({
+  projectId: Schema.NonEmptyString,
+  cols: TerminalColsSchema,
+  rows: TerminalRowsSchema,
+});
+export type TmuxResizeInput = typeof TmuxResizeInput.Type;
+
 export class TmuxError extends Schema.TaggedErrorClass<TmuxError>()(
   "TmuxError",
   {

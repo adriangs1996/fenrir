@@ -78,6 +78,7 @@ import { ServerLifecycleEvents, type ServerLifecycleEventsShape } from "./server
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService, type ServerSettingsShape } from "./serverSettings.ts";
 import { TerminalManager, type TerminalManagerShape } from "./terminal/Services/Manager.ts";
+import { TmuxSessionManager, type TmuxSessionManagerShape } from "./terminal/Services/TmuxSessionManager.ts";
 import {
   BrowserTraceCollector,
   type BrowserTraceCollectorShape,
@@ -395,6 +396,19 @@ const buildAppUnderTest = (options?: {
       Layer.provide(
         Layer.mock(TerminalManager)({
           ...options?.layers?.terminalManager,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(TmuxSessionManager)({
+          createSession: () => Effect.void,
+          attachSession: () => Effect.die(new Error("not available in test")),
+          detachSession: () => Effect.void,
+          killSession: () => Effect.void,
+          hasSession: () => Effect.succeed(false),
+          isTmuxAvailable: Effect.succeed(false),
+          writeToSession: () => Effect.void,
+          resizeSession: () => Effect.void,
+          sessionName: (projectId: string) => `fenrir-${projectId}`,
         }),
       ),
       Layer.provide(

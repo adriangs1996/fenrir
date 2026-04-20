@@ -15,6 +15,8 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       onEvent: (callback) => rpcClient.terminal.onEvent(callback),
       attachTmux: (input) => rpcClient.terminal.attachTmux(input),
       detachTmux: (input) => rpcClient.terminal.detachTmux(input),
+      writeTmux: (input) => rpcClient.terminal.writeTmux(input),
+      resizeTmux: (input) => rpcClient.terminal.resizeTmux(input),
     },
     projects: {
       searchEntries: rpcClient.projects.searchEntries,
