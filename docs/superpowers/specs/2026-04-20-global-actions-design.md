@@ -80,7 +80,7 @@ ALTER TABLE projection_projects
 
 Serialized as JSON array of `GlobalScriptProjectDefaults` using `Schema.fromJsonString(Schema.Array(GlobalScriptProjectDefaults))` — same pattern as `scripts_json`.
 
-Read/written through the existing `project.meta.update` command flow by adding an optional `globalScriptDefaults` field to `ProjectMetaUpdateCommand`.
+Read/written through the existing `project.meta.update` command flow by adding an optional `globalScriptDefaults` field to `ProjectMetaUpdateCommand`. The `OrchestrationProject` read model, `ProjectCreatedPayload`, and `ProjectMetaUpdatedPayload` types must also be extended with `globalScriptDefaults` so clients can read defaults from the orchestration snapshot.
 
 ## Service Layer
 
@@ -116,6 +116,10 @@ Project defaults use existing `project.meta.update` command with a new optional 
 ### ServerConfig extension
 
 Add `globalActions: GlobalScript[]` to `ServerConfig` so the client receives global actions on initial config load, same as keybindings.
+
+### Config streaming
+
+Add a new `ServerConfigStreamGlobalActionsUpdatedEvent` to the `ServerConfigStreamEvent` union in `packages/contracts/src/server.ts`. This pushes global action changes to already-connected clients in real time (same pattern as keybindings and settings stream events). Without this, clients only see global actions on initial load and require page refresh to pick up changes.
 
 ## UI
 
@@ -189,7 +193,7 @@ Shown when running a global action that has `{{placeholders}}` and no saved defa
 When project defaults exist for all placeholders:
 
 - Action executes immediately with saved defaults (no dialog)
-- Hold ⌥ (Option key) when clicking → shows input dialog with defaults pre-filled for override
+- Hold ⌥ (Option key on macOS, Alt on Windows/Linux) when clicking → shows input dialog with defaults pre-filled for override
 - Resolved command shown as preview in the dialog
 
 ### Editing project defaults
@@ -222,13 +226,16 @@ Project action keybindings are checked first, global action keybindings second. 
 
 Keybinding commands follow the pattern `global-script.{scriptId}.run` (distinct from project `script.{scriptId}.run`).
 
+The `KeybindingCommand` union in `packages/contracts/src/keybindings.ts` must be extended with a new `GLOBAL_SCRIPT_RUN_COMMAND_PATTERN` template literal alongside the existing `SCRIPT_RUN_COMMAND_PATTERN`. Without this, keybinding schema validation rejects `global-script.*` commands.
+
 ## Files to Create or Modify
 
 | File | Change |
 |------|--------|
 | `packages/contracts/src/orchestration.ts` | Add `GlobalScript`, `GlobalScriptProjectDefaults` types |
 | `packages/contracts/src/ipc.ts` | Add global action IPC methods |
-| `packages/contracts/src/server.ts` | Add `globalActions` to `ServerConfig` |
+| `packages/contracts/src/keybindings.ts` | Add `GLOBAL_SCRIPT_RUN_COMMAND_PATTERN` to `KeybindingCommand` union |
+| `packages/contracts/src/server.ts` | Add `globalActions` to `ServerConfig`, add `ServerConfigStreamGlobalActionsUpdatedEvent` |
 | `apps/server/src/config.ts` | Add `globalActionsPath` to `ServerDerivedPaths` |
 | `apps/server/src/globalActions.ts` | New service (CRUD, file watch, streaming) |
 | `apps/server/src/persistence/Migrations/` | New migration: add `global_script_defaults_json` column |
