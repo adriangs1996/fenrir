@@ -185,6 +185,7 @@ export function projectEvent(
             workspaceRoot: payload.workspaceRoot,
             defaultModelSelection: payload.defaultModelSelection,
             scripts: payload.scripts,
+            globalScriptDefaults: payload.globalScriptDefaults ?? [],
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
             deletedAt: null,
@@ -217,6 +218,9 @@ export function projectEvent(
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
+                  ...(payload.globalScriptDefaults !== undefined
+                    ? { globalScriptDefaults: payload.globalScriptDefaults }
+                    : {}),
                   updatedAt: payload.updatedAt,
                 }
               : project,
