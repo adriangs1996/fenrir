@@ -48,12 +48,14 @@ import type { TmuxSessionSnapshot } from "./terminal";
 import type { ServerUpsertKeybindingInput } from "./server";
 import type {
   ClientOrchestrationCommand,
+  GlobalScript,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
   OrchestrationGetTurnDiffResult,
   OrchestrationEvent,
   OrchestrationReadModel,
+  ProjectScriptIcon,
 } from "./orchestration";
 import type { EnvironmentId } from "./baseSchemas";
 import { EditorId } from "./editor";
@@ -203,6 +205,18 @@ export interface DesktopBridge {
  * world the local shell and a selected backend environment are distinct
  * concepts.
  */
+export interface CreateGlobalActionInput {
+  name: string;
+  command: string;
+  icon: ProjectScriptIcon;
+}
+
+export interface UpdateGlobalActionInput {
+  name: string;
+  command: string;
+  icon: ProjectScriptIcon;
+}
+
 export interface LocalApi {
   dialogs: {
     pickFolder: () => Promise<string | null>;
@@ -246,6 +260,10 @@ export interface LocalApi {
     ) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
+    getGlobalActions: () => Promise<GlobalScript[]>;
+    createGlobalAction: (input: CreateGlobalActionInput) => Promise<GlobalScript>;
+    updateGlobalAction: (id: string, input: UpdateGlobalActionInput) => Promise<GlobalScript>;
+    deleteGlobalAction: (id: string) => Promise<void>;
   };
 }
 
