@@ -11,7 +11,7 @@ import {
 import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
 import { ModelCapabilities } from "./model";
-import { ProviderKind } from "./orchestration";
+import { GlobalScript, ProviderKind } from "./orchestration";
 import { ServerSettings } from "./settings";
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
@@ -95,6 +95,7 @@ export const ServerConfig = Schema.Struct({
   availableEditors: Schema.Array(EditorId),
   observability: ServerObservability,
   settings: ServerSettings,
+  globalActions: Schema.Array(GlobalScript),
 });
 export type ServerConfig = typeof ServerConfig.Type;
 
@@ -161,11 +162,24 @@ export const ServerConfigStreamSettingsUpdatedEvent = Schema.Struct({
 export type ServerConfigStreamSettingsUpdatedEvent =
   typeof ServerConfigStreamSettingsUpdatedEvent.Type;
 
+export const ServerConfigGlobalActionsUpdatedPayload = Schema.Struct({
+  globalActions: Schema.Array(GlobalScript),
+});
+export type ServerConfigGlobalActionsUpdatedPayload =
+  typeof ServerConfigGlobalActionsUpdatedPayload.Type;
+
+const ServerConfigStreamGlobalActionsUpdatedEvent = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("globalActionsUpdated"),
+  payload: ServerConfigGlobalActionsUpdatedPayload,
+});
+
 export const ServerConfigStreamEvent = Schema.Union([
   ServerConfigStreamSnapshotEvent,
   ServerConfigStreamKeybindingsUpdatedEvent,
   ServerConfigStreamProviderStatusesEvent,
   ServerConfigStreamSettingsUpdatedEvent,
+  ServerConfigStreamGlobalActionsUpdatedEvent,
 ]);
 export type ServerConfigStreamEvent = typeof ServerConfigStreamEvent.Type;
 
