@@ -1,4 +1,4 @@
-# Catppuccin Mocha Theme for T3 Code
+# Catppuccin Mocha Theme for Fenrir
 
 ## Goal
 

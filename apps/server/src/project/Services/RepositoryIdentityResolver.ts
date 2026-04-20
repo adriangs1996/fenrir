@@ -1,4 +1,4 @@
-import type { RepositoryIdentity } from "@t3tools/contracts";
+import type { RepositoryIdentity } from "@fenrir/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 

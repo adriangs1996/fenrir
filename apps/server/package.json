@@ -1,14 +1,14 @@
 {
-  "name": "t3",
+  "name": "fenrir",
   "version": "0.0.15",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pingdotgg/t3code",
+    "url": "https://github.com/adriangs1996/fenrir",
     "directory": "apps/server"
   },
   "bin": {
-    "t3": "./dist/bin.mjs"
+    "fenrir": "./dist/bin.mjs"
   },
   "files": [
     "dist"
@@ -35,9 +35,9 @@
   "devDependencies": {
     "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
-    "@t3tools/contracts": "workspace:*",
-    "@t3tools/shared": "workspace:*",
-    "@t3tools/web": "workspace:*",
+    "@fenrir/contracts": "workspace:*",
+    "@fenrir/shared": "workspace:*",
+    "@fenrir/web": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "tsdown": "catalog:",

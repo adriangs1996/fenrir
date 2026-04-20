@@ -38,7 +38,11 @@ import type {
   TerminalRestartInput,
   TerminalSessionSnapshot,
   TerminalWriteInput,
+  TmuxAttachInput,
+  TmuxDetachInput,
 } from "./terminal";
+
+import type { TmuxSessionSnapshot } from "./terminal";
 import type { ServerUpsertKeybindingInput } from "./server";
 import type {
   ClientOrchestrationCommand,
@@ -51,7 +55,11 @@ import type {
 } from "./orchestration";
 import type { EnvironmentId } from "./baseSchemas";
 import { EditorId } from "./editor";
-import { ClientSettings, ServerSettings, ServerSettingsPatch } from "./settings";
+import {
+  ClientSettings,
+  ServerSettings,
+  ServerSettingsPatch,
+} from "./settings";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -134,15 +142,24 @@ export interface DesktopBridge {
   getLocalEnvironmentBootstrap: () => DesktopEnvironmentBootstrap | null;
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
-  getSavedEnvironmentRegistry: () => Promise<readonly PersistedSavedEnvironmentRecord[]>;
+  getSavedEnvironmentRegistry: () => Promise<
+    readonly PersistedSavedEnvironmentRecord[]
+  >;
   setSavedEnvironmentRegistry: (
     records: readonly PersistedSavedEnvironmentRecord[],
   ) => Promise<void>;
-  getSavedEnvironmentSecret: (environmentId: EnvironmentId) => Promise<string | null>;
-  setSavedEnvironmentSecret: (environmentId: EnvironmentId, secret: string) => Promise<boolean>;
+  getSavedEnvironmentSecret: (
+    environmentId: EnvironmentId,
+  ) => Promise<string | null>;
+  setSavedEnvironmentSecret: (
+    environmentId: EnvironmentId,
+    secret: string,
+  ) => Promise<boolean>;
   removeSavedEnvironmentSecret: (environmentId: EnvironmentId) => Promise<void>;
   getServerExposureState: () => Promise<DesktopServerExposureState>;
-  setServerExposureMode: (mode: DesktopServerExposureMode) => Promise<DesktopServerExposureState>;
+  setServerExposureMode: (
+    mode: DesktopServerExposureMode,
+  ) => Promise<DesktopServerExposureState>;
   pickFolder: () => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
@@ -187,18 +204,29 @@ export interface LocalApi {
   persistence: {
     getClientSettings: () => Promise<ClientSettings | null>;
     setClientSettings: (settings: ClientSettings) => Promise<void>;
-    getSavedEnvironmentRegistry: () => Promise<readonly PersistedSavedEnvironmentRecord[]>;
+    getSavedEnvironmentRegistry: () => Promise<
+      readonly PersistedSavedEnvironmentRecord[]
+    >;
     setSavedEnvironmentRegistry: (
       records: readonly PersistedSavedEnvironmentRecord[],
     ) => Promise<void>;
-    getSavedEnvironmentSecret: (environmentId: EnvironmentId) => Promise<string | null>;
-    setSavedEnvironmentSecret: (environmentId: EnvironmentId, secret: string) => Promise<boolean>;
-    removeSavedEnvironmentSecret: (environmentId: EnvironmentId) => Promise<void>;
+    getSavedEnvironmentSecret: (
+      environmentId: EnvironmentId,
+    ) => Promise<string | null>;
+    setSavedEnvironmentSecret: (
+      environmentId: EnvironmentId,
+      secret: string,
+    ) => Promise<boolean>;
+    removeSavedEnvironmentSecret: (
+      environmentId: EnvironmentId,
+    ) => Promise<void>;
   };
   server: {
     getConfig: () => Promise<ServerConfig>;
     refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
-    upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
+    upsertKeybinding: (
+      input: ServerUpsertKeybindingInput,
+    ) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
   };
@@ -215,26 +243,47 @@ export interface LocalApi {
  */
 export interface EnvironmentApi {
   terminal: {
-    open: (input: typeof TerminalOpenInput.Encoded) => Promise<TerminalSessionSnapshot>;
+    open: (
+      input: typeof TerminalOpenInput.Encoded,
+    ) => Promise<TerminalSessionSnapshot>;
     write: (input: typeof TerminalWriteInput.Encoded) => Promise<void>;
     resize: (input: typeof TerminalResizeInput.Encoded) => Promise<void>;
     clear: (input: typeof TerminalClearInput.Encoded) => Promise<void>;
-    restart: (input: typeof TerminalRestartInput.Encoded) => Promise<TerminalSessionSnapshot>;
+    restart: (
+      input: typeof TerminalRestartInput.Encoded,
+    ) => Promise<TerminalSessionSnapshot>;
     close: (input: typeof TerminalCloseInput.Encoded) => Promise<void>;
     onEvent: (callback: (event: TerminalEvent) => void) => () => void;
+    attachTmux: (
+      input: typeof TmuxAttachInput.Encoded,
+    ) => Promise<TmuxSessionSnapshot>;
+
+    detachTmux: (input: typeof TmuxDetachInput.Encoded) => Promise<void>;
   };
   projects: {
-    searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
-    writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+    searchEntries: (
+      input: ProjectSearchEntriesInput,
+    ) => Promise<ProjectSearchEntriesResult>;
+    writeFile: (
+      input: ProjectWriteFileInput,
+    ) => Promise<ProjectWriteFileResult>;
   };
   git: {
-    listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
-    createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
+    listBranches: (
+      input: GitListBranchesInput,
+    ) => Promise<GitListBranchesResult>;
+    createWorktree: (
+      input: GitCreateWorktreeInput,
+    ) => Promise<GitCreateWorktreeResult>;
     removeWorktree: (input: GitRemoveWorktreeInput) => Promise<void>;
-    createBranch: (input: GitCreateBranchInput) => Promise<GitCreateBranchResult>;
+    createBranch: (
+      input: GitCreateBranchInput,
+    ) => Promise<GitCreateBranchResult>;
     checkout: (input: GitCheckoutInput) => Promise<GitCheckoutResult>;
     init: (input: GitInitInput) => Promise<void>;
-    resolvePullRequest: (input: GitPullRequestRefInput) => Promise<GitResolvePullRequestResult>;
+    resolvePullRequest: (
+      input: GitPullRequestRefInput,
+    ) => Promise<GitResolvePullRequestResult>;
     preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Promise<GitPreparePullRequestThreadResult>;
@@ -250,12 +299,18 @@ export interface EnvironmentApi {
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;
-    dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
-    getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
+    dispatchCommand: (
+      command: ClientOrchestrationCommand,
+    ) => Promise<{ sequence: number }>;
+    getTurnDiff: (
+      input: OrchestrationGetTurnDiffInput,
+    ) => Promise<OrchestrationGetTurnDiffResult>;
     getFullThreadDiff: (
       input: OrchestrationGetFullThreadDiffInput,
     ) => Promise<OrchestrationGetFullThreadDiffResult>;
-    replayEvents: (fromSequenceExclusive: number) => Promise<OrchestrationEvent[]>;
+    replayEvents: (
+      fromSequenceExclusive: number,
+    ) => Promise<OrchestrationEvent[]>;
     onDomainEvent: (
       callback: (event: OrchestrationEvent) => void,
       options?: {

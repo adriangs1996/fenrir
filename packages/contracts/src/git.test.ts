@@ -49,7 +49,7 @@ describe("GitResolvePullRequestResult", () => {
       pullRequest: {
         number: 42,
         title: "PR threads",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+        url: "https://github.com/fenrir-org/codething-mvp/pull/42",
         baseBranch: "main",
         headBranch: "feature/pr-threads",
         state: "open",

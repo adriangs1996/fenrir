@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { NetService } from "@t3tools/shared/Net";
+import { NetService } from "@fenrir/shared/Net";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -50,7 +50,7 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
 
   it.effect("executes auth pairing subcommands and redacts secrets from list output", () =>
     Effect.gen(function* () {
-      const baseDir = mkdtempSync(join(tmpdir(), "t3-cli-auth-pairing-test-"));
+      const baseDir = mkdtempSync(join(tmpdir(), "fenrir-cli-auth-pairing-test-"));
 
       const createdOutput = yield* captureStdout(
         runCli(["auth", "pairing", "create", "--base-dir", baseDir, "--json"]),
@@ -78,7 +78,7 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
 
   it.effect("executes auth session subcommands and redacts secrets from list output", () =>
     Effect.gen(function* () {
-      const baseDir = mkdtempSync(join(tmpdir(), "t3-cli-auth-session-test-"));
+      const baseDir = mkdtempSync(join(tmpdir(), "fenrir-cli-auth-session-test-"));
 
       const issuedOutput = yield* captureStdout(
         runCli(["auth", "session", "issue", "--base-dir", baseDir, "--json"]),

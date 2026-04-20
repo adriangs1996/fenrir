@@ -1,11 +1,11 @@
-# T3 Code
+# Fenrir
 
-T3 Code is a minimal web GUI for coding agents (currently Codex and Claude, more coming soon).
+Fenrir is a minimal web GUI for coding agents (currently Codex and Claude, more coming soon).
 
 ## Installation
 
 > [!WARNING]
-> T3 Code currently supports Codex and Claude.
+> Fenrir currently supports Codex and Claude.
 > Install and authenticate at least one provider before use:
 >
 > - Codex: install [Codex CLI](https://github.com/openai/codex) and run `codex login`
@@ -14,29 +14,29 @@ T3 Code is a minimal web GUI for coding agents (currently Codex and Claude, more
 ### Run without installing
 
 ```bash
-npx t3
+npx fenrir
 ```
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
+Install the latest version of the desktop app from [GitHub Releases](https://github.com/adriangs1996/fenrir/releases), or from your favorite package registry:
 
 #### Windows (`winget`)
 
 ```bash
-winget install T3Tools.T3Code
+winget install Fenrir.Fenrir
 ```
 
 #### macOS (Homebrew)
 
 ```bash
-brew install --cask t3-code
+brew install --cask fenrir
 ```
 
 #### Arch Linux (AUR)
 
 ```bash
-yay -S t3code-bin
+yay -S fenrir-bin
 ```
 
 ## Some notes

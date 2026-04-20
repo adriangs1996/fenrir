@@ -1,8 +1,8 @@
 import { Effect, Layer, Schema } from "effect";
-import { PositiveInt, TrimmedNonEmptyString } from "@t3tools/contracts";
+import { PositiveInt, TrimmedNonEmptyString } from "@fenrir/contracts";
 
 import { runProcess } from "../../processRunner";
-import { GitHubCliError } from "@t3tools/contracts";
+import { GitHubCliError } from "@fenrir/contracts";
 import {
   GitHubCli,
   type GitHubRepositoryCloneUrls,

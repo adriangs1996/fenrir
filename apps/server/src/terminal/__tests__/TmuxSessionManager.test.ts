@@ -75,7 +75,7 @@ describe("TmuxSessionManager", () => {
     const { TestLayer } = makeFakeLayer();
     return Effect.gen(function* () {
       const manager = yield* TmuxSessionManager;
-      assert.strictEqual(manager.sessionName("abc-123"), "t3-abc-123");
+      assert.strictEqual(manager.sessionName("abc-123"), "fenrir-abc-123");
     }).pipe(Effect.provide(TestLayer));
   });
 
@@ -86,7 +86,7 @@ describe("TmuxSessionManager", () => {
       const name = manager.sessionName("my.project:v2");
       expect(name).not.toContain(".");
       expect(name).not.toContain(":");
-      assert.strictEqual(name, "t3-my-project-v2");
+      assert.strictEqual(name, "fenrir-my-project-v2");
     }).pipe(Effect.provide(TestLayer));
   });
 
@@ -104,7 +104,7 @@ describe("TmuxSessionManager", () => {
         "new-session",
         "-d",
         "-s",
-        "t3-proj-1",
+        "fenrir-proj-1",
         "-c",
         "/home/user/project",
       ]);
@@ -152,7 +152,7 @@ describe("TmuxSessionManager", () => {
       assert.isTrue(exists);
 
       const call = ptyAdapter.spawnCalls[0]!;
-      expect(call.args).toEqual(["has-session", "-t", "t3-proj-1"]);
+      expect(call.args).toEqual(["has-session", "-t", "fenrir-proj-1"]);
     }).pipe(Effect.provide(TestLayer));
   });
 

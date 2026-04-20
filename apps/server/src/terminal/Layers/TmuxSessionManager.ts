@@ -6,7 +6,7 @@ import {
 } from "../Services/TmuxSessionManager";
 import { PtyAdapter, PtyProcess } from "../Services/PTY";
 
-const SESSION_PREFIX = "t3-";
+const SESSION_PREFIX = "fenrir-";
 
 function sanitizeSessionName(projectId: string): string {
   return `${SESSION_PREFIX}${projectId.replace(/[.:]/g, "-")}`;

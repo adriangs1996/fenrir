@@ -1,4 +1,4 @@
-import type { EnvironmentId, ExecutionEnvironmentDescriptor } from "@t3tools/contracts";
+import type { EnvironmentId, ExecutionEnvironmentDescriptor } from "@fenrir/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 

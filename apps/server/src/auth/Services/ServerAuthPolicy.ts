@@ -1,4 +1,4 @@
-import type { ServerAuthDescriptor } from "@t3tools/contracts";
+import type { ServerAuthDescriptor } from "@fenrir/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 320" width="300" height="320">
+  <!-- FENRIR — Full Logo (transparent background)
+       Catppuccin Mocha Green #a6e3a1, no background fill -->
+
+  <!-- Eyes -->
+  <ellipse cx="128" cy="28" rx="6" ry="2.5" fill="#a6e3a1" opacity="0.9"/>
+  <ellipse cx="172" cy="28" rx="6" ry="2.5" fill="#a6e3a1" opacity="0.9"/>
+
+  <!-- Upper jaw -->
+  <path d="M60,100 L80,58 L100,78 L118,35 L150,62 L182,35 L200,78 L220,58 L240,100"
+        fill="none" stroke="#a6e3a1" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- Upper fangs -->
+  <line x1="118" y1="35" x2="122" y2="155" stroke="#a6e3a1" stroke-width="3.2" stroke-linecap="round"/>
+  <line x1="182" y1="35" x2="178" y2="155" stroke="#a6e3a1" stroke-width="3.2" stroke-linecap="round"/>
+
+  <!-- Small upper teeth -->
+  <line x1="100" y1="78" x2="103" y2="102" stroke="#a6e3a1" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+  <line x1="200" y1="78" x2="197" y2="102" stroke="#a6e3a1" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- Lower jaw -->
+  <path d="M68,148 L92,172 L118,155 L150,178 L182,155 L208,172 L232,148"
+        fill="none" stroke="#a6e3a1" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- Lower fangs -->
+  <line x1="118" y1="155" x2="121" y2="115" stroke="#a6e3a1" stroke-width="2.8" stroke-linecap="round"/>
+  <line x1="182" y1="155" x2="179" y2="115" stroke="#a6e3a1" stroke-width="2.8" stroke-linecap="round"/>
+
+  <!-- Broken chains — left -->
+  <ellipse cx="44" cy="82" rx="9" ry="5.5" fill="none" stroke="#a6e3a1" stroke-width="1.6" opacity="0.35" transform="rotate(-22 44 82)"/>
+  <ellipse cx="34" cy="94" rx="9" ry="5.5" fill="none" stroke="#a6e3a1" stroke-width="1.6" opacity="0.22" transform="rotate(-32 34 94)"/>
+  <ellipse cx="26" cy="108" rx="9" ry="5.5" fill="none" stroke="#a6e3a1" stroke-width="1.6" opacity="0.12" transform="rotate(-40 26 108)"/>
+
+  <!-- Broken chains — right -->
+  <ellipse cx="256" cy="82" rx="9" ry="5.5" fill="none" stroke="#a6e3a1" stroke-width="1.6" opacity="0.35" transform="rotate(22 256 82)"/>
+  <ellipse cx="266" cy="94" rx="9" ry="5.5" fill="none" stroke="#a6e3a1" stroke-width="1.6" opacity="0.22" transform="rotate(32 266 94)"/>
+  <ellipse cx="274" cy="108" rx="9" ry="5.5" fill="none" stroke="#a6e3a1" stroke-width="1.6" opacity="0.12" transform="rotate(40 274 108)"/>
+
+  <!-- Sparks — left -->
+  <line x1="51" y1="72" x2="54" y2="65" stroke="#a6e3a1" stroke-width="1.4" opacity="0.8"/>
+  <line x1="54" y1="75" x2="59" y2="70" stroke="#a6e3a1" stroke-width="1.4" opacity="0.6"/>
+  <line x1="48" y1="69" x2="46" y2="63" stroke="#a6e3a1" stroke-width="1" opacity="0.4"/>
+
+  <!-- Sparks — right -->
+  <line x1="249" y1="72" x2="246" y2="65" stroke="#a6e3a1" stroke-width="1.4" opacity="0.8"/>
+  <line x1="246" y1="75" x2="241" y2="70" stroke="#a6e3a1" stroke-width="1.4" opacity="0.6"/>
+  <line x1="252" y1="69" x2="254" y2="63" stroke="#a6e3a1" stroke-width="1" opacity="0.4"/>
+
+  <!-- Separator -->
+  <line x1="100" y1="202" x2="200" y2="202" stroke="#a6e3a1" stroke-width="0.8" opacity="0.15"/>
+
+  <!-- Blackletter wordmark: FENRIR -->
+  <g transform="translate(150, 232)">
+    <path d="M-68,0 L-68,34 M-68,0 L-50,0 M-68,4 L-52,4 M-68,14 L-56,14 M-68,18 L-58,18"
+          fill="none" stroke="#a6e3a1" stroke-width="3" stroke-linejoin="miter" stroke-linecap="square"/>
+    <path d="M-40,0 L-40,34 M-40,0 L-22,0 M-40,4 L-24,4 M-40,14 L-28,14 M-40,18 L-30,18 M-40,30 L-24,30 M-40,34 L-22,34"
+          fill="none" stroke="#a6e3a1" stroke-width="3" stroke-linejoin="miter" stroke-linecap="square"/>
+    <path d="M-12,34 L-12,0 L16,34 L16,0"
+          fill="none" stroke="#a6e3a1" stroke-width="3" stroke-linejoin="miter" stroke-linecap="square"/>
+    <path d="M26,0 L26,34 M26,0 L40,0 Q48,0 48,9 Q48,16 40,16 L26,16 M36,16 L50,34"
+          fill="none" stroke="#a6e3a1" stroke-width="3" stroke-linejoin="miter" stroke-linecap="square"/>
+    <path d="M60,0 L60,34 M55,0 L65,0 M55,34 L65,34"
+          fill="none" stroke="#a6e3a1" stroke-width="3" stroke-linejoin="miter" stroke-linecap="square"/>
+    <path d="M76,0 L76,34 M76,0 L90,0 Q98,0 98,9 Q98,16 90,16 L76,16 M86,16 L100,34"
+          fill="none" stroke="#a6e3a1" stroke-width="3" stroke-linejoin="miter" stroke-linecap="square"/>
+  </g>
+
+  <!-- Tagline -->
+  <text x="150" y="290" text-anchor="middle" fill="#a6e3a1" font-family="monospace" font-size="8" letter-spacing="4" opacity="0.3">UNCHAINED</text>
+</svg>

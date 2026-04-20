@@ -3,7 +3,7 @@ import type {
   AuthSessionState,
   AuthWebSocketTokenResult,
   ExecutionEnvironmentDescriptor,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 
 class RemoteEnvironmentAuthHttpError extends Error {
   readonly status: number;

@@ -7,7 +7,7 @@ import {
   type ServerConfigStreamEvent,
   type ServerLifecycleStreamEvent,
   type ServerProvider,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -216,7 +216,7 @@ describe("serverState", () => {
       payload: {
         environment: baseEnvironment,
         cwd: "/tmp/workspace",
-        projectName: "t3-code",
+        projectName: "fenrir-code",
         bootstrapProjectId: ProjectId.makeUnsafe("project-1"),
         bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
       },
@@ -225,7 +225,7 @@ describe("serverState", () => {
     expect(listener).toHaveBeenCalledWith({
       environment: baseEnvironment,
       cwd: "/tmp/workspace",
-      projectName: "t3-code",
+      projectName: "fenrir-code",
       bootstrapProjectId: ProjectId.makeUnsafe("project-1"),
       bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
     });
@@ -235,7 +235,7 @@ describe("serverState", () => {
     expect(lateListener).toHaveBeenCalledWith({
       environment: baseEnvironment,
       cwd: "/tmp/workspace",
-      projectName: "t3-code",
+      projectName: "fenrir-code",
       bootstrapProjectId: ProjectId.makeUnsafe("project-1"),
       bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
     });

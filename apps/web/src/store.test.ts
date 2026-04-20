@@ -1,4 +1,4 @@
-import { scopeThreadRef } from "@t3tools/client-runtime";
+import { scopeThreadRef } from "@fenrir/client-runtime";
 import {
   CheckpointRef,
   DEFAULT_MODEL_BY_PROVIDER,
@@ -10,7 +10,7 @@ import {
   TurnId,
   type OrchestrationEvent,
   type OrchestrationReadModel,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

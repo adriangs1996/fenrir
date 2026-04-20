@@ -21,7 +21,7 @@ import {
   WS_METHODS,
   WsRpcGroup,
   TmuxError,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";

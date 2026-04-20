@@ -1,4 +1,4 @@
-import { scopeProjectRef } from "@t3tools/client-runtime";
+import { scopeProjectRef } from "@fenrir/client-runtime";
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect } from "react";
 

@@ -1,5 +1,5 @@
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime";
-import type { EnvironmentId, GitBranch, ThreadId } from "@t3tools/contracts";
+import { scopeProjectRef, scopeThreadRef } from "@fenrir/client-runtime";
+import type { EnvironmentId, GitBranch, ThreadId } from "@fenrir/contracts";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDownIcon } from "lucide-react";

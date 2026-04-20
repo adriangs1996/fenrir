@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { NetService } from "@t3tools/shared/Net";
+import { NetService } from "@fenrir/shared/Net";
 import { Config, Data, Effect, Hash, Layer, Logger, Option, Path, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { ChildProcess } from "effect/unstable/process";
@@ -15,8 +15,8 @@ const MAX_HASH_OFFSET = 3000;
 const MAX_PORT = 65535;
 const DESKTOP_DEV_LOOPBACK_HOST = "127.0.0.1";
 
-export const DEFAULT_T3_HOME = Effect.map(Effect.service(Path.Path), (path) =>
-  path.join(homedir(), ".t3"),
+export const DEFAULT_FENRIR_HOME = Effect.map(Effect.service(Path.Path), (path) =>
+  path.join(homedir(), ".fenrir"),
 );
 
 const MODE_ARGS = {
@@ -24,14 +24,14 @@ const MODE_ARGS = {
     "run",
     "dev",
     "--ui=tui",
-    "--filter=@t3tools/contracts",
-    "--filter=@t3tools/web",
-    "--filter=t3",
+    "--filter=@fenrir/contracts",
+    "--filter=@fenrir/web",
+    "--filter=fenrir",
     "--parallel",
   ],
-  "dev:server": ["run", "dev", "--filter=t3"],
-  "dev:web": ["run", "dev", "--filter=@t3tools/web"],
-  "dev:desktop": ["run", "dev", "--filter=@t3tools/desktop", "--filter=@t3tools/web", "--parallel"],
+  "dev:server": ["run", "dev", "--filter=fenrir"],
+  "dev:web": ["run", "dev", "--filter=@fenrir/web"],
+  "dev:desktop": ["run", "dev", "--filter=@fenrir/desktop", "--filter=@fenrir/web", "--parallel"],
 } as const satisfies Record<string, ReadonlyArray<string>>;
 
 type DevMode = keyof typeof MODE_ARGS;
@@ -71,8 +71,8 @@ const optionalUrlConfig = (name: string): Config.Config<URL | undefined> =>
   );
 
 const OffsetConfig = Config.all({
-  portOffset: optionalIntegerConfig("T3CODE_PORT_OFFSET"),
-  devInstance: optionalStringConfig("T3CODE_DEV_INSTANCE"),
+  portOffset: optionalIntegerConfig("FENRIR_PORT_OFFSET"),
+  devInstance: optionalStringConfig("FENRIR_DEV_INSTANCE"),
 });
 
 export function resolveOffset(config: {
@@ -81,11 +81,11 @@ export function resolveOffset(config: {
 }): { readonly offset: number; readonly source: string } {
   if (config.portOffset !== undefined) {
     if (config.portOffset < 0) {
-      throw new Error(`Invalid T3CODE_PORT_OFFSET: ${config.portOffset}`);
+      throw new Error(`Invalid FENRIR_PORT_OFFSET: ${config.portOffset}`);
     }
     return {
       offset: config.portOffset,
-      source: `T3CODE_PORT_OFFSET=${config.portOffset}`,
+      source: `FENRIR_PORT_OFFSET=${config.portOffset}`,
     };
   }
 
@@ -95,11 +95,11 @@ export function resolveOffset(config: {
   }
 
   if (/^\d+$/.test(seed)) {
-    return { offset: Number(seed), source: `numeric T3CODE_DEV_INSTANCE=${seed}` };
+    return { offset: Number(seed), source: `numeric FENRIR_DEV_INSTANCE=${seed}` };
   }
 
   const offset = ((Hash.string(seed) >>> 0) % MAX_HASH_OFFSET) + 1;
-  return { offset, source: `hashed T3CODE_DEV_INSTANCE=${seed}` };
+  return { offset, source: `hashed FENRIR_DEV_INSTANCE=${seed}` };
 }
 
 function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, never, Path.Path> {
@@ -111,7 +111,7 @@ function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, neve
       return path.resolve(configured);
     }
 
-    return yield* DEFAULT_T3_HOME;
+    return yield* DEFAULT_FENRIR_HOME;
   });
 }
 
@@ -120,7 +120,7 @@ interface CreateDevRunnerEnvInput {
   readonly baseEnv: NodeJS.ProcessEnv;
   readonly serverOffset: number;
   readonly webOffset: number;
-  readonly t3Home: string | undefined;
+  readonly fenrirHome: string | undefined;
   readonly noBrowser: boolean | undefined;
   readonly autoBootstrapProjectFromCwd: boolean | undefined;
   readonly logWebSocketEvents: boolean | undefined;
@@ -134,7 +134,7 @@ export function createDevRunnerEnv({
   baseEnv,
   serverOffset,
   webOffset,
-  t3Home,
+  fenrirHome,
   noBrowser,
   autoBootstrapProjectFromCwd,
   logWebSocketEvents,
@@ -145,7 +145,7 @@ export function createDevRunnerEnv({
   return Effect.gen(function* () {
     const serverPort = port ?? BASE_SERVER_PORT + serverOffset;
     const webPort = BASE_WEB_PORT + webOffset;
-    const resolvedBaseDir = yield* resolveBaseDir(t3Home);
+    const resolvedBaseDir = yield* resolveBaseDir(fenrirHome);
     const isDesktopMode = mode === "dev:desktop";
 
     const output: NodeJS.ProcessEnv = {
@@ -154,57 +154,57 @@ export function createDevRunnerEnv({
       VITE_DEV_SERVER_URL:
         devUrl?.toString() ??
         `http://${isDesktopMode ? DESKTOP_DEV_LOOPBACK_HOST : "localhost"}:${webPort}`,
-      T3CODE_HOME: resolvedBaseDir,
+      FENRIR_HOME: resolvedBaseDir,
     };
 
     if (!isDesktopMode) {
-      output.T3CODE_PORT = String(serverPort);
+      output.FENRIR_PORT = String(serverPort);
       output.VITE_HTTP_URL = `http://localhost:${serverPort}`;
       output.VITE_WS_URL = `ws://localhost:${serverPort}`;
     } else {
-      output.T3CODE_PORT = String(serverPort);
+      output.FENRIR_PORT = String(serverPort);
       output.VITE_HTTP_URL = `http://${DESKTOP_DEV_LOOPBACK_HOST}:${serverPort}`;
       output.VITE_WS_URL = `ws://${DESKTOP_DEV_LOOPBACK_HOST}:${serverPort}`;
-      delete output.T3CODE_MODE;
-      delete output.T3CODE_NO_BROWSER;
-      delete output.T3CODE_HOST;
+      delete output.FENRIR_MODE;
+      delete output.FENRIR_NO_BROWSER;
+      delete output.FENRIR_HOST;
     }
 
     if (!isDesktopMode && host !== undefined) {
-      output.T3CODE_HOST = host;
+      output.FENRIR_HOST = host;
     }
 
     if (!isDesktopMode && noBrowser !== undefined) {
-      output.T3CODE_NO_BROWSER = noBrowser ? "1" : "0";
+      output.FENRIR_NO_BROWSER = noBrowser ? "1" : "0";
     } else if (!isDesktopMode) {
-      delete output.T3CODE_NO_BROWSER;
+      delete output.FENRIR_NO_BROWSER;
     }
 
     if (autoBootstrapProjectFromCwd !== undefined) {
-      output.T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD = autoBootstrapProjectFromCwd ? "1" : "0";
+      output.FENRIR_AUTO_BOOTSTRAP_PROJECT_FROM_CWD = autoBootstrapProjectFromCwd ? "1" : "0";
     } else {
-      delete output.T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD;
+      delete output.FENRIR_AUTO_BOOTSTRAP_PROJECT_FROM_CWD;
     }
 
     if (logWebSocketEvents !== undefined) {
-      output.T3CODE_LOG_WS_EVENTS = logWebSocketEvents ? "1" : "0";
+      output.FENRIR_LOG_WS_EVENTS = logWebSocketEvents ? "1" : "0";
     } else {
-      delete output.T3CODE_LOG_WS_EVENTS;
+      delete output.FENRIR_LOG_WS_EVENTS;
     }
 
     if (mode === "dev") {
-      output.T3CODE_MODE = "web";
-      delete output.T3CODE_DESKTOP_WS_URL;
+      output.FENRIR_MODE = "web";
+      delete output.FENRIR_DESKTOP_WS_URL;
     }
 
     if (mode === "dev:server" || mode === "dev:web") {
-      output.T3CODE_MODE = "web";
-      delete output.T3CODE_DESKTOP_WS_URL;
+      output.FENRIR_MODE = "web";
+      delete output.FENRIR_DESKTOP_WS_URL;
     }
 
     if (isDesktopMode) {
       output.HOST = DESKTOP_DEV_LOOPBACK_HOST;
-      delete output.T3CODE_DESKTOP_WS_URL;
+      delete output.FENRIR_DESKTOP_WS_URL;
     }
 
     return output;
@@ -345,7 +345,7 @@ export function resolveModePortOffsets<R = NetService>({
 
 interface DevRunnerCliInput {
   readonly mode: DevMode;
-  readonly t3Home: string | undefined;
+  readonly fenrirHome: string | undefined;
   readonly noBrowser: boolean | undefined;
   readonly autoBootstrapProjectFromCwd: boolean | undefined;
   readonly logWebSocketEvents: boolean | undefined;
@@ -391,7 +391,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       Effect.mapError(
         (cause) =>
           new DevRunnerError({
-            message: "Failed to read T3CODE_PORT_OFFSET/T3CODE_DEV_INSTANCE configuration.",
+            message: "Failed to read FENRIR_PORT_OFFSET/FENRIR_DEV_INSTANCE configuration.",
             cause,
           }),
       ),
@@ -407,9 +407,9 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
     });
 
     const envOverrides = {
-      noBrowser: readOptionalBooleanEnv("T3CODE_NO_BROWSER"),
-      autoBootstrapProjectFromCwd: readOptionalBooleanEnv("T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD"),
-      logWebSocketEvents: readOptionalBooleanEnv("T3CODE_LOG_WS_EVENTS"),
+      noBrowser: readOptionalBooleanEnv("FENRIR_NO_BROWSER"),
+      autoBootstrapProjectFromCwd: readOptionalBooleanEnv("FENRIR_AUTO_BOOTSTRAP_PROJECT_FROM_CWD"),
+      logWebSocketEvents: readOptionalBooleanEnv("FENRIR_LOG_WS_EVENTS"),
     };
 
     const { serverOffset, webOffset } = yield* resolveModePortOffsets({
@@ -424,7 +424,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
       baseEnv: process.env,
       serverOffset,
       webOffset,
-      t3Home: input.t3Home,
+      fenrirHome: input.fenrirHome,
       noBrowser: resolveOptionalBooleanOverride(input.noBrowser, envOverrides.noBrowser),
       autoBootstrapProjectFromCwd: resolveOptionalBooleanOverride(
         input.autoBootstrapProjectFromCwd,
@@ -445,7 +445,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
         : "";
 
     yield* Effect.logInfo(
-      `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.T3CODE_PORT)} webPort=${String(env.PORT)} baseDir=${String(env.T3CODE_HOME)}`,
+      `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.FENRIR_PORT)} webPort=${String(env.PORT)} baseDir=${String(env.FENRIR_HOME)}`,
     );
 
     if (input.dryRun) {
@@ -493,33 +493,33 @@ const devRunnerCli = Command.make("dev-runner", {
   mode: Argument.choice("mode", DEV_RUNNER_MODES).pipe(
     Argument.withDescription("Development mode to run."),
   ),
-  t3Home: Flag.string("home-dir").pipe(
-    Flag.withDescription("Base directory for all T3 Code data (equivalent to T3CODE_HOME)."),
-    Flag.withFallbackConfig(optionalStringConfig("T3CODE_HOME")),
+  fenrirHome: Flag.string("home-dir").pipe(
+    Flag.withDescription("Base directory for all Fenrir data (equivalent to FENRIR_HOME)."),
+    Flag.withFallbackConfig(optionalStringConfig("FENRIR_HOME")),
   ),
   noBrowser: Flag.boolean("no-browser").pipe(
-    Flag.withDescription("Browser auto-open toggle (equivalent to T3CODE_NO_BROWSER)."),
-    Flag.withFallbackConfig(optionalBooleanConfig("T3CODE_NO_BROWSER")),
+    Flag.withDescription("Browser auto-open toggle (equivalent to FENRIR_NO_BROWSER)."),
+    Flag.withFallbackConfig(optionalBooleanConfig("FENRIR_NO_BROWSER")),
   ),
   autoBootstrapProjectFromCwd: Flag.boolean("auto-bootstrap-project-from-cwd").pipe(
     Flag.withDescription(
-      "Auto-bootstrap toggle (equivalent to T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD).",
+      "Auto-bootstrap toggle (equivalent to FENRIR_AUTO_BOOTSTRAP_PROJECT_FROM_CWD).",
     ),
-    Flag.withFallbackConfig(optionalBooleanConfig("T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD")),
+    Flag.withFallbackConfig(optionalBooleanConfig("FENRIR_AUTO_BOOTSTRAP_PROJECT_FROM_CWD")),
   ),
   logWebSocketEvents: Flag.boolean("log-websocket-events").pipe(
-    Flag.withDescription("WebSocket event logging toggle (equivalent to T3CODE_LOG_WS_EVENTS)."),
+    Flag.withDescription("WebSocket event logging toggle (equivalent to FENRIR_LOG_WS_EVENTS)."),
     Flag.withAlias("log-ws-events"),
-    Flag.withFallbackConfig(optionalBooleanConfig("T3CODE_LOG_WS_EVENTS")),
+    Flag.withFallbackConfig(optionalBooleanConfig("FENRIR_LOG_WS_EVENTS")),
   ),
   host: Flag.string("host").pipe(
-    Flag.withDescription("Server host/interface override (forwards to T3CODE_HOST)."),
-    Flag.withFallbackConfig(optionalStringConfig("T3CODE_HOST")),
+    Flag.withDescription("Server host/interface override (forwards to FENRIR_HOST)."),
+    Flag.withFallbackConfig(optionalStringConfig("FENRIR_HOST")),
   ),
   port: Flag.integer("port").pipe(
     Flag.withSchema(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
-    Flag.withDescription("Server port override (forwards to T3CODE_PORT)."),
-    Flag.withFallbackConfig(optionalPortConfig("T3CODE_PORT")),
+    Flag.withDescription("Server port override (forwards to FENRIR_PORT)."),
+    Flag.withFallbackConfig(optionalPortConfig("FENRIR_PORT")),
   ),
   devUrl: Flag.string("dev-url").pipe(
     Flag.withSchema(Schema.URLFromString),

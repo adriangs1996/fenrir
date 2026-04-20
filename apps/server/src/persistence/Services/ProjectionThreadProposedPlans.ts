@@ -4,7 +4,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
   TurnId,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 

@@ -7,7 +7,7 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationEvent,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import { Effect, Layer, ManagedRuntime, Metric, Option, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -39,7 +39,7 @@ const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsa
 
 async function createOrchestrationSystem() {
   const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
-    prefix: "t3-orchestration-engine-test-",
+    prefix: "fenrir-orchestration-engine-test-",
   });
   const orchestrationLayer = OrchestrationEngineLive.pipe(
     Layer.provide(OrchestrationProjectionSnapshotQueryLive),
@@ -616,7 +616,7 @@ describe("OrchestrationEngine", () => {
     };
 
     const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
-      prefix: "t3-orchestration-engine-test-",
+      prefix: "fenrir-orchestration-engine-test-",
     });
 
     const runtime = ManagedRuntime.make(

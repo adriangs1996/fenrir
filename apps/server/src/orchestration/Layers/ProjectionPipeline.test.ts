@@ -7,7 +7,7 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path } from "effect";
@@ -46,7 +46,7 @@ const exists = (filePath: string) =>
     return fileInfo._tag === "Success";
   });
 
-const BaseTestLayer = makeProjectionPipelinePrefixedTestLayer("t3-projection-pipeline-test-");
+const BaseTestLayer = makeProjectionPipelinePrefixedTestLayer("fenrir-projection-pipeline-test-");
 
 it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   it.effect("bootstraps all projection states and writes projection rows", () =>
@@ -171,7 +171,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   );
 });
 
-it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("fenrir-base-")))(
   "OrchestrationProjectionPipeline",
   (it) => {
     it.effect("stores message attachment references without mutating payloads", () =>
@@ -237,7 +237,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(
   },
 );
 
-it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-attachments-safe-")))(
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("fenrir-projection-attachments-safe-")))(
   "OrchestrationProjectionPipeline",
   (it) => {
     it.effect("preserves mixed image attachment metadata as-is", () =>
@@ -446,7 +446,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
 });
 
 it.layer(
-  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-attachments-overwrite-")),
+  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("fenrir-projection-attachments-overwrite-")),
 )("OrchestrationProjectionPipeline", (it) => {
   it.effect("overwrites stored attachment references when a message updates attachments", () =>
     Effect.gen(function* () {
@@ -589,7 +589,7 @@ it.layer(
 });
 
 it.layer(
-  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-attachments-rollback-")),
+  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("fenrir-projection-attachments-rollback-")),
 )("OrchestrationProjectionPipeline", (it) => {
   it.effect("does not persist attachment files when projector transaction rolls back", () =>
     Effect.gen(function* () {
@@ -712,7 +712,7 @@ it.layer(
 });
 
 it.layer(
-  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-attachments-overwrite-")),
+  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("fenrir-projection-attachments-overwrite-")),
 )("OrchestrationProjectionPipeline", (it) => {
   it.effect("removes unreferenced attachment files when a thread is reverted", () =>
     Effect.gen(function* () {
@@ -920,7 +920,7 @@ it.layer(
   );
 });
 
-it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-attachments-revert-")))(
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("fenrir-projection-attachments-revert-")))(
   "OrchestrationProjectionPipeline",
   (it) => {
     it.effect("removes thread attachment directory when thread is deleted", () =>
@@ -1053,7 +1053,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-atta
   },
 );
 
-it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-attachments-delete-")))(
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("fenrir-projection-attachments-delete-")))(
   "OrchestrationProjectionPipeline",
   (it) => {
     it.effect("ignores unsafe thread ids for attachment cleanup paths", () =>
@@ -1833,7 +1833,7 @@ it.effect("restores pending turn-start metadata across projection pipeline resta
     Effect.provide(
       Layer.provideMerge(
         ServerConfig.layerTest(process.cwd(), {
-          prefix: "t3-projection-pipeline-restart-",
+          prefix: "fenrir-projection-pipeline-restart-",
         }),
         NodeServices.layer,
       ),
@@ -1851,7 +1851,7 @@ const engineLayer = it.layer(
     Layer.provideMerge(SqlitePersistenceMemory),
     Layer.provideMerge(
       ServerConfig.layerTest(process.cwd(), {
-        prefix: "t3-projection-pipeline-engine-dispatch-",
+        prefix: "fenrir-projection-pipeline-engine-dispatch-",
       }),
     ),
     Layer.provideMerge(NodeServices.layer),

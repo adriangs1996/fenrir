@@ -6,7 +6,7 @@
  *
  * @module ProviderRegistry
  */
-import type { ProviderKind, ServerProvider } from "@t3tools/contracts";
+import type { ProviderKind, ServerProvider } from "@fenrir/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make T3 Code orchestrate tmux sessions per project — one auto-created session per project, xterm.js attaches to it, project switching detaches/reattaches instantly.
+**Goal:** Make Fenrir orchestrate tmux sessions per project — one auto-created session per project, xterm.js attaches to it, project switching detaches/reattaches instantly.
 
 **Architecture:** New `TmuxSessionManager` Effect service layer spawns/manages tmux sessions via node-pty. Existing terminal infrastructure stays untouched for agent PTYs. New RPC methods (`terminal.attachTmux` / `terminal.detachTmux`) handle the WebSocket protocol. Client-side: `ThreadTerminalDrawer` gains a tmux-aware mode. Keybindings: `Alt+1-9` for project jumping, `Ctrl+Shift` combos for app controls.
 
@@ -175,11 +175,11 @@ describe("TmuxSessionSnapshot", () => {
     Effect.gen(function* () {
       const parsed = yield* decode(TmuxSessionSnapshot, {
         projectId: "abc-123",
-        sessionName: "t3-abc-123",
+        sessionName: "fenrir-abc-123",
         pid: 12345,
       });
       assert.strictEqual(parsed.projectId, "abc-123");
-      assert.strictEqual(parsed.sessionName, "t3-abc-123");
+      assert.strictEqual(parsed.sessionName, "fenrir-abc-123");
       assert.strictEqual(parsed.pid, 12345);
     }),
   );
@@ -188,7 +188,7 @@ describe("TmuxSessionSnapshot", () => {
     Effect.gen(function* () {
       const parsed = yield* decode(TmuxSessionSnapshot, {
         projectId: "abc",
-        sessionName: "t3-abc",
+        sessionName: "fenrir-abc",
         pid: null,
       });
       assert.isNull(parsed.pid);
@@ -391,7 +391,7 @@ export interface TmuxSessionManagerShape {
 export class TmuxSessionManager extends ServiceMap.Service<
   TmuxSessionManager,
   TmuxSessionManagerShape
->()("t3/terminal/Services/TmuxSessionManager") {}
+>()("fenrir/terminal/Services/TmuxSessionManager") {}
 ```
 
 - [ ] **Step 2: Verify typecheck passes**
@@ -492,11 +492,11 @@ describe("TmuxSessionManager", () => {
     return { ptyAdapter, TestLayer };
   };
 
-  it.effect("sessionName returns t3-prefixed name", () =>
+  it.effect("sessionName returns fenrir-prefixed name", () =>
     Effect.gen(function* () {
       const { TestLayer } = makeFakeLayer();
       const manager = yield* TmuxSessionManager.pipe(Effect.provide(TestLayer));
-      assert.strictEqual(manager.sessionName("abc-123"), "t3-abc-123");
+      assert.strictEqual(manager.sessionName("abc-123"), "fenrir-abc-123");
     }),
   );
 
@@ -507,7 +507,7 @@ describe("TmuxSessionManager", () => {
       const name = manager.sessionName("my.project:v2");
       expect(name).not.toContain(".");
       expect(name).not.toContain(":");
-      assert.strictEqual(name, "t3-my-project-v2");
+      assert.strictEqual(name, "fenrir-my-project-v2");
     }),
   );
 });
@@ -532,7 +532,7 @@ import {
 } from "../Services/TmuxSessionManager";
 import { PtyAdapter, type PtyProcess } from "../Services/PTY";
 
-const SESSION_PREFIX = "t3-";
+const SESSION_PREFIX = "fenrir-";
 
 function sanitizeSessionName(projectId: string): string {
   return `${SESSION_PREFIX}${projectId.replace(/[.:]/g, "-")}`;
@@ -677,7 +677,7 @@ Add to the test file:
       expect(ptyAdapter.spawnCalls).toHaveLength(1);
       const call = ptyAdapter.spawnCalls[0]!;
       expect(call.shell).toBe("tmux");
-      expect(call.args).toEqual(["new-session", "-d", "-s", "t3-proj-1", "-c", "/home/user/project"]);
+      expect(call.args).toEqual(["new-session", "-d", "-s", "fenrir-proj-1", "-c", "/home/user/project"]);
     }),
   );
 
@@ -703,7 +703,7 @@ Add to the test file:
       assert.isTrue(exists);
 
       const call = ptyAdapter.spawnCalls[0]!;
-      expect(call.args).toEqual(["has-session", "-t", "t3-proj-1"]);
+      expect(call.args).toEqual(["has-session", "-t", "fenrir-proj-1"]);
     }),
   );
 
@@ -757,7 +757,7 @@ Add to the test file:
         (c) => c.args?.includes("kill-session"),
       );
       expect(killCall).toBeDefined();
-      expect(killCall!.args).toEqual(["kill-session", "-t", "t3-proj-1"]);
+      expect(killCall!.args).toEqual(["kill-session", "-t", "fenrir-proj-1"]);
     }),
   );
 ```
@@ -927,7 +927,7 @@ git commit -m "feat(server): add publishTmuxOutput/publishTmuxExit to TerminalMa
 
 ```typescript
 import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager";
-// Add TmuxError to existing @t3tools/contracts import
+// Add TmuxError to existing @fenrir/contracts import
 ```
 
 - [ ] **Step 2: Yield the service in makeWsRpcLayer**
@@ -1216,7 +1216,7 @@ In `apps/server/src/keybindings.ts`, add to `DEFAULT_KEYBINDINGS`:
 In `apps/web/src/keybindings.ts`:
 
 ```typescript
-import { PROJECT_JUMP_KEYBINDING_COMMANDS, type ProjectJumpKeybindingCommand } from "@t3tools/contracts";
+import { PROJECT_JUMP_KEYBINDING_COMMANDS, type ProjectJumpKeybindingCommand } from "@fenrir/contracts";
 
 export function projectJumpCommandForIndex(index: number): ProjectJumpKeybindingCommand | null {
   return PROJECT_JUMP_KEYBINDING_COMMANDS[index] ?? null;
@@ -1519,7 +1519,7 @@ Expected: Zero warnings/errors.
 | # | Check | Expected |
 |---|-------|----------|
 | 1 | `bun run dev` starts | No errors |
-| 2 | Open a project | tmux session created (`tmux list-sessions` shows `t3-{projectId}`) |
+| 2 | Open a project | tmux session created (`tmux list-sessions` shows `fenrir-{projectId}`) |
 | 3 | Type commands in terminal | Execute normally |
 | 4 | Open neovim in terminal | Renders correctly |
 | 5 | Split tmux panes `Ctrl-b %` | Splits work |
@@ -1530,7 +1530,7 @@ Expected: Zero warnings/errors.
 | 10 | Drag-reorder projects | `Alt+N` follows new order |
 | 11 | `Ctrl+Shift+T` | Focuses terminal |
 | 12 | `Ctrl+Shift+C` | Focuses chat |
-| 13 | Kill T3 Code, restart | tmux sessions survive, reattach works |
+| 13 | Kill Fenrir, restart | tmux sessions survive, reattach works |
 | 14 | Start agent task | Agent uses isolated PTY, not tmux |
 | 15 | Uninstall tmux, open project | Falls back to regular shell PTY |
 
@@ -1540,7 +1540,7 @@ Expected: Zero warnings/errors.
 git add -A
 git commit -m "feat: tmux session manager — terminal as first-class citizen
 
-Adds tmux session orchestration to T3 Code:
+Adds tmux session orchestration to Fenrir:
 - One auto-created tmux session per project
 - xterm.js attaches to tmux session via new RPC methods
 - Project switching detaches/reattaches instantly (~50ms)

@@ -1,5 +1,5 @@
-import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
-import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime";
+import { type ServerLifecycleWelcomePayload } from "@fenrir/contracts";
+import { scopedProjectKey, scopeProjectRef } from "@fenrir/client-runtime";
 import {
   Outlet,
   createRootRouteWithContext,

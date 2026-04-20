@@ -11,7 +11,7 @@ import type {
   ServerAuthDescriptor,
   ServerAuthSessionMethod,
   AuthWebSocketTokenResult,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import { Data, DateTime, ServiceMap } from "effect";
 import type { Effect } from "effect";
 import type * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";

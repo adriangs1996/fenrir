@@ -3,7 +3,7 @@ import type {
   AuthClientSession,
   AuthSessionId,
   ServerAuthSessionMethod,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import { Data, DateTime, Duration, ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 

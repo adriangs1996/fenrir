@@ -6,7 +6,7 @@ import {
   type ServerConfig,
   type TerminalEvent,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import { type QueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 import {
@@ -16,7 +16,7 @@ import {
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
-} from "@t3tools/client-runtime";
+} from "@fenrir/client-runtime";
 
 import {
   markPromotedDraftThreadByRef,

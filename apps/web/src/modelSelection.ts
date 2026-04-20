@@ -3,10 +3,10 @@ import {
   type ModelSelection,
   type ProviderKind,
   type ServerProvider,
-} from "@t3tools/contracts";
-import { normalizeModelSlug, resolveSelectableModel } from "@t3tools/shared/model";
+} from "@fenrir/contracts";
+import { normalizeModelSlug, resolveSelectableModel } from "@fenrir/shared/model";
 import { getComposerProviderState } from "./components/chat/composerProviderRegistry";
-import { UnifiedSettings } from "@t3tools/contracts/settings";
+import { UnifiedSettings } from "@fenrir/contracts/settings";
 import {
   getDefaultServerModel,
   getProviderModels,

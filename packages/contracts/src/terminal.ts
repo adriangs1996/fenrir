@@ -264,6 +264,7 @@ export const TmuxSessionSnapshot = Schema.Struct({
   sessionName: Schema.NonEmptyString,
   pid: Schema.optional(Schema.NullOr(Schema.Number)),
 });
+export type TmuxSessionSnapshot = typeof TmuxSessionSnapshot.Type;
 
 export class TmuxError extends Schema.TaggedErrorClass<TmuxError>()(
   "TmuxError",

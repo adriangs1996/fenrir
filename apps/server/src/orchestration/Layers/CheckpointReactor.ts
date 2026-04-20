@@ -7,9 +7,9 @@ import {
   TurnId,
   type OrchestrationEvent,
   type ProviderRuntimeEvent,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import { Cause, Effect, Layer, Option, Stream } from "effect";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeDrainableWorker } from "@fenrir/shared/DrainableWorker";
 
 import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import {

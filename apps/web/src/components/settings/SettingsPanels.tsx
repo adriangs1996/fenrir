@@ -16,10 +16,10 @@ import {
   type ProviderKind,
   type ServerProvider,
   type ServerProviderModel,
-} from "@t3tools/contracts";
-import { scopeThreadRef } from "@t3tools/client-runtime";
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
-import { normalizeModelSlug } from "@t3tools/shared/model";
+} from "@fenrir/contracts";
+import { scopeThreadRef } from "@fenrir/client-runtime";
+import { DEFAULT_UNIFIED_SETTINGS } from "@fenrir/contracts/settings";
+import { normalizeModelSlug } from "@fenrir/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
 import {
@@ -156,7 +156,7 @@ function getProviderSummary(provider: ServerProvider | undefined) {
     return {
       headline: "Disabled",
       detail:
-        provider.message ?? "This provider is installed but disabled for new sessions in T3 Code.",
+        provider.message ?? "This provider is installed but disabled for new sessions in Fenrir.",
     };
   }
   if (!provider.installed) {
@@ -691,7 +691,7 @@ export function GeneralSettingsPanel() {
       <SettingsSection title="General">
         <SettingsRow
           title="Theme"
-          description="Choose how T3 Code looks across the app."
+          description="Choose how Fenrir looks across the app."
           resetAction={
             theme !== "system" ? (
               <SettingResetButton label="theme" onClick={() => setTheme("system")} />

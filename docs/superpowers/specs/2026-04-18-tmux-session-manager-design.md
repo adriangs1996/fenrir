@@ -6,18 +6,18 @@
 
 ## Problem
 
-T3 Code treats terminal as secondary — a collapsible bottom drawer under chat. Power users (neovim, tmux) need terminal as their primary workspace with persistent layouts per project. Switching projects should restore the entire terminal environment (neovim, servers, logs) instantly.
+Fenrir treats terminal as secondary — a collapsible bottom drawer under chat. Power users (neovim, tmux) need terminal as their primary workspace with persistent layouts per project. Switching projects should restore the entire terminal environment (neovim, servers, logs) instantly.
 
 ## Decision
 
-Don't rebuild tmux. Orchestrate it. T3 Code becomes a tmux session manager — each project gets an auto-created tmux session, xterm.js attaches to it, project switching detaches/reattaches. Agents keep their own isolated PTYs.
+Don't rebuild tmux. Orchestrate it. Fenrir becomes a tmux session manager — each project gets an auto-created tmux session, xterm.js attaches to it, project switching detaches/reattaches. Agents keep their own isolated PTYs.
 
 ### Why Not Rebuild Splits/Panes?
 
 - Months of work recreating what tmux already does
 - Lose user dotfiles, muscle memory, plugins
 - xterm.js inside Electron will never match native terminal quality for heavy neovim use
-- T3 Code's value is agent orchestration, not terminal emulation
+- Fenrir's value is agent orchestration, not terminal emulation
 
 ## Architecture
 
@@ -25,13 +25,13 @@ Don't rebuild tmux. Orchestrate it. T3 Code becomes a tmux session manager — e
 
 ```
 ┌─────────────────────────────────────────────┐
-│ T3 Code (Electron / Web)                    │
+│ Fenrir (Electron / Web)                    │
 │                                             │
 │  ┌──────────┐  ┌────────────────────────┐   │
 │  │  Chat /  │  │  xterm.js              │   │
 │  │  Agent   │  │  ┌──────────────────┐  │   │
 │  │  Panel   │  │  │ tmux attach -t   │  │   │
-│  │          │  │  │ t3-{projectId}   │  │   │
+│  │          │  │  │ fenrir-{projectId}   │  │   │
 │  │          │  │  └──────────────────┘  │   │
 │  └──────────┘  └────────────────────────┘   │
 │                                             │
@@ -44,15 +44,15 @@ Don't rebuild tmux. Orchestrate it. T3 Code becomes a tmux session manager — e
          ▼
 ┌─────────────────────────────────────────────┐
 │ tmux                                        │
-│  session: t3-proj-abc  (neovim + server)    │
-│  session: t3-proj-def  (nmap + burp + shell)│
-│  session: t3-proj-ghi  (logs + scratch)     │
+│  session: fenrir-proj-abc  (neovim + server)    │
+│  session: fenrir-proj-def  (nmap + burp + shell)│
+│  session: fenrir-proj-ghi  (logs + scratch)     │
 └─────────────────────────────────────────────┘
 ```
 
 ### Session Naming
 
-All T3 Code-managed sessions use prefix `t3-{projectId}`. Avoids collision with user's personal tmux sessions.
+All Fenrir-managed sessions use prefix `fenrir-{projectId}`. Avoids collision with user's personal tmux sessions.
 
 ## Design Sections
 
@@ -100,7 +100,7 @@ TerminalDetachTmux = {
 }
 ```
 
-**Server handling:** Receives `attach-tmux` → spawns `tmux attach -t t3-{projectId}` via node-pty → streams stdout/stdin over existing WebSocket binary channel. Same transport as current terminal, different backing process.
+**Server handling:** Receives `attach-tmux` → spawns `tmux attach -t fenrir-{projectId}` via node-pty → streams stdout/stdin over existing WebSocket binary channel. Same transport as current terminal, different backing process.
 
 **Client handling:** Minimal changes to xterm.js component. The terminal doesn't care what's on the other end of the PTY. On project switch:
 
@@ -122,13 +122,13 @@ TerminalDetachTmux = {
 ```
 User clicks Project B in sidebar (or Alt-2)
   → UI sends terminal.detach-tmux { projectId: "A" }
-  → Server detaches PTY from tmux session t3-A
+  → Server detaches PTY from tmux session fenrir-A
   → UI calls terminal.reset() on xterm.js
   → UI sends terminal.attach-tmux { projectId: "B" }
-  → Server: tmux session t3-B exists?
+  → Server: tmux session fenrir-B exists?
       → No: createSession("B", projectCwd) first
       → Yes: attach directly
-  → Server spawns `tmux attach -t t3-B` via node-pty
+  → Server spawns `tmux attach -t fenrir-B` via node-pty
   → Output streams to xterm.js
   → User sees tmux workspace exactly as they left it
 ```
@@ -139,10 +139,10 @@ User clicks Project B in sidebar (or Alt-2)
 
 | Case | Behavior |
 |------|----------|
-| First open after T3 Code restart | tmux sessions survive — just reattach. Neovim, servers still running. |
+| First open after Fenrir restart | tmux sessions survive — just reattach. Neovim, servers still running. |
 | tmux binary not found | Graceful fallback to current behavior (raw shell PTY). Log warning. |
 | Session crashed/dead | `hasSession` returns false → create fresh session |
-| Multiple T3 Code instances | Single-instance constraint. Document as known limitation. |
+| Multiple Fenrir instances | Single-instance constraint. Document as known limitation. |
 
 ### 4. Server Layer Integration
 
@@ -176,7 +176,7 @@ User clicks Project B in sidebar (or Alt-2)
 
 ### 5. Keybindings
 
-**Principle:** Terminal focused = all keystrokes pass through to tmux. T3 Code keybindings only fire at the application level.
+**Principle:** Terminal focused = all keystrokes pass through to tmux. Fenrir keybindings only fire at the application level.
 
 **Project switching (position-based):**
 
@@ -199,13 +199,13 @@ Sidebar already supports drag-and-drop reordering via `dnd-kit`. `Alt-N` maps to
 
 **All shortcuts configurable** via existing `keybindings.json` system.
 
-**tmux passthrough:** When xterm.js terminal has focus, T3 Code registers no key handlers on that element. Raw keystrokes flow: DOM → xterm.js → WebSocket → PTY → tmux. User's `.tmux.conf` is the only authority.
+**tmux passthrough:** When xterm.js terminal has focus, Fenrir registers no key handlers on that element. Raw keystrokes flow: DOM → xterm.js → WebSocket → PTY → tmux. User's `.tmux.conf` is the only authority.
 
 ## Explicitly Not In Scope
 
 - Layout templates per project (user manages tmux layout manually)
 - Agent commands running in tmux panes (agents keep isolated PTYs)
-- `t3 attach` CLI for external terminal access
+- `fenrir attach` CLI for external terminal access
 - Git branch / port / notification metadata in sidebar
 - Browser panes (cmux feature — not needed)
 - SSH remote sessions
@@ -214,7 +214,7 @@ Sidebar already supports drag-and-drop reordering via `dnd-kit`. `Alt-N` maps to
 
 These are noted but deliberately deferred:
 
-- **Layout templates:** Per-project `.t3/tmux-layout.conf` that auto-applies on session creation
-- **External attach:** `t3 attach` CLI so user's native terminal can connect to same tmux session
+- **Layout templates:** Per-project `.fenrir/tmux-layout.conf` that auto-applies on session creation
+- **External attach:** `fenrir attach` CLI so user's native terminal can connect to same tmux session
 - **Agent → tmux projection:** Option to mirror agent terminal output into a tmux pane
 - **Session snapshots:** Save/restore tmux layouts beyond what tmux-resurrect provides

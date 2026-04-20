@@ -16,8 +16,8 @@ import type {
   ScopedThreadRef,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
-import { resolveModelSlugForProvider } from "@t3tools/shared/model";
+} from "@fenrir/contracts";
+import { resolveModelSlugForProvider } from "@fenrir/shared/model";
 import { create } from "zustand";
 import {
   derivePendingApprovals,

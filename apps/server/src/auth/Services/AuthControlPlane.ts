@@ -3,7 +3,7 @@ import type {
   AuthClientSession,
   AuthPairingLink,
   AuthSessionId,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import { Data, DateTime, Duration, Effect, ServiceMap } from "effect";
 import { SessionRole } from "./SessionCredentialService";
 

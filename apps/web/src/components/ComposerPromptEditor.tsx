@@ -1625,7 +1625,7 @@ export const ComposerPromptEditor = forwardRef<
   const initialTerminalContextsRef = useRef(terminalContexts);
   const initialConfig = useMemo<InitialConfigType>(
     () => ({
-      namespace: "t3tools-composer-editor",
+      namespace: "fenrir-composer-editor",
       editable: true,
       nodes: [ComposerMentionNode, ComposerTerminalContextNode],
       editorState: () => {

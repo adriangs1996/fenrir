@@ -1,4 +1,4 @@
-import { MessageId, ThreadId } from "@t3tools/contracts";
+import { MessageId, ThreadId } from "@fenrir/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 

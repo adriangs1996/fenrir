@@ -25,7 +25,7 @@ const makeServerConfigLayer = (
       } satisfies ServerConfigShape;
     }),
   ).pipe(
-    Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-auth-control-plane-test-" })),
+    Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "fenrir-auth-control-plane-test-" })),
   );
 
 const makeAuthControlPlaneLayer = (

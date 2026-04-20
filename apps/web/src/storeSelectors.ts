@@ -4,7 +4,7 @@ import {
   type ScopedThreadRef,
   type ThreadId,
   type TurnId,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import { selectEnvironmentState, type AppState, type EnvironmentState } from "./store";
 import {
   type ChatMessage,

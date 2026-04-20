@@ -39,16 +39,16 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
     Effect.gen(function* () {
       const capturedRequests: Array<RecordedBatchRequest> = [];
       const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
-        prefix: "t3-telemetry-base-",
+        prefix: "fenrir-telemetry-base-",
       });
 
       const telemetryLayer = AnalyticsServiceLayerLive.pipe(Layer.provideMerge(serverConfigLayer));
       const configLayer = ConfigProvider.layer(
         ConfigProvider.fromUnknown({
-          T3CODE_TELEMETRY_ENABLED: true,
-          T3CODE_POSTHOG_KEY: "phc_test_key",
-          T3CODE_POSTHOG_HOST: "",
-          T3CODE_TELEMETRY_FLUSH_BATCH_SIZE: 20,
+          FENRIR_TELEMETRY_ENABLED: true,
+          FENRIR_POSTHOG_KEY: "phc_test_key",
+          FENRIR_POSTHOG_HOST: "",
+          FENRIR_TELEMETRY_FLUSH_BATCH_SIZE: 20,
         }),
       );
       const batchServerLayer = HttpServer.serve(

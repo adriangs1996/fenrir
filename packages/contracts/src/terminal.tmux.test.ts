@@ -21,11 +21,11 @@ describe("TmuxSessionSnapshot", () => {
     Effect.gen(function* () {
       const parsed = yield* decode(TmuxSessionSnapshot, {
         projectId: "abc-123",
-        sessionName: "t3-abc-123",
+        sessionName: "fenrir-abc-123",
         pid: 12345,
       });
       assert.strictEqual(parsed.projectId, "abc-123");
-      assert.strictEqual(parsed.sessionName, "t3-abc-123");
+      assert.strictEqual(parsed.sessionName, "fenrir-abc-123");
       assert.strictEqual(parsed.pid, 12345);
     }),
   );
@@ -34,7 +34,7 @@ describe("TmuxSessionSnapshot", () => {
     Effect.gen(function* () {
       const parsed = yield* decode(TmuxSessionSnapshot, {
         projectId: "abc",
-        sessionName: "t3-abc",
+        sessionName: "fenrir-abc",
         pid: null,
       });
       assert.isNull(parsed.pid);
