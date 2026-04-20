@@ -1,4 +1,6 @@
 import type {
+  GlobalScript,
+  GlobalScriptProjectDefaults,
   ProjectScript,
   ProjectScriptIcon,
   ResolvedKeybindingsConfig,
@@ -22,9 +24,11 @@ import {
 } from "~/lib/projectScriptKeybindings";
 import {
   commandForProjectScript,
+  commandForGlobalScript,
   nextProjectScriptId,
   primaryProjectScript,
 } from "~/projectScripts";
+import { parsePlaceholders } from "~/lib/placeholders";
 import { shortcutLabelForCommand } from "~/keybindings";
 import { isMacPlatform } from "~/lib/utils";
 import {
@@ -86,14 +90,27 @@ export interface NewProjectScriptInput {
   keybinding: string | null;
 }
 
+export interface NewGlobalScriptInput {
+  name: string;
+  command: string;
+  icon: ProjectScriptIcon;
+  keybinding: string | null;
+}
+
 interface ProjectScriptsControlProps {
   scripts: ProjectScript[];
+  globalScripts: GlobalScript[];
+  globalScriptDefaults: GlobalScriptProjectDefaults[];
   keybindings: ResolvedKeybindingsConfig;
   preferredScriptId?: string | null;
   onRunScript: (script: ProjectScript) => void;
+  onRunGlobalScript: (script: GlobalScript, altKey: boolean) => void;
   onAddScript: (input: NewProjectScriptInput) => Promise<void> | void;
   onUpdateScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void> | void;
   onDeleteScript: (scriptId: string) => Promise<void> | void;
+  onAddGlobalScript: (input: NewGlobalScriptInput) => Promise<void> | void;
+  onUpdateGlobalScript: (scriptId: string, input: NewGlobalScriptInput) => Promise<void> | void;
+  onDeleteGlobalScript: (scriptId: string) => Promise<void> | void;
 }
 
 function normalizeShortcutKeyToken(key: string): string | null {
@@ -149,16 +166,25 @@ function keybindingFromEvent(event: KeyboardEvent<HTMLInputElement>): string | n
 
 export default function ProjectScriptsControl({
   scripts,
+  globalScripts,
+  globalScriptDefaults,
   keybindings,
   preferredScriptId = null,
   onRunScript,
+  onRunGlobalScript,
   onAddScript,
   onUpdateScript,
   onDeleteScript,
+  onAddGlobalScript,
+  onUpdateGlobalScript,
+  onDeleteGlobalScript,
 }: ProjectScriptsControlProps) {
   const addScriptFormId = React.useId();
+  const globalScriptFormId = React.useId();
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
+  const [editingGlobalScriptId, setEditingGlobalScriptId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [globalDialogOpen, setGlobalDialogOpen] = useState(false);
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
   const [icon, setIcon] = useState<ProjectScriptIcon>("play");
@@ -266,6 +292,72 @@ export default function ProjectScriptsControl({
     void onDeleteScript(editingScriptId);
   }, [editingScriptId, onDeleteScript]);
 
+  // Global action handlers
+  const openAddGlobalDialog = () => {
+    setEditingGlobalScriptId(null);
+    setName("");
+    setCommand("");
+    setIcon("play");
+    setIconPickerOpen(false);
+    setKeybinding("");
+    setValidationError(null);
+    setGlobalDialogOpen(true);
+  };
+
+  const openEditGlobalDialog = (script: GlobalScript) => {
+    setEditingGlobalScriptId(script.id);
+    setName(script.name);
+    setCommand(script.command);
+    setIcon(script.icon);
+    setIconPickerOpen(false);
+    setKeybinding(keybindingValueForCommand(keybindings, commandForGlobalScript(script.id)) ?? "");
+    setValidationError(null);
+    setGlobalDialogOpen(true);
+  };
+
+  const submitGlobalScript = async (event: FormEvent) => {
+    event.preventDefault();
+    const trimmedName = name.trim();
+    const trimmedCommand = command.trim();
+    if (trimmedName.length === 0) {
+      setValidationError("Name is required.");
+      return;
+    }
+    if (trimmedCommand.length === 0) {
+      setValidationError("Command is required.");
+      return;
+    }
+
+    setValidationError(null);
+    try {
+      const payload: NewGlobalScriptInput = {
+        name: trimmedName,
+        command: trimmedCommand,
+        icon,
+        keybinding: keybinding || null,
+      };
+      if (editingGlobalScriptId) {
+        await onUpdateGlobalScript(editingGlobalScriptId, payload);
+      } else {
+        await onAddGlobalScript(payload);
+      }
+      setGlobalDialogOpen(false);
+      setIconPickerOpen(false);
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : "Failed to save action.");
+    }
+  };
+
+  const confirmDeleteGlobalScript = useCallback(() => {
+    if (!editingGlobalScriptId) return;
+    setDeleteConfirmOpen(false);
+    setGlobalDialogOpen(false);
+    void onDeleteGlobalScript(editingGlobalScriptId);
+  }, [editingGlobalScriptId, onDeleteGlobalScript]);
+
+  const isEditingGlobal = editingGlobalScriptId !== null;
+  const detectedPlaceholders = parsePlaceholders(command);
+
   return (
     <>
       {primaryScript ? (
@@ -289,6 +381,10 @@ export default function ProjectScriptsControl({
               <ChevronDownIcon className="size-4" />
             </MenuTrigger>
             <MenuPopup align="end">
+              {/* PROJECT section */}
+              <div className="px-2 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                Project
+              </div>
               {scripts.map((script) => {
                 const shortcutLabel = shortcutLabelForCommand(
                   keybindings,
@@ -334,7 +430,65 @@ export default function ProjectScriptsControl({
               })}
               <MenuItem className={dropdownItemClassName} onClick={openAddDialog}>
                 <PlusIcon className="size-4" />
-                Add action
+                Add project action
+              </MenuItem>
+
+              {/* Divider */}
+              <div className="mx-2 my-1 border-t border-border/50" />
+
+              {/* GLOBAL section */}
+              <div className="px-2 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                Global
+                <span className="ml-1.5 text-[9px] font-normal normal-case tracking-normal opacity-70">
+                  available in all projects
+                </span>
+              </div>
+              {globalScripts.map((script) => {
+                const shortcutLabel = shortcutLabelForCommand(
+                  keybindings,
+                  commandForGlobalScript(script.id),
+                );
+                return (
+                  <MenuItem
+                    key={script.id}
+                    className={`group ${dropdownItemClassName}`}
+                    onClick={(event: React.MouseEvent) =>
+                      onRunGlobalScript(script, event.altKey)
+                    }
+                  >
+                    <ScriptIcon icon={script.icon} className="size-4" />
+                    <span className="truncate">{script.name}</span>
+                    <span className="relative ms-auto flex h-6 min-w-6 items-center justify-end">
+                      {shortcutLabel && (
+                        <MenuShortcut className="ms-0 transition-opacity group-hover:opacity-0 group-focus-visible:opacity-0">
+                          {shortcutLabel}
+                        </MenuShortcut>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        className="absolute right-0 top-1/2 size-6 -translate-y-1/2 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-visible:opacity-100 group-focus-visible:pointer-events-auto"
+                        aria-label={`Edit ${script.name}`}
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          openEditGlobalDialog(script);
+                        }}
+                      >
+                        <SettingsIcon className="size-3.5" />
+                      </Button>
+                    </span>
+                  </MenuItem>
+                );
+              })}
+              <MenuItem className={dropdownItemClassName} onClick={openAddGlobalDialog}>
+                <PlusIcon className="size-4" />
+                Add global action
               </MenuItem>
             </MenuPopup>
           </Menu>
@@ -494,12 +648,155 @@ export default function ProjectScriptsControl({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-            <Button variant="destructive" onClick={confirmDeleteScript}>
+            <Button variant="destructive" onClick={globalDialogOpen ? confirmDeleteGlobalScript : confirmDeleteScript}>
               Delete action
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
+
+      {/* Global action dialog */}
+      <Dialog
+        onOpenChange={(open) => {
+          setGlobalDialogOpen(open);
+          if (!open) {
+            setIconPickerOpen(false);
+          }
+        }}
+        onOpenChangeComplete={(open) => {
+          if (open) return;
+          setEditingGlobalScriptId(null);
+          setName("");
+          setCommand("");
+          setIcon("play");
+          setKeybinding("");
+          setValidationError(null);
+        }}
+        open={globalDialogOpen}
+      >
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>{isEditingGlobal ? "Edit Global Action" : "Add Global Action"}</DialogTitle>
+            <DialogDescription>
+              Global actions are available in all projects. Run from the top bar or keybindings.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <form id={globalScriptFormId} className="space-y-4" onSubmit={submitGlobalScript}>
+              <div className="space-y-1.5">
+                <Label htmlFor="global-script-name">Name</Label>
+                <div className="flex items-center gap-2">
+                  <Popover onOpenChange={setIconPickerOpen} open={iconPickerOpen}>
+                    <PopoverTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="size-9 shrink-0 hover:bg-popover active:bg-popover data-pressed:bg-popover data-pressed:shadow-xs/5 data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] dark:data-pressed:before:shadow-[0_-1px_--theme(--color-white/6%)]"
+                          aria-label="Choose icon"
+                        />
+                      }
+                    >
+                      <ScriptIcon icon={icon} className="size-4.5" />
+                    </PopoverTrigger>
+                    <PopoverPopup align="start">
+                      <div className="grid grid-cols-3 gap-2">
+                        {SCRIPT_ICONS.map((entry) => {
+                          const isSelected = entry.id === icon;
+                          return (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              className={`relative flex flex-col items-center gap-2 rounded-md border px-2 py-2 text-xs ${
+                                isSelected
+                                  ? "border-primary/70 bg-primary/10"
+                                  : "border-border/70 hover:bg-accent/60"
+                              }`}
+                              onClick={() => {
+                                setIcon(entry.id);
+                                setIconPickerOpen(false);
+                              }}
+                            >
+                              <ScriptIcon icon={entry.id} className="size-4" />
+                              <span>{entry.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </PopoverPopup>
+                  </Popover>
+                  <Input
+                    id="global-script-name"
+                    autoFocus
+                    placeholder="Nmap Scan"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="global-script-keybinding">Keybinding</Label>
+                <Input
+                  id="global-script-keybinding"
+                  placeholder="Press shortcut"
+                  value={keybinding}
+                  readOnly
+                  onKeyDown={captureKeybinding}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Press a shortcut. Use <code>Backspace</code> to clear.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="global-script-command">Command</Label>
+                <Textarea
+                  id="global-script-command"
+                  placeholder="nmap -sCV {{target}} -oN scans/{{target}}.txt"
+                  value={command}
+                  onChange={(event) => setCommand(event.target.value)}
+                />
+                {detectedPlaceholders.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {detectedPlaceholders.map((ph) => (
+                      <span
+                        key={ph}
+                        className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono text-primary"
+                      >
+                        {ph}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {validationError && <p className="text-sm text-destructive">{validationError}</p>}
+            </form>
+          </DialogPanel>
+          <DialogFooter>
+            {isEditingGlobal && (
+              <Button
+                type="button"
+                variant="destructive-outline"
+                className="mr-auto"
+                onClick={() => setDeleteConfirmOpen(true)}
+              >
+                Delete
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setGlobalDialogOpen(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button form={globalScriptFormId} type="submit">
+              {isEditingGlobal ? "Save changes" : "Save action"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </>
   );
 }
