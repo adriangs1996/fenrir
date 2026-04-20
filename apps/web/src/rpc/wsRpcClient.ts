@@ -6,6 +6,8 @@ import {
   type GitStatusStreamEvent,
   type LocalApi,
   ORCHESTRATION_WS_METHODS,
+  type CreateGlobalActionInput,
+  type UpdateGlobalActionInput,
   type ServerSettingsPatch,
   WS_METHODS,
 } from "@fenrir/contracts";
@@ -128,6 +130,19 @@ export interface WsRpcClient {
     readonly updateSettings: (
       patch: ServerSettingsPatch,
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverUpdateSettings>>;
+    readonly getGlobalActions: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.serverGetGlobalActions
+    >;
+    readonly createGlobalAction: (
+      input: CreateGlobalActionInput,
+    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverCreateGlobalAction>>;
+    readonly updateGlobalAction: (
+      id: string,
+      input: UpdateGlobalActionInput,
+    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverUpdateGlobalAction>>;
+    readonly deleteGlobalAction: (
+      id: string,
+    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverDeleteGlobalAction>>;
     readonly subscribeConfig: RpcStreamMethod<
       typeof WS_METHODS.subscribeServerConfig
     >;
@@ -307,6 +322,22 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       updateSettings: (patch) =>
         transport.request((client) =>
           client[WS_METHODS.serverUpdateSettings]({ patch }),
+        ),
+      getGlobalActions: () =>
+        transport.request((client) =>
+          client[WS_METHODS.serverGetGlobalActions]({}),
+        ),
+      createGlobalAction: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.serverCreateGlobalAction](input),
+        ),
+      updateGlobalAction: (id, input) =>
+        transport.request((client) =>
+          client[WS_METHODS.serverUpdateGlobalAction]({ id, ...input }),
+        ),
+      deleteGlobalAction: (id) =>
+        transport.request((client) =>
+          client[WS_METHODS.serverDeleteGlobalAction]({ id }),
         ),
       subscribeConfig: (listener, options) =>
         transport.subscribe(

@@ -21,6 +21,7 @@ import {
   Effect,
   Exit,
   FileSystem,
+  Layer,
   Path,
   PubSub,
   Ref,
@@ -315,3 +316,5 @@ export const makeGlobalActions = Effect.gen(function* () {
     streamChanges: Stream.fromPubSub(changesPubSub),
   });
 });
+
+export const GlobalActionsLive = Layer.effect(GlobalActionsService, makeGlobalActions);

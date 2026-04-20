@@ -44,6 +44,7 @@ import {
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
+import { GlobalActionsService } from "./globalActions";
 import { ServerSettingsService } from "./serverSettings";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
@@ -120,6 +121,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const config = yield* ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents;
       const serverSettings = yield* ServerSettingsService;
+      const globalActions = yield* GlobalActionsService;
       const startup = yield* ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
@@ -484,6 +486,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         const keybindingsConfig = yield* keybindings.loadConfigState;
         const providers = yield* providerRegistry.getProviders;
         const settings = yield* serverSettings.getSettings;
+        const globalActionsList = yield* globalActions.getAll;
         const environment = yield* serverEnvironment.getDescriptor;
         const auth = yield* serverAuth.getDescriptor();
 
@@ -509,6 +512,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             otlpMetricsEnabled: config.otlpMetricsUrl !== undefined,
           },
           settings,
+          globalActions: globalActionsList,
         };
       });
 
@@ -845,6 +849,30 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               "rpc.aggregate": "server",
             },
           ),
+        [WS_METHODS.serverGetGlobalActions]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGetGlobalActions,
+            globalActions.getAll,
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverCreateGlobalAction]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverCreateGlobalAction,
+            globalActions.create(input),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverUpdateGlobalAction]: ({ id, ...input }) =>
+          observeRpcEffect(
+            WS_METHODS.serverUpdateGlobalAction,
+            globalActions.update(id, input),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverDeleteGlobalAction]: ({ id }) =>
+          observeRpcEffect(
+            WS_METHODS.serverDeleteGlobalAction,
+            globalActions.delete(id),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.projectsSearchEntries]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsSearchEntries,
@@ -1089,6 +1117,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   payload: { settings },
                 })),
               );
+              const globalActionsUpdates = globalActions.streamChanges.pipe(
+                Stream.map((globalActionsList) => ({
+                  version: 1 as const,
+                  type: "globalActionsUpdated" as const,
+                  payload: { globalActions: globalActionsList },
+                })),
+              );
 
               return Stream.concat(
                 Stream.make({
@@ -1098,7 +1133,10 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 }),
                 Stream.merge(
                   keybindingsUpdates,
-                  Stream.merge(providerStatuses, settingsUpdates),
+                  Stream.merge(
+                    providerStatuses,
+                    Stream.merge(settingsUpdates, globalActionsUpdates),
+                  ),
                 ),
               );
             }),

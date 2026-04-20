@@ -156,6 +156,14 @@ export const GlobalScriptProjectDefaults = Schema.Struct({
 });
 export type GlobalScriptProjectDefaults = typeof GlobalScriptProjectDefaults.Type;
 
+export class GlobalActionsRpcError extends Schema.TaggedErrorClass<GlobalActionsRpcError>()(
+  "GlobalActionsRpcError",
+  {
+    message: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
 export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,

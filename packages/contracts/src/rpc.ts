@@ -32,6 +32,8 @@ import {
 import { KeybindingsConfigError } from "./keybindings";
 import {
   ClientOrchestrationCommand,
+  GlobalActionsRpcError,
+  GlobalScript,
   OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
   OrchestrationDispatchCommandError,
@@ -44,7 +46,9 @@ import {
   OrchestrationReplayEventsError,
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
+  ProjectScriptIcon,
 } from "./orchestration";
+import { TrimmedNonEmptyString } from "./baseSchemas";
 import {
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
@@ -121,6 +125,10 @@ export const WS_METHODS = {
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
+  serverGetGlobalActions: "server.getGlobalActions",
+  serverCreateGlobalAction: "server.createGlobalAction",
+  serverUpdateGlobalAction: "server.updateGlobalAction",
+  serverDeleteGlobalAction: "server.deleteGlobalAction",
 
   // Streaming subscriptions
   subscribeGitStatus: "subscribeGitStatus",
@@ -174,6 +182,38 @@ export const WsServerUpdateSettingsRpc = Rpc.make(
     error: ServerSettingsError,
   },
 );
+
+export const WsServerGetGlobalActionsRpc = Rpc.make(WS_METHODS.serverGetGlobalActions, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(GlobalScript),
+  error: GlobalActionsRpcError,
+});
+
+export const WsServerCreateGlobalActionRpc = Rpc.make(WS_METHODS.serverCreateGlobalAction, {
+  payload: Schema.Struct({
+    name: Schema.String,
+    command: Schema.String,
+    icon: ProjectScriptIcon,
+  }),
+  success: GlobalScript,
+  error: GlobalActionsRpcError,
+});
+
+export const WsServerUpdateGlobalActionRpc = Rpc.make(WS_METHODS.serverUpdateGlobalAction, {
+  payload: Schema.Struct({
+    id: TrimmedNonEmptyString,
+    name: Schema.String,
+    command: Schema.String,
+    icon: ProjectScriptIcon,
+  }),
+  success: GlobalScript,
+  error: GlobalActionsRpcError,
+});
+
+export const WsServerDeleteGlobalActionRpc = Rpc.make(WS_METHODS.serverDeleteGlobalAction, {
+  payload: Schema.Struct({ id: TrimmedNonEmptyString }),
+  error: GlobalActionsRpcError,
+});
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(
   WS_METHODS.projectsSearchEntries,
@@ -429,6 +469,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
+  WsServerGetGlobalActionsRpc,
+  WsServerCreateGlobalActionRpc,
+  WsServerUpdateGlobalActionRpc,
+  WsServerDeleteGlobalActionRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
