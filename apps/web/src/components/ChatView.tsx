@@ -3,6 +3,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   type ClaudeCodeEffort,
   type EnvironmentId,
+  type GlobalScript,
   type MessageId,
   type ModelSelection,
   type ProjectScript,
@@ -97,11 +98,15 @@ import { ChevronDownIcon } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
 import { toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
-import { type NewProjectScriptInput } from "./ProjectScriptsControl";
+import { type NewProjectScriptInput, type NewGlobalScriptInput } from "./ProjectScriptsControl";
+import PlaceholderInputDialog from "./PlaceholderInputDialog";
+import { parsePlaceholders, substitutePlaceholders } from "~/lib/placeholders";
 import {
   commandForProjectScript,
+  commandForGlobalScript,
   nextProjectScriptId,
   projectScriptIdFromCommand,
+  globalScriptIdFromCommand,
 } from "~/projectScripts";
 import { newCommandId, newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
@@ -1835,6 +1840,130 @@ export default function ChatView(props: ChatViewProps) {
     [activeProject, persistProjectScripts],
   );
 
+  // -- Global action CRUD -------------------------------------------------
+
+  const saveGlobalScript = useCallback(
+    async (input: NewGlobalScriptInput) => {
+      const localApi = readLocalApi();
+      if (!localApi) return;
+      const script = await localApi.server.createGlobalAction({
+        name: input.name,
+        command: input.command,
+        icon: input.icon,
+      });
+      if (input.keybinding) {
+        const rule = decodeProjectScriptKeybindingRule({
+          keybinding: input.keybinding,
+          command: commandForGlobalScript(script.id),
+        });
+        if (rule) {
+          await localApi.server.upsertKeybinding(rule);
+        }
+      }
+    },
+    [],
+  );
+
+  const updateGlobalScript = useCallback(
+    async (scriptId: string, input: NewGlobalScriptInput) => {
+      const localApi = readLocalApi();
+      if (!localApi) return;
+      await localApi.server.updateGlobalAction(scriptId, {
+        name: input.name,
+        command: input.command,
+        icon: input.icon,
+      });
+      if (input.keybinding) {
+        const rule = decodeProjectScriptKeybindingRule({
+          keybinding: input.keybinding,
+          command: commandForGlobalScript(scriptId),
+        });
+        if (rule) {
+          await localApi.server.upsertKeybinding(rule);
+        }
+      }
+    },
+    [],
+  );
+
+  const deleteGlobalScript = useCallback(
+    async (scriptId: string) => {
+      const localApi = readLocalApi();
+      if (!localApi) return;
+      await localApi.server.deleteGlobalAction(scriptId);
+    },
+    [],
+  );
+
+  // -- Global action execution with placeholder resolution -----------------
+
+  const [placeholderDialogOpen, setPlaceholderDialogOpen] = useState(false);
+  const [pendingGlobalScript, setPendingGlobalScript] = useState<GlobalScript | null>(null);
+
+  const runGlobalScript = useCallback(
+    async (script: GlobalScript, altKey: boolean) => {
+      const placeholders = parsePlaceholders(script.command);
+
+      if (placeholders.length === 0) {
+        // No placeholders — run immediately like a project script
+        await runProjectScript({ id: script.id, name: script.name, command: script.command, icon: script.icon, runOnWorktreeCreate: false });
+        return;
+      }
+
+      // Check project defaults
+      const projectDefaults = activeProject?.globalScriptDefaults?.find(
+        (d) => d.scriptId === script.id,
+      );
+      const allDefaultsFilled = projectDefaults
+        ? placeholders.every((name) => (projectDefaults.defaults[name] ?? "").length > 0)
+        : false;
+
+      if (allDefaultsFilled && !altKey) {
+        // Defaults exist and user didn't hold Alt — run immediately with substitution
+        const resolved = substitutePlaceholders(script.command, projectDefaults!.defaults);
+        await runProjectScript({ id: script.id, name: script.name, command: resolved, icon: script.icon, runOnWorktreeCreate: false });
+        return;
+      }
+
+      // Show placeholder input dialog
+      setPendingGlobalScript(script);
+      setPlaceholderDialogOpen(true);
+    },
+    [activeProject, runProjectScript],
+  );
+
+  const handlePlaceholderRun = useCallback(
+    async (values: Record<string, string>, saveAsDefault: boolean) => {
+      if (!pendingGlobalScript) return;
+      const resolved = substitutePlaceholders(pendingGlobalScript.command, values);
+      await runProjectScript({ id: pendingGlobalScript.id, name: pendingGlobalScript.name, command: resolved, icon: pendingGlobalScript.icon, runOnWorktreeCreate: false });
+
+      if (saveAsDefault && activeProject) {
+        const api = readEnvironmentApi(environmentId);
+        if (api) {
+          const currentDefaults = activeProject.globalScriptDefaults ?? [];
+          const existingIndex = currentDefaults.findIndex(
+            (d) => d.scriptId === pendingGlobalScript.id,
+          );
+          const newEntry = { scriptId: pendingGlobalScript.id, defaults: values };
+          const nextDefaults =
+            existingIndex >= 0
+              ? currentDefaults.map((d, i) => (i === existingIndex ? newEntry : d))
+              : [...currentDefaults, newEntry];
+
+          await api.orchestration.dispatchCommand({
+            type: "project.meta.update",
+            commandId: newCommandId(),
+            projectId: activeProject.id,
+            globalScriptDefaults: nextDefaults,
+          });
+        }
+      }
+      setPendingGlobalScript(null);
+    },
+    [pendingGlobalScript, activeProject, environmentId, runProjectScript],
+  );
+
   const handleRuntimeModeChange = useCallback(
     (mode: RuntimeMode) => {
       if (mode === runtimeMode) return;
@@ -3286,10 +3415,16 @@ export default function ChatView(props: ChatViewProps) {
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          globalScripts={serverConfig?.globalActions ?? []}
+          globalScriptDefaults={activeProject?.globalScriptDefaults ?? []}
           onRunProjectScript={runProjectScript}
+          onRunGlobalScript={runGlobalScript}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
+          onAddGlobalScript={saveGlobalScript}
+          onUpdateGlobalScript={updateGlobalScript}
+          onDeleteGlobalScript={deleteGlobalScript}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
         />

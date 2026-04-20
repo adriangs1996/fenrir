@@ -1,6 +1,8 @@
 import {
   type EnvironmentId,
   type EditorId,
+  type GlobalScript,
+  type GlobalScriptProjectDefaults,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
@@ -11,7 +13,7 @@ import GitActionsControl from "../GitActionsControl";
 import { DiffIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
+import ProjectScriptsControl, { type NewProjectScriptInput, type NewGlobalScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
@@ -34,10 +36,16 @@ interface ChatHeaderProps {
   diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
   diffOpen: boolean;
+  globalScripts: GlobalScript[];
+  globalScriptDefaults: GlobalScriptProjectDefaults[];
   onRunProjectScript: (script: ProjectScript) => void;
+  onRunGlobalScript: (script: GlobalScript, altKey: boolean) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
+  onAddGlobalScript: (input: NewGlobalScriptInput) => Promise<void>;
+  onUpdateGlobalScript: (scriptId: string, input: NewGlobalScriptInput) => Promise<void>;
+  onDeleteGlobalScript: (scriptId: string) => Promise<void>;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
 }
@@ -59,10 +67,16 @@ export const ChatHeader = memo(function ChatHeader({
   diffToggleShortcutLabel,
   gitCwd,
   diffOpen,
+  globalScripts,
+  globalScriptDefaults,
   onRunProjectScript,
+  onRunGlobalScript,
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
+  onAddGlobalScript,
+  onUpdateGlobalScript,
+  onDeleteGlobalScript,
   onToggleTerminal,
   onToggleDiff,
 }: ChatHeaderProps) {
@@ -92,12 +106,18 @@ export const ChatHeader = memo(function ChatHeader({
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}
+            globalScripts={globalScripts}
+            globalScriptDefaults={globalScriptDefaults}
             keybindings={keybindings}
             preferredScriptId={preferredScriptId}
             onRunScript={onRunProjectScript}
+            onRunGlobalScript={onRunGlobalScript}
             onAddScript={onAddProjectScript}
             onUpdateScript={onUpdateProjectScript}
             onDeleteScript={onDeleteProjectScript}
+            onAddGlobalScript={onAddGlobalScript}
+            onUpdateGlobalScript={onUpdateGlobalScript}
+            onDeleteGlobalScript={onDeleteGlobalScript}
           />
         )}
         {activeProjectName && (
