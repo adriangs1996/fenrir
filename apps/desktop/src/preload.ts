@@ -22,6 +22,14 @@ const SET_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:set-saved-environment-secr
 const REMOVE_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:remove-saved-environment-secret";
 const GET_SERVER_EXPOSURE_STATE_CHANNEL = "desktop:get-server-exposure-state";
 const SET_SERVER_EXPOSURE_MODE_CHANNEL = "desktop:set-server-exposure-mode";
+const VPN_GET_STATE_CHANNEL = "desktop:vpn-get-state";
+const VPN_GET_PROFILES_CHANNEL = "desktop:vpn-get-profiles";
+const VPN_ADD_PROFILE_CHANNEL = "desktop:vpn-add-profile";
+const VPN_REMOVE_PROFILE_CHANNEL = "desktop:vpn-remove-profile";
+const VPN_CONNECT_CHANNEL = "desktop:vpn-connect";
+const VPN_DISCONNECT_CHANNEL = "desktop:vpn-disconnect";
+const VPN_STATE_CHANNEL = "desktop:vpn-state";
+const PICK_FILE_CHANNEL = "desktop:pick-file";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getLocalEnvironmentBootstrap: () => {
@@ -73,6 +81,27 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(UPDATE_STATE_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(UPDATE_STATE_CHANNEL, wrappedListener);
+    };
+  },
+
+  // VPN
+  getVpnState: () => ipcRenderer.invoke(VPN_GET_STATE_CHANNEL),
+  getVpnProfiles: () => ipcRenderer.invoke(VPN_GET_PROFILES_CHANNEL),
+  addVpnProfile: (label, configPath) =>
+    ipcRenderer.invoke(VPN_ADD_PROFILE_CHANNEL, label, configPath),
+  removeVpnProfile: (profileId) => ipcRenderer.invoke(VPN_REMOVE_PROFILE_CHANNEL, profileId),
+  connectVpn: (profileId) => ipcRenderer.invoke(VPN_CONNECT_CHANNEL, profileId),
+  disconnectVpn: () => ipcRenderer.invoke(VPN_DISCONNECT_CHANNEL),
+  pickFile: (options) => ipcRenderer.invoke(PICK_FILE_CHANNEL, options),
+  onVpnStateChange: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+      if (typeof state !== "object" || state === null) return;
+      listener(state as Parameters<typeof listener>[0]);
+    };
+
+    ipcRenderer.on(VPN_STATE_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(VPN_STATE_CHANNEL, wrappedListener);
     };
   },
 } satisfies DesktopBridge);

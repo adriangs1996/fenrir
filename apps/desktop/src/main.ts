@@ -67,6 +67,16 @@ import {
   reduceDesktopUpdateStateOnUpdateAvailable,
 } from "./updateMachine";
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
+import { readVpnProfiles, addVpnProfile, removeVpnProfile } from "./vpnSettings";
+import {
+  checkOpenvpnInstalled,
+  connectVpn,
+  disconnectVpn,
+  getVpnState,
+  initVpnManager,
+  onVpnStateChange,
+  stopVpn,
+} from "./vpnManager";
 
 syncShellEnvironment();
 
@@ -91,11 +101,20 @@ const SET_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:set-saved-environment-secr
 const REMOVE_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:remove-saved-environment-secret";
 const GET_SERVER_EXPOSURE_STATE_CHANNEL = "desktop:get-server-exposure-state";
 const SET_SERVER_EXPOSURE_MODE_CHANNEL = "desktop:set-server-exposure-mode";
+const VPN_GET_STATE_CHANNEL = "desktop:vpn-get-state";
+const VPN_GET_PROFILES_CHANNEL = "desktop:vpn-get-profiles";
+const VPN_ADD_PROFILE_CHANNEL = "desktop:vpn-add-profile";
+const VPN_REMOVE_PROFILE_CHANNEL = "desktop:vpn-remove-profile";
+const VPN_CONNECT_CHANNEL = "desktop:vpn-connect";
+const VPN_DISCONNECT_CHANNEL = "desktop:vpn-disconnect";
+const VPN_STATE_CHANNEL = "desktop:vpn-state";
+const PICK_FILE_CHANNEL = "desktop:pick-file";
 const BASE_DIR = process.env.FENRIR_HOME?.trim() || Path.join(OS.homedir(), ".fenrir");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
 const CLIENT_SETTINGS_PATH = Path.join(STATE_DIR, "client-settings.json");
 const SAVED_ENVIRONMENT_REGISTRY_PATH = Path.join(STATE_DIR, "saved-environments.json");
+const VPN_PROFILES_PATH = Path.join(STATE_DIR, "vpn-profiles.json");
 const DESKTOP_SCHEME = "t3";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
@@ -1479,6 +1498,76 @@ function registerIpcHandlers(): void {
     return nextState;
   });
 
+  // ---- VPN ----
+
+  initVpnManager(STATE_DIR);
+
+  ipcMain.removeHandler(VPN_GET_STATE_CHANNEL);
+  ipcMain.handle(VPN_GET_STATE_CHANNEL, async () => getVpnState());
+
+  ipcMain.removeHandler(VPN_GET_PROFILES_CHANNEL);
+  ipcMain.handle(VPN_GET_PROFILES_CHANNEL, async () => readVpnProfiles(VPN_PROFILES_PATH));
+
+  ipcMain.removeHandler(VPN_ADD_PROFILE_CHANNEL);
+  ipcMain.handle(VPN_ADD_PROFILE_CHANNEL, async (_event, label: unknown, configPath: unknown) => {
+    if (typeof label !== "string" || typeof configPath !== "string") {
+      throw new Error("Invalid VPN profile input.");
+    }
+    return addVpnProfile(VPN_PROFILES_PATH, label, configPath);
+  });
+
+  ipcMain.removeHandler(VPN_REMOVE_PROFILE_CHANNEL);
+  ipcMain.handle(VPN_REMOVE_PROFILE_CHANNEL, async (_event, profileId: unknown) => {
+    if (typeof profileId !== "string") {
+      throw new Error("Invalid VPN profile ID.");
+    }
+    const state = getVpnState();
+    if (state.activeProfileId === profileId && state.status !== "disconnected") {
+      throw new Error("Cannot remove an active VPN profile. Disconnect first.");
+    }
+    removeVpnProfile(VPN_PROFILES_PATH, profileId);
+  });
+
+  ipcMain.removeHandler(VPN_CONNECT_CHANNEL);
+  ipcMain.handle(VPN_CONNECT_CHANNEL, async (_event, profileId: unknown) => {
+    if (typeof profileId !== "string") {
+      throw new Error("Invalid VPN profile ID.");
+    }
+    if (!checkOpenvpnInstalled()) {
+      throw new Error(
+        "OpenVPN is not installed. Install it with `brew install openvpn` (macOS) or your package manager.",
+      );
+    }
+    const profiles = readVpnProfiles(VPN_PROFILES_PATH);
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile) {
+      throw new Error(`VPN profile not found: ${profileId}`);
+    }
+    return connectVpn(profile);
+  });
+
+  ipcMain.removeHandler(VPN_DISCONNECT_CHANNEL);
+  ipcMain.handle(VPN_DISCONNECT_CHANNEL, async () => disconnectVpn());
+
+  ipcMain.removeHandler(PICK_FILE_CHANNEL);
+  ipcMain.handle(PICK_FILE_CHANNEL, async (_event, options: unknown) => {
+    const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+    const filters =
+      options && typeof options === "object" && "filters" in options
+        ? (options as { filters: Electron.FileFilter[] }).filters
+        : [];
+    const result = owner
+      ? await dialog.showOpenDialog(owner, { properties: ["openFile"], filters })
+      : await dialog.showOpenDialog({ properties: ["openFile"], filters });
+    if (result.canceled) return null;
+    return result.filePaths[0] ?? null;
+  });
+
+  // Push VPN state changes to renderer
+  onVpnStateChange((state) => {
+    mainWindow?.webContents.send(VPN_STATE_CHANNEL, state);
+  });
+
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
   ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
@@ -1838,6 +1927,7 @@ app.on("before-quit", () => {
   writeDesktopLogHeader("before-quit received");
   clearUpdatePollTimer();
   cancelBackendReadinessWait();
+  stopVpn();
   stopBackend();
   restoreStdIoCapture?.();
 });
@@ -1883,6 +1973,7 @@ if (process.platform !== "win32") {
     writeDesktopLogHeader("SIGINT received");
     clearUpdatePollTimer();
     cancelBackendReadinessWait();
+    stopVpn();
     stopBackend();
     restoreStdIoCapture?.();
     app.quit();
@@ -1893,6 +1984,7 @@ if (process.platform !== "win32") {
     isQuitting = true;
     writeDesktopLogHeader("SIGTERM received");
     clearUpdatePollTimer();
+    stopVpn();
     stopBackend();
     restoreStdIoCapture?.();
     app.quit();

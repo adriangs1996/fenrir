@@ -318,6 +318,37 @@ const createDesktopBridgeStub = (overrides?: {
       .fn()
       .mockResolvedValue({ accepted: false, completed: false, state: idleUpdateState }),
     onUpdateState: () => () => {},
+    getVpnState: vi.fn().mockResolvedValue({
+      status: "disconnected",
+      activeProfileId: null,
+      assignedIp: null,
+      connectedAt: null,
+      errorMessage: null,
+    }),
+    getVpnProfiles: vi.fn().mockResolvedValue([]),
+    addVpnProfile: vi.fn().mockResolvedValue({
+      id: "test-id",
+      label: "Test",
+      configPath: "/tmp/test.ovpn",
+      createdAt: new Date().toISOString(),
+    }),
+    removeVpnProfile: vi.fn().mockResolvedValue(undefined),
+    connectVpn: vi.fn().mockResolvedValue({
+      status: "connected",
+      activeProfileId: "test-id",
+      assignedIp: "10.10.14.1",
+      connectedAt: new Date().toISOString(),
+      errorMessage: null,
+    }),
+    disconnectVpn: vi.fn().mockResolvedValue({
+      status: "disconnected",
+      activeProfileId: null,
+      assignedIp: null,
+      connectedAt: null,
+      errorMessage: null,
+    }),
+    pickFile: vi.fn().mockResolvedValue(null),
+    onVpnStateChange: () => () => {},
   };
 };
 

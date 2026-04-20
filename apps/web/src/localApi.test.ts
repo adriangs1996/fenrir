@@ -196,6 +196,30 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
       throw new Error("installUpdate not implemented in test");
     },
     onUpdateState: () => () => undefined,
+    getVpnState: async () => ({
+      status: "disconnected" as const,
+      activeProfileId: null,
+      assignedIp: null,
+      connectedAt: null,
+      errorMessage: null,
+    }),
+    getVpnProfiles: async () => [],
+    addVpnProfile: async () => {
+      throw new Error("addVpnProfile not implemented in test");
+    },
+    removeVpnProfile: async () => undefined,
+    connectVpn: async () => {
+      throw new Error("connectVpn not implemented in test");
+    },
+    disconnectVpn: async () => ({
+      status: "disconnected" as const,
+      activeProfileId: null,
+      assignedIp: null,
+      connectedAt: null,
+      errorMessage: null,
+    }),
+    pickFile: async () => null,
+    onVpnStateChange: () => () => undefined,
     ...overrides,
   };
 }

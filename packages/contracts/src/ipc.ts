@@ -62,6 +62,7 @@ import {
   ServerSettings,
   ServerSettingsPatch,
 } from "./settings";
+import type { VpnConnectionState, VpnProfile, VpnProfileId } from "./vpn";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -176,6 +177,20 @@ export interface DesktopBridge {
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
+
+  // VPN
+  getVpnState: () => Promise<VpnConnectionState>;
+  getVpnProfiles: () => Promise<readonly VpnProfile[]>;
+  addVpnProfile: (label: string, configPath: string) => Promise<VpnProfile>;
+  removeVpnProfile: (profileId: VpnProfileId) => Promise<void>;
+  connectVpn: (profileId: VpnProfileId) => Promise<VpnConnectionState>;
+  disconnectVpn: () => Promise<VpnConnectionState>;
+  pickFile: (options: {
+    filters: Array<{ name: string; extensions: string[] }>;
+  }) => Promise<string | null>;
+  onVpnStateChange: (
+    listener: (state: VpnConnectionState) => void,
+  ) => () => void;
 }
 
 /**
