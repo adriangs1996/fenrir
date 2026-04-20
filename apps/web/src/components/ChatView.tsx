@@ -2479,18 +2479,35 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      // Project scripts checked first (project wins on conflict)
       const scriptId = projectScriptIdFromCommand(command);
-      if (!scriptId || !activeProject) return;
-      const script = activeProject.scripts.find((entry) => entry.id === scriptId);
-      if (!script) return;
-      event.preventDefault();
-      event.stopPropagation();
-      void runProjectScript(script);
+      if (scriptId && activeProject) {
+        const script = activeProject.scripts.find((entry) => entry.id === scriptId);
+        if (script) {
+          event.preventDefault();
+          event.stopPropagation();
+          void runProjectScript(script);
+          return;
+        }
+      }
+
+      // Global scripts checked second
+      const globalId = globalScriptIdFromCommand(command);
+      if (globalId) {
+        const globalScript = serverConfig?.globalActions?.find((s) => s.id === globalId);
+        if (globalScript) {
+          event.preventDefault();
+          event.stopPropagation();
+          void runGlobalScript(globalScript, false);
+          return;
+        }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [
     activeProject,
+    serverConfig,
     terminalState.terminalOpen,
     terminalState.activeTerminalId,
     activeThreadId,
@@ -2498,6 +2515,7 @@ export default function ChatView(props: ChatViewProps) {
     createNewTerminal,
     setTerminalOpen,
     runProjectScript,
+    runGlobalScript,
     splitTerminal,
     keybindings,
     onToggleDiff,
