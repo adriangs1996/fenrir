@@ -23,6 +23,7 @@
     "FENRIR_OTLP_EXPORT_INTERVAL_MS",
     "FENRIR_OTLP_SERVICE_NAME"
   ],
+  "globalPassThroughEnv": ["PATHEXT"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
