@@ -32,6 +32,7 @@ export interface ServerDerivedPaths {
   readonly anonymousIdPath: string;
   readonly environmentIdPath: string;
   readonly secretsDir: string;
+  readonly globalActionsPath: string;
 }
 
 /**
@@ -87,6 +88,7 @@ export const deriveServerPaths = Effect.fn(function* (
     anonymousIdPath: join(stateDir, "anonymous-id"),
     environmentIdPath: join(stateDir, "environment-id"),
     secretsDir: join(stateDir, "secrets"),
+    globalActionsPath: join(stateDir, "global-actions.json"),
   };
 });
 
