@@ -142,6 +142,20 @@ export const ProjectScript = Schema.Struct({
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
+export const GlobalScript = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  command: TrimmedNonEmptyString,
+  icon: ProjectScriptIcon,
+});
+export type GlobalScript = typeof GlobalScript.Type;
+
+export const GlobalScriptProjectDefaults = Schema.Struct({
+  scriptId: TrimmedNonEmptyString,
+  defaults: Schema.Record({ key: Schema.String, value: Schema.String }),
+});
+export type GlobalScriptProjectDefaults = typeof GlobalScriptProjectDefaults.Type;
+
 export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -149,6 +163,7 @@ export const OrchestrationProject = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  globalScriptDefaults: Schema.Array(GlobalScriptProjectDefaults),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -322,6 +337,7 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  globalScriptDefaults: Schema.optional(Schema.Array(GlobalScriptProjectDefaults)),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
@@ -656,6 +672,7 @@ export const ProjectCreatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  globalScriptDefaults: Schema.Array(GlobalScriptProjectDefaults),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -667,6 +684,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  globalScriptDefaults: Schema.optional(Schema.Array(GlobalScriptProjectDefaults)),
   updatedAt: IsoDateTime,
 });
 
