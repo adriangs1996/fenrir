@@ -1902,6 +1902,15 @@ export default function ChatView(props: ChatViewProps) {
 
   const runGlobalScript = useCallback(
     async (script: GlobalScript, altKey: boolean) => {
+      if (!activeThreadId || !activeThread) {
+        toastManager.add({
+          type: "error",
+          title: "Open a thread first",
+          description: "Global actions run in a terminal and need an active thread.",
+        });
+        return;
+      }
+
       const placeholders = parsePlaceholders(script.command);
 
       if (placeholders.length === 0) {
@@ -1929,7 +1938,7 @@ export default function ChatView(props: ChatViewProps) {
       setPendingGlobalScript(script);
       setPlaceholderDialogOpen(true);
     },
-    [activeProject, runProjectScript],
+    [activeProject, activeThreadId, activeThread, runProjectScript],
   );
 
   const handlePlaceholderRun = useCallback(
@@ -3665,6 +3674,23 @@ export default function ChatView(props: ChatViewProps) {
 
       {expandedImage && (
         <ExpandedImageDialog preview={expandedImage} onClose={closeExpandedImage} />
+      )}
+
+      {pendingGlobalScript && (
+        <PlaceholderInputDialog
+          open={placeholderDialogOpen}
+          onOpenChange={(open) => {
+            setPlaceholderDialogOpen(open);
+            if (!open) setPendingGlobalScript(null);
+          }}
+          script={pendingGlobalScript}
+          defaults={
+            activeProject?.globalScriptDefaults?.find(
+              (d) => d.scriptId === pendingGlobalScript.id,
+            ) ?? null
+          }
+          onRun={handlePlaceholderRun}
+        />
       )}
     </div>
   );

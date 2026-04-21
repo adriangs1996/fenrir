@@ -16,6 +16,7 @@ import {
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
+  GlobalActionsRpcError,
   ThreadId,
   type TerminalEvent,
   WS_METHODS,
@@ -486,7 +487,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         const keybindingsConfig = yield* keybindings.loadConfigState;
         const providers = yield* providerRegistry.getProviders;
         const settings = yield* serverSettings.getSettings;
-        const globalActionsList = yield* globalActions.getAll;
+        const globalActionsList = yield* globalActions.getAll.pipe(
+          Effect.orElseSucceed(() => [] as const),
+        );
         const environment = yield* serverEnvironment.getDescriptor;
         const auth = yield* serverAuth.getDescriptor();
 
@@ -852,25 +855,33 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         [WS_METHODS.serverGetGlobalActions]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverGetGlobalActions,
-            globalActions.getAll,
+            globalActions.getAll.pipe(
+              Effect.mapError((e) => new GlobalActionsRpcError({ message: e.message, cause: e.cause })),
+            ),
             { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverCreateGlobalAction]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverCreateGlobalAction,
-            globalActions.create(input),
+            globalActions.create(input).pipe(
+              Effect.mapError((e) => new GlobalActionsRpcError({ message: e.message, cause: e.cause })),
+            ),
             { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverUpdateGlobalAction]: ({ id, ...input }) =>
           observeRpcEffect(
             WS_METHODS.serverUpdateGlobalAction,
-            globalActions.update(id, input),
+            globalActions.update(id, input).pipe(
+              Effect.mapError((e) => new GlobalActionsRpcError({ message: e.message, cause: e.cause })),
+            ),
             { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverDeleteGlobalAction]: ({ id }) =>
           observeRpcEffect(
             WS_METHODS.serverDeleteGlobalAction,
-            globalActions.delete(id),
+            globalActions.delete(id).pipe(
+              Effect.mapError((e) => new GlobalActionsRpcError({ message: e.message, cause: e.cause })),
+            ),
             { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.projectsSearchEntries]: (input) =>

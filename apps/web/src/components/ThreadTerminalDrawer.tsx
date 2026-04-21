@@ -358,7 +358,7 @@ export function TerminalViewport({
       fontSize: 12,
       scrollback: 5_000,
       fontFamily:
-        '"Geist Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+        '"GeistMono Nerd Font", "GeistMono NFM", "Geist Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
       theme: terminalThemeFromApp(mount),
     });
     terminal.loadAddon(fitAddon);

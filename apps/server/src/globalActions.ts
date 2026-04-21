@@ -113,7 +113,7 @@ function nextGlobalScriptId(name: string, existingIds: readonly string[]): strin
 // Codec
 // ---------------------------------------------------------------------------
 
-const GlobalActionsJson = Schema.parseJson(Schema.Array(GlobalScript));
+const GlobalActionsJson = Schema.fromJsonString(Schema.Array(GlobalScript));
 
 // ---------------------------------------------------------------------------
 // Service implementation
@@ -303,8 +303,8 @@ export const makeGlobalActions = Effect.gen(function* () {
       }
       yield* startWatcher.pipe(
         Effect.tap(() => Deferred.succeed(startedDeferred, void 0 as void)),
-        Effect.tapErrorCause((cause) =>
-          Deferred.failCause(startedDeferred, cause as Cause.Cause<GlobalActionsError>),
+        Effect.onError((cause) =>
+          Deferred.failCause(startedDeferred, cause),
         ),
       );
     }),

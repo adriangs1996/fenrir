@@ -360,19 +360,28 @@ export default function ProjectScriptsControl({
 
   return (
     <>
-      {primaryScript ? (
-        <Group aria-label="Project scripts">
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={() => onRunScript(primaryScript)}
-            title={`Run ${primaryScript.name}`}
-          >
-            <ScriptIcon icon={primaryScript.icon} />
-            <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
-              {primaryScript.name}
-            </span>
-          </Button>
+      {(primaryScript || globalScripts.length > 0) ? (
+        <Group aria-label="Actions">
+          {primaryScript ? (
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => onRunScript(primaryScript)}
+              title={`Run ${primaryScript.name}`}
+            >
+              <ScriptIcon icon={primaryScript.icon} />
+              <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+                {primaryScript.name}
+              </span>
+            </Button>
+          ) : (
+            <Button size="xs" variant="outline" onClick={openAddDialog} title="Add action">
+              <PlusIcon className="size-3.5" />
+              <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+                Add action
+              </span>
+            </Button>
+          )}
           <GroupSeparator className="hidden @3xl/header-actions:block" />
           <Menu highlightItemOnHover={false}>
             <MenuTrigger
@@ -494,12 +503,27 @@ export default function ProjectScriptsControl({
           </Menu>
         </Group>
       ) : (
-        <Button size="xs" variant="outline" onClick={openAddDialog} title="Add action">
-          <PlusIcon className="size-3.5" />
-          <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
-            Add action
-          </span>
-        </Button>
+        <Menu highlightItemOnHover={false}>
+          <MenuTrigger
+            render={<Button size="xs" variant="outline" aria-label="Add action" />}
+          >
+            <PlusIcon className="size-3.5" />
+            <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+              Add action
+            </span>
+            <ChevronDownIcon className="size-3.5 ml-0.5" />
+          </MenuTrigger>
+          <MenuPopup align="end">
+            <MenuItem className={dropdownItemClassName} onClick={openAddDialog}>
+              <PlusIcon className="size-4" />
+              Add project action
+            </MenuItem>
+            <MenuItem className={dropdownItemClassName} onClick={openAddGlobalDialog}>
+              <PlusIcon className="size-4" />
+              Add global action
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
       )}
 
       <Dialog

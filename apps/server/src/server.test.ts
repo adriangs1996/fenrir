@@ -101,6 +101,7 @@ import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
+import { GlobalActionsService, type GlobalActionsShape } from "./globalActions.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -133,6 +134,7 @@ const makeDefaultOrchestrationReadModel = () => {
         workspaceRoot: "/tmp/default-project",
         defaultModelSelection,
         scripts: [],
+        globalScriptDefaults: [],
         createdAt: now,
         updatedAt: now,
         deletedAt: null,
@@ -304,6 +306,7 @@ const buildAppUnderTest = (options?: {
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
     serverEnvironment?: Partial<ServerEnvironmentShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
+    globalActions?: Partial<GlobalActionsShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -481,6 +484,18 @@ const buildAppUnderTest = (options?: {
         Layer.mock(RepositoryIdentityResolver)({
           resolve: () => Effect.succeed(null),
           ...options?.layers?.repositoryIdentityResolver,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(GlobalActionsService)({
+          start: Effect.void,
+          ready: Effect.void,
+          getAll: Effect.succeed([]),
+          create: () => Effect.die(new Error("not available in test")),
+          update: () => Effect.die(new Error("not available in test")),
+          delete: () => Effect.die(new Error("not available in test")),
+          streamChanges: Stream.empty,
+          ...options?.layers?.globalActions,
         }),
       ),
       Layer.provideMerge(authTestLayer),
@@ -2703,6 +2718,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             workspaceRoot: "/tmp/project-a",
             defaultModelSelection,
             scripts: [],
+            globalScriptDefaults: [],
             createdAt: now,
             updatedAt: now,
             deletedAt: null,
@@ -2846,6 +2862,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   workspaceRoot: "/tmp/default-project",
                   defaultModelSelection,
                   scripts: [],
+                  globalScriptDefaults: [],
                   createdAt: "2026-04-05T00:00:00.000Z",
                   updatedAt: "2026-04-05T00:00:00.000Z",
                 },

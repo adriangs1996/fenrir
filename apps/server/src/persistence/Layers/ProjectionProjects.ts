@@ -16,11 +16,7 @@ const ProjectionProjectDbRow = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
-    globalScriptDefaults: Schema.transform(
-      Schema.NullOr(Schema.fromJsonString(Schema.Array(GlobalScriptProjectDefaults))),
-      Schema.Array(GlobalScriptProjectDefaults),
-      { decode: (v) => v ?? [], encode: (v) => v },
-    ),
+    globalScriptDefaults: Schema.fromJsonString(Schema.Array(GlobalScriptProjectDefaults)),
   }),
 );
 type ProjectionProjectDbRow = typeof ProjectionProjectDbRow.Type;
@@ -78,7 +74,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
-          global_script_defaults_json AS "globalScriptDefaults",
+          COALESCE(global_script_defaults_json, '[]') AS "globalScriptDefaults",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -98,7 +94,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
-          global_script_defaults_json AS "globalScriptDefaults",
+          COALESCE(global_script_defaults_json, '[]') AS "globalScriptDefaults",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
