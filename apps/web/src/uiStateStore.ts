@@ -29,7 +29,9 @@ export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
 }
 
-export interface UiState extends UiProjectState, UiThreadState {}
+export interface UiState extends UiProjectState, UiThreadState {
+  activeWorkspace: "code" | "hack";
+}
 
 export interface SyncProjectInput {
   key: string;
@@ -45,6 +47,7 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   threadLastVisitedAtById: {},
+  activeWorkspace: "code" as const,
 };
 
 const persistedExpandedProjectCwds = new Set<string>();
@@ -385,6 +388,7 @@ interface UiStateStore extends UiState {
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
   reorderProjects: (draggedProjectId: string, targetProjectId: string) => void;
+  setActiveWorkspace: (workspace: "code" | "hack") => void;
 }
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
@@ -401,6 +405,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setProjectExpanded(state, projectId, expanded)),
   reorderProjects: (draggedProjectId, targetProjectId) =>
     set((state) => reorderProjects(state, draggedProjectId, targetProjectId)),
+  setActiveWorkspace: (workspace) => set({ activeWorkspace: workspace }),
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));

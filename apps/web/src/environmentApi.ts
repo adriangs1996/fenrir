@@ -18,6 +18,18 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       writeTmux: (input) => rpcClient.terminal.writeTmux(input),
       resizeTmux: (input) => rpcClient.terminal.resizeTmux(input),
     },
+    metasploit: {
+      status: () => rpcClient.metasploit.status(),
+      createListener: (input) => rpcClient.metasploit.createListener(input),
+      stopListener: (input) => rpcClient.metasploit.stopListener(input),
+      listListeners: () => rpcClient.metasploit.listListeners(),
+      listSessions: () => rpcClient.metasploit.listSessions(),
+      sessionWrite: (input) => rpcClient.metasploit.sessionWrite(input),
+      sessionResize: (input) => rpcClient.metasploit.sessionResize(input),
+      sessionUpgrade: (input) => rpcClient.metasploit.sessionUpgrade(input),
+      sessionClose: (input) => rpcClient.metasploit.sessionClose(input),
+      onEvent: (callback) => rpcClient.metasploit.onEvent(callback),
+    },
     projects: {
       searchEntries: rpcClient.projects.searchEntries,
       writeFile: rpcClient.projects.writeFile,

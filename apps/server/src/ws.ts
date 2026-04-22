@@ -19,9 +19,13 @@ import {
   GlobalActionsRpcError,
   ThreadId,
   type TerminalEvent,
+  type MetasploitEvent,
   WS_METHODS,
   WsRpcGroup,
   TmuxError,
+  MetasploitConnectionError,
+  MetasploitListenerError,
+  MetasploitSessionError,
 } from "@fenrir/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
@@ -65,6 +69,8 @@ import {
 } from "./auth/Services/SessionCredentialService";
 import { respondToAuthError } from "./auth/http";
 import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager";
+import { MetasploitService } from "./metasploit/Services/MetasploitService";
+import { MetasploitShellAdapter, type MsfShellProcess } from "./metasploit/Services/MetasploitShellAdapter";
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -133,7 +139,10 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
       const tmuxSessionManager = yield* TmuxSessionManager;
+      const metasploitService = yield* MetasploitService;
+      const metasploitShellAdapter = yield* MetasploitShellAdapter;
       const activeTmuxProcesses = new Map<string, { pid: number }>();
+      const activeMsfShellProcesses = new Map<string, MsfShellProcess>();
 
       const serverCommandId = (tag: string) =>
         CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
@@ -1213,6 +1222,125 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               );
             }),
             { "rpc.aggregate": "auth" },
+          ),
+
+        // ─── Metasploit RPCs ──────────────────────────────────────────────
+
+        [WS_METHODS.metasploitStatus]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.metasploitStatus,
+            metasploitService.status(),
+            { "rpc.aggregate": "metasploit" },
+          ),
+
+        [WS_METHODS.metasploitCreateListener]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.metasploitCreateListener,
+            metasploitService.createListener(input),
+            { "rpc.aggregate": "metasploit" },
+          ),
+
+        [WS_METHODS.metasploitStopListener]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.metasploitStopListener,
+            metasploitService.stopListener(input.listenerId),
+            { "rpc.aggregate": "metasploit" },
+          ),
+
+        [WS_METHODS.metasploitListListeners]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.metasploitListListeners,
+            metasploitService.listListeners(),
+            { "rpc.aggregate": "metasploit" },
+          ),
+
+        [WS_METHODS.metasploitListSessions]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.metasploitListSessions,
+            metasploitService.listSessions(),
+            { "rpc.aggregate": "metasploit" },
+          ),
+
+        [WS_METHODS.metasploitSessionWrite]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.metasploitSessionWrite,
+            Effect.gen(function* () {
+              // If we have an active shell process, write through it
+              const shellProc = activeMsfShellProcesses.get(input.sessionId);
+              if (shellProc) {
+                shellProc.write(input.data);
+                return;
+              }
+              // Otherwise write directly through the service
+              yield* metasploitService.sessionWrite(input.sessionId, input.data);
+            }).pipe(
+              Effect.mapError(
+                (err) =>
+                  new MetasploitSessionError({
+                    sessionId: input.sessionId,
+                    message:
+                      err instanceof Error
+                        ? err.message
+                        : "Session write failed",
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "metasploit" },
+          ),
+
+        [WS_METHODS.metasploitSessionResize]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.metasploitSessionResize,
+            Effect.sync(() => {
+              const shellProc = activeMsfShellProcesses.get(input.sessionId);
+              if (shellProc) {
+                shellProc.resize(input.cols, input.rows);
+              }
+            }).pipe(
+              Effect.mapError(
+                () =>
+                  new MetasploitSessionError({
+                    sessionId: input.sessionId,
+                    message: "Session resize failed",
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "metasploit" },
+          ),
+
+        [WS_METHODS.metasploitSessionUpgrade]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.metasploitSessionUpgrade,
+            metasploitService.sessionUpgrade(input.sessionId),
+            { "rpc.aggregate": "metasploit" },
+          ),
+
+        [WS_METHODS.metasploitSessionClose]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.metasploitSessionClose,
+            Effect.gen(function* () {
+              const shellProc = activeMsfShellProcesses.get(input.sessionId);
+              if (shellProc) {
+                shellProc.close();
+                activeMsfShellProcesses.delete(input.sessionId);
+              }
+              yield* metasploitService.sessionClose(input.sessionId);
+            }),
+            { "rpc.aggregate": "metasploit" },
+          ),
+
+        [WS_METHODS.subscribeMetasploitEvents]: (_input) =>
+          observeRpcStream(
+            WS_METHODS.subscribeMetasploitEvents,
+            Stream.callback<MetasploitEvent>((queue) =>
+              Effect.acquireRelease(
+                metasploitService.subscribe((event) => {
+                  Effect.runFork(Queue.offer(queue, event));
+                }),
+                (unsubscribe) => Effect.sync(unsubscribe),
+              ),
+            ),
+            { "rpc.aggregate": "metasploit" },
           ),
       });
     }),

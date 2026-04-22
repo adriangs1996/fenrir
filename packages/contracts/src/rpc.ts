@@ -75,6 +75,22 @@ import {
   TmuxWriteInput,
 } from "./terminal";
 import {
+  CreateListenerInput,
+  ListenerSnapshot,
+  MetasploitConnectionError,
+  MetasploitEvent,
+  MetasploitListenerError,
+  MetasploitNotFoundError,
+  MetasploitSessionError,
+  MetasploitStatusSnapshot,
+  MsfSessionSnapshot,
+  SessionCloseInput,
+  SessionResizeInput,
+  SessionUpgradeInput,
+  SessionWriteInput,
+  StopListenerInput,
+} from "./metasploit";
+import {
   ServerConfigStreamEvent,
   ServerConfig,
   ServerLifecycleStreamEvent,
@@ -143,6 +159,18 @@ export const WS_METHODS = {
   terminalDetachTmux: "terminal.detachTmux",
   terminalWriteTmux: "terminal.writeTmux",
   terminalResizeTmux: "terminal.resizeTmux",
+
+  // Metasploit
+  metasploitStatus: "metasploit.status",
+  metasploitCreateListener: "metasploit.createListener",
+  metasploitStopListener: "metasploit.stopListener",
+  metasploitListListeners: "metasploit.listListeners",
+  metasploitListSessions: "metasploit.listSessions",
+  metasploitSessionWrite: "metasploit.sessionWrite",
+  metasploitSessionResize: "metasploit.sessionResize",
+  metasploitSessionUpgrade: "metasploit.sessionUpgrade",
+  metasploitSessionClose: "metasploit.sessionClose",
+  subscribeMetasploitEvents: "subscribeMetasploitEvents",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(
@@ -463,6 +491,95 @@ export const WsTerminalResizeTmuxRpc = Rpc.make(
   },
 );
 
+// ─── Metasploit RPCs ────────────────────────────────────────────────────────
+
+export const WsMetasploitStatusRpc = Rpc.make(WS_METHODS.metasploitStatus, {
+  payload: Schema.Struct({}),
+  success: MetasploitStatusSnapshot,
+  error: MetasploitConnectionError,
+});
+
+export const WsMetasploitCreateListenerRpc = Rpc.make(
+  WS_METHODS.metasploitCreateListener,
+  {
+    payload: CreateListenerInput,
+    success: ListenerSnapshot,
+    error: Schema.Union([
+      MetasploitListenerError,
+      MetasploitConnectionError,
+      MetasploitNotFoundError,
+    ]),
+  },
+);
+
+export const WsMetasploitStopListenerRpc = Rpc.make(
+  WS_METHODS.metasploitStopListener,
+  {
+    payload: StopListenerInput,
+    error: MetasploitListenerError,
+  },
+);
+
+export const WsMetasploitListListenersRpc = Rpc.make(
+  WS_METHODS.metasploitListListeners,
+  {
+    payload: Schema.Struct({}),
+    success: Schema.Array(ListenerSnapshot),
+    error: MetasploitConnectionError,
+  },
+);
+
+export const WsMetasploitListSessionsRpc = Rpc.make(
+  WS_METHODS.metasploitListSessions,
+  {
+    payload: Schema.Struct({}),
+    success: Schema.Array(MsfSessionSnapshot),
+    error: MetasploitConnectionError,
+  },
+);
+
+export const WsMetasploitSessionWriteRpc = Rpc.make(
+  WS_METHODS.metasploitSessionWrite,
+  {
+    payload: SessionWriteInput,
+    error: MetasploitSessionError,
+  },
+);
+
+export const WsMetasploitSessionResizeRpc = Rpc.make(
+  WS_METHODS.metasploitSessionResize,
+  {
+    payload: SessionResizeInput,
+    error: MetasploitSessionError,
+  },
+);
+
+export const WsMetasploitSessionUpgradeRpc = Rpc.make(
+  WS_METHODS.metasploitSessionUpgrade,
+  {
+    payload: SessionUpgradeInput,
+    success: MsfSessionSnapshot,
+    error: MetasploitSessionError,
+  },
+);
+
+export const WsMetasploitSessionCloseRpc = Rpc.make(
+  WS_METHODS.metasploitSessionClose,
+  {
+    payload: SessionCloseInput,
+    error: MetasploitSessionError,
+  },
+);
+
+export const WsSubscribeMetasploitEventsRpc = Rpc.make(
+  WS_METHODS.subscribeMetasploitEvents,
+  {
+    payload: Schema.Struct({}),
+    success: MetasploitEvent,
+    stream: true,
+  },
+);
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -508,4 +625,14 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalDetachTmuxRpc,
   WsTerminalWriteTmuxRpc,
   WsTerminalResizeTmuxRpc,
+  WsMetasploitStatusRpc,
+  WsMetasploitCreateListenerRpc,
+  WsMetasploitStopListenerRpc,
+  WsMetasploitListListenersRpc,
+  WsMetasploitListSessionsRpc,
+  WsMetasploitSessionWriteRpc,
+  WsMetasploitSessionResizeRpc,
+  WsMetasploitSessionUpgradeRpc,
+  WsMetasploitSessionCloseRpc,
+  WsSubscribeMetasploitEventsRpc,
 );

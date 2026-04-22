@@ -5,6 +5,7 @@ import {
   type GitStatusResult,
   type GitStatusStreamEvent,
   type LocalApi,
+  type MetasploitEvent,
   ORCHESTRATION_WS_METHODS,
   type CreateGlobalActionInput,
   type UpdateGlobalActionInput,
@@ -74,6 +75,36 @@ export interface WsRpcClient {
     readonly detachTmux: RpcUnaryMethod<typeof WS_METHODS.terminalDetachTmux>;
     readonly writeTmux: RpcUnaryMethod<typeof WS_METHODS.terminalWriteTmux>;
     readonly resizeTmux: RpcUnaryMethod<typeof WS_METHODS.terminalResizeTmux>;
+  };
+  readonly metasploit: {
+    readonly status: RpcUnaryNoArgMethod<typeof WS_METHODS.metasploitStatus>;
+    readonly createListener: RpcUnaryMethod<
+      typeof WS_METHODS.metasploitCreateListener
+    >;
+    readonly stopListener: RpcUnaryMethod<
+      typeof WS_METHODS.metasploitStopListener
+    >;
+    readonly listListeners: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.metasploitListListeners
+    >;
+    readonly listSessions: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.metasploitListSessions
+    >;
+    readonly sessionWrite: RpcUnaryMethod<
+      typeof WS_METHODS.metasploitSessionWrite
+    >;
+    readonly sessionResize: RpcUnaryMethod<
+      typeof WS_METHODS.metasploitSessionResize
+    >;
+    readonly sessionUpgrade: RpcUnaryMethod<
+      typeof WS_METHODS.metasploitSessionUpgrade
+    >;
+    readonly sessionClose: RpcUnaryMethod<
+      typeof WS_METHODS.metasploitSessionClose
+    >;
+    readonly onEvent: RpcStreamMethod<
+      typeof WS_METHODS.subscribeMetasploitEvents
+    >;
   };
   readonly projects: {
     readonly searchEntries: RpcUnaryMethod<
@@ -222,6 +253,50 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       resizeTmux: (input) =>
         transport.request((client) =>
           client[WS_METHODS.terminalResizeTmux](input),
+        ),
+    },
+    metasploit: {
+      status: () =>
+        transport.request((client) =>
+          client[WS_METHODS.metasploitStatus]({}),
+        ),
+      createListener: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.metasploitCreateListener](input),
+        ),
+      stopListener: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.metasploitStopListener](input),
+        ),
+      listListeners: () =>
+        transport.request((client) =>
+          client[WS_METHODS.metasploitListListeners]({}),
+        ),
+      listSessions: () =>
+        transport.request((client) =>
+          client[WS_METHODS.metasploitListSessions]({}),
+        ),
+      sessionWrite: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.metasploitSessionWrite](input),
+        ),
+      sessionResize: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.metasploitSessionResize](input),
+        ),
+      sessionUpgrade: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.metasploitSessionUpgrade](input),
+        ),
+      sessionClose: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.metasploitSessionClose](input),
+        ),
+      onEvent: (listener, options) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeMetasploitEvents]({}),
+          listener,
+          options,
         ),
     },
     projects: {

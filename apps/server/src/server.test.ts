@@ -102,6 +102,8 @@ import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
 import { GlobalActionsService, type GlobalActionsShape } from "./globalActions.ts";
+import { MetasploitService, type MetasploitServiceShape } from "./metasploit/Services/MetasploitService.ts";
+import { MetasploitShellAdapter, type MetasploitShellAdapterShape } from "./metasploit/Services/MetasploitShellAdapter.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -412,6 +414,28 @@ const buildAppUnderTest = (options?: {
           writeToSession: () => Effect.void,
           resizeSession: () => Effect.void,
           sessionName: (projectId: string) => `fenrir-${projectId}`,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(MetasploitService)({
+          isAvailable: Effect.succeed(false),
+          start: () => Effect.void,
+          stop: () => Effect.void,
+          status: () => Effect.succeed({ connected: false, version: null, listenersCount: 0, sessionsCount: 0 }),
+          createListener: () => Effect.die(new Error("not available in test")),
+          stopListener: () => Effect.void,
+          listListeners: () => Effect.succeed([]),
+          listSessions: () => Effect.succeed([]),
+          sessionWrite: () => Effect.void,
+          sessionRead: () => Effect.succeed(""),
+          sessionUpgrade: () => Effect.die(new Error("not available in test")),
+          sessionClose: () => Effect.void,
+          subscribe: () => Effect.succeed(() => {}),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(MetasploitShellAdapter)({
+          attach: () => Effect.die(new Error("not available in test")),
         }),
       ),
       Layer.provide(
