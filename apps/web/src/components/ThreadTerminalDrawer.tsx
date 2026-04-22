@@ -11,6 +11,7 @@ import {
   type TerminalEvent,
   type TerminalSessionSnapshot,
   type ThreadId,
+  buildTerminalFontFamily,
 } from "@fenrir/contracts";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
@@ -49,6 +50,7 @@ import {
 } from "../terminalStateStore";
 import { selectThreadByRef, useStore } from "~/store";
 import { createThreadSelectorByRef } from "~/storeSelectors";
+import { useSettings } from "~/hooks/useSettings";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
@@ -329,11 +331,29 @@ export function TerminalViewport({
     },
   );
   const readTerminalLabel = useEffectEvent(() => terminalLabel);
+  const { terminalFontFamily, terminalFontSize } = useSettings((s) => ({
+    terminalFontFamily: s.terminalFontFamily,
+    terminalFontSize: s.terminalFontSize,
+  }));
   const thread = useStore(
     useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]),
   );
   const projectId = thread?.projectId;
   const prevProjectIdRef = useRef(projectId);
+
+  // Reactively update terminal font when settings change
+  useEffect(() => {
+    const activeTerminal = terminalRef.current;
+    const activeFitAddon = fitAddonRef.current;
+    if (!activeTerminal) return;
+    activeTerminal.options.fontFamily = buildTerminalFontFamily(terminalFontFamily);
+    activeTerminal.options.fontSize = terminalFontSize;
+    try {
+      activeFitAddon?.fit();
+    } catch {
+      // fit may throw during transitions
+    }
+  }, [terminalFontFamily, terminalFontSize]);
 
   useEffect(() => {
     const mount = containerRef.current;
@@ -355,10 +375,9 @@ export function TerminalViewport({
     const terminal = new Terminal({
       cursorBlink: true,
       lineHeight: 1.2,
-      fontSize: 12,
+      fontSize: terminalFontSize,
       scrollback: 5_000,
-      fontFamily:
-        '"GeistMono Nerd Font", "GeistMono NFM", "Geist Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+      fontFamily: buildTerminalFontFamily(terminalFontFamily),
       theme: terminalThemeFromApp(mount),
     });
     terminal.loadAddon(fitAddon);
