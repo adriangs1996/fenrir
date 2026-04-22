@@ -7,6 +7,7 @@ import {
   otlpTracesProxyRouteLayer,
   projectFaviconRouteLayer,
   serverEnvironmentRouteLayer,
+  fontsRouteLayer,
   staticAndDevRouteLayer,
   browserApiCorsLayer,
 } from "./http";
@@ -36,6 +37,8 @@ import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster";
 import { RoutingTextGenerationLive } from "./git/Layers/RoutingTextGeneration";
 import { TerminalManagerLive } from "./terminal/Layers/Manager";
 import { TmuxSessionManagerLive } from "./terminal/Layers/TmuxSessionManager";
+import { MetasploitServiceLive } from "./metasploit/Layers/MetasploitService";
+import { MetasploitShellAdapterLive } from "./metasploit/Layers/MetasploitShellAdapter";
 import { GitManagerLive } from "./git/Layers/GitManager";
 import { KeybindingsLive } from "./keybindings";
 import {
@@ -227,6 +230,11 @@ const TerminalLayerLive = Layer.mergeAll(
   TmuxSessionManagerLive,
 ).pipe(Layer.provide(PtyAdapterLive));
 
+const MetasploitLayerLive = Layer.mergeAll(
+  MetasploitServiceLive,
+  MetasploitShellAdapterLive.pipe(Layer.provide(MetasploitServiceLive)),
+).pipe(Layer.provide(PtyAdapterLive));
+
 const WorkspaceLayerLive = Layer.mergeAll(
   WorkspacePathsLive,
   WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
@@ -248,6 +256,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
   Layer.provideMerge(ProviderLayerLive),
   Layer.provideMerge(TerminalLayerLive),
+  Layer.provideMerge(MetasploitLayerLive),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(KeybindingsLive),
   Layer.provideMerge(ProviderRegistryLive),
@@ -284,6 +293,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   otlpTracesProxyRouteLayer,
   projectFaviconRouteLayer,
   serverEnvironmentRouteLayer,
+  fontsRouteLayer,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,
 ).pipe(Layer.provide(browserApiCorsLayer));

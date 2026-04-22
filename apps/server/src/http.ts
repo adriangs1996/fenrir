@@ -11,6 +11,7 @@ import {
 } from "effect/unstable/http";
 import { OtlpTracer } from "effect/unstable/observability";
 
+import { getSystemFonts } from "./fonts";
 import {
   ATTACHMENTS_ROUTE_PREFIX,
   normalizeAttachmentRelativePath,
@@ -217,6 +218,19 @@ export const projectFaviconRouteLayer = HttpRouter.add(
         Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
       ),
     );
+  }).pipe(Effect.catchTag("AuthError", respondToAuthError)),
+);
+
+export const fontsRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/fonts",
+  Effect.gen(function* () {
+    yield* requireAuthenticatedRequest;
+    const fonts = yield* Effect.tryPromise(() => getSystemFonts());
+    return HttpServerResponse.jsonUnsafe(fonts, {
+      status: 200,
+      headers: { "cache-control": "private, max-age=3600" },
+    });
   }).pipe(Effect.catchTag("AuthError", respondToAuthError)),
 );
 
