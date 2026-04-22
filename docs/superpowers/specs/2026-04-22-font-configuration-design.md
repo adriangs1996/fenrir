@@ -31,7 +31,7 @@ Font *list* endpoint is server-side (requires system command execution).
 |---------|------|---------|-------|
 | `uiFontFamily` | `string` | `"Geist Mono"` | Any installed font |
 | `uiFontSize` | `number` | `14` | 10–24 |
-| `terminalFontFamily` | `string` | `"GeistMono Nerd Font", "GeistMono NFM", "Geist Mono"` | Any installed font (monospace recommended) |
+| `terminalFontFamily` | `string` | `"GeistMono Nerd Font"` | Any installed font (monospace recommended). Fallback chain appended at render time. |
 | `terminalFontSize` | `number` | `12` | 8–24 |
 
 ## Server: Font Discovery
@@ -56,18 +56,29 @@ Font *list* endpoint is server-side (requires system command execution).
 | Linux | `fc-list --format="%{family}:%{style}:%{spacing}\n"` | `spacing` field (100=monospace) |
 | Windows | PowerShell: `[System.Drawing.Text.InstalledFontCollection]` or registry query | Name heuristics |
 
+### Performance Note
+
+On macOS, `system_profiler SPFontsDataType -json` can take 3-5+ seconds. Prefer `fc-list` when available (faster). The in-memory cache ensures this cost is paid only once per session. The client handles slow first load via `isLoading` state from the TanStack Query hook.
+
 ### Response Schema
 
+Defined in `packages/contracts/src/fonts.ts` (new file) as an Effect Schema for consistency with existing contract patterns:
+
 ```typescript
-interface SystemFont {
-  family: string;
-  category: "monospace" | "sans-serif" | "serif" | "other";
-}
+export const SystemFontSchema = Schema.Struct({
+  family: Schema.String,
+  category: Schema.Literal("monospace", "sans-serif", "serif", "other"),
+});
+export type SystemFont = typeof SystemFontSchema.Type;
+
+export const SystemFontListSchema = Schema.Array(SystemFontSchema);
 ```
 
 ### HTTP Endpoint
 
-`GET /api/fonts` — added to `apps/server/src/http.ts` alongside existing routes.
+`GET /api/fonts` — new route layer `fontsRouteLayer` added to `apps/server/src/http.ts`.
+
+**Route ordering:** In `apps/server/src/server.ts`, `fontsRouteLayer` must be added to `makeRoutesLayer`'s `Layer.mergeAll(...)` call *before* `staticAndDevRouteLayer` (which is a `GET *` catch-all for SPA fallback). Otherwise the catch-all intercepts the request.
 
 Returns `SystemFont[]`. Auth required (same middleware as other endpoints). Response is cacheable.
 
@@ -84,16 +95,20 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(() => "Geist Mono")
   ),
   uiFontSize: Schema.Number.pipe(
+    Schema.clamp({ minimum: 10, maximum: 24 }),
     Schema.withDecodingDefault(() => 14)
   ),
   terminalFontFamily: Schema.String.pipe(
-    Schema.withDecodingDefault(() => '"GeistMono Nerd Font", "GeistMono NFM", "Geist Mono"')
+    Schema.withDecodingDefault(() => "GeistMono Nerd Font")
   ),
   terminalFontSize: Schema.Number.pipe(
+    Schema.clamp({ minimum: 8, maximum: 24 }),
     Schema.withDecodingDefault(() => 12)
   ),
 });
 ```
+
+**Note on font-size validation:** `Schema.clamp` ensures values outside range are clamped, not rejected. UI stepper also enforces min/max bounds.
 
 `DEFAULT_CLIENT_SETTINGS` auto-derives from schema (existing pattern).
 
@@ -165,7 +180,10 @@ Settings changes applied immediately (no save button — matches existing patter
 
 ### Restore Defaults Integration
 
-Add font settings to `useSettingsRestore()` tracking in `SettingsPanels.tsx`.
+Add font settings to `useSettingsRestore()` tracking in `SettingsPanels.tsx`:
+- Add 4 new entries to `changedSettingLabels` comparisons: "UI Font", "UI Font Size", "Terminal Font", "Terminal Font Size"
+- Add to `useMemo` dependency array
+- `resetSettings()` already resets via `updateSettings(DEFAULT_UNIFIED_SETTINGS)`, so data flow is covered
 
 ## Client: Applying Font Settings
 
@@ -173,42 +191,65 @@ Add font settings to `useSettingsRestore()` tracking in `SettingsPanels.tsx`.
 
 **Mechanism:** CSS custom properties on `:root`.
 
-In app root (or a dedicated `useFontSettings()` effect):
+In `apps/web/src/routes/__root.tsx` (inside `RootRouteView()`, alongside existing theme sync effect):
 1. Read `uiFontFamily` and `uiFontSize` from `useSettings()`
-2. Set `document.documentElement.style.setProperty('--font-family-ui', value)`
-3. Set `document.documentElement.style.setProperty('--font-size-ui', value + 'px')`
+2. Set `document.documentElement.style.setProperty('--fenrir-font-family', value + ', -apple-system, ...')`
+3. Set `document.documentElement.style.setProperty('--fenrir-font-size', value + 'px')`
+
+CSS custom properties use `--fenrir-` prefix to avoid collision with Tailwind's `--font-*` namespace.
 
 CSS in `index.css`:
 ```css
 body {
-  font-family: var(--font-family-ui, "Geist Mono", ...existing fallbacks);
-  font-size: var(--font-size-ui, 14px);
+  font-family: var(--fenrir-font-family, "Geist Mono", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, monospace);
+  font-size: var(--fenrir-font-size, 14px);
 }
 ```
+
+**Scope note:** This affects elements that inherit body font without an explicit Tailwind size class (`text-sm`, `text-xs`, etc.). Components using Tailwind size utilities keep their sizes. This is intentional — `uiFontSize` sets the base, not an override for all text.
 
 ### Terminal Font
 
 **Mechanism:** Direct xterm.js options.
 
-In `ThreadTerminalDrawer.tsx`:
+**Fallback chain:** The user-selected font family is stored as a bare family name (e.g., `"Fira Code"`). When applying to xterm, a standard monospace fallback chain is always appended:
+
+```typescript
+const TERMINAL_FONT_FALLBACKS = '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace';
+
+// Applied as:
+const fontFamily = `"${settings.terminalFontFamily}", ${TERMINAL_FONT_FALLBACKS}`;
+```
+
+This ensures terminal rendering never breaks even if the selected font is unavailable.
+
+**Files affected:**
+- `ThreadTerminalDrawer.tsx` — primary terminal component
+- `apps/web/src/components/hack/TargetShellTab.tsx` — also hardcodes terminal fonts, must be updated
+
+In both files:
 1. Read `terminalFontFamily` and `terminalFontSize` from settings
-2. Pass to `new Terminal({ fontFamily, fontSize })` on creation
-3. On settings change: update `terminal.options.fontFamily` and `terminal.options.fontSize`, then call `fitAddon.fit()` to recalculate dimensions
-4. Existing `MutationObserver` pattern handles theme; font changes handled via settings subscription (React effect or `useSyncExternalStore` listener)
+2. Build full fontFamily string with fallback chain
+3. Pass to `new Terminal({ fontFamily, fontSize })` on creation
+4. On settings change: update `terminal.options.fontFamily` and `terminal.options.fontSize`, then call `fitAddon.fit()` to recalculate dimensions
+5. Existing `MutationObserver` pattern handles theme; font changes handled via settings subscription (React effect or `useSyncExternalStore` listener)
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `packages/contracts/src/settings.ts` | Add 4 font fields to `ClientSettingsSchema` |
-| `apps/server/src/fonts.ts` | **New** — font discovery module |
-| `apps/server/src/http.ts` | Add `GET /api/fonts` route |
+| `packages/contracts/src/settings.ts` | Add 4 font fields to `ClientSettingsSchema` with clamp validation |
+| `packages/contracts/src/fonts.ts` | **New** — `SystemFontSchema`, `SystemFontListSchema` Effect schemas |
+| `apps/server/src/fonts.ts` | **New** — font discovery module (platform-specific enumeration + cache) |
+| `apps/server/src/http.ts` | Add `fontsRouteLayer` with `GET /api/fonts` |
+| `apps/server/src/server.ts` | Add `fontsRouteLayer` to `makeRoutesLayer` merge (before `staticAndDevRouteLayer`) |
 | `apps/web/src/hooks/useFonts.ts` | **New** — TanStack Query hook for font list |
-| `apps/web/src/components/settings/FontPicker.tsx` | **New** — combobox font picker |
-| `apps/web/src/components/settings/SettingsPanels.tsx` | Add Fonts section with 4 rows |
-| `apps/web/src/components/ThreadTerminalDrawer.tsx` | Read font settings, apply to xterm |
-| `apps/web/src/index.css` | Add CSS custom properties for UI font |
-| App root component | Effect to sync font settings → CSS custom properties |
+| `apps/web/src/components/settings/FontPicker.tsx` | **New** — combobox font picker with category grouping |
+| `apps/web/src/components/settings/SettingsPanels.tsx` | Add Fonts section with 4 rows + restore defaults entries |
+| `apps/web/src/components/ThreadTerminalDrawer.tsx` | Read font settings, apply to xterm with fallback chain |
+| `apps/web/src/components/hack/TargetShellTab.tsx` | Read font settings, apply to xterm (same as above) |
+| `apps/web/src/index.css` | Add `--fenrir-font-family` / `--fenrir-font-size` CSS custom properties |
+| `apps/web/src/routes/__root.tsx` | Effect in `RootRouteView()` to sync font settings → CSS custom properties |
 
 ## Non-Goals
 
