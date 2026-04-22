@@ -9,7 +9,6 @@ import {
   ComboboxPopup,
   ComboboxGroup,
   ComboboxGroupLabel,
-  useComboboxFilter,
 } from "../ui/combobox";
 
 interface FontPickerProps {
@@ -42,6 +41,7 @@ export function FontPicker({
   isLoading = false,
 }: FontPickerProps) {
   const [showAllFonts, setShowAllFonts] = useState(false);
+  const [inputValue, setInputValue] = useState("");
 
   const visibleFonts = useMemo(
     () =>
@@ -54,9 +54,12 @@ export function FontPicker({
   // Font family names as string items for Combobox
   const items = useMemo(() => visibleFonts.map((f) => f.family), [visibleFonts]);
 
-  const filteredItems = useComboboxFilter(items, {
-    getString: (item) => item,
-  });
+  // Filter items based on input value using simple case-insensitive contains
+  const filteredItems = useMemo(() => {
+    if (!inputValue) return items;
+    const query = inputValue.toLowerCase();
+    return items.filter((family) => family.toLowerCase().includes(query));
+  }, [items, inputValue]);
 
   // Build a lookup map for category grouping
   const fontCategoryMap = useMemo(() => {
@@ -99,6 +102,7 @@ export function FontPicker({
         filteredItems={filteredItems}
         value={value}
         onValueChange={handleValueChange}
+        onInputValueChange={(v) => setInputValue(v)}
       >
         <ComboboxInput
           placeholder={isLoading ? "Loading fonts..." : "Select font..."}

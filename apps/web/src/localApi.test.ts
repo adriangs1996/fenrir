@@ -558,6 +558,10 @@ describe("wsApi", () => {
       sidebarProjectSortOrder: "manual",
       sidebarThreadSortOrder: "created_at",
       timestampFormat: "24-hour",
+      uiFontFamily: "Geist Mono",
+      uiFontSize: 14,
+      terminalFontFamily: "GeistMono Nerd Font",
+      terminalFontSize: 12,
     });
     await api.persistence.getSavedEnvironmentRegistry();
     await api.persistence.setSavedEnvironmentRegistry([]);
@@ -578,6 +582,10 @@ describe("wsApi", () => {
       sidebarProjectSortOrder: "manual",
       sidebarThreadSortOrder: "created_at",
       timestampFormat: "24-hour",
+      uiFontFamily: "Geist Mono",
+      uiFontSize: 14,
+      terminalFontFamily: "GeistMono Nerd Font",
+      terminalFontSize: 12,
     });
     expect(getSavedEnvironmentRegistry).toHaveBeenCalledWith();
     expect(setSavedEnvironmentRegistry).toHaveBeenCalledWith([]);
@@ -597,6 +605,10 @@ describe("wsApi", () => {
       sidebarProjectSortOrder: "manual",
       sidebarThreadSortOrder: "created_at",
       timestampFormat: "24-hour",
+      uiFontFamily: "Geist Mono",
+      uiFontSize: 14,
+      terminalFontFamily: "GeistMono Nerd Font",
+      terminalFontSize: 12,
     });
     await api.persistence.setSavedEnvironmentRegistry([
       {

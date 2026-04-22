@@ -11,6 +11,7 @@ import { useEffect, useEffectEvent, useRef } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 
 import { APP_DISPLAY_NAME } from "../branding";
+import { useSettings } from "../hooks/useSettings";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import {
   SlowRpcAckToastCoordinator,
@@ -63,6 +64,29 @@ export const Route = createRootRouteWithContext<{
   }),
 });
 
+function FontSettingsSync() {
+  const { uiFontFamily, uiFontSize } = useSettings((s) => ({
+    uiFontFamily: s.uiFontFamily,
+    uiFontSize: s.uiFontSize,
+  }));
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty(
+      "--fenrir-font-family",
+      `"${uiFontFamily}", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, monospace`,
+    );
+    root.style.setProperty("--fenrir-font-size", `${uiFontSize}px`);
+
+    return () => {
+      root.style.removeProperty("--fenrir-font-family");
+      root.style.removeProperty("--fenrir-font-size");
+    };
+  }, [uiFontFamily, uiFontSize]);
+
+  return null;
+}
+
 function RootRouteView() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();
@@ -87,6 +111,7 @@ function RootRouteView() {
     <ToastProvider>
       <AnchoredToastProvider>
         <AuthenticatedTracingBootstrap />
+        <FontSettingsSync />
         <ServerStateBootstrap />
         <EnvironmentConnectionManagerBootstrap />
         <EventRouter />
