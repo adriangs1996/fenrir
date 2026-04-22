@@ -6,13 +6,29 @@ type Workspace = "code" | "hack";
 interface ActivityBarProps {
   activeWorkspace: Workspace;
   onWorkspaceChange: (workspace: Workspace) => void;
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
 }
 
-export function ActivityBar({ activeWorkspace, onWorkspaceChange }: ActivityBarProps) {
+export function ActivityBar({
+  activeWorkspace,
+  onWorkspaceChange,
+  sidebarOpen,
+  onToggleSidebar,
+}: ActivityBarProps) {
   const navigate = useNavigate();
 
-  const handleWorkspaceChange = (workspace: Workspace) => {
+  const handleWorkspaceClick = (workspace: Workspace) => {
+    if (workspace === activeWorkspace && onToggleSidebar) {
+      // Clicking active workspace icon toggles sidebar panel (VS Code pattern)
+      onToggleSidebar();
+      return;
+    }
     onWorkspaceChange(workspace);
+    // If sidebar is collapsed, expand it when switching workspace
+    if (sidebarOpen === false && onToggleSidebar) {
+      onToggleSidebar();
+    }
     if (workspace === "hack") {
       void navigate({ to: "/hack" as string });
     } else {
@@ -29,16 +45,26 @@ export function ActivityBar({ activeWorkspace, onWorkspaceChange }: ActivityBarP
         <ActivityBarIcon
           icon={<CodeIcon />}
           label="Code"
-          active={activeWorkspace === "code"}
-          onClick={() => handleWorkspaceChange("code")}
+          active={activeWorkspace === "code" && sidebarOpen !== false}
+          onClick={() => handleWorkspaceClick("code")}
         />
         <ActivityBarIcon
           icon={<HackIcon />}
           label="Hack"
-          active={activeWorkspace === "hack"}
-          onClick={() => handleWorkspaceChange("hack")}
+          active={activeWorkspace === "hack" && sidebarOpen !== false}
+          onClick={() => handleWorkspaceClick("hack")}
         />
         <div className="flex-1" />
+        {onToggleSidebar && (
+          <ActivityBarIcon
+            icon={
+              sidebarOpen !== false ? <PanelLeftCloseIcon /> : <PanelLeftOpenIcon />
+            }
+            label={sidebarOpen !== false ? "Collapse sidebar" : "Expand sidebar"}
+            active={false}
+            onClick={onToggleSidebar}
+          />
+        )}
         <ActivityBarIcon
           icon={<SettingsIcon />}
           label="Settings"
@@ -91,6 +117,26 @@ function HackIcon() {
       <path d="M8 14s-4 2-4 6h16c0-4-4-6-4-6" />
       <path d="M9 6.5c0-1 .5-2.5 3-2.5s3 1.5 3 2.5" />
       <path d="M8 8h8" />
+    </svg>
+  );
+}
+
+function PanelLeftCloseIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M9 3v18" />
+      <path d="m16 15-3-3 3-3" />
+    </svg>
+  );
+}
+
+function PanelLeftOpenIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M9 3v18" />
+      <path d="m14 9 3 3-3 3" />
     </svg>
   );
 }

@@ -3,6 +3,7 @@ import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/reac
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { scopeThreadRef } from "@fenrir/client-runtime";
+import { buildTerminalFontFamily } from "@fenrir/contracts";
 import type { TurnId } from "@fenrir/contracts";
 import {
   ChevronLeftIcon,
@@ -41,7 +42,8 @@ import { ToggleGroup, Toggle } from "./ui/toggle-group";
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
 
-const DIFF_PANEL_UNSAFE_CSS = `
+function buildDiffPanelUnsafeCSS(fontFamily: string, fontSize: number): string {
+  return `
 [data-diffs-header],
 [data-diff],
 [data-file],
@@ -73,6 +75,8 @@ const DIFF_PANEL_UNSAFE_CSS = `
   );
 
   background-color: var(--diffs-bg) !important;
+  font-family: ${fontFamily} !important;
+  font-size: ${fontSize}px !important;
 }
 
 [data-file-info] {
@@ -104,6 +108,7 @@ const DIFF_PANEL_UNSAFE_CSS = `
   text-decoration-color: currentColor;
 }
 `;
+}
 
 type RenderablePatch =
   | {
@@ -170,6 +175,14 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const navigate = useNavigate();
   const { resolvedTheme, syntaxTheme } = useTheme();
   const settings = useSettings();
+  const diffUnsafeCSS = useMemo(
+    () =>
+      buildDiffPanelUnsafeCSS(
+        buildTerminalFontFamily(settings.terminalFontFamily),
+        settings.terminalFontSize,
+      ),
+    [settings.terminalFontFamily, settings.terminalFontSize],
+  );
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("stacked");
   const [diffWordWrap, setDiffWordWrap] = useState(settings.diffWordWrap);
   const patchViewportRef = useRef<HTMLDivElement>(null);
@@ -627,7 +640,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                           overflow: diffWordWrap ? "wrap" : "scroll",
                           theme: resolveDiffThemeName(syntaxTheme),
                           themeType: resolvedTheme as DiffThemeType,
-                          unsafeCSS: DIFF_PANEL_UNSAFE_CSS,
+                          unsafeCSS: diffUnsafeCSS,
                         }}
                       />
                     </div>
@@ -640,11 +653,15 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                   <p className="text-[11px] text-muted-foreground/75">{renderablePatch.reason}</p>
                   <pre
                     className={cn(
-                      "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground/90",
+                      "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 leading-relaxed text-muted-foreground/90",
                       diffWordWrap
                         ? "overflow-auto whitespace-pre-wrap wrap-break-word"
                         : "overflow-auto",
                     )}
+                    style={{
+                      fontFamily: buildTerminalFontFamily(settings.terminalFontFamily),
+                      fontSize: `${settings.terminalFontSize}px`,
+                    }}
                   >
                     {renderablePatch.text}
                   </pre>

@@ -33,6 +33,20 @@ describe("parseFcListOutput", () => {
     expect(result.map((f) => f.family)).toEqual(["Apple", "Mango", "Zebra"]);
   });
 
+  it("extracts first name from comma-separated fc-list family aliases", () => {
+    const output = [
+      "MonaspiceNe Nerd Font Mono,MonaspiceNe NFM:Regular:100",
+      "MonaspiceNe Nerd Font,MonaspiceNe NF,MonaspiceNe NF Medium:Medium:100",
+    ].join("\n");
+
+    const result = parseFcListOutput(output);
+    expect(result).toContainEqual({ family: "MonaspiceNe Nerd Font Mono", category: "monospace" });
+    expect(result).toContainEqual({ family: "MonaspiceNe Nerd Font", category: "monospace" });
+    // Alias names should NOT appear as separate entries
+    expect(result.find((f) => f.family === "MonaspiceNe NFM")).toBeUndefined();
+    expect(result.find((f) => f.family === "MonaspiceNe NF")).toBeUndefined();
+  });
+
   it("handles empty output", () => {
     expect(parseFcListOutput("")).toEqual([]);
     expect(parseFcListOutput("\n\n")).toEqual([]);

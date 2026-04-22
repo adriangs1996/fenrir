@@ -104,7 +104,10 @@ export function parseFcListOutput(output: string): SystemFont[] {
     if (!trimmed) continue;
 
     const parts = trimmed.split(":");
-    const family = parts[0]?.trim();
+    // fc-list %{family} can return comma-separated aliases
+    // e.g. "MonaspiceNe Nerd Font Mono,MonaspiceNe NFM"
+    // Use only the first (canonical) name.
+    const family = parts[0]?.split(",")[0]?.trim();
     if (!family) continue;
 
     if (familyMap.has(family)) continue;
