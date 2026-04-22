@@ -49,7 +49,7 @@ describe("uiStateStore pure functions", () => {
     expect(next).toBe(initialState);
   });
 
-  it("reorderProjects moves a project to a target index", () => {
+  it("reorderProjects moves a project down to a later position", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
     const project2 = ProjectId.makeUnsafe("project-2");
     const project3 = ProjectId.makeUnsafe("project-3");
@@ -57,9 +57,103 @@ describe("uiStateStore pure functions", () => {
       projectOrder: [project1, project2, project3],
     });
 
-    const next = reorderProjects(initialState, project1, project3);
+    const next = reorderProjects(initialState, [project1], project3);
 
     expect(next.projectOrder).toEqual([project2, project3, project1]);
+  });
+
+  it("reorderProjects moves a project up to an earlier position", () => {
+    const project1 = ProjectId.makeUnsafe("project-1");
+    const project2 = ProjectId.makeUnsafe("project-2");
+    const project3 = ProjectId.makeUnsafe("project-3");
+    const initialState = makeUiState({
+      projectOrder: [project1, project2, project3],
+    });
+
+    const next = reorderProjects(initialState, [project3], project1);
+
+    expect(next.projectOrder).toEqual([project3, project1, project2]);
+  });
+
+  it("reorderProjects swaps adjacent projects", () => {
+    const project1 = ProjectId.makeUnsafe("project-1");
+    const project2 = ProjectId.makeUnsafe("project-2");
+    const project3 = ProjectId.makeUnsafe("project-3");
+    const initialState = makeUiState({
+      projectOrder: [project1, project2, project3],
+    });
+
+    const downSwap = reorderProjects(initialState, [project1], project2);
+    expect(downSwap.projectOrder).toEqual([project2, project1, project3]);
+
+    const upSwap = reorderProjects(initialState, [project2], project1);
+    expect(upSwap.projectOrder).toEqual([project2, project1, project3]);
+  });
+
+  it("reorderProjects moves a grouped project (multiple physical keys) together", () => {
+    const pA = "env:projA";
+    const pB = "env:projB";
+    const pC = "env:projC";
+    const pD = "env2:projA"; // same group as pA (cross-env)
+    const initialState = makeUiState({
+      projectOrder: [pA, pB, pC, pD],
+    });
+
+    // Move group {pA, pD} after pC (dragging down)
+    const next = reorderProjects(initialState, [pA, pD], pC);
+
+    expect(next.projectOrder).toEqual([pB, pC, pA, pD]);
+  });
+
+  it("reorderProjects moves a grouped project up", () => {
+    const pA = "env:projA";
+    const pB = "env:projB";
+    const pC = "env:projC";
+    const pD = "env2:projC"; // same group as pC
+    const initialState = makeUiState({
+      projectOrder: [pA, pB, pC, pD],
+    });
+
+    // Move group {pC, pD} to pA position (dragging up)
+    const next = reorderProjects(initialState, [pC, pD], pA);
+
+    expect(next.projectOrder).toEqual([pC, pD, pA, pB]);
+  });
+
+  it("reorderProjects is a no-op when target is part of the dragged group", () => {
+    const pA = "env:projA";
+    const pB = "env:projB";
+    const initialState = makeUiState({
+      projectOrder: [pA, pB],
+    });
+
+    const next = reorderProjects(initialState, [pA, pB], pA);
+
+    expect(next).toBe(initialState);
+  });
+
+  it("reorderProjects is a no-op when dragged keys are not in projectOrder", () => {
+    const pA = "env:projA";
+    const pB = "env:projB";
+    const initialState = makeUiState({
+      projectOrder: [pA, pB],
+    });
+
+    const next = reorderProjects(initialState, ["unknown-key"], pB);
+
+    expect(next).toBe(initialState);
+  });
+
+  it("reorderProjects is a no-op when target key is not in projectOrder", () => {
+    const pA = "env:projA";
+    const pB = "env:projB";
+    const initialState = makeUiState({
+      projectOrder: [pA, pB],
+    });
+
+    const next = reorderProjects(initialState, [pA], "env:missing");
+
+    expect(next).toBe(initialState);
   });
 
   it("syncProjects preserves current project order during snapshot recovery", () => {

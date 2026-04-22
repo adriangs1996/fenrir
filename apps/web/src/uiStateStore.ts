@@ -356,23 +356,37 @@ export function setProjectExpanded(state: UiState, projectId: string, expanded: 
 
 export function reorderProjects(
   state: UiState,
-  draggedProjectId: string,
+  draggedProjectIds: readonly string[],
   targetProjectId: string,
 ): UiState {
-  if (draggedProjectId === targetProjectId) {
+  if (draggedProjectIds.length === 0 || draggedProjectIds.includes(targetProjectId)) {
     return state;
   }
-  const draggedIndex = state.projectOrder.findIndex((projectId) => projectId === draggedProjectId);
-  const targetIndex = state.projectOrder.findIndex((projectId) => projectId === targetProjectId);
-  if (draggedIndex < 0 || targetIndex < 0) {
+
+  const draggedSet = new Set(draggedProjectIds);
+  const firstDraggedIndex = state.projectOrder.findIndex((id) => draggedSet.has(id));
+  const targetIndex = state.projectOrder.findIndex((id) => id === targetProjectId);
+  if (firstDraggedIndex < 0 || targetIndex < 0) {
     return state;
   }
-  const projectOrder = [...state.projectOrder];
-  const [draggedProject] = projectOrder.splice(draggedIndex, 1);
-  if (!draggedProject) {
+
+  // Preserve the relative order of dragged items from the original array.
+  // draggedItems may be a subset of draggedProjectIds if some keys are not
+  // yet in projectOrder (e.g. during a race with syncProjects).
+  const draggedItems = state.projectOrder.filter((id) => draggedSet.has(id));
+  const withoutDragged = state.projectOrder.filter((id) => !draggedSet.has(id));
+
+  const targetPosInFiltered = withoutDragged.indexOf(targetProjectId);
+  if (targetPosInFiltered < 0) {
     return state;
   }
-  projectOrder.splice(targetIndex, 0, draggedProject);
+
+  // Mimic arrayMove: insert after target when dragging down, before when up.
+  const insertIndex =
+    firstDraggedIndex < targetIndex ? targetPosInFiltered + 1 : targetPosInFiltered;
+
+  const projectOrder = [...withoutDragged];
+  projectOrder.splice(insertIndex, 0, ...draggedItems);
   return {
     ...state,
     projectOrder,
@@ -387,7 +401,7 @@ interface UiStateStore extends UiState {
   clearThreadUi: (threadId: string) => void;
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
-  reorderProjects: (draggedProjectId: string, targetProjectId: string) => void;
+  reorderProjects: (draggedProjectIds: readonly string[], targetProjectId: string) => void;
   setActiveWorkspace: (workspace: "code" | "hack") => void;
 }
 
@@ -403,8 +417,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),
-  reorderProjects: (draggedProjectId, targetProjectId) =>
-    set((state) => reorderProjects(state, draggedProjectId, targetProjectId)),
+  reorderProjects: (draggedProjectIds, targetProjectId) =>
+    set((state) => reorderProjects(state, draggedProjectIds, targetProjectId)),
   setActiveWorkspace: (workspace) => set({ activeWorkspace: workspace }),
 }));
 

@@ -2723,7 +2723,15 @@ export default function Sidebar() {
       const activeProject = sidebarProjects.find((project) => project.projectKey === active.id);
       const overProject = sidebarProjects.find((project) => project.projectKey === over.id);
       if (!activeProject || !overProject) return;
-      reorderProjects(activeProject.projectKey, overProject.projectKey);
+      // Use physical scoped keys (what projectOrder stores), not logical keys.
+      // For grouped projects, move all member physical keys together.
+      // Target only needs one physical key to anchor the insertion position;
+      // the representative's key is always present in projectOrder.
+      const draggedPhysicalKeys = activeProject.memberProjectRefs.map(scopedProjectKey);
+      const targetPhysicalKey = scopedProjectKey(
+        scopeProjectRef(overProject.environmentId, overProject.id),
+      );
+      reorderProjects(draggedPhysicalKeys, targetPhysicalKey);
     },
     [sidebarProjectSortOrder, reorderProjects, sidebarProjects],
   );
