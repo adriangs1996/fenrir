@@ -58,6 +58,16 @@ export const ClientSettingsSchema = Schema.Struct({
     ),
     Schema.withDecodingDefault(() => 12),
   ),
+  terminalLineHeight: Schema.Number.pipe(
+    Schema.decodeTo(
+      Schema.Number,
+      SchemaTransformation.transformOrFail({
+        decode: (n) => Effect.succeed(Math.min(Math.max(n, 1.0), 2.0)),
+        encode: (n) => Effect.succeed(n),
+      }),
+    ),
+    Schema.withDecodingDefault(() => 1.2),
+  ),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 

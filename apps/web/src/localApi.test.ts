@@ -562,6 +562,7 @@ describe("wsApi", () => {
       uiFontSize: 14,
       terminalFontFamily: "GeistMono Nerd Font",
       terminalFontSize: 12,
+      terminalLineHeight: 1.2,
     });
     await api.persistence.getSavedEnvironmentRegistry();
     await api.persistence.setSavedEnvironmentRegistry([]);
@@ -586,6 +587,7 @@ describe("wsApi", () => {
       uiFontSize: 14,
       terminalFontFamily: "GeistMono Nerd Font",
       terminalFontSize: 12,
+      terminalLineHeight: 1.2,
     });
     expect(getSavedEnvironmentRegistry).toHaveBeenCalledWith();
     expect(setSavedEnvironmentRegistry).toHaveBeenCalledWith([]);
@@ -609,6 +611,7 @@ describe("wsApi", () => {
       uiFontSize: 14,
       terminalFontFamily: "GeistMono Nerd Font",
       terminalFontSize: 12,
+      terminalLineHeight: 1.2,
     });
     await api.persistence.setSavedEnvironmentRegistry([
       {
@@ -636,6 +639,7 @@ describe("wsApi", () => {
       uiFontSize: 14,
       terminalFontFamily: "GeistMono Nerd Font",
       terminalFontSize: 12,
+      terminalLineHeight: 1.2,
     });
     await expect(api.persistence.getSavedEnvironmentRegistry()).resolves.toEqual([
       {

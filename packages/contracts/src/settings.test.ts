@@ -18,6 +18,10 @@ describe("ClientSettings font defaults", () => {
   it("has correct default terminalFontSize", () => {
     expect(DEFAULT_CLIENT_SETTINGS.terminalFontSize).toBe(12);
   });
+
+  it("has correct default terminalLineHeight", () => {
+    expect(DEFAULT_CLIENT_SETTINGS.terminalLineHeight).toBe(1.2);
+  });
 });
 
 describe("ClientSettings font-size clamping", () => {
@@ -41,12 +45,24 @@ describe("ClientSettings font-size clamping", () => {
     expect(result.terminalFontSize).toBe(24);
   });
 
-  it("passes through valid font sizes unchanged", () => {
+  it("clamps terminalLineHeight below minimum to 1.0", () => {
+    const result = Schema.decodeSync(ClientSettingsSchema)({ terminalLineHeight: 0.5 });
+    expect(result.terminalLineHeight).toBe(1.0);
+  });
+
+  it("clamps terminalLineHeight above maximum to 2.0", () => {
+    const result = Schema.decodeSync(ClientSettingsSchema)({ terminalLineHeight: 3.0 });
+    expect(result.terminalLineHeight).toBe(2.0);
+  });
+
+  it("passes through valid font sizes and line height unchanged", () => {
     const result = Schema.decodeSync(ClientSettingsSchema)({
       uiFontSize: 16,
       terminalFontSize: 14,
+      terminalLineHeight: 1.5,
     });
     expect(result.uiFontSize).toBe(16);
     expect(result.terminalFontSize).toBe(14);
+    expect(result.terminalLineHeight).toBe(1.5);
   });
 });

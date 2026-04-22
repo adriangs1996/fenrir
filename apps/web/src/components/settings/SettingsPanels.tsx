@@ -403,6 +403,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.terminalFontSize !== DEFAULT_UNIFIED_SETTINGS.terminalFontSize
         ? ["Terminal Font Size"]
         : []),
+      ...(settings.terminalLineHeight !== DEFAULT_UNIFIED_SETTINGS.terminalLineHeight
+        ? ["Terminal Line Height"]
+        : []),
     ],
     [
       areProviderSettingsDirty,
@@ -417,6 +420,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.uiFontSize,
       settings.terminalFontFamily,
       settings.terminalFontSize,
+      settings.terminalLineHeight,
       theme,
     ],
   );
@@ -1123,6 +1127,44 @@ export function GeneralSettingsPanel() {
               }}
               className="w-20 rounded-md border border-border/60 bg-background px-3 py-1.5 text-sm"
               aria-label="Terminal font size"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Terminal Line Height"
+          description="Line spacing multiplier for the terminal (1.0–2.0)."
+          resetAction={
+            settings.terminalLineHeight !==
+            DEFAULT_UNIFIED_SETTINGS.terminalLineHeight ? (
+              <SettingResetButton
+                label="terminal line height"
+                onClick={() =>
+                  updateSettings({
+                    terminalLineHeight:
+                      DEFAULT_UNIFIED_SETTINGS.terminalLineHeight,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <input
+              type="number"
+              min={1.0}
+              max={2.0}
+              step={0.1}
+              value={settings.terminalLineHeight}
+              onChange={(e) => {
+                const val = Number.parseFloat(e.target.value);
+                if (!Number.isNaN(val)) {
+                  updateSettings({
+                    terminalLineHeight: Math.min(Math.max(val, 1.0), 2.0),
+                  });
+                }
+              }}
+              className="w-20 rounded-md border border-border/60 bg-background px-3 py-1.5 text-sm"
+              aria-label="Terminal line height"
             />
           }
         />

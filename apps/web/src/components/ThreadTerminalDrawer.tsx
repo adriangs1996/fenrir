@@ -331,9 +331,10 @@ export function TerminalViewport({
     },
   );
   const readTerminalLabel = useEffectEvent(() => terminalLabel);
-  const { terminalFontFamily, terminalFontSize } = useSettings((s) => ({
+  const { terminalFontFamily, terminalFontSize, terminalLineHeight } = useSettings((s) => ({
     terminalFontFamily: s.terminalFontFamily,
     terminalFontSize: s.terminalFontSize,
+    terminalLineHeight: s.terminalLineHeight,
   }));
   const thread = useStore(
     useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]),
@@ -348,12 +349,13 @@ export function TerminalViewport({
     if (!activeTerminal) return;
     activeTerminal.options.fontFamily = buildTerminalFontFamily(terminalFontFamily);
     activeTerminal.options.fontSize = terminalFontSize;
+    activeTerminal.options.lineHeight = terminalLineHeight;
     try {
       activeFitAddon?.fit();
     } catch {
       // fit may throw during transitions
     }
-  }, [terminalFontFamily, terminalFontSize]);
+  }, [terminalFontFamily, terminalFontSize, terminalLineHeight]);
 
   useEffect(() => {
     const mount = containerRef.current;
@@ -374,7 +376,7 @@ export function TerminalViewport({
     const fitAddon = new FitAddon();
     const terminal = new Terminal({
       cursorBlink: true,
-      lineHeight: 1.2,
+      lineHeight: terminalLineHeight,
       fontSize: terminalFontSize,
       scrollback: 5_000,
       fontFamily: buildTerminalFontFamily(terminalFontFamily),

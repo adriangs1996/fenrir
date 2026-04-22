@@ -13,9 +13,10 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const { terminalFontFamily, terminalFontSize } = useSettings((s) => ({
+  const { terminalFontFamily, terminalFontSize, terminalLineHeight } = useSettings((s) => ({
     terminalFontFamily: s.terminalFontFamily,
     terminalFontSize: s.terminalFontSize,
+    terminalLineHeight: s.terminalLineHeight,
   }));
 
   // Reactively update terminal font when settings change
@@ -25,12 +26,13 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
     if (!activeTerminal) return;
     activeTerminal.options.fontFamily = buildTerminalFontFamily(terminalFontFamily);
     activeTerminal.options.fontSize = terminalFontSize;
+    activeTerminal.options.lineHeight = terminalLineHeight;
     try {
       activeFitAddon?.fit();
     } catch {
       // fit may throw during transitions
     }
-  }, [terminalFontFamily, terminalFontSize]);
+  }, [terminalFontFamily, terminalFontSize, terminalLineHeight]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -40,7 +42,7 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
 
     const terminal = new Terminal({
       cursorBlink: true,
-      lineHeight: 1.2,
+      lineHeight: terminalLineHeight,
       fontSize: terminalFontSize,
       scrollback: 5_000,
       fontFamily: buildTerminalFontFamily(terminalFontFamily),
