@@ -94,21 +94,21 @@ export const ClientSettingsSchema = Schema.Struct({
   uiFontFamily: Schema.String.pipe(
     Schema.withDecodingDefault(() => "Geist Mono")
   ),
-  uiFontSize: Schema.Number.pipe(
-    Schema.clamp({ minimum: 10, maximum: 24 }),
-    Schema.withDecodingDefault(() => 14)
-  ),
+  uiFontSize: Schema.transform(Schema.Number, Schema.Number, {
+    decode: (n) => Math.min(Math.max(n, 10), 24),
+    encode: (n) => n,
+  }).pipe(Schema.withDecodingDefault(() => 14)),
   terminalFontFamily: Schema.String.pipe(
     Schema.withDecodingDefault(() => "GeistMono Nerd Font")
   ),
-  terminalFontSize: Schema.Number.pipe(
-    Schema.clamp({ minimum: 8, maximum: 24 }),
-    Schema.withDecodingDefault(() => 12)
-  ),
+  terminalFontSize: Schema.transform(Schema.Number, Schema.Number, {
+    decode: (n) => Math.min(Math.max(n, 8), 24),
+    encode: (n) => n,
+  }).pipe(Schema.withDecodingDefault(() => 12)),
 });
 ```
 
-**Note on font-size validation:** `Schema.clamp` ensures values outside range are clamped, not rejected. UI stepper also enforces min/max bounds.
+**Note on font-size validation:** `Schema.transform` with `Math.min/Math.max` clamps values to range (not rejected). UI stepper also enforces min/max bounds.
 
 `DEFAULT_CLIENT_SETTINGS` auto-derives from schema (existing pattern).
 
@@ -193,7 +193,7 @@ Add font settings to `useSettingsRestore()` tracking in `SettingsPanels.tsx`:
 
 In `apps/web/src/routes/__root.tsx` (inside `RootRouteView()`, alongside existing theme sync effect):
 1. Read `uiFontFamily` and `uiFontSize` from `useSettings()`
-2. Set `document.documentElement.style.setProperty('--fenrir-font-family', value + ', -apple-system, ...')`
+2. Set `document.documentElement.style.setProperty('--fenrir-font-family', `"${value}", -apple-system, ...`)`
 3. Set `document.documentElement.style.setProperty('--fenrir-font-size', value + 'px')`
 
 CSS custom properties use `--fenrir-` prefix to avoid collision with Tailwind's `--font-*` namespace.
