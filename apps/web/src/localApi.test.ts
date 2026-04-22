@@ -632,6 +632,10 @@ describe("wsApi", () => {
       sidebarProjectSortOrder: "manual",
       sidebarThreadSortOrder: "created_at",
       timestampFormat: "24-hour",
+      uiFontFamily: "Geist Mono",
+      uiFontSize: 14,
+      terminalFontFamily: "GeistMono Nerd Font",
+      terminalFontSize: 12,
     });
     await expect(api.persistence.getSavedEnvironmentRegistry()).resolves.toEqual([
       {
