@@ -34,6 +34,30 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_THREAD_SORT_ORDER),
   ),
   timestampFormat: TimestampFormat.pipe(Schema.withDecodingDefault(() => DEFAULT_TIMESTAMP_FORMAT)),
+  uiFontFamily: Schema.String.pipe(Schema.withDecodingDefault(() => "Geist Mono")),
+  uiFontSize: Schema.Number.pipe(
+    Schema.decodeTo(
+      Schema.Number,
+      SchemaTransformation.transformOrFail({
+        decode: (n) => Effect.succeed(Math.min(Math.max(n, 10), 24)),
+        encode: (n) => Effect.succeed(n),
+      }),
+    ),
+    Schema.withDecodingDefault(() => 14),
+  ),
+  terminalFontFamily: Schema.String.pipe(
+    Schema.withDecodingDefault(() => "GeistMono Nerd Font"),
+  ),
+  terminalFontSize: Schema.Number.pipe(
+    Schema.decodeTo(
+      Schema.Number,
+      SchemaTransformation.transformOrFail({
+        decode: (n) => Effect.succeed(Math.min(Math.max(n, 8), 24)),
+        encode: (n) => Effect.succeed(n),
+      }),
+    ),
+    Schema.withDecodingDefault(() => 12),
+  ),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
