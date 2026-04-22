@@ -1183,24 +1183,26 @@ After the terminal creation `useEffect` in `TargetShellTab.tsx`, add a separate 
 ```typescript
 useEffect(() => {
   const terminal = terminalRef.current;
+  const fitAddon = fitAddonRef.current;
   if (!terminal) return;
 
   terminal.options.fontFamily = `"${terminalFontFamily}", ${TERMINAL_FONT_FALLBACKS}`;
   terminal.options.fontSize = terminalFontSize;
+  fitAddon?.fit();
 }, [terminalFontFamily, terminalFontSize]);
 ```
 
-**Note:** Verify the ref name (`terminalRef`) by reading the component. `TargetShellTab` is simpler than `ThreadTerminalDrawer` and may not have a `fitAddon` — if it does, call `fitAddon.fit()` after updating options.
+**Note:** Verify the ref names (`terminalRef`, `fitAddonRef`) by reading the component. `TargetShellTab` has both refs (line 12-13).
 
-- [ ] **Step 7: Verify it compiles**
+- [ ] **Step 6: Verify it compiles**
 
 Run: `cd apps/web && npx tsc --noEmit`
 Expected: No errors
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add apps/web/src/components/ThreadTerminalDrawer.tsx apps/web/src/components/hack/TargetShellTab.tsx
+git add packages/contracts/src/fonts.ts apps/web/src/components/ThreadTerminalDrawer.tsx apps/web/src/components/hack/TargetShellTab.tsx
 git commit -m "feat(web): apply terminal font settings to xterm with fallback chain"
 ```
 
