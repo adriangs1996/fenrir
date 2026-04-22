@@ -40,7 +40,7 @@ import {
   terminalNavigationShortcutData,
 } from "../keybindings";
 import {
-  DEFAULT_THREAD_TERMINAL_HEIGHT,
+  getDefaultThreadTerminalHeight,
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ThreadTerminalGroup,
@@ -62,7 +62,7 @@ const MAX_DRAWER_HEIGHT_RATIO = 0.75;
 const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
 
 function maxDrawerHeight(): number {
-  if (typeof window === "undefined") return DEFAULT_THREAD_TERMINAL_HEIGHT;
+  if (typeof window === "undefined") return getDefaultThreadTerminalHeight();
   return Math.max(
     MIN_DRAWER_HEIGHT,
     Math.floor(window.innerHeight * MAX_DRAWER_HEIGHT_RATIO),
@@ -72,7 +72,7 @@ function maxDrawerHeight(): number {
 function clampDrawerHeight(height: number): number {
   const safeHeight = Number.isFinite(height)
     ? height
-    : DEFAULT_THREAD_TERMINAL_HEIGHT;
+    : getDefaultThreadTerminalHeight();
   const maxHeight = maxDrawerHeight();
   return Math.min(
     Math.max(Math.round(safeHeight), MIN_DRAWER_HEIGHT),

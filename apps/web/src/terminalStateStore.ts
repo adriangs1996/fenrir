@@ -12,7 +12,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "./lib/storage";
 import { terminalRunningSubprocessFromEvent } from "./terminalActivity";
 import {
-  DEFAULT_THREAD_TERMINAL_HEIGHT,
+  getDefaultThreadTerminalHeight,
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ThreadTerminalGroup,
@@ -215,7 +215,7 @@ function threadTerminalStateEqual(
 
 const DEFAULT_THREAD_TERMINAL_STATE: ThreadTerminalState = Object.freeze({
   terminalOpen: false,
-  terminalHeight: DEFAULT_THREAD_TERMINAL_HEIGHT,
+  terminalHeight: getDefaultThreadTerminalHeight(),
   terminalIds: [DEFAULT_THREAD_TERMINAL_ID],
   runningTerminalIds: [],
   activeTerminalId: DEFAULT_THREAD_TERMINAL_ID,
@@ -274,7 +274,7 @@ function normalizeThreadTerminalState(
     terminalHeight:
       Number.isFinite(state.terminalHeight) && state.terminalHeight > 0
         ? state.terminalHeight
-        : DEFAULT_THREAD_TERMINAL_HEIGHT,
+        : getDefaultThreadTerminalHeight(),
     terminalIds: nextTerminalIds,
     runningTerminalIds,
     activeTerminalId,
