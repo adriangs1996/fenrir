@@ -1,5 +1,8 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { SerializeAddon } from "@xterm/addon-serialize";
 import {
+  CheckIcon,
+  CopyIcon,
   Plus,
   SquareSplitHorizontal,
   TerminalSquare,
@@ -50,6 +53,8 @@ import {
 } from "../terminalStateStore";
 import { selectThreadByRef, useStore } from "~/store";
 import { createThreadSelectorByRef } from "~/storeSelectors";
+import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { extractLastCommandOutput } from "~/lib/extractLastCommandOutput";
 import { useSettings } from "~/hooks/useSettings";
 
 const MIN_DRAWER_HEIGHT = 180;
@@ -287,6 +292,7 @@ interface TerminalViewportProps {
   runtimeEnv?: Record<string, string>;
   onSessionExited: () => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onTerminalMount?: (terminal: Terminal | null) => void;
   focusRequestId: number;
   autoFocus: boolean;
   resizeEpoch: number;
@@ -304,6 +310,7 @@ export function TerminalViewport({
   runtimeEnv,
   onSessionExited,
   onAddTerminalContext,
+  onTerminalMount,
   focusRequestId,
   autoFocus,
   resizeEpoch,
@@ -313,6 +320,7 @@ export function TerminalViewport({
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const serializeAddonRef = useRef<SerializeAddon | null>(null);
   const environmentId = threadRef.environmentId;
   const hasHandledExitRef = useRef(false);
   const selectionPointerRef = useRef<{ x: number; y: number } | null>(null);
@@ -374,6 +382,7 @@ export function TerminalViewport({
       mode === "tmux" && projectId ? "tmux" : terminalId;
 
     const fitAddon = new FitAddon();
+    const serializeAddon = new SerializeAddon();
     const terminal = new Terminal({
       cursorBlink: true,
       lineHeight: terminalLineHeight,
@@ -383,11 +392,14 @@ export function TerminalViewport({
       theme: terminalThemeFromApp(mount),
     });
     terminal.loadAddon(fitAddon);
+    terminal.loadAddon(serializeAddon);
     terminal.open(mount);
     fitAddon.fit();
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    serializeAddonRef.current = serializeAddon;
+    onTerminalMount?.(terminal);
 
     const clearSelectionAction = () => {
       selectionActionRequestIdRef.current += 1;
@@ -870,8 +882,10 @@ export function TerminalViewport({
       window.removeEventListener("mouseup", handleMouseUp);
       mount.removeEventListener("pointerdown", handlePointerDown);
       themeObserver.disconnect();
+      onTerminalMount?.(null);
       terminalRef.current = null;
       fitAddonRef.current = null;
+      serializeAddonRef.current = null;
       terminal.dispose();
     };
     // autoFocus is intentionally omitted;
@@ -1031,6 +1045,8 @@ export default function ThreadTerminalDrawer({
   const drawerHeightRef = useRef(drawerHeight);
   const lastSyncedHeightRef = useRef(clampDrawerHeight(height));
   const onHeightChangeRef = useRef(onHeightChange);
+  const terminalInstancesRef = useRef(new Map<string, Terminal>());
+  const { copyToClipboard, isCopied: isCopiedLastOutput } = useCopyToClipboard();
   const resizeStateRef = useRef<{
     pointerId: number;
     startY: number;
@@ -1172,6 +1188,26 @@ export default function ThreadTerminalDrawer({
     onNewTerminal();
   }, [onNewTerminal]);
 
+  const handleTerminalMount = useCallback(
+    (terminalId: string, terminal: Terminal | null) => {
+      if (terminal) {
+        terminalInstancesRef.current.set(terminalId, terminal);
+      } else {
+        terminalInstancesRef.current.delete(terminalId);
+      }
+    },
+    [],
+  );
+
+  const handleCopyLastOutput = useCallback(() => {
+    const terminal = terminalInstancesRef.current.get(resolvedActiveTerminalId);
+    if (!terminal) return;
+    const output = extractLastCommandOutput(terminal);
+    if (output) {
+      copyToClipboard(output, undefined as void);
+    }
+  }, [resolvedActiveTerminalId, copyToClipboard]);
+
   useEffect(() => {
     onHeightChangeRef.current = onHeightChange;
   }, [onHeightChange]);
@@ -1297,6 +1333,18 @@ export default function ThreadTerminalDrawer({
         <div className="pointer-events-none absolute right-2 top-2 z-20">
           <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background/70">
             <TerminalActionButton
+              className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+              onClick={handleCopyLastOutput}
+              label="Copy last output"
+            >
+              {isCopiedLastOutput ? (
+                <CheckIcon className="size-3.25" />
+              ) : (
+                <CopyIcon className="size-3.25" />
+              )}
+            </TerminalActionButton>
+            <div className="h-4 w-px bg-border/80" />
+            <TerminalActionButton
               className={`p-1 text-foreground/90 transition-colors ${
                 hasReachedSplitLimit
                   ? "cursor-not-allowed opacity-45 hover:bg-transparent"
@@ -1369,6 +1417,7 @@ export default function ThreadTerminalDrawer({
                         {...(runtimeEnv ? { runtimeEnv } : {})}
                         onSessionExited={() => onCloseTerminal(terminalId)}
                         onAddTerminalContext={onAddTerminalContext}
+                        onTerminalMount={(t) => handleTerminalMount(terminalId, t)}
                         focusRequestId={focusRequestId}
                         autoFocus={terminalId === resolvedActiveTerminalId}
                         resizeEpoch={resizeEpoch}
@@ -1397,6 +1446,7 @@ export default function ThreadTerminalDrawer({
                     onCloseTerminal(resolvedActiveTerminalId)
                   }
                   onAddTerminalContext={onAddTerminalContext}
+                  onTerminalMount={(t) => handleTerminalMount(resolvedActiveTerminalId, t)}
                   focusRequestId={focusRequestId}
                   autoFocus
                   resizeEpoch={resizeEpoch}
@@ -1411,7 +1461,18 @@ export default function ThreadTerminalDrawer({
               <div className="flex h-[22px] items-stretch justify-end border-b border-border/70">
                 <div className="inline-flex h-full items-stretch">
                   <TerminalActionButton
-                    className={`inline-flex h-full items-center px-1 text-foreground/90 transition-colors ${
+                    className="inline-flex h-full items-center px-1 text-foreground/90 transition-colors hover:bg-accent/70"
+                    onClick={handleCopyLastOutput}
+                    label="Copy last output"
+                  >
+                    {isCopiedLastOutput ? (
+                      <CheckIcon className="size-3.25" />
+                    ) : (
+                      <CopyIcon className="size-3.25" />
+                    )}
+                  </TerminalActionButton>
+                  <TerminalActionButton
+                    className={`inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors ${
                       hasReachedSplitLimit
                         ? "cursor-not-allowed opacity-45 hover:bg-transparent"
                         : "hover:bg-accent/70"

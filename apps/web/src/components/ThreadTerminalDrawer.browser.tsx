@@ -39,6 +39,17 @@ vi.mock("@xterm/addon-fit", () => ({
   },
 }));
 
+vi.mock("@xterm/addon-serialize", () => ({
+  SerializeAddon: class MockSerializeAddon {
+    serialize() {
+      return "";
+    }
+    serializeAsHTML() {
+      return "";
+    }
+  },
+}));
+
 vi.mock("@xterm/xterm", () => ({
   Terminal: class MockTerminal {
     cols = 80;

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SerializeAddon } from "@xterm/addon-serialize";
 import { buildTerminalFontFamily } from "@fenrir/contracts";
 import { useMetasploitSessionTerminalStore } from "../../metasploitSessionTerminalStore";
 import { useSettings } from "../../hooks/useSettings";
@@ -13,6 +14,7 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const serializeAddonRef = useRef<SerializeAddon | null>(null);
   const { terminalFontFamily, terminalFontSize, terminalLineHeight } = useSettings((s) => ({
     terminalFontFamily: s.terminalFontFamily,
     terminalFontSize: s.terminalFontSize,
@@ -54,12 +56,15 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
     });
 
     const fitAddon = new FitAddon();
+    const serializeAddon = new SerializeAddon();
     terminal.loadAddon(fitAddon);
+    terminal.loadAddon(serializeAddon);
     terminal.open(mount);
     fitAddon.fit();
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    serializeAddonRef.current = serializeAddon;
 
     // Handle user input -- send to session via RPC
     const inputDisposable = terminal.onData((_data) => {
@@ -101,6 +106,7 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
+      serializeAddonRef.current = null;
     };
   }, [sessionId]);
 
