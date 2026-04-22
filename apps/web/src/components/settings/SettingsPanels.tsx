@@ -8,6 +8,7 @@ import {
   RefreshCwIcon,
   XIcon,
 } from "lucide-react";
+import { FontPicker } from "./FontPicker";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import {
@@ -34,6 +35,7 @@ import { TraitsPicker } from "../chat/TraitsPicker";
 import { resolveAndPersistPreferredEditor } from "../../editorPreferences";
 import { isElectron } from "../../env";
 import { useTheme } from "../../hooks/useTheme";
+import { useFonts } from "../../hooks/useFonts";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import {
@@ -389,6 +391,18 @@ export function useSettingsRestore(onRestored?: () => void) {
         : []),
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
       ...(areProviderSettingsDirty ? ["Providers"] : []),
+      ...(settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily
+        ? ["UI Font"]
+        : []),
+      ...(settings.uiFontSize !== DEFAULT_UNIFIED_SETTINGS.uiFontSize
+        ? ["UI Font Size"]
+        : []),
+      ...(settings.terminalFontFamily !== DEFAULT_UNIFIED_SETTINGS.terminalFontFamily
+        ? ["Terminal Font"]
+        : []),
+      ...(settings.terminalFontSize !== DEFAULT_UNIFIED_SETTINGS.terminalFontSize
+        ? ["Terminal Font Size"]
+        : []),
     ],
     [
       areProviderSettingsDirty,
@@ -399,6 +413,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
       settings.timestampFormat,
+      settings.uiFontFamily,
+      settings.uiFontSize,
+      settings.terminalFontFamily,
+      settings.terminalFontSize,
       theme,
     ],
   );
@@ -428,6 +446,7 @@ export function GeneralSettingsPanel() {
   const { theme, setTheme } = useTheme();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
+  const { fonts, isLoading: fontsLoading } = useFonts();
   const [openingPathByTarget, setOpeningPathByTarget] = useState({
     keybindings: false,
     logsDirectory: false,
@@ -976,6 +995,135 @@ export function GeneralSettingsPanel() {
                 }}
               />
             </div>
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Fonts">
+        <SettingsRow
+          title="UI Font"
+          description="Font family used across the application interface."
+          resetAction={
+            settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily ? (
+              <SettingResetButton
+                label="UI font"
+                onClick={() =>
+                  updateSettings({
+                    uiFontFamily: DEFAULT_UNIFIED_SETTINGS.uiFontFamily,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <FontPicker
+              value={settings.uiFontFamily}
+              onChange={(value) => updateSettings({ uiFontFamily: value })}
+              fonts={fonts}
+              isLoading={fontsLoading}
+            />
+          }
+        />
+
+        <SettingsRow
+          title="UI Font Size"
+          description="Base font size for the application interface (10–24px)."
+          resetAction={
+            settings.uiFontSize !== DEFAULT_UNIFIED_SETTINGS.uiFontSize ? (
+              <SettingResetButton
+                label="UI font size"
+                onClick={() =>
+                  updateSettings({
+                    uiFontSize: DEFAULT_UNIFIED_SETTINGS.uiFontSize,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <input
+              type="number"
+              min={10}
+              max={24}
+              step={1}
+              value={settings.uiFontSize}
+              onChange={(e) => {
+                const val = Number.parseInt(e.target.value, 10);
+                if (!Number.isNaN(val)) {
+                  updateSettings({ uiFontSize: Math.min(Math.max(val, 10), 24) });
+                }
+              }}
+              className="w-20 rounded-md border border-border/60 bg-background px-3 py-1.5 text-sm"
+              aria-label="UI font size"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Terminal Font"
+          description="Font family used in the terminal emulator. Monospace fonts recommended."
+          resetAction={
+            settings.terminalFontFamily !==
+            DEFAULT_UNIFIED_SETTINGS.terminalFontFamily ? (
+              <SettingResetButton
+                label="terminal font"
+                onClick={() =>
+                  updateSettings({
+                    terminalFontFamily:
+                      DEFAULT_UNIFIED_SETTINGS.terminalFontFamily,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <FontPicker
+              value={settings.terminalFontFamily}
+              onChange={(value) =>
+                updateSettings({ terminalFontFamily: value })
+              }
+              fonts={fonts}
+              filterMonospace
+              isLoading={fontsLoading}
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Terminal Font Size"
+          description="Font size for the terminal emulator (8–24px)."
+          resetAction={
+            settings.terminalFontSize !==
+            DEFAULT_UNIFIED_SETTINGS.terminalFontSize ? (
+              <SettingResetButton
+                label="terminal font size"
+                onClick={() =>
+                  updateSettings({
+                    terminalFontSize:
+                      DEFAULT_UNIFIED_SETTINGS.terminalFontSize,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <input
+              type="number"
+              min={8}
+              max={24}
+              step={1}
+              value={settings.terminalFontSize}
+              onChange={(e) => {
+                const val = Number.parseInt(e.target.value, 10);
+                if (!Number.isNaN(val)) {
+                  updateSettings({
+                    terminalFontSize: Math.min(Math.max(val, 8), 24),
+                  });
+                }
+              }}
+              className="w-20 rounded-md border border-border/60 bg-background px-3 py-1.5 text-sm"
+              aria-label="Terminal font size"
+            />
           }
         />
       </SettingsSection>
