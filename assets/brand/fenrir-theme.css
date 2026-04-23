@@ -1,18 +1,18 @@
 /*
  * FENRIR — Color System
- * Based on Catppuccin Mocha, shifted one level darker.
- * Mantle (#181825) as main content base.
+ * Based on Catppuccin Mocha, shifted two levels darker.
+ * Crust (#11111b) as main content base.
  */
 
 :root {
   /* === Surface Hierarchy === */
-  --fenrir-deep:      #0a0a14;  /* Window frame, outermost shell */
-  --fenrir-crust:     #11111b;  /* Sidebars, secondary panels */
-  --fenrir-base:      #181825;  /* Main content area (Mocha Mantle) */
-  --fenrir-surface:   #1e1e2e;  /* Cards, inputs, elevated surfaces */
-  --fenrir-surface0:  #313244;  /* Borders, dividers, subtle outlines */
-  --fenrir-surface1:  #45475a;  /* Hover states, active borders */
-  --fenrir-surface2:  #585b70;  /* Active states, pressed */
+  --fenrir-deep:      #03030d;  /* Window frame, outermost shell */
+  --fenrir-crust:     #0a0a14;  /* Sidebars, secondary panels */
+  --fenrir-base:      #11111b;  /* Main content area (Mocha Crust) */
+  --fenrir-surface:   #181825;  /* Cards, inputs, elevated surfaces */
+  --fenrir-surface0:  #1e1e2e;  /* Borders, dividers, subtle outlines */
+  --fenrir-surface1:  #313244;  /* Hover states, active borders */
+  --fenrir-surface2:  #45475a;  /* Active states, pressed */
 
   /* === Text Hierarchy === */
   --fenrir-text:      #cdd6f4;  /* Primary text */
@@ -47,6 +47,6 @@
   --fenrir-glow-strong:   rgba(166, 227, 161, 0.35);
 
   /* === Icon Background === */
-  --fenrir-icon-bg:   #11111b;
+  --fenrir-icon-bg:   #0a0a14;
   --fenrir-icon-radius: 22%;
 }

@@ -136,31 +136,31 @@
   @variant catppuccin-mocha {
     color-scheme: dark;
 
-    /* === Fenrir Surface Hierarchy (shifted one level darker) === */
-    --background: #181825;              /* Mantle — main content base */
-    --app-chrome-background: #0a0a14;   /* Deep — window frame, outermost shell */
+    /* === Fenrir Surface Hierarchy (shifted two levels darker) === */
+    --background: #11111b;              /* Crust — main content base */
+    --app-chrome-background: #03030d;   /* Deep — window frame, outermost shell */
     --foreground: #cdd6f4;              /* Text — primary text */
 
-    --card: #1e1e2e;                    /* Base — cards, inputs, elevated surfaces */
+    --card: #181825;                    /* Mantle — cards, inputs, elevated surfaces */
     --card-foreground: #cdd6f4;
-    --popover: #1e1e2e;                 /* Base — popovers, dropdowns */
+    --popover: #181825;                 /* Mantle — popovers, dropdowns */
     --popover-foreground: #cdd6f4;
 
-    /* Sidebar uses Crust for darker panel feel */
-    --color-sidebar: #11111b;
+    /* Sidebar uses Crust-level for darker panel feel */
+    --color-sidebar: #0a0a14;
     --color-sidebar-foreground: #cdd6f4;
-    --color-sidebar-border: #1e1e2e;
-    --color-sidebar-accent: #1e1e2e;
+    --color-sidebar-border: #181825;
+    --color-sidebar-accent: #181825;
     --color-sidebar-accent-foreground: #cdd6f4;
 
     /* === Brand & Interactive === */
     --primary: #a6e3a1;                 /* Fenrir Green — primary accent */
-    --primary-foreground: #11111b;      /* Dark text on green */
-    --secondary: #1e1e2e;              /* Base — secondary fills */
+    --primary-foreground: #0a0a14;      /* Dark text on green */
+    --secondary: #181825;              /* Mantle — secondary fills */
     --secondary-foreground: #cdd6f4;
-    --muted: #1e1e2e;                  /* Base — muted backgrounds */
+    --muted: #181825;                  /* Mantle — muted backgrounds */
     --muted-foreground: #a6adc8;        /* Subtext0 — dimmed text */
-    --accent: #1e1e2e;                 /* Base — accent backgrounds */
+    --accent: #181825;                 /* Mantle — accent backgrounds */
     --accent-foreground: #cdd6f4;
 
     /* === Semantic Status === */
@@ -174,8 +174,8 @@
     --warning-foreground: #f9e2af;
 
     /* === Borders & Inputs === */
-    --border: #313244;                  /* Surface0 — borders, dividers */
-    --input: #45475a;                   /* Surface1 — form inputs */
+    --border: #1e1e2e;                  /* Surface0 — borders, dividers */
+    --input: #313244;                   /* Surface1 — form inputs */
     --ring: #a6e3a1;                    /* Green — focus ring */
 
     /* === Extended Fenrir Palette === */

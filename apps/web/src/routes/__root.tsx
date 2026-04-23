@@ -77,10 +77,15 @@ function FontSettingsSync() {
       `"${uiFontFamily}", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, monospace`,
     );
     root.style.setProperty("--fenrir-font-size", `${uiFontSize}px`);
+    // Scale html font-size so rem-based Tailwind utilities (text-sm, text-xs, etc.)
+    // respond to the setting. 14px baseline → 100% (no visual change at default).
+    const scalePct = (uiFontSize / 14) * 100;
+    root.style.fontSize = `${scalePct}%`;
 
     return () => {
       root.style.removeProperty("--fenrir-font-family");
       root.style.removeProperty("--fenrir-font-size");
+      root.style.fontSize = "";
     };
   }, [uiFontFamily, uiFontSize]);
 

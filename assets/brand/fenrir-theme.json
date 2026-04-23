@@ -1,14 +1,14 @@
 {
   "name": "Fenrir",
-  "description": "Catppuccin Mocha shifted darker. Mantle as base.",
+  "description": "Catppuccin Mocha shifted two levels darker. Crust as base.",
   "surfaces": {
-    "deep":     "#0a0a14",
-    "crust":    "#11111b",
-    "base":     "#181825",
-    "surface":  "#1e1e2e",
-    "surface0": "#313244",
-    "surface1": "#45475a",
-    "surface2": "#585b70"
+    "deep":     "#03030d",
+    "crust":    "#0a0a14",
+    "base":     "#11111b",
+    "surface":  "#181825",
+    "surface0": "#1e1e2e",
+    "surface1": "#313244",
+    "surface2": "#45475a"
   },
   "text": {
     "primary":     "#cdd6f4",
