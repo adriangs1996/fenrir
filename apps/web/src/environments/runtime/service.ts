@@ -70,10 +70,108 @@ type EnvironmentServiceState = {
 
 const environmentConnections = new Map<EnvironmentId, EnvironmentConnection>();
 const environmentConnectionListeners = new Set<() => void>();
+const lastAppliedProjectionVersionByEnvironment = new Map<
+  EnvironmentId,
+  {
+    readonly sequence: number;
+    readonly updatedAt: string | null;
+  }
+>();
 
 let activeService: EnvironmentServiceState | null = null;
 let needsProviderInvalidation = false;
 
+function compareAppliedProjectionVersion(
+  left: { readonly sequence: number; readonly updatedAt: string | null },
+  right: { readonly sequence: number; readonly updatedAt: string | null },
+): number {
+  if (left.sequence !== right.sequence) {
+    return left.sequence - right.sequence;
+  }
+
+  const leftUpdatedAt = left.updatedAt ?? "";
+  const rightUpdatedAt = right.updatedAt ?? "";
+  if (leftUpdatedAt === rightUpdatedAt) {
+    return 0;
+  }
+
+  return leftUpdatedAt < rightUpdatedAt ? -1 : 1;
+}
+
+function toAppliedProjectionVersion(
+  snapshot: Pick<OrchestrationReadModel, "snapshotSequence" | "updatedAt">,
+): {
+  readonly sequence: number;
+  readonly updatedAt: string;
+} {
+  return {
+    sequence: snapshot.snapshotSequence,
+    updatedAt: snapshot.updatedAt,
+  };
+}
+
+export function shouldApplyProjectionSnapshot(input: {
+  readonly current: {
+    readonly sequence: number;
+    readonly updatedAt: string | null;
+  } | null;
+  readonly next: Pick<OrchestrationReadModel, "snapshotSequence" | "updatedAt">;
+}): boolean {
+  if (input.current === null) {
+    return true;
+  }
+
+  return compareAppliedProjectionVersion(input.current, toAppliedProjectionVersion(input.next)) < 0;
+}
+
+export function shouldApplyProjectionEvent(input: {
+  readonly current: {
+    readonly sequence: number;
+    readonly updatedAt: string | null;
+  } | null;
+  readonly sequence: number;
+}): boolean {
+  if (input.current === null) {
+    return true;
+  }
+
+  return input.sequence > input.current.sequence;
+}
+
+function readLastAppliedProjectionVersion(environmentId: EnvironmentId): {
+  readonly sequence: number;
+  readonly updatedAt: string | null;
+} | null {
+  return lastAppliedProjectionVersionByEnvironment.get(environmentId) ?? null;
+}
+
+function markAppliedProjectionSnapshot(
+  environmentId: EnvironmentId,
+  snapshot: Pick<OrchestrationReadModel, "snapshotSequence" | "updatedAt">,
+): void {
+  const nextVersion = toAppliedProjectionVersion(snapshot);
+  const currentVersion = readLastAppliedProjectionVersion(environmentId);
+  if (
+    currentVersion !== null &&
+    compareAppliedProjectionVersion(currentVersion, nextVersion) >= 0
+  ) {
+    return;
+  }
+
+  lastAppliedProjectionVersionByEnvironment.set(environmentId, nextVersion);
+}
+
+function markAppliedProjectionEvent(environmentId: EnvironmentId, sequence: number): void {
+  const currentVersion = readLastAppliedProjectionVersion(environmentId);
+  if (currentVersion !== null && sequence <= currentVersion.sequence) {
+    return;
+  }
+
+  lastAppliedProjectionVersionByEnvironment.set(environmentId, {
+    sequence,
+    updatedAt: currentVersion?.updatedAt ?? null,
+  });
+}
 function emitEnvironmentConnectionRegistryChange() {
   for (const listener of environmentConnectionListeners) {
     listener();
@@ -275,9 +373,31 @@ function applyRecoveredEventBatch(
 
 function createEnvironmentConnectionHandlers() {
   return {
-    applyEventBatch: applyRecoveredEventBatch,
+    applyEventBatch: (events: ReadonlyArray<OrchestrationEvent>, environmentId: EnvironmentId) => {
+      const filtered = events.filter((event) =>
+        shouldApplyProjectionEvent({
+          current: readLastAppliedProjectionVersion(environmentId),
+          sequence: event.sequence,
+        }),
+      );
+      if (filtered.length === 0) return;
+      applyRecoveredEventBatch(filtered, environmentId);
+      const lastSequence = filtered[filtered.length - 1]?.sequence;
+      if (typeof lastSequence === "number") {
+        markAppliedProjectionEvent(environmentId, lastSequence);
+      }
+    },
     syncSnapshot: (snapshot: OrchestrationReadModel, environmentId: EnvironmentId) => {
+      if (
+        !shouldApplyProjectionSnapshot({
+          current: readLastAppliedProjectionVersion(environmentId),
+          next: snapshot,
+        })
+      ) {
+        return;
+      }
       useStore.getState().syncServerReadModel(snapshot, environmentId);
+      markAppliedProjectionSnapshot(environmentId, snapshot);
       reconcileSnapshotDerivedState();
     },
     applyTerminalEvent: (event: TerminalEvent, environmentId: EnvironmentId) => {
@@ -389,6 +509,7 @@ async function removeConnection(environmentId: EnvironmentId): Promise<boolean> 
     return false;
   }
 
+  lastAppliedProjectionVersionByEnvironment.delete(environmentId);
   environmentConnections.delete(environmentId);
   emitEnvironmentConnectionRegistryChange();
   await connection.dispose();
@@ -717,6 +838,7 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
 
 export async function resetEnvironmentServiceForTests(): Promise<void> {
   stopActiveService();
+  lastAppliedProjectionVersionByEnvironment.clear();
   await Promise.all(
     [...environmentConnections.keys()].map((environmentId) => removeConnection(environmentId)),
   );
