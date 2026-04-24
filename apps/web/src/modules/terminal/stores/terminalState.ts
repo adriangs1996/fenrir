@@ -9,14 +9,14 @@ import { parseScopedThreadKey, scopedThreadKey } from "@fenrir/client-runtime";
 import { type ScopedThreadRef, type TerminalEvent } from "@fenrir/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { resolveStorage } from "./lib/storage";
-import { terminalRunningSubprocessFromEvent } from "./terminalActivity";
+import { resolveStorage } from "~/lib/storage";
+import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
 import {
   getDefaultThreadTerminalHeight,
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ThreadTerminalGroup,
-} from "./types";
+} from "~/types";
 
 interface ThreadTerminalState {
   terminalOpen: boolean;

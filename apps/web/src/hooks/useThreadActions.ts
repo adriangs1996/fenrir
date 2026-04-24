@@ -17,7 +17,7 @@ import {
   selectThreadsForEnvironment,
   useStore,
 } from "../store";
-import { useTerminalStateStore } from "../terminalStateStore";
+import { useTerminalStateStore } from "~/modules/terminal";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { toastManager } from "../components/ui/toast";

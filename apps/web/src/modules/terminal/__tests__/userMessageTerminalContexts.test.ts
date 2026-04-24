@@ -4,7 +4,7 @@ import {
   buildInlineTerminalContextText,
   formatInlineTerminalContextLabel,
   textContainsInlineTerminalContextLabels,
-} from "./userMessageTerminalContexts";
+} from "../userMessageTerminalContexts";
 
 describe("userMessageTerminalContexts", () => {
   it("builds plain inline terminal text labels", () => {

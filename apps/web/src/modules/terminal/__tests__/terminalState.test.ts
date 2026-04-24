@@ -7,7 +7,7 @@ import {
   selectTerminalEventEntries,
   selectThreadTerminalState,
   useTerminalStateStore,
-} from "./terminalStateStore";
+} from "../stores/terminalState";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
 const THREAD_REF = scopeThreadRef("environment-a" as never, THREAD_ID);

@@ -53,7 +53,7 @@ import {
   type TerminalContextSelection,
   insertInlineTerminalContextPlaceholder,
   removeInlineTerminalContextPlaceholder,
-} from "../../lib/terminalContext";
+} from "~/modules/terminal";
 import {
   resolveComposerFooterContentWidth,
   shouldForceCompactComposerFooterForFit,

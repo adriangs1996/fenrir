@@ -28,33 +28,33 @@ import {
   useState,
 } from "react";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
-import { type TerminalContextSelection } from "~/lib/terminalContext";
-import { openInPreferredEditor } from "../editorPreferences";
+import { type TerminalContextSelection } from "../terminalContext";
+import { openInPreferredEditor } from "~/editorPreferences";
 import {
   extractTerminalLinks,
   isTerminalLinkActivation,
   resolvePathLinkTarget,
-} from "../terminal-links";
+} from "../terminalLinks";
 import {
   isTerminalClearShortcut,
   terminalNavigationShortcutData,
-} from "../keybindings";
+} from "~/keybindings";
 import {
   getDefaultThreadTerminalHeight,
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ThreadTerminalGroup,
-} from "../types";
+} from "~/types";
 import { readEnvironmentApi } from "~/environmentApi";
 import { readLocalApi } from "~/localApi";
 import {
   selectTerminalEventEntries,
   useTerminalStateStore,
-} from "../terminalStateStore";
+} from "../stores/terminalState";
 import { selectThreadByRef, useStore } from "~/store";
 import { createThreadSelectorByRef } from "~/storeSelectors";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { extractLastCommandOutput } from "~/lib/extractLastCommandOutput";
+import { extractLastCommandOutput } from "../extractLastCommandOutput";
 import { useSettings } from "~/hooks/useSettings";
 
 const MIN_DRAWER_HEIGHT = 180;

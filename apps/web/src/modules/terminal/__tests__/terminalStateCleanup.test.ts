@@ -2,7 +2,7 @@ import { scopedThreadKey, scopeThreadRef } from "@fenrir/client-runtime";
 import { ThreadId } from "@fenrir/contracts";
 import { describe, expect, it } from "vitest";
 
-import { collectActiveTerminalThreadIds } from "./terminalStateCleanup";
+import { collectActiveTerminalThreadIds } from "../terminalStateCleanup";
 
 const threadId = (id: string): ThreadId => ThreadId.makeUnsafe(id);
 const threadKey = (environmentId: string, id: string): string =>

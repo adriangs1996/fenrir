@@ -93,7 +93,7 @@ import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
-import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
+import ThreadTerminalDrawer from "~/modules/terminal/components/ThreadTerminalDrawer";
 import { ChevronDownIcon } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
 import { toastManager } from "./ui/toast";
@@ -112,7 +112,7 @@ import { newCommandId, newDraftId, newMessageId, newThreadId } from "~/lib/utils
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
-import { isTerminalFocused } from "../lib/terminalFocus";
+import { isTerminalFocused } from "~/modules/terminal";
 import { deriveLogicalProjectKey } from "../logicalProject";
 import {
   useSavedEnvironmentRegistryStore,
@@ -128,10 +128,11 @@ import {
 import {
   appendTerminalContextsToPrompt,
   formatTerminalContextLabel,
+  selectThreadTerminalState,
+  useTerminalStateStore,
   type TerminalContextDraft,
   type TerminalContextSelection,
-} from "../lib/terminalContext";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+} from "~/modules/terminal";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";

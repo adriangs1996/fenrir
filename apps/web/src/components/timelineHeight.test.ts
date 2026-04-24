@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { appendTerminalContextsToPrompt } from "../lib/terminalContext";
-import { buildInlineTerminalContextText } from "./chat/userMessageTerminalContexts";
+import { appendTerminalContextsToPrompt, buildInlineTerminalContextText } from "~/modules/terminal";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
 
 describe("estimateTimelineMessageHeight", () => {

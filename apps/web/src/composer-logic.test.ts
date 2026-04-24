@@ -9,7 +9,7 @@ import {
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "./composer-logic";
-import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
+import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./modules/terminal";
 
 describe("detectComposerTrigger", () => {
   it("detects @path trigger at cursor", () => {

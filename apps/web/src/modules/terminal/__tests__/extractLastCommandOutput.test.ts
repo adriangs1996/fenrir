@@ -1,7 +1,7 @@
 import { type Terminal } from "@xterm/xterm";
 import { describe, expect, it } from "vitest";
 
-import { extractLastCommandOutput } from "../lib/extractLastCommandOutput";
+import { extractLastCommandOutput } from "../extractLastCommandOutput";
 
 function createMockTerminal(lines: string[]): Terminal {
   const rows = lines.length;

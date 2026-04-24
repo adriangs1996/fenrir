@@ -7,9 +7,8 @@ import {
   resolveInitialServerAuthGateState,
 } from "../environments/primary";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
-import { isTerminalFocused } from "../lib/terminalFocus";
+import { isTerminalFocused, selectThreadTerminalState, useTerminalStateStore } from "~/modules/terminal";
 import { resolveShortcutCommand } from "../keybindings";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
 import { useSettings } from "~/hooks/useSettings";

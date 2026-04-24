@@ -4,7 +4,7 @@ import {
   extractTerminalLinks,
   isTerminalLinkActivation,
   resolvePathLinkTarget,
-} from "./terminal-links";
+} from "../terminalLinks";
 
 describe("extractTerminalLinks", () => {
   it("finds http urls and path tokens", () => {

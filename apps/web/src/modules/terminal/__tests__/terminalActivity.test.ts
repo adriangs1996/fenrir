@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { TerminalEvent, TerminalSessionSnapshot } from "@fenrir/contracts";
-import { terminalRunningSubprocessFromEvent } from "./terminalActivity";
+import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
 
 const snapshot: TerminalSessionSnapshot = {
   threadId: "thread-1",

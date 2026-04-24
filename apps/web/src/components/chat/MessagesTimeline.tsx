@@ -47,20 +47,20 @@ import {
   normalizeCompactToolLabel,
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
-import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
+import { TerminalContextInlineChip } from "~/modules/terminal";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
-} from "~/lib/terminalContext";
+} from "~/modules/terminal";
 import { cn } from "~/lib/utils";
 import { type TimestampFormat } from "@fenrir/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
 import {
   buildInlineTerminalContextText,
-  formatInlineTerminalContextLabel,
+  formatInlineTerminalContextHeaderLabel as formatInlineTerminalContextLabel,
   textContainsInlineTerminalContextLabels,
-} from "./userMessageTerminalContexts";
+} from "~/modules/terminal";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 

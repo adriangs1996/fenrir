@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { isTerminalFocused } from "./terminalFocus";
+import { isTerminalFocused } from "../terminalFocus";
 
 class MockHTMLElement {
   isConnected = false;

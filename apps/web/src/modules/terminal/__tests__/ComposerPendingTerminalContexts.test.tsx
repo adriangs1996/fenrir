@@ -2,7 +2,7 @@ import { ThreadId } from "@fenrir/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { ComposerPendingTerminalContextChip } from "./ComposerPendingTerminalContexts";
+import { ComposerPendingTerminalContextChip } from "../components/ComposerPendingTerminalContexts";
 
 describe("ComposerPendingTerminalContextChip", () => {
   it("renders expired terminal contexts with error styling", () => {

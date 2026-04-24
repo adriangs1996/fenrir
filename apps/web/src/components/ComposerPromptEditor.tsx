@@ -69,7 +69,7 @@ import {
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   type TerminalContextDraft,
-} from "~/lib/terminalContext";
+} from "~/modules/terminal";
 import { cn } from "~/lib/utils";
 import {
   basenameOfPath,
@@ -81,7 +81,7 @@ import {
   COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
   COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME,
 } from "./composerInlineChip";
-import { ComposerPendingTerminalContextChip } from "./chat/ComposerPendingTerminalContexts";
+import { ComposerPendingTerminalContextChip } from "~/modules/terminal";
 
 const COMPOSER_EDITOR_HMR_KEY = `composer-editor-${Math.random().toString(36).slice(2)}`;
 const SURROUND_SYMBOLS: [string, string][] = [

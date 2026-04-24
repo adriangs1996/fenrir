@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { useTerminalStateStore } from "./terminalStateStore";
+import { useTerminalStateStore } from "../stores/terminalState";
 
 describe("terminalStateStore tmux tracking", () => {
   beforeEach(() => {

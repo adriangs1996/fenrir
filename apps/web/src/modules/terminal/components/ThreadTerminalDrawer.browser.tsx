@@ -1,4 +1,4 @@
-import "../index.css";
+import "../../../index.css";
 
 import { scopeThreadRef } from "@fenrir/client-runtime";
 import { ThreadId } from "@fenrir/contracts";

@@ -16,7 +16,7 @@ import {
   filterTerminalContextsWithText,
   stripInlineTerminalContextPlaceholders,
   type TerminalContextDraft,
-} from "../lib/terminalContext";
+} from "~/modules/terminal";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "fenrir:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
