@@ -559,6 +559,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
         terminalGroups={terminalState.terminalGroups}
         activeTerminalGroupId={terminalState.activeTerminalGroupId}
         focusRequestId={focusRequestId + localFocusRequestId + (visible ? 1 : 0)}
+        projectId={project?.id}
         onSplitTerminal={splitTerminal}
         onNewTerminal={createNewTerminal}
         splitShortcutLabel={visible ? splitShortcutLabel : undefined}

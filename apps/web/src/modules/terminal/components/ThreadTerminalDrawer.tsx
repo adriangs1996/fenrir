@@ -298,6 +298,8 @@ interface TerminalViewportProps {
   resizeEpoch: number;
   drawerHeight: number;
   mode: "tmux" | "pty";
+  /** Explicit projectId — used when thread not yet in server store (draft threads). */
+  projectId?: string | null | undefined;
 }
 
 export function TerminalViewport({
@@ -316,6 +318,7 @@ export function TerminalViewport({
   resizeEpoch,
   drawerHeight,
   mode,
+  projectId: projectIdProp,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -347,7 +350,7 @@ export function TerminalViewport({
   const thread = useStore(
     useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]),
   );
-  const projectId = thread?.projectId;
+  const projectId = projectIdProp ?? thread?.projectId;
   const prevProjectIdRef = useRef(projectId);
 
   // Reactively update terminal font when settings change
@@ -972,6 +975,8 @@ interface ThreadTerminalDrawerProps {
   onCloseTerminal: (terminalId: string) => void;
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  /** Explicit projectId for tmux — needed when thread not yet in server store (draft threads). */
+  projectId?: string | null;
 }
 
 interface TerminalActionButtonProps {
@@ -1037,6 +1042,7 @@ export default function ThreadTerminalDrawer({
   onCloseTerminal,
   onHeightChange,
   onAddTerminalContext,
+  projectId,
 }: ThreadTerminalDrawerProps) {
   const [drawerHeight, setDrawerHeight] = useState(() =>
     clampDrawerHeight(height),
@@ -1415,6 +1421,7 @@ export default function ThreadTerminalDrawer({
                           ? { worktreePath }
                           : {})}
                         {...(runtimeEnv ? { runtimeEnv } : {})}
+                        projectId={projectId}
                         onSessionExited={() => onCloseTerminal(terminalId)}
                         onAddTerminalContext={onAddTerminalContext}
                         onTerminalMount={(t) => handleTerminalMount(terminalId, t)}
@@ -1442,6 +1449,7 @@ export default function ThreadTerminalDrawer({
                   cwd={cwd}
                   {...(worktreePath !== undefined ? { worktreePath } : {})}
                   {...(runtimeEnv ? { runtimeEnv } : {})}
+                  projectId={projectId}
                   onSessionExited={() =>
                     onCloseTerminal(resolvedActiveTerminalId)
                   }
