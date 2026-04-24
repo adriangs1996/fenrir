@@ -184,11 +184,11 @@ export interface WsRpcClient {
       typeof WS_METHODS.subscribeAuthAccess
     >;
   };
-  readonly browser: {
-    readonly getTraffic: RpcUnaryMethod<typeof WS_METHODS.browserGetTraffic>;
-    readonly getTrafficDetail: RpcUnaryMethod<typeof WS_METHODS.browserGetTrafficDetail>;
-    readonly clearTraffic: RpcUnaryMethod<typeof WS_METHODS.browserClearTraffic>;
-    readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeBrowserEvents>;
+  readonly trafficLens: {
+    readonly getTraffic: RpcUnaryMethod<typeof WS_METHODS.trafficLensGetTraffic>;
+    readonly getTrafficDetail: RpcUnaryMethod<typeof WS_METHODS.trafficLensGetTrafficDetail>;
+    readonly clearTraffic: RpcUnaryMethod<typeof WS_METHODS.trafficLensClearTraffic>;
+    readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeTrafficLensEvents>;
   };
   readonly orchestration: {
     readonly getSnapshot: RpcUnaryNoArgMethod<
@@ -439,22 +439,22 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
           options,
         ),
     },
-    browser: {
+    trafficLens: {
       getTraffic: (input) =>
         transport.request((client) =>
-          client[WS_METHODS.browserGetTraffic](input),
+          client[WS_METHODS.trafficLensGetTraffic](input),
         ),
       getTrafficDetail: (input) =>
         transport.request((client) =>
-          client[WS_METHODS.browserGetTrafficDetail](input),
+          client[WS_METHODS.trafficLensGetTrafficDetail](input),
         ),
       clearTraffic: (input) =>
         transport.request((client) =>
-          client[WS_METHODS.browserClearTraffic](input),
+          client[WS_METHODS.trafficLensClearTraffic](input),
         ),
       onEvent: (listener, options) =>
         transport.subscribe(
-          (client) => client[WS_METHODS.subscribeBrowserEvents]({}),
+          (client) => client[WS_METHODS.subscribeTrafficLensEvents]({}),
           listener,
           options,
         ),

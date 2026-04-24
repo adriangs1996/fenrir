@@ -1,12 +1,12 @@
 import { X } from "lucide-react";
-import { Button } from "../ui/button";
-import { useBrowserStore } from "../../browserStore";
-import { cn } from "../../lib/utils";
+import { Button } from "../../../components/ui/button";
+import { useTrafficLensStore } from "../stores/useTrafficLensStore";
+import { cn } from "../../../lib/utils";
 
-export function BrowserTabBar() {
-  const tabs = useBrowserStore((s) => s.tabs);
-  const activeTabId = useBrowserStore((s) => s.activeTabId);
-  const setActiveTab = useBrowserStore((s) => s.setActiveTab);
+export function TrafficLensTabBar() {
+  const tabs = useTrafficLensStore((s) => s.tabs);
+  const activeTabId = useTrafficLensStore((s) => s.activeTabId);
+  const setActiveTab = useTrafficLensStore((s) => s.setActiveTab);
 
   const tabList = Object.values(tabs);
   if (tabList.length === 0) return null;
@@ -24,7 +24,7 @@ export function BrowserTabBar() {
           )}
           onClick={() => {
             setActiveTab(tab.tabId);
-            void window.desktopBridge?.browserShowTab(tab.tabId);
+            void window.desktopBridge?.trafficLensShowTab(tab.tabId);
           }}
         >
           <span className="truncate">
@@ -39,7 +39,7 @@ export function BrowserTabBar() {
             className="ml-auto h-4 w-4 opacity-0 group-hover:opacity-100"
             onClick={(e) => {
               e.stopPropagation();
-              void window.desktopBridge?.browserCloseTab(tab.tabId);
+              void window.desktopBridge?.trafficLensCloseTab(tab.tabId);
             }}
           >
             <X className="h-3 w-3" />

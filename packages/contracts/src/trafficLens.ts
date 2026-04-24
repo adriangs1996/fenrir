@@ -3,101 +3,101 @@ import { makeEntityId } from "./baseSchemas";
 
 // ─── Branded IDs ────────────────────────────────────────────────────────────
 
-export const BrowserTabId = makeEntityId("BrowserTabId");
-export type BrowserTabId = typeof BrowserTabId.Type;
+export const TrafficLensTabId = makeEntityId("TrafficLensTabId");
+export type TrafficLensTabId = typeof TrafficLensTabId.Type;
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
-export const BrowserTabSnapshot = Schema.Struct({
-  tabId: BrowserTabId,
+export const TrafficLensTabSnapshot = Schema.Struct({
+  tabId: TrafficLensTabId,
   url: Schema.String,
   title: Schema.String,
   loading: Schema.Boolean,
   canGoBack: Schema.Boolean,
   canGoForward: Schema.Boolean,
 });
-export type BrowserTabSnapshot = typeof BrowserTabSnapshot.Type;
+export type TrafficLensTabSnapshot = typeof TrafficLensTabSnapshot.Type;
 
 // ─── Input Schemas ──────────────────────────────────────────────────────────
 
-export const BrowserCreateTabInput = Schema.Struct({
+export const TrafficLensCreateTabInput = Schema.Struct({
   url: Schema.optional(Schema.String),
 });
-export type BrowserCreateTabInput = typeof BrowserCreateTabInput.Type;
+export type TrafficLensCreateTabInput = typeof TrafficLensCreateTabInput.Type;
 
-export const BrowserNavigateInput = Schema.Struct({
-  tabId: BrowserTabId,
+export const TrafficLensNavigateInput = Schema.Struct({
+  tabId: TrafficLensTabId,
   url: Schema.String,
 });
-export type BrowserNavigateInput = typeof BrowserNavigateInput.Type;
+export type TrafficLensNavigateInput = typeof TrafficLensNavigateInput.Type;
 
-export const BrowserBoundsInput = Schema.Struct({
+export const TrafficLensBoundsInput = Schema.Struct({
   x: Schema.Number,
   y: Schema.Number,
   width: Schema.Number,
   height: Schema.Number,
 });
-export type BrowserBoundsInput = typeof BrowserBoundsInput.Type;
+export type TrafficLensBoundsInput = typeof TrafficLensBoundsInput.Type;
 
 // ─── Events ─────────────────────────────────────────────────────────────────
 
-export const BrowserTabCreatedEvent = Schema.Struct({
+export const TrafficLensTabCreatedEvent = Schema.Struct({
   type: Schema.Literal("tab.created"),
-  snapshot: BrowserTabSnapshot,
+  snapshot: TrafficLensTabSnapshot,
 });
 
-export const BrowserTabClosedEvent = Schema.Struct({
+export const TrafficLensTabClosedEvent = Schema.Struct({
   type: Schema.Literal("tab.closed"),
-  tabId: BrowserTabId,
+  tabId: TrafficLensTabId,
 });
 
-export const BrowserTabNavigatedEvent = Schema.Struct({
+export const TrafficLensTabNavigatedEvent = Schema.Struct({
   type: Schema.Literal("tab.navigated"),
-  tabId: BrowserTabId,
+  tabId: TrafficLensTabId,
   url: Schema.String,
 });
 
-export const BrowserTabTitleUpdatedEvent = Schema.Struct({
+export const TrafficLensTabTitleUpdatedEvent = Schema.Struct({
   type: Schema.Literal("tab.titleUpdated"),
-  tabId: BrowserTabId,
+  tabId: TrafficLensTabId,
   title: Schema.String,
 });
 
-export const BrowserTabLoadingChangedEvent = Schema.Struct({
+export const TrafficLensTabLoadingChangedEvent = Schema.Struct({
   type: Schema.Literal("tab.loadingChanged"),
-  tabId: BrowserTabId,
+  tabId: TrafficLensTabId,
   loading: Schema.Boolean,
 });
 
-export const BrowserTabEvent = Schema.Union([
-  BrowserTabCreatedEvent,
-  BrowserTabClosedEvent,
-  BrowserTabNavigatedEvent,
-  BrowserTabTitleUpdatedEvent,
-  BrowserTabLoadingChangedEvent,
+export const TrafficLensTabEvent = Schema.Union([
+  TrafficLensTabCreatedEvent,
+  TrafficLensTabClosedEvent,
+  TrafficLensTabNavigatedEvent,
+  TrafficLensTabTitleUpdatedEvent,
+  TrafficLensTabLoadingChangedEvent,
 ]);
-export type BrowserTabEvent = typeof BrowserTabEvent.Type;
+export type TrafficLensTabEvent = typeof TrafficLensTabEvent.Type;
 
 // ─── Errors ─────────────────────────────────────────────────────────────────
 
-export class BrowserTabNotFoundError extends Schema.TaggedErrorClass<BrowserTabNotFoundError>()(
-  "BrowserTabNotFoundError",
+export class TrafficLensTabNotFoundError extends Schema.TaggedErrorClass<TrafficLensTabNotFoundError>()(
+  "TrafficLensTabNotFoundError",
   { tabId: Schema.String, message: Schema.String },
 ) {}
 
-export class BrowserError extends Schema.TaggedErrorClass<BrowserError>()(
-  "BrowserError",
+export class TrafficLensError extends Schema.TaggedErrorClass<TrafficLensError>()(
+  "TrafficLensError",
   { message: Schema.String },
 ) {}
 
-export class BrowserTrafficNotFoundError extends Schema.TaggedErrorClass<BrowserTrafficNotFoundError>()(
-  "BrowserTrafficNotFoundError",
+export class TrafficLensNotFoundError extends Schema.TaggedErrorClass<TrafficLensNotFoundError>()(
+  "TrafficLensNotFoundError",
   { trafficId: Schema.Number, message: Schema.String },
 ) {}
 
 // ─── Traffic Schemas ───────────────────────────────────────────────────────
 
-export const BrowserTrafficEntry = Schema.Struct({
+export const TrafficLensEntry = Schema.Struct({
   id: Schema.Number,
   tabId: Schema.String,
   requestId: Schema.String,
@@ -115,19 +115,19 @@ export const BrowserTrafficEntry = Schema.Struct({
   timingCompletedAt: Schema.NullOr(Schema.String),
   createdAt: Schema.String,
 });
-export type BrowserTrafficEntry = typeof BrowserTrafficEntry.Type;
+export type TrafficLensEntry = typeof TrafficLensEntry.Type;
 
-export const BrowserTrafficDetail = Schema.Struct({
-  ...BrowserTrafficEntry.fields,
+export const TrafficLensDetail = Schema.Struct({
+  ...TrafficLensEntry.fields,
   requestHeadersJson: Schema.String,
   requestBody: Schema.NullOr(Schema.String),
   responseHeadersJson: Schema.NullOr(Schema.String),
   responseBody: Schema.NullOr(Schema.String),
   notes: Schema.NullOr(Schema.String),
 });
-export type BrowserTrafficDetail = typeof BrowserTrafficDetail.Type;
+export type TrafficLensDetail = typeof TrafficLensDetail.Type;
 
-export const BrowserTrafficQueryInput = Schema.Struct({
+export const TrafficLensQueryInput = Schema.Struct({
   tabId: Schema.optional(Schema.String),
   host: Schema.optional(Schema.String),
   method: Schema.optional(Schema.String),
@@ -136,9 +136,9 @@ export const BrowserTrafficQueryInput = Schema.Struct({
   limit: Schema.optional(Schema.Number),
   offset: Schema.optional(Schema.Number),
 });
-export type BrowserTrafficQueryInput = typeof BrowserTrafficQueryInput.Type;
+export type TrafficLensQueryInput = typeof TrafficLensQueryInput.Type;
 
-export const BrowserTrafficIngestPayload = Schema.Struct({
+export const TrafficLensIngestPayload = Schema.Struct({
   tabId: Schema.String,
   requestId: Schema.String,
   stage: Schema.Union([Schema.Literal("request"), Schema.Literal("response")]),
@@ -156,21 +156,21 @@ export const BrowserTrafficIngestPayload = Schema.Struct({
   bodyTruncated: Schema.optional(Schema.Boolean),
   timestamp: Schema.String,
 });
-export type BrowserTrafficIngestPayload = typeof BrowserTrafficIngestPayload.Type;
+export type TrafficLensIngestPayload = typeof TrafficLensIngestPayload.Type;
 
 // ─── Traffic Events ────────────────────────────────────────────────────────
 
-export const BrowserTrafficCapturedEvent = Schema.Struct({
+export const TrafficLensCapturedEvent = Schema.Struct({
   type: Schema.Literal("traffic.captured"),
-  entry: BrowserTrafficEntry,
+  entry: TrafficLensEntry,
 });
 
-export const BrowserEvent = Schema.Union([
-  BrowserTabCreatedEvent,
-  BrowserTabClosedEvent,
-  BrowserTabNavigatedEvent,
-  BrowserTabTitleUpdatedEvent,
-  BrowserTabLoadingChangedEvent,
-  BrowserTrafficCapturedEvent,
+export const TrafficLensEvent = Schema.Union([
+  TrafficLensTabCreatedEvent,
+  TrafficLensTabClosedEvent,
+  TrafficLensTabNavigatedEvent,
+  TrafficLensTabTitleUpdatedEvent,
+  TrafficLensTabLoadingChangedEvent,
+  TrafficLensCapturedEvent,
 ]);
-export type BrowserEvent = typeof BrowserEvent.Type;
+export type TrafficLensEvent = typeof TrafficLensEvent.Type;

@@ -1,21 +1,21 @@
 import { create } from "zustand";
-import type { BrowserTabSnapshot, BrowserTabEvent, BrowserTrafficEntry } from "@fenrir/contracts";
+import type { TrafficLensTabSnapshot, TrafficLensTabEvent, TrafficLensEntry } from "@fenrir/contracts";
 
-interface BrowserState {
-  tabs: Record<string, BrowserTabSnapshot>;
+interface TrafficLensState {
+  tabs: Record<string, TrafficLensTabSnapshot>;
   activeTabId: string | null;
-  trafficEntries: BrowserTrafficEntry[];
+  trafficEntries: TrafficLensEntry[];
 
   // Actions
-  upsertTab: (snapshot: BrowserTabSnapshot) => void;
+  upsertTab: (snapshot: TrafficLensTabSnapshot) => void;
   removeTab: (tabId: string) => void;
   setActiveTab: (tabId: string | null) => void;
-  applyEvent: (event: BrowserTabEvent) => void;
-  appendTraffic: (entry: BrowserTrafficEntry) => void;
+  applyEvent: (event: TrafficLensTabEvent) => void;
+  appendTraffic: (entry: TrafficLensEntry) => void;
   clearTraffic: () => void;
 }
 
-export const useBrowserStore = create<BrowserState>((set) => ({
+export const useTrafficLensStore = create<TrafficLensState>((set) => ({
   tabs: {},
   activeTabId: null,
   trafficEntries: [],

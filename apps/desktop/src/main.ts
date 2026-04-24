@@ -77,21 +77,7 @@ import {
   onVpnStateChange,
   stopVpn,
 } from "./vpnManager";
-import {
-  initBrowserManager,
-  createTab,
-  closeTab,
-  navigateTab,
-  goBack,
-  goForward,
-  reloadTab,
-  getTabs,
-  setTabBounds,
-  showTab,
-  hideAllTabs,
-  onBrowserTabEvent,
-  stopBrowser,
-} from "./browserManager";
+import { createTrafficLensManager, type TrafficLensManager } from "./trafficLensManager";
 
 syncShellEnvironment();
 
@@ -124,17 +110,17 @@ const VPN_CONNECT_CHANNEL = "desktop:vpn-connect";
 const VPN_DISCONNECT_CHANNEL = "desktop:vpn-disconnect";
 const VPN_STATE_CHANNEL = "desktop:vpn-state";
 const PICK_FILE_CHANNEL = "desktop:pick-file";
-const BROWSER_CREATE_TAB_CHANNEL = "desktop:browser-create-tab";
-const BROWSER_CLOSE_TAB_CHANNEL = "desktop:browser-close-tab";
-const BROWSER_NAVIGATE_CHANNEL = "desktop:browser-navigate";
-const BROWSER_GO_BACK_CHANNEL = "desktop:browser-go-back";
-const BROWSER_GO_FORWARD_CHANNEL = "desktop:browser-go-forward";
-const BROWSER_RELOAD_CHANNEL = "desktop:browser-reload";
-const BROWSER_GET_TABS_CHANNEL = "desktop:browser-get-tabs";
-const BROWSER_SET_BOUNDS_CHANNEL = "desktop:browser-set-bounds";
-const BROWSER_SHOW_TAB_CHANNEL = "desktop:browser-show-tab";
-const BROWSER_HIDE_ALL_TABS_CHANNEL = "desktop:browser-hide-all-tabs";
-const BROWSER_TAB_EVENT_CHANNEL = "desktop:browser-tab-event";
+const TRAFFIC_LENS_CREATE_TAB_CHANNEL = "desktop:traffic-lens-create-tab";
+const TRAFFIC_LENS_CLOSE_TAB_CHANNEL = "desktop:traffic-lens-close-tab";
+const TRAFFIC_LENS_NAVIGATE_CHANNEL = "desktop:traffic-lens-navigate";
+const TRAFFIC_LENS_GO_BACK_CHANNEL = "desktop:traffic-lens-go-back";
+const TRAFFIC_LENS_GO_FORWARD_CHANNEL = "desktop:traffic-lens-go-forward";
+const TRAFFIC_LENS_RELOAD_CHANNEL = "desktop:traffic-lens-reload";
+const TRAFFIC_LENS_GET_TABS_CHANNEL = "desktop:traffic-lens-get-tabs";
+const TRAFFIC_LENS_SET_BOUNDS_CHANNEL = "desktop:traffic-lens-set-bounds";
+const TRAFFIC_LENS_SHOW_TAB_CHANNEL = "desktop:traffic-lens-show-tab";
+const TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL = "desktop:traffic-lens-hide-all-tabs";
+const TRAFFIC_LENS_TAB_EVENT_CHANNEL = "desktop:traffic-lens-tab-event";
 const BASE_DIR = process.env.FENRIR_HOME?.trim() || Path.join(OS.homedir(), ".fenrir");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
@@ -186,6 +172,7 @@ let aboutCommitHashCache: string | null | undefined;
 let desktopLogSink: RotatingFileSink | null = null;
 let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
+let trafficLensManager: TrafficLensManager | null = null;
 let backendObservabilitySettings = readPersistedBackendObservabilitySettings();
 let desktopSettings = readDesktopSettings(DESKTOP_SETTINGS_PATH);
 let desktopServerExposureMode: DesktopServerExposureMode = desktopSettings.serverExposureMode;
@@ -1594,54 +1581,58 @@ function registerIpcHandlers(): void {
     mainWindow?.webContents.send(VPN_STATE_CHANNEL, state);
   });
 
-  // ---- Browser Manager ----
+  // ---- Traffic Lens Manager ----
 
   if (mainWindow) {
-    initBrowserManager(mainWindow, backendHttpUrl, backendBootstrapToken);
+    trafficLensManager = createTrafficLensManager({
+      window: mainWindow,
+      backendHttpUrl,
+      bootstrapToken: backendBootstrapToken,
+    });
   }
 
-  ipcMain.removeHandler(BROWSER_CREATE_TAB_CHANNEL);
-  ipcMain.handle(BROWSER_CREATE_TAB_CHANNEL, async (_event, url: unknown) => {
+  ipcMain.removeHandler(TRAFFIC_LENS_CREATE_TAB_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_CREATE_TAB_CHANNEL, async (_event, url: unknown) => {
     const validUrl = typeof url === "string" ? url : undefined;
-    return createTab(validUrl);
+    return trafficLensManager?.createTab(validUrl);
   });
 
-  ipcMain.removeHandler(BROWSER_CLOSE_TAB_CHANNEL);
-  ipcMain.handle(BROWSER_CLOSE_TAB_CHANNEL, async (_event, tabId: unknown) => {
+  ipcMain.removeHandler(TRAFFIC_LENS_CLOSE_TAB_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_CLOSE_TAB_CHANNEL, async (_event, tabId: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-    closeTab(tabId);
+    trafficLensManager?.closeTab(tabId);
   });
 
-  ipcMain.removeHandler(BROWSER_NAVIGATE_CHANNEL);
-  ipcMain.handle(BROWSER_NAVIGATE_CHANNEL, async (_event, tabId: unknown, url: unknown) => {
+  ipcMain.removeHandler(TRAFFIC_LENS_NAVIGATE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_NAVIGATE_CHANNEL, async (_event, tabId: unknown, url: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
     if (typeof url !== "string") throw new Error("Invalid URL.");
-    navigateTab(tabId, url);
+    trafficLensManager?.navigateTab(tabId, url);
   });
 
-  ipcMain.removeHandler(BROWSER_GO_BACK_CHANNEL);
-  ipcMain.handle(BROWSER_GO_BACK_CHANNEL, async (_event, tabId: unknown) => {
+  ipcMain.removeHandler(TRAFFIC_LENS_GO_BACK_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_GO_BACK_CHANNEL, async (_event, tabId: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-    goBack(tabId);
+    trafficLensManager?.goBack(tabId);
   });
 
-  ipcMain.removeHandler(BROWSER_GO_FORWARD_CHANNEL);
-  ipcMain.handle(BROWSER_GO_FORWARD_CHANNEL, async (_event, tabId: unknown) => {
+  ipcMain.removeHandler(TRAFFIC_LENS_GO_FORWARD_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_GO_FORWARD_CHANNEL, async (_event, tabId: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-    goForward(tabId);
+    trafficLensManager?.goForward(tabId);
   });
 
-  ipcMain.removeHandler(BROWSER_RELOAD_CHANNEL);
-  ipcMain.handle(BROWSER_RELOAD_CHANNEL, async (_event, tabId: unknown) => {
+  ipcMain.removeHandler(TRAFFIC_LENS_RELOAD_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_RELOAD_CHANNEL, async (_event, tabId: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-    reloadTab(tabId);
+    trafficLensManager?.reloadTab(tabId);
   });
 
-  ipcMain.removeHandler(BROWSER_GET_TABS_CHANNEL);
-  ipcMain.handle(BROWSER_GET_TABS_CHANNEL, async () => getTabs());
+  ipcMain.removeHandler(TRAFFIC_LENS_GET_TABS_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_GET_TABS_CHANNEL, async () => trafficLensManager?.getTabs() ?? []);
 
-  ipcMain.removeHandler(BROWSER_SET_BOUNDS_CHANNEL);
-  ipcMain.handle(BROWSER_SET_BOUNDS_CHANNEL, async (_event, tabId: unknown, bounds: unknown) => {
+  ipcMain.removeHandler(TRAFFIC_LENS_SET_BOUNDS_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_SET_BOUNDS_CHANNEL, async (_event, tabId: unknown, bounds: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
     if (typeof bounds !== "object" || bounds === null) throw new Error("Invalid bounds.");
     const b = bounds as Record<string, unknown>;
@@ -1653,21 +1644,21 @@ function registerIpcHandlers(): void {
     ) {
       throw new Error("Invalid bounds shape.");
     }
-    setTabBounds(tabId, { x: b.x, y: b.y, width: b.width, height: b.height });
+    trafficLensManager?.setTabBounds(tabId, { x: b.x, y: b.y, width: b.width, height: b.height });
   });
 
-  ipcMain.removeHandler(BROWSER_SHOW_TAB_CHANNEL);
-  ipcMain.handle(BROWSER_SHOW_TAB_CHANNEL, async (_event, tabId: unknown) => {
+  ipcMain.removeHandler(TRAFFIC_LENS_SHOW_TAB_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_SHOW_TAB_CHANNEL, async (_event, tabId: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-    showTab(tabId);
+    trafficLensManager?.showTab(tabId);
   });
 
-  ipcMain.removeHandler(BROWSER_HIDE_ALL_TABS_CHANNEL);
-  ipcMain.handle(BROWSER_HIDE_ALL_TABS_CHANNEL, async () => hideAllTabs());
+  ipcMain.removeHandler(TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL, async () => trafficLensManager?.hideAllTabs());
 
-  // Push browser tab events to renderer
-  onBrowserTabEvent((event) => {
-    mainWindow?.webContents.send(BROWSER_TAB_EVENT_CHANNEL, event);
+  // Push traffic lens tab events to renderer
+  trafficLensManager?.onTabEvent((event) => {
+    mainWindow?.webContents.send(TRAFFIC_LENS_TAB_EVENT_CHANNEL, event);
   });
 
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
@@ -2029,7 +2020,7 @@ app.on("before-quit", () => {
   writeDesktopLogHeader("before-quit received");
   clearUpdatePollTimer();
   cancelBackendReadinessWait();
-  stopBrowser();
+  trafficLensManager?.stop();
   stopVpn();
   stopBackend();
   restoreStdIoCapture?.();
@@ -2076,7 +2067,7 @@ if (process.platform !== "win32") {
     writeDesktopLogHeader("SIGINT received");
     clearUpdatePollTimer();
     cancelBackendReadinessWait();
-    stopBrowser();
+    trafficLensManager?.stop();
     stopVpn();
     stopBackend();
     restoreStdIoCapture?.();
@@ -2088,7 +2079,7 @@ if (process.platform !== "win32") {
     isQuitting = true;
     writeDesktopLogHeader("SIGTERM received");
     clearUpdatePollTimer();
-    stopBrowser();
+    trafficLensManager?.stop();
     stopVpn();
     stopBackend();
     restoreStdIoCapture?.();

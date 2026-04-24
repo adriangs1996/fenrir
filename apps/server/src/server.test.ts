@@ -104,7 +104,7 @@ import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
 import { GlobalActionsService, type GlobalActionsShape } from "./globalActions.ts";
 import { MetasploitService, type MetasploitServiceShape } from "./metasploit/Services/MetasploitService.ts";
 import { MetasploitShellAdapter, type MetasploitShellAdapterShape } from "./metasploit/Services/MetasploitShellAdapter.ts";
-import { BrowserTrafficService } from "./browser/Services/BrowserTrafficService.ts";
+import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -440,7 +440,7 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(BrowserTrafficService)({
+        Layer.mock(TrafficLensService)({
           ingestTraffic: () => Effect.void,
           queryTraffic: () => Effect.succeed([]),
           getTrafficDetail: () => Effect.die(new Error("not available in test")),

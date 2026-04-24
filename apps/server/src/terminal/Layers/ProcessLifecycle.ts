@@ -139,19 +139,19 @@ const checkPosixSubprocessActivity = Effect.fn(
   return false;
 });
 
-const defaultSubprocessChecker = Effect.fn(
-  "terminal.defaultSubprocessChecker",
-)(function* (
-  terminalPid: number,
-): Effect.fn.Return<boolean, TerminalSubprocessCheckError> {
-  if (!Number.isInteger(terminalPid) || terminalPid <= 0) {
-    return false;
-  }
-  if (process.platform === "win32") {
-    return yield* checkWindowsSubprocessActivity(terminalPid);
-  }
-  return yield* checkPosixSubprocessActivity(terminalPid);
-});
+const defaultSubprocessChecker = Effect.fn("terminal.defaultSubprocessChecker")(
+  function* (
+    terminalPid: number,
+  ): Effect.fn.Return<boolean, TerminalSubprocessCheckError> {
+    if (!Number.isInteger(terminalPid) || terminalPid <= 0) {
+      return false;
+    }
+    if (process.platform === "win32") {
+      return yield* checkWindowsSubprocessActivity(terminalPid);
+    }
+    return yield* checkPosixSubprocessActivity(terminalPid);
+  },
+);
 
 export type TerminalSubprocessChecker = (
   terminalPid: number,
@@ -163,9 +163,7 @@ export interface ProcessLifecycleOptions {
 }
 
 export const makeProcessLifecycle = Effect.fn("makeProcessLifecycle")(
-  function* (
-    options?: ProcessLifecycleOptions,
-  ) {
+  function* (options?: ProcessLifecycleOptions) {
     const processKillGraceMs =
       options?.processKillGraceMs ?? DEFAULT_PROCESS_KILL_GRACE_MS;
     const subprocessChecker =
@@ -186,19 +184,19 @@ export const makeProcessLifecycle = Effect.fn("makeProcessLifecycle")(
     ) {
       if (!process) return;
       const fiber: Option.Option<Fiber.Fiber<void, never>> =
-        yield* SynchronizedRef.modify(
-          killFibersRef,
-          (killFibers) => {
-            const existing: Option.Option<Fiber.Fiber<void, never>> =
-              Option.fromNullishOr(killFibers.get(process));
-            if (Option.isNone(existing)) {
-              return [Option.none<Fiber.Fiber<void, never>>(), killFibers] as const;
-            }
-            const next = new Map(killFibers);
-            next.delete(process);
-            return [existing, next] as const;
-          },
-        );
+        yield* SynchronizedRef.modify(killFibersRef, (killFibers) => {
+          const existing: Option.Option<Fiber.Fiber<void, never>> =
+            Option.fromNullishOr(killFibers.get(process));
+          if (Option.isNone(existing)) {
+            return [
+              Option.none<Fiber.Fiber<void, never>>(),
+              killFibers,
+            ] as const;
+          }
+          const next = new Map(killFibers);
+          next.delete(process);
+          return [existing, next] as const;
+        });
       if (Option.isSome(fiber)) {
         yield* Fiber.interrupt(fiber.value).pipe(Effect.ignore);
       }
@@ -215,11 +213,7 @@ export const makeProcessLifecycle = Effect.fn("makeProcessLifecycle")(
     );
 
     const runKillEscalation = Effect.fn("terminal.runKillEscalation")(
-      function* (
-        process: PtyProcess,
-        threadId: string,
-        terminalId: string,
-      ) {
+      function* (process: PtyProcess, threadId: string, terminalId: string) {
         const terminated = yield* Effect.try({
           try: () => process.kill("SIGTERM"),
           catch: (cause) =>
@@ -267,11 +261,7 @@ export const makeProcessLifecycle = Effect.fn("makeProcessLifecycle")(
     );
 
     const startKillEscalation = Effect.fn("terminal.startKillEscalation")(
-      function* (
-        process: PtyProcess,
-        threadId: string,
-        terminalId: string,
-      ) {
+      function* (process: PtyProcess, threadId: string, terminalId: string) {
         const fiber = yield* runKillEscalation(
           process,
           threadId,
@@ -299,22 +289,21 @@ export const makeProcessLifecycle = Effect.fn("makeProcessLifecycle")(
       clearKillFiber,
       registerKillFiber,
 
-      checkSubprocessActivity: Effect.fn(
-        "terminal.checkSubprocessActivity",
-      )(function* (terminalPid: number) {
-        return yield* subprocessChecker(terminalPid).pipe(
-          Effect.catch((error) =>
-            Effect.logWarning(
-              "failed to check terminal subprocess activity",
-              {
-                terminalPid,
-                error:
-                  error instanceof Error ? error.message : String(error),
-              },
-            ).pipe(Effect.as(false)),
-          ),
-        );
-      }),
+      checkSubprocessActivity: Effect.fn("terminal.checkSubprocessActivity")(
+        function* (terminalPid: number) {
+          return yield* subprocessChecker(terminalPid).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning(
+                "failed to check terminal subprocess activity",
+                {
+                  terminalPid,
+                  error: error instanceof Error ? error.message : String(error),
+                },
+              ).pipe(Effect.as(false)),
+            ),
+          );
+        },
+      ),
     } satisfies TerminalProcessLifecycleShape;
   },
 );

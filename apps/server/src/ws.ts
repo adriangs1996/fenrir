@@ -26,7 +26,6 @@ import {
   MetasploitConnectionError,
   MetasploitListenerError,
   MetasploitSessionError,
-  BrowserError,
 } from "@fenrir/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
@@ -72,8 +71,8 @@ import { respondToAuthError } from "./auth/http";
 import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager";
 import { MetasploitService } from "./metasploit/Services/MetasploitService";
 import { MetasploitShellAdapter, type MsfShellProcess } from "./metasploit/Services/MetasploitShellAdapter";
-import { BrowserTrafficService } from "./browser/Services/BrowserTrafficService";
-import type { BrowserEvent } from "@fenrir/contracts";
+import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService";
+import type { TrafficLensEvent } from "@fenrir/contracts";
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -144,7 +143,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const tmuxSessionManager = yield* TmuxSessionManager;
       const metasploitService = yield* MetasploitService;
       const metasploitShellAdapter = yield* MetasploitShellAdapter;
-      const browserTrafficService = yield* BrowserTrafficService;
+      const trafficLensService = yield* TrafficLensService;
       const activeTmuxProcesses = new Map<string, { pid: number }>();
       const activeMsfShellProcesses = new Map<string, MsfShellProcess>();
 
@@ -1347,41 +1346,41 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             { "rpc.aggregate": "metasploit" },
           ),
 
-        // ─── Browser Traffic RPCs ────────────────────────────────────────
+        // ─── Traffic Lens RPCs ─────────────────────────────────────────
 
-        [WS_METHODS.browserGetTraffic]: (input) =>
+        [WS_METHODS.trafficLensGetTraffic]: (input) =>
           observeRpcEffect(
-            WS_METHODS.browserGetTraffic,
-            browserTrafficService.queryTraffic(input),
-            { "rpc.aggregate": "browser" },
+            WS_METHODS.trafficLensGetTraffic,
+            trafficLensService.queryTraffic(input),
+            { "rpc.aggregate": "trafficLens" },
           ),
 
-        [WS_METHODS.browserGetTrafficDetail]: (input) =>
+        [WS_METHODS.trafficLensGetTrafficDetail]: (input) =>
           observeRpcEffect(
-            WS_METHODS.browserGetTrafficDetail,
-            browserTrafficService.getTrafficDetail(input.id),
-            { "rpc.aggregate": "browser" },
+            WS_METHODS.trafficLensGetTrafficDetail,
+            trafficLensService.getTrafficDetail(input.id),
+            { "rpc.aggregate": "trafficLens" },
           ),
 
-        [WS_METHODS.browserClearTraffic]: (input) =>
+        [WS_METHODS.trafficLensClearTraffic]: (input) =>
           observeRpcEffect(
-            WS_METHODS.browserClearTraffic,
-            browserTrafficService.clearTraffic(input.tabId),
-            { "rpc.aggregate": "browser" },
+            WS_METHODS.trafficLensClearTraffic,
+            trafficLensService.clearTraffic(input.tabId),
+            { "rpc.aggregate": "trafficLens" },
           ),
 
-        [WS_METHODS.subscribeBrowserEvents]: (_input) =>
+        [WS_METHODS.subscribeTrafficLensEvents]: (_input) =>
           observeRpcStream(
-            WS_METHODS.subscribeBrowserEvents,
-            Stream.callback<BrowserEvent>((queue) =>
+            WS_METHODS.subscribeTrafficLensEvents,
+            Stream.callback<TrafficLensEvent>((queue) =>
               Effect.acquireRelease(
-                browserTrafficService.subscribe((event) => {
+                trafficLensService.subscribe((event) => {
                   Effect.runFork(Queue.offer(queue, event));
                 }),
                 (unsubscribe) => Effect.sync(unsubscribe),
               ),
             ),
-            { "rpc.aggregate": "browser" },
+            { "rpc.aggregate": "trafficLens" },
           ),
       });
     }),

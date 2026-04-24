@@ -1,9 +1,9 @@
-import { useBrowserBounds } from "./useBrowserBounds";
-import { useBrowserStore } from "../../browserStore";
+import { useTrafficLensBounds } from "../hooks/useTrafficLensBounds";
+import { useTrafficLensStore } from "../stores/useTrafficLensStore";
 
-export function BrowserViewContainer() {
-  const containerRef = useBrowserBounds();
-  const activeTabId = useBrowserStore((s) => s.activeTabId);
+export function TrafficLensViewContainer() {
+  const containerRef = useTrafficLensBounds();
+  const activeTabId = useTrafficLensStore((s) => s.activeTabId);
 
   if (!activeTabId) {
     return (

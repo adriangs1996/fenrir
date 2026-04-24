@@ -1,16 +1,16 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
-  BrowserTabSnapshot,
-  BrowserCreateTabInput,
-  BrowserTabEvent,
-} from "./browser";
+  TrafficLensTabSnapshot,
+  TrafficLensCreateTabInput,
+  TrafficLensTabEvent,
+} from "./trafficLens";
 
-const decodeTabSnapshot = Schema.decodeUnknownSync(BrowserTabSnapshot);
-const decodeCreateTabInput = Schema.decodeUnknownSync(BrowserCreateTabInput);
-const decodeTabEvent = Schema.decodeUnknownSync(BrowserTabEvent);
+const decodeTabSnapshot = Schema.decodeUnknownSync(TrafficLensTabSnapshot);
+const decodeCreateTabInput = Schema.decodeUnknownSync(TrafficLensCreateTabInput);
+const decodeTabEvent = Schema.decodeUnknownSync(TrafficLensTabEvent);
 
-describe("BrowserTabSnapshot", () => {
+describe("TrafficLensTabSnapshot", () => {
   it("accepts a valid tab snapshot", () => {
     const parsed = decodeTabSnapshot({
       tabId: "abc-123",
@@ -42,7 +42,7 @@ describe("BrowserTabSnapshot", () => {
   });
 });
 
-describe("BrowserCreateTabInput", () => {
+describe("TrafficLensCreateTabInput", () => {
   it("accepts empty object (url is optional)", () => {
     const parsed = decodeCreateTabInput({});
     expect(parsed.url).toBeUndefined();
@@ -54,7 +54,7 @@ describe("BrowserCreateTabInput", () => {
   });
 });
 
-describe("BrowserTabEvent", () => {
+describe("TrafficLensTabEvent", () => {
   it("decodes tab.created event", () => {
     const event = decodeTabEvent({
       type: "tab.created",

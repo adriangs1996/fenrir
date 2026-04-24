@@ -14,10 +14,9 @@ import {
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { useMetasploitStore } from "../../metasploitStore";
-import { useBrowserStore } from "../../browserStore";
+import { useTrafficLensStore, TrafficLensSidebarSection } from "../../modules/traffic-lens";
 import { CreateListenerDialog } from "./CreateListenerDialog";
 import { useMetasploitSync } from "./useMetasploitSync";
-import { BrowserSidebarSection } from "../browser/BrowserSidebarSection";
 import { isElectron } from "../../env";
 import { getPrimaryEnvironmentConnection } from "../../environments/runtime";
 import { toastManager } from "../ui/toast";
@@ -50,7 +49,7 @@ export function HackSidebar() {
         </span>
       </SidebarHeader>
       <SidebarContent>
-        <BrowserSidebarSection />
+        <TrafficLensSidebarSection />
         <SidebarGroup>
           <div className="flex items-center justify-between px-2">
             <SidebarGroupLabel>Listeners</SidebarGroupLabel>
@@ -107,8 +106,8 @@ export function HackSidebar() {
                   <SidebarMenuButton
                     isActive={session.sessionId === activeSessionId}
                     onClick={() => {
-                      useBrowserStore.getState().setActiveTab(null);
-                      void window.desktopBridge?.hideAllTabs();
+                      useTrafficLensStore.getState().setActiveTab(null);
+                      void window.desktopBridge?.trafficLensHideAllTabs();
                       void navigate({
                         to: `/hack/${session.sessionId}` as string,
                       });

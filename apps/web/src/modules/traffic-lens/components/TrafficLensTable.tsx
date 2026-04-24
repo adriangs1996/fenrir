@@ -1,8 +1,8 @@
 import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useBrowserStore } from "../../browserStore";
-import { cn } from "../../lib/utils";
-import type { BrowserTrafficEntry } from "@fenrir/contracts";
+import { useTrafficLensStore } from "../stores/useTrafficLensStore";
+import { cn } from "../../../lib/utils";
+import type { TrafficLensEntry } from "@fenrir/contracts";
 
 const METHOD_COLORS: Record<string, string> = {
   GET: "text-green-500",
@@ -37,13 +37,13 @@ function formatTime(started: string, completed: string | null): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-interface TrafficTableProps {
-  onSelectEntry?: (entry: BrowserTrafficEntry) => void;
+interface TrafficLensTableProps {
+  onSelectEntry?: (entry: TrafficLensEntry) => void;
   selectedId?: number | null;
 }
 
-export function TrafficTable({ onSelectEntry, selectedId }: TrafficTableProps) {
-  const entries = useBrowserStore((s) => s.trafficEntries);
+export function TrafficLensTable({ onSelectEntry, selectedId }: TrafficLensTableProps) {
+  const entries = useTrafficLensStore((s) => s.trafficEntries);
   const parentRef = useRef<HTMLDivElement>(null);
 
   const virtualizer = useVirtualizer({
@@ -119,7 +119,7 @@ export function TrafficTable({ onSelectEntry, selectedId }: TrafficTableProps) {
         <button
           className="hover:text-foreground"
           onClick={() => {
-            useBrowserStore.getState().clearTraffic();
+            useTrafficLensStore.getState().clearTraffic();
           }}
         >
           Clear

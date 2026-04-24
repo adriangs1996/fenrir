@@ -25,14 +25,14 @@ import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolve
 import { ServerAuth } from "./auth/Services/ServerAuth.ts";
 import { respondToAuthError } from "./auth/http.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
-import { BrowserTrafficService } from "./browser/Services/BrowserTrafficService.ts";
+import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService.ts";
 
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
 const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
 
-export const browserApiCorsLayer = HttpRouter.cors({
+export const trafficLensApiCorsLayer = HttpRouter.cors({
   allowedMethods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["authorization", "b3", "traceparent", "content-type"],
   maxAge: 600,
@@ -235,14 +235,14 @@ export const fontsRouteLayer = HttpRouter.add(
   }).pipe(Effect.catchTag("AuthError", respondToAuthError)),
 );
 
-export const browserTrafficIngestRouteLayer = HttpRouter.add(
+export const trafficLensIngestRouteLayer = HttpRouter.add(
   "POST",
-  "/api/browser/traffic",
+  "/api/traffic-lens/ingest",
   Effect.gen(function* () {
     yield* requireAuthenticatedRequest;
     const request = yield* HttpServerRequest.HttpServerRequest;
     const body = yield* request.json;
-    const service = yield* BrowserTrafficService;
+    const service = yield* TrafficLensService;
     yield* service.ingestTraffic(body as any);
     return HttpServerResponse.empty({ status: 204 });
   }).pipe(Effect.catchTag("AuthError", respondToAuthError)),

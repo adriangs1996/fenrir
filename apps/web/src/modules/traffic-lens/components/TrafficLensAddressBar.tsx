@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { ArrowLeft, ArrowRight, RotateCw, X as StopIcon } from "lucide-react";
-import { Button } from "../ui/button";
-import { Input } from "../ui/input";
-import { useBrowserStore } from "../../browserStore";
+import { Button } from "../../../components/ui/button";
+import { Input } from "../../../components/ui/input";
+import { useTrafficLensStore } from "../stores/useTrafficLensStore";
 
-export function BrowserAddressBar() {
-  const activeTabId = useBrowserStore((s) => s.activeTabId);
-  const activeTab = useBrowserStore((s) =>
+export function TrafficLensAddressBar() {
+  const activeTabId = useTrafficLensStore((s) => s.activeTabId);
+  const activeTab = useTrafficLensStore((s) =>
     s.activeTabId ? s.tabs[s.activeTabId] : null,
   );
   const [urlInput, setUrlInput] = useState("");
@@ -28,7 +28,7 @@ export function BrowserAddressBar() {
     if (!/^https?:\/\//i.test(url)) {
       url = `http://${url}`;
     }
-    void window.desktopBridge?.browserNavigate(activeTabId, url);
+    void window.desktopBridge?.trafficLensNavigate(activeTabId, url);
   };
 
   return (
@@ -38,7 +38,7 @@ export function BrowserAddressBar() {
         size="icon"
         className="h-7 w-7"
         disabled={!activeTab.canGoBack}
-        onClick={() => void window.desktopBridge?.browserGoBack(activeTabId)}
+        onClick={() => void window.desktopBridge?.trafficLensGoBack(activeTabId)}
       >
         <ArrowLeft className="h-4 w-4" />
       </Button>
@@ -47,7 +47,7 @@ export function BrowserAddressBar() {
         size="icon"
         className="h-7 w-7"
         disabled={!activeTab.canGoForward}
-        onClick={() => void window.desktopBridge?.browserGoForward(activeTabId)}
+        onClick={() => void window.desktopBridge?.trafficLensGoForward(activeTabId)}
       >
         <ArrowRight className="h-4 w-4" />
       </Button>
@@ -55,7 +55,7 @@ export function BrowserAddressBar() {
         variant="ghost"
         size="icon"
         className="h-7 w-7"
-        onClick={() => void window.desktopBridge?.browserReload(activeTabId)}
+        onClick={() => void window.desktopBridge?.trafficLensReload(activeTabId)}
       >
         {activeTab.loading ? (
           <StopIcon className="h-4 w-4" />

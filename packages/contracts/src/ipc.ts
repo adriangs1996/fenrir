@@ -65,7 +65,7 @@ import {
   ServerSettingsPatch,
 } from "./settings";
 import type { VpnConnectionState, VpnProfile, VpnProfileId } from "./vpn";
-import type { BrowserTabSnapshot, BrowserTabEvent } from "./browser";
+import type { TrafficLensTabSnapshot, TrafficLensTabEvent } from "./trafficLens";
 import type {
   CreateListenerInput,
   ListenerSnapshot,
@@ -207,18 +207,18 @@ export interface DesktopBridge {
     listener: (state: VpnConnectionState) => void,
   ) => () => void;
 
-  // Browser
-  browserCreateTab: (url?: string) => Promise<BrowserTabSnapshot>;
-  browserCloseTab: (tabId: string) => Promise<void>;
-  browserNavigate: (tabId: string, url: string) => Promise<void>;
-  browserGoBack: (tabId: string) => Promise<void>;
-  browserGoForward: (tabId: string) => Promise<void>;
-  browserReload: (tabId: string) => Promise<void>;
-  browserGetTabs: () => Promise<readonly BrowserTabSnapshot[]>;
-  browserSetBounds: (tabId: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
-  browserShowTab: (tabId: string) => Promise<void>;
-  browserHideAllTabs: () => Promise<void>;
-  onBrowserTabEvent: (listener: (event: BrowserTabEvent) => void) => () => void;
+  // Traffic Lens
+  trafficLensCreateTab: (url?: string) => Promise<TrafficLensTabSnapshot>;
+  trafficLensCloseTab: (tabId: string) => Promise<void>;
+  trafficLensNavigate: (tabId: string, url: string) => Promise<void>;
+  trafficLensGoBack: (tabId: string) => Promise<void>;
+  trafficLensGoForward: (tabId: string) => Promise<void>;
+  trafficLensReload: (tabId: string) => Promise<void>;
+  trafficLensGetTabs: () => Promise<readonly TrafficLensTabSnapshot[]>;
+  trafficLensSetBounds: (tabId: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+  trafficLensShowTab: (tabId: string) => Promise<void>;
+  trafficLensHideAllTabs: () => Promise<void>;
+  onTrafficLensTabEvent: (listener: (event: TrafficLensTabEvent) => void) => () => void;
 }
 
 /**

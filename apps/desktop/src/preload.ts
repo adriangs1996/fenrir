@@ -30,17 +30,17 @@ const VPN_CONNECT_CHANNEL = "desktop:vpn-connect";
 const VPN_DISCONNECT_CHANNEL = "desktop:vpn-disconnect";
 const VPN_STATE_CHANNEL = "desktop:vpn-state";
 const PICK_FILE_CHANNEL = "desktop:pick-file";
-const BROWSER_CREATE_TAB_CHANNEL = "desktop:browser-create-tab";
-const BROWSER_CLOSE_TAB_CHANNEL = "desktop:browser-close-tab";
-const BROWSER_NAVIGATE_CHANNEL = "desktop:browser-navigate";
-const BROWSER_GO_BACK_CHANNEL = "desktop:browser-go-back";
-const BROWSER_GO_FORWARD_CHANNEL = "desktop:browser-go-forward";
-const BROWSER_RELOAD_CHANNEL = "desktop:browser-reload";
-const BROWSER_GET_TABS_CHANNEL = "desktop:browser-get-tabs";
-const BROWSER_SET_BOUNDS_CHANNEL = "desktop:browser-set-bounds";
-const BROWSER_SHOW_TAB_CHANNEL = "desktop:browser-show-tab";
-const BROWSER_HIDE_ALL_TABS_CHANNEL = "desktop:browser-hide-all-tabs";
-const BROWSER_TAB_EVENT_CHANNEL = "desktop:browser-tab-event";
+const TRAFFIC_LENS_CREATE_TAB_CHANNEL = "desktop:traffic-lens-create-tab";
+const TRAFFIC_LENS_CLOSE_TAB_CHANNEL = "desktop:traffic-lens-close-tab";
+const TRAFFIC_LENS_NAVIGATE_CHANNEL = "desktop:traffic-lens-navigate";
+const TRAFFIC_LENS_GO_BACK_CHANNEL = "desktop:traffic-lens-go-back";
+const TRAFFIC_LENS_GO_FORWARD_CHANNEL = "desktop:traffic-lens-go-forward";
+const TRAFFIC_LENS_RELOAD_CHANNEL = "desktop:traffic-lens-reload";
+const TRAFFIC_LENS_GET_TABS_CHANNEL = "desktop:traffic-lens-get-tabs";
+const TRAFFIC_LENS_SET_BOUNDS_CHANNEL = "desktop:traffic-lens-set-bounds";
+const TRAFFIC_LENS_SHOW_TAB_CHANNEL = "desktop:traffic-lens-show-tab";
+const TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL = "desktop:traffic-lens-hide-all-tabs";
+const TRAFFIC_LENS_TAB_EVENT_CHANNEL = "desktop:traffic-lens-tab-event";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getLocalEnvironmentBootstrap: () => {
@@ -116,35 +116,35 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     };
   },
 
-  // Browser
-  browserCreateTab: (url?: string) =>
-    ipcRenderer.invoke(BROWSER_CREATE_TAB_CHANNEL, url),
-  browserCloseTab: (tabId: string) =>
-    ipcRenderer.invoke(BROWSER_CLOSE_TAB_CHANNEL, tabId),
-  browserNavigate: (tabId: string, url: string) =>
-    ipcRenderer.invoke(BROWSER_NAVIGATE_CHANNEL, tabId, url),
-  browserGoBack: (tabId: string) =>
-    ipcRenderer.invoke(BROWSER_GO_BACK_CHANNEL, tabId),
-  browserGoForward: (tabId: string) =>
-    ipcRenderer.invoke(BROWSER_GO_FORWARD_CHANNEL, tabId),
-  browserReload: (tabId: string) =>
-    ipcRenderer.invoke(BROWSER_RELOAD_CHANNEL, tabId),
-  browserGetTabs: () =>
-    ipcRenderer.invoke(BROWSER_GET_TABS_CHANNEL),
-  browserSetBounds: (tabId: string, bounds: { x: number; y: number; width: number; height: number }) =>
-    ipcRenderer.invoke(BROWSER_SET_BOUNDS_CHANNEL, tabId, bounds),
-  browserShowTab: (tabId: string) =>
-    ipcRenderer.invoke(BROWSER_SHOW_TAB_CHANNEL, tabId),
-  browserHideAllTabs: () =>
-    ipcRenderer.invoke(BROWSER_HIDE_ALL_TABS_CHANNEL),
-  onBrowserTabEvent: (listener: (event: unknown) => void) => {
+  // Traffic Lens
+  trafficLensCreateTab: (url?: string) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_CREATE_TAB_CHANNEL, url),
+  trafficLensCloseTab: (tabId: string) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_CLOSE_TAB_CHANNEL, tabId),
+  trafficLensNavigate: (tabId: string, url: string) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_NAVIGATE_CHANNEL, tabId, url),
+  trafficLensGoBack: (tabId: string) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_GO_BACK_CHANNEL, tabId),
+  trafficLensGoForward: (tabId: string) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_GO_FORWARD_CHANNEL, tabId),
+  trafficLensReload: (tabId: string) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_RELOAD_CHANNEL, tabId),
+  trafficLensGetTabs: () =>
+    ipcRenderer.invoke(TRAFFIC_LENS_GET_TABS_CHANNEL),
+  trafficLensSetBounds: (tabId: string, bounds: { x: number; y: number; width: number; height: number }) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_SET_BOUNDS_CHANNEL, tabId, bounds),
+  trafficLensShowTab: (tabId: string) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_SHOW_TAB_CHANNEL, tabId),
+  trafficLensHideAllTabs: () =>
+    ipcRenderer.invoke(TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL),
+  onTrafficLensTabEvent: (listener: (event: any) => void) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, data: unknown) => {
       if (typeof data !== "object" || data === null) return;
       listener(data);
     };
-    ipcRenderer.on(BROWSER_TAB_EVENT_CHANNEL, wrappedListener);
+    ipcRenderer.on(TRAFFIC_LENS_TAB_EVENT_CHANNEL, wrappedListener);
     return () => {
-      ipcRenderer.removeListener(BROWSER_TAB_EVENT_CHANNEL, wrappedListener);
+      ipcRenderer.removeListener(TRAFFIC_LENS_TAB_EVENT_CHANNEL, wrappedListener);
     };
   },
 } satisfies DesktopBridge);

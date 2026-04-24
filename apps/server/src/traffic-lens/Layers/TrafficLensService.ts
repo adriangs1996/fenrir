@@ -1,17 +1,17 @@
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { BrowserTrafficService, type BrowserTrafficServiceShape } from "../Services/BrowserTrafficService";
-import { BrowserTrafficNotFoundError, type BrowserEvent } from "@fenrir/contracts";
+import { TrafficLensService, type TrafficLensServiceShape } from "../Services/TrafficLensService";
+import { TrafficLensNotFoundError, type TrafficLensEvent } from "@fenrir/contracts";
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
 
-export const BrowserTrafficServiceLive = Layer.effect(
-  BrowserTrafficService,
+export const TrafficLensServiceLive = Layer.effect(
+  TrafficLensService,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    let eventListeners: Array<(event: BrowserEvent) => void> = [];
+    let eventListeners: Array<(event: TrafficLensEvent) => void> = [];
 
-    function emitEvent(event: BrowserEvent): void {
+    function emitEvent(event: TrafficLensEvent): void {
       for (const listener of eventListeners) {
         try {
           listener(event);
@@ -47,7 +47,7 @@ export const BrowserTrafficServiceLive = Layer.effect(
         Effect.gen(function* () {
           if (payload.stage === "request") {
             yield* sql`
-              INSERT OR IGNORE INTO browser_traffic (
+              INSERT OR IGNORE INTO traffic_lens_entries (
                 tab_id, request_id, method, url, host, path,
                 request_headers_json, request_body,
                 timing_started_at, created_at
@@ -73,7 +73,7 @@ export const BrowserTrafficServiceLive = Layer.effect(
             }
 
             yield* sql`
-              UPDATE browser_traffic SET
+              UPDATE traffic_lens_entries SET
                 status_code = ${payload.statusCode ?? null},
                 content_type = ${payload.contentType ?? null},
                 content_length = ${payload.contentLength ?? null},
@@ -95,7 +95,7 @@ export const BrowserTrafficServiceLive = Layer.effect(
               body_truncated, is_websocket,
               timing_started_at, timing_response_at, timing_completed_at,
               created_at
-            FROM browser_traffic
+            FROM traffic_lens_entries
             WHERE request_id = ${payload.requestId}
             LIMIT 1
           `;
@@ -121,7 +121,7 @@ export const BrowserTrafficServiceLive = Layer.effect(
               body_truncated, is_websocket,
               timing_started_at, timing_response_at, timing_completed_at,
               created_at
-            FROM browser_traffic
+            FROM traffic_lens_entries
             ORDER BY created_at DESC
             LIMIT ${limit} OFFSET ${offset}
           `;
@@ -141,14 +141,14 @@ export const BrowserTrafficServiceLive = Layer.effect(
               body_truncated, is_websocket,
               timing_started_at, timing_response_at, timing_completed_at,
               notes, created_at
-            FROM browser_traffic
+            FROM traffic_lens_entries
             WHERE id = ${id}
             LIMIT 1
           `;
 
           if (rows.length === 0) {
             return yield* Effect.fail(
-              new BrowserTrafficNotFoundError({ trafficId: id, message: `Traffic entry ${id} not found` }),
+              new TrafficLensNotFoundError({ trafficId: id, message: `Traffic entry ${id} not found` }),
             );
           }
 
@@ -166,9 +166,9 @@ export const BrowserTrafficServiceLive = Layer.effect(
       clearTraffic: (tabId) =>
         Effect.gen(function* () {
           if (tabId) {
-            yield* sql`DELETE FROM browser_traffic WHERE tab_id = ${tabId}`;
+            yield* sql`DELETE FROM traffic_lens_entries WHERE tab_id = ${tabId}`;
           } else {
-            yield* sql`DELETE FROM browser_traffic`;
+            yield* sql`DELETE FROM traffic_lens_entries`;
           }
         }).pipe(Effect.orDie),
 
@@ -179,6 +179,6 @@ export const BrowserTrafficServiceLive = Layer.effect(
             eventListeners = eventListeners.filter((l) => l !== listener);
           };
         }),
-    } satisfies BrowserTrafficServiceShape;
+    } satisfies TrafficLensServiceShape;
   }),
 );

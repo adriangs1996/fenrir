@@ -91,13 +91,13 @@ import {
   StopListenerInput,
 } from "./metasploit";
 import {
-  BrowserError,
-  BrowserEvent,
-  BrowserTrafficEntry,
-  BrowserTrafficDetail,
-  BrowserTrafficNotFoundError,
-  BrowserTrafficQueryInput,
-} from "./browser";
+  TrafficLensError,
+  TrafficLensEvent,
+  TrafficLensEntry,
+  TrafficLensDetail,
+  TrafficLensNotFoundError,
+  TrafficLensQueryInput,
+} from "./trafficLens";
 import {
   ServerConfigStreamEvent,
   ServerConfig,
@@ -180,11 +180,11 @@ export const WS_METHODS = {
   metasploitSessionClose: "metasploit.sessionClose",
   subscribeMetasploitEvents: "subscribeMetasploitEvents",
 
-  // Browser traffic
-  browserGetTraffic: "browser.getTraffic",
-  browserGetTrafficDetail: "browser.getTrafficDetail",
-  browserClearTraffic: "browser.clearTraffic",
-  subscribeBrowserEvents: "subscribeBrowserEvents",
+  // Traffic Lens
+  trafficLensGetTraffic: "trafficLens.getTraffic",
+  trafficLensGetTrafficDetail: "trafficLens.getTrafficDetail",
+  trafficLensClearTraffic: "trafficLens.clearTraffic",
+  subscribeTrafficLensEvents: "subscribeTrafficLensEvents",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(
@@ -594,28 +594,28 @@ export const WsSubscribeMetasploitEventsRpc = Rpc.make(
   },
 );
 
-// ─── Browser Traffic RPCs ───────────────────────────────────────────────────
+// ─── Traffic Lens RPCs ─────────────────────────────────────────────────────
 
-export const WsBrowserGetTrafficRpc = Rpc.make(WS_METHODS.browserGetTraffic, {
-  payload: BrowserTrafficQueryInput,
-  success: Schema.Array(BrowserTrafficEntry),
-  error: BrowserError,
+export const WsTrafficLensGetTrafficRpc = Rpc.make(WS_METHODS.trafficLensGetTraffic, {
+  payload: TrafficLensQueryInput,
+  success: Schema.Array(TrafficLensEntry),
+  error: TrafficLensError,
 });
 
-export const WsBrowserGetTrafficDetailRpc = Rpc.make(WS_METHODS.browserGetTrafficDetail, {
+export const WsTrafficLensGetTrafficDetailRpc = Rpc.make(WS_METHODS.trafficLensGetTrafficDetail, {
   payload: Schema.Struct({ id: Schema.Number }),
-  success: BrowserTrafficDetail,
-  error: Schema.Union([BrowserError, BrowserTrafficNotFoundError]),
+  success: TrafficLensDetail,
+  error: Schema.Union([TrafficLensError, TrafficLensNotFoundError]),
 });
 
-export const WsBrowserClearTrafficRpc = Rpc.make(WS_METHODS.browserClearTraffic, {
+export const WsTrafficLensClearTrafficRpc = Rpc.make(WS_METHODS.trafficLensClearTraffic, {
   payload: Schema.Struct({ tabId: Schema.optional(Schema.String) }),
-  error: BrowserError,
+  error: TrafficLensError,
 });
 
-export const WsSubscribeBrowserEventsRpc = Rpc.make(WS_METHODS.subscribeBrowserEvents, {
+export const WsSubscribeTrafficLensEventsRpc = Rpc.make(WS_METHODS.subscribeTrafficLensEvents, {
   payload: Schema.Struct({}),
-  success: BrowserEvent,
+  success: TrafficLensEvent,
   stream: true,
 });
 
@@ -674,8 +674,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsMetasploitSessionUpgradeRpc,
   WsMetasploitSessionCloseRpc,
   WsSubscribeMetasploitEventsRpc,
-  WsBrowserGetTrafficRpc,
-  WsBrowserGetTrafficDetailRpc,
-  WsBrowserClearTrafficRpc,
-  WsSubscribeBrowserEventsRpc,
+  WsTrafficLensGetTrafficRpc,
+  WsTrafficLensGetTrafficDetailRpc,
+  WsTrafficLensClearTrafficRpc,
+  WsSubscribeTrafficLensEventsRpc,
 );

@@ -6,17 +6,17 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-} from "../ui/sidebar";
-import { Button } from "../ui/button";
-import { useBrowserStore } from "../../browserStore";
+} from "../../../components/ui/sidebar";
+import { Button } from "../../../components/ui/button";
+import { useTrafficLensStore } from "../stores/useTrafficLensStore";
 
-export function BrowserSidebarSection() {
-  const tabs = useBrowserStore((s) => s.tabs);
-  const activeTabId = useBrowserStore((s) => s.activeTabId);
-  const setActiveTab = useBrowserStore((s) => s.setActiveTab);
+export function TrafficLensSidebarSection() {
+  const tabs = useTrafficLensStore((s) => s.tabs);
+  const activeTabId = useTrafficLensStore((s) => s.activeTabId);
+  const setActiveTab = useTrafficLensStore((s) => s.setActiveTab);
 
   const handleNewTab = async () => {
-    const snapshot = await window.desktopBridge?.browserCreateTab();
+    const snapshot = await window.desktopBridge?.trafficLensCreateTab();
     if (snapshot) {
       setActiveTab(snapshot.tabId);
     }
@@ -43,7 +43,7 @@ export function BrowserSidebarSection() {
                 isActive={tab.tabId === activeTabId}
                 onClick={() => {
                   setActiveTab(tab.tabId);
-                  void window.desktopBridge?.browserShowTab(tab.tabId);
+                  void window.desktopBridge?.trafficLensShowTab(tab.tabId);
                 }}
               >
                 <Globe className="h-4 w-4" />
