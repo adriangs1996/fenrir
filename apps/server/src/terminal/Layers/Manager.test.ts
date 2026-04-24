@@ -15,6 +15,7 @@ import {
   Exit,
   Fiber,
   FileSystem,
+  Layer,
   Option,
   PlatformError,
   Ref,
@@ -32,7 +33,11 @@ import {
   type PtySpawnInput,
   PtySpawnError,
 } from "../Services/PTY";
+import { ServerConfig } from "../../config";
 import { makeTerminalManagerWithOptions } from "./Manager";
+import { makeShellResolver } from "./ShellResolver";
+import { makeHistoryManager } from "./HistoryManager";
+import { makeProcessLifecycle } from "./ProcessLifecycle";
 
 class FakePtyProcess implements PtyProcess {
   readonly writes: string[] = [];
@@ -216,7 +221,7 @@ const createManager = (
 ): Effect.Effect<
   ManagerFixture,
   PlatformError.PlatformError,
-  FileSystem.FileSystem | Scope.Scope
+  FileSystem.FileSystem | Scope.Scope | ServerConfig
 > =>
   Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) =>
     Effect.gen(function* () {
@@ -226,21 +231,33 @@ const createManager = (
       const logsDir = path.join(baseDir, "userdata", "logs", "terminals");
       const ptyAdapter = options.ptyAdapter ?? new FakePtyAdapter();
 
-      const manager = yield* makeTerminalManagerWithOptions({
+      const shellResolver = makeShellResolver(
+        options.shellResolver !== undefined
+          ? { shellResolver: options.shellResolver }
+          : undefined,
+      );
+
+      const historyManager = yield* makeHistoryManager({
         logsDir,
         historyLineLimit,
-        ptyAdapter,
-        ...(options.shellResolver !== undefined
-          ? { shellResolver: options.shellResolver }
+      });
+
+      const processLifecycle = yield* makeProcessLifecycle({
+        ...(options.processKillGraceMs !== undefined
+          ? { processKillGraceMs: options.processKillGraceMs }
           : {}),
         ...(options.subprocessChecker !== undefined
           ? { subprocessChecker: options.subprocessChecker }
           : {}),
+      });
+
+      const manager = yield* makeTerminalManagerWithOptions({
+        ptyAdapter,
+        historyManager,
+        shellResolver,
+        processLifecycle,
         ...(options.subprocessPollIntervalMs !== undefined
           ? { subprocessPollIntervalMs: options.subprocessPollIntervalMs }
-          : {}),
-        ...(options.processKillGraceMs !== undefined
-          ? { processKillGraceMs: options.processKillGraceMs }
           : {}),
         ...(options.maxRetainedInactiveSessions !== undefined
           ? { maxRetainedInactiveSessions: options.maxRetainedInactiveSessions }
@@ -263,7 +280,14 @@ const createManager = (
     }),
   );
 
-it.layer(NodeServices.layer, { excludeTestServices: true })(
+const TestLayer = Layer.mergeAll(
+  NodeServices.layer,
+  ServerConfig.layerTest(process.cwd(), { prefix: "fenrir-terminal-mgr-" }).pipe(
+    Layer.provide(NodeServices.layer),
+  ),
+);
+
+it.layer(TestLayer, { excludeTestServices: true })(
   "TerminalManager",
   (it) => {
     it.effect("spawns lazily and reuses running terminal per thread", () =>

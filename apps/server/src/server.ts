@@ -37,6 +37,9 @@ import { GitHubCliLive } from "./git/Layers/GitHubCli";
 import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster";
 import { RoutingTextGenerationLive } from "./git/Layers/RoutingTextGeneration";
 import { TerminalManagerLive } from "./terminal/Layers/Manager";
+import { TerminalHistoryManagerLive } from "./terminal/Layers/HistoryManager";
+import { TerminalShellResolverLive } from "./terminal/Layers/ShellResolver";
+import { TerminalProcessLifecycleLive } from "./terminal/Layers/ProcessLifecycle";
 import { TmuxSessionManagerLive } from "./terminal/Layers/TmuxSessionManager";
 import { MetasploitServiceLive } from "./metasploit/Layers/MetasploitService";
 import { MetasploitShellAdapterLive } from "./metasploit/Layers/MetasploitShellAdapter";
@@ -228,7 +231,11 @@ const GitLayerLive = Layer.empty.pipe(
 );
 
 const TerminalLayerLive = Layer.mergeAll(
-  TerminalManagerLive,
+  TerminalManagerLive.pipe(
+    Layer.provide(TerminalHistoryManagerLive),
+    Layer.provide(TerminalShellResolverLive),
+    Layer.provide(TerminalProcessLifecycleLive),
+  ),
   TmuxSessionManagerLive,
 ).pipe(Layer.provide(PtyAdapterLive));
 
