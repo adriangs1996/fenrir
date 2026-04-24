@@ -10,9 +10,12 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 
+import type { CreateListenerInput } from "@fenrir/contracts";
+
 interface CreateListenerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCreateListener: (input: CreateListenerInput) => void;
 }
 
 const PAYLOAD_OPTIONS = [
@@ -39,6 +42,7 @@ const PAYLOAD_OPTIONS = [
 export function CreateListenerDialog({
   open,
   onOpenChange,
+  onCreateListener,
 }: CreateListenerDialogProps) {
   const [name, setName] = useState("");
   const [payload, setPayload] = useState(PAYLOAD_OPTIONS[0].value);
@@ -46,8 +50,12 @@ export function CreateListenerDialog({
   const [lport, setLport] = useState("4444");
 
   const handleCreate = () => {
-    // Will be wired to environmentApi.metasploit.createListener
-    // For now, just close the dialog
+    onCreateListener({
+      name: name.trim(),
+      payload,
+      lhost: lhost.trim(),
+      lport: Number(lport),
+    } as CreateListenerInput);
     onOpenChange(false);
     setName("");
     setPayload(PAYLOAD_OPTIONS[0].value);

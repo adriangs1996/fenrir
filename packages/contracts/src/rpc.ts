@@ -91,6 +91,14 @@ import {
   StopListenerInput,
 } from "./metasploit";
 import {
+  BrowserError,
+  BrowserEvent,
+  BrowserTrafficEntry,
+  BrowserTrafficDetail,
+  BrowserTrafficNotFoundError,
+  BrowserTrafficQueryInput,
+} from "./browser";
+import {
   ServerConfigStreamEvent,
   ServerConfig,
   ServerLifecycleStreamEvent,
@@ -171,6 +179,12 @@ export const WS_METHODS = {
   metasploitSessionUpgrade: "metasploit.sessionUpgrade",
   metasploitSessionClose: "metasploit.sessionClose",
   subscribeMetasploitEvents: "subscribeMetasploitEvents",
+
+  // Browser traffic
+  browserGetTraffic: "browser.getTraffic",
+  browserGetTrafficDetail: "browser.getTrafficDetail",
+  browserClearTraffic: "browser.clearTraffic",
+  subscribeBrowserEvents: "subscribeBrowserEvents",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(
@@ -580,6 +594,31 @@ export const WsSubscribeMetasploitEventsRpc = Rpc.make(
   },
 );
 
+// ─── Browser Traffic RPCs ───────────────────────────────────────────────────
+
+export const WsBrowserGetTrafficRpc = Rpc.make(WS_METHODS.browserGetTraffic, {
+  payload: BrowserTrafficQueryInput,
+  success: Schema.Array(BrowserTrafficEntry),
+  error: BrowserError,
+});
+
+export const WsBrowserGetTrafficDetailRpc = Rpc.make(WS_METHODS.browserGetTrafficDetail, {
+  payload: Schema.Struct({ id: Schema.Number }),
+  success: BrowserTrafficDetail,
+  error: Schema.Union([BrowserError, BrowserTrafficNotFoundError]),
+});
+
+export const WsBrowserClearTrafficRpc = Rpc.make(WS_METHODS.browserClearTraffic, {
+  payload: Schema.Struct({ tabId: Schema.optional(Schema.String) }),
+  error: BrowserError,
+});
+
+export const WsSubscribeBrowserEventsRpc = Rpc.make(WS_METHODS.subscribeBrowserEvents, {
+  payload: Schema.Struct({}),
+  success: BrowserEvent,
+  stream: true,
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -635,4 +674,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsMetasploitSessionUpgradeRpc,
   WsMetasploitSessionCloseRpc,
   WsSubscribeMetasploitEventsRpc,
+  WsBrowserGetTrafficRpc,
+  WsBrowserGetTrafficDetailRpc,
+  WsBrowserClearTrafficRpc,
+  WsSubscribeBrowserEventsRpc,
 );

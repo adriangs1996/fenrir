@@ -126,6 +126,70 @@ export const MetasploitServiceLive = Layer.effect(
       return rpcClient;
     };
 
+    /** Spawn msfrpcd + authenticate if not already running. Idempotent. */
+    const ensureStarted = Effect.gen(function* () {
+      if (rpcClient) return rpcClient;
+
+      // Spawn msfrpcd
+      const proc = yield* ptyAdapter
+        .spawn({
+          shell: "msfrpcd",
+          args: [
+            "-P",
+            MSFRPC_PASSWORD,
+            "-S",
+            "-a",
+            MSFRPC_HOST,
+            "-p",
+            String(MSFRPC_PORT),
+          ],
+          cwd: "/tmp",
+          cols: 80,
+          rows: 24,
+          env: process.env as NodeJS.ProcessEnv,
+        })
+        .pipe(
+          Effect.mapError((err) => {
+            if (
+              err.message.includes("ENOENT") ||
+              err.message.includes("not found")
+            ) {
+              return MetasploitNotFoundError.default();
+            }
+            return new MetasploitConnectionError({
+              message: `Failed to spawn msfrpcd: ${err.message}`,
+              cause: err,
+            });
+          }),
+        );
+
+      msfrpcdProcess = proc;
+
+      yield* Effect.sleep("3 seconds");
+
+      const client = createMsfrpcClient(
+        MSFRPC_HOST,
+        MSFRPC_PORT,
+        MSFRPC_PASSWORD,
+      );
+
+      yield* Effect.retry(
+        Effect.tryPromise({
+          try: () => client.authenticate(),
+          catch: (error) =>
+            new MetasploitConnectionError({
+              message: `MSFRPC authentication failed: ${error instanceof Error ? error.message : String(error)}`,
+              cause: error,
+            }),
+        }),
+        Schedule.recurs(5).pipe(Schedule.addDelay(() => Effect.succeed(Duration.seconds(2)))),
+      );
+
+      rpcClient = client;
+      startSessionPolling();
+      return client;
+    });
+
     const startSessionPolling = () => {
       if (pollingFiber) return;
 
@@ -221,70 +285,7 @@ export const MetasploitServiceLive = Layer.effect(
         });
       }).pipe(Effect.orElseSucceed(() => false)),
 
-      start: () =>
-        Effect.gen(function* () {
-          if (rpcClient) return; // Already running
-
-          // Spawn msfrpcd
-          const proc = yield* ptyAdapter
-            .spawn({
-              shell: "msfrpcd",
-              args: [
-                "-P",
-                MSFRPC_PASSWORD,
-                "-S",
-                "-a",
-                MSFRPC_HOST,
-                "-p",
-                String(MSFRPC_PORT),
-              ],
-              cwd: "/tmp",
-              cols: 80,
-              rows: 24,
-              env: process.env as NodeJS.ProcessEnv,
-            })
-            .pipe(
-              Effect.mapError((err) => {
-                if (
-                  err.message.includes("ENOENT") ||
-                  err.message.includes("not found")
-                ) {
-                  return MetasploitNotFoundError.default();
-                }
-                return new MetasploitConnectionError({
-                  message: `Failed to spawn msfrpcd: ${err.message}`,
-                  cause: err,
-                });
-              }),
-            );
-
-          msfrpcdProcess = proc;
-
-          // Wait for msfrpcd to be ready, then connect
-          yield* Effect.sleep("3 seconds");
-
-          const client = createMsfrpcClient(
-            MSFRPC_HOST,
-            MSFRPC_PORT,
-            MSFRPC_PASSWORD,
-          );
-
-          // Retry connection a few times since msfrpcd takes time to start
-          yield* Effect.retry(
-            Effect.tryPromise({
-              try: () => client.authenticate(),
-              catch: (error) =>
-                new MetasploitConnectionError({
-                  message: `MSFRPC authentication failed: ${error instanceof Error ? error.message : String(error)}`,
-                  cause: error,
-                }),
-            }),
-            Schedule.recurs(5).pipe(Schedule.addDelay(() => Effect.succeed(Duration.seconds(2)))),
-          );
-
-          rpcClient = client;
-          startSessionPolling();
-        }),
+      start: () => Effect.asVoid(ensureStarted),
 
       stop: () =>
         Effect.sync(() => {
@@ -330,7 +331,7 @@ export const MetasploitServiceLive = Layer.effect(
 
       createListener: (input: CreateListenerInput) =>
         Effect.gen(function* () {
-          const client = ensureConnected();
+          const client = yield* ensureStarted;
 
           const listenerId = crypto.randomUUID();
 

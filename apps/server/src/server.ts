@@ -10,6 +10,7 @@ import {
   fontsRouteLayer,
   staticAndDevRouteLayer,
   browserApiCorsLayer,
+  browserTrafficIngestRouteLayer,
 } from "./http";
 import { fixPath } from "./os-jank";
 import { websocketRpcRouteLayer } from "./ws";
@@ -39,6 +40,7 @@ import { TerminalManagerLive } from "./terminal/Layers/Manager";
 import { TmuxSessionManagerLive } from "./terminal/Layers/TmuxSessionManager";
 import { MetasploitServiceLive } from "./metasploit/Layers/MetasploitService";
 import { MetasploitShellAdapterLive } from "./metasploit/Layers/MetasploitShellAdapter";
+import { BrowserTrafficServiceLive } from "./browser/Layers/BrowserTrafficService";
 import { GitManagerLive } from "./git/Layers/GitManager";
 import { KeybindingsLive } from "./keybindings";
 import {
@@ -257,6 +259,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ProviderLayerLive),
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(MetasploitLayerLive),
+  Layer.provideMerge(BrowserTrafficServiceLive),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(KeybindingsLive),
   Layer.provideMerge(ProviderRegistryLive),
@@ -294,6 +297,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   projectFaviconRouteLayer,
   serverEnvironmentRouteLayer,
   fontsRouteLayer,
+  browserTrafficIngestRouteLayer,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,
 ).pipe(Layer.provide(browserApiCorsLayer));

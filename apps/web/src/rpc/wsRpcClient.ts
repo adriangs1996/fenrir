@@ -184,6 +184,12 @@ export interface WsRpcClient {
       typeof WS_METHODS.subscribeAuthAccess
     >;
   };
+  readonly browser: {
+    readonly getTraffic: RpcUnaryMethod<typeof WS_METHODS.browserGetTraffic>;
+    readonly getTrafficDetail: RpcUnaryMethod<typeof WS_METHODS.browserGetTrafficDetail>;
+    readonly clearTraffic: RpcUnaryMethod<typeof WS_METHODS.browserClearTraffic>;
+    readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeBrowserEvents>;
+  };
   readonly orchestration: {
     readonly getSnapshot: RpcUnaryNoArgMethod<
       typeof ORCHESTRATION_WS_METHODS.getSnapshot
@@ -429,6 +435,26 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       subscribeAuthAccess: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeAuthAccess]({}),
+          listener,
+          options,
+        ),
+    },
+    browser: {
+      getTraffic: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.browserGetTraffic](input),
+        ),
+      getTrafficDetail: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.browserGetTrafficDetail](input),
+        ),
+      clearTraffic: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.browserClearTraffic](input),
+        ),
+      onEvent: (listener, options) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeBrowserEvents]({}),
           listener,
           options,
         ),

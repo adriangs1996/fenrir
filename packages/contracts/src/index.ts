@@ -16,4 +16,5 @@ export * from "./project";
 export * from "./rpc";
 export * from "./metasploit";
 export * from "./vpn";
+export * from "./browser";
 export * from "./fonts";

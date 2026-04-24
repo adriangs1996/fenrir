@@ -26,6 +26,7 @@ import {
   MetasploitConnectionError,
   MetasploitListenerError,
   MetasploitSessionError,
+  BrowserError,
 } from "@fenrir/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
@@ -71,6 +72,8 @@ import { respondToAuthError } from "./auth/http";
 import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager";
 import { MetasploitService } from "./metasploit/Services/MetasploitService";
 import { MetasploitShellAdapter, type MsfShellProcess } from "./metasploit/Services/MetasploitShellAdapter";
+import { BrowserTrafficService } from "./browser/Services/BrowserTrafficService";
+import type { BrowserEvent } from "@fenrir/contracts";
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -141,6 +144,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const tmuxSessionManager = yield* TmuxSessionManager;
       const metasploitService = yield* MetasploitService;
       const metasploitShellAdapter = yield* MetasploitShellAdapter;
+      const browserTrafficService = yield* BrowserTrafficService;
       const activeTmuxProcesses = new Map<string, { pid: number }>();
       const activeMsfShellProcesses = new Map<string, MsfShellProcess>();
 
@@ -1341,6 +1345,43 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               ),
             ),
             { "rpc.aggregate": "metasploit" },
+          ),
+
+        // ─── Browser Traffic RPCs ────────────────────────────────────────
+
+        [WS_METHODS.browserGetTraffic]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.browserGetTraffic,
+            browserTrafficService.queryTraffic(input),
+            { "rpc.aggregate": "browser" },
+          ),
+
+        [WS_METHODS.browserGetTrafficDetail]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.browserGetTrafficDetail,
+            browserTrafficService.getTrafficDetail(input.id),
+            { "rpc.aggregate": "browser" },
+          ),
+
+        [WS_METHODS.browserClearTraffic]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.browserClearTraffic,
+            browserTrafficService.clearTraffic(input.tabId),
+            { "rpc.aggregate": "browser" },
+          ),
+
+        [WS_METHODS.subscribeBrowserEvents]: (_input) =>
+          observeRpcStream(
+            WS_METHODS.subscribeBrowserEvents,
+            Stream.callback<BrowserEvent>((queue) =>
+              Effect.acquireRelease(
+                browserTrafficService.subscribe((event) => {
+                  Effect.runFork(Queue.offer(queue, event));
+                }),
+                (unsubscribe) => Effect.sync(unsubscribe),
+              ),
+            ),
+            { "rpc.aggregate": "browser" },
           ),
       });
     }),

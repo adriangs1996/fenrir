@@ -65,6 +65,7 @@ import {
   ServerSettingsPatch,
 } from "./settings";
 import type { VpnConnectionState, VpnProfile, VpnProfileId } from "./vpn";
+import type { BrowserTabSnapshot, BrowserTabEvent } from "./browser";
 import type {
   CreateListenerInput,
   ListenerSnapshot,
@@ -205,6 +206,19 @@ export interface DesktopBridge {
   onVpnStateChange: (
     listener: (state: VpnConnectionState) => void,
   ) => () => void;
+
+  // Browser
+  browserCreateTab: (url?: string) => Promise<BrowserTabSnapshot>;
+  browserCloseTab: (tabId: string) => Promise<void>;
+  browserNavigate: (tabId: string, url: string) => Promise<void>;
+  browserGoBack: (tabId: string) => Promise<void>;
+  browserGoForward: (tabId: string) => Promise<void>;
+  browserReload: (tabId: string) => Promise<void>;
+  browserGetTabs: () => Promise<readonly BrowserTabSnapshot[]>;
+  browserSetBounds: (tabId: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+  browserShowTab: (tabId: string) => Promise<void>;
+  browserHideAllTabs: () => Promise<void>;
+  onBrowserTabEvent: (listener: (event: BrowserTabEvent) => void) => () => void;
 }
 
 /**

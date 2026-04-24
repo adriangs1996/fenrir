@@ -36,6 +36,7 @@ import Migration0020 from "./Migrations/020_AuthAccessManagement.ts";
 import Migration0021 from "./Migrations/021_AuthSessionClientMetadata.ts";
 import Migration0022 from "./Migrations/022_AuthSessionLastConnectedAt.ts";
 import Migration0023 from "./Migrations/023_GlobalScriptDefaults.ts";
+import Migration0024 from "./Migrations/024_BrowserTraffic.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -71,6 +72,7 @@ export const migrationEntries = [
   [21, "AuthSessionClientMetadata", Migration0021],
   [22, "AuthSessionLastConnectedAt", Migration0022],
   [23, "GlobalScriptDefaults", Migration0023],
+  [24, "BrowserTraffic", Migration0024],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
