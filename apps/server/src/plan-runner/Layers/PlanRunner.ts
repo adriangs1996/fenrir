@@ -27,7 +27,6 @@ import {
 } from "@fenrir/contracts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine";
 import { GitCore } from "../../git/Services/GitCore";
-import { ServerConfig } from "../../config";
 import {
   PlanRunnerService,
   type PlanRunnerServiceShape,
@@ -171,7 +170,6 @@ export const PlanRunnerLive = Layer.effect(
   Effect.gen(function* () {
     const orchestrationEngine = yield* OrchestrationEngineService;
     const gitCore = yield* GitCore;
-    const serverConfig = yield* ServerConfig;
     const fs = yield* FileSystem.FileSystem;
     const pathService = yield* Path.Path;
 
@@ -179,6 +177,22 @@ export const PlanRunnerLive = Layer.effect(
     const activeRuns = yield* Ref.make(
       new Map<string, PlanRunState>(),
     );
+
+    // ── Project CWD resolver ─────────────────────────────────────────
+
+    const resolveProjectCwd = (projectId: ProjectId) =>
+      Effect.gen(function* () {
+        const readModel = yield* orchestrationEngine.getReadModel();
+        const project = readModel.projects.find((p) => p.id === projectId);
+        if (!project) {
+          return yield* Effect.fail(
+            new PlanRunnerError({
+              message: `Project not found: ${projectId}` as any,
+            }),
+          );
+        }
+        return project.workspaceRoot;
+      });
 
     // ── Publish helper ────────────────────────────────────────────────
 
@@ -504,8 +518,9 @@ ${plan.content}`;
 
     const executeRun = (run: PlanRunState) =>
       Effect.gen(function* () {
+        const projectCwd = yield* resolveProjectCwd(run.projectId);
         const plansDir = pathService.join(
-          serverConfig.cwd,
+          projectCwd,
           ".plans",
           run.featureName,
         );
@@ -831,10 +846,11 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
         Effect.gen(function* () {
           const runId = PlanRunIdSchema.makeUnsafe(makeId());
           const branchName = `feature/${input.featureName}`;
+          const projectCwd = yield* resolveProjectCwd(input.projectId);
 
           // Validate .plans directory exists
           const plansDir = pathService.join(
-            serverConfig.cwd,
+            projectCwd,
             ".plans",
             input.featureName,
           );
@@ -890,7 +906,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           // Create branch
           yield* gitCore
             .createBranch({
-              cwd: serverConfig.cwd,
+              cwd: projectCwd,
               branch: branchName as any,
               checkout: true,
             })
@@ -998,7 +1014,8 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
       listFeatures: (input) =>
         Effect.gen(function* () {
-          const plansDir = pathService.join(serverConfig.cwd, ".plans");
+          const projectCwd = yield* resolveProjectCwd(input.projectId);
+          const plansDir = pathService.join(projectCwd, ".plans");
           let entries: string[] = [];
           try {
             const dirEntries = yield* fs.readDirectory(plansDir);
@@ -1065,8 +1082,9 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
       getFeaturePlans: (input) =>
         Effect.gen(function* () {
+          const projectCwd = yield* resolveProjectCwd(input.projectId);
           const featureDir = pathService.join(
-            serverConfig.cwd,
+            projectCwd,
             ".plans",
             input.featureName,
           );
