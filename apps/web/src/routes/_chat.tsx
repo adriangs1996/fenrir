@@ -8,6 +8,7 @@ import {
 } from "../environments/primary";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isTerminalFocused, selectThreadTerminalState, useTerminalStateStore } from "~/modules/terminal";
+import { usePlanRunnerLifecycle } from "~/modules/plan-runner";
 import { resolveShortcutCommand } from "../keybindings";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
@@ -96,6 +97,8 @@ function ChatRouteGlobalShortcuts() {
 }
 
 function ChatRouteLayout() {
+  usePlanRunnerLifecycle();
+
   return (
     <>
       <ChatRouteGlobalShortcuts />

@@ -31,6 +31,7 @@ function useNewThreadState() {
         branch?: string | null;
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
+        initialPrompt?: string;
       },
     ): Promise<void> => {
       const {
@@ -119,6 +120,7 @@ function useNewThreadState() {
           worktreePath: options?.worktreePath ?? null,
           envMode: options?.envMode ?? "local",
           runtimeMode: DEFAULT_RUNTIME_MODE,
+          ...(options?.initialPrompt !== undefined ? { initialPrompt: options.initialPrompt } : {}),
         });
         applyStickyState(draftId);
 

@@ -268,7 +268,12 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(MetasploitLayerLive),
   Layer.provideMerge(TrafficLensServiceLive),
-  Layer.provideMerge(PlanRunnerLive),
+  Layer.provideMerge(
+    PlanRunnerLive.pipe(
+      Layer.provide(GitCoreLive),
+      Layer.provide(OrchestrationLayerLive),
+    ),
+  ),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(KeybindingsLive),
   Layer.provideMerge(ProviderRegistryLive),

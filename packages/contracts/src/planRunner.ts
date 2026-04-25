@@ -90,6 +90,53 @@ export type PlanRunnerGetStatusInput = typeof PlanRunnerGetStatusInput.Type;
 export const PlanRunnerCancelInput = Schema.Struct({ runId: PlanRunId });
 export type PlanRunnerCancelInput = typeof PlanRunnerCancelInput.Type;
 
+// ─── List Features ───────────────────────────────────────────
+
+export const PlanRunnerListFeaturesInput = Schema.Struct({
+  projectId: ProjectId,
+});
+
+export const FeatureSummary = Schema.Struct({
+  featureName: TrimmedNonEmptyString,
+  planCount: Schema.Number,
+  hasActiveRun: Schema.Boolean,
+  activeRunId: Schema.NullOr(PlanRunId),
+});
+
+export const PlanRunnerListFeaturesResult = Schema.Struct({
+  features: Schema.Array(FeatureSummary),
+});
+
+// ─── Get Feature Plans ───────────────────────────────────────
+
+export const PlanRunnerGetFeaturePlansInput = Schema.Struct({
+  projectId: ProjectId,
+  featureName: TrimmedNonEmptyString,
+});
+
+export const PlanFileSummary = Schema.Struct({
+  planId: Schema.String,
+  filename: TrimmedNonEmptyString,
+  dependsOn: Schema.Array(Schema.String),
+  maxRetries: Schema.Number,
+  content: Schema.String,
+});
+
+export const PlanRunnerGetFeaturePlansResult = Schema.Struct({
+  featureName: TrimmedNonEmptyString,
+  plans: Schema.Array(PlanFileSummary),
+});
+
+// ─── List Runs ───────────────────────────────────────────────
+
+export const PlanRunnerListRunsInput = Schema.Struct({
+  projectId: Schema.optional(ProjectId),
+});
+
+export const PlanRunnerListRunsResult = Schema.Struct({
+  runs: Schema.Array(PlanRunSnapshot),
+});
+
 // ─── Streaming Events ───────────────────────────────────────────────────────
 
 export const PlanRunnerEvent = Schema.Union([
@@ -140,4 +187,7 @@ export const PLAN_RUNNER_WS_METHODS = {
   getStatus: "planRunner.getStatus",
   cancel: "planRunner.cancel",
   subscribe: "subscribePlanRunnerEvents",
+  listFeatures: "planRunner.listFeatures",
+  getFeaturePlans: "planRunner.getFeaturePlans",
+  listRuns: "planRunner.listRuns",
 } as const;

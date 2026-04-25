@@ -108,6 +108,12 @@ import {
   PlanRunnerError,
   PlanRunnerNotFoundError,
   PlanRunnerEvent,
+  PlanRunnerListFeaturesInput,
+  PlanRunnerListFeaturesResult,
+  PlanRunnerGetFeaturePlansInput,
+  PlanRunnerGetFeaturePlansResult,
+  PlanRunnerListRunsInput,
+  PlanRunnerListRunsResult,
 } from "./planRunner";
 import {
   ServerConfigStreamEvent,
@@ -202,6 +208,9 @@ export const WS_METHODS = {
   planRunnerGetStatus: "planRunner.getStatus",
   planRunnerCancel: "planRunner.cancel",
   subscribePlanRunnerEvents: "subscribePlanRunnerEvents",
+  planRunnerListFeatures: "planRunner.listFeatures",
+  planRunnerGetFeaturePlans: "planRunner.getFeaturePlans",
+  planRunnerListRuns: "planRunner.listRuns",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(
@@ -661,6 +670,24 @@ export const WsSubscribePlanRunnerEventsRpc = Rpc.make(WS_METHODS.subscribePlanR
   stream: true,
 });
 
+export const WsPlanRunnerListFeaturesRpc = Rpc.make(WS_METHODS.planRunnerListFeatures, {
+  payload: PlanRunnerListFeaturesInput,
+  success: PlanRunnerListFeaturesResult,
+  error: PlanRunnerError,
+});
+
+export const WsPlanRunnerGetFeaturePlansRpc = Rpc.make(WS_METHODS.planRunnerGetFeaturePlans, {
+  payload: PlanRunnerGetFeaturePlansInput,
+  success: PlanRunnerGetFeaturePlansResult,
+  error: PlanRunnerError,
+});
+
+export const WsPlanRunnerListRunsRpc = Rpc.make(WS_METHODS.planRunnerListRuns, {
+  payload: PlanRunnerListRunsInput,
+  success: PlanRunnerListRunsResult,
+  error: PlanRunnerError,
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -724,4 +751,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPlanRunnerGetStatusRpc,
   WsPlanRunnerCancelRpc,
   WsSubscribePlanRunnerEventsRpc,
+  WsPlanRunnerListFeaturesRpc,
+  WsPlanRunnerGetFeaturePlansRpc,
+  WsPlanRunnerListRunsRpc,
 );

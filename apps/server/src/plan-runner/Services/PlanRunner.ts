@@ -25,6 +25,28 @@ export interface PlanRunnerServiceShape {
     runId: PlanRunId,
   ) => Effect.Effect<void, PlanRunnerNotFoundError | PlanRunnerError>;
 
+  readonly listFeatures: (input: {
+    readonly projectId: ProjectId;
+  }) => Effect.Effect<
+    { features: Array<{ featureName: string; planCount: number; hasActiveRun: boolean; activeRunId: PlanRunId | null }> },
+    PlanRunnerError
+  >;
+
+  readonly getFeaturePlans: (input: {
+    readonly projectId: ProjectId;
+    readonly featureName: string;
+  }) => Effect.Effect<
+    { featureName: string; plans: Array<{ planId: string; filename: string; dependsOn: string[]; maxRetries: number; content: string }> },
+    PlanRunnerError
+  >;
+
+  readonly listRuns: (input: {
+    readonly projectId?: ProjectId | undefined;
+  }) => Effect.Effect<
+    { runs: Array<PlanRunSnapshot> },
+    PlanRunnerError
+  >;
+
   readonly streamEvents: Stream.Stream<PlanRunnerEvent>;
 }
 

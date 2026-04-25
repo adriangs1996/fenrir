@@ -996,6 +996,135 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           });
         }),
 
+      listFeatures: (input) =>
+        Effect.gen(function* () {
+          const plansDir = pathService.join(serverConfig.cwd, ".plans");
+          let entries: string[] = [];
+          try {
+            const dirEntries = yield* fs.readDirectory(plansDir);
+            // Filter for directories only
+            for (const entry of dirEntries) {
+              const entryPath = pathService.join(plansDir, entry);
+              const stat = yield* fs.stat(entryPath);
+              if (stat.type === "Directory") {
+                entries.push(entry);
+              }
+            }
+          } catch {
+            // .plans/ doesn't exist → empty list
+            return { features: [] };
+          }
+
+          const runs = yield* Ref.get(activeRuns);
+          const features = [];
+
+          for (const featureName of entries) {
+            const featureDir = pathService.join(plansDir, featureName);
+            let planCount = 0;
+            try {
+              const files = yield* fs.readDirectory(featureDir);
+              planCount = files.filter((f) => f.endsWith(".md")).length;
+            } catch {
+              // skip unreadable dirs
+            }
+
+            // Check for active run
+            let hasActiveRun = false;
+            let activeRunId: PlanRunId | null = null;
+            for (const run of runs.values()) {
+              if (
+                run.projectId === input.projectId &&
+                run.featureName === featureName &&
+                run.state !== "completed" &&
+                run.state !== "failed"
+              ) {
+                hasActiveRun = true;
+                activeRunId = run.runId;
+                break;
+              }
+            }
+
+            features.push({
+              featureName,
+              planCount,
+              hasActiveRun,
+              activeRunId,
+            });
+          }
+
+          return { features };
+        }).pipe(
+          Effect.catch(() =>
+            Effect.fail(
+              new PlanRunnerError({
+                message: "Failed to list features" as any,
+              }),
+            ),
+          ),
+        ),
+
+      getFeaturePlans: (input) =>
+        Effect.gen(function* () {
+          const featureDir = pathService.join(
+            serverConfig.cwd,
+            ".plans",
+            input.featureName,
+          );
+
+          let files: string[];
+          try {
+            const dirEntries = yield* fs.readDirectory(featureDir);
+            files = dirEntries.filter((f) => f.endsWith(".md"));
+          } catch {
+            return yield* Effect.fail(
+              new PlanRunnerError({
+                message:
+                  `Feature directory not found: .plans/${input.featureName}` as any,
+              }),
+            );
+          }
+
+          const plans = [];
+          for (const filename of files) {
+            const filePath = pathService.join(featureDir, filename);
+            const rawContent = yield* fs.readFileString(filePath);
+            const parsed = parseFrontmatter(
+              rawContent,
+              filename.replace(/\.md$/, ""),
+            );
+            plans.push({
+              planId: parsed.id,
+              filename,
+              dependsOn: parsed.depends_on,
+              maxRetries: parsed.max_retries,
+              content: parsed.body,
+            });
+          }
+
+          return { featureName: input.featureName, plans };
+        }).pipe(
+          Effect.catch(() =>
+            Effect.fail(
+              new PlanRunnerError({
+                message: "Failed to read feature plans" as any,
+              }),
+            ),
+          ),
+        ),
+
+      listRuns: (input) =>
+        Effect.gen(function* () {
+          const runs = yield* Ref.get(activeRuns);
+          const snapshots: PlanRunSnapshot[] = [];
+          for (const run of runs.values()) {
+            if (input.projectId && run.projectId !== input.projectId) {
+              continue;
+            }
+            snapshots.push(toSnapshot(run));
+          }
+          return { runs: snapshots };
+        }),
+
       get streamEvents() {
         return Stream.fromPubSub(eventPubSub);
       },

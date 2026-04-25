@@ -1414,6 +1414,27 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             planRunnerService.streamEvents,
             { "rpc.aggregate": "planRunner" },
           ),
+
+        [WS_METHODS.planRunnerListFeatures]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planRunnerListFeatures,
+            planRunnerService.listFeatures(input),
+            { "rpc.aggregate": "planRunner" },
+          ),
+
+        [WS_METHODS.planRunnerGetFeaturePlans]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planRunnerGetFeaturePlans,
+            planRunnerService.getFeaturePlans(input),
+            { "rpc.aggregate": "planRunner" },
+          ),
+
+        [WS_METHODS.planRunnerListRuns]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planRunnerListRuns,
+            planRunnerService.listRuns(input),
+            { "rpc.aggregate": "planRunner" },
+          ),
       });
     }),
   );

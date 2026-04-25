@@ -224,6 +224,7 @@ export interface DraftSessionState {
   worktreePath: string | null;
   envMode: DraftThreadEnvMode;
   promotedTo?: ScopedThreadRef | null;
+  initialPrompt?: string;
 }
 
 export type DraftThreadState = DraftSessionState;
@@ -286,6 +287,7 @@ interface ComposerDraftStoreState {
       envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
+      initialPrompt?: string;
     },
   ) => void;
   /** Creates or updates the draft session tracked for a concrete project ref. */
@@ -300,6 +302,7 @@ interface ComposerDraftStoreState {
       envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
+      initialPrompt?: string;
     },
   ) => void;
   /** Updates mutable draft-session metadata without touching composer content. */
@@ -1010,6 +1013,7 @@ function createDraftThreadState(
     envMode?: DraftThreadEnvMode;
     runtimeMode?: RuntimeMode;
     interactionMode?: ProviderInteractionMode;
+    initialPrompt?: string;
   },
 ): DraftThreadState {
   const projectChanged =
@@ -1047,6 +1051,7 @@ function createDraftThreadState(
           ? "local"
           : (existingThread?.envMode ?? "local")),
     promotedTo: null,
+    ...(options?.initialPrompt ? { initialPrompt: options.initialPrompt } : {}),
   };
 }
 

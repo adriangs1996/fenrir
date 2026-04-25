@@ -190,6 +190,15 @@ export interface WsRpcClient {
     readonly clearTraffic: RpcUnaryMethod<typeof WS_METHODS.trafficLensClearTraffic>;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeTrafficLensEvents>;
   };
+  readonly planRunner: {
+    readonly listFeatures: RpcUnaryMethod<typeof WS_METHODS.planRunnerListFeatures>;
+    readonly getFeaturePlans: RpcUnaryMethod<typeof WS_METHODS.planRunnerGetFeaturePlans>;
+    readonly listRuns: RpcUnaryMethod<typeof WS_METHODS.planRunnerListRuns>;
+    readonly start: RpcUnaryMethod<typeof WS_METHODS.planRunnerStart>;
+    readonly getStatus: RpcUnaryMethod<typeof WS_METHODS.planRunnerGetStatus>;
+    readonly cancel: RpcUnaryMethod<typeof WS_METHODS.planRunnerCancel>;
+    readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribePlanRunnerEvents>;
+  };
   readonly orchestration: {
     readonly getSnapshot: RpcUnaryNoArgMethod<
       typeof ORCHESTRATION_WS_METHODS.getSnapshot
@@ -455,6 +464,38 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       onEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeTrafficLensEvents]({}),
+          listener,
+          options,
+        ),
+    },
+    planRunner: {
+      listFeatures: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.planRunnerListFeatures](input),
+        ),
+      getFeaturePlans: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.planRunnerGetFeaturePlans](input),
+        ),
+      listRuns: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.planRunnerListRuns](input),
+        ),
+      start: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.planRunnerStart](input),
+        ),
+      getStatus: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.planRunnerGetStatus](input),
+        ),
+      cancel: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.planRunnerCancel](input),
+        ),
+      onEvent: (listener, options) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribePlanRunnerEvents]({}),
           listener,
           options,
         ),
