@@ -84,9 +84,7 @@ export function CreateListenerDialog({
             <select
               id="listener-payload"
               value={payload}
-              onChange={(e) =>
-                setPayload(e.target.value as typeof payload)
-              }
+              onChange={(e) => setPayload(e.target.value as typeof payload)}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               {PAYLOAD_OPTIONS.map((opt) => (

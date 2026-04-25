@@ -1,10 +1,12 @@
 /**
  * MetasploitServiceLive — Layer implementation for MetasploitService.
  *
- * Spawns msfrpcd via PtyAdapter, communicates via MSFRPC JSON-RPC over HTTP,
+ * Spawns msfrpcd via PtyAdapter, communicates via MSFRPC MessagePack-RPC over HTTP,
  * polls for session changes, and emits events via internal PubSub.
  */
 import { Duration, Effect, Fiber, Layer, Schedule } from "effect";
+import { encode as msgpackEncode } from "@msgpack/msgpack";
+import { msgpackDecode } from "@fenrir/shared/msgpack";
 import {
   MetasploitConnectionError,
   MetasploitListenerError,
@@ -50,7 +52,7 @@ function createMsfrpcClient(
     const response = await fetch(`http://${host}:${port}/api/`, {
       method: "POST",
       headers: { "Content-Type": "binary/message-pack" },
-      body: JSON.stringify(body),
+      body: msgpackEncode(body),
     });
 
     if (!response.ok) {
@@ -59,13 +61,14 @@ function createMsfrpcClient(
       );
     }
 
-    return response.json();
+    const buffer = await response.arrayBuffer();
+    return msgpackDecode(new Uint8Array(buffer));
   };
 
   return {
     call,
     authenticate: async () => {
-      const result = await call("auth.login", [password]);
+      const result = await call("auth.login", [MSFRPC_USER, password]);
       if (result?.result === "success" && result?.token) {
         token = result.token;
       } else {
@@ -90,6 +93,7 @@ interface ListenerState {
 
 const MSFRPC_HOST = "127.0.0.1";
 const MSFRPC_PORT = 55553;
+const MSFRPC_USER = "msf";
 const MSFRPC_PASSWORD = "fenrir";
 const SESSION_POLL_INTERVAL = "2 seconds";
 

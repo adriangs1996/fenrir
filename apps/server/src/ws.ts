@@ -72,7 +72,8 @@ import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager";
 import { MetasploitService } from "./metasploit/Services/MetasploitService";
 import { MetasploitShellAdapter, type MsfShellProcess } from "./metasploit/Services/MetasploitShellAdapter";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService";
-import type { TrafficLensEvent } from "@fenrir/contracts";
+import { PlanRunnerService } from "./plan-runner/Services/PlanRunner";
+import type { TrafficLensEvent, PlanRunnerEvent } from "@fenrir/contracts";
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -144,6 +145,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const metasploitService = yield* MetasploitService;
       const metasploitShellAdapter = yield* MetasploitShellAdapter;
       const trafficLensService = yield* TrafficLensService;
+      const planRunnerService = yield* PlanRunnerService;
       const activeTmuxProcesses = new Map<string, { pid: number }>();
       const activeMsfShellProcesses = new Map<string, MsfShellProcess>();
 
@@ -1381,6 +1383,36 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               ),
             ),
             { "rpc.aggregate": "trafficLens" },
+          ),
+
+        // ─── Plan Runner RPCs ─────────────────────────────────────────
+
+        [WS_METHODS.planRunnerStart]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planRunnerStart,
+            planRunnerService.start(input),
+            { "rpc.aggregate": "planRunner" },
+          ),
+
+        [WS_METHODS.planRunnerGetStatus]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planRunnerGetStatus,
+            planRunnerService.getStatus(input.runId),
+            { "rpc.aggregate": "planRunner" },
+          ),
+
+        [WS_METHODS.planRunnerCancel]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planRunnerCancel,
+            planRunnerService.cancel(input.runId),
+            { "rpc.aggregate": "planRunner" },
+          ),
+
+        [WS_METHODS.subscribePlanRunnerEvents]: (_input) =>
+          observeRpcStream(
+            WS_METHODS.subscribePlanRunnerEvents,
+            planRunnerService.streamEvents,
+            { "rpc.aggregate": "planRunner" },
           ),
       });
     }),

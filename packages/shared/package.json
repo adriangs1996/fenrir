@@ -55,6 +55,10 @@
     "./ansiSanitizer": {
       "types": "./src/ansiSanitizer.ts",
       "import": "./src/ansiSanitizer.ts"
+    },
+    "./msgpack": {
+      "types": "./src/msgpack.ts",
+      "import": "./src/msgpack.ts"
     }
   },
   "scripts": {

@@ -99,6 +99,17 @@ import {
   TrafficLensQueryInput,
 } from "./trafficLens";
 import {
+  PLAN_RUNNER_WS_METHODS,
+  PlanRunnerStartInput,
+  PlanRunnerStartResult,
+  PlanRunnerGetStatusInput,
+  PlanRunSnapshot,
+  PlanRunnerCancelInput,
+  PlanRunnerError,
+  PlanRunnerNotFoundError,
+  PlanRunnerEvent,
+} from "./planRunner";
+import {
   ServerConfigStreamEvent,
   ServerConfig,
   ServerLifecycleStreamEvent,
@@ -185,6 +196,12 @@ export const WS_METHODS = {
   trafficLensGetTrafficDetail: "trafficLens.getTrafficDetail",
   trafficLensClearTraffic: "trafficLens.clearTraffic",
   subscribeTrafficLensEvents: "subscribeTrafficLensEvents",
+
+  // Plan Runner
+  planRunnerStart: "planRunner.start",
+  planRunnerGetStatus: "planRunner.getStatus",
+  planRunnerCancel: "planRunner.cancel",
+  subscribePlanRunnerEvents: "subscribePlanRunnerEvents",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(
@@ -619,6 +636,31 @@ export const WsSubscribeTrafficLensEventsRpc = Rpc.make(WS_METHODS.subscribeTraf
   stream: true,
 });
 
+// ─── Plan Runner RPCs ──────────────────────────────────────────────────────
+
+export const WsPlanRunnerStartRpc = Rpc.make(WS_METHODS.planRunnerStart, {
+  payload: PlanRunnerStartInput,
+  success: PlanRunnerStartResult,
+  error: PlanRunnerError,
+});
+
+export const WsPlanRunnerGetStatusRpc = Rpc.make(WS_METHODS.planRunnerGetStatus, {
+  payload: PlanRunnerGetStatusInput,
+  success: PlanRunSnapshot,
+  error: Schema.Union([PlanRunnerError, PlanRunnerNotFoundError]),
+});
+
+export const WsPlanRunnerCancelRpc = Rpc.make(WS_METHODS.planRunnerCancel, {
+  payload: PlanRunnerCancelInput,
+  error: Schema.Union([PlanRunnerError, PlanRunnerNotFoundError]),
+});
+
+export const WsSubscribePlanRunnerEventsRpc = Rpc.make(WS_METHODS.subscribePlanRunnerEvents, {
+  payload: Schema.Struct({}),
+  success: PlanRunnerEvent,
+  stream: true,
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -678,4 +720,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsTrafficLensGetTrafficDetailRpc,
   WsTrafficLensClearTrafficRpc,
   WsSubscribeTrafficLensEventsRpc,
+  WsPlanRunnerStartRpc,
+  WsPlanRunnerGetStatusRpc,
+  WsPlanRunnerCancelRpc,
+  WsSubscribePlanRunnerEventsRpc,
 );

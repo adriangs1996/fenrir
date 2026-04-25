@@ -77,5 +77,8 @@
   },
   "trustedDependencies": [
     "node-pty"
-  ]
+  ],
+  "dependencies": {
+    "@msgpack/msgpack": "^3.1.3"
+  }
 }

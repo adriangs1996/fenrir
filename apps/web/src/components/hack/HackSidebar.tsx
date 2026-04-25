@@ -14,7 +14,10 @@ import {
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { useMetasploitStore } from "../../metasploitStore";
-import { useTrafficLensStore, TrafficLensSidebarSection } from "../../modules/traffic-lens";
+import {
+  useTrafficLensStore,
+  TrafficLensSidebarSection,
+} from "../../modules/traffic-lens";
 import { CreateListenerDialog } from "./CreateListenerDialog";
 import { useMetasploitSync } from "./useMetasploitSync";
 import { isElectron } from "../../env";
@@ -25,15 +28,13 @@ export function HackSidebar() {
   const navigate = useNavigate();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
-  const rpcClient = useMemo(
-    () => getPrimaryEnvironmentConnection().client,
-    [],
-  );
+  const rpcClient = useMemo(() => getPrimaryEnvironmentConnection().client, []);
   useMetasploitSync(rpcClient);
   const listeners = useMetasploitStore((s) => s.listeners);
   const sessions = useMetasploitStore((s) => s.sessions);
   const activeSessionId = useMetasploitStore((s) => s.activeSessionId);
   const connected = useMetasploitStore((s) => s.connected);
+  const setActiveTab = useTrafficLensStore((state) => state.setActiveTab);
 
   return (
     <>
@@ -106,7 +107,7 @@ export function HackSidebar() {
                   <SidebarMenuButton
                     isActive={session.sessionId === activeSessionId}
                     onClick={() => {
-                      useTrafficLensStore.getState().setActiveTab(null);
+                      setActiveTab(null);
                       void window.desktopBridge?.trafficLensHideAllTabs();
                       void navigate({
                         to: `/hack/${session.sessionId}` as string,
@@ -168,8 +169,7 @@ export function HackSidebar() {
               toastManager.add({
                 type: "error",
                 title: "Failed to create listener",
-                description:
-                  err instanceof Error ? err.message : String(err),
+                description: err instanceof Error ? err.message : String(err),
               });
             });
         }}

@@ -44,6 +44,7 @@ import { TmuxSessionManagerLive } from "./terminal/Layers/TmuxSessionManager";
 import { MetasploitServiceLive } from "./metasploit/Layers/MetasploitService";
 import { MetasploitShellAdapterLive } from "./metasploit/Layers/MetasploitShellAdapter";
 import { TrafficLensServiceLive } from "./traffic-lens/Layers/TrafficLensService";
+import { PlanRunnerLive } from "./plan-runner/Layers/PlanRunner";
 import { GitManagerLive } from "./git/Layers/GitManager";
 import { KeybindingsLive } from "./keybindings";
 import {
@@ -267,6 +268,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(MetasploitLayerLive),
   Layer.provideMerge(TrafficLensServiceLive),
+  Layer.provideMerge(PlanRunnerLive),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(KeybindingsLive),
   Layer.provideMerge(ProviderRegistryLive),
