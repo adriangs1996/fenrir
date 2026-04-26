@@ -23,6 +23,7 @@ import { Route as HackSessionIdRouteImport } from './routes/hack.$sessionId'
 import { Route as ChatPlanRunnerRunIdRouteImport } from './routes/_chat.plan-runner.$runId'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
+import { Route as ChatPlanRunnerFeatureNameConfigureRouteImport } from './routes/_chat.plan-runner.$featureName.configure'
 import { Route as ChatPlanRunnerFeatureNamePlanIdRouteImport } from './routes/_chat.plan-runner.$featureName.$planId'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -95,6 +96,12 @@ const ChatEnvironmentIdThreadIdRoute =
     path: '/$environmentId/$threadId',
     getParentRoute: () => ChatRoute,
   } as any)
+const ChatPlanRunnerFeatureNameConfigureRoute =
+  ChatPlanRunnerFeatureNameConfigureRouteImport.update({
+    id: '/plan-runner/$featureName/configure',
+    path: '/plan-runner/$featureName/configure',
+    getParentRoute: () => ChatRoute,
+  } as any)
 const ChatPlanRunnerFeatureNamePlanIdRoute =
   ChatPlanRunnerFeatureNamePlanIdRouteImport.update({
     id: '/plan-runner/$featureName/$planId',
@@ -117,6 +124,7 @@ export interface FileRoutesByFullPath {
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/plan-runner/$runId': typeof ChatPlanRunnerRunIdRoute
   '/plan-runner/$featureName/$planId': typeof ChatPlanRunnerFeatureNamePlanIdRoute
+  '/plan-runner/$featureName/configure': typeof ChatPlanRunnerFeatureNameConfigureRoute
 }
 export interface FileRoutesByTo {
   '/pair': typeof PairRoute
@@ -132,6 +140,7 @@ export interface FileRoutesByTo {
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/plan-runner/$runId': typeof ChatPlanRunnerRunIdRoute
   '/plan-runner/$featureName/$planId': typeof ChatPlanRunnerFeatureNamePlanIdRoute
+  '/plan-runner/$featureName/configure': typeof ChatPlanRunnerFeatureNameConfigureRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -150,6 +159,7 @@ export interface FileRoutesById {
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/_chat/plan-runner/$runId': typeof ChatPlanRunnerRunIdRoute
   '/_chat/plan-runner/$featureName/$planId': typeof ChatPlanRunnerFeatureNamePlanIdRoute
+  '/_chat/plan-runner/$featureName/configure': typeof ChatPlanRunnerFeatureNameConfigureRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | '/draft/$draftId'
     | '/plan-runner/$runId'
     | '/plan-runner/$featureName/$planId'
+    | '/plan-runner/$featureName/configure'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/pair'
@@ -183,6 +194,7 @@ export interface FileRouteTypes {
     | '/draft/$draftId'
     | '/plan-runner/$runId'
     | '/plan-runner/$featureName/$planId'
+    | '/plan-runner/$featureName/configure'
   id:
     | '__root__'
     | '/_chat'
@@ -200,6 +212,7 @@ export interface FileRouteTypes {
     | '/_chat/draft/$draftId'
     | '/_chat/plan-runner/$runId'
     | '/_chat/plan-runner/$featureName/$planId'
+    | '/_chat/plan-runner/$featureName/configure'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -309,6 +322,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatEnvironmentIdThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/plan-runner/$featureName/configure': {
+      id: '/_chat/plan-runner/$featureName/configure'
+      path: '/plan-runner/$featureName/configure'
+      fullPath: '/plan-runner/$featureName/configure'
+      preLoaderRoute: typeof ChatPlanRunnerFeatureNameConfigureRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/plan-runner/$featureName/$planId': {
       id: '/_chat/plan-runner/$featureName/$planId'
       path: '/plan-runner/$featureName/$planId'
@@ -325,6 +345,7 @@ interface ChatRouteChildren {
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
   ChatPlanRunnerRunIdRoute: typeof ChatPlanRunnerRunIdRoute
   ChatPlanRunnerFeatureNamePlanIdRoute: typeof ChatPlanRunnerFeatureNamePlanIdRoute
+  ChatPlanRunnerFeatureNameConfigureRoute: typeof ChatPlanRunnerFeatureNameConfigureRoute
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
@@ -333,6 +354,8 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,
   ChatPlanRunnerRunIdRoute: ChatPlanRunnerRunIdRoute,
   ChatPlanRunnerFeatureNamePlanIdRoute: ChatPlanRunnerFeatureNamePlanIdRoute,
+  ChatPlanRunnerFeatureNameConfigureRoute:
+    ChatPlanRunnerFeatureNameConfigureRoute,
 }
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)

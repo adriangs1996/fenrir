@@ -7,10 +7,9 @@ import { PlanRunnerFeatureFolder } from "./PlanRunnerFeatureFolder";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import {
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarGroupContent,
-  SidebarMenu,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
+  SidebarMenuSubButton,
 } from "~/components/ui/sidebar";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
@@ -78,37 +77,42 @@ export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
   if (features.length === 0 && !rpcClient) return null;
 
   return (
-    <SidebarGroup className="py-0">
-      <Collapsible open={expanded} onOpenChange={setExpanded}>
-        <SidebarGroupLabel className="flex items-center gap-1.5">
-          <CollapsibleTrigger className="flex flex-1 items-center gap-1.5 text-xs font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground">
-            <ChevronRightIcon
-              className={`size-3.5 shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
-            />
-            <FolderOpenIcon className="size-3.5 shrink-0" />
-            <span>Plans</span>
-            {features.length > 0 && (
-              <Badge variant="outline" size="sm">
-                {features.length}
-              </Badge>
-            )}
-          </CollapsibleTrigger>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-5"
-            onClick={handleNewPlan}
-            title="New Plan"
-          >
-            <PlusIcon className="size-3.5" />
-          </Button>
-        </SidebarGroupLabel>
+    <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0">
+      <SidebarMenuSubItem className="w-full">
+        <Collapsible open={expanded} onOpenChange={setExpanded}>
+          <div className="flex items-center">
+            <CollapsibleTrigger className="flex-1">
+              <SidebarMenuSubButton
+                size="sm"
+                className="h-6 w-full translate-x-0 justify-start gap-1.5 px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+              >
+                <ChevronRightIcon
+                  className={`size-3 shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
+                />
+                <FolderOpenIcon className="size-3 shrink-0" />
+                <span>Plans</span>
+                {features.length > 0 && (
+                  <Badge variant="outline" size="sm" className="ml-auto">
+                    {features.length}
+                  </Badge>
+                )}
+              </SidebarMenuSubButton>
+            </CollapsibleTrigger>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-5 shrink-0 text-muted-foreground/50 hover:text-muted-foreground/80"
+              onClick={handleNewPlan}
+              title="New Plan"
+            >
+              <PlusIcon className="size-3" />
+            </Button>
+          </div>
 
-        <CollapsibleContent>
-          <SidebarGroupContent>
-            <SidebarMenu>
+          <CollapsibleContent>
+            <SidebarMenuSub className="mx-2 gap-0.5 border-l border-sidebar-border py-0.5 pl-2">
               {features.length === 0 ? (
-                <div className="px-3 py-2 text-xs text-muted-foreground">
+                <div className="flex h-6 w-full items-center px-2 text-[10px] text-muted-foreground/60">
                   No plans yet
                 </div>
               ) : (
@@ -121,10 +125,10 @@ export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
                   />
                 ))
               )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </CollapsibleContent>
-      </Collapsible>
-    </SidebarGroup>
+            </SidebarMenuSub>
+          </CollapsibleContent>
+        </Collapsible>
+      </SidebarMenuSubItem>
+    </SidebarMenuSub>
   );
 });

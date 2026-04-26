@@ -17,8 +17,6 @@ import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import {
-  SidebarMenuItem,
-  SidebarMenuButton,
   SidebarMenuSub,
   SidebarMenuSubItem,
   SidebarMenuSubButton,
@@ -84,9 +82,11 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   const badgeConfig = activeRun ? STATE_BADGE_CONFIG[activeRun.state] : null;
 
   const handleRun = useCallback(() => {
-    if (!rpcClient) return;
-    void rpcClient.planRunner.start({ projectId, featureName: feature.featureName });
-  }, [rpcClient, projectId, feature.featureName]);
+    void navigate({
+      to: "/plan-runner/$featureName/configure",
+      params: { featureName: feature.featureName },
+    });
+  }, [navigate, feature.featureName]);
 
   const handleCancel = useCallback(() => {
     if (!rpcClient || !feature.activeRunId) return;
@@ -119,15 +119,18 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   );
 
   return (
-    <SidebarMenuItem>
+    <SidebarMenuSubItem className="w-full">
       <Collapsible open={expanded} onOpenChange={setExpanded}>
         <div className="flex items-center">
           <CollapsibleTrigger className="flex-1">
-            <SidebarMenuButton className="w-full gap-1.5">
+            <SidebarMenuSubButton
+              size="sm"
+              className="h-7 w-full translate-x-0 justify-start gap-1.5 px-2 text-left text-xs text-muted-foreground"
+            >
               <ChevronRightIcon
-                className={`size-3.5 shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
+                className={`size-3 shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
               />
-              <span className="truncate">{feature.featureName}</span>
+              <span className="min-w-0 flex-1 truncate">{feature.featureName}</span>
               <Badge variant="outline" size="sm" className="ml-auto">
                 {feature.planCount}
               </Badge>
@@ -144,7 +147,7 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
                   {badgeConfig.label}
                 </Badge>
               )}
-            </SidebarMenuButton>
+            </SidebarMenuSubButton>
           </CollapsibleTrigger>
           {feature.hasActiveRun ? (
             <Button
@@ -170,15 +173,16 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
         </div>
 
         <CollapsibleContent>
-          <SidebarMenuSub>
+          <SidebarMenuSub className="mx-2 gap-0 border-l border-sidebar-border py-0 pl-2">
             {plans.map((plan) => (
               <SidebarMenuSubItem key={plan.planId}>
                 <SidebarMenuSubButton
-                  className="group flex items-center gap-1.5"
+                  size="sm"
+                  className="group h-6 w-full gap-1.5 px-1.5 text-[10px] text-muted-foreground/70"
                   onClick={() => handlePlanClick(plan)}
                 >
-                  <FileTextIcon className="size-3.5 shrink-0" />
-                  <span className="truncate">{plan.filename}</span>
+                  <FileTextIcon className="size-3 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">{plan.filename}</span>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -197,6 +201,6 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
           </SidebarMenuSub>
         </CollapsibleContent>
       </Collapsible>
-    </SidebarMenuItem>
+    </SidebarMenuSubItem>
   );
 });
