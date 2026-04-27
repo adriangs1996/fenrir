@@ -357,7 +357,7 @@ export const PlanRunnerLive = Layer.effect(
     // ── Wait for thread turn completion ───────────────────────────────
 
     const POLL_INTERVAL_MS = 3_000;
-    const MAX_POLL_WAIT_MS = 10 * 60 * 1000; // 10 minutes absolute timeout
+    const MAX_POLL_WAIT_MS = 30 * 60 * 1000; // 30 minutes absolute timeout
     const MAX_SESSION_WAIT_MS = 60 * 1000; // 60s waiting for session/turn to appear
 
     const waitForThreadTurnComplete = (
@@ -553,7 +553,10 @@ ${plan.content}`;
         plan.executorThreadId = executorThreadId;
 
         // Wait for executor
-        const execResult = yield* waitForThreadTurnComplete(executorThreadId, run);
+        const execResult = yield* waitForThreadTurnComplete(
+          executorThreadId,
+          run,
+        );
         if (!execResult.ok) {
           yield* stopThreadSession(executorThreadId);
           plan.state = "failed";
@@ -1117,7 +1120,10 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           if (branchExists) {
             // Branch already exists — check if it already has a worktree
             const branchInfo = yield* gitCore
-              .listBranches({ cwd: projectCwd as any, query: branchName as any })
+              .listBranches({
+                cwd: projectCwd as any,
+                query: branchName as any,
+              })
               .pipe(Effect.catch(() => Effect.succeed(null)));
             const existingWorktree = branchInfo?.branches.find(
               (b) => b.name === branchName && b.worktreePath,
@@ -1295,9 +1301,9 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
           for (const entry of dirEntries) {
             const entryPath = pathService.join(plansDir, entry);
-            const stat = yield* fs.stat(entryPath).pipe(
-              Effect.catch(() => Effect.succeed(null)),
-            );
+            const stat = yield* fs
+              .stat(entryPath)
+              .pipe(Effect.catch(() => Effect.succeed(null)));
             if (stat?.type === "Directory") {
               entries.push(entry);
             }
@@ -1309,7 +1315,9 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           for (const featureName of entries) {
             const featureDir = pathService.join(plansDir, featureName);
             const planCount = yield* fs.readDirectory(featureDir).pipe(
-              Effect.map((files) => files.filter((f) => f.endsWith(".md")).length),
+              Effect.map(
+                (files) => files.filter((f) => f.endsWith(".md")).length,
+              ),
               // skip unreadable dirs
               Effect.catch(() => Effect.succeed(0)),
             );
@@ -1372,15 +1380,20 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           );
           const files = dirEntries.filter((f: string) => f.endsWith(".md"));
 
-          const plans: Array<{ planId: string; filename: string; dependsOn: string[]; maxRetries: number; content: string }> = [];
+          const plans: Array<{
+            planId: string;
+            filename: string;
+            dependsOn: string[];
+            maxRetries: number;
+            content: string;
+          }> = [];
           for (const filename of files) {
             const filePath = pathService.join(featureDir, filename);
             const rawContent = yield* fs.readFileString(filePath).pipe(
               Effect.catch(() =>
                 Effect.fail(
                   new PlanRunnerError({
-                    message:
-                      `Failed to read plan file: ${filename}` as any,
+                    message: `Failed to read plan file: ${filename}` as any,
                   }),
                 ),
               ),
@@ -1437,7 +1450,8 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           Effect.catchDefect((defect) =>
             Effect.fail(
               new PlanRunnerError({
-                message: `Failed to read feature plans: ${defect instanceof Error ? defect.message : String(defect)}` as any,
+                message:
+                  `Failed to read feature plans: ${defect instanceof Error ? defect.message : String(defect)}` as any,
               }),
             ),
           ),
