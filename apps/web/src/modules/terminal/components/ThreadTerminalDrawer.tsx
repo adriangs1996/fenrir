@@ -10,6 +10,7 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type TerminalEvent,
   type TerminalSessionSnapshot,
@@ -31,12 +32,21 @@ import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { type TerminalContextSelection } from "../terminalContext";
 import { openInPreferredEditor } from "~/editorPreferences";
 import {
+  collectWrappedTerminalLinkLine,
   extractTerminalLinks,
   isTerminalLinkActivation,
   resolvePathLinkTarget,
+  resolveWrappedTerminalLinkRange,
+  wrappedTerminalLinkRangeIntersectsBufferLine,
 } from "../terminalLinks";
 import {
+  isDiffToggleShortcut,
   isTerminalClearShortcut,
+  isTerminalCloseShortcut,
+  isTerminalNewShortcut,
+  isTerminalSplitShortcut,
+  isTerminalToggleShortcut,
+  terminalDeleteShortcutData,
   terminalNavigationShortcutData,
 } from "~/keybindings";
 import {
@@ -300,6 +310,7 @@ interface TerminalViewportProps {
   mode: "tmux" | "pty";
   /** Explicit projectId — used when thread not yet in server store (draft threads). */
   projectId?: string | null | undefined;
+  keybindings: ResolvedKeybindingsConfig;
 }
 
 export function TerminalViewport({
@@ -319,6 +330,7 @@ export function TerminalViewport({
   drawerHeight,
   mode,
   projectId: projectIdProp,
+  keybindings,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -331,6 +343,7 @@ export function TerminalViewport({
   const selectionActionRequestIdRef = useRef(0);
   const selectionActionOpenRef = useRef(false);
   const selectionActionTimerRef = useRef<number | null>(null);
+  const keybindingsRef = useRef(keybindings);
   const lastAppliedTerminalEventIdRef = useRef(0);
   const terminalHydratedRef = useRef(false);
   const handleSessionExited = useEffectEvent(() => {
@@ -367,6 +380,10 @@ export function TerminalViewport({
       // fit may throw during transitions
     }
   }, [terminalFontFamily, terminalFontSize, terminalLineHeight]);
+
+  useEffect(() => {
+    keybindingsRef.current = keybindings;
+  }, [keybindings]);
 
   useEffect(() => {
     const mount = containerRef.current;
@@ -502,11 +519,31 @@ export function TerminalViewport({
     };
 
     terminal.attachCustomKeyEventHandler((event) => {
+      const currentKeybindings = keybindingsRef.current;
+      const options = { context: { terminalFocus: true, terminalOpen: true } };
+      if (
+        isTerminalToggleShortcut(event, currentKeybindings, options) ||
+        isTerminalSplitShortcut(event, currentKeybindings, options) ||
+        isTerminalNewShortcut(event, currentKeybindings, options) ||
+        isTerminalCloseShortcut(event, currentKeybindings, options) ||
+        isDiffToggleShortcut(event, currentKeybindings, options)
+      ) {
+        return false;
+      }
+
       const navigationData = terminalNavigationShortcutData(event);
       if (navigationData !== null) {
         event.preventDefault();
         event.stopPropagation();
         void sendTerminalInput(navigationData, "Failed to move cursor");
+        return false;
+      }
+
+      const deleteData = terminalDeleteShortcutData(event);
+      if (deleteData !== null) {
+        event.preventDefault();
+        event.stopPropagation();
+        void sendTerminalInput(deleteData, "Failed to delete terminal input");
         return false;
       }
 
@@ -525,26 +562,31 @@ export function TerminalViewport({
           return;
         }
 
-        const line = activeTerminal.buffer.active.getLine(bufferLineNumber - 1);
-        if (!line) {
+        const wrappedLine = collectWrappedTerminalLinkLine(bufferLineNumber, (bufferLineIndex) =>
+          activeTerminal.buffer.active.getLine(bufferLineIndex),
+        );
+        if (!wrappedLine) {
           callback(undefined);
           return;
         }
 
-        const lineText = line.translateToString(true);
-        const matches = extractTerminalLinks(lineText);
-        if (matches.length === 0) {
+        const links = extractTerminalLinks(wrappedLine.text)
+          .map((match) => ({
+            match,
+            range: resolveWrappedTerminalLinkRange(wrappedLine, match),
+          }))
+          .filter(({ range }) =>
+            wrappedTerminalLinkRangeIntersectsBufferLine(range, bufferLineNumber),
+          );
+        if (links.length === 0) {
           callback(undefined);
           return;
         }
 
         callback(
-          matches.map((match) => ({
+          links.map(({ match, range }) => ({
             text: match.text,
-            range: {
-              start: { x: match.start + 1, y: bufferLineNumber },
-              end: { x: match.end, y: bufferLineNumber },
-            },
+            range,
             activate: (event: MouseEvent) => {
               if (!isTerminalLinkActivation(event)) return;
 
@@ -977,6 +1019,7 @@ interface ThreadTerminalDrawerProps {
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   /** Explicit projectId for tmux — needed when thread not yet in server store (draft threads). */
   projectId?: string | null;
+  keybindings: ResolvedKeybindingsConfig;
 }
 
 interface TerminalActionButtonProps {
@@ -1043,6 +1086,7 @@ export default function ThreadTerminalDrawer({
   onHeightChange,
   onAddTerminalContext,
   projectId,
+  keybindings,
 }: ThreadTerminalDrawerProps) {
   const [drawerHeight, setDrawerHeight] = useState(() =>
     clampDrawerHeight(height),
@@ -1429,6 +1473,7 @@ export default function ThreadTerminalDrawer({
                         autoFocus={terminalId === resolvedActiveTerminalId}
                         resizeEpoch={resizeEpoch}
                         drawerHeight={drawerHeight}
+                        keybindings={keybindings}
                       />
                     </div>
                   </div>
@@ -1459,6 +1504,7 @@ export default function ThreadTerminalDrawer({
                   autoFocus
                   resizeEpoch={resizeEpoch}
                   drawerHeight={drawerHeight}
+                  keybindings={keybindings}
                 />
               </div>
             )}

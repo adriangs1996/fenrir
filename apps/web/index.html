@@ -2,9 +2,20 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#161616" media="(prefers-color-scheme: dark)" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta
+      name="theme-color"
+      content="#ffffff"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#161616"
+      media="(prefers-color-scheme: dark)"
+    />
     <meta name="theme-color" content="#161616" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -12,20 +23,37 @@
       (() => {
         const LIGHT_BACKGROUND = "#ffffff";
         const DARK_BACKGROUND = "#161616";
-        const CATPPUCCIN_BACKGROUND = "#11111b";
-        const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+        const CATPPUCCIN_BACKGROUND = "#181825";
+        const themeColorMeta = document.querySelector(
+          'meta[name="theme-color"]',
+        );
         try {
           const storedTheme = window.localStorage.getItem("fenrir:theme");
           const theme =
-            storedTheme === "light" || storedTheme === "dark" || storedTheme === "system" || storedTheme === "catppuccin-mocha"
+            storedTheme === "light" ||
+            storedTheme === "dark" ||
+            storedTheme === "system" ||
+            storedTheme === "catppuccin-mocha"
               ? storedTheme
               : "system";
-          const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const prefersDark = window.matchMedia(
+            "(prefers-color-scheme: dark)",
+          ).matches;
           const isCatppuccin = theme === "catppuccin-mocha";
-          const isDark = isCatppuccin || theme === "dark" || (theme === "system" && prefersDark);
+          const isDark =
+            isCatppuccin ||
+            theme === "dark" ||
+            (theme === "system" && prefersDark);
           document.documentElement.classList.toggle("dark", isDark);
-          document.documentElement.classList.toggle("catppuccin-mocha", isCatppuccin);
-          const chromeColor = isCatppuccin ? CATPPUCCIN_BACKGROUND : isDark ? DARK_BACKGROUND : LIGHT_BACKGROUND;
+          document.documentElement.classList.toggle(
+            "catppuccin-mocha",
+            isCatppuccin,
+          );
+          const chromeColor = isCatppuccin
+            ? CATPPUCCIN_BACKGROUND
+            : isDark
+              ? DARK_BACKGROUND
+              : LIGHT_BACKGROUND;
           document.documentElement.style.backgroundColor = chromeColor;
           themeColorMeta?.setAttribute("content", chromeColor);
         } catch {
@@ -62,7 +90,7 @@
       }
 
       html.catppuccin-mocha body {
-        background: #11111b;
+        background: #181825;
         color: #cdd6f4;
       }
 

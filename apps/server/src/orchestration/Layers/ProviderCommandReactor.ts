@@ -16,6 +16,7 @@ import { makeDrainableWorker } from "@fenrir/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
+import { GitStatusBroadcaster } from "../../git/Services/GitStatusBroadcaster.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
@@ -150,6 +151,7 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
   const git = yield* GitCore;
+  const gitStatusBroadcaster = yield* GitStatusBroadcaster;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
   const handledTurnStartKeys = yield* Cache.make<string, true>({
@@ -298,6 +300,7 @@ const make = Effect.gen(function* () {
         requestedModelSelection !== undefined &&
         requestedModelSelection.provider !== currentProvider;
       const activeSession = yield* resolveActiveSession(existingSessionThreadId);
+      const cwdChanged = effectiveCwd !== activeSession?.cwd;
       const sessionModelSwitch =
         currentProvider === undefined
           ? "in-session"
@@ -315,6 +318,7 @@ const make = Effect.gen(function* () {
       if (
         !runtimeModeChanged &&
         !providerChanged &&
+        !cwdChanged &&
         !shouldRestartForModelChange &&
         !shouldRestartForModelSelectionChange
       ) {
@@ -334,6 +338,9 @@ const make = Effect.gen(function* () {
         desiredRuntimeMode: thread.runtimeMode,
         runtimeModeChanged,
         providerChanged,
+        previousCwd: activeSession?.cwd,
+        desiredCwd: effectiveCwd,
+        cwdChanged,
         modelChanged,
         shouldRestartForModelChange,
         shouldRestartForModelSelectionChange,
@@ -348,6 +355,7 @@ const make = Effect.gen(function* () {
         restartedSessionThreadId: restartedSession.threadId,
         provider: restartedSession.provider,
         runtimeMode: restartedSession.runtimeMode,
+        cwd: restartedSession.cwd,
       });
       yield* bindSessionToThread(restartedSession);
       return restartedSession.threadId;
@@ -452,6 +460,7 @@ const make = Effect.gen(function* () {
         branch: renamed.branch,
         worktreePath: cwd,
       });
+      yield* gitStatusBroadcaster.refreshStatus(cwd).pipe(Effect.ignoreCause({ log: true }));
     }).pipe(
       Effect.catchCause((cause) =>
         Effect.logWarning("provider command reactor failed to generate or rename worktree branch", {

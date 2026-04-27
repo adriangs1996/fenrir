@@ -153,17 +153,17 @@
     color-scheme: dark;
 
     /* === Fenrir Surface Hierarchy (shifted two levels darker) === */
-    --background: #11111b; /* Crust — main content base */
-    --app-chrome-background: #03030d; /* Deep — window frame, outermost shell */
+    --background: #181825; /* Crust — main content base */
+    --app-chrome-background: #11111b; /* Deep — window frame, outermost shell */
     --foreground: #cdd6f4; /* Text — primary text */
 
-    --card: #0a0a14; /* Mantle — cards, inputs, elevated surfaces */
+    --card: #11111b; /* Mantle — cards, inputs, elevated surfaces */
     --card-foreground: #cdd6f4;
-    --popover: #0a0a14; /* Mantle — popovers, dropdowns */
+    --popover: #11111b; /* Mantle — popovers, dropdowns */
     --popover-foreground: #cdd6f4;
 
     /* Sidebar uses Crust-level for darker panel feel */
-    --color-sidebar: #0a0a14;
+    --color-sidebar: #11111b;
     --color-sidebar-foreground: #cdd6f4;
     --color-sidebar-border: #181825;
     --color-sidebar-accent: #181825;
@@ -172,12 +172,12 @@
     /* === Brand & Interactive === */
     /* --primary: #a6e3a1; */
     --primary: #58ffc7;
-    --primary-foreground: #0a0a14; /* Dark text on green */
-    --secondary: #0a0a14; /* Mantle — secondary fills */
+    --primary-foreground: #11111b; /* Dark text on green */
+    --secondary: #11111b; /* Mantle — secondary fills */
     --secondary-foreground: #cdd6f4;
-    --muted: #0a0a14; /* Mantle — muted backgrounds */
+    --muted: #11111b; /* Mantle — muted backgrounds */
     --muted-foreground: #a6adc8; /* Subtext0 — dimmed text */
-    --accent: #0a0a14; /* Mantle — accent backgrounds */
+    --accent: #11111b; /* Mantle — accent backgrounds */
     --accent-foreground: #cdd6f4;
 
     /* === Semantic Status === */
@@ -445,12 +445,16 @@ label:has(> select#reasoning-effort) select {
 }
 
 .chat-markdown .chat-markdown-codeblock {
+  --chat-markdown-codeblock-copy-button-space: 1.5rem;
   position: relative;
   margin: 0.65rem 0;
 }
 
 .chat-markdown .chat-markdown-codeblock pre {
   margin: 0;
+  padding-right: calc(
+    0.9rem + var(--chat-markdown-codeblock-copy-button-space)
+  );
 }
 
 .chat-markdown .chat-markdown-copy-button {
@@ -467,6 +471,7 @@ label:has(> select#reasoning-effort) select {
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--background) 82%, transparent);
   color: var(--muted-foreground);
+  cursor: pointer;
   opacity: 0;
   pointer-events: none;
   transition:

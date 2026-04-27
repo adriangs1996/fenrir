@@ -786,6 +786,15 @@ function revokeObjectPreviewUrl(previewUrl: string): void {
   URL.revokeObjectURL(previewUrl);
 }
 
+function revokeDraftThreadPreviewUrls(draft: ComposerThreadDraftState | undefined): void {
+  if (!draft) {
+    return;
+  }
+  for (const image of draft.images) {
+    revokeObjectPreviewUrl(image.previewUrl);
+  }
+}
+
 function normalizePersistedAttachment(value: unknown): PersistedComposerImageAttachment | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -1107,7 +1116,8 @@ function removeDraftThreadReferences(
   ) as Record<string, string>;
   const { [threadKey]: _removedDraftThread, ...restDraftThreadsByThreadKey } =
     state.draftThreadsByThreadKey;
-  const { [threadKey]: _removedComposerDraft, ...restDraftsByThreadKey } = state.draftsByThreadKey;
+  const { [threadKey]: removedComposerDraft, ...restDraftsByThreadKey } = state.draftsByThreadKey;
+  revokeDraftThreadPreviewUrls(removedComposerDraft);
   return {
     draftsByThreadKey: restDraftsByThreadKey,
     draftThreadsByThreadKey: restDraftThreadsByThreadKey,
@@ -1886,13 +1896,18 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               [draftId]: nextDraftThread,
             };
             let nextDraftsByThreadKey = state.draftsByThreadKey;
+            const previousDraftThread =
+              previousThreadKeyForLogicalProject === undefined
+                ? undefined
+                : nextDraftThreadsByThreadKey[previousThreadKeyForLogicalProject];
             if (
               previousThreadKeyForLogicalProject &&
               previousThreadKeyForLogicalProject !== draftId &&
               !isComposerThreadKeyInUse(
                 nextLogicalProjectDraftThreadKeyByLogicalProjectKey,
                 previousThreadKeyForLogicalProject,
-              )
+              ) &&
+              !isDraftThreadPromoting(previousDraftThread)
             ) {
               delete nextDraftThreadsByThreadKey[previousThreadKeyForLogicalProject];
               if (state.draftsByThreadKey[previousThreadKeyForLogicalProject] !== undefined) {
@@ -2068,12 +2083,6 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
           if (threadKey.length === 0) {
             return;
-          }
-          const existing = get().draftsByThreadKey[threadKey];
-          if (existing) {
-            for (const image of existing.images) {
-              revokeObjectPreviewUrl(image.previewUrl);
-            }
           }
           set((state) => {
             const hasDraftThread = state.draftThreadsByThreadKey[threadKey] !== undefined;

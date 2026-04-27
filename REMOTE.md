@@ -19,6 +19,23 @@ The Fenrir CLI accepts the following configuration options, available either as 
 
 > TIP: Use the `--help` flag to see all available options and their descriptions.
 
+## Enabling Network Access
+
+Two ways to expose the server: desktop app or CLI.
+
+### Option 1: Desktop App
+
+If you are already running the desktop app and want to make it reachable from other devices:
+
+1. Open **Settings** → **Connections**.
+2. Under **Manage Local Backend**, toggle **Network access** on. This restarts the app and binds the backend on all network interfaces.
+3. The settings panel shows the address the server is reachable at (e.g. `http://192.168.x.y:3773`).
+4. Use **Create Link** to generate a pairing link you can share with another device.
+
+### Option 2: Headless Server (CLI)
+
+Use this when you want to run the server without a GUI, for example on a remote machine over SSH.
+
 ## Security First
 
 - Always set `--auth-token` before exposing the server outside localhost.

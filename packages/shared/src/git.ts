@@ -41,6 +41,13 @@ export function sanitizeFeatureBranchName(raw: string): string {
   return `feature/${sanitized}`;
 }
 
+export const WORKTREE_BRANCH_PREFIX = "fenrir";
+const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
+
+export function isTemporaryWorktreeBranch(branch: string): boolean {
+  return TEMP_WORKTREE_BRANCH_PATTERN.test(branch.trim().toLowerCase());
+}
+
 const AUTO_FEATURE_BRANCH_FALLBACK = "feature/update";
 
 /**
