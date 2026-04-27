@@ -2758,7 +2758,6 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         "claude.query.additional_directories": input.cwd ? [input.cwd] : [],
         "claude.query.setting_sources": [...CLAUDE_SETTING_SOURCES],
         "claude.query.settings_json": JSON.stringify(settings),
-        "claude.query.extra_args_json": JSON.stringify(extraArgs),
         "claude.query.path_to_executable": claudeBinaryPath,
       });
 

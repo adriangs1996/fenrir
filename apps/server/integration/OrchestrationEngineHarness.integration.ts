@@ -356,7 +356,7 @@ export const makeOrchestrationIntegrationHarness = (
         Layer.succeed(ThreadDeletionReactor, {
           start: () => Effect.void,
           drain: Effect.void,
-        }),
+        } as typeof ThreadDeletionReactor.Service),
       ),
     );
     const layer = Layer.empty.pipe(

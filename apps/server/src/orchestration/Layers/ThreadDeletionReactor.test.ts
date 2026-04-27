@@ -1,11 +1,11 @@
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId } from "@fenrir/contracts";
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { logCleanupCauseUnlessInterrupted } from "./ThreadDeletionReactor.ts";
 
 describe("logCleanupCauseUnlessInterrupted", () => {
-  const threadId = ThreadId.make("thread-deletion-reactor-test");
+  const threadId = ThreadId.makeUnsafe("thread-deletion-reactor-test");
 
   it("swallows ordinary cleanup failures", async () => {
     const exit = await Effect.runPromiseExit(

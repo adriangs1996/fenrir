@@ -917,8 +917,8 @@ describe("ProviderCommandReactor", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
-        commandId: CommandId.make("cmd-turn-start-workspace-1"),
-        threadId: ThreadId.make("thread-1"),
+        commandId: CommandId.makeUnsafe("cmd-turn-start-workspace-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
         message: {
           messageId: asMessageId("user-message-workspace-1"),
           role: "user",
@@ -940,8 +940,8 @@ describe("ProviderCommandReactor", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.meta.update",
-        commandId: CommandId.make("cmd-thread-worktree-change"),
-        threadId: ThreadId.make("thread-1"),
+        commandId: CommandId.makeUnsafe("cmd-thread-worktree-change"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
         worktreePath: "/tmp/provider-project-worktree",
       }),
     );
@@ -949,8 +949,8 @@ describe("ProviderCommandReactor", () => {
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
-        commandId: CommandId.make("cmd-turn-start-workspace-2"),
-        threadId: ThreadId.make("thread-1"),
+        commandId: CommandId.makeUnsafe("cmd-turn-start-workspace-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
         message: {
           messageId: asMessageId("user-message-workspace-2"),
           role: "user",
@@ -967,7 +967,7 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
     expect(harness.stopSession.mock.calls.length).toBe(0);
     expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
-      threadId: ThreadId.make("thread-1"),
+      threadId: ThreadId.makeUnsafe("thread-1"),
       cwd: "/tmp/provider-project-worktree",
       resumeCursor: { opaque: "resume-1" },
       modelSelection: {

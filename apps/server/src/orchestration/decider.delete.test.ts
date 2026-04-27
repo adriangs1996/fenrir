@@ -7,17 +7,17 @@ import {
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationReadModel,
-} from "@t3tools/contracts";
+} from "@fenrir/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 
-const asCommandId = (value: string): CommandId => CommandId.make(value);
-const asEventId = (value: string): EventId => EventId.make(value);
-const asProjectId = (value: string): ProjectId => ProjectId.make(value);
-const asThreadId = (value: string): ThreadId => ThreadId.make(value);
+const asCommandId = (value: string): CommandId => CommandId.makeUnsafe(value);
+const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
+const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
+const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 
 async function seedReadModel(): Promise<OrchestrationReadModel> {
   const now = new Date().toISOString();
@@ -40,6 +40,7 @@ async function seedReadModel(): Promise<OrchestrationReadModel> {
         workspaceRoot: "/tmp/project-delete",
         defaultModelSelection: null,
         scripts: [],
+        globalScriptDefaults: [],
         createdAt: now,
         updatedAt: now,
       },
