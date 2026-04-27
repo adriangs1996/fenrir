@@ -648,11 +648,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         ...parsed.auth,
         ...(authMetadata ? authMetadata : {}),
       },
-      ...(parsed.message
-        ? { message: parsed.message }
-        : opus47UpgradeMessage
-          ? { message: opus47UpgradeMessage }
-          : {}),
+      ...(parsed.message ? { message: parsed.message } : {}),
     },
   });
 });
