@@ -1,7 +1,11 @@
 import * as FS from "node:fs";
 import * as Path from "node:path";
 
-import type { ClientSettings, PersistedSavedEnvironmentRecord } from "@fenrir/contracts";
+import {
+  ClientSettingsSchema,
+  type ClientSettings,
+  type PersistedSavedEnvironmentRecord,
+} from "@fenrir/contracts";
 import { Predicate } from "effect";
 import * as Schema from "effect/Schema";
 
