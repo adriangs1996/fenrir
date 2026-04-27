@@ -14,14 +14,4 @@ export default Effect.gen(function* () {
           = projection_pending_approvals.request_id
     )
   `;
-
-  yield* sql`
-    UPDATE projection_threads
-    SET pending_approval_count = COALESCE((
-      SELECT COUNT(*)
-      FROM projection_pending_approvals
-      WHERE projection_pending_approvals.thread_id = projection_threads.thread_id
-        AND projection_pending_approvals.status = 'pending'
-    ), 0)
-  `;
 });
