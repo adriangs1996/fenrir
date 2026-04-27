@@ -253,7 +253,7 @@ describe("thread selection memoization", () => {
     const thread = makeThread({
       messages: [
         {
-          id: MessageId.make("message-1"),
+          id: MessageId.makeUnsafe("message-1"),
           role: "user",
           text: "hello",
           createdAt: "2026-02-13T00:01:00.000Z",
@@ -262,12 +262,12 @@ describe("thread selection memoization", () => {
       ],
       activities: [
         {
-          id: EventId.make("activity-1"),
+          id: EventId.makeUnsafe("activity-1"),
           tone: "info",
           kind: "step",
           summary: "working",
           payload: {},
-          turnId: TurnId.make("turn-1"),
+          turnId: TurnId.makeUnsafe("turn-1"),
           createdAt: "2026-02-13T00:01:30.000Z",
         },
       ],
@@ -284,7 +284,7 @@ describe("thread selection memoization", () => {
       ],
       turnDiffSummaries: [
         {
-          turnId: TurnId.make("turn-1"),
+          turnId: TurnId.makeUnsafe("turn-1"),
           completedAt: "2026-02-13T00:03:00.000Z",
           files: [],
         },
@@ -308,7 +308,7 @@ describe("thread selection memoization", () => {
     const thread = makeThread({
       messages: [
         {
-          id: MessageId.make("message-1"),
+          id: MessageId.makeUnsafe("message-1"),
           role: "assistant",
           text: "done",
           createdAt: "2026-02-13T00:01:00.000Z",
@@ -337,7 +337,7 @@ describe("thread selection memoization", () => {
       ...thread,
       messages: [
         {
-          id: MessageId.make("message-2"),
+          id: MessageId.makeUnsafe("message-2"),
           role: "user",
           text: "new",
           createdAt: "2026-02-13T00:04:00.000Z",
@@ -363,7 +363,7 @@ describe("thread selection memoization", () => {
     expect(
       selectThreadExistsByRef(
         state,
-        scopeThreadRef(thread.environmentId, ThreadId.make("missing")),
+        scopeThreadRef(thread.environmentId, ThreadId.makeUnsafe("missing")),
       ),
     ).toBe(false);
     expect(selectThreadExistsByRef(state, null)).toBe(false);

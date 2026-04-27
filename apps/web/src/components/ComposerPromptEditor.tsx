@@ -68,6 +68,7 @@ import {
   type TerminalContextDraft,
 } from "~/modules/terminal";
 import { cn } from "~/lib/utils";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import {
   basenameOfPath,
   getVscodeIconUrlForEntry,

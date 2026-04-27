@@ -360,7 +360,7 @@ describe("deriveActivePlanState", () => {
     ];
 
     // Current turn is turn-2, which has no plan activity — should fall back to turn-1's plan
-    const result = deriveActivePlanState(activities, TurnId.make("turn-2"));
+    const result = deriveActivePlanState(activities, TurnId.makeUnsafe("turn-2"));
     expect(result).toEqual({
       createdAt: "2026-02-23T00:00:01.000Z",
       turnId: "turn-1",

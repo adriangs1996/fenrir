@@ -473,6 +473,7 @@ function areMarkdownFileLinkPropsEqual(
 function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
   const { syntaxTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(syntaxTheme);
+  const fileLinkTheme: "light" | "dark" = syntaxTheme === "light" ? "light" : "dark";
   const markdownFileLinkMetaByHref = useMemo(() => {
     const metaByHref = new Map<
       string,
@@ -522,7 +523,7 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
             displayPath={fileLinkMeta.displayPath}
             filePath={fileLinkMeta.filePath}
             label={labelParts.join(" · ")}
-            theme={resolvedTheme}
+            theme={fileLinkTheme}
             className={props.className}
           />
         );
@@ -552,9 +553,9 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
     [
       diffThemeName,
       fileLinkParentSuffixByPath,
+      fileLinkTheme,
       isStreaming,
       markdownFileLinkMetaByHref,
-      resolvedTheme,
     ],
   );
 

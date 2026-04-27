@@ -307,7 +307,7 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("setThreadChangedFilesExpanded stores collapsed turns per thread", () => {
-    const thread1 = ThreadId.make("thread-1");
+    const thread1 = ThreadId.makeUnsafe("thread-1");
     const initialState = makeUiState();
 
     const next = setThreadChangedFilesExpanded(initialState, thread1, "turn-1", false);
@@ -320,7 +320,7 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("setThreadChangedFilesExpanded removes thread overrides when expanded again", () => {
-    const thread1 = ThreadId.make("thread-1");
+    const thread1 = ThreadId.makeUnsafe("thread-1");
     const initialState = makeUiState({
       threadChangedFilesExpandedById: {
         [thread1]: {
