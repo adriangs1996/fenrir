@@ -272,6 +272,8 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
     PlanRunnerLive.pipe(
       Layer.provide(GitCoreLive),
       Layer.provide(OrchestrationLayerLive),
+      Layer.provide(ServerSettingsLive),
+      Layer.provide(RoutingTextGenerationLive),
     ),
   ),
   Layer.provideMerge(PersistenceLayerLive),

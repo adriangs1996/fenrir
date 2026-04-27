@@ -73,6 +73,20 @@ export interface ThreadTitleGenerationResult {
   title: string;
 }
 
+export interface DependencyExtractionInput {
+  /** Available plan IDs to resolve dependencies against. */
+  planIds: string[];
+  /** Plan contents keyed by plan ID (headers/first ~1500 chars). */
+  planContents: Array<{ planId: string; content: string }>;
+  /** What model and provider to use for generation. */
+  modelSelection: ModelSelection;
+}
+
+export interface DependencyExtractionResult {
+  /** Map of planId → array of dependency plan IDs. */
+  dependencies: Record<string, string[]>;
+}
+
 export interface TextGenerationService {
   generateCommitMessage(
     input: CommitMessageGenerationInput,
@@ -113,6 +127,13 @@ export interface TextGenerationShape {
   readonly generateThreadTitle: (
     input: ThreadTitleGenerationInput,
   ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
+
+  /**
+   * Extract inter-plan dependencies from plan file contents using AI.
+   */
+  readonly extractDependencies: (
+    input: DependencyExtractionInput,
+  ) => Effect.Effect<DependencyExtractionResult, TextGenerationError>;
 }
 
 /**

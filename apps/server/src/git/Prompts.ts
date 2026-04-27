@@ -173,6 +173,40 @@ export function buildBranchNamePrompt(input: BranchNamePromptInput) {
 }
 
 // ---------------------------------------------------------------------------
+// Dependency extraction
+// ---------------------------------------------------------------------------
+
+export interface DependencyExtractionPromptInput {
+  planIds: string[];
+  planContents: Array<{ planId: string; content: string }>;
+}
+
+export function buildDependencyExtractionPrompt(input: DependencyExtractionPromptInput) {
+  const planSections = input.planContents
+    .map((p) => `## Plan: ${p.planId}\n${limitSection(p.content, 1500)}`)
+    .join("\n\n---\n\n");
+
+  const prompt = [
+    "You are a dependency analyzer for plan files.",
+    "Return a JSON object with key: dependencies.",
+    "Rules:",
+    `- Only use plan IDs from this list: ${JSON.stringify(input.planIds)}`,
+    "- A plan CANNOT depend on itself",
+    "- If no dependencies found for a plan, use an empty array",
+    "- Return an entry for ALL plans",
+    "- Look for dependency declarations in any format: 'Depends on', 'requires', 'after X completes', 'blocked by', YAML frontmatter, etc.",
+    "",
+    planSections,
+  ].join("\n");
+
+  const outputSchema = Schema.Struct({
+    dependencies: Schema.Record(Schema.String, Schema.Array(Schema.String)),
+  });
+
+  return { prompt, outputSchema };
+}
+
+// ---------------------------------------------------------------------------
 // Thread title
 // ---------------------------------------------------------------------------
 

@@ -1,12 +1,4 @@
-import {
-  Effect,
-  FileSystem,
-  Layer,
-  Path,
-  PubSub,
-  Ref,
-  Stream,
-} from "effect";
+import { Effect, FileSystem, Layer, Path, PubSub, Ref, Stream } from "effect";
 import type {
   FeatureState,
   ModelSelection,
@@ -27,6 +19,8 @@ import {
 } from "@fenrir/contracts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine";
 import { GitCore } from "../../git/Services/GitCore";
+import { ServerSettingsService } from "../../serverSettings";
+import { TextGeneration } from "../../git/Services/TextGeneration";
 import {
   PlanRunnerService,
   type PlanRunnerServiceShape,
@@ -109,9 +103,7 @@ function parseFrontmatter(
   }
 
   // Handle multi-line depends_on (YAML list format)
-  const depsListMatch = yaml.match(
-    /depends_on:\s*\n((?:\s+-\s+.+\n?)*)/,
-  );
+  const depsListMatch = yaml.match(/depends_on:\s*\n((?:\s+-\s+.+\n?)*)/);
   if (depsListMatch?.[1] && depends_on.length === 0) {
     depends_on = depsListMatch[1]
       .split("\n")
@@ -172,11 +164,50 @@ export const PlanRunnerLive = Layer.effect(
     const gitCore = yield* GitCore;
     const fs = yield* FileSystem.FileSystem;
     const pathService = yield* Path.Path;
+    const textGeneration = yield* TextGeneration;
+    const serverSettingsService = yield* Effect.service(ServerSettingsService);
 
     const eventPubSub = yield* PubSub.unbounded<PlanRunnerEvent>();
-    const activeRuns = yield* Ref.make(
-      new Map<string, PlanRunState>(),
-    );
+    const activeRuns = yield* Ref.make(new Map<string, PlanRunState>());
+
+    // ── AI dependency extraction ─────────────────────────────────────
+
+    /**
+     * Use the configured text generation provider to extract dependencies
+     * from plan file contents. Provider-agnostic: works with Claude, Codex, etc.
+     * Gracefully degrades: returns empty deps on any failure.
+     */
+    const extractDependenciesWithAI = (
+      plans: Array<{ planId: string; content: string }>,
+      modelSelection: ModelSelection,
+    ): Effect.Effect<Map<string, string[]>, never, never> =>
+      Effect.gen(function* () {
+        if (plans.length <= 1) return new Map<string, string[]>();
+
+        const allPlanIds = plans.map((p) => p.planId);
+
+        const result = yield* textGeneration.extractDependencies({
+          planIds: allPlanIds,
+          planContents: plans,
+          modelSelection,
+        });
+
+        // Validate: only keep deps that reference existing plan IDs
+        const resolved = new Map<string, string[]>();
+        const planIdSet = new Set(allPlanIds);
+        for (const [planId, deps] of Object.entries(result.dependencies)) {
+          if (!planIdSet.has(planId)) continue;
+          resolved.set(
+            planId,
+            deps.filter((d) => planIdSet.has(d) && d !== planId),
+          );
+        }
+
+        return resolved;
+      }).pipe(
+        // Graceful degradation: any failure returns empty deps
+        Effect.catch(() => Effect.succeed(new Map<string, string[]>())),
+      );
 
     // ── Project CWD resolver ─────────────────────────────────────────
 
@@ -294,19 +325,14 @@ export const PlanRunnerLive = Layer.effect(
         never
       > = Effect.gen(function* () {
         const readModel = yield* orchestrationEngine.getReadModel();
-        const thread = readModel.threads.find(
-          (t) => t.id === targetThreadId,
-        );
+        const thread = readModel.threads.find((t) => t.id === targetThreadId);
         if (!thread?.session) {
           return { ok: true, error: null };
         }
 
         const session = thread.session;
         if (session.activeTurnId === null) {
-          if (
-            session.status === "error" ||
-            session.status === "stopped"
-          ) {
+          if (session.status === "error" || session.status === "stopped") {
             return {
               ok: false,
               error: session.lastError ?? "Thread session error",
@@ -400,18 +426,18 @@ export const PlanRunnerLive = Layer.effect(
 
 ${plan.content}`;
 
-        const { threadId: executorThreadId } =
-          yield* bootstrapThreadWithPrompt({
+        const { threadId: executorThreadId } = yield* bootstrapThreadWithPrompt(
+          {
             projectId: run.projectId,
             title: `[PlanRunner] Execute: ${plan.planId}`,
             prompt: executorPrompt,
             modelSelection: run.modelSelection,
-          });
+          },
+        );
         plan.executorThreadId = executorThreadId;
 
         // Wait for executor
-        const execResult =
-          yield* waitForThreadTurnComplete(executorThreadId);
+        const execResult = yield* waitForThreadTurnComplete(executorThreadId);
         if (!execResult.ok) {
           plan.state = "failed";
           plan.error = execResult.error ?? "Executor thread failed";
@@ -449,13 +475,14 @@ Plan that was supposed to be implemented:
 # Plan: ${plan.planId}
 ${plan.content}`;
 
-        const { threadId: reviewerThreadId } =
-          yield* bootstrapThreadWithPrompt({
+        const { threadId: reviewerThreadId } = yield* bootstrapThreadWithPrompt(
+          {
             projectId: run.projectId,
             title: `[PlanRunner] Review: ${plan.planId}`,
             prompt: reviewerPrompt,
             modelSelection: run.modelSelection,
-          });
+          },
+        );
         plan.reviewerThreadId = reviewerThreadId;
 
         // Wait for reviewer
@@ -527,9 +554,7 @@ ${plan.content}`;
 
         // Phase 1: Read plan files
         const entries = yield* fs.readDirectory(plansDir);
-        const mdFiles = entries
-          .filter((f) => f.endsWith(".md"))
-          .sort();
+        const mdFiles = entries.filter((f) => f.endsWith(".md")).sort();
 
         if (mdFiles.length === 0) {
           run.state = "failed";
@@ -586,6 +611,28 @@ ${plan.content}`;
           run.plans.set(node.planId, node);
         }
 
+        // AI-based dependency extraction for plans without YAML frontmatter deps
+        const plansNeedingDeps = [...run.plans.values()].filter(
+          (p) => p.dependsOn.length === 0,
+        );
+        if (plansNeedingDeps.length > 0 && run.plans.size > 1) {
+          const aiDeps = yield* extractDependenciesWithAI(
+            [...run.plans.values()].map((p) => ({
+              planId: p.planId,
+              content: p.content,
+            })),
+            run.modelSelection,
+          );
+          for (const [planId, deps] of aiDeps) {
+            const node = run.plans.get(planId);
+            if (node) {
+              // Merge: keep any existing YAML-parsed deps, add AI-discovered
+              const merged = new Set([...node.dependsOn, ...deps]);
+              node.dependsOn = [...merged];
+            }
+          }
+        }
+
         if (run.plans.size === 0) {
           run.state = "failed";
           run.summary = "All plan files have empty content";
@@ -622,19 +669,17 @@ Here are the plans:
 ${planSummaries}`;
 
         // Run analyzer — graceful degradation on failure
-        const analyzerResponse: string | null = yield* Effect.gen(
-          function* () {
-            const { threadId } = yield* bootstrapThreadWithPrompt({
-              projectId: run.projectId,
-              title: `[PlanRunner] Analyze: ${run.featureName}`,
-              prompt: analyzerPrompt,
-              modelSelection: run.modelSelection,
-            });
-            run.analyzerThreadId = threadId;
-            yield* waitForThreadTurnComplete(threadId);
-            return yield* readLastAssistantMessage(threadId);
-          },
-        ).pipe(Effect.catch(() => Effect.succeed(null)));
+        const analyzerResponse: string | null = yield* Effect.gen(function* () {
+          const { threadId } = yield* bootstrapThreadWithPrompt({
+            projectId: run.projectId,
+            title: `[PlanRunner] Analyze: ${run.featureName}`,
+            prompt: analyzerPrompt,
+            modelSelection: run.modelSelection,
+          });
+          run.analyzerThreadId = threadId;
+          yield* waitForThreadTurnComplete(threadId);
+          return yield* readLastAssistantMessage(threadId);
+        }).pipe(Effect.catch(() => Effect.succeed(null)));
 
         // Try to parse analyzer output and merge deps (graceful degradation)
         if (analyzerResponse) {
@@ -729,11 +774,9 @@ ${planSummaries}`;
           }
 
           // Execute all ready plans in parallel
-          yield* Effect.forEach(
-            readyPlans,
-            (plan) => executePlan(run, plan),
-            { concurrency: "unbounded" },
-          );
+          yield* Effect.forEach(readyPlans, (plan) => executePlan(run, plan), {
+            concurrency: "unbounded",
+          });
         }
 
         // Phase 4: Integration — state = "integrating"
@@ -764,9 +807,7 @@ ${planSummaries}`;
           snapshot: toSnapshot(run),
         });
 
-        const doneList = donePlans
-          .map((p) => `- ${p.planId}`)
-          .join("\n");
+        const doneList = donePlans.map((p) => `- ${p.planId}`).join("\n");
         const failedList =
           failedPlans.length > 0
             ? failedPlans
@@ -883,11 +924,9 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           }
 
           // Get model selection — use provided or get from project default
-          let modelSelection: ModelSelection | undefined =
-            input.modelSelection;
+          let modelSelection: ModelSelection | undefined = input.modelSelection;
           if (!modelSelection) {
-            const readModel =
-              yield* orchestrationEngine.getReadModel();
+            const readModel = yield* orchestrationEngine.getReadModel();
             const project = readModel.projects.find(
               (p) => p.id === input.projectId,
             );
@@ -1016,20 +1055,22 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
         Effect.gen(function* () {
           const projectCwd = yield* resolveProjectCwd(input.projectId);
           const plansDir = pathService.join(projectCwd, ".plans");
-          let entries: string[] = [];
-          try {
-            const dirEntries = yield* fs.readDirectory(plansDir);
-            // Filter for directories only
-            for (const entry of dirEntries) {
-              const entryPath = pathService.join(plansDir, entry);
-              const stat = yield* fs.stat(entryPath);
-              if (stat.type === "Directory") {
-                entries.push(entry);
-              }
-            }
-          } catch {
+          const entries: string[] = [];
+
+          const dirEntries = yield* fs.readDirectory(plansDir).pipe(
             // .plans/ doesn't exist → empty list
-            return { features: [] };
+            Effect.catch(() => Effect.succeed([] as string[])),
+          );
+          if (dirEntries.length === 0) return { features: [] };
+
+          for (const entry of dirEntries) {
+            const entryPath = pathService.join(plansDir, entry);
+            const stat = yield* fs.stat(entryPath).pipe(
+              Effect.catch(() => Effect.succeed(null)),
+            );
+            if (stat?.type === "Directory") {
+              entries.push(entry);
+            }
           }
 
           const runs = yield* Ref.get(activeRuns);
@@ -1037,13 +1078,11 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
           for (const featureName of entries) {
             const featureDir = pathService.join(plansDir, featureName);
-            let planCount = 0;
-            try {
-              const files = yield* fs.readDirectory(featureDir);
-              planCount = files.filter((f) => f.endsWith(".md")).length;
-            } catch {
+            const planCount = yield* fs.readDirectory(featureDir).pipe(
+              Effect.map((files) => files.filter((f) => f.endsWith(".md")).length),
               // skip unreadable dirs
-            }
+              Effect.catch(() => Effect.succeed(0)),
+            );
 
             // Check for active run
             let hasActiveRun = false;
@@ -1071,13 +1110,15 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
           return { features };
         }).pipe(
-          Effect.catch(() =>
-            Effect.fail(
+          Effect.catch((err) => {
+            if (err instanceof PlanRunnerError) return Effect.fail(err);
+            return Effect.fail(
               new PlanRunnerError({
                 message: "Failed to list features" as any,
+                cause: err,
               }),
-            ),
-          ),
+            );
+          }),
         ),
 
       getFeaturePlans: (input) =>
@@ -1089,23 +1130,31 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             input.featureName,
           );
 
-          let files: string[];
-          try {
-            const dirEntries = yield* fs.readDirectory(featureDir);
-            files = dirEntries.filter((f) => f.endsWith(".md"));
-          } catch {
-            return yield* Effect.fail(
-              new PlanRunnerError({
-                message:
-                  `Feature directory not found: .plans/${input.featureName}` as any,
-              }),
-            );
-          }
+          const dirEntries = yield* fs.readDirectory(featureDir).pipe(
+            Effect.catch(() =>
+              Effect.fail(
+                new PlanRunnerError({
+                  message:
+                    `Feature directory not found: .plans/${input.featureName}` as any,
+                }),
+              ),
+            ),
+          );
+          const files = dirEntries.filter((f: string) => f.endsWith(".md"));
 
-          const plans = [];
+          const plans: Array<{ planId: string; filename: string; dependsOn: string[]; maxRetries: number; content: string }> = [];
           for (const filename of files) {
             const filePath = pathService.join(featureDir, filename);
-            const rawContent = yield* fs.readFileString(filePath);
+            const rawContent = yield* fs.readFileString(filePath).pipe(
+              Effect.catch(() =>
+                Effect.fail(
+                  new PlanRunnerError({
+                    message:
+                      `Failed to read plan file: ${filename}` as any,
+                  }),
+                ),
+              ),
+            );
             const parsed = parseFrontmatter(
               rawContent,
               filename.replace(/\.md$/, ""),
@@ -1119,12 +1168,46 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             });
           }
 
+          // AI-based dependency extraction for plans without YAML frontmatter deps
+          // Graceful degradation: skip if settings unavailable or AI extraction fails
+          const plansNeedingDeps = plans.filter(
+            (p) => p.dependsOn.length === 0,
+          );
+          if (plansNeedingDeps.length > 0 && plans.length > 1) {
+            yield* Effect.gen(function* () {
+              const settings = yield* serverSettingsService.getSettings;
+              const aiDeps = yield* extractDependenciesWithAI(
+                plans.map((p) => ({
+                  planId: p.planId,
+                  content: p.content,
+                })),
+                settings.textGenerationModelSelection,
+              );
+              for (const plan of plans) {
+                const discovered = aiDeps.get(plan.planId);
+                if (discovered) {
+                  const merged = new Set([...plan.dependsOn, ...discovered]);
+                  plan.dependsOn = [...merged];
+                }
+              }
+            }).pipe(Effect.ignore);
+          }
+
           return { featureName: input.featureName, plans };
         }).pipe(
-          Effect.catch(() =>
-            Effect.fail(
+          Effect.catch((err) => {
+            if (err instanceof PlanRunnerError) return Effect.fail(err);
+            return Effect.fail(
               new PlanRunnerError({
                 message: "Failed to read feature plans" as any,
+                cause: err,
+              }),
+            );
+          }),
+          Effect.catchDefect((defect) =>
+            Effect.fail(
+              new PlanRunnerError({
+                message: `Failed to read feature plans: ${defect instanceof Error ? defect.message : String(defect)}` as any,
               }),
             ),
           ),

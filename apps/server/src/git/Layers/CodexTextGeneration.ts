@@ -18,6 +18,7 @@ import {
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
+  buildDependencyExtractionPrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
 } from "../Prompts.ts";
@@ -134,8 +135,9 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       | "generateCommitMessage"
       | "generatePrContent"
       | "generateBranchName"
-      | "generateThreadTitle";
-    cwd: string;
+      | "generateThreadTitle"
+      | "extractDependencies";
+    cwd?: string;
     prompt: string;
     outputSchemaJson: S;
     imagePaths?: ReadonlyArray<string>;
@@ -405,11 +407,37 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     } satisfies ThreadTitleGenerationResult;
   });
 
+  const extractDependencies: TextGenerationShape["extractDependencies"] = Effect.fn(
+    "CodexTextGeneration.extractDependencies",
+  )(function* (input) {
+    const { prompt, outputSchema } = buildDependencyExtractionPrompt({
+      planIds: input.planIds,
+      planContents: input.planContents,
+    });
+
+    if (input.modelSelection.provider !== "codex") {
+      return yield* new TextGenerationError({
+        operation: "extractDependencies",
+        detail: "Invalid model selection.",
+      });
+    }
+
+    const generated = yield* runCodexJson({
+      operation: "extractDependencies",
+      prompt,
+      outputSchemaJson: outputSchema,
+      modelSelection: input.modelSelection,
+    });
+
+    return { dependencies: generated.dependencies as Record<string, string[]> };
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    extractDependencies,
   } satisfies TextGenerationShape;
 });
 

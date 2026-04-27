@@ -66,7 +66,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   }, [navigate]);
 
   return (
-    <SidebarProvider defaultOpen={threadSidebarOpen} open={threadSidebarOpen} onOpenChange={setThreadSidebarOpen}>
+    <SidebarProvider className="!h-svh" defaultOpen={threadSidebarOpen} open={threadSidebarOpen} onOpenChange={setThreadSidebarOpen}>
       <Sidebar
         side="left"
         collapsible="icon"
@@ -91,7 +91,9 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         </div>
         <SidebarRail />
       </Sidebar>
-      {children}
+      <main className="flex-1 overflow-hidden min-h-0 min-w-0">
+        {children}
+      </main>
     </SidebarProvider>
   );
 }

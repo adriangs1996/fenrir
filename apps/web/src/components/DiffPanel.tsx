@@ -9,6 +9,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   Columns2Icon,
+  PanelRightCloseIcon,
   Rows3Icon,
   TextWrapIcon,
 } from "lucide-react";
@@ -37,10 +38,28 @@ import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { useSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
+import { Button } from "./ui/button";
+import { useSidebar } from "./ui/sidebar";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
 
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
+
+/** Close button rendered only in sidebar mode (inside SidebarProvider context). */
+function DiffPanelSidebarCloseButton() {
+  const { setOpen } = useSidebar();
+  return (
+    <Button
+      size="icon-xs"
+      variant="ghost"
+      onClick={() => setOpen(false)}
+      aria-label="Close diff panel"
+      className="text-muted-foreground/50 hover:text-foreground/70"
+    >
+      <PanelRightCloseIcon className="size-3.5" />
+    </Button>
+  );
+}
 
 function buildDiffPanelUnsafeCSS(fontFamily: string, fontSize: number): string {
   return `
@@ -563,6 +582,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         >
           <TextWrapIcon className="size-3" />
         </Toggle>
+        {mode === "sidebar" && <DiffPanelSidebarCloseButton />}
       </div>
     </>
   );
