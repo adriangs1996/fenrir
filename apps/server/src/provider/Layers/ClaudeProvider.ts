@@ -603,7 +603,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       provider: PROVIDER,
       enabled: claudeSettings.enabled,
       checkedAt,
-      models,
+      models: allModels,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -622,7 +622,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       provider: PROVIDER,
       enabled: claudeSettings.enabled,
       checkedAt,
-      models,
+      models: allModels,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -639,7 +639,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     provider: PROVIDER,
     enabled: claudeSettings.enabled,
     checkedAt,
-    models,
+    models: allModels,
     probe: {
       installed: true,
       version: parsedVersion,
