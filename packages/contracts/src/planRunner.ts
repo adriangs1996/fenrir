@@ -59,6 +59,7 @@ export const PlanRunSnapshot = Schema.Struct({
   featureName: TrimmedNonEmptyString,
   projectId: ProjectId,
   branch: TrimmedNonEmptyString,
+  worktreePath: Schema.NullOr(Schema.String),
   state: FeatureState,
   plans: Schema.Array(PlanNode),
   analyzerThreadId: Schema.NullOr(ThreadId),

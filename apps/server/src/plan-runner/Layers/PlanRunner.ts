@@ -33,6 +33,9 @@ interface PlanRunState {
   featureName: string;
   projectId: ProjectId;
   branch: string;
+  worktreePath: string | null;
+  /** True if we created the worktree (vs reusing existing). Only cleanup what we created. */
+  ownsWorktree: boolean;
   state: FeatureState;
   plans: Map<string, MutablePlanNode>;
   analyzerThreadId: string | null;
@@ -237,6 +240,7 @@ export const PlanRunnerLive = Layer.effect(
       featureName: run.featureName as any,
       projectId: run.projectId,
       branch: run.branch as any,
+      worktreePath: run.worktreePath,
       state: run.state,
       plans: [...run.plans.values()].map(
         (p): PlanNode => ({
@@ -273,6 +277,26 @@ export const PlanRunnerLive = Layer.effect(
         })
         .pipe(Effect.ignore);
 
+    /** Remove a worktree we created. Skip if we reused an existing one. */
+    const cleanupWorktree = (run: PlanRunState) =>
+      Effect.gen(function* () {
+        if (!run.worktreePath || !run.ownsWorktree) return;
+        const projectCwd = yield* resolveProjectCwd(run.projectId);
+        yield* gitCore.removeWorktree({
+          cwd: projectCwd,
+          path: run.worktreePath,
+          force: true,
+        });
+      }).pipe(
+        Effect.catch(() =>
+          Effect.logWarning("Failed to cleanup worktree", {
+            runId: run.runId,
+            worktreePath: run.worktreePath,
+          }),
+        ),
+        Effect.asVoid,
+      );
+
     // ── Thread bootstrapping ──────────────────────────────────────────
 
     const bootstrapThreadWithPrompt = (input: {
@@ -280,6 +304,8 @@ export const PlanRunnerLive = Layer.effect(
       title: string;
       prompt: string;
       modelSelection: ModelSelection;
+      branch?: string | null;
+      worktreePath?: string | null;
     }) =>
       Effect.gen(function* () {
         const threadId = ThreadId.makeUnsafe(makeId());
@@ -288,7 +314,8 @@ export const PlanRunnerLive = Layer.effect(
         );
         const createdAt = now();
 
-        // Create thread
+        // Create thread — if worktreePath is set, the thread's provider
+        // session will use it as CWD via resolveThreadWorkspaceCwd.
         yield* orchestrationEngine.dispatch({
           type: "thread.create",
           commandId,
@@ -298,8 +325,8 @@ export const PlanRunnerLive = Layer.effect(
           modelSelection: input.modelSelection,
           runtimeMode: "full-access",
           interactionMode: "default",
-          branch: null,
-          worktreePath: null,
+          branch: (input.branch as any) ?? null,
+          worktreePath: (input.worktreePath as any) ?? null,
           createdAt,
         });
 
@@ -519,6 +546,8 @@ ${plan.content}`;
             title: `[PlanRunner] Execute: ${plan.planId}`,
             prompt: executorPrompt,
             modelSelection: run.modelSelection,
+            branch: run.branch,
+            worktreePath: run.worktreePath,
           },
         );
         plan.executorThreadId = executorThreadId;
@@ -569,6 +598,8 @@ ${plan.content}`;
             title: `[PlanRunner] Review: ${plan.planId}`,
             prompt: reviewerPrompt,
             modelSelection: run.modelSelection,
+            branch: run.branch,
+            worktreePath: run.worktreePath,
           },
         );
         plan.reviewerThreadId = reviewerThreadId;
@@ -791,6 +822,8 @@ ${planSummaries}`;
             title: `[PlanRunner] Analyze: ${run.featureName}`,
             prompt: analyzerPrompt,
             modelSelection: run.modelSelection,
+            branch: run.branch,
+            worktreePath: run.worktreePath,
           });
           run.analyzerThreadId = threadId;
           yield* waitForThreadTurnComplete(threadId, run);
@@ -958,6 +991,8 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               title: `[PlanRunner] Integration: ${run.featureName}`,
               prompt: integrationPrompt,
               modelSelection: run.modelSelection,
+              branch: run.branch,
+              worktreePath: run.worktreePath,
             });
             run.integrationThreadId = threadId;
             yield* waitForThreadTurnComplete(threadId, run);
@@ -1000,6 +1035,10 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               completedAt: run.completedAt!,
             });
           }),
+        ),
+        // Cleanup worktree on failure. On success, keep it for user inspection.
+        Effect.tap(() =>
+          run.state === "failed" ? cleanupWorktree(run) : Effect.void,
         ),
       );
 
@@ -1065,24 +1104,72 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             }
           }
 
-          // Create branch
-          yield* gitCore
-            .createBranch({
-              cwd: projectCwd,
-              branch: branchName as any,
-              checkout: true,
-            })
-            .pipe(
-              Effect.catch((err: any) =>
-                Effect.fail(
-                  new PlanRunnerError({
-                    message:
-                      `Failed to create branch "${branchName}": ${err.message ?? err}` as any,
-                    cause: err,
-                  }),
-                ),
-              ),
+          // Resolve or create worktree — isolated filesystem for this plan run.
+          // The branch may already exist if the user did manual setup first.
+          const existingBranches = yield* gitCore
+            .listLocalBranchNames(projectCwd)
+            .pipe(Effect.catch(() => Effect.succeed([] as string[])));
+          const branchExists = existingBranches.includes(branchName);
+
+          let worktreePath: string;
+          let ownsWorktree = true;
+
+          if (branchExists) {
+            // Branch already exists — check if it already has a worktree
+            const branchInfo = yield* gitCore
+              .listBranches({ cwd: projectCwd as any, query: branchName as any })
+              .pipe(Effect.catch(() => Effect.succeed(null)));
+            const existingWorktree = branchInfo?.branches.find(
+              (b) => b.name === branchName && b.worktreePath,
             );
+
+            if (existingWorktree?.worktreePath) {
+              // Reuse existing worktree — don't remove on cleanup
+              worktreePath = existingWorktree.worktreePath;
+              ownsWorktree = false;
+            } else {
+              // Branch exists but no worktree — create worktree from it
+              const worktreeResult = yield* gitCore
+                .createWorktree({
+                  cwd: projectCwd,
+                  branch: branchName as any,
+                  path: null,
+                })
+                .pipe(
+                  Effect.catch((err: any) =>
+                    Effect.fail(
+                      new PlanRunnerError({
+                        message:
+                          `Failed to create worktree for existing branch "${branchName}": ${err.message ?? err}` as any,
+                        cause: err,
+                      }),
+                    ),
+                  ),
+                );
+              worktreePath = worktreeResult.worktree.path;
+            }
+          } else {
+            // Branch doesn't exist — create worktree with new branch from HEAD
+            const worktreeResult = yield* gitCore
+              .createWorktree({
+                cwd: projectCwd,
+                branch: "HEAD",
+                newBranch: branchName,
+                path: null,
+              })
+              .pipe(
+                Effect.catch((err: any) =>
+                  Effect.fail(
+                    new PlanRunnerError({
+                      message:
+                        `Failed to create worktree for "${branchName}": ${err.message ?? err}` as any,
+                      cause: err,
+                    }),
+                  ),
+                ),
+              );
+            worktreePath = worktreeResult.worktree.path;
+          }
 
           // Construct run state
           const run: PlanRunState = {
@@ -1090,6 +1177,8 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             featureName: input.featureName,
             projectId: input.projectId,
             branch: branchName,
+            worktreePath,
+            ownsWorktree,
             state: "analyzing",
             plans: new Map(),
             analyzerThreadId: null,
@@ -1187,6 +1276,9 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             summary: run.summary,
             completedAt: run.completedAt!,
           });
+
+          // Cleanup worktree on cancel
+          yield* cleanupWorktree(run);
         }),
 
       listFeatures: (input) =>
