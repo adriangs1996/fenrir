@@ -47,6 +47,24 @@ interface PlanRunState {
   modelSelection: ModelSelection;
 }
 
+/**
+ * Structured reviewer feedback from a failed REVIEW_FAIL pass.
+ * Carried into the next executor attempt so the model knows exactly
+ * what to fix instead of re-running blind on a dirty worktree.
+ */
+interface ReviewFeedback {
+  /** 1-indexed attempt number this feedback corresponds to. */
+  attempt: number;
+  /** Short root-cause summary parsed from reviewer output. */
+  rootCause: string;
+  /** Verifier checks that failed (e.g. "bun typecheck", "bun test src/foo"). */
+  failedChecks: string[];
+  /** Concrete fixes the reviewer said are required. */
+  requiredFixes: string[];
+  /** Full raw reviewer message (sentinel stripped). Fallback if parsing is partial. */
+  raw: string;
+}
+
 interface MutablePlanNode {
   planId: string;
   filename: string;
@@ -60,6 +78,8 @@ interface MutablePlanNode {
   startedAt: string | null;
   completedAt: string | null;
   content: string;
+  /** Feedback from prior failed review passes, oldest → newest. */
+  reviewFeedback: ReviewFeedback[];
 }
 
 interface ParsedFrontmatter {
@@ -116,6 +136,90 @@ function parseFrontmatter(
   }
 
   return { id: id ?? fallbackId, depends_on, max_retries, body };
+}
+
+function parseMarkdownList(s: string | undefined): string[] {
+  if (!s) return [];
+  return s
+    .split("\n")
+    .map((l) => l.replace(/^\s*[-*]\s+/, "").trim())
+    .filter(Boolean);
+}
+
+/**
+ * Extract the inner text of an XML-style `<tag>...</tag>` block.
+ * Returns `undefined` if the tag is absent. Case-insensitive on the tag name,
+ * tolerant of attributes and surrounding whitespace. First match wins.
+ */
+function extractTag(source: string, tag: string): string | undefined {
+  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
+  const m = source.match(re);
+  return m?.[1]?.trim();
+}
+
+/**
+ * Parse a REVIEW_FAIL reviewer message into structured feedback.
+ *
+ * Reviewer is prompted to wrap each section in XML tags (`<root_cause>`,
+ * `<failed_checks>`, `<required_fixes>`, `<raw_verifier_output>`). Parse is
+ * best-effort — missing tags fall back to "" / [] and the full raw text is
+ * preserved so the next executor still has signal even on malformed output.
+ */
+function parseReviewFeedback(raw: string, attempt: number): ReviewFeedback {
+  // Strip sentinels so they don't bleed into the next prompt.
+  const cleaned = raw.replace(/REVIEW_(PASS|FAIL)/g, "").trim();
+
+  return {
+    attempt,
+    rootCause: extractTag(cleaned, "root_cause") ?? "",
+    failedChecks: parseMarkdownList(extractTag(cleaned, "failed_checks")),
+    requiredFixes: parseMarkdownList(extractTag(cleaned, "required_fixes")),
+    raw: cleaned,
+  };
+}
+
+/**
+ * Render accumulated review feedback as a prompt block for the next executor /
+ * reviewer attempt. Caller should inject `""` when feedback is empty so the
+ * base prompt stays clean.
+ *
+ * Output uses XML tags to match the reviewer's own emit format and to make
+ * structure unambiguous to the model.
+ */
+function renderBulletList(items: string[], fallback: string): string {
+  return items.length > 0
+    ? items.map((c) => `  - ${c}`).join("\n")
+    : `  - ${fallback}`;
+}
+
+function renderFeedbackBlock(feedback: ReviewFeedback[]): string {
+  if (feedback.length === 0) return "";
+  const blocks = feedback.map((f) => {
+    const rootCause =
+      f.rootCause || "(not parsed — see <raw_reviewer_output> below)";
+    return `
+<failed_attempt number="${f.attempt}">
+  <root_cause>${rootCause}</root_cause>
+  <failed_checks>
+${renderBulletList(f.failedChecks, "(not parsed — see <raw_reviewer_output> below)")}
+  </failed_checks>
+  <required_fixes>
+${renderBulletList(f.requiredFixes, "(not parsed — see <raw_reviewer_output> below)")}
+  </required_fixes>
+  <raw_reviewer_output>
+${f.raw}
+  </raw_reviewer_output>
+</failed_attempt>`;
+  });
+  return `
+
+# Prior failed attempts — DO NOT repeat these mistakes
+
+Your previous changes are still on disk in the worktree. Amend them; do not
+restart from scratch unless the reviewer explicitly says so. Address every
+item inside <required_fixes> below before finishing.
+
+${blocks.join("\n\n")}`;
 }
 
 function detectCycles(nodes: Map<string, string[]>): string[] | null {
@@ -532,13 +636,17 @@ export const PlanRunnerLive = Layer.effect(
         plan.startedAt = now();
         yield* publishPlanStateChanged(run, plan.planId);
 
-        // Bootstrap executor thread
-        const executorPrompt = `You are implementing a plan as part of a larger feature. Implement completely. No TODOs. No placeholders.
+        // Bootstrap executor thread.
+        // On retry, prior reviewer feedback is appended so the model knows
+        // exactly what to fix on the (still-dirty) worktree.
+        const feedbackBlock = renderFeedbackBlock(plan.reviewFeedback);
+        const executorPrompt = `
+You are implementing a plan as part of a larger feature. Implement completely. No TODOs. No placeholders.
 
 # Plan: ${plan.planId}
 # Feature: ${run.featureName}
 
-${plan.content}`;
+${plan.content}${feedbackBlock}`;
 
         const { threadId: executorThreadId } = yield* bootstrapThreadWithPrompt(
           {
@@ -571,29 +679,55 @@ ${plan.content}`;
         plan.state = "reviewing";
         yield* publishPlanStateChanged(run, plan.planId);
 
-        // Bootstrap reviewer thread
-        const reviewerPrompt = `You are a code reviewer for plan "${plan.planId}" in feature "${run.featureName}".
+        // Bootstrap reviewer thread.
+        // Reviewer also sees prior feedback so it can verify the executor
+        // actually addressed each previously-required fix (catches the
+        // "claimed fixed, didn't" failure mode).
+        const reviewerFeedbackBlock = renderFeedbackBlock(plan.reviewFeedback);
+        const reviewerPrompt = `
+You are a code reviewer for plan "${plan.planId}" in feature "${run.featureName}".
 The executor has just implemented this plan. Your job:
 
 1. Run verification:
-   - bun typecheck
-   - bun lint
-   - bun test
+   - Typechecks if the project allows it
+   - Linters
+   - Tests
 
 2. Verify implementation correctness:
    - All tasks in plan completed
    - No placeholder/TODO code left
    - No dead code, unused imports, half-baked implementations
    - Code follows existing codebase patterns
+   - Every "Required fix" from prior attempts (if any, see below) is resolved
 
 3. Report findings.
 
-If ALL checks pass and implementation is correct: end with REVIEW_PASS
-If ANY check fails or implementation incomplete: end with REVIEW_FAIL and explain fixes needed.
+If ALL checks pass and implementation is correct: end your message with the literal token REVIEW_PASS on its own line.
+
+If ANY check fails or implementation is incomplete, end your message with REVIEW_FAIL and the following XML-tagged sections (use these exact tag names — they are parsed and fed back to the next executor attempt):
+
+<root_cause>
+1-2 sentences explaining why the implementation failed.
+</root_cause>
+
+<failed_checks>
+- <command or check> → <quote the exact failing output, do not paraphrase>
+- ...
+</failed_checks>
+
+<required_fixes>
+- <file:line or area> <concrete action the next executor must take>
+- ...
+</required_fixes>
+
+<raw_verifier_output>
+Paste full stderr/stdout from any failing command, verbatim. No fences needed.
+</raw_verifier_output>
 
 Plan that was supposed to be implemented:
 # Plan: ${plan.planId}
-${plan.content}`;
+${plan.content}${reviewerFeedbackBlock}
+`;
 
         const { threadId: reviewerThreadId } = yield* bootstrapThreadWithPrompt(
           {
@@ -637,13 +771,27 @@ ${plan.content}`;
             }
           }
         } else if (plan.retriesUsed < plan.maxRetries) {
-          // Fail but retries left — stop old threads, then re-queue
+          // Fail but retries left — stop old threads, then re-queue.
+          // Worktree is intentionally NOT reset: parallel sibling plans may
+          // share it, and the executor benefits from amending its prior
+          // changes rather than starting from scratch.
           if (plan.executorThreadId) {
             yield* stopThreadSession(plan.executorThreadId);
           }
           if (plan.reviewerThreadId) {
             yield* stopThreadSession(plan.reviewerThreadId);
           }
+
+          // Capture structured reviewer feedback for the next executor
+          // attempt. This is the core of the feedback loop — without it the
+          // next attempt runs blind on a dirty worktree and tends to repeat
+          // the same mistake.
+          if (reviewResponse) {
+            plan.reviewFeedback.push(
+              parseReviewFeedback(reviewResponse, plan.retriesUsed + 1),
+            );
+          }
+
           plan.executorThreadId = null;
           plan.reviewerThreadId = null;
           plan.retriesUsed++;
@@ -756,6 +904,7 @@ ${plan.content}`;
             startedAt: null,
             completedAt: null,
             content: parsed.body,
+            reviewFeedback: [],
           };
           run.plans.set(node.planId, node);
         }
