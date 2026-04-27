@@ -6,47 +6,48 @@
 
 :root {
   /* === Surface Hierarchy === */
-  --fenrir-deep:      #03030d;  /* Window frame, outermost shell */
-  --fenrir-crust:     #0a0a14;  /* Sidebars, secondary panels */
-  --fenrir-base:      #11111b;  /* Main content area (Mocha Crust) */
-  --fenrir-surface:   #181825;  /* Cards, inputs, elevated surfaces */
-  --fenrir-surface0:  #1e1e2e;  /* Borders, dividers, subtle outlines */
-  --fenrir-surface1:  #313244;  /* Hover states, active borders */
-  --fenrir-surface2:  #45475a;  /* Active states, pressed */
+  --fenrir-deep: #03030d; /* Window frame, outermost shell */
+  --fenrir-crust: #0a0a14; /* Sidebars, secondary panels */
+  --fenrir-base: #11111b; /* Main content area (Mocha Crust) */
+  --fenrir-surface: #181825; /* Cards, inputs, elevated surfaces */
+  --fenrir-surface0: #1e1e2e; /* Borders, dividers, subtle outlines */
+  --fenrir-surface1: #313244; /* Hover states, active borders */
+  --fenrir-surface2: #45475a; /* Active states, pressed */
 
   /* === Text Hierarchy === */
-  --fenrir-text:      #cdd6f4;  /* Primary text */
-  --fenrir-subtext1:  #bac2de;  /* Secondary text */
-  --fenrir-subtext0:  #a6adc8;  /* Tertiary text */
-  --fenrir-overlay1:  #6c7086;  /* Muted, placeholder */
-  --fenrir-overlay0:  #585b70;  /* Disabled text */
+  --fenrir-text: #cdd6f4; /* Primary text */
+  --fenrir-subtext1: #bac2de; /* Secondary text */
+  --fenrir-subtext0: #a6adc8; /* Tertiary text */
+  --fenrir-overlay1: #6c7086; /* Muted, placeholder */
+  --fenrir-overlay0: #585b70; /* Disabled text */
 
   /* === Brand === */
-  --fenrir-green:     #a6e3a1;  /* Primary accent, success, CTF pwned, active agent */
+  /* --fenrir-green:     #a6e3a1; */
+  --fenrir-green: #58ffc7;
 
   /* === Semantic Colors === */
-  --fenrir-red:       #f38ba8;  /* Errors, destructive, agent failed, critical */
-  --fenrir-yellow:    #f9e2af;  /* Warnings, pending, agent thinking */
-  --fenrir-blue:      #89b4fa;  /* Info, links, agent running, secondary actions */
-  --fenrir-mauve:     #cba6f7;  /* AI reasoning, agent output highlights */
-  --fenrir-peach:     #fab387;  /* Tool calls, file ops, git actions */
-  --fenrir-teal:      #94e2d5;  /* Tertiary accent, alternative highlights */
-  --fenrir-pink:      #f5c2e7;  /* Decorative, notifications */
-  --fenrir-sky:       #89dcfe;  /* Links on hover, tertiary info */
+  --fenrir-red: #f38ba8; /* Errors, destructive, agent failed, critical */
+  --fenrir-yellow: #f9e2af; /* Warnings, pending, agent thinking */
+  --fenrir-blue: #89b4fa; /* Info, links, agent running, secondary actions */
+  --fenrir-mauve: #cba6f7; /* AI reasoning, agent output highlights */
+  --fenrir-peach: #fab387; /* Tool calls, file ops, git actions */
+  --fenrir-teal: #94e2d5; /* Tertiary accent, alternative highlights */
+  --fenrir-pink: #f5c2e7; /* Decorative, notifications */
+  --fenrir-sky: #89dcfe; /* Links on hover, tertiary info */
 
   /* === Badge Backgrounds (12% opacity fills) === */
-  --fenrir-badge-green:   rgba(166, 227, 161, 0.12);
-  --fenrir-badge-red:     rgba(243, 139, 168, 0.12);
-  --fenrir-badge-yellow:  rgba(249, 226, 175, 0.12);
-  --fenrir-badge-blue:    rgba(137, 180, 250, 0.12);
-  --fenrir-badge-mauve:   rgba(203, 166, 247, 0.12);
-  --fenrir-badge-peach:   rgba(250, 179, 135, 0.12);
+  --fenrir-badge-green: rgba(166, 227, 161, 0.12);
+  --fenrir-badge-red: rgba(243, 139, 168, 0.12);
+  --fenrir-badge-yellow: rgba(249, 226, 175, 0.12);
+  --fenrir-badge-blue: rgba(137, 180, 250, 0.12);
+  --fenrir-badge-mauve: rgba(203, 166, 247, 0.12);
+  --fenrir-badge-peach: rgba(250, 179, 135, 0.12);
 
   /* === Glow / Shadow === */
-  --fenrir-glow:          rgba(166, 227, 161, 0.2);
-  --fenrir-glow-strong:   rgba(166, 227, 161, 0.35);
+  --fenrir-glow: rgba(166, 227, 161, 0.2);
+  --fenrir-glow-strong: rgba(166, 227, 161, 0.35);
 
   /* === Icon Background === */
-  --fenrir-icon-bg:   #0a0a14;
+  --fenrir-icon-bg: #0a0a14;
   --fenrir-icon-radius: 22%;
 }
