@@ -1,3 +1,8 @@
+---
+depends_on:
+  - neovim-05-web-msgpack-bridge
+---
+
 # Plan: Web Input Handlers (Keyboard + Mouse)
 
 ## Summary
@@ -55,15 +60,29 @@ const SPECIAL_KEYS: Record<string, string> = {
   PageUp: "PageUp",
   PageDown: "PageDown",
   Insert: "Insert",
-  F1: "F1", F2: "F2", F3: "F3", F4: "F4",
-  F5: "F5", F6: "F6", F7: "F7", F8: "F8",
-  F9: "F9", F10: "F10", F11: "F11", F12: "F12",
+  F1: "F1",
+  F2: "F2",
+  F3: "F3",
+  F4: "F4",
+  F5: "F5",
+  F6: "F6",
+  F7: "F7",
+  F8: "F8",
+  F9: "F9",
+  F10: "F10",
+  F11: "F11",
+  F12: "F12",
 };
 
 // Keys that should only be sent when modified
 const MODIFIER_ONLY_KEYS = new Set([
-  "Shift", "Control", "Alt", "Meta",
-  "CapsLock", "NumLock", "ScrollLock",
+  "Shift",
+  "Control",
+  "Alt",
+  "Meta",
+  "CapsLock",
+  "NumLock",
+  "ScrollLock",
 ]);
 
 /**
@@ -168,8 +187,10 @@ export function compositionEndToNeovimInput(data: string): string {
  * - <D-x> = Cmd/Super+x (only meaningful on macOS GUI)
  */
 export function isMacPlatform(): boolean {
-  return navigator.platform?.startsWith("Mac") ||
-    navigator.userAgent?.includes("Mac");
+  return (
+    navigator.platform?.startsWith("Mac") ||
+    navigator.userAgent?.includes("Mac")
+  );
 }
 
 /**
@@ -197,12 +218,12 @@ import type { CellDimensions } from "../renderer/FontMetrics";
  * Parameters for nvim_input_mouse call.
  */
 export interface NeovimMouseParams {
-  button: string;    // "left" | "right" | "middle" | "wheel" | "move"
-  action: string;    // "press" | "drag" | "release" | "up" | "down" | "left" | "right"
-  modifier: string;  // "" or combo of "C-", "A-", "S-"
-  grid: number;      // Grid number (0 for default, or specific grid for multigrid)
-  row: number;       // Zero-based grid row
-  col: number;       // Zero-based grid col
+  button: string; // "left" | "right" | "middle" | "wheel" | "move"
+  action: string; // "press" | "drag" | "release" | "up" | "down" | "left" | "right"
+  modifier: string; // "" or combo of "C-", "A-", "S-"
+  grid: number; // Grid number (0 for default, or specific grid for multigrid)
+  row: number; // Zero-based grid row
+  col: number; // Zero-based grid col
 }
 
 /**
@@ -243,10 +264,14 @@ export function mouseDownToNeovim(
   const y = event.clientY - canvasRect.top;
   const { row, col } = pixelToCell(x, y, cellDimensions);
 
-  const button = event.button === 0 ? "left"
-    : event.button === 1 ? "middle"
-    : event.button === 2 ? "right"
-    : "left";
+  const button =
+    event.button === 0
+      ? "left"
+      : event.button === 1
+        ? "middle"
+        : event.button === 2
+          ? "right"
+          : "left";
 
   return {
     button,
@@ -295,10 +320,14 @@ export function mouseUpToNeovim(
   const y = event.clientY - canvasRect.top;
   const { row, col } = pixelToCell(x, y, cellDimensions);
 
-  const button = event.button === 0 ? "left"
-    : event.button === 1 ? "middle"
-    : event.button === 2 ? "right"
-    : "left";
+  const button =
+    event.button === 0
+      ? "left"
+      : event.button === 1
+        ? "middle"
+        : event.button === 2
+          ? "right"
+          : "left";
 
   return {
     button,
@@ -324,10 +353,14 @@ export function wheelToNeovim(
   const { row, col } = pixelToCell(x, y, cellDimensions);
 
   // Determine scroll direction
-  const action = event.deltaY < 0 ? "up"
-    : event.deltaY > 0 ? "down"
-    : event.deltaX < 0 ? "left"
-    : "right";
+  const action =
+    event.deltaY < 0
+      ? "up"
+      : event.deltaY > 0
+        ? "down"
+        : event.deltaX < 0
+          ? "left"
+          : "right";
 
   return {
     button: "wheel",
@@ -348,7 +381,18 @@ export function resolveGridAtPixel(
   pixelX: number,
   pixelY: number,
   cellDimensions: CellDimensions,
-  grids: Map<number, { startRow: number; startCol: number; width: number; height: number; isFloat: boolean; hidden: boolean; zindex: number }>,
+  grids: Map<
+    number,
+    {
+      startRow: number;
+      startCol: number;
+      width: number;
+      height: number;
+      isFloat: boolean;
+      hidden: boolean;
+      zindex: number;
+    }
+  >,
 ): { grid: number; row: number; col: number } {
   // Check floating windows first (highest zindex first)
   const floats = [...grids.entries()]
@@ -361,19 +405,30 @@ export function resolveGridAtPixel(
   for (const [gridId, g] of floats) {
     const localCol = globalCol - g.startCol;
     const localRow = globalRow - g.startRow;
-    if (localCol >= 0 && localCol < g.width && localRow >= 0 && localRow < g.height) {
+    if (
+      localCol >= 0 &&
+      localCol < g.width &&
+      localRow >= 0 &&
+      localRow < g.height
+    ) {
       return { grid: gridId, row: localRow, col: localCol };
     }
   }
 
   // Check regular windows
-  const windows = [...grids.entries()]
-    .filter(([id, g]) => !g.isFloat && !g.hidden && id !== 1);
+  const windows = [...grids.entries()].filter(
+    ([id, g]) => !g.isFloat && !g.hidden && id !== 1,
+  );
 
   for (const [gridId, g] of windows) {
     const localCol = globalCol - g.startCol;
     const localRow = globalRow - g.startRow;
-    if (localCol >= 0 && localCol < g.width && localRow >= 0 && localRow < g.height) {
+    if (
+      localCol >= 0 &&
+      localCol < g.width &&
+      localRow >= 0 &&
+      localRow < g.height
+    ) {
       return { grid: gridId, row: localRow, col: localCol };
     }
   }
@@ -386,6 +441,7 @@ export function resolveGridAtPixel(
 ### 4. Tests
 
 **KeyboardHandler.test.ts**:
+
 1. Regular letter "a" → "a"
 2. Capital "A" → "A" (no `<S-a>`)
 3. Enter → `<CR>`
@@ -406,6 +462,7 @@ export function resolveGridAtPixel(
 18. compositionEndToNeovimInput("你好") → "你好"
 
 **MouseHandler.test.ts**:
+
 1. Left click at (100, 50) with 10px cells → row=5, col=10, button="left", action="press"
 2. Right click → button="right"
 3. Middle click → button="middle"

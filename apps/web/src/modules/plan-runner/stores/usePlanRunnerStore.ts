@@ -118,7 +118,7 @@ export const usePlanRunnerStore = create<PlanRunnerState>((set) => ({
             ...run,
             state: event.state,
             summary: event.summary,
-            completedAt: new Date().toISOString(),
+            completedAt: event.completedAt,
           };
           // Clear active run from features
           const features = state.featuresByProjectId[run.projectId];

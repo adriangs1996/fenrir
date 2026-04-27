@@ -1,3 +1,9 @@
+---
+depends_on:
+  - neovim-01-contracts
+  - neovim-09-web-editor-component
+---
+
 # Plan: ChatView Integration + Keybinding
 
 ## Summary
@@ -83,16 +89,19 @@ neovim: {
 Add editor view toggle. Key changes:
 
 **Import NeovimEditor**:
+
 ```typescript
 import { NeovimEditor, useNeovimEditorStore } from "~/modules/neovim-editor";
 ```
 
 **In the component body** (near other state):
+
 ```typescript
 const { editorOpen, toggleEditor } = useNeovimEditorStore();
 ```
 
 **In the keybinding handler** (inside the useEffect at ~line 2438):
+
 ```typescript
 if (command === "neovimEditor.toggle") {
   event.preventDefault();
@@ -107,7 +116,9 @@ if (command === "neovimEditor.toggle") {
 The key architectural change: wrap the chat content in a conditional:
 
 ```tsx
-{/* Main content area */}
+{
+  /* Main content area */
+}
 <div className="flex min-h-0 min-w-0 flex-1">
   {editorOpen ? (
     // ── Editor View ──
@@ -124,10 +135,8 @@ The key architectural change: wrap the chat content in a conditional:
       {/* ... existing messages, composer, branch toolbar ... */}
     </div>
   )}
-  {planSidebarOpen && (
-    <PlanSidebar /* ... */ />
-  )}
-</div>
+  {planSidebarOpen && <PlanSidebar /* ... */ />}
+</div>;
 ```
 
 **Important**: The terminal drawer should still be visible below the editor when in editor mode. The editor replaces only the chat messages + composer area, not the terminal drawer.
@@ -140,7 +149,7 @@ The key architectural change: wrap the chat content in a conditional:
   onClick={toggleEditor}
   className={cn(
     "rounded px-2 py-1 text-xs",
-    editorOpen ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300"
+    editorOpen ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300",
   )}
   title="Toggle Editor (⌘E)"
 >
@@ -157,7 +166,7 @@ Add `neovimFocus` to the shortcut context:
 const shortcutContext = {
   terminalFocus: isTerminalFocused(),
   terminalOpen: Boolean(terminalState.terminalOpen),
-  neovimFocus: editorOpen,  // ← ADD
+  neovimFocus: editorOpen, // ← ADD
 };
 ```
 
@@ -216,6 +225,7 @@ Check how existing defaults like `terminal.toggle` are registered and follow the
 ### 8. Lifecycle: Project Switching
 
 When the active thread's project changes:
+
 1. Old neovim process stays alive (persistent, like tmux)
 2. Binary WebSocket disconnects from old project
 3. New project's neovim spawns if needed

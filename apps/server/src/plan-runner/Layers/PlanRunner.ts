@@ -260,6 +260,19 @@ export const PlanRunnerLive = Layer.effect(
       summary: run.summary,
     });
 
+    // ── Thread lifecycle helpers ─────────────────────────────────────
+
+    /** Stop a thread's provider session. Fire-and-forget, never fails. */
+    const stopThreadSession = (threadId: string) =>
+      orchestrationEngine
+        .dispatch({
+          type: "thread.session.stop",
+          commandId: CommandId.makeUnsafe(`plan-runner:stop:${makeId()}`),
+          threadId: ThreadId.makeUnsafe(threadId),
+          createdAt: now(),
+        })
+        .pipe(Effect.ignore);
+
     // ── Thread bootstrapping ──────────────────────────────────────────
 
     const bootstrapThreadWithPrompt = (input: {
@@ -316,34 +329,94 @@ export const PlanRunnerLive = Layer.effect(
 
     // ── Wait for thread turn completion ───────────────────────────────
 
+    const POLL_INTERVAL_MS = 3_000;
+    const MAX_POLL_WAIT_MS = 10 * 60 * 1000; // 10 minutes absolute timeout
+    const MAX_SESSION_WAIT_MS = 60 * 1000; // 60s waiting for session/turn to appear
+
     const waitForThreadTurnComplete = (
       targetThreadId: string,
+      run?: PlanRunState,
     ): Effect.Effect<{ ok: boolean; error: string | null }, never, never> => {
+      const startedAtMs = Date.now();
+      // Track whether we've ever observed activeTurnId !== null.
+      // This distinguishes "session just bound, turn hasn't started yet"
+      // from "turn ran and completed (activeTurnId back to null)".
+      let turnWasActive = false;
+
       const poll: Effect.Effect<
         { ok: boolean; error: string | null },
         never,
         never
       > = Effect.gen(function* () {
+        // Check cancellation if run context is provided
+        if (run?.cancelled) {
+          return { ok: false, error: "Run cancelled" };
+        }
+
+        const elapsedMs = Date.now() - startedAtMs;
+
+        // Absolute timeout — prevent infinite hangs
+        if (elapsedMs > MAX_POLL_WAIT_MS) {
+          return {
+            ok: false,
+            error: `Turn did not complete within ${MAX_POLL_WAIT_MS / 1000}s timeout`,
+          };
+        }
+
         const readModel = yield* orchestrationEngine.getReadModel();
         const thread = readModel.threads.find((t) => t.id === targetThreadId);
-        if (!thread?.session) {
-          return { ok: true, error: null };
+
+        if (!thread) {
+          return { ok: false, error: `Thread ${targetThreadId} not found` };
+        }
+
+        if (!thread.session) {
+          // Session not yet established — ProviderCommandReactor hasn't
+          // processed the turn-start-requested event yet. Expected
+          // immediately after thread creation.
+          if (elapsedMs > MAX_SESSION_WAIT_MS) {
+            return {
+              ok: false,
+              error: `Provider session was not established within ${MAX_SESSION_WAIT_MS / 1000}s`,
+            };
+          }
+          yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
+          return yield* poll;
         }
 
         const session = thread.session;
-        if (session.activeTurnId === null) {
-          if (session.status === "error" || session.status === "stopped") {
-            return {
-              ok: false,
-              error: session.lastError ?? "Thread session error",
-            };
-          }
-          return { ok: true, error: null };
+
+        if (session.activeTurnId !== null) {
+          // Turn is running — remember we saw it active
+          turnWasActive = true;
+          yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
+          return yield* poll;
         }
 
-        // Still running — wait and retry
-        yield* Effect.sleep("3 seconds");
-        return yield* poll;
+        // activeTurnId === null from here
+        if (session.status === "error" || session.status === "stopped") {
+          return {
+            ok: false,
+            error: session.lastError ?? "Thread session error",
+          };
+        }
+
+        if (!turnWasActive) {
+          // Session exists but we never saw the turn become active.
+          // The turn hasn't started yet — ProviderCommandReactor may still
+          // be sending the turn to the provider. Keep waiting.
+          if (elapsedMs > MAX_SESSION_WAIT_MS) {
+            return {
+              ok: false,
+              error: "Turn was never started by provider within timeout",
+            };
+          }
+          yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
+          return yield* poll;
+        }
+
+        // Turn was active and now completed — success
+        return { ok: true, error: null };
       });
 
       return poll;
@@ -371,7 +444,8 @@ export const PlanRunnerLive = Layer.effect(
     const markDependentsSkipped = (
       run: PlanRunState,
       failedPlanId: string,
-    ): void => {
+    ): string[] => {
+      const skippedIds: string[] = [];
       const visited = new Set<string>();
 
       const findDependents = (planId: string) => {
@@ -387,13 +461,26 @@ export const PlanRunnerLive = Layer.effect(
             node.state = "skipped";
             node.error = `Skipped: dependency "${planId}" failed`;
             node.completedAt = now();
+            skippedIds.push(id);
             findDependents(id);
           }
         }
       };
 
       findDependents(failedPlanId);
+      return skippedIds;
     };
+
+    const markDependentsSkippedAndPublish = (
+      run: PlanRunState,
+      failedPlanId: string,
+    ) =>
+      Effect.gen(function* () {
+        const skippedIds = markDependentsSkipped(run, failedPlanId);
+        for (const id of skippedIds) {
+          yield* publishPlanStateChanged(run, id);
+        }
+      });
 
     // ── Publish plan state change ─────────────────────────────────────
 
@@ -437,13 +524,14 @@ ${plan.content}`;
         plan.executorThreadId = executorThreadId;
 
         // Wait for executor
-        const execResult = yield* waitForThreadTurnComplete(executorThreadId);
+        const execResult = yield* waitForThreadTurnComplete(executorThreadId, run);
         if (!execResult.ok) {
+          yield* stopThreadSession(executorThreadId);
           plan.state = "failed";
           plan.error = execResult.error ?? "Executor thread failed";
           plan.completedAt = now();
           yield* publishPlanStateChanged(run, plan.planId);
-          markDependentsSkipped(run, plan.planId);
+          yield* markDependentsSkippedAndPublish(run, plan.planId);
           return;
         }
 
@@ -486,7 +574,7 @@ ${plan.content}`;
         plan.reviewerThreadId = reviewerThreadId;
 
         // Wait for reviewer
-        yield* waitForThreadTurnComplete(reviewerThreadId);
+        yield* waitForThreadTurnComplete(reviewerThreadId, run);
 
         // Parse reviewer response
         const reviewResponse =
@@ -498,7 +586,7 @@ ${plan.content}`;
           plan.completedAt = now();
           yield* publishPlanStateChanged(run, plan.planId);
 
-          // Unblock dependents
+          // Unblock dependents and notify UI
           for (const node of run.plans.values()) {
             if (
               node.state === "blocked" &&
@@ -510,33 +598,59 @@ ${plan.content}`;
               });
               if (allDepsResolved) {
                 node.state = "ready";
+                yield* publishPlanStateChanged(run, node.planId);
               }
             }
           }
         } else if (plan.retriesUsed < plan.maxRetries) {
-          // Fail but retries left — re-queue
+          // Fail but retries left — stop old threads, then re-queue
+          if (plan.executorThreadId) {
+            yield* stopThreadSession(plan.executorThreadId);
+          }
+          if (plan.reviewerThreadId) {
+            yield* stopThreadSession(plan.reviewerThreadId);
+          }
+          plan.executorThreadId = null;
+          plan.reviewerThreadId = null;
           plan.retriesUsed++;
           plan.state = "ready";
           plan.error = "Review failed, retrying";
           yield* publishPlanStateChanged(run, plan.planId);
         } else {
           // Fail and exhausted retries
+          // Stop threads — retries exhausted
+          if (plan.executorThreadId) {
+            yield* stopThreadSession(plan.executorThreadId);
+          }
+          if (plan.reviewerThreadId) {
+            yield* stopThreadSession(plan.reviewerThreadId);
+          }
           plan.state = "failed";
           plan.error = reviewResponse
             ? `Review failed after ${plan.maxRetries} retries`
             : "Reviewer thread failed to respond";
           plan.completedAt = now();
           yield* publishPlanStateChanged(run, plan.planId);
-          markDependentsSkipped(run, plan.planId);
+          yield* markDependentsSkippedAndPublish(run, plan.planId);
         }
       }).pipe(
-        Effect.catch(() =>
+        Effect.catch((err) =>
           Effect.gen(function* () {
+            // Stop any running threads on unexpected errors
+            if (plan.executorThreadId) {
+              yield* stopThreadSession(plan.executorThreadId);
+            }
+            if (plan.reviewerThreadId) {
+              yield* stopThreadSession(plan.reviewerThreadId);
+            }
             plan.state = "failed";
-            plan.error = "Unexpected executor error";
+            plan.error =
+              err instanceof Error
+                ? `Executor error: ${err.message}`
+                : "Unexpected executor error";
             plan.completedAt = now();
             yield* publishPlanStateChanged(run, plan.planId);
-            markDependentsSkipped(run, plan.planId);
+            yield* markDependentsSkippedAndPublish(run, plan.planId);
           }),
         ),
       );
@@ -565,6 +679,7 @@ ${plan.content}`;
             runId: run.runId,
             state: run.state,
             summary: run.summary,
+            completedAt: run.completedAt!,
           });
           return;
         }
@@ -642,6 +757,7 @@ ${plan.content}`;
             runId: run.runId,
             state: run.state,
             summary: run.summary,
+            completedAt: run.completedAt!,
           });
           return;
         }
@@ -677,7 +793,7 @@ ${planSummaries}`;
             modelSelection: run.modelSelection,
           });
           run.analyzerThreadId = threadId;
-          yield* waitForThreadTurnComplete(threadId);
+          yield* waitForThreadTurnComplete(threadId, run);
           return yield* readLastAssistantMessage(threadId);
         }).pipe(Effect.catch(() => Effect.succeed(null)));
 
@@ -727,6 +843,7 @@ ${planSummaries}`;
             runId: run.runId,
             state: run.state,
             summary: run.summary,
+            completedAt: run.completedAt!,
           });
           return;
         }
@@ -796,6 +913,7 @@ ${planSummaries}`;
             runId: run.runId,
             state: run.state,
             summary: run.summary,
+            completedAt: run.completedAt!,
           });
           return;
         }
@@ -842,7 +960,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               modelSelection: run.modelSelection,
             });
             run.integrationThreadId = threadId;
-            yield* waitForThreadTurnComplete(threadId);
+            yield* waitForThreadTurnComplete(threadId, run);
             return yield* readLastAssistantMessage(threadId);
           },
         ).pipe(Effect.catch(() => Effect.succeed(null)));
@@ -863,18 +981,23 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           runId: run.runId,
           state: run.state,
           summary: run.summary,
+          completedAt: run.completedAt!,
         });
       }).pipe(
-        Effect.catch(() =>
+        Effect.catch((err) =>
           Effect.gen(function* () {
             run.state = "failed";
-            run.summary = "Unexpected error during plan execution";
+            run.summary =
+              err instanceof Error
+                ? `Plan execution error: ${err.message}`
+                : "Unexpected error during plan execution";
             run.completedAt = now();
             yield* publishEvent({
               type: "planRunner.completed",
               runId: run.runId,
               state: run.state,
               summary: run.summary,
+              completedAt: run.completedAt!,
             });
           }),
         ),
@@ -1026,17 +1149,31 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           // Signal cancellation
           run.cancelled = true;
 
-          // Mark non-terminal plans skipped
+          // Stop all active thread sessions and mark non-terminal plans skipped
           for (const node of run.plans.values()) {
             if (
               node.state !== "done" &&
               node.state !== "failed" &&
               node.state !== "skipped"
             ) {
+              if (node.executorThreadId) {
+                yield* stopThreadSession(node.executorThreadId);
+              }
+              if (node.reviewerThreadId) {
+                yield* stopThreadSession(node.reviewerThreadId);
+              }
               node.state = "skipped";
               node.error = "Cancelled by user";
               node.completedAt = now();
             }
+          }
+
+          // Stop analyzer and integration threads if running
+          if (run.analyzerThreadId) {
+            yield* stopThreadSession(run.analyzerThreadId);
+          }
+          if (run.integrationThreadId) {
+            yield* stopThreadSession(run.integrationThreadId);
           }
 
           run.state = "failed";
@@ -1048,6 +1185,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             runId: run.runId,
             state: run.state,
             summary: run.summary,
+            completedAt: run.completedAt!,
           });
         }),
 

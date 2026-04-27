@@ -1,3 +1,9 @@
+---
+depends_on:
+  - neovim-01-contracts
+  - neovim-03-server-neovim-manager
+---
+
 # Plan: Server Binary WebSocket Route
 
 ## Summary
@@ -74,11 +80,13 @@ This is a SEPARATE WebSocket endpoint — not part of the JSON RPC system.
 The binary WebSocket carries two types of messages:
 
 **Server → Client (downstream)**:
+
 - Raw msgpack bytes from neovim's stdout (redraw events)
 - These are forwarded AS-IS, no wrapping
 
 **Client → Server (upstream)**:
 Client sends msgpack-encoded "command frames" — small msgpack arrays:
+
 - `[1, cols, rows]` — attach UI
 - `[2]` — detach UI
 - `[3, keys]` — keyboard input (nvim_input)
@@ -91,7 +99,11 @@ This avoids JSON RPC overhead for input — every keypress goes through this bin
 **Implementation in `ws.ts`**:
 
 ```typescript
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import {
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http";
 import { NeovimManager } from "./neovim/Services/NeovimManager";
 import { decode } from "@msgpack/msgpack";
 
@@ -99,7 +111,7 @@ export const neovimBinaryWebsocketRouteLayer = Layer.unwrap(
   Effect.succeed(
     HttpRouter.add(
       "GET",
-      "/ws/neovim",  // projectId passed as query param: /ws/neovim?projectId=xxx
+      "/ws/neovim", // projectId passed as query param: /ws/neovim?projectId=xxx
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const serverAuth = yield* ServerAuth;
@@ -112,17 +124,23 @@ export const neovimBinaryWebsocketRouteLayer = Layer.unwrap(
         const url = HttpServerRequest.toURL(request);
         const projectId = url.value?.searchParams.get("projectId");
         if (!projectId) {
-          return yield* HttpServerResponse.text("Missing projectId query parameter", {
-            status: 400,
-          });
+          return yield* HttpServerResponse.text(
+            "Missing projectId query parameter",
+            {
+              status: 400,
+            },
+          );
         }
 
         // 3. Verify neovim session exists
         const hasSession = yield* neovimManager.hasSession(projectId);
         if (!hasSession) {
-          return yield* HttpServerResponse.text("No neovim session for project", {
-            status: 404,
-          });
+          return yield* HttpServerResponse.text(
+            "No neovim session for project",
+            {
+              status: 404,
+            },
+          );
         }
 
         // 4. Upgrade to WebSocket
@@ -165,7 +183,11 @@ export const neovimBinaryWebsocketRouteLayer = Layer.unwrap(
                   case 0: // ping
                     break;
                   case 1: // attach UI
-                    yield* neovimManager.attachUi(projectId, cmd[1] as number, cmd[2] as number);
+                    yield* neovimManager.attachUi(
+                      projectId,
+                      cmd[1] as number,
+                      cmd[2] as number,
+                    );
                     break;
                   case 2: // detach UI
                     yield* neovimManager.detachUi(projectId);
@@ -176,12 +198,20 @@ export const neovimBinaryWebsocketRouteLayer = Layer.unwrap(
                   case 4: // mouse input
                     yield* neovimManager.inputMouse(
                       projectId,
-                      cmd[1] as string, cmd[2] as string, cmd[3] as string,
-                      cmd[4] as number, cmd[5] as number, cmd[6] as number,
+                      cmd[1] as string,
+                      cmd[2] as string,
+                      cmd[3] as string,
+                      cmd[4] as number,
+                      cmd[5] as number,
+                      cmd[6] as number,
                     );
                     break;
                   case 5: // resize
-                    yield* neovimManager.resize(projectId, cmd[1] as number, cmd[2] as number);
+                    yield* neovimManager.resize(
+                      projectId,
+                      cmd[1] as number,
+                      cmd[2] as number,
+                    );
                     break;
                 }
               }),
@@ -205,7 +235,7 @@ export const neovimBinaryWebsocketRouteLayer = Layer.unwrap(
 const makeRoutesLayer = Layer.mergeAll(
   // ... existing routes ...
   websocketRpcRouteLayer,
-  neovimBinaryWebsocketRouteLayer,  // ← ADD
+  neovimBinaryWebsocketRouteLayer, // ← ADD
 ).pipe(Layer.provide(trafficLensApiCorsLayer));
 ```
 
@@ -224,6 +254,7 @@ The implementer should investigate which approach works best with the current Ef
 **Authentication**: The binary WebSocket uses the same `serverAuth.authenticateWebSocketUpgrade()` as the JSON RPC WebSocket. Session token is passed as a query parameter or cookie — same mechanism.
 
 **Stale connection guard**: Same pattern as tmux's `activeTmuxProcesses`:
+
 ```typescript
 const activeNeovimConnections = new Map<string, { socketId: string }>();
 // On new connection: kill old connection for same projectId

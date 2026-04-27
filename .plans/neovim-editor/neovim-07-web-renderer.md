@@ -1,3 +1,10 @@
+---
+depends_on:
+  - neovim-06-web-grid-state
+---
+
+# Plan: Web Grid State Manager
+
 # Plan: Web Canvas2D + WebGL Renderer
 
 ## Summary
@@ -283,10 +290,13 @@ export class CursorRenderer {
 
     // Start blink cycle
     setTimeout(() => {
-      this.blinkTimer = setInterval(() => {
-        this.blinkVisible = !this.blinkVisible;
-        this.onBlinkToggle?.();
-      }, this.blinkVisible ? blinkon : blinkoff);
+      this.blinkTimer = setInterval(
+        () => {
+          this.blinkVisible = !this.blinkVisible;
+          this.onBlinkToggle?.();
+        },
+        this.blinkVisible ? blinkon : blinkoff,
+      );
     }, blinkwait);
   }
 
@@ -350,7 +360,9 @@ export class WebGLCompositor {
       this.initBuffers();
     } else {
       // Fallback to Canvas2D compositing
-      console.warn("[WebGLCompositor] WebGL2 not available, falling back to Canvas2D");
+      console.warn(
+        "[WebGLCompositor] WebGL2 not available, falling back to Canvas2D",
+      );
       this.fallback2d = canvas.getContext("2d")!;
     }
   }
@@ -426,12 +438,12 @@ export class WebGLCompositor {
 
 export interface CompositeLayer {
   canvas: OffscreenCanvas | HTMLCanvasElement;
-  x: number;       // Pixel position
+  x: number; // Pixel position
   y: number;
   width: number;
   height: number;
   zindex: number;
-  blend: number;   // 0-100 transparency
+  blend: number; // 0-100 transparency
 }
 ```
 
@@ -467,6 +479,7 @@ The full render path on each `flush`:
 ### 6. Tests
 
 **CanvasRenderer.test.ts** (using OffscreenCanvas or jest-canvas-mock):
+
 1. renderGrid draws characters at correct pixel positions
 2. Background color fills correctly per highlight
 3. Bold/italic font applied correctly

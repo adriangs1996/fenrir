@@ -1,3 +1,9 @@
+---
+depends_on:
+  - neovim-01-contracts
+  - neovim-02-server-msgpack-rpc
+---
+
 # Plan: Server NeovimManager Service
 
 ## Summary
@@ -143,6 +149,7 @@ export class NeovimManager extends ServiceMap.Service<
 ### 2. Layer Implementation — `Layers/NeovimManager.ts`
 
 **Internal session state**:
+
 ```typescript
 interface NeovimSession {
   projectId: string;
@@ -151,7 +158,7 @@ interface NeovimSession {
   process: ChildProcess;
   rpc: MsgpackRpcSessionShape;
   uiAttached: boolean;
-  status: NeovimSessionStatus;  // "spawning" | "running" | "exited" | "crashed"
+  status: NeovimSessionStatus; // "spawning" | "running" | "exited" | "crashed"
   apiLevel: number | null;
   unsubscribeRawData: (() => void) | null;
   unsubscribeNotifications: (() => void) | null;
@@ -162,6 +169,7 @@ const sessions = new Map<string, NeovimSession>();
 ```
 
 **Nvim binary resolution**:
+
 ```typescript
 import { execFileSync } from "node:child_process";
 
@@ -179,31 +187,38 @@ function resolveNvimBinary(): string | null {
 ```
 
 **Spawn flow** (`spawn` method):
+
 1. If session exists and running → return existing snapshot
 2. If session exists but exited → clean up old, proceed
 3. Validate cwd: `stat(cwd)` → exists and is directory
 4. Resolve nvim binary → `NeovimNotInstalledError` if not found
 5. Spawn child process:
+
    ```typescript
    import { spawn } from "node:child_process";
 
    const nvimProcess = spawn(nvimPath, ["--embed"], {
      cwd,
-     stdio: ["pipe", "pipe", "pipe"],  // stdin, stdout, stderr all piped
+     stdio: ["pipe", "pipe", "pipe"], // stdin, stdout, stderr all piped
      env: { ...process.env },
    });
    ```
+
 6. Create `MsgpackRpcSession` from `nvimProcess.stdin` + `nvimProcess.stdout`
 7. Wire up raw data handler: `rpc.onRawData(data => publishRawRedraw(projectId, data))`
 8. Wire up process exit handler:
+
    ```typescript
    nvimProcess.on("exit", (code, signal) => {
      session.status = code === 0 ? "exited" : "crashed";
-     publishEvent(code === 0
-       ? { type: "neovim:exited", projectId, exitCode: code }
-       : { type: "neovim:crashed", projectId, exitCode: code, signal });
+     publishEvent(
+       code === 0
+         ? { type: "neovim:exited", projectId, exitCode: code }
+         : { type: "neovim:crashed", projectId, exitCode: code, signal },
+     );
    });
    ```
+
 9. Wire up stderr: `nvimProcess.stderr.on("data", chunk => console.warn("[nvim stderr]", chunk.toString()))`
 10. Query API info: `rpc.request("nvim_get_api_info", [])` → extract channel_id and api_level
 11. Store session in map
@@ -211,30 +226,36 @@ function resolveNvimBinary(): string | null {
 13. Return snapshot
 
 **AttachUi flow**:
+
 1. Look up session → `NeovimSessionLookupError` if not found
 2. If `session.uiAttached` → `NeovimAttachError` ("UI already attached")
 3. Call `rpc.request("nvim_ui_attach", [cols, rows, { rgb: true, ext_linegrid: true, ext_multigrid: true }])`
 4. Set `session.uiAttached = true`
 
 **DetachUi flow**:
+
 1. Look up session
 2. If not `uiAttached` → no-op
 3. Call `rpc.request("nvim_ui_detach", [])`
 4. Set `session.uiAttached = false`
 
 **Input flow** (non-blocking):
+
 1. Look up session
 2. Call `rpc.notify("nvim_input", [keys])` — notification, not request
 
 **InputMouse flow**:
+
 1. Look up session
 2. Call `rpc.notify("nvim_input_mouse", [button, action, modifier, grid, row, col])`
 
 **Command flow**:
+
 1. Look up session
 2. Call `rpc.request("nvim_command", [command])` — request (await response for error handling)
 
 **Kill flow**:
+
 1. Look up session → if not found, no-op
 2. If `uiAttached` → detachUi first
 3. Close rpc session: `rpc.close()`
@@ -244,13 +265,17 @@ function resolveNvimBinary(): string | null {
 7. Remove from sessions map
 
 **Resize flow**:
+
 1. Look up session
 2. Call `rpc.notify("nvim_ui_try_resize", [cols, rows])` — notification
 
 **Event fanout** (same pattern as TerminalManager):
+
 ```typescript
 const lifecycleListeners = new Set<(event: NeovimEvent) => void>();
-const rawRedrawListeners = new Set<(projectId: string, data: Uint8Array) => void>();
+const rawRedrawListeners = new Set<
+  (projectId: string, data: Uint8Array) => void
+>();
 
 const publishEvent = (event: NeovimEvent) => {
   for (const listener of lifecycleListeners) {
@@ -280,7 +305,7 @@ const NeovimLayerLive = NeovimManagerLive.pipe(
 const ApplicationLayerLive = Layer.mergeAll(
   // ... existing layers ...
   TerminalLayerLive,
-  NeovimLayerLive,  // ← ADD
+  NeovimLayerLive, // ← ADD
 );
 ```
 
@@ -290,14 +315,19 @@ const ApplicationLayerLive = Layer.mergeAll(
 
 ```typescript
 const nvimAvailable = (() => {
-  try { execFileSync("which", ["nvim"]); return true; }
-  catch { return false; }
+  try {
+    execFileSync("which", ["nvim"]);
+    return true;
+  } catch {
+    return false;
+  }
 })();
 
 const describeWithNvim = nvimAvailable ? describe : describe.skip;
 ```
 
 Test cases:
+
 1. **spawn**: Creates session, returns snapshot with pid and status "running"
 2. **spawn idempotent**: Second spawn for same project returns same session
 3. **spawn bad cwd**: Returns NeovimCwdError

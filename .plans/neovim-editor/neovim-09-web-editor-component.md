@@ -1,3 +1,11 @@
+---
+depends_on:
+  - neovim-05-web-msgpack-bridge
+  - neovim-06-web-grid-state
+  - neovim-07-web-renderer
+  - neovim-08-web-input-handlers
+---
+
 # Plan: Web NeovimEditor Component + Hooks
 
 ## Summary
@@ -33,7 +41,11 @@ This is the integration layer — takes all the pure modules (protocol, renderer
 ```typescript
 import { create } from "zustand";
 
-export type NeovimConnectionStatus = "disconnected" | "connecting" | "attached" | "error";
+export type NeovimConnectionStatus =
+  | "disconnected"
+  | "connecting"
+  | "attached"
+  | "error";
 
 interface NeovimEditorState {
   // View toggle
@@ -139,12 +151,19 @@ export function useNeovimBridge(options: UseNeovimBridgeOptions) {
     bridgeRef.current?.sendInput(keys);
   }, []);
 
-  const sendMouse = useCallback((
-    button: string, action: string, modifier: string,
-    grid: number, row: number, col: number,
-  ) => {
-    bridgeRef.current?.sendMouse(button, action, modifier, grid, row, col);
-  }, []);
+  const sendMouse = useCallback(
+    (
+      button: string,
+      action: string,
+      modifier: string,
+      grid: number,
+      row: number,
+      col: number,
+    ) => {
+      bridgeRef.current?.sendMouse(button, action, modifier, grid, row, col);
+    },
+    [],
+  );
 
   const resize = useCallback((cols: number, rows: number) => {
     bridgeRef.current?.resize(cols, rows);
@@ -162,7 +181,10 @@ import { GridStateManager } from "../renderer/GridState";
 import { CanvasRenderer } from "../renderer/CanvasRenderer";
 import { WebGLCompositor } from "../renderer/WebGLCompositor";
 import { CursorRenderer } from "../renderer/CursorRenderer";
-import { measureCellDimensions, calculateGridDimensions } from "../renderer/FontMetrics";
+import {
+  measureCellDimensions,
+  calculateGridDimensions,
+} from "../renderer/FontMetrics";
 import type { RedrawEvent } from "../protocol/RedrawParser";
 
 interface UseNeovimRendererOptions {
@@ -177,7 +199,13 @@ export function useNeovimRenderer(options: UseNeovimRendererOptions) {
   const rendererRef = useRef<CanvasRenderer | null>(null);
   const compositorRef = useRef<WebGLCompositor | null>(null);
   const cursorRendererRef = useRef<CursorRenderer | null>(null);
-  const cellDimensionsRef = useRef(measureCellDimensions(options.fontFamily, options.fontSize, options.lineHeight));
+  const cellDimensionsRef = useRef(
+    measureCellDimensions(
+      options.fontFamily,
+      options.fontSize,
+      options.lineHeight,
+    ),
+  );
   const rafRef = useRef<number>(0);
 
   // Initialize on canvas mount
@@ -254,11 +282,22 @@ export function useNeovimRenderer(options: UseNeovimRendererOptions) {
   }, []);
 
   // Get grid dimensions for current container size
-  const getGridDimensions = useCallback((containerWidth: number, containerHeight: number) => {
-    return calculateGridDimensions(containerWidth, containerHeight, cellDimensionsRef.current);
-  }, []);
+  const getGridDimensions = useCallback(
+    (containerWidth: number, containerHeight: number) => {
+      return calculateGridDimensions(
+        containerWidth,
+        containerHeight,
+        cellDimensionsRef.current,
+      );
+    },
+    [],
+  );
 
-  return { processRedraw, getGridDimensions, cellDimensions: cellDimensionsRef.current };
+  return {
+    processRedraw,
+    getGridDimensions,
+    cellDimensions: cellDimensionsRef.current,
+  };
 }
 ```
 
@@ -266,7 +305,10 @@ export function useNeovimRenderer(options: UseNeovimRendererOptions) {
 
 ```typescript
 import { useEffect, useCallback } from "react";
-import { keyEventToNeovimInput, compositionEndToNeovimInput } from "../input/KeyboardHandler";
+import {
+  keyEventToNeovimInput,
+  compositionEndToNeovimInput,
+} from "../input/KeyboardHandler";
 import { resolveShortcutCommand } from "~/keybindings";
 
 interface UseNeovimKeyboardOptions {
@@ -322,13 +364,23 @@ export function useNeovimKeyboard(options: UseNeovimKeyboardOptions) {
 ```typescript
 import { useEffect, useRef } from "react";
 import {
-  mouseDownToNeovim, mouseMoveToNeovim, mouseUpToNeovim,
-  wheelToNeovim, resolveGridAtPixel,
+  mouseDownToNeovim,
+  mouseMoveToNeovim,
+  mouseUpToNeovim,
+  wheelToNeovim,
+  resolveGridAtPixel,
 } from "../input/MouseHandler";
 import type { CellDimensions } from "../renderer/FontMetrics";
 
 interface UseNeovimMouseOptions {
-  sendMouse: (button: string, action: string, modifier: string, grid: number, row: number, col: number) => void;
+  sendMouse: (
+    button: string,
+    action: string,
+    modifier: string,
+    grid: number,
+    row: number,
+    col: number,
+  ) => void;
   canvasRef: React.RefObject<HTMLCanvasElement>;
   cellDimensions: CellDimensions;
   mouseEnabled: boolean;
@@ -346,28 +398,65 @@ export function useNeovimMouse(options: UseNeovimMouseOptions) {
     const onMouseDown = (event: MouseEvent) => {
       event.preventDefault();
       canvas.focus(); // Ensure keyboard focus
-      const params = mouseDownToNeovim(event, options.cellDimensions, getRect());
+      const params = mouseDownToNeovim(
+        event,
+        options.cellDimensions,
+        getRect(),
+      );
       activeButtonRef.current = params.button;
-      options.sendMouse(params.button, params.action, params.modifier, params.grid, params.row, params.col);
+      options.sendMouse(
+        params.button,
+        params.action,
+        params.modifier,
+        params.grid,
+        params.row,
+        params.col,
+      );
     };
 
     const onMouseMove = (event: MouseEvent) => {
       if (!activeButtonRef.current) return; // Only during drag
-      const params = mouseMoveToNeovim(event, options.cellDimensions, getRect(), activeButtonRef.current);
-      options.sendMouse(params.button, params.action, params.modifier, params.grid, params.row, params.col);
+      const params = mouseMoveToNeovim(
+        event,
+        options.cellDimensions,
+        getRect(),
+        activeButtonRef.current,
+      );
+      options.sendMouse(
+        params.button,
+        params.action,
+        params.modifier,
+        params.grid,
+        params.row,
+        params.col,
+      );
     };
 
     const onMouseUp = (event: MouseEvent) => {
       if (!activeButtonRef.current) return;
       const params = mouseUpToNeovim(event, options.cellDimensions, getRect());
       activeButtonRef.current = null;
-      options.sendMouse(params.button, params.action, params.modifier, params.grid, params.row, params.col);
+      options.sendMouse(
+        params.button,
+        params.action,
+        params.modifier,
+        params.grid,
+        params.row,
+        params.col,
+      );
     };
 
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       const params = wheelToNeovim(event, options.cellDimensions, getRect());
-      options.sendMouse(params.button, params.action, params.modifier, params.grid, params.row, params.col);
+      options.sendMouse(
+        params.button,
+        params.action,
+        params.modifier,
+        params.grid,
+        params.row,
+        params.col,
+      );
     };
 
     const onContextMenu = (event: MouseEvent) => {

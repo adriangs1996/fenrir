@@ -1,3 +1,9 @@
+---
+depends_on:
+  - neovim-01-contracts
+  - neovim-04-server-binary-websocket
+---
+
 # Plan: Web Msgpack Codec + Neovim Bridge
 
 ## Summary
@@ -54,8 +60,12 @@ export function encodeInput(keys: string): Uint8Array {
 }
 
 export function encodeMouse(
-  button: string, action: string, modifier: string,
-  grid: number, row: number, col: number,
+  button: string,
+  action: string,
+  modifier: string,
+  grid: number,
+  row: number,
+  col: number,
 ): Uint8Array {
   return encode([CMD_MOUSE, button, action, modifier, grid, row, col]);
 }
@@ -265,23 +275,56 @@ export interface MsgSetPosEvent {
 }
 
 // Global events
-export interface SetTitleEvent { type: "set_title"; title: string; }
-export interface BusyStartEvent { type: "busy_start"; }
-export interface BusyStopEvent { type: "busy_stop"; }
-export interface BellEvent { type: "bell"; }
-export interface MouseOnEvent { type: "mouse_on"; }
-export interface MouseOffEvent { type: "mouse_off"; }
-export interface ChdirEvent { type: "chdir"; path: string; }
+export interface SetTitleEvent {
+  type: "set_title";
+  title: string;
+}
+export interface BusyStartEvent {
+  type: "busy_start";
+}
+export interface BusyStopEvent {
+  type: "busy_stop";
+}
+export interface BellEvent {
+  type: "bell";
+}
+export interface MouseOnEvent {
+  type: "mouse_on";
+}
+export interface MouseOffEvent {
+  type: "mouse_off";
+}
+export interface ChdirEvent {
+  type: "chdir";
+  path: string;
+}
 
 export type RedrawEvent =
-  | GridLineEvent | GridResizeEvent | GridScrollEvent | GridClearEvent
-  | GridCursorGotoEvent | GridDestroyEvent
-  | HlAttrDefineEvent | DefaultColorsSetEvent
-  | ModeInfoSetEvent | ModeChangeEvent | FlushEvent | OptionSetEvent
-  | WinPosEvent | WinFloatPosEvent | WinHideEvent | WinCloseEvent
-  | WinViewportEvent | MsgSetPosEvent
-  | SetTitleEvent | BusyStartEvent | BusyStopEvent
-  | BellEvent | MouseOnEvent | MouseOffEvent | ChdirEvent;
+  | GridLineEvent
+  | GridResizeEvent
+  | GridScrollEvent
+  | GridClearEvent
+  | GridCursorGotoEvent
+  | GridDestroyEvent
+  | HlAttrDefineEvent
+  | DefaultColorsSetEvent
+  | ModeInfoSetEvent
+  | ModeChangeEvent
+  | FlushEvent
+  | OptionSetEvent
+  | WinPosEvent
+  | WinFloatPosEvent
+  | WinHideEvent
+  | WinCloseEvent
+  | WinViewportEvent
+  | MsgSetPosEvent
+  | SetTitleEvent
+  | BusyStartEvent
+  | BusyStopEvent
+  | BellEvent
+  | MouseOnEvent
+  | MouseOffEvent
+  | ChdirEvent;
 
 // ── Parser ──
 
@@ -312,32 +355,118 @@ export function parseRedrawBatch(batch: unknown[]): RedrawEvent[] {
 
 function parseEvent(name: string, params: unknown[]): RedrawEvent | null {
   switch (name) {
-    case "grid_line": return parseGridLine(params);
-    case "grid_resize": return { type: "grid_resize", grid: params[0], width: params[1], height: params[2] };
-    case "grid_scroll": return { type: "grid_scroll", grid: params[0], top: params[1], bot: params[2], left: params[3], right: params[4], rows: params[5], cols: params[6] };
-    case "grid_clear": return { type: "grid_clear", grid: params[0] };
-    case "grid_cursor_goto": return { type: "grid_cursor_goto", grid: params[0], row: params[1], col: params[2] };
-    case "grid_destroy": return { type: "grid_destroy", grid: params[0] };
-    case "hl_attr_define": return parseHlAttrDefine(params);
-    case "default_colors_set": return { type: "default_colors_set", rgbFg: params[0], rgbBg: params[1], rgbSp: params[2], ctermFg: params[3], ctermBg: params[4] };
-    case "mode_info_set": return parseModeInfoSet(params);
-    case "mode_change": return { type: "mode_change", modeName: params[0], modeIdx: params[1] };
-    case "flush": return { type: "flush" };
-    case "option_set": return { type: "option_set", name: params[0], value: params[1] };
-    case "win_pos": return { type: "win_pos", grid: params[0], win: params[1], startRow: params[2], startCol: params[3], width: params[4], height: params[5] };
-    case "win_float_pos": return { type: "win_float_pos", grid: params[0], win: params[1], anchor: params[2], anchorGrid: params[3], anchorRow: params[4], anchorCol: params[5], focusable: params[6], zindex: params[7] };
-    case "win_hide": return { type: "win_hide", grid: params[0] };
-    case "win_close": return { type: "win_close", grid: params[0] };
-    case "win_viewport": return { type: "win_viewport", grid: params[0], win: params[1], topline: params[2], botline: params[3], curline: params[4], curcol: params[5], lineCount: params[6], scrollDelta: params[7] };
-    case "msg_set_pos": return { type: "msg_set_pos", grid: params[0], row: params[1], scrolled: params[2], sepChar: params[3] };
-    case "set_title": return { type: "set_title", title: params[0] };
-    case "busy_start": return { type: "busy_start" };
-    case "busy_stop": return { type: "busy_stop" };
-    case "bell": return { type: "bell" };
-    case "mouse_on": return { type: "mouse_on" };
-    case "mouse_off": return { type: "mouse_off" };
-    case "chdir": return { type: "chdir", path: params[0] };
-    default: return null;  // Forward-compatible: ignore unknown events
+    case "grid_line":
+      return parseGridLine(params);
+    case "grid_resize":
+      return {
+        type: "grid_resize",
+        grid: params[0],
+        width: params[1],
+        height: params[2],
+      };
+    case "grid_scroll":
+      return {
+        type: "grid_scroll",
+        grid: params[0],
+        top: params[1],
+        bot: params[2],
+        left: params[3],
+        right: params[4],
+        rows: params[5],
+        cols: params[6],
+      };
+    case "grid_clear":
+      return { type: "grid_clear", grid: params[0] };
+    case "grid_cursor_goto":
+      return {
+        type: "grid_cursor_goto",
+        grid: params[0],
+        row: params[1],
+        col: params[2],
+      };
+    case "grid_destroy":
+      return { type: "grid_destroy", grid: params[0] };
+    case "hl_attr_define":
+      return parseHlAttrDefine(params);
+    case "default_colors_set":
+      return {
+        type: "default_colors_set",
+        rgbFg: params[0],
+        rgbBg: params[1],
+        rgbSp: params[2],
+        ctermFg: params[3],
+        ctermBg: params[4],
+      };
+    case "mode_info_set":
+      return parseModeInfoSet(params);
+    case "mode_change":
+      return { type: "mode_change", modeName: params[0], modeIdx: params[1] };
+    case "flush":
+      return { type: "flush" };
+    case "option_set":
+      return { type: "option_set", name: params[0], value: params[1] };
+    case "win_pos":
+      return {
+        type: "win_pos",
+        grid: params[0],
+        win: params[1],
+        startRow: params[2],
+        startCol: params[3],
+        width: params[4],
+        height: params[5],
+      };
+    case "win_float_pos":
+      return {
+        type: "win_float_pos",
+        grid: params[0],
+        win: params[1],
+        anchor: params[2],
+        anchorGrid: params[3],
+        anchorRow: params[4],
+        anchorCol: params[5],
+        focusable: params[6],
+        zindex: params[7],
+      };
+    case "win_hide":
+      return { type: "win_hide", grid: params[0] };
+    case "win_close":
+      return { type: "win_close", grid: params[0] };
+    case "win_viewport":
+      return {
+        type: "win_viewport",
+        grid: params[0],
+        win: params[1],
+        topline: params[2],
+        botline: params[3],
+        curline: params[4],
+        curcol: params[5],
+        lineCount: params[6],
+        scrollDelta: params[7],
+      };
+    case "msg_set_pos":
+      return {
+        type: "msg_set_pos",
+        grid: params[0],
+        row: params[1],
+        scrolled: params[2],
+        sepChar: params[3],
+      };
+    case "set_title":
+      return { type: "set_title", title: params[0] };
+    case "busy_start":
+      return { type: "busy_start" };
+    case "busy_stop":
+      return { type: "busy_stop" };
+    case "bell":
+      return { type: "bell" };
+    case "mouse_on":
+      return { type: "mouse_on" };
+    case "mouse_off":
+      return { type: "mouse_off" };
+    case "chdir":
+      return { type: "chdir", path: params[0] };
+    default:
+      return null; // Forward-compatible: ignore unknown events
   }
 }
 
@@ -371,10 +500,22 @@ function parseGridLine(params: unknown[]): GridLineEvent {
 Binary WebSocket client with lifecycle management:
 
 ```typescript
-import { encodeAttachUi, encodeDetachUi, encodeInput, encodeMouse, encodeResize, encodePing, decodeFrame } from "./MsgpackCodec";
+import {
+  encodeAttachUi,
+  encodeDetachUi,
+  encodeInput,
+  encodeMouse,
+  encodeResize,
+  encodePing,
+  decodeFrame,
+} from "./MsgpackCodec";
 import { parseRedrawBatch, type RedrawEvent } from "./RedrawParser";
 
-export type NeovimBridgeStatus = "disconnected" | "connecting" | "attached" | "error";
+export type NeovimBridgeStatus =
+  | "disconnected"
+  | "connecting"
+  | "attached"
+  | "error";
 
 export interface NeovimBridgeOptions {
   projectId: string;
@@ -470,8 +611,12 @@ export class NeovimBridge {
 
   /** Send mouse input */
   sendMouse(
-    button: string, action: string, modifier: string,
-    grid: number, row: number, col: number,
+    button: string,
+    action: string,
+    modifier: string,
+    grid: number,
+    row: number,
+    col: number,
   ): void {
     this.sendBinary(encodeMouse(button, action, modifier, grid, row, col));
   }
@@ -536,11 +681,13 @@ export class NeovimBridge {
 ### 4. Tests
 
 **MsgpackCodec.test.ts**:
+
 1. Encode/decode roundtrip for each command type
 2. `decodeFrame` handles multiple messages in one buffer
 3. `decodeFrame` handles empty buffer
 
 **RedrawParser.test.ts**:
+
 1. Parse `grid_line` with cell hl_id inheritance
 2. Parse `grid_line` with repeat cells
 3. Parse `grid_resize`, `grid_scroll`, `grid_clear`
@@ -553,6 +700,7 @@ export class NeovimBridge {
 10. Full redraw batch with mixed events
 
 **NeovimBridge.test.ts**:
+
 1. Connect sends attach UI frame on open
 2. Binary message decoded and onRedraw called
 3. Disconnect sends detach frame then closes
@@ -574,7 +722,7 @@ export class NeovimBridge {
 ## Done Criteria
 
 - MsgpackCodec encodes all 6 command types and decodes binary frames
-- RedrawParser parses all critical event types (grid_line, grid_resize, grid_scroll, hl_attr_define, mode_*, flush, win_*)
+- RedrawParser parses all critical event types (grid*line, grid_resize, grid_scroll, hl_attr_define, mode**, flush, win\_*)
 - NeovimBridge manages WebSocket lifecycle with reconnection
 - Forward-compatible: unknown event types silently ignored
 - All tests pass

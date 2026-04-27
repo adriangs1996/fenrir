@@ -1,3 +1,8 @@
+---
+depends_on:
+  - neovim-05-web-msgpack-bridge
+---
+
 # Plan: Web Grid State Manager
 
 ## Summary
@@ -30,15 +35,15 @@ import type { RedrawEvent, HlAttr, ModeInfo } from "../protocol/RedrawParser";
 // ── Types ──
 
 export interface Cell {
-  text: string;     // UTF-8 character ("" for right half of double-width)
-  hlId: number;     // Highlight attribute ID (0 = default)
+  text: string; // UTF-8 character ("" for right half of double-width)
+  hlId: number; // Highlight attribute ID (0 = default)
 }
 
 export interface Grid {
   id: number;
   width: number;
   height: number;
-  cells: Cell[][];  // [row][col]
+  cells: Cell[][]; // [row][col]
   // Dirty tracking: set of row indices that need re-render
   dirtyRows: Set<number>;
   // For multigrid: window position
@@ -55,7 +60,7 @@ export interface CursorState {
   grid: number;
   row: number;
   col: number;
-  visible: boolean;  // false during busy_start
+  visible: boolean; // false during busy_start
 }
 
 export interface GridStateSnapshot {
@@ -81,10 +86,7 @@ export class GridStateManager {
   private onFlush: (() => void) | null = null;
   private onBell: (() => void) | null = null;
 
-  constructor(options?: {
-    onFlush?: () => void;
-    onBell?: () => void;
-  }) {
+  constructor(options?: { onFlush?: () => void; onBell?: () => void }) {
     this.onFlush = options?.onFlush ?? null;
     this.onBell = options?.onBell ?? null;
   }
@@ -139,30 +141,76 @@ export class GridStateManager {
 
   private processEvent(event: RedrawEvent): void {
     switch (event.type) {
-      case "grid_resize": this.handleGridResize(event); break;
-      case "grid_line": this.handleGridLine(event); break;
-      case "grid_scroll": this.handleGridScroll(event); break;
-      case "grid_clear": this.handleGridClear(event); break;
-      case "grid_cursor_goto": this.handleGridCursorGoto(event); break;
-      case "grid_destroy": this.handleGridDestroy(event); break;
-      case "hl_attr_define": this.handleHlAttrDefine(event); break;
-      case "default_colors_set": this.handleDefaultColorsSet(event); break;
-      case "mode_info_set": this.handleModeInfoSet(event); break;
-      case "mode_change": this.handleModeChange(event); break;
-      case "option_set": this.handleOptionSet(event); break;
-      case "flush": this.handleFlush(); break;
-      case "win_pos": this.handleWinPos(event); break;
-      case "win_float_pos": this.handleWinFloatPos(event); break;
-      case "win_hide": this.handleWinHide(event); break;
-      case "win_close": this.handleWinClose(event); break;
-      case "win_viewport": /* store for smooth scrolling later */ break;
-      case "set_title": this.title = event.title; break;
-      case "busy_start": this.cursor.visible = false; break;
-      case "busy_stop": this.cursor.visible = true; break;
-      case "bell": this.onBell?.(); break;
-      case "mouse_on": this.mouseEnabled = true; break;
-      case "mouse_off": this.mouseEnabled = false; break;
-      default: break; // Forward-compatible
+      case "grid_resize":
+        this.handleGridResize(event);
+        break;
+      case "grid_line":
+        this.handleGridLine(event);
+        break;
+      case "grid_scroll":
+        this.handleGridScroll(event);
+        break;
+      case "grid_clear":
+        this.handleGridClear(event);
+        break;
+      case "grid_cursor_goto":
+        this.handleGridCursorGoto(event);
+        break;
+      case "grid_destroy":
+        this.handleGridDestroy(event);
+        break;
+      case "hl_attr_define":
+        this.handleHlAttrDefine(event);
+        break;
+      case "default_colors_set":
+        this.handleDefaultColorsSet(event);
+        break;
+      case "mode_info_set":
+        this.handleModeInfoSet(event);
+        break;
+      case "mode_change":
+        this.handleModeChange(event);
+        break;
+      case "option_set":
+        this.handleOptionSet(event);
+        break;
+      case "flush":
+        this.handleFlush();
+        break;
+      case "win_pos":
+        this.handleWinPos(event);
+        break;
+      case "win_float_pos":
+        this.handleWinFloatPos(event);
+        break;
+      case "win_hide":
+        this.handleWinHide(event);
+        break;
+      case "win_close":
+        this.handleWinClose(event);
+        break;
+      case "win_viewport":
+        /* store for smooth scrolling later */ break;
+      case "set_title":
+        this.title = event.title;
+        break;
+      case "busy_start":
+        this.cursor.visible = false;
+        break;
+      case "busy_stop":
+        this.cursor.visible = true;
+        break;
+      case "bell":
+        this.onBell?.();
+        break;
+      case "mouse_on":
+        this.mouseEnabled = true;
+        break;
+      case "mouse_off":
+        this.mouseEnabled = false;
+        break;
+      default:
+        break; // Forward-compatible
     }
   }
 
@@ -273,9 +321,9 @@ Manages highlight attribute definitions and resolves final colors for rendering:
 
 ```typescript
 export interface ResolvedHighlight {
-  fg: string;       // CSS color "#RRGGBB"
-  bg: string;       // CSS color "#RRGGBB"
-  sp: string;       // Special color for underline
+  fg: string; // CSS color "#RRGGBB"
+  bg: string; // CSS color "#RRGGBB"
+  sp: string; // Special color for underline
   bold: boolean;
   italic: boolean;
   underline: boolean;
@@ -285,14 +333,14 @@ export interface ResolvedHighlight {
   underdashed: boolean;
   strikethrough: boolean;
   reverse: boolean;
-  blend: number;    // 0-100
+  blend: number; // 0-100
 }
 
 export class HighlightManager {
   private attrs = new Map<number, HlAttr>();
-  private defaultFg = 0xFFFFFF;
+  private defaultFg = 0xffffff;
   private defaultBg = 0x000000;
-  private defaultSp = 0xFF0000;
+  private defaultSp = 0xff0000;
   // Cache resolved highlights to avoid re-computing
   private resolvedCache = new Map<number, ResolvedHighlight>();
 
@@ -300,12 +348,12 @@ export class HighlightManager {
     this.defaultFg = fg;
     this.defaultBg = bg;
     this.defaultSp = sp;
-    this.resolvedCache.clear();  // Invalidate cache
+    this.resolvedCache.clear(); // Invalidate cache
   }
 
   defineAttr(id: number, attr: HlAttr): void {
     this.attrs.set(id, attr);
-    this.resolvedCache.delete(id);  // Invalidate this entry
+    this.resolvedCache.delete(id); // Invalidate this entry
   }
 
   /** Resolve highlight ID to concrete CSS colors and flags */
@@ -335,7 +383,7 @@ export class HighlightManager {
       underdotted: attr?.underdotted ?? false,
       underdashed: attr?.underdashed ?? false,
       strikethrough: attr?.strikethrough ?? false,
-      reverse: false,  // Already applied
+      reverse: false, // Already applied
       blend: attr?.blend ?? 0,
     };
 
@@ -350,9 +398,9 @@ export class HighlightManager {
 }
 
 function rgbIntToCss(rgb: number): string {
-  const r = (rgb >> 16) & 0xFF;
-  const g = (rgb >> 8) & 0xFF;
-  const b = rgb & 0xFF;
+  const r = (rgb >> 16) & 0xff;
+  const g = (rgb >> 8) & 0xff;
+  const b = rgb & 0xff;
   return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
 }
 ```
@@ -363,8 +411,8 @@ Measures monospace font cell dimensions:
 
 ```typescript
 export interface CellDimensions {
-  width: number;    // Cell width in pixels
-  height: number;   // Cell height in pixels
+  width: number; // Cell width in pixels
+  height: number; // Cell height in pixels
   baseline: number; // Distance from top to text baseline
 }
 
@@ -426,6 +474,7 @@ class GridStateManager {
 ### 5. Tests
 
 **GridState.test.ts**:
+
 1. `grid_resize` creates new grid with correct dimensions
 2. `grid_line` writes cells at correct positions
 3. `grid_line` cell hl_id inheritance from previous cell
@@ -443,6 +492,7 @@ class GridStateManager {
 15. `reset` clears all state
 
 **HighlightManager.test.ts**:
+
 1. Default colors used when attr has no fg/bg
 2. Attr-specific colors override defaults
 3. Reverse swaps fg/bg
