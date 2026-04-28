@@ -331,9 +331,10 @@ export const PlanRunnerLive = Layer.effect(
 
     /**
      * Stop session + archive thread. Used when a thread has finished its job
-     * successfully and we want it out of the active list. Fire-and-forget.
+     * (success OR failure) and we want it out of the active list.
+     * Fire-and-forget.
      */
-    const finalizeThreadSuccess = (threadId: string) =>
+    const finalizeThread = (threadId: string) =>
       Effect.gen(function* () {
         yield* stopThreadSession(threadId);
         yield* orchestrationEngine
@@ -630,7 +631,8 @@ ${plan.content}`;
         // Wait for executor
         const execResult = yield* waitForThreadTurnComplete(executorThreadId, run);
         if (!execResult.ok) {
-          yield* stopThreadSession(executorThreadId);
+          // Executor done (failed). Archive — reviewer never spawned here.
+          yield* finalizeThread(executorThreadId);
           plan.state = "failed";
           plan.error = execResult.error ?? "Executor thread failed";
           plan.completedAt = now();
@@ -761,10 +763,10 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
           // Pass — archive the plan's threads (executor + reviewer are
           // done with their job) and mark the plan done.
           if (plan.executorThreadId) {
-            yield* finalizeThreadSuccess(plan.executorThreadId);
+            yield* finalizeThread(plan.executorThreadId);
           }
           if (plan.reviewerThreadId) {
-            yield* finalizeThreadSuccess(plan.reviewerThreadId);
+            yield* finalizeThread(plan.reviewerThreadId);
           }
 
           plan.state = "done";
@@ -786,13 +788,13 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
             }
           }
         } else {
-          // Fail (exhausted retries OR reviewer thread error). Stop sessions
-          // but do NOT archive — keep around for debugging.
+          // Fail (exhausted retries OR reviewer thread error). Archive both
+          // executor + reviewer — they're done with their job either way.
           if (plan.executorThreadId) {
-            yield* stopThreadSession(plan.executorThreadId);
+            yield* finalizeThread(plan.executorThreadId);
           }
           if (plan.reviewerThreadId) {
-            yield* stopThreadSession(plan.reviewerThreadId);
+            yield* finalizeThread(plan.reviewerThreadId);
           }
           plan.state = "failed";
           plan.error = exhausted
@@ -807,12 +809,12 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
       }).pipe(
         Effect.catch((err) =>
           Effect.gen(function* () {
-            // Stop any running threads on unexpected errors
+            // Archive any spawned threads on unexpected errors
             if (plan.executorThreadId) {
-              yield* stopThreadSession(plan.executorThreadId);
+              yield* finalizeThread(plan.executorThreadId);
             }
             if (plan.reviewerThreadId) {
-              yield* stopThreadSession(plan.reviewerThreadId);
+              yield* finalizeThread(plan.reviewerThreadId);
             }
             plan.state = "failed";
             plan.error =
@@ -1128,10 +1130,10 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           // Run-level success — archive run-scoped helper threads. Per-plan
           // executor/reviewer threads were already archived at REVIEW_PASS.
           if (run.analyzerThreadId) {
-            yield* finalizeThreadSuccess(run.analyzerThreadId);
+            yield* finalizeThread(run.analyzerThreadId);
           }
           if (run.integrationThreadId) {
-            yield* finalizeThreadSuccess(run.integrationThreadId);
+            yield* finalizeThread(run.integrationThreadId);
           }
         } else {
           run.state = "failed";
