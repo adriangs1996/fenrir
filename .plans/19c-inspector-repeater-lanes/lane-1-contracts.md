@@ -1,3 +1,7 @@
+---
+depends_on: []
+---
+
 # Lane 1: Contracts
 
 **Parent**: `19c-browser-phase3-inspector-repeater.md`

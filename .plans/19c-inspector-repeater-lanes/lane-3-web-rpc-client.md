@@ -1,3 +1,7 @@
+---
+depends_on: [lane-1-contracts]
+---
+
 # Lane 3: Web RPC Client
 
 **Parent**: `19c-browser-phase3-inspector-repeater.md`

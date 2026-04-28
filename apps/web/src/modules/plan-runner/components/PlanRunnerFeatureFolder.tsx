@@ -72,14 +72,14 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
     }
   }, []);
 
-  // Fetch plans when expanded
+  // Fetch plans when expanded — skip if already cached in store
   useEffect(() => {
-    if (!expanded || !rpcClient) return;
+    if (!expanded || !rpcClient || plans.length > 0) return;
     rpcClient.planRunner
       .getFeaturePlans({ projectId, featureName: feature.featureName })
       .then((result) => setPlans(featureKey, result.plans))
       .catch((err) => console.error("getFeaturePlans failed:", err));
-  }, [expanded, rpcClient, projectId, feature.featureName, featureKey, setPlans]);
+  }, [expanded, rpcClient, projectId, feature.featureName, featureKey, setPlans, plans.length]);
 
   // Determine active run state. Server reports `hasActiveRun` from
   // `listFeatures` but the snapshot may not have hydrated into `runById`

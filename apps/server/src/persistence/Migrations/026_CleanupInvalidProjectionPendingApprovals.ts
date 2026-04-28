@@ -15,13 +15,8 @@ export default Effect.gen(function* () {
     )
   `;
 
-  yield* sql`
-    UPDATE projection_threads
-    SET pending_approval_count = COALESCE((
-      SELECT COUNT(*)
-      FROM projection_pending_approvals
-      WHERE projection_pending_approvals.thread_id = projection_threads.thread_id
-        AND projection_pending_approvals.status = 'pending'
-    ), 0)
-  `;
+  // NOTE: upstream's second statement (UPDATE projection_threads SET
+  // pending_approval_count = …) is omitted because local schema lacks the
+  // pending_approval_count column. Restore once cherry-pick f7fa62aa
+  // (shell snapshot queries) lands and adds the column. See patches.md.
 });

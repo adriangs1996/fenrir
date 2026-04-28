@@ -1,3 +1,7 @@
+---
+depends_on: [lane-1-contracts]
+---
+
 # Lane 2: Server — Replay Implementation
 
 **Parent**: `19c-browser-phase3-inspector-repeater.md`

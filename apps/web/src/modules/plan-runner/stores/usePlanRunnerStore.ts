@@ -138,6 +138,23 @@ export const usePlanRunnerStore = create<PlanRunnerState>((set) => ({
           };
         }
 
+        case "planRunner.featuresChanged": {
+          // Invalidate cached plans for features in this project
+          const nextPlansByFeatureKey = { ...state.plansByFeatureKey };
+          for (const key of Object.keys(nextPlansByFeatureKey)) {
+            if (key.startsWith(`${event.projectId}:`)) {
+              delete nextPlansByFeatureKey[key];
+            }
+          }
+          return {
+            featuresByProjectId: {
+              ...state.featuresByProjectId,
+              [event.projectId]: event.features,
+            },
+            plansByFeatureKey: nextPlansByFeatureKey,
+          };
+        }
+
         default:
           return state;
       }

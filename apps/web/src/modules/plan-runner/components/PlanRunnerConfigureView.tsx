@@ -10,7 +10,7 @@ import { resolveAppModelSelectionState, getCustomModelOptionsByProvider } from "
 import { getProviderModels } from "~/providerModels";
 import { ProviderModelPicker } from "~/components/chat/ProviderModelPicker";
 import { Button } from "~/components/ui/button";
-import { Badge } from "~/components/ui/badge";
+import { PlanDagView, type DagPlan } from "./PlanDagView";
 
 type PlanFileSummary = {
   planId: string;
@@ -152,35 +152,26 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
     void navigate({ to: "/" });
   }, [navigate]);
 
-  // ── Compute dependency depth for visual grouping ───────────────────
-  const planDepths = useMemo(() => {
-    const depths = new Map<string, number>();
-    const visited = new Set<string>();
-    const planMap = new Map(plans.map((p) => [p.planId, p]));
+  // Adapt PlanFileSummary[] → DagPlan[] for shared DAG component
+  const dagPlans: DagPlan[] = useMemo(
+    () =>
+      plans.map((p) => ({
+        planId: p.planId,
+        filename: p.filename,
+        dependsOn: p.dependsOn,
+      })),
+    [plans],
+  );
 
-    function getDepth(planId: string): number {
-      if (depths.has(planId)) return depths.get(planId)!;
-      if (visited.has(planId)) return 0; // cycle guard
-      visited.add(planId);
-
-      const plan = planMap.get(planId);
-      if (!plan || plan.dependsOn.length === 0) {
-        depths.set(planId, 0);
-        return 0;
-      }
-
-      const maxParentDepth = Math.max(
-        ...plan.dependsOn.map((dep) => (planMap.has(dep) ? getDepth(dep) + 1 : 0)),
-      );
-      depths.set(planId, maxParentDepth);
-      return maxParentDepth;
-    }
-
-    for (const plan of plans) {
-      getDepth(plan.planId);
-    }
-    return depths;
-  }, [plans]);
+  const handleDagPlanClick = useCallback(
+    (plan: DagPlan) => {
+      void navigate({
+        to: "/plan-runner/$featureName/$planId",
+        params: { featureName, planId: plan.planId },
+      });
+    },
+    [navigate, featureName],
+  );
 
   // ── Loading state ──────────────────────────────────────────────────
   if (plans.length === 0) {
@@ -227,20 +218,12 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
           />
         </div>
 
-        {/* Plan list */}
+        {/* Execution DAG */}
         <div className="px-4 py-4">
-          <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Plans ({plans.length})
+          <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Execution graph ({plans.length} plans)
           </h3>
-          <div className="space-y-2">
-            {plans.map((plan) => (
-              <PlanConfigRow
-                key={plan.planId}
-                plan={plan}
-                depth={planDepths.get(plan.planId) ?? 0}
-              />
-            ))}
-          </div>
+          <PlanDagView plans={dagPlans} onPlanClick={handleDagPlanClick} />
         </div>
       </div>
 
@@ -269,42 +252,6 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
               </>
             )}
           </Button>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-// ── Plan row ────────────────────────────────────────────────────────────
-
-const PlanConfigRow = memo(function PlanConfigRow({
-  plan,
-  depth,
-}: {
-  plan: PlanFileSummary;
-  depth: number;
-}) {
-  return (
-    <div
-      className="flex items-center gap-3 rounded-md border px-3 py-2"
-      style={{ marginLeft: depth * 16 }}
-    >
-      <div className="flex flex-1 flex-col gap-0.5">
-        <span className="text-sm font-medium">{plan.filename}</span>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {plan.dependsOn.length > 0 && (
-            <div className="flex items-center gap-1">
-              <span>Depends on:</span>
-              {plan.dependsOn.map((dep) => (
-                <Badge key={dep} variant="outline" size="sm">
-                  {dep}
-                </Badge>
-              ))}
-            </div>
-          )}
-          {plan.dependsOn.length === 0 && <span className="italic">No dependencies</span>}
-          <span>·</span>
-          <span>Retries: {plan.maxRetries}</span>
         </div>
       </div>
     </div>

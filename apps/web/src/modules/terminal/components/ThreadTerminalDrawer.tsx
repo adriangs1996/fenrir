@@ -1,5 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import {
   CheckIcon,
   CopyIcon,
@@ -368,6 +369,7 @@ export function TerminalViewport({
 
     const fitAddon = new FitAddon();
     const serializeAddon = new SerializeAddon();
+    const unicode11Addon = new Unicode11Addon();
     const terminal = new Terminal({
       cursorBlink: true,
       lineHeight: terminalLineHeight,
@@ -375,9 +377,16 @@ export function TerminalViewport({
       scrollback: 5_000,
       fontFamily: buildTerminalFontFamily(terminalFontFamily),
       theme: terminalThemeFromApp(mount),
+      allowProposedApi: true,
     });
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(serializeAddon);
+    // Activate Unicode 11 width tables so PUA Nerd Font glyphs and modern
+    // emoji (U+1F900+) get correct cell width. Without this, xterm's default
+    // Unicode 6 tables miscategorize wide chars and the renderer falls back
+    // to a placeholder character for them.
+    terminal.loadAddon(unicode11Addon);
+    terminal.unicode.activeVersion = "11";
     terminal.open(mount);
     fitAddon.fit();
 

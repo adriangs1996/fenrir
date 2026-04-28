@@ -1,4 +1,16 @@
-import { Effect, FileSystem, Layer, Path, PubSub, Ref, Schema, Stream } from "effect";
+import {
+  Duration,
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  Path,
+  PubSub,
+  Ref,
+  Scope,
+  Schema,
+  Stream,
+} from "effect";
 import type {
   FeatureState,
   ModelSelection,
@@ -19,8 +31,6 @@ import {
 } from "@fenrir/contracts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine";
 import { GitCore } from "../../git/Services/GitCore";
-import { ServerSettingsService } from "../../serverSettings";
-import { TextGeneration } from "../../git/Services/TextGeneration";
 import { PlanRunnerService, type PlanRunnerServiceShape } from "../Services/PlanRunner";
 
 // ─── Internal types ─────────────────────────────────────────────────────────
@@ -219,50 +229,35 @@ export const PlanRunnerLive = Layer.effect(
     const gitCore = yield* GitCore;
     const fs = yield* FileSystem.FileSystem;
     const pathService = yield* Path.Path;
-    const textGeneration = yield* TextGeneration;
-    const serverSettingsService = yield* Effect.service(ServerSettingsService);
 
     const eventPubSub = yield* PubSub.unbounded<PlanRunnerEvent>();
     const activeRuns = yield* Ref.make(new Map<string, PlanRunState>());
 
-    // ── AI dependency extraction ─────────────────────────────────────
-
     /**
-     * Use the configured text generation provider to extract dependencies
-     * from plan file contents. Provider-agnostic: works with Claude, Codex, etc.
-     * Gracefully degrades: returns empty deps on any failure.
+     * Cache for getFeaturePlans results. Key: "projectId:featureName".
+     * Avoids redundant disk reads on repeated sidebar unfolds.
+     * Invalidated by file watcher or when a run starts.
      */
-    const extractDependenciesWithAI = (
-      plans: Array<{ planId: string; content: string }>,
-      modelSelection: ModelSelection,
-    ): Effect.Effect<Map<string, string[]>, never, never> =>
-      Effect.gen(function* () {
-        if (plans.length <= 1) return new Map<string, string[]>();
-
-        const allPlanIds = plans.map((p) => p.planId);
-
-        const result = yield* textGeneration.extractDependencies({
-          planIds: allPlanIds,
-          planContents: plans,
-          modelSelection,
-        });
-
-        // Validate: only keep deps that reference existing plan IDs
-        const resolved = new Map<string, string[]>();
-        const planIdSet = new Set(allPlanIds);
-        for (const [planId, deps] of Object.entries(result.dependencies)) {
-          if (!planIdSet.has(planId)) continue;
-          resolved.set(
-            planId,
-            deps.filter((d) => planIdSet.has(d) && d !== planId),
-          );
+    const featurePlansCache = yield* Ref.make(
+      new Map<
+        string,
+        {
+          plans: Array<{
+            planId: string;
+            filename: string;
+            dependsOn: string[];
+            maxRetries: number;
+            content: string;
+          }>;
+          cachedAt: number;
         }
+      >(),
+    );
 
-        return resolved;
-      }).pipe(
-        // Graceful degradation: any failure returns empty deps
-        Effect.catch(() => Effect.succeed(new Map<string, string[]>())),
-      );
+    /** Track which projects have an active `.plans/` file watcher. */
+    const watchedProjects = yield* Ref.make(new Set<string>());
+    const watcherScope = yield* Scope.make("sequential");
+    yield* Effect.addFinalizer(() => Scope.close(watcherScope, Exit.void));
 
     // ── Project CWD resolver ─────────────────────────────────────────
 
@@ -282,6 +277,110 @@ export const PlanRunnerLive = Layer.effect(
 
     const publishEvent = (event: PlanRunnerEvent) =>
       PubSub.publish(eventPubSub, event).pipe(Effect.asVoid);
+
+    // ── Feature scanner (shared between listFeatures and watcher) ────
+
+    /**
+     * Scan the `.plans/` directory for features and compute their metadata.
+     * Pure filesystem read — no AI. Returns the same shape as `listFeatures`.
+     */
+    const scanFeatures = (projectId: ProjectId, projectCwd: string) =>
+      Effect.gen(function* () {
+        const plansDir = pathService.join(projectCwd, ".plans");
+        const dirEntries = yield* fs
+          .readDirectory(plansDir)
+          .pipe(Effect.catch(() => Effect.succeed([] as string[])));
+        if (dirEntries.length === 0) return [];
+
+        const entries: string[] = [];
+        for (const entry of dirEntries) {
+          const entryPath = pathService.join(plansDir, entry);
+          const stat = yield* fs.stat(entryPath).pipe(Effect.catch(() => Effect.succeed(null)));
+          if (stat?.type === "Directory") {
+            entries.push(entry);
+          }
+        }
+
+        const runs = yield* Ref.get(activeRuns);
+        const features: Array<{
+          featureName: string;
+          planCount: number;
+          hasActiveRun: boolean;
+          activeRunId: PlanRunId | null;
+        }> = [];
+
+        for (const featureName of entries) {
+          const featureDir = pathService.join(plansDir, featureName);
+          const planCount = yield* fs.readDirectory(featureDir).pipe(
+            Effect.map((files) => files.filter((f) => f.endsWith(".md")).length),
+            Effect.catch(() => Effect.succeed(0)),
+          );
+
+          let hasActiveRun = false;
+          let activeRunId: PlanRunId | null = null;
+          for (const run of runs.values()) {
+            if (
+              run.projectId === projectId &&
+              run.featureName === featureName &&
+              run.state !== "completed" &&
+              run.state !== "failed"
+            ) {
+              hasActiveRun = true;
+              activeRunId = run.runId;
+              break;
+            }
+          }
+
+          features.push({ featureName, planCount, hasActiveRun, activeRunId });
+        }
+
+        return features;
+      });
+
+    // ── File watcher for .plans/ directory ────────────────────────────
+
+    /**
+     * Start watching `.plans/` for a project. On any file change (add, remove,
+     * modify), re-scan features and push a `planRunner.featuresChanged` event.
+     * Also invalidates the featurePlansCache for affected features.
+     * Idempotent — only one watcher per project.
+     */
+    const ensurePlansWatcher = (projectId: ProjectId, projectCwd: string) =>
+      Effect.gen(function* () {
+        const watched = yield* Ref.get(watchedProjects);
+        if (watched.has(projectId)) return;
+        yield* Ref.update(watchedProjects, (s) => new Set([...s, projectId]));
+
+        const plansDir = pathService.join(projectCwd, ".plans");
+        const plansDirExists = yield* fs.exists(plansDir);
+        if (!plansDirExists) return;
+
+        // Debounced watch on .plans/ — editors fire multiple events per save
+        const debouncedEvents = fs.watch(plansDir).pipe(Stream.debounce(Duration.millis(200)));
+
+        yield* Stream.runForEach(debouncedEvents, () =>
+          Effect.gen(function* () {
+            // Invalidate all feature plan caches for this project
+            yield* Ref.update(featurePlansCache, (m) => {
+              const next = new Map(m);
+              for (const key of next.keys()) {
+                if (key.startsWith(`${projectId}:`)) {
+                  next.delete(key);
+                }
+              }
+              return next;
+            });
+
+            // Re-scan and publish
+            const features = yield* scanFeatures(projectId, projectCwd);
+            yield* publishEvent({
+              type: "planRunner.featuresChanged",
+              projectId,
+              features,
+            });
+          }).pipe(Effect.ignoreCause({ log: true })),
+        ).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(watcherScope), Effect.asVoid);
+      });
 
     // ── Snapshot builder ──────────────────────────────────────────────
 
@@ -892,24 +991,11 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
           run.plans.set(node.planId, node);
         }
 
-        // AI-based dependency extraction for plans without YAML frontmatter deps
-        const plansNeedingDeps = [...run.plans.values()].filter((p) => p.dependsOn.length === 0);
-        if (plansNeedingDeps.length > 0 && run.plans.size > 1) {
-          const aiDeps = yield* extractDependenciesWithAI(
-            [...run.plans.values()].map((p) => ({
-              planId: p.planId,
-              content: p.content,
-            })),
-            run.modelSelection,
+        // Validate depends_on references — strip deps pointing at non-existent plans
+        for (const node of run.plans.values()) {
+          node.dependsOn = node.dependsOn.filter(
+            (dep) => run.plans.has(dep) && dep !== node.planId,
           );
-          for (const [planId, deps] of aiDeps) {
-            const node = run.plans.get(planId);
-            if (node) {
-              // Merge: keep any existing YAML-parsed deps, add AI-discovered
-              const merged = new Set([...node.dependsOn, ...deps]);
-              node.dependsOn = [...merged];
-            }
-          }
         }
 
         if (run.plans.size === 0) {
@@ -924,70 +1010,6 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
             completedAt: run.completedAt!,
           });
           return;
-        }
-
-        // Spawn analyzer thread for dependency discovery
-        const planSummaries = [...run.plans.values()]
-          .map(
-            (p) =>
-              `## Plan: ${p.planId}\nExplicit deps: [${p.dependsOn.join(", ")}]\n\n${p.content.slice(0, 2000)}`,
-          )
-          .join("\n\n---\n\n");
-
-        const analyzerPrompt = `You are a dependency analyzer for a multi-plan feature implementation.
-Below are plan files for feature "${run.featureName}". Each has an id and may have explicit dependencies.
-Your job:
-1. Verify explicit dependencies are correct
-2. Identify MISSING dependencies (plan A references types/files that plan B creates)
-3. Return ONLY valid JSON, no markdown fences
-
-Output format:
-{ "plans": { "<planId>": { "depends_on": ["<depId>"] } }, "warnings": ["..."] }
-
-Here are the plans:
-
-${planSummaries}`;
-
-        // Run analyzer — graceful degradation on failure
-        const analyzerResponse: string | null = yield* Effect.gen(function* () {
-          const { threadId } = yield* bootstrapThreadWithPrompt({
-            projectId: run.projectId,
-            title: `[PlanRunner] Analyze: ${run.featureName}`,
-            prompt: analyzerPrompt,
-            modelSelection: run.modelSelection,
-            branch: run.branch,
-            worktreePath: run.worktreePath,
-          });
-          run.analyzerThreadId = threadId;
-          yield* waitForThreadTurnComplete(threadId, run);
-          return yield* readLastAssistantMessage(threadId);
-        }).pipe(Effect.catch(() => Effect.succeed(null)));
-
-        // Try to parse analyzer output and merge deps (graceful degradation)
-        if (analyzerResponse) {
-          yield* Effect.try({
-            try: () => {
-              const jsonMatch = analyzerResponse.match(/\{[\s\S]*"plans"[\s\S]*\}/);
-              if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]) as {
-                  plans: Record<string, { depends_on: string[] }>;
-                };
-                for (const [planId, discovered] of Object.entries(parsed.plans)) {
-                  const node = run.plans.get(planId);
-                  if (node && discovered.depends_on) {
-                    const existingDeps = new Set(node.dependsOn);
-                    for (const dep of discovered.depends_on) {
-                      if (run.plans.has(dep) && dep !== planId) {
-                        existingDeps.add(dep);
-                      }
-                    }
-                    node.dependsOn = [...existingDeps];
-                  }
-                }
-              }
-            },
-            catch: (cause) => ({ _tag: "AnalyzerOutputParseError" as const, cause }),
-          }).pipe(Effect.ignore);
         }
 
         // Detect cycles
@@ -1066,9 +1088,9 @@ ${planSummaries}`;
             continue;
           }
 
-          // Execute all ready plans in parallel
+          // Execute ready plans in parallel, capped at 3 concurrent threads
           yield* Effect.forEach(readyPlans, (plan) => executePlan(run, plan), {
-            concurrency: "unbounded",
+            concurrency: 3,
           });
         }
 
@@ -1205,6 +1227,13 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           const runId = PlanRunIdSchema.makeUnsafe(makeId());
           const branchName = `feature/${input.featureName}`;
           const projectCwd = yield* resolveProjectCwd(input.projectId);
+
+          // Invalidate feature plans cache — disk content may have changed
+          yield* Ref.update(featurePlansCache, (m) => {
+            const next = new Map(m);
+            next.delete(`${input.projectId}:${input.featureName}`);
+            return next;
+          });
 
           // Validate .plans directory exists
           const plansDir = pathService.join(projectCwd, ".plans", input.featureName);
@@ -1433,57 +1462,12 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
       listFeatures: (input) =>
         Effect.gen(function* () {
           const projectCwd = yield* resolveProjectCwd(input.projectId);
-          const plansDir = pathService.join(projectCwd, ".plans");
-          const entries: string[] = [];
+          const features = yield* scanFeatures(input.projectId, projectCwd);
 
-          const dirEntries = yield* fs.readDirectory(plansDir).pipe(
-            // .plans/ doesn't exist → empty list
-            Effect.catch(() => Effect.succeed([] as string[])),
+          // Start file watcher for this project (idempotent)
+          yield* ensurePlansWatcher(input.projectId, projectCwd).pipe(
+            Effect.ignoreCause({ log: true }),
           );
-          if (dirEntries.length === 0) return { features: [] };
-
-          for (const entry of dirEntries) {
-            const entryPath = pathService.join(plansDir, entry);
-            const stat = yield* fs.stat(entryPath).pipe(Effect.catch(() => Effect.succeed(null)));
-            if (stat?.type === "Directory") {
-              entries.push(entry);
-            }
-          }
-
-          const runs = yield* Ref.get(activeRuns);
-          const features = [];
-
-          for (const featureName of entries) {
-            const featureDir = pathService.join(plansDir, featureName);
-            const planCount = yield* fs.readDirectory(featureDir).pipe(
-              Effect.map((files) => files.filter((f) => f.endsWith(".md")).length),
-              // skip unreadable dirs
-              Effect.catch(() => Effect.succeed(0)),
-            );
-
-            // Check for active run
-            let hasActiveRun = false;
-            let activeRunId: PlanRunId | null = null;
-            for (const run of runs.values()) {
-              if (
-                run.projectId === input.projectId &&
-                run.featureName === featureName &&
-                run.state !== "completed" &&
-                run.state !== "failed"
-              ) {
-                hasActiveRun = true;
-                activeRunId = run.runId;
-                break;
-              }
-            }
-
-            features.push({
-              featureName,
-              planCount,
-              hasActiveRun,
-              activeRunId,
-            });
-          }
 
           return { features };
         }).pipe(
@@ -1500,6 +1484,15 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
       getFeaturePlans: (input) =>
         Effect.gen(function* () {
+          const cacheKey = `${input.projectId}:${input.featureName}`;
+
+          // Return cached result if available (5 min TTL)
+          const cache = yield* Ref.get(featurePlansCache);
+          const cached = cache.get(cacheKey);
+          if (cached && Date.now() - cached.cachedAt < 5 * 60 * 1000) {
+            return { featureName: input.featureName, plans: cached.plans };
+          }
+
           const projectCwd = yield* resolveProjectCwd(input.projectId);
           const featureDir = pathService.join(projectCwd, ".plans", input.featureName);
 
@@ -1540,28 +1533,20 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             });
           }
 
-          // AI-based dependency extraction for plans without YAML frontmatter deps
-          // Graceful degradation: skip if settings unavailable or AI extraction fails
-          const plansNeedingDeps = plans.filter((p) => p.dependsOn.length === 0);
-          if (plansNeedingDeps.length > 0 && plans.length > 1) {
-            yield* Effect.gen(function* () {
-              const settings = yield* serverSettingsService.getSettings;
-              const aiDeps = yield* extractDependenciesWithAI(
-                plans.map((p) => ({
-                  planId: p.planId,
-                  content: p.content,
-                })),
-                settings.textGenerationModelSelection,
-              );
-              for (const plan of plans) {
-                const discovered = aiDeps.get(plan.planId);
-                if (discovered) {
-                  const merged = new Set([...plan.dependsOn, ...discovered]);
-                  plan.dependsOn = [...merged];
-                }
-              }
-            }).pipe(Effect.ignore);
+          // Validate depends_on: strip refs to non-existent plan IDs
+          const planIdSet = new Set(plans.map((p) => p.planId));
+          for (const plan of plans) {
+            plan.dependsOn = plan.dependsOn.filter(
+              (dep) => planIdSet.has(dep) && dep !== plan.planId,
+            );
           }
+
+          // Cache result
+          yield* Ref.update(featurePlansCache, (m) => {
+            const next = new Map(m);
+            next.set(cacheKey, { plans, cachedAt: Date.now() });
+            return next;
+          });
 
           return { featureName: input.featureName, plans };
         }).pipe(

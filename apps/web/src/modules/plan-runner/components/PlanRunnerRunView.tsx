@@ -1,13 +1,4 @@
-import {
-  ArrowLeftIcon,
-  CheckCircleIcon,
-  CircleIcon,
-  Loader2Icon,
-  XCircleIcon,
-  MinusCircleIcon,
-  EyeIcon,
-  SquareIcon,
-} from "lucide-react";
+import { ArrowLeftIcon, Loader2Icon, SquareIcon } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -19,6 +10,7 @@ import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
+import { PlanDagView, type DagPlan } from "./PlanDagView";
 
 /**
  * Linear progression of feature lifecycle phases. Excludes the terminal
@@ -42,27 +34,6 @@ const PHASE_BADGE_VARIANT: Record<
   completed: "success",
   failed: "destructive",
 };
-
-function PlanNodeIcon({ state }: { state: PlanNodeType["state"] }) {
-  switch (state) {
-    case "blocked":
-      return <CircleIcon className="size-4 text-muted-foreground opacity-50" />;
-    case "ready":
-      return <CircleIcon className="size-4 text-foreground" />;
-    case "running":
-      return <Loader2Icon className="size-4 animate-spin text-blue-500" />;
-    case "reviewing":
-      return <EyeIcon className="size-4 text-yellow-500" />;
-    case "done":
-      return <CheckCircleIcon className="size-4 text-green-500" />;
-    case "failed":
-      return <XCircleIcon className="size-4 text-red-500" />;
-    case "skipped":
-      return <MinusCircleIcon className="size-4 text-muted-foreground line-through" />;
-    default:
-      return <CircleIcon className="size-4" />;
-  }
-}
 
 function formatElapsed(startedAt: string, completedAt: string | null): string {
   const start = new Date(startedAt).getTime();
@@ -124,6 +95,34 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
     [navigate, run],
   );
 
+  // Adapt PlanNode[] → DagPlan[] for the shared DAG component
+  const dagPlans: DagPlan[] = useMemo(() => {
+    if (!run) return [];
+    return run.plans.map((p: PlanNodeType) => ({
+      planId: p.planId,
+      filename: p.filename,
+      dependsOn: p.dependsOn,
+      state: p.state,
+      startedAt: p.startedAt,
+      completedAt: p.completedAt,
+      retriesUsed: p.retriesUsed,
+      maxRetries: p.maxRetries,
+      error: p.error,
+    }));
+  }, [run]);
+
+  const handlePlanClick = useCallback(
+    (plan: DagPlan) => {
+      if (!run) return;
+      // Find matching PlanNode to get thread IDs
+      const node = run.plans.find((p) => p.planId === plan.planId);
+      // Navigate to executor thread if available, else reviewer
+      const threadId = node?.executorThreadId ?? node?.reviewerThreadId;
+      if (threadId) handleThreadClick(threadId);
+    },
+    [run, handleThreadClick],
+  );
+
   if (!run) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
@@ -168,8 +167,6 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
       <div className="flex items-center gap-1 border-b px-4 py-2">
         {(() => {
           const isFailed = run.state === "failed";
-          // When failed, no progression phase is active. Otherwise locate
-          // current phase in the progression.
           const currentIdx = isFailed ? -1 : PROGRESSION_PHASES.indexOf(run.state);
           return PROGRESSION_PHASES.map((phase, i) => {
             const isActive = !isFailed && i === currentIdx;
@@ -205,39 +202,44 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
         )}
       </div>
 
-      {/* Analyzer / Integration thread links */}
-      <div className="flex items-center gap-2 border-b px-4 py-2 text-xs">
-        {run.analyzerThreadId && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleThreadClick(run.analyzerThreadId)}
-          >
-            Analyzer Thread
-          </Button>
-        )}
-        {run.integrationThreadId && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleThreadClick(run.integrationThreadId)}
-          >
-            Integration Thread
-          </Button>
-        )}
-      </div>
+      {/* Thread links */}
+      {(run.analyzerThreadId || run.integrationThreadId) && (
+        <div className="flex items-center gap-2 border-b px-4 py-2 text-xs">
+          {run.analyzerThreadId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleThreadClick(run.analyzerThreadId)}
+            >
+              Analyzer Thread
+            </Button>
+          )}
+          {run.integrationThreadId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleThreadClick(run.integrationThreadId)}
+            >
+              Integration Thread
+            </Button>
+          )}
+        </div>
+      )}
 
-      {/* Plan nodes */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        <div className="space-y-2">
+      {/* DAG visualization */}
+      <div className="flex-1 overflow-auto px-4">
+        <PlanDagView plans={dagPlans} onPlanClick={handlePlanClick} />
+
+        {/* Plan detail table below the DAG */}
+        <div className="mt-2 space-y-1 pb-4">
           {run.plans.map((plan) => (
-            <PlanNodeRow key={plan.planId} plan={plan} onThreadClick={handleThreadClick} />
+            <PlanDetailRow key={plan.planId} plan={plan} onThreadClick={handleThreadClick} />
           ))}
         </div>
 
         {/* Summary */}
         {isTerminal && run.summary && (
-          <div className="mt-4 rounded-md border p-3">
+          <div className="mb-4 rounded-md border p-3">
             <h3 className="mb-1 text-xs font-medium text-muted-foreground">Summary</h3>
             <p className="text-sm">{run.summary}</p>
           </div>
@@ -247,7 +249,9 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
   );
 });
 
-const PlanNodeRow = memo(function PlanNodeRow({
+// ── Compact detail row (below DAG) ─────────────────────────────────────────
+
+const PlanDetailRow = memo(function PlanDetailRow({
   plan,
   onThreadClick,
 }: {
@@ -255,42 +259,37 @@ const PlanNodeRow = memo(function PlanNodeRow({
   onThreadClick: (threadId: string | null) => void;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-md border px-3 py-2">
-      <PlanNodeIcon state={plan.state} />
-      <div className="flex flex-1 flex-col gap-0.5">
-        <span className="text-sm font-medium">{plan.filename}</span>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{plan.state}</span>
-          {plan.retriesUsed > 0 && (
-            <span>
-              retries: {plan.retriesUsed}/{plan.maxRetries}
-            </span>
-          )}
-          {plan.error && <span className="text-destructive">{plan.error}</span>}
-        </div>
-      </div>
-      <div className="flex items-center gap-1">
-        {plan.executorThreadId && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 text-xs"
-            onClick={() => onThreadClick(plan.executorThreadId)}
-          >
-            Executor
-          </Button>
-        )}
-        {plan.reviewerThreadId && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 text-xs"
-            onClick={() => onThreadClick(plan.reviewerThreadId)}
-          >
-            Reviewer
-          </Button>
-        )}
-      </div>
+    <div className="flex items-center gap-2 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent/30">
+      <span className="min-w-0 flex-1 truncate font-medium text-foreground/80">
+        {plan.filename}
+      </span>
+      <span>{plan.state}</span>
+      {plan.retriesUsed > 0 && (
+        <span>
+          retries {plan.retriesUsed}/{plan.maxRetries}
+        </span>
+      )}
+      {plan.error && <span className="max-w-48 truncate text-destructive">{plan.error}</span>}
+      {plan.executorThreadId && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-5 px-1.5 text-[10px]"
+          onClick={() => onThreadClick(plan.executorThreadId)}
+        >
+          Executor
+        </Button>
+      )}
+      {plan.reviewerThreadId && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-5 px-1.5 text-[10px]"
+          onClick={() => onThreadClick(plan.reviewerThreadId)}
+        >
+          Reviewer
+        </Button>
+      )}
     </div>
   );
 });

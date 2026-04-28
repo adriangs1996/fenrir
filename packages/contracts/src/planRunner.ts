@@ -161,6 +161,11 @@ export const PlanRunnerEvent = Schema.Union([
     summary: Schema.NullOr(Schema.String),
     completedAt: IsoDateTime,
   }),
+  Schema.Struct({
+    type: Schema.Literal("planRunner.featuresChanged"),
+    projectId: ProjectId,
+    features: Schema.Array(FeatureSummary),
+  }),
 ]);
 export type PlanRunnerEvent = typeof PlanRunnerEvent.Type;
 

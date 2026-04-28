@@ -1,3 +1,7 @@
+---
+depends_on: [lane-1-contracts, lane-3-web-rpc-client]
+---
+
 # Lane 4: Web UI — Inspector, Repeater, BodyViewer
 
 **Parent**: `19c-browser-phase3-inspector-repeater.md`
