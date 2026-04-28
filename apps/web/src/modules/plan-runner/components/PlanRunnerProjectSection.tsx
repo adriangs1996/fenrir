@@ -6,18 +6,10 @@ import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { PlanRunnerFeatureFolder } from "./PlanRunnerFeatureFolder";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
-import {
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarMenuSubButton,
-} from "~/components/ui/sidebar";
+import { SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton } from "~/components/ui/sidebar";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
-import {
-  Collapsible,
-  CollapsibleTrigger,
-  CollapsibleContent,
-} from "~/components/ui/collapsible";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "~/components/ui/collapsible";
 
 const EMPTY_FEATURES: ReadonlyArray<never> = [];
 
@@ -42,9 +34,7 @@ export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
   environmentId,
 }: PlanRunnerProjectSectionProps) {
   const [expanded, setExpanded] = useState(false);
-  const features = usePlanRunnerStore(
-    (s) => s.featuresByProjectId[projectId] ?? EMPTY_FEATURES,
-  );
+  const features = usePlanRunnerStore((s) => s.featuresByProjectId[projectId] ?? EMPTY_FEATURES);
   const setFeatures = usePlanRunnerStore((s) => s.setFeatures);
   const { handleNewThread } = useNewThreadHandler();
 

@@ -148,7 +148,10 @@ export const TrafficLensServiceLive = Layer.effect(
 
           if (rows.length === 0) {
             return yield* Effect.fail(
-              new TrafficLensNotFoundError({ trafficId: id, message: `Traffic entry ${id} not found` }),
+              new TrafficLensNotFoundError({
+                trafficId: id,
+                message: `Traffic entry ${id} not found`,
+              }),
             );
           }
 

@@ -26,12 +26,7 @@ const CATEGORY_LABELS: Record<SystemFont["category"], string> = {
   other: "Other",
 };
 
-const CATEGORY_ORDER: SystemFont["category"][] = [
-  "monospace",
-  "sans-serif",
-  "serif",
-  "other",
-];
+const CATEGORY_ORDER: SystemFont["category"][] = ["monospace", "sans-serif", "serif", "other"];
 
 export function FontPicker({
   value,
@@ -45,9 +40,7 @@ export function FontPicker({
 
   const visibleFonts = useMemo(
     () =>
-      filterMonospace && !showAllFonts
-        ? fonts.filter((f) => f.category === "monospace")
-        : fonts,
+      filterMonospace && !showAllFonts ? fonts.filter((f) => f.category === "monospace") : fonts,
     [fonts, filterMonospace, showAllFonts],
   );
 
@@ -75,9 +68,7 @@ export function FontPicker({
     return CATEGORY_ORDER.map((category) => ({
       category,
       label: CATEGORY_LABELS[category],
-      items: filteredItems.filter(
-        (family) => fontCategoryMap.get(family) === category,
-      ),
+      items: filteredItems.filter((family) => fontCategoryMap.get(family) === category),
     })).filter((group) => group.items.length > 0);
   }, [filteredItems, fontCategoryMap]);
 
@@ -115,9 +106,7 @@ export function FontPicker({
                 <ComboboxGroupLabel>{group.label}</ComboboxGroupLabel>
                 {group.items.map((family) => (
                   <ComboboxItem key={family} value={family}>
-                    <span style={{ fontFamily: `"${family}"` }}>
-                      {family}
-                    </span>
+                    <span style={{ fontFamily: `"${family}"` }}>{family}</span>
                   </ComboboxItem>
                 ))}
               </ComboboxGroup>

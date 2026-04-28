@@ -49,7 +49,10 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
   it.effect("reads a bootstrap envelope from a provided fd", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const filePath = yield* fs.makeTempFileScoped({ prefix: "fenrir-bootstrap-", suffix: ".ndjson" });
+      const filePath = yield* fs.makeTempFileScoped({
+        prefix: "fenrir-bootstrap-",
+        suffix: ".ndjson",
+      });
 
       yield* fs.writeFileString(
         filePath,
@@ -73,7 +76,10 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
   it.effect("falls back to reading the inherited fd when path duplication fails", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const filePath = yield* fs.makeTempFileScoped({ prefix: "fenrir-bootstrap-", suffix: ".ndjson" });
+      const filePath = yield* fs.makeTempFileScoped({
+        prefix: "fenrir-bootstrap-",
+        suffix: ".ndjson",
+      });
 
       yield* fs.writeFileString(
         filePath,

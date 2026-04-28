@@ -41,9 +41,15 @@ If the project requires explicit per-platform binding, add both:
 
 Match existing entries 1:1 in shape.
 
-### Step 2. Add `neovimFocus` to shortcut context
+### Step 2. Populate `neovimFocus` at runtime
 
-In `keybindings.ts`, find where `ShortcutMatchContext` (or equivalent) is constructed. Add:
+The `ShortcutMatchContext` type was already broadened with
+`neovimFocus?: boolean` in plan 09d (Step 0) so that `useNeovimKeyboard`
+could typecheck without depending on this plan. Here we only wire the
+runtime assignment.
+
+In `keybindings.ts`, find where the shortcut context is constructed
+(search for `terminalFocus`). Add:
 
 ```typescript
 const editorOpen = useNeovimEditorStore.getState().editorOpen;
@@ -51,11 +57,14 @@ const editorOpen = useNeovimEditorStore.getState().editorOpen;
 const shortcutContext = {
   terminalFocus: isTerminalFocused(),
   terminalOpen: Boolean(terminalState.terminalOpen),
-  neovimFocus: editorOpen, // ← ADD
+  neovimFocus: editorOpen, // ← ADD (field already declared optional in 09d)
 };
 ```
 
-Update the `ShortcutMatchContext` TypeScript type to include `neovimFocus: boolean`.
+Do **not** re-narrow the type to `neovimFocus: boolean` — keep the field
+optional so the 09d → 10c chain stays acyclic. If you want the runtime
+assignment to be exhaustive, leave the type optional and document the
+invariant in a JSDoc on the construction site.
 
 ### Step 3. Handle `neovimEditor.toggle` in ChatView keybinding handler
 

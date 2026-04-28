@@ -1,6 +1,6 @@
 ---
 depends_on:
-  - neovim-09f-statusbar-export
+  - neovim-09g-module-barrel
   - neovim-10a-rpc-client-env-api
 ---
 

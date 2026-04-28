@@ -40,10 +40,7 @@ export function isCommandMissingCause(error: unknown): boolean {
   return lower.includes("enoent") || lower.includes("notfound");
 }
 
-export const spawnAndCollect = (
-  binaryPath: string,
-  command: ChildProcess.Command,
-) =>
+export const spawnAndCollect = (binaryPath: string, command: ChildProcess.Command) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const child = yield* spawner.spawn(command);
@@ -89,12 +86,7 @@ export function extractAuthBoolean(value: unknown): boolean | undefined {
   if (!value || typeof value !== "object") return undefined;
 
   const record = value as Record<string, unknown>;
-  for (const key of [
-    "authenticated",
-    "isAuthenticated",
-    "loggedIn",
-    "isLoggedIn",
-  ] as const) {
+  for (const key of ["authenticated", "isAuthenticated", "loggedIn", "isLoggedIn"] as const) {
     if (typeof record[key] === "boolean") return record[key];
   }
   for (const key of ["auth", "status", "session", "account"] as const) {

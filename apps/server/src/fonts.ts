@@ -86,9 +86,7 @@ const SANS_SERIF_KEYWORDS = [
   "sans",
 ];
 
-export function classifyFontByName(
-  name: string,
-): "monospace" | "sans-serif" | "serif" | "other" {
+export function classifyFontByName(name: string): "monospace" | "sans-serif" | "serif" | "other" {
   const lower = name.toLowerCase();
   if (MONOSPACE_KEYWORDS.some((kw) => lower.includes(kw))) return "monospace";
   if (SERIF_KEYWORDS.some((kw) => lower.includes(kw))) return "serif";
@@ -124,9 +122,7 @@ export function parseFcListOutput(output: string): SystemFont[] {
     familyMap.set(family, { family, category });
   }
 
-  return Array.from(familyMap.values()).sort((a, b) =>
-    a.family.localeCompare(b.family),
-  );
+  return Array.from(familyMap.values()).sort((a, b) => a.family.localeCompare(b.family));
 }
 
 function parsePowerShellOutput(output: string): SystemFont[] {
@@ -139,9 +135,7 @@ function parsePowerShellOutput(output: string): SystemFont[] {
     familyMap.set(family, { family, category: classifyFontByName(family) });
   }
 
-  return Array.from(familyMap.values()).sort((a, b) =>
-    a.family.localeCompare(b.family),
-  );
+  return Array.from(familyMap.values()).sort((a, b) => a.family.localeCompare(b.family));
 }
 
 async function discoverFonts(): Promise<SystemFont[]> {
@@ -150,18 +144,16 @@ async function discoverFonts(): Promise<SystemFont[]> {
   try {
     if (platform === "darwin" || platform === "linux") {
       try {
-        const { stdout } = await execAsync(
-          'fc-list --format="%{family}:%{style}:%{spacing}\\n"',
-          { timeout: 10_000 },
-        );
+        const { stdout } = await execAsync('fc-list --format="%{family}:%{style}:%{spacing}\\n"', {
+          timeout: 10_000,
+        });
         return parseFcListOutput(stdout);
       } catch {
         if (platform === "darwin") {
           // Fallback: use system_profiler (slower but always available on macOS)
-          const { stdout } = await execAsync(
-            "system_profiler SPFontsDataType -json",
-            { timeout: 15_000 },
-          );
+          const { stdout } = await execAsync("system_profiler SPFontsDataType -json", {
+            timeout: 15_000,
+          });
           const data = JSON.parse(stdout);
           const fonts = data?.SPFontsDataType ?? [];
           const familyMap = new Map<string, SystemFont>();
@@ -173,9 +165,7 @@ async function discoverFonts(): Promise<SystemFont[]> {
               category: classifyFontByName(family),
             });
           }
-          return Array.from(familyMap.values()).sort((a, b) =>
-            a.family.localeCompare(b.family),
-          );
+          return Array.from(familyMap.values()).sort((a, b) => a.family.localeCompare(b.family));
         }
         return [];
       }

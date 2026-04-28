@@ -1,7 +1,7 @@
 ---
 depends_on:
   - neovim-04a-rpc-handlers
-  - neovim-09f-statusbar-export
+  - neovim-09g-module-barrel
 ---
 
 # Plan 10a: WsRpcClient + EnvironmentApi (neovim namespace)

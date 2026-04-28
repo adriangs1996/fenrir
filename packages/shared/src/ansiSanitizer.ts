@@ -40,10 +40,7 @@ function stripStringTerminator(value: string): string {
   return value;
 }
 
-function findStringTerminatorIndex(
-  input: string,
-  start: number,
-): number | null {
+function findStringTerminatorIndex(input: string, start: number): number | null {
   for (let index = start; index < input.length; index += 1) {
     const codePoint = input.charCodeAt(index);
     if (codePoint === 0x07 || codePoint === 0x9c) {
@@ -64,15 +61,9 @@ function isEscapeFinalByte(codePoint: number): boolean {
   return codePoint >= 0x30 && codePoint <= 0x7e;
 }
 
-function findEscapeSequenceEndIndex(
-  input: string,
-  start: number,
-): number | null {
+function findEscapeSequenceEndIndex(input: string, start: number): number | null {
   let cursor = start;
-  while (
-    cursor < input.length &&
-    isEscapeIntermediateByte(input.charCodeAt(cursor))
-  ) {
+  while (cursor < input.length && isEscapeIntermediateByte(input.charCodeAt(cursor))) {
     cursor += 1;
   }
   if (cursor >= input.length) {
@@ -142,9 +133,7 @@ export function sanitizeTerminalHistoryChunk(
           return { visibleText, pendingControlSequence: input.slice(index) };
         }
         const sequence = input.slice(index, terminatorIndex);
-        const content = stripStringTerminator(
-          input.slice(index + 2, terminatorIndex),
-        );
+        const content = stripStringTerminator(input.slice(index + 2, terminatorIndex));
         if (nextCodePoint !== 0x5d || !shouldStripOscSequence(content)) {
           append(sequence);
         }
@@ -152,10 +141,7 @@ export function sanitizeTerminalHistoryChunk(
         continue;
       }
 
-      const escapeSequenceEndIndex = findEscapeSequenceEndIndex(
-        input,
-        index + 1,
-      );
+      const escapeSequenceEndIndex = findEscapeSequenceEndIndex(input, index + 1);
       if (escapeSequenceEndIndex === null) {
         return { visibleText, pendingControlSequence: input.slice(index) };
       }
@@ -184,20 +170,13 @@ export function sanitizeTerminalHistoryChunk(
       continue;
     }
 
-    if (
-      codePoint === 0x9d ||
-      codePoint === 0x90 ||
-      codePoint === 0x9e ||
-      codePoint === 0x9f
-    ) {
+    if (codePoint === 0x9d || codePoint === 0x90 || codePoint === 0x9e || codePoint === 0x9f) {
       const terminatorIndex = findStringTerminatorIndex(input, index + 1);
       if (terminatorIndex === null) {
         return { visibleText, pendingControlSequence: input.slice(index) };
       }
       const sequence = input.slice(index, terminatorIndex);
-      const content = stripStringTerminator(
-        input.slice(index + 1, terminatorIndex),
-      );
+      const content = stripStringTerminator(input.slice(index + 1, terminatorIndex));
       if (codePoint !== 0x9d || !shouldStripOscSequence(content)) {
         append(sequence);
       }

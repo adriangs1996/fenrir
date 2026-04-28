@@ -121,7 +121,9 @@ const EnvServerConfig = Config.all({
   otlpExportIntervalMs: Config.int("FENRIR_OTLP_EXPORT_INTERVAL_MS").pipe(
     Config.withDefault(10_000),
   ),
-  otlpServiceName: Config.string("FENRIR_OTLP_SERVICE_NAME").pipe(Config.withDefault("fenrir-server")),
+  otlpServiceName: Config.string("FENRIR_OTLP_SERVICE_NAME").pipe(
+    Config.withDefault("fenrir-server"),
+  ),
   mode: Config.schema(RuntimeMode, "FENRIR_MODE").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),

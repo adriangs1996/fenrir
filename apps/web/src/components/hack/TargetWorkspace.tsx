@@ -34,9 +34,7 @@ export function TargetWorkspace({ sessionId }: TargetWorkspaceProps) {
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <div className="flex items-center gap-3">
           <span className="font-medium">{session.targetHost}</span>
-          <Badge variant={isMeterpreter ? "default" : "outline"}>
-            {session.type}
-          </Badge>
+          <Badge variant={isMeterpreter ? "default" : "outline"}>{session.type}</Badge>
           <span className="text-sm text-muted-foreground">
             {session.platform} · {session.info}
           </span>

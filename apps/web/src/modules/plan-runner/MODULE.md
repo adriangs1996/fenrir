@@ -4,13 +4,13 @@ UI for discovering `.plans/` folders, browsing plan content, launching runs, mon
 
 ## Public API
 
-| Export | Kind | Purpose |
-|--------|------|---------|
-| `usePlanRunnerStore` | Zustand store | Feature lists, run snapshots, plan content cache |
-| `usePlanRunnerLifecycle` | Hook | Mount-level WS subscription + active run fetch |
-| `PlanRunnerProjectSection` | Component | Per-project sidebar section showing features |
-| `PlanRunnerRunView` | Component | Full run detail page (route component) |
-| `PlanRunnerPlanPreview` | Component | Read-only plan markdown preview (route component) |
+| Export                     | Kind          | Purpose                                           |
+| -------------------------- | ------------- | ------------------------------------------------- |
+| `usePlanRunnerStore`       | Zustand store | Feature lists, run snapshots, plan content cache  |
+| `usePlanRunnerLifecycle`   | Hook          | Mount-level WS subscription + active run fetch    |
+| `PlanRunnerProjectSection` | Component     | Per-project sidebar section showing features      |
+| `PlanRunnerRunView`        | Component     | Full run detail page (route component)            |
+| `PlanRunnerPlanPreview`    | Component     | Read-only plan markdown preview (route component) |
 
 ## Dependencies
 

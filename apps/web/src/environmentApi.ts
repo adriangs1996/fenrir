@@ -37,8 +37,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
     git: {
       pull: rpcClient.git.pull,
       refreshStatus: rpcClient.git.refreshStatus,
-      onStatus: (input, callback, options) =>
-        rpcClient.git.onStatus(input, callback, options),
+      onStatus: (input, callback, options) => rpcClient.git.onStatus(input, callback, options),
       listBranches: rpcClient.git.listBranches,
       createWorktree: rpcClient.git.createWorktree,
       removeWorktree: rpcClient.git.removeWorktree,
@@ -63,9 +62,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
   };
 }
 
-export function readEnvironmentApi(
-  environmentId: EnvironmentId,
-): EnvironmentApi | undefined {
+export function readEnvironmentApi(environmentId: EnvironmentId): EnvironmentApi | undefined {
   if (typeof window === "undefined") {
     return undefined;
   }
@@ -78,14 +75,10 @@ export function readEnvironmentApi(
   return connection ? createEnvironmentApi(connection.client) : undefined;
 }
 
-export function ensureEnvironmentApi(
-  environmentId: EnvironmentId,
-): EnvironmentApi {
+export function ensureEnvironmentApi(environmentId: EnvironmentId): EnvironmentApi {
   const api = readEnvironmentApi(environmentId);
   if (!api) {
-    throw new Error(
-      `Environment API not found for environment ${environmentId}`,
-    );
+    throw new Error(`Environment API not found for environment ${environmentId}`);
   }
   return api;
 }

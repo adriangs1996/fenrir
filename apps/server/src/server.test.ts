@@ -82,7 +82,10 @@ import { ServerLifecycleEvents, type ServerLifecycleEventsShape } from "./server
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService, type ServerSettingsShape } from "./serverSettings.ts";
 import { TerminalManager, type TerminalManagerShape } from "./terminal/Services/Manager.ts";
-import { TmuxSessionManager, type TmuxSessionManagerShape } from "./terminal/Services/TmuxSessionManager.ts";
+import {
+  TmuxSessionManager,
+  type TmuxSessionManagerShape,
+} from "./terminal/Services/TmuxSessionManager.ts";
 import {
   BrowserTraceCollector,
   type BrowserTraceCollectorShape,
@@ -106,8 +109,14 @@ import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
 import { GlobalActionsService, type GlobalActionsShape } from "./globalActions.ts";
-import { MetasploitService, type MetasploitServiceShape } from "./metasploit/Services/MetasploitService.ts";
-import { MetasploitShellAdapter, type MetasploitShellAdapterShape } from "./metasploit/Services/MetasploitShellAdapter.ts";
+import {
+  MetasploitService,
+  type MetasploitServiceShape,
+} from "./metasploit/Services/MetasploitService.ts";
+import {
+  MetasploitShellAdapter,
+  type MetasploitShellAdapterShape,
+} from "./metasploit/Services/MetasploitShellAdapter.ts";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
@@ -319,7 +328,9 @@ const buildAppUnderTest = (options?: {
 }) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    const tempBaseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "fenrir-router-test-" });
+    const tempBaseDir = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "fenrir-router-test-",
+    });
     const baseDir = options?.config?.baseDir ?? tempBaseDir;
     const devUrl = options?.config?.devUrl;
     const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
@@ -431,7 +442,13 @@ const buildAppUnderTest = (options?: {
           isAvailable: Effect.succeed(false),
           start: () => Effect.void,
           stop: () => Effect.void,
-          status: () => Effect.succeed({ connected: false, version: null, listenersCount: 0, sessionsCount: 0 }),
+          status: () =>
+            Effect.succeed({
+              connected: false,
+              version: null,
+              listenersCount: 0,
+              sessionsCount: 0,
+            }),
           createListener: () => Effect.die(new Error("not available in test")),
           stopListener: () => Effect.void,
           listListeners: () => Effect.succeed([]),
@@ -737,7 +754,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const staticDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "fenrir-router-static-" });
+      const staticDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "fenrir-router-static-",
+      });
       const indexPath = path.join(staticDir, "index.html");
       yield* fileSystem.writeFileString(indexPath, "<html>router-static-ok</html>");
 
@@ -1812,7 +1831,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "fenrir-ws-auth-required-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "fenrir-ws-auth-required-",
+      });
       yield* fs.writeFileString(
         path.join(workspaceDir, "needle-file.ts"),
         "export const needle = 1;",
@@ -1984,7 +2005,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "fenrir-ws-project-search-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "fenrir-ws-project-search-",
+      });
       yield* fs.writeFileString(
         path.join(workspaceDir, "needle-file.ts"),
         "export const needle = 1;",
@@ -2037,7 +2060,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "fenrir-ws-project-write-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "fenrir-ws-project-write-",
+      });
 
       yield* buildAppUnderTest();
 
@@ -2061,7 +2086,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("routes websocket rpc projects.writeFile errors", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "fenrir-ws-project-write-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "fenrir-ws-project-write-",
+      });
 
       yield* buildAppUnderTest();
 

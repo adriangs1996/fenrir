@@ -142,7 +142,8 @@ export const makeGlobalActions = Effect.gen(function* () {
         .exists(globalActionsPath)
         .pipe(
           Effect.mapError(
-            (cause) => new GlobalActionsError("failed to check global-actions.json existence", cause),
+            (cause) =>
+              new GlobalActionsError("failed to check global-actions.json existence", cause),
           ),
         );
       if (!exists) return [] as readonly GlobalScript[];
@@ -167,7 +168,11 @@ export const makeGlobalActions = Effect.gen(function* () {
     },
   );
 
-  const actionsCache = yield* Cache.make<typeof cacheKey, readonly GlobalScript[], GlobalActionsError>({
+  const actionsCache = yield* Cache.make<
+    typeof cacheKey,
+    readonly GlobalScript[],
+    GlobalActionsError
+  >({
     capacity: 1,
     lookup: () => loadFromDisk,
   });
@@ -205,11 +210,13 @@ export const makeGlobalActions = Effect.gen(function* () {
     const actionsFile = pathService.basename(globalActionsPath);
     const actionsPathResolved = pathService.resolve(globalActionsPath);
 
-    yield* fs.makeDirectory(actionsDir, { recursive: true }).pipe(
-      Effect.mapError(
-        (cause) => new GlobalActionsError("failed to prepare global-actions directory", cause),
-      ),
-    );
+    yield* fs
+      .makeDirectory(actionsDir, { recursive: true })
+      .pipe(
+        Effect.mapError(
+          (cause) => new GlobalActionsError("failed to prepare global-actions directory", cause),
+        ),
+      );
 
     const revalidateAndEmitSafely = revalidateAndEmit.pipe(Effect.ignoreCause({ log: true }));
 
@@ -303,9 +310,7 @@ export const makeGlobalActions = Effect.gen(function* () {
       }
       yield* startWatcher.pipe(
         Effect.tap(() => Deferred.succeed(startedDeferred, void 0 as void)),
-        Effect.onError((cause) =>
-          Deferred.failCause(startedDeferred, cause),
-        ),
+        Effect.onError((cause) => Deferred.failCause(startedDeferred, cause)),
       );
     }),
     ready: Deferred.await(startedDeferred),

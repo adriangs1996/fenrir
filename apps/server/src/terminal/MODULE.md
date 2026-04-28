@@ -8,73 +8,73 @@
 
 #### `TerminalManager` (public — consumed by RPC handlers, orchestration)
 
-| Method      | Input                | Output                    | Errors          | Description                                      |
-| ----------- | -------------------- | ------------------------- | --------------- | ------------------------------------------------ |
-| `open`      | `TerminalOpenInput`  | `TerminalSessionSnapshot` | `TerminalError` | Open or attach to terminal session for thread     |
-| `write`     | `TerminalWriteInput` | `void`                    | `TerminalError` | Write input bytes to running terminal             |
-| `resize`    | `TerminalResizeInput`| `void`                    | `TerminalError` | Resize PTY dimensions                             |
-| `clear`     | `TerminalClearInput` | `void`                    | `TerminalError` | Clear terminal output history                     |
-| `restart`   | `TerminalRestartInput`| `TerminalSessionSnapshot`| `TerminalError` | Restart terminal in place, reset history          |
-| `close`     | `TerminalCloseInput` | `void`                    | `TerminalError` | Close terminal(s) for thread                      |
-| `subscribe` | `(TerminalEvent => Effect<void>)` | `() => void`  | —               | Subscribe to terminal runtime events              |
-| `publishTmuxOutput` | `(projectId, data)` | `void`           | —               | Publish tmux output as terminal event             |
-| `publishTmuxExit`   | `(projectId, exitCode, signal)` | `void` | —             | Publish tmux exit as terminal event               |
+| Method              | Input                             | Output                    | Errors          | Description                                   |
+| ------------------- | --------------------------------- | ------------------------- | --------------- | --------------------------------------------- |
+| `open`              | `TerminalOpenInput`               | `TerminalSessionSnapshot` | `TerminalError` | Open or attach to terminal session for thread |
+| `write`             | `TerminalWriteInput`              | `void`                    | `TerminalError` | Write input bytes to running terminal         |
+| `resize`            | `TerminalResizeInput`             | `void`                    | `TerminalError` | Resize PTY dimensions                         |
+| `clear`             | `TerminalClearInput`              | `void`                    | `TerminalError` | Clear terminal output history                 |
+| `restart`           | `TerminalRestartInput`            | `TerminalSessionSnapshot` | `TerminalError` | Restart terminal in place, reset history      |
+| `close`             | `TerminalCloseInput`              | `void`                    | `TerminalError` | Close terminal(s) for thread                  |
+| `subscribe`         | `(TerminalEvent => Effect<void>)` | `() => void`              | —               | Subscribe to terminal runtime events          |
+| `publishTmuxOutput` | `(projectId, data)`               | `void`                    | —               | Publish tmux output as terminal event         |
+| `publishTmuxExit`   | `(projectId, exitCode, signal)`   | `void`                    | —               | Publish tmux exit as terminal event           |
 
 #### `PtyAdapter` (public — also consumed by Metasploit)
 
-| Method  | Input          | Output       | Errors          | Description                    |
-| ------- | -------------- | ------------ | --------------- | ------------------------------ |
-| `spawn` | `PtySpawnInput`| `PtyProcess` | `PtySpawnError` | Spawn PTY process for session  |
+| Method  | Input           | Output       | Errors          | Description                   |
+| ------- | --------------- | ------------ | --------------- | ----------------------------- |
+| `spawn` | `PtySpawnInput` | `PtyProcess` | `PtySpawnError` | Spawn PTY process for session |
 
 #### `TmuxSessionManager` (public — consumed by RPC handlers)
 
-| Method           | Input                   | Output       | Errors                                 | Description                   |
-| ---------------- | ----------------------- | ------------ | -------------------------------------- | ----------------------------- |
-| `createSession`  | `projectId, cwd`        | `void`       | `TmuxSessionError \| TmuxNotFoundError`| Create new tmux session       |
-| `attachSession`  | `projectId, cols, rows` | `PtyProcess` | `TmuxSessionError \| PtySpawnError`    | Attach to tmux session via PTY|
-| `detachSession`  | `projectId`             | `void`       | `TmuxSessionError \| TmuxNotFoundError`| Detach from tmux session      |
-| `killSession`    | `projectId`             | `void`       | `TmuxSessionError \| TmuxNotFoundError`| Kill tmux session             |
-| `hasSession`     | `projectId`             | `boolean`    | —                                      | Check if session exists       |
-| `isTmuxAvailable`| —                       | `boolean`    | —                                      | Check if tmux binary on PATH  |
-| `writeToSession` | `projectId, data`       | `void`       | `TmuxSessionError`                     | Write data to tmux session    |
-| `resizeSession`  | `projectId, cols, rows` | `void`       | `TmuxSessionError`                     | Resize tmux session           |
+| Method            | Input                   | Output       | Errors                                  | Description                    |
+| ----------------- | ----------------------- | ------------ | --------------------------------------- | ------------------------------ |
+| `createSession`   | `projectId, cwd`        | `void`       | `TmuxSessionError \| TmuxNotFoundError` | Create new tmux session        |
+| `attachSession`   | `projectId, cols, rows` | `PtyProcess` | `TmuxSessionError \| PtySpawnError`     | Attach to tmux session via PTY |
+| `detachSession`   | `projectId`             | `void`       | `TmuxSessionError \| TmuxNotFoundError` | Detach from tmux session       |
+| `killSession`     | `projectId`             | `void`       | `TmuxSessionError \| TmuxNotFoundError` | Kill tmux session              |
+| `hasSession`      | `projectId`             | `boolean`    | —                                       | Check if session exists        |
+| `isTmuxAvailable` | —                       | `boolean`    | —                                       | Check if tmux binary on PATH   |
+| `writeToSession`  | `projectId, data`       | `void`       | `TmuxSessionError`                      | Write data to tmux session     |
+| `resizeSession`   | `projectId, cols, rows` | `void`       | `TmuxSessionError`                      | Resize tmux session            |
 
 #### `TerminalHistoryManager` (internal — consumed by TerminalManager only)
 
-| Method             | Input                              | Output   | Errors                 | Description                              |
-| ------------------ | ---------------------------------- | -------- | ---------------------- | ---------------------------------------- |
-| `read`             | `threadId, terminalId`             | `string` | `TerminalHistoryError` | Read and cap history from disk           |
-| `persist`          | `threadId, terminalId, history`    | `void`   | —                      | Immediately persist history              |
-| `queuePersist`     | `threadId, terminalId, history`    | `void`   | —                      | Debounced persist (40ms coalescing)      |
-| `flushPersist`     | `threadId, terminalId`             | `void`   | —                      | Drain pending persist for session        |
-| `delete`           | `threadId, terminalId`             | `void`   | —                      | Delete history file                      |
-| `deleteAllForThread` | `threadId`                       | `void`   | —                      | Delete all history files for thread      |
+| Method               | Input                           | Output   | Errors                 | Description                         |
+| -------------------- | ------------------------------- | -------- | ---------------------- | ----------------------------------- |
+| `read`               | `threadId, terminalId`          | `string` | `TerminalHistoryError` | Read and cap history from disk      |
+| `persist`            | `threadId, terminalId, history` | `void`   | —                      | Immediately persist history         |
+| `queuePersist`       | `threadId, terminalId, history` | `void`   | —                      | Debounced persist (40ms coalescing) |
+| `flushPersist`       | `threadId, terminalId`          | `void`   | —                      | Drain pending persist for session   |
+| `delete`             | `threadId, terminalId`          | `void`   | —                      | Delete history file                 |
+| `deleteAllForThread` | `threadId`                      | `void`   | —                      | Delete all history files for thread |
 
 #### `TerminalShellResolver` (internal — consumed by TerminalManager only)
 
-| Method            | Input                                    | Output            | Errors | Description                           |
-| ----------------- | ---------------------------------------- | ----------------- | ------ | ------------------------------------- |
-| `resolve`         | —                                        | `ShellCandidate[]`| —      | Ordered shell candidates with fallback|
-| `createSpawnEnv`  | `baseEnv, runtimeEnv?`                   | `ProcessEnv`      | —      | Filtered env for PTY spawn            |
+| Method           | Input                  | Output             | Errors | Description                            |
+| ---------------- | ---------------------- | ------------------ | ------ | -------------------------------------- |
+| `resolve`        | —                      | `ShellCandidate[]` | —      | Ordered shell candidates with fallback |
+| `createSpawnEnv` | `baseEnv, runtimeEnv?` | `ProcessEnv`       | —      | Filtered env for PTY spawn             |
 
 #### `TerminalProcessLifecycle` (internal — consumed by TerminalManager only)
 
-| Method                    | Input                              | Output    | Errors | Description                                   |
-| ------------------------- | ---------------------------------- | --------- | ------ | --------------------------------------------- |
-| `killProcess`             | `process, threadId, terminalId`    | `void`    | —      | SIGTERM → grace period → SIGKILL escalation   |
-| `checkSubprocessActivity` | `terminalPid`                      | `boolean` | —      | Platform-specific subprocess detection        |
+| Method                    | Input                           | Output    | Errors | Description                                 |
+| ------------------------- | ------------------------------- | --------- | ------ | ------------------------------------------- |
+| `killProcess`             | `process, threadId, terminalId` | `void`    | —      | SIGTERM → grace period → SIGKILL escalation |
+| `checkSubprocessActivity` | `terminalPid`                   | `boolean` | —      | Platform-specific subprocess detection      |
 
 ### Events Emitted
 
-| Event               | Schema                    | When                                  |
-| ------------------- | ------------------------- | ------------------------------------- |
-| `started`           | `TerminalStartedEvent`    | New session spawned                   |
-| `output`            | `TerminalOutputEvent`     | PTY produces output data              |
-| `exited`            | `TerminalExitedEvent`     | PTY process exits                     |
-| `error`             | `TerminalErrorEvent`      | Spawn or runtime failure              |
-| `cleared`           | `TerminalClearedEvent`    | History cleared                       |
-| `restarted`         | `TerminalRestartedEvent`  | Session restarted                     |
-| `activity`          | `TerminalActivityEvent`   | Subprocess activity state changed     |
+| Event       | Schema                   | When                              |
+| ----------- | ------------------------ | --------------------------------- |
+| `started`   | `TerminalStartedEvent`   | New session spawned               |
+| `output`    | `TerminalOutputEvent`    | PTY produces output data          |
+| `exited`    | `TerminalExitedEvent`    | PTY process exits                 |
+| `error`     | `TerminalErrorEvent`     | Spawn or runtime failure          |
+| `cleared`   | `TerminalClearedEvent`   | History cleared                   |
+| `restarted` | `TerminalRestartedEvent` | Session restarted                 |
+| `activity`  | `TerminalActivityEvent`  | Subprocess activity state changed |
 
 ### Contracts (from `@fenrir/contracts`)
 
@@ -89,11 +89,11 @@
 
 ### Services Consumed
 
-| Service        | From Module         | Why                                      |
-| -------------- | ------------------- | ---------------------------------------- |
-| `PtyAdapter`   | `terminal/Services` | Spawn PTY processes                      |
-| `ServerConfig` | `config`            | `terminalLogsDir` path                   |
-| `FileSystem`   | `effect`            | Read/write history files                 |
+| Service        | From Module         | Why                      |
+| -------------- | ------------------- | ------------------------ |
+| `PtyAdapter`   | `terminal/Services` | Spawn PTY processes      |
+| `ServerConfig` | `config`            | `terminalLogsDir` path   |
+| `FileSystem`   | `effect`            | Read/write history files |
 
 ### Packages
 

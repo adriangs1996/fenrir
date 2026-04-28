@@ -168,16 +168,17 @@ describe("float32", () => {
 describe("float64", () => {
   it("decodes 3.141592653589793", () => {
     // IEEE 754 float64 for PI = 0x400921fb54442d18
-    expect(
-      msgpackDecode(bytes(0xcb, 0x40, 0x09, 0x21, 0xfb, 0x54, 0x44, 0x2d, 0x18)),
-    ).toBeCloseTo(Math.PI, 14);
+    expect(msgpackDecode(bytes(0xcb, 0x40, 0x09, 0x21, 0xfb, 0x54, 0x44, 0x2d, 0x18))).toBeCloseTo(
+      Math.PI,
+      14,
+    );
   });
 
   it("decodes -0.1", () => {
     // IEEE 754 float64 for -0.1 = 0xBFB999999999999A
-    expect(
-      msgpackDecode(bytes(0xcb, 0xbf, 0xb9, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9a)),
-    ).toBeCloseTo(-0.1);
+    expect(msgpackDecode(bytes(0xcb, 0xbf, 0xb9, 0x99, 0x99, 0x99, 0x99, 0x99, 0x9a))).toBeCloseTo(
+      -0.1,
+    );
   });
 });
 
@@ -203,9 +204,7 @@ describe("fixstr", () => {
     const s = "café";
     const encoded = utf8(s);
     // fixstr with the encoded byte length
-    expect(
-      msgpackDecode(concat(bytes(0xa0 | encoded.length), encoded)),
-    ).toBe(s);
+    expect(msgpackDecode(concat(bytes(0xa0 | encoded.length), encoded))).toBe(s);
   });
 });
 
@@ -228,9 +227,7 @@ describe("str16", () => {
     const s = "B".repeat(300);
     const encoded = utf8(s);
     // str16: 0xda + 2-byte length (big-endian)
-    expect(
-      msgpackDecode(concat(bytes(0xda, 0x01, 0x2c), encoded)),
-    ).toBe(s);
+    expect(msgpackDecode(concat(bytes(0xda, 0x01, 0x2c), encoded))).toBe(s);
   });
 });
 
@@ -239,9 +236,7 @@ describe("str32", () => {
     const s = "C".repeat(100);
     const encoded = utf8(s);
     // str32: 0xdb + 4-byte length
-    expect(
-      msgpackDecode(concat(bytes(0xdb, 0x00, 0x00, 0x00, 100), encoded)),
-    ).toBe(s);
+    expect(msgpackDecode(concat(bytes(0xdb, 0x00, 0x00, 0x00, 100), encoded))).toBe(s);
   });
 });
 
@@ -250,9 +245,7 @@ describe("str32", () => {
 describe("bin8 (Ruby string compat)", () => {
   it("decodes bin8 as UTF-8 string", () => {
     // bin8: 0xc4 + 1-byte length + data
-    expect(
-      msgpackDecode(concat(bytes(0xc4, 6), utf8("result"))),
-    ).toBe("result");
+    expect(msgpackDecode(concat(bytes(0xc4, 6), utf8("result")))).toBe("result");
   });
 
   it("decodes empty bin8 as empty string", () => {
@@ -262,9 +255,7 @@ describe("bin8 (Ruby string compat)", () => {
   it("decodes bin8 with UTF-8 content", () => {
     const s = "données";
     const encoded = utf8(s);
-    expect(
-      msgpackDecode(concat(bytes(0xc4, encoded.length), encoded)),
-    ).toBe(s);
+    expect(msgpackDecode(concat(bytes(0xc4, encoded.length), encoded))).toBe(s);
   });
 });
 
@@ -272,9 +263,7 @@ describe("bin16 (Ruby string compat)", () => {
   it("decodes bin16 as UTF-8 string", () => {
     const s = "D".repeat(300);
     const encoded = utf8(s);
-    expect(
-      msgpackDecode(concat(bytes(0xc5, 0x01, 0x2c), encoded)),
-    ).toBe(s);
+    expect(msgpackDecode(concat(bytes(0xc5, 0x01, 0x2c), encoded))).toBe(s);
   });
 });
 
@@ -282,9 +271,7 @@ describe("bin32 (Ruby string compat)", () => {
   it("decodes bin32 as UTF-8 string", () => {
     const s = "E".repeat(100);
     const encoded = utf8(s);
-    expect(
-      msgpackDecode(concat(bytes(0xc6, 0x00, 0x00, 0x00, 100), encoded)),
-    ).toBe(s);
+    expect(msgpackDecode(concat(bytes(0xc6, 0x00, 0x00, 0x00, 100), encoded))).toBe(s);
   });
 });
 
@@ -308,9 +295,7 @@ describe("fixarray", () => {
 
   it("decodes nested arrays", () => {
     // [[1, 2], [3]]
-    expect(
-      msgpackDecode(bytes(0x92, 0x92, 0x01, 0x02, 0x91, 0x03)),
-    ).toEqual([[1, 2], [3]]);
+    expect(msgpackDecode(bytes(0x92, 0x92, 0x01, 0x02, 0x91, 0x03))).toEqual([[1, 2], [3]]);
   });
 
   it("decodes 15-element array (max fixarray)", () => {
@@ -324,10 +309,7 @@ describe("array16", () => {
   it("decodes 16-element array", () => {
     // array16: 0xdc + 2-byte length + elements
     const elements = new Array(16).fill(0).map((_, i) => i);
-    const data = concat(
-      bytes(0xdc, 0x00, 0x10),
-      bytes(...elements),
-    );
+    const data = concat(bytes(0xdc, 0x00, 0x10), bytes(...elements));
     expect(msgpackDecode(data)).toEqual(elements);
   });
 });
@@ -335,10 +317,7 @@ describe("array16", () => {
 describe("array32", () => {
   it("decodes array with 4-byte length prefix", () => {
     // array32: 0xdd + 4-byte length + elements
-    const data = concat(
-      bytes(0xdd, 0x00, 0x00, 0x00, 0x03),
-      bytes(0x0a, 0x0b, 0x0c),
-    );
+    const data = concat(bytes(0xdd, 0x00, 0x00, 0x00, 0x03), bytes(0x0a, 0x0b, 0x0c));
     expect(msgpackDecode(data)).toEqual([10, 11, 12]);
   });
 });
@@ -353,9 +332,7 @@ describe("fixmap", () => {
 
   it("decodes single-entry map with fixstr keys", () => {
     // { "a": 1 }
-    expect(
-      msgpackDecode(concat(bytes(0x81, 0xa1), utf8("a"), bytes(0x01))),
-    ).toEqual({ a: 1 });
+    expect(msgpackDecode(concat(bytes(0x81, 0xa1), utf8("a"), bytes(0x01)))).toEqual({ a: 1 });
   });
 
   it("decodes multi-entry map with fixstr keys", () => {
@@ -364,8 +341,12 @@ describe("fixmap", () => {
       msgpackDecode(
         concat(
           bytes(0x82),
-          bytes(0xa1), utf8("x"), bytes(0x0a),
-          bytes(0xa1), utf8("y"), bytes(0x14),
+          bytes(0xa1),
+          utf8("x"),
+          bytes(0x0a),
+          bytes(0xa1),
+          utf8("y"),
+          bytes(0x14),
         ),
       ),
     ).toEqual({ x: 10, y: 20 });
@@ -375,22 +356,14 @@ describe("fixmap", () => {
     // Ruby encodes keys as bin8: { "result": "success" }
     expect(
       msgpackDecode(
-        concat(
-          bytes(0x81),
-          bytes(0xc4, 6), utf8("result"),
-          bytes(0xc4, 7), utf8("success"),
-        ),
+        concat(bytes(0x81), bytes(0xc4, 6), utf8("result"), bytes(0xc4, 7), utf8("success")),
       ),
     ).toEqual({ result: "success" });
   });
 
   it("decodes integer keys as stringified", () => {
     // { 42: "val" }
-    expect(
-      msgpackDecode(
-        concat(bytes(0x81, 0x2a, 0xa3), utf8("val")),
-      ),
-    ).toEqual({ "42": "val" });
+    expect(msgpackDecode(concat(bytes(0x81, 0x2a, 0xa3), utf8("val")))).toEqual({ "42": "val" });
   });
 
   it("decodes nested maps", () => {
@@ -399,9 +372,11 @@ describe("fixmap", () => {
       msgpackDecode(
         concat(
           bytes(0x81),
-          bytes(0xa1), utf8("a"),
+          bytes(0xa1),
+          utf8("a"),
           bytes(0x81),
-          bytes(0xa1), utf8("b"),
+          bytes(0xa1),
+          utf8("b"),
           bytes(0x01),
         ),
       ),
@@ -414,9 +389,7 @@ describe("map16", () => {
     // map16: 0xde + 2-byte count + entries
     // { "k": 99 }
     expect(
-      msgpackDecode(
-        concat(bytes(0xde, 0x00, 0x01), bytes(0xa1), utf8("k"), bytes(0x63)),
-      ),
+      msgpackDecode(concat(bytes(0xde, 0x00, 0x01), bytes(0xa1), utf8("k"), bytes(0x63))),
     ).toEqual({ k: 99 });
   });
 });
@@ -442,10 +415,14 @@ describe("Ruby MSFRPC auth.login response", () => {
     const result = msgpackDecode(
       concat(
         bytes(0x82), // fixmap 2 entries
-        bytes(0xc4, 6), utf8("result"),
-        bytes(0xc4, 7), utf8("success"),
-        bytes(0xc4, 5), utf8("token"),
-        bytes(0xc4, 12), utf8("TEMP1234abcd"),
+        bytes(0xc4, 6),
+        utf8("result"),
+        bytes(0xc4, 7),
+        utf8("success"),
+        bytes(0xc4, 5),
+        utf8("token"),
+        bytes(0xc4, 12),
+        utf8("TEMP1234abcd"),
       ),
     );
     expect(result).toEqual({ result: "success", token: "TEMP1234abcd" });
@@ -456,14 +433,20 @@ describe("Ruby MSFRPC auth.login response", () => {
     const result = msgpackDecode(
       concat(
         bytes(0x81), // fixmap 1 entry
-        bytes(0xc4, 1), utf8("1"), // key "1" as bin8
+        bytes(0xc4, 1),
+        utf8("1"), // key "1" as bin8
         bytes(0x83), // fixmap 3 entries
-        bytes(0xc4, 4), utf8("type"),
-        bytes(0xc4, 5), utf8("shell"),
-        bytes(0xc4, 4), utf8("info"),
+        bytes(0xc4, 4),
+        utf8("type"),
+        bytes(0xc4, 5),
+        utf8("shell"),
+        bytes(0xc4, 4),
+        utf8("info"),
         bytes(0xc4, 0), // empty string
-        bytes(0xc4, 12), utf8("session_host"),
-        bytes(0xc4, 8), utf8("10.0.0.5"),
+        bytes(0xc4, 12),
+        utf8("session_host"),
+        bytes(0xc4, 8),
+        utf8("10.0.0.5"),
       ),
     );
     expect(result).toEqual({
@@ -480,10 +463,13 @@ describe("Ruby MSFRPC auth.login response", () => {
     const result = msgpackDecode(
       concat(
         bytes(0x82),
-        bytes(0xc4, 6), utf8("job_id"),
+        bytes(0xc4, 6),
+        utf8("job_id"),
         bytes(0x00), // fixint 0
-        bytes(0xc4, 4), utf8("uuid"),
-        bytes(0xc4, 6), utf8("abc123"),
+        bytes(0xc4, 4),
+        utf8("uuid"),
+        bytes(0xc4, 6),
+        utf8("abc123"),
       ),
     );
     expect(result).toEqual({ job_id: 0, uuid: "abc123" });
@@ -494,14 +480,20 @@ describe("Ruby MSFRPC auth.login response", () => {
     const result = msgpackDecode(
       concat(
         bytes(0x83), // fixmap 3 entries
-        bytes(0xc4, 5), utf8("error"),
+        bytes(0xc4, 5),
+        utf8("error"),
         bytes(0xc3), // true
-        bytes(0xc4, 13), utf8("error_message"),
-        bytes(0xc4, 9), utf8("not found"),
-        bytes(0xc4, 15), utf8("error_backtrace"),
+        bytes(0xc4, 13),
+        utf8("error_message"),
+        bytes(0xc4, 9),
+        utf8("not found"),
+        bytes(0xc4, 15),
+        utf8("error_backtrace"),
         bytes(0x92), // fixarray 2 elements
-        bytes(0xc4, 5), utf8("line1"),
-        bytes(0xc4, 5), utf8("line2"),
+        bytes(0xc4, 5),
+        utf8("line1"),
+        bytes(0xc4, 5),
+        utf8("line2"),
       ),
     );
     expect(result).toEqual({
@@ -544,9 +536,7 @@ describe("error handling", () => {
 
   it("throws on truncated map value", () => {
     // fixmap 1 entry, key present but value missing
-    expect(() =>
-      msgpackDecode(concat(bytes(0x81, 0xa1), utf8("k"))),
-    ).toThrow(MsgpackDecodeError);
+    expect(() => msgpackDecode(concat(bytes(0x81, 0xa1), utf8("k")))).toThrow(MsgpackDecodeError);
   });
 
   it("throws on truncated array element", () => {

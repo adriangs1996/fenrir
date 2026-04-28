@@ -3,11 +3,9 @@ import { parseFcListOutput, classifyFontByName } from "./fonts";
 
 describe("parseFcListOutput", () => {
   it("parses fc-list colon-separated output", () => {
-    const output = [
-      "Fira Code:Regular:100",
-      "Helvetica:Bold:0",
-      "Times New Roman:Regular:0",
-    ].join("\n");
+    const output = ["Fira Code:Regular:100", "Helvetica:Bold:0", "Times New Roman:Regular:0"].join(
+      "\n",
+    );
 
     const result = parseFcListOutput(output);
     expect(result).toContainEqual({ family: "Fira Code", category: "monospace" });
@@ -16,11 +14,7 @@ describe("parseFcListOutput", () => {
   });
 
   it("deduplicates font families", () => {
-    const output = [
-      "Arial:Regular:0",
-      "Arial:Bold:0",
-      "Arial:Italic:0",
-    ].join("\n");
+    const output = ["Arial:Regular:0", "Arial:Bold:0", "Arial:Italic:0"].join("\n");
 
     const result = parseFcListOutput(output);
     const arialEntries = result.filter((f) => f.family === "Arial");

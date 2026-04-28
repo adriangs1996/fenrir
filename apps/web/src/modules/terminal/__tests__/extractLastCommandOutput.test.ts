@@ -36,11 +36,7 @@ describe("extractLastCommandOutput", () => {
   });
 
   it("extracts output between two zsh prompts", () => {
-    const terminal = createMockTerminal([
-      "~/project % echo hello",
-      "hello",
-      "~/project % ",
-    ]);
+    const terminal = createMockTerminal(["~/project % echo hello", "hello", "~/project % "]);
     expect(extractLastCommandOutput(terminal)).toBe("hello");
   });
 
@@ -51,9 +47,7 @@ describe("extractLastCommandOutput", () => {
       "nothing to commit",
       "❯ ",
     ]);
-    expect(extractLastCommandOutput(terminal)).toBe(
-      "On branch main\nnothing to commit",
-    );
+    expect(extractLastCommandOutput(terminal)).toBe("On branch main\nnothing to commit");
   });
 
   it("returns null when terminal is empty", () => {
@@ -67,19 +61,12 @@ describe("extractLastCommandOutput", () => {
   });
 
   it("returns output after single prompt when only one prompt exists", () => {
-    const terminal = createMockTerminal([
-      "user@host:~$ cat file.txt",
-      "line 1",
-      "line 2",
-    ]);
+    const terminal = createMockTerminal(["user@host:~$ cat file.txt", "line 1", "line 2"]);
     expect(extractLastCommandOutput(terminal)).toBe("line 1\nline 2");
   });
 
   it("returns null when command has no output", () => {
-    const terminal = createMockTerminal([
-      "user@host:~$ touch file.txt",
-      "user@host:~$ ",
-    ]);
+    const terminal = createMockTerminal(["user@host:~$ touch file.txt", "user@host:~$ "]);
     expect(extractLastCommandOutput(terminal)).toBeNull();
   });
 
@@ -97,11 +84,7 @@ describe("extractLastCommandOutput", () => {
   });
 
   it("handles root prompt (#)", () => {
-    const terminal = createMockTerminal([
-      "root@server:/# whoami",
-      "root",
-      "root@server:/# ",
-    ]);
+    const terminal = createMockTerminal(["root@server:/# whoami", "root", "root@server:/# "]);
     expect(extractLastCommandOutput(terminal)).toBe("root");
   });
 

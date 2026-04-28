@@ -1,12 +1,7 @@
 import { assert, describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
-import {
-  TmuxAttachInput,
-  TmuxDetachInput,
-  TmuxSessionSnapshot,
-  TmuxError,
-} from "./terminal";
+import { TmuxAttachInput, TmuxDetachInput, TmuxSessionSnapshot, TmuxError } from "./terminal";
 
 function decode<S extends Schema.Top>(schema: S, input: unknown) {
   return Schema.decodeUnknownEffect(schema as never)(input) as Effect.Effect<
@@ -55,9 +50,7 @@ describe("TmuxDetachInput", () => {
 
   it.effect("rejects empty projectId", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.exit(
-        decode(TmuxDetachInput, { projectId: "" }),
-      );
+      const result = yield* Effect.exit(decode(TmuxDetachInput, { projectId: "" }));
       assert.strictEqual(result._tag, "Failure");
     }),
   );

@@ -34,7 +34,8 @@ function getSystemDark() {
 function getStored(): Theme {
   if (!hasThemeStorage()) return DEFAULT_THEME_SNAPSHOT.theme;
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw === "light" || raw === "dark" || raw === "system" || raw === "catppuccin-mocha") return raw;
+  if (raw === "light" || raw === "dark" || raw === "system" || raw === "catppuccin-mocha")
+    return raw;
   return DEFAULT_THEME_SNAPSHOT.theme;
 }
 

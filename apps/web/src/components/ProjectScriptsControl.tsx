@@ -360,7 +360,7 @@ export default function ProjectScriptsControl({
 
   return (
     <>
-      {(primaryScript || globalScripts.length > 0) ? (
+      {primaryScript || globalScripts.length > 0 ? (
         <Group aria-label="Actions">
           {primaryScript ? (
             <Button
@@ -461,9 +461,7 @@ export default function ProjectScriptsControl({
                   <MenuItem
                     key={script.id}
                     className={`group ${dropdownItemClassName}`}
-                    onClick={(event: React.MouseEvent) =>
-                      onRunGlobalScript(script, event.altKey)
-                    }
+                    onClick={(event: React.MouseEvent) => onRunGlobalScript(script, event.altKey)}
                   >
                     <ScriptIcon icon={script.icon} className="size-4" />
                     <span className="truncate">{script.name}</span>
@@ -504,9 +502,7 @@ export default function ProjectScriptsControl({
         </Group>
       ) : (
         <Menu highlightItemOnHover={false}>
-          <MenuTrigger
-            render={<Button size="xs" variant="outline" aria-label="Add action" />}
-          >
+          <MenuTrigger render={<Button size="xs" variant="outline" aria-label="Add action" />}>
             <PlusIcon className="size-3.5" />
             <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
               Add action
@@ -672,7 +668,10 @@ export default function ProjectScriptsControl({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-            <Button variant="destructive" onClick={globalDialogOpen ? confirmDeleteGlobalScript : confirmDeleteScript}>
+            <Button
+              variant="destructive"
+              onClick={globalDialogOpen ? confirmDeleteGlobalScript : confirmDeleteScript}
+            >
               Delete action
             </Button>
           </AlertDialogFooter>
@@ -700,7 +699,9 @@ export default function ProjectScriptsControl({
       >
         <DialogPopup>
           <DialogHeader>
-            <DialogTitle>{isEditingGlobal ? "Edit Global Action" : "Add Global Action"}</DialogTitle>
+            <DialogTitle>
+              {isEditingGlobal ? "Edit Global Action" : "Add Global Action"}
+            </DialogTitle>
             <DialogDescription>
               Global actions are available in all projects. Run from the top bar or keybindings.
             </DialogDescription>

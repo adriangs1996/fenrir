@@ -1,7 +1,14 @@
 ---
-depends_on:
-  - neovim-01a-input-schemas
+depends_on: []
 ---
+
+<!--
+  No real import edge to @fenrir/contracts: MsgpackCodec.ts imports from
+  @msgpack/msgpack only. Opcode constants are duplicated by design across
+  client/server (see Step 2). Earlier draft listed neovim-01a-input-schemas
+  as a dep — removed because it was spurious.
+-->
+
 
 # Plan 05a: Web MsgpackCodec
 

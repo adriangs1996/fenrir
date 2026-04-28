@@ -1,7 +1,4 @@
-import {
-  INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
-  type TerminalContextDraft,
-} from "./modules/terminal";
+import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER, type TerminalContextDraft } from "./modules/terminal";
 
 export type ComposerPromptSegment =
   | {

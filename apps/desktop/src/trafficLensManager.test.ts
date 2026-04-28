@@ -1,56 +1,54 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 // --- Fake WebContentsView and session ---
-const { fakeSession, fakeWebContents, mockWebContentsView } = vi.hoisted(
-  () => {
-    const fakeWebContents = {
-      loadURL: vi.fn(),
-      getURL: vi.fn(() => "about:blank"),
-      getTitle: vi.fn(() => ""),
-      isLoading: vi.fn(() => false),
-      close: vi.fn(),
-      reload: vi.fn(),
+const { fakeSession, fakeWebContents, mockWebContentsView } = vi.hoisted(() => {
+  const fakeWebContents = {
+    loadURL: vi.fn(),
+    getURL: vi.fn(() => "about:blank"),
+    getTitle: vi.fn(() => ""),
+    isLoading: vi.fn(() => false),
+    close: vi.fn(),
+    reload: vi.fn(),
+    on: vi.fn(),
+    navigationHistory: {
+      canGoBack: vi.fn(() => false),
+      canGoForward: vi.fn(() => false),
+      goBack: vi.fn(),
+      goForward: vi.fn(),
+    },
+    debugger: {
+      attach: vi.fn(),
+      sendCommand: vi.fn(),
       on: vi.fn(),
-      navigationHistory: {
-        canGoBack: vi.fn(() => false),
-        canGoForward: vi.fn(() => false),
-        goBack: vi.fn(),
-        goForward: vi.fn(),
-      },
-      debugger: {
-        attach: vi.fn(),
-        sendCommand: vi.fn(),
-        on: vi.fn(),
-      },
-    };
+    },
+  };
 
-    const fakeView = {
-      webContents: fakeWebContents,
-      setBounds: vi.fn(),
-    };
+  const fakeView = {
+    webContents: fakeWebContents,
+    setBounds: vi.fn(),
+  };
 
-    // Regular function (not arrow) so `new` works
-    const mockWebContentsView = vi.fn(function (_opts: any) {
-      return fakeView;
-    });
+  // Regular function (not arrow) so `new` works
+  const mockWebContentsView = vi.fn(function (_opts: any) {
+    return fakeView;
+  });
 
-    const fakeSession = {
-      setCertificateVerifyProc: vi.fn(),
-      setUserAgent: vi.fn(),
-      cookies: {
-        get: vi.fn(() => Promise.resolve([])),
-        set: vi.fn(() => Promise.resolve()),
-        remove: vi.fn(() => Promise.resolve()),
-      },
-      webRequest: {
-        onHeadersReceived: vi.fn(),
-        onBeforeSendHeaders: vi.fn(),
-      },
-    };
+  const fakeSession = {
+    setCertificateVerifyProc: vi.fn(),
+    setUserAgent: vi.fn(),
+    cookies: {
+      get: vi.fn(() => Promise.resolve([])),
+      set: vi.fn(() => Promise.resolve()),
+      remove: vi.fn(() => Promise.resolve()),
+    },
+    webRequest: {
+      onHeadersReceived: vi.fn(),
+      onBeforeSendHeaders: vi.fn(),
+    },
+  };
 
-    return { fakeSession, fakeWebContents, mockWebContentsView };
-  },
-);
+  return { fakeSession, fakeWebContents, mockWebContentsView };
+});
 
 vi.mock("electron", () => ({
   WebContentsView: mockWebContentsView,
@@ -79,15 +77,11 @@ describe("trafficLensManager", () => {
   describe("createTrafficLensManager", () => {
     it("creates isolated session partition", async () => {
       const electron = await import("electron");
-      expect(electron.session.fromPartition).toHaveBeenCalledWith(
-        "persist:target-browsing",
-      );
+      expect(electron.session.fromPartition).toHaveBeenCalledWith("persist:target-browsing");
     });
 
     it("accepts all certificates in target session", () => {
-      expect(fakeSession.setCertificateVerifyProc).toHaveBeenCalledWith(
-        expect.any(Function),
-      );
+      expect(fakeSession.setCertificateVerifyProc).toHaveBeenCalledWith(expect.any(Function));
       // Call the proc and verify it accepts (calls callback with 0)
       const proc = fakeSession.setCertificateVerifyProc.mock.calls[0]![0];
       const callback = vi.fn();
@@ -128,9 +122,7 @@ describe("trafficLensManager", () => {
 
     it("loads provided URL", () => {
       manager.createTab("https://10.10.10.1");
-      expect(fakeWebContents.loadURL).toHaveBeenCalledWith(
-        "https://10.10.10.1",
-      );
+      expect(fakeWebContents.loadURL).toHaveBeenCalledWith("https://10.10.10.1");
     });
 
     it("loads about:blank when no URL provided", () => {
@@ -142,16 +134,12 @@ describe("trafficLensManager", () => {
       const listener = vi.fn();
       manager.onTabEvent(listener);
       manager.createTab();
-      expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "tab.created" }),
-      );
+      expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: "tab.created" }));
     });
 
     it("registers navigation event listeners on webContents", () => {
       manager.createTab();
-      const eventNames = fakeWebContents.on.mock.calls.map(
-        (c: any) => c[0],
-      );
+      const eventNames = fakeWebContents.on.mock.calls.map((c: any) => c[0]);
       expect(eventNames).toContain("did-navigate");
       expect(eventNames).toContain("did-navigate-in-page");
       expect(eventNames).toContain("page-title-updated");
@@ -187,9 +175,7 @@ describe("trafficLensManager", () => {
     it("calls loadURL on the tab's webContents", () => {
       const snapshot = manager.createTab();
       manager.navigateTab(snapshot.tabId, "https://target.htb");
-      expect(fakeWebContents.loadURL).toHaveBeenCalledWith(
-        "https://target.htb",
-      );
+      expect(fakeWebContents.loadURL).toHaveBeenCalledWith("https://target.htb");
     });
 
     it("throws for unknown tabId", () => {

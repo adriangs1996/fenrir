@@ -1642,20 +1642,23 @@ function registerIpcHandlers(): void {
   ipcMain.handle(TRAFFIC_LENS_GET_TABS_CHANNEL, async () => trafficLensManager?.getTabs() ?? []);
 
   ipcMain.removeHandler(TRAFFIC_LENS_SET_BOUNDS_CHANNEL);
-  ipcMain.handle(TRAFFIC_LENS_SET_BOUNDS_CHANNEL, async (_event, tabId: unknown, bounds: unknown) => {
-    if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-    if (typeof bounds !== "object" || bounds === null) throw new Error("Invalid bounds.");
-    const b = bounds as Record<string, unknown>;
-    if (
-      typeof b.x !== "number" ||
-      typeof b.y !== "number" ||
-      typeof b.width !== "number" ||
-      typeof b.height !== "number"
-    ) {
-      throw new Error("Invalid bounds shape.");
-    }
-    trafficLensManager?.setTabBounds(tabId, { x: b.x, y: b.y, width: b.width, height: b.height });
-  });
+  ipcMain.handle(
+    TRAFFIC_LENS_SET_BOUNDS_CHANNEL,
+    async (_event, tabId: unknown, bounds: unknown) => {
+      if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
+      if (typeof bounds !== "object" || bounds === null) throw new Error("Invalid bounds.");
+      const b = bounds as Record<string, unknown>;
+      if (
+        typeof b.x !== "number" ||
+        typeof b.y !== "number" ||
+        typeof b.width !== "number" ||
+        typeof b.height !== "number"
+      ) {
+        throw new Error("Invalid bounds shape.");
+      }
+      trafficLensManager?.setTabBounds(tabId, { x: b.x, y: b.y, width: b.width, height: b.height });
+    },
+  );
 
   ipcMain.removeHandler(TRAFFIC_LENS_SHOW_TAB_CHANNEL);
   ipcMain.handle(TRAFFIC_LENS_SHOW_TAB_CHANNEL, async (_event, tabId: unknown) => {

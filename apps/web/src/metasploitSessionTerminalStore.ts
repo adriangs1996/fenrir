@@ -17,8 +17,8 @@ interface MetasploitSessionTerminalState {
   getSessionEntries: (sessionId: string) => SessionTerminalEntry[];
 }
 
-export const useMetasploitSessionTerminalStore =
-  create<MetasploitSessionTerminalState>((set, get) => ({
+export const useMetasploitSessionTerminalStore = create<MetasploitSessionTerminalState>(
+  (set, get) => ({
     entries: [],
     nextId: 1,
 
@@ -38,6 +38,6 @@ export const useMetasploitSessionTerminalStore =
         entries: state.entries.filter((e) => e.sessionId !== sessionId),
       })),
 
-    getSessionEntries: (sessionId) =>
-      get().entries.filter((e) => e.sessionId === sessionId),
-  }));
+    getSessionEntries: (sessionId) => get().entries.filter((e) => e.sessionId === sessionId),
+  }),
+);

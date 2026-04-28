@@ -25,10 +25,7 @@ export function useFonts() {
     retry: 2,
   });
 
-  const monospaceFonts = useMemo(
-    () => fonts.filter((f) => f.category === "monospace"),
-    [fonts],
-  );
+  const monospaceFonts = useMemo(() => fonts.filter((f) => f.category === "monospace"), [fonts]);
 
   return { fonts, monospaceFonts, isLoading };
 }

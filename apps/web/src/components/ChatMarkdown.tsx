@@ -121,7 +121,11 @@ function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
   if (cached) return cached;
 
   const promise = getSharedHighlighter({
-    themes: [resolveDiffThemeName("dark"), resolveDiffThemeName("light"), resolveDiffThemeName("catppuccin-mocha")],
+    themes: [
+      resolveDiffThemeName("dark"),
+      resolveDiffThemeName("light"),
+      resolveDiffThemeName("catppuccin-mocha"),
+    ],
     langs: [language as SupportedLanguages],
     preferredHighlighter: "shiki-js",
   }).catch((err) => {

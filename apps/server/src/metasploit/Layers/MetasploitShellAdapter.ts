@@ -47,9 +47,7 @@ export const MetasploitShellAdapterLive = Layer.effect(
           pollTimer = setInterval(async () => {
             if (closed) return;
             try {
-              const data = await runPromise(
-                metasploitService.sessionRead(sessionId),
-              );
+              const data = await runPromise(metasploitService.sessionRead(sessionId));
               if (data && data.length > 0) {
                 for (const cb of dataCallbacks) {
                   try {
@@ -81,10 +79,7 @@ export const MetasploitShellAdapterLive = Layer.effect(
 
           // Subscribe to metasploit events to detect session close
           const unsubscribe = yield* metasploitService.subscribe((event) => {
-            if (
-              event.type === "session.closed" &&
-              event.sessionId === sessionId
-            ) {
+            if (event.type === "session.closed" && event.sessionId === sessionId) {
               if (!closed) {
                 closed = true;
                 if (pollTimer) {
@@ -130,9 +125,7 @@ export const MetasploitShellAdapterLive = Layer.effect(
               // Best-effort resize: send stty for raw shells,
               // structured command for meterpreter
               const sttyCommand = `stty rows ${rows} cols ${cols}\n`;
-              runFork(
-                metasploitService.sessionWrite(sessionId, sttyCommand),
-              );
+              runFork(metasploitService.sessionWrite(sessionId, sttyCommand));
             },
 
             close() {

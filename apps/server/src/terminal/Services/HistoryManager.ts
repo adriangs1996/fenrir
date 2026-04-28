@@ -28,11 +28,7 @@ export interface TerminalHistoryManagerShape {
   /**
    * Immediately persist history to disk and drain any pending writes.
    */
-  readonly persist: (
-    threadId: string,
-    terminalId: string,
-    history: string,
-  ) => Effect.Effect<void>;
+  readonly persist: (threadId: string, terminalId: string, history: string) => Effect.Effect<void>;
 
   /**
    * Queue a debounced history persist (40ms coalescing window).
@@ -46,18 +42,12 @@ export interface TerminalHistoryManagerShape {
   /**
    * Drain any pending persist operations for a session.
    */
-  readonly flushPersist: (
-    threadId: string,
-    terminalId: string,
-  ) => Effect.Effect<void>;
+  readonly flushPersist: (threadId: string, terminalId: string) => Effect.Effect<void>;
 
   /**
    * Delete history file for a single terminal session.
    */
-  readonly delete: (
-    threadId: string,
-    terminalId: string,
-  ) => Effect.Effect<void>;
+  readonly delete: (threadId: string, terminalId: string) => Effect.Effect<void>;
 
   /**
    * Delete all history files for a thread.

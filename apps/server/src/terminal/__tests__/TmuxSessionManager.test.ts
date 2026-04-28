@@ -119,9 +119,7 @@ describe("TmuxSessionManager", () => {
       ptyAdapter.exitCodeBySubcommand.set("new-session", 1);
       const manager = yield* TmuxSessionManager;
 
-      const result = yield* Effect.exit(
-        manager.createSession("proj-1", "/tmp"),
-      );
+      const result = yield* Effect.exit(manager.createSession("proj-1", "/tmp"));
       assert.strictEqual(result._tag, "Failure");
     }).pipe(Effect.provide(TestLayer));
   });
@@ -134,9 +132,7 @@ describe("TmuxSessionManager", () => {
       ptyAdapter.exitCodeBySubcommand.set("new-session", 1);
       const manager = yield* TmuxSessionManager;
 
-      const result = yield* Effect.exit(
-        manager.createSession("proj-1", "/tmp"),
-      );
+      const result = yield* Effect.exit(manager.createSession("proj-1", "/tmp"));
       assert.strictEqual(result._tag, "Failure");
     }).pipe(Effect.provide(TestLayer));
   });
@@ -156,21 +152,18 @@ describe("TmuxSessionManager", () => {
     }).pipe(Effect.provide(TestLayer));
   });
 
-  it.effect(
-    "hasSession returns false when tmux has-session exits non-zero",
-    () => {
-      const ptyAdapter = new FakeTmuxPtyAdapter();
-      const { TestLayer } = makeFakeLayer(ptyAdapter);
+  it.effect("hasSession returns false when tmux has-session exits non-zero", () => {
+    const ptyAdapter = new FakeTmuxPtyAdapter();
+    const { TestLayer } = makeFakeLayer(ptyAdapter);
 
-      return Effect.gen(function* () {
-        ptyAdapter.exitCodeBySubcommand.set("has-session", 1);
-        const manager = yield* TmuxSessionManager;
+    return Effect.gen(function* () {
+      ptyAdapter.exitCodeBySubcommand.set("has-session", 1);
+      const manager = yield* TmuxSessionManager;
 
-        const exists = yield* manager.hasSession("proj-1");
-        assert.isFalse(exists);
-      }).pipe(Effect.provide(TestLayer));
-    },
-  );
+      const exists = yield* manager.hasSession("proj-1");
+      assert.isFalse(exists);
+    }).pipe(Effect.provide(TestLayer));
+  });
 
   it.effect("isTmuxAvailable returns true when tmux -V exits 0", () => {
     const ptyAdapter = new FakeTmuxPtyAdapter();

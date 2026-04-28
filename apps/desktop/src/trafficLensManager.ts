@@ -15,7 +15,10 @@ export interface TrafficLensManager {
   goForward(tabId: string): void;
   reloadTab(tabId: string): void;
   closeTab(tabId: string): void;
-  setTabBounds(tabId: string, bounds: { x: number; y: number; width: number; height: number }): void;
+  setTabBounds(
+    tabId: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ): void;
   showTab(tabId: string): void;
   hideAllTabs(): void;
   getTabs(): TrafficLensTabSnapshot[];
@@ -126,7 +129,10 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
             ? bodyResult.body
             : Buffer.from(bodyResult.body).toString("base64");
 
-          const bodyBytes = Buffer.byteLength(bodyResult.body, bodyResult.base64Encoded ? "base64" : "utf-8");
+          const bodyBytes = Buffer.byteLength(
+            bodyResult.body,
+            bodyResult.base64Encoded ? "base64" : "utf-8",
+          );
           if (responseBody && bodyBytes > MAX_CAPTURE_BODY_BYTES) {
             responseBody = responseBody.slice(0, MAX_CAPTURE_BODY_BYTES);
             bodyTruncated = true;
@@ -156,9 +162,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
           contentType,
           ...(contentLength ? { contentLength: parseInt(String(contentLength), 10) } : {}),
           responseHeadersJson: JSON.stringify(
-            Object.fromEntries(
-              (responseHeaders ?? []).map((h: any) => [h.name, h.value]),
-            ),
+            Object.fromEntries((responseHeaders ?? []).map((h: any) => [h.name, h.value])),
           ),
           responseBody,
           bodyTruncated,
@@ -270,15 +274,17 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     try {
       cdp.attach("1.3");
 
-      cdp.sendCommand("Fetch.enable", {
-        patterns: [
-          { urlPattern: "*", requestStage: "Request" },
-          { urlPattern: "*", requestStage: "Response" },
-        ],
-        handleAuthRequests: true,
-      }).catch((err: unknown) => {
-        console.error("[trafficLensManager] Fetch.enable failed:", err);
-      });
+      cdp
+        .sendCommand("Fetch.enable", {
+          patterns: [
+            { urlPattern: "*", requestStage: "Request" },
+            { urlPattern: "*", requestStage: "Response" },
+          ],
+          handleAuthRequests: true,
+        })
+        .catch((err: unknown) => {
+          console.error("[trafficLensManager] Fetch.enable failed:", err);
+        });
 
       cdp.on("message", (_event: Electron.Event, method: string, params: any) => {
         if (method === "Fetch.requestPaused") {
@@ -385,9 +391,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     return Array.from(activeTabs.keys()).map(getTabSnapshot);
   }
 
-  function onTabEvent(
-    listener: (event: TrafficLensTabEvent) => void,
-  ): () => void {
+  function onTabEvent(listener: (event: TrafficLensTabEvent) => void): () => void {
     stateListeners.push(listener);
     return () => {
       stateListeners = stateListeners.filter((l) => l !== listener);

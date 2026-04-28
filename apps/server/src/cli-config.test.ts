@@ -23,7 +23,10 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
 
   const openBootstrapFd = Effect.fn(function* (payload: Record<string, unknown>) {
     const fs = yield* FileSystem.FileSystem;
-    const filePath = yield* fs.makeTempFileScoped({ prefix: "fenrir-bootstrap-", suffix: ".ndjson" });
+    const filePath = yield* fs.makeTempFileScoped({
+      prefix: "fenrir-bootstrap-",
+      suffix: ".ndjson",
+    });
     yield* fs.writeFileString(filePath, `${JSON.stringify(payload)}\n`);
     const { fd } = yield* fs.open(filePath, { flag: "r" });
     return fd;

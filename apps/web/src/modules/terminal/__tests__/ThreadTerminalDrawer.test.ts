@@ -135,4 +135,3 @@ describe("resolveTerminalSelectionActionPosition", () => {
     ).toEqual([2]);
   });
 });
-

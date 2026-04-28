@@ -8,17 +8,17 @@
 
 #### `useTrafficLensStore` (Zustand)
 
-| Selector/Action  | Input                        | Output                       | Description                                |
-| ---------------- | ---------------------------- | ---------------------------- | ------------------------------------------ |
-| `tabs`           | —                            | `Record<string, TrafficLensTabSnapshot>` | All open tab snapshots        |
-| `activeTabId`    | —                            | `string \| null`             | Currently selected tab                     |
-| `trafficEntries` | —                            | `TrafficLensEntry[]`         | Captured traffic (newest first)            |
-| `upsertTab`      | `TrafficLensTabSnapshot`     | `void`                       | Add or update tab snapshot                 |
-| `removeTab`      | `tabId: string`              | `void`                       | Remove tab, clear activeTabId if matches   |
-| `setActiveTab`   | `tabId: string \| null`      | `void`                       | Switch active tab                          |
-| `applyEvent`     | `TrafficLensTabEvent`        | `void`                       | Apply tab lifecycle event to state         |
-| `appendTraffic`  | `TrafficLensEntry`           | `void`                       | Upsert traffic entry by requestId          |
-| `clearTraffic`   | —                            | `void`                       | Wipe all traffic entries                   |
+| Selector/Action  | Input                    | Output                                   | Description                              |
+| ---------------- | ------------------------ | ---------------------------------------- | ---------------------------------------- |
+| `tabs`           | —                        | `Record<string, TrafficLensTabSnapshot>` | All open tab snapshots                   |
+| `activeTabId`    | —                        | `string \| null`                         | Currently selected tab                   |
+| `trafficEntries` | —                        | `TrafficLensEntry[]`                     | Captured traffic (newest first)          |
+| `upsertTab`      | `TrafficLensTabSnapshot` | `void`                                   | Add or update tab snapshot               |
+| `removeTab`      | `tabId: string`          | `void`                                   | Remove tab, clear activeTabId if matches |
+| `setActiveTab`   | `tabId: string \| null`  | `void`                                   | Switch active tab                        |
+| `applyEvent`     | `TrafficLensTabEvent`    | `void`                                   | Apply tab lifecycle event to state       |
+| `appendTraffic`  | `TrafficLensEntry`       | `void`                                   | Upsert traffic entry by requestId        |
+| `clearTraffic`   | —                        | `void`                                   | Wipe all traffic entries                 |
 
 ### Hooks
 
@@ -64,10 +64,10 @@ Virtual-scrolled table of captured HTTP traffic. Color-coded methods and status 
 
 ### Services Consumed
 
-| Service              | From Module / Package       | Why                                     |
-| -------------------- | --------------------------- | --------------------------------------- |
-| `rpcClient.trafficLens` | `@/rpc/wsRpcClient`     | Traffic queries + event subscription    |
-| `window.desktopBridge`  | Electron preload (IPC)   | Tab lifecycle + bounds sync             |
+| Service                 | From Module / Package  | Why                                  |
+| ----------------------- | ---------------------- | ------------------------------------ |
+| `rpcClient.trafficLens` | `@/rpc/wsRpcClient`    | Traffic queries + event subscription |
+| `window.desktopBridge`  | Electron preload (IPC) | Tab lifecycle + bounds sync          |
 
 ### Packages
 
@@ -77,11 +77,11 @@ Virtual-scrolled table of captured HTTP traffic. Color-coded methods and status 
 
 ## Error Taxonomy
 
-| Error scenario           | Source       | Recovery                                    |
-| ------------------------ | ------------ | ------------------------------------------- |
-| IPC call fails           | desktopBridge | Silently ignore (desktop may not be running) |
-| WS subscription drops    | rpcClient     | Auto-reconnect handled by transport layer   |
-| Tab not found in store   | applyEvent    | No-op (stale event, tab already removed)    |
+| Error scenario         | Source        | Recovery                                     |
+| ---------------------- | ------------- | -------------------------------------------- |
+| IPC call fails         | desktopBridge | Silently ignore (desktop may not be running) |
+| WS subscription drops  | rpcClient     | Auto-reconnect handled by transport layer    |
+| Tab not found in store | applyEvent    | No-op (stale event, tab already removed)     |
 
 ## Filesystem Layout
 
@@ -133,14 +133,17 @@ apps/web/src/modules/traffic-lens/
 ## Extension Points (Future Phases)
 
 ### Phase 3 — Inspector & Repeater
+
 - New component: `TrafficLensInspector.tsx` — request/response detail viewer
 - New component: `TrafficLensRepeater.tsx` — edit + resend requests
 - Store extension: `selectedTrafficId`, `repeaterState`
 
 ### Phase 4 — Header Rules
+
 - New component: `TrafficLensHeaderRules.tsx` — rule CRUD UI
 - Store extension: `headerRules` state slice
 
 ### Phase 5 — Sitemap, Cookies, WebSocket Frames
+
 - New components: `TrafficLensSitemap.tsx`, `TrafficLensCookieManager.tsx`, `TrafficLensWebSocketViewer.tsx`
 - Store extension: computed sitemap from traffic entries, cookie state, WS frame state

@@ -48,8 +48,7 @@ const makeRoutingTextGeneration = Effect.gen(function* () {
     generatePrContent: (input) => route(input.modelSelection.provider).generatePrContent(input),
     generateBranchName: (input) => route(input.modelSelection.provider).generateBranchName(input),
     generateThreadTitle: (input) => route(input.modelSelection.provider).generateThreadTitle(input),
-    extractDependencies: (input) =>
-      route(input.modelSelection.provider).extractDependencies(input),
+    extractDependencies: (input) => route(input.modelSelection.provider).extractDependencies(input),
   } satisfies TextGenerationShape;
 });
 

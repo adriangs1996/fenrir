@@ -103,8 +103,6 @@ describe("TrafficLensTabEvent", () => {
   });
 
   it("rejects unknown event type", () => {
-    expect(() =>
-      decodeTabEvent({ type: "tab.unknown", tabId: "t1" }),
-    ).toThrow();
+    expect(() => decodeTabEvent({ type: "tab.unknown", tabId: "t1" })).toThrow();
   });
 });

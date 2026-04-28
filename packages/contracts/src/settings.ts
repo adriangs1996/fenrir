@@ -45,9 +45,7 @@ export const ClientSettingsSchema = Schema.Struct({
     ),
     Schema.withDecodingDefault(() => 14),
   ),
-  terminalFontFamily: Schema.String.pipe(
-    Schema.withDecodingDefault(() => "GeistMono Nerd Font"),
-  ),
+  terminalFontFamily: Schema.String.pipe(Schema.withDecodingDefault(() => "GeistMono Nerd Font")),
   terminalFontSize: Schema.Number.pipe(
     Schema.decodeTo(
       Schema.Number,

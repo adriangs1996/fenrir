@@ -30,10 +30,7 @@ export const TmuxSessionManagerLive = Layer.effect(
         })
         .pipe(
           Effect.mapError((err) => {
-            if (
-              err.message.includes("ENOENT") ||
-              err.message.includes("not found")
-            ) {
+            if (err.message.includes("ENOENT") || err.message.includes("not found")) {
               return new TmuxNotFoundError();
             }
 
@@ -47,10 +44,7 @@ export const TmuxSessionManagerLive = Layer.effect(
       createSession: (projectId, cwd) =>
         Effect.gen(function* () {
           const name = sanitizeSessionName(projectId);
-          const proc = yield* execTmux(
-            ["new-session", "-d", "-s", name, "-c", cwd],
-            name,
-          );
+          const proc = yield* execTmux(["new-session", "-d", "-s", name, "-c", cwd], name);
           yield* Effect.callback<void, TmuxSessionError>((resume) => {
             proc.onExit((event) => {
               if (event.exitCode === 0) {
@@ -106,9 +100,7 @@ export const TmuxSessionManagerLive = Layer.effect(
           );
           if (!proc) return false;
           return yield* Effect.callback<boolean>((resume) => {
-            proc.onExit((event) =>
-              resume(Effect.succeed(event.exitCode === 0)),
-            );
+            proc.onExit((event) => resume(Effect.succeed(event.exitCode === 0)));
           });
         }),
 
@@ -160,16 +152,12 @@ export const TmuxSessionManagerLive = Layer.effect(
           const exists = yield* Effect.gen(function* () {
             const proc = yield* execTmux(["has-session", "-t", name], name);
             return yield* Effect.callback<boolean>((resume) => {
-              proc.onExit((event) =>
-                resume(Effect.succeed(event.exitCode === 0)),
-              );
+              proc.onExit((event) => resume(Effect.succeed(event.exitCode === 0)));
             });
           }).pipe(Effect.orElseSucceed(() => false));
 
           if (!exists) {
-            return yield* Effect.fail(
-              new TmuxSessionError(name, `Session ${name} does not exist`),
-            );
+            return yield* Effect.fail(new TmuxSessionError(name, `Session ${name} does not exist`));
           }
 
           // Kill previous attached client to avoid duplicate output forwarding

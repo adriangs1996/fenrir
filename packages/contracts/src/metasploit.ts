@@ -11,12 +11,12 @@ export type MsfSessionId = typeof MsfSessionId.Type;
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
-const TerminalColsSchema = Schema.Int.check(
-  Schema.isGreaterThanOrEqualTo(20),
-).check(Schema.isLessThanOrEqualTo(400));
-const TerminalRowsSchema = Schema.Int.check(
-  Schema.isGreaterThanOrEqualTo(5),
-).check(Schema.isLessThanOrEqualTo(200));
+const TerminalColsSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(20)).check(
+  Schema.isLessThanOrEqualTo(400),
+);
+const TerminalRowsSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(5)).check(
+  Schema.isLessThanOrEqualTo(200),
+);
 
 export const ListenerStatus = Schema.Literals([
   "starting",
@@ -27,11 +27,7 @@ export const ListenerStatus = Schema.Literals([
 ]);
 export type ListenerStatus = typeof ListenerStatus.Type;
 
-export const MsfSessionStatus = Schema.Literals([
-  "open",
-  "upgrading",
-  "closed",
-]);
+export const MsfSessionStatus = Schema.Literals(["open", "upgrading", "closed"]);
 export type MsfSessionStatus = typeof MsfSessionStatus.Type;
 
 export const MsfSessionType = Schema.Literals(["shell", "meterpreter"]);
@@ -103,9 +99,7 @@ export type StopListenerInput = typeof StopListenerInput.Type;
 
 export const SessionWriteInput = Schema.Struct({
   sessionId: TrimmedNonEmptyString,
-  data: Schema.String.check(Schema.isNonEmpty()).check(
-    Schema.isMaxLength(65_536),
-  ),
+  data: Schema.String.check(Schema.isNonEmpty()).check(Schema.isMaxLength(65_536)),
 });
 export type SessionWriteInput = typeof SessionWriteInput.Type;
 

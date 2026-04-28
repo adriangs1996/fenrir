@@ -4,10 +4,10 @@
 
 ## Public API
 
-| Function                          | Input                               | Output                                              | Description                                        |
-| --------------------------------- | ----------------------------------- | --------------------------------------------------- | -------------------------------------------------- |
-| `sanitizeTerminalHistoryChunk`    | `pendingControlSequence, data`      | `{ visibleText, pendingControlSequence }`           | Incremental sanitization with partial sequence carry |
-| `capHistory`                      | `history, maxLines`                 | `string`                                            | Cap history to N lines from end                    |
+| Function                       | Input                          | Output                                    | Description                                          |
+| ------------------------------ | ------------------------------ | ----------------------------------------- | ---------------------------------------------------- |
+| `sanitizeTerminalHistoryChunk` | `pendingControlSequence, data` | `{ visibleText, pendingControlSequence }` | Incremental sanitization with partial sequence carry |
+| `capHistory`                   | `history, maxLines`            | `string`                                  | Cap history to N lines from end                      |
 
 ### Internal Helpers (not exported)
 

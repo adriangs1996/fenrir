@@ -1,9 +1,5 @@
 import { create } from "zustand";
-import type {
-  ListenerSnapshot,
-  MsfSessionSnapshot,
-  MetasploitEvent,
-} from "@fenrir/contracts";
+import type { ListenerSnapshot, MsfSessionSnapshot, MetasploitEvent } from "@fenrir/contracts";
 
 interface MetasploitState {
   connected: boolean;
@@ -46,8 +42,7 @@ export const useMetasploitStore = create<MetasploitState>((set) => ({
       const { [sessionId]: _, ...rest } = state.sessions;
       return {
         sessions: rest,
-        activeSessionId:
-          state.activeSessionId === sessionId ? null : state.activeSessionId,
+        activeSessionId: state.activeSessionId === sessionId ? null : state.activeSessionId,
       };
     }),
   setActiveSessionId: (sessionId) => set({ activeSessionId: sessionId }),
@@ -77,9 +72,7 @@ export const useMetasploitStore = create<MetasploitState>((set) => ({
           return {
             sessions: rest,
             activeSessionId:
-              state.activeSessionId === event.sessionId
-                ? null
-                : state.activeSessionId,
+              state.activeSessionId === event.sessionId ? null : state.activeSessionId,
           };
         }
         case "session.output":

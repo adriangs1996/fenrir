@@ -20,9 +20,18 @@ import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 
-const PHASE_LABELS: FeatureStateType[] = ["analyzing", "executing", "integrating", "completed", "failed"];
+const PHASE_LABELS: FeatureStateType[] = [
+  "analyzing",
+  "executing",
+  "integrating",
+  "completed",
+  "failed",
+];
 
-const PHASE_BADGE_VARIANT: Record<string, "info" | "warning" | "success" | "destructive" | "outline"> = {
+const PHASE_BADGE_VARIANT: Record<
+  string,
+  "info" | "warning" | "success" | "destructive" | "outline"
+> = {
   analyzing: "info",
   executing: "info",
   integrating: "warning",
@@ -159,12 +168,16 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
           return (
             <div key={phase} className="flex items-center gap-1">
               {i > 0 && (
-                <div
-                  className={`h-px w-4 ${isPast || isActive ? "bg-primary" : "bg-border"}`}
-                />
+                <div className={`h-px w-4 ${isPast || isActive ? "bg-primary" : "bg-border"}`} />
               )}
               <Badge
-                variant={isActive ? (PHASE_BADGE_VARIANT[phase] ?? "outline") : isPast ? "success" : "outline"}
+                variant={
+                  isActive
+                    ? (PHASE_BADGE_VARIANT[phase] ?? "outline")
+                    : isPast
+                      ? "success"
+                      : "outline"
+                }
                 size="sm"
               >
                 {phase}
@@ -200,20 +213,14 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
       <div className="flex-1 overflow-y-auto px-4 py-3">
         <div className="space-y-2">
           {run.plans.map((plan) => (
-            <PlanNodeRow
-              key={plan.planId}
-              plan={plan}
-              onThreadClick={handleThreadClick}
-            />
+            <PlanNodeRow key={plan.planId} plan={plan} onThreadClick={handleThreadClick} />
           ))}
         </div>
 
         {/* Summary */}
         {isTerminal && run.summary && (
           <div className="mt-4 rounded-md border p-3">
-            <h3 className="mb-1 text-xs font-medium text-muted-foreground">
-              Summary
-            </h3>
+            <h3 className="mb-1 text-xs font-medium text-muted-foreground">Summary</h3>
             <p className="text-sm">{run.summary}</p>
           </div>
         )}

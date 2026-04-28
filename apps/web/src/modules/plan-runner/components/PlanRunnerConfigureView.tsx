@@ -1,10 +1,4 @@
-import {
-  ArrowLeftIcon,
-  PlayIcon,
-  Loader2Icon,
-  GitBranchIcon,
-  AlertCircleIcon,
-} from "lucide-react";
+import { ArrowLeftIcon, PlayIcon, Loader2Icon, GitBranchIcon, AlertCircleIcon } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { ProjectId, ProviderKind, ModelSelection } from "@fenrir/contracts";
@@ -12,10 +6,7 @@ import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { useSettings } from "~/hooks/useSettings";
 import { useServerProviders } from "~/rpc/serverState";
-import {
-  resolveAppModelSelectionState,
-  getCustomModelOptionsByProvider,
-} from "~/modelSelection";
+import { resolveAppModelSelectionState, getCustomModelOptionsByProvider } from "~/modelSelection";
 import { getProviderModels } from "~/providerModels";
 import { ProviderModelPicker } from "~/components/chat/ProviderModelPicker";
 import { Button } from "~/components/ui/button";
@@ -122,14 +113,11 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
     [providers],
   );
 
-  const handleProviderModelChange = useCallback(
-    (provider: ProviderKind, model: string) => {
-      setHasUserSelected(true);
-      setSelectedProvider(provider);
-      setSelectedModel(model);
-    },
-    [],
-  );
+  const handleProviderModelChange = useCallback((provider: ProviderKind, model: string) => {
+    setHasUserSelected(true);
+    setSelectedProvider(provider);
+    setSelectedModel(model);
+  }, []);
 
   // ── Start run ──────────────────────────────────────────────────────
   const [isStarting, setIsStarting] = useState(false);

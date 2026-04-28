@@ -10,8 +10,12 @@ import type {
 
 export interface TrafficLensServiceShape {
   readonly ingestTraffic: (payload: TrafficLensIngestPayload) => Effect.Effect<void>;
-  readonly queryTraffic: (input: TrafficLensQueryInput) => Effect.Effect<readonly TrafficLensEntry[]>;
-  readonly getTrafficDetail: (id: number) => Effect.Effect<TrafficLensDetail, TrafficLensNotFoundError>;
+  readonly queryTraffic: (
+    input: TrafficLensQueryInput,
+  ) => Effect.Effect<readonly TrafficLensEntry[]>;
+  readonly getTrafficDetail: (
+    id: number,
+  ) => Effect.Effect<TrafficLensDetail, TrafficLensNotFoundError>;
   readonly clearTraffic: (tabId?: string) => Effect.Effect<void>;
   readonly subscribe: (listener: (event: TrafficLensEvent) => void) => Effect.Effect<() => void>;
 }

@@ -8,9 +8,7 @@ export function useMetasploitSync(rpcClient: WsRpcClient | null) {
   const setConnected = useMetasploitStore((s) => s.setConnected);
   const upsertListener = useMetasploitStore((s) => s.upsertListener);
   const upsertSession = useMetasploitStore((s) => s.upsertSession);
-  const appendOutput = useMetasploitSessionTerminalStore(
-    (s) => s.appendOutput,
-  );
+  const appendOutput = useMetasploitSessionTerminalStore((s) => s.appendOutput);
 
   useEffect(() => {
     if (!rpcClient) return;
@@ -42,12 +40,5 @@ export function useMetasploitSync(rpcClient: WsRpcClient | null) {
     return () => {
       unsubscribe();
     };
-  }, [
-    rpcClient,
-    applyEvent,
-    setConnected,
-    upsertListener,
-    upsertSession,
-    appendOutput,
-  ]);
+  }, [rpcClient, applyEvent, setConnected, upsertListener, upsertSession, appendOutput]);
 }

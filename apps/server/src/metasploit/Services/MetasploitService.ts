@@ -24,19 +24,13 @@ export interface MetasploitServiceShape {
   readonly isAvailable: Effect.Effect<boolean>;
 
   /** Spawn msfrpcd and connect via MSFRPC */
-  readonly start: () => Effect.Effect<
-    void,
-    MetasploitNotFoundError | MetasploitConnectionError
-  >;
+  readonly start: () => Effect.Effect<void, MetasploitNotFoundError | MetasploitConnectionError>;
 
   /** Kill msfrpcd process and cleanup */
   readonly stop: () => Effect.Effect<void>;
 
   /** Get current Metasploit connection/session status */
-  readonly status: () => Effect.Effect<
-    MetasploitStatusSnapshot,
-    MetasploitConnectionError
-  >;
+  readonly status: () => Effect.Effect<MetasploitStatusSnapshot, MetasploitConnectionError>;
 
   /** Create a multi/handler listener */
   readonly createListener: (
@@ -47,21 +41,13 @@ export interface MetasploitServiceShape {
   >;
 
   /** Stop and remove a listener */
-  readonly stopListener: (
-    listenerId: string,
-  ) => Effect.Effect<void, MetasploitListenerError>;
+  readonly stopListener: (listenerId: string) => Effect.Effect<void, MetasploitListenerError>;
 
   /** List all active listeners */
-  readonly listListeners: () => Effect.Effect<
-    ListenerSnapshot[],
-    MetasploitConnectionError
-  >;
+  readonly listListeners: () => Effect.Effect<ListenerSnapshot[], MetasploitConnectionError>;
 
   /** List all active sessions */
-  readonly listSessions: () => Effect.Effect<
-    MsfSessionSnapshot[],
-    MetasploitConnectionError
-  >;
+  readonly listSessions: () => Effect.Effect<MsfSessionSnapshot[], MetasploitConnectionError>;
 
   /** Write data to a session shell */
   readonly sessionWrite: (
@@ -70,9 +56,7 @@ export interface MetasploitServiceShape {
   ) => Effect.Effect<void, MetasploitSessionError>;
 
   /** Read buffered output from a session shell */
-  readonly sessionRead: (
-    sessionId: string,
-  ) => Effect.Effect<string, MetasploitSessionError>;
+  readonly sessionRead: (sessionId: string) => Effect.Effect<string, MetasploitSessionError>;
 
   /** Upgrade a raw shell session to Meterpreter */
   readonly sessionUpgrade: (
@@ -80,14 +64,10 @@ export interface MetasploitServiceShape {
   ) => Effect.Effect<MsfSessionSnapshot, MetasploitSessionError>;
 
   /** Close/kill a session */
-  readonly sessionClose: (
-    sessionId: string,
-  ) => Effect.Effect<void, MetasploitSessionError>;
+  readonly sessionClose: (sessionId: string) => Effect.Effect<void, MetasploitSessionError>;
 
   /** Subscribe to metasploit events (listeners, sessions) */
-  readonly subscribe: (
-    listener: (event: MetasploitEvent) => void,
-  ) => Effect.Effect<() => void>;
+  readonly subscribe: (listener: (event: MetasploitEvent) => void) => Effect.Effect<() => void>;
 }
 
 export class MetasploitService extends ServiceMap.Service<

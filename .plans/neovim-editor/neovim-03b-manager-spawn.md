@@ -92,6 +92,10 @@ export const NeovimManagerLive = Layer.scoped(
     const publishEvent = (event: NeovimEvent) => {
       for (const l of lifecycleListeners) l(event);
     };
+    // Internal fanout helper. NOT part of the public NeovimManagerShape.
+    // Public registration method is `onRawRedraw` (returned below; declared
+    // on NeovimManagerShape in 03a). Consumers like 04c call
+    // `neovimManager.onRawRedraw(handler)` — they never see `publishRaw`.
     const publishRaw = (projectId: string, data: Uint8Array) => {
       for (const l of rawRedrawListeners) l(projectId, data);
     };

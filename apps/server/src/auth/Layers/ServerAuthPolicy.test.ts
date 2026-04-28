@@ -20,7 +20,9 @@ const makeServerAuthPolicyLayer = (overrides?: Partial<ServerConfigShape>) =>
           } satisfies ServerConfigShape;
         }),
       ).pipe(
-        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "fenrir-auth-policy-test-" })),
+        Layer.provide(
+          ServerConfig.layerTest(process.cwd(), { prefix: "fenrir-auth-policy-test-" }),
+        ),
       ),
     ),
   );

@@ -69,8 +69,7 @@ export const usePlanRunnerStore = create<PlanRunnerState>((set) => ({
             const nextFeatures = features.map((f) => {
               if (f.featureName === event.snapshot.featureName) {
                 const isActive =
-                  event.snapshot.state !== "completed" &&
-                  event.snapshot.state !== "failed";
+                  event.snapshot.state !== "completed" && event.snapshot.state !== "failed";
                 return {
                   ...f,
                   hasActiveRun: isActive,
@@ -124,9 +123,7 @@ export const usePlanRunnerStore = create<PlanRunnerState>((set) => ({
           const features = state.featuresByProjectId[run.projectId];
           if (features) {
             const nextFeatures = features.map((f) =>
-              f.activeRunId === event.runId
-                ? { ...f, hasActiveRun: false, activeRunId: null }
-                : f,
+              f.activeRunId === event.runId ? { ...f, hasActiveRun: false, activeRunId: null } : f,
             );
             return {
               runById: { ...state.runById, [event.runId]: nextRun },

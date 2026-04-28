@@ -35,14 +35,10 @@ export function TargetAgentInput({ sessionId }: TargetAgentInputProps) {
             <div
               key={i}
               className={`text-xs ${
-                msg.role === "user"
-                  ? "text-foreground"
-                  : "text-muted-foreground"
+                msg.role === "user" ? "text-foreground" : "text-muted-foreground"
               }`}
             >
-              <span className="font-medium">
-                {msg.role === "user" ? "You" : "Agent"}:
-              </span>{" "}
+              <span className="font-medium">{msg.role === "user" ? "You" : "Agent"}:</span>{" "}
               {msg.content}
             </div>
           ))}
@@ -59,11 +55,7 @@ export function TargetAgentInput({ sessionId }: TargetAgentInputProps) {
           className="flex-1 rounded-md border border-input bg-transparent px-3 py-1.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           disabled={isProcessing}
         />
-        <Button
-          size="sm"
-          onClick={handleSubmit}
-          disabled={!input.trim() || isProcessing}
-        >
+        <Button size="sm" onClick={handleSubmit} disabled={!input.trim() || isProcessing}>
           {isProcessing ? "Running..." : "Send"}
         </Button>
       </div>

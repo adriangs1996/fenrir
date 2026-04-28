@@ -1,5 +1,9 @@
 import { create } from "zustand";
-import type { TrafficLensTabSnapshot, TrafficLensTabEvent, TrafficLensEntry } from "@fenrir/contracts";
+import type {
+  TrafficLensTabSnapshot,
+  TrafficLensTabEvent,
+  TrafficLensEntry,
+} from "@fenrir/contracts";
 
 interface TrafficLensState {
   tabs: Record<string, TrafficLensTabSnapshot>;
@@ -50,8 +54,7 @@ export const useTrafficLensStore = create<TrafficLensState>((set) => ({
           const { [event.tabId]: _, ...rest } = state.tabs;
           return {
             tabs: rest,
-            activeTabId:
-              state.activeTabId === event.tabId ? null : state.activeTabId,
+            activeTabId: state.activeTabId === event.tabId ? null : state.activeTabId,
           };
         }
         case "tab.navigated": {
@@ -91,9 +94,7 @@ export const useTrafficLensStore = create<TrafficLensState>((set) => ({
 
   appendTraffic: (entry) =>
     set((state) => {
-      const existingIndex = state.trafficEntries.findIndex(
-        (e) => e.requestId === entry.requestId,
-      );
+      const existingIndex = state.trafficEntries.findIndex((e) => e.requestId === entry.requestId);
       if (existingIndex >= 0) {
         const updated = [...state.trafficEntries];
         updated[existingIndex] = entry;

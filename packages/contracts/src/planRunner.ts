@@ -166,13 +166,10 @@ export type PlanRunnerEvent = typeof PlanRunnerEvent.Type;
 
 // ─── Errors ─────────────────────────────────────────────────────────────────
 
-export class PlanRunnerError extends Schema.TaggedErrorClass<PlanRunnerError>()(
-  "PlanRunnerError",
-  {
-    message: TrimmedNonEmptyString,
-    cause: Schema.optional(Schema.Unknown),
-  },
-) {}
+export class PlanRunnerError extends Schema.TaggedErrorClass<PlanRunnerError>()("PlanRunnerError", {
+  message: TrimmedNonEmptyString,
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 export class PlanRunnerNotFoundError extends Schema.TaggedErrorClass<PlanRunnerNotFoundError>()(
   "PlanRunnerNotFoundError",

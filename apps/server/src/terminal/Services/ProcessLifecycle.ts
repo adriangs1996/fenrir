@@ -28,9 +28,7 @@ export interface TerminalProcessLifecycleShape {
   /**
    * Clear any pending kill fiber for a process.
    */
-  readonly clearKillFiber: (
-    process: PtyProcess | null,
-  ) => Effect.Effect<void>;
+  readonly clearKillFiber: (process: PtyProcess | null) => Effect.Effect<void>;
 
   /**
    * Register a kill fiber for tracking.
@@ -44,9 +42,7 @@ export interface TerminalProcessLifecycleShape {
    * Check if a terminal PID has running subprocess children.
    * Platform-specific: pgrep/ps on POSIX, WMI on Windows.
    */
-  readonly checkSubprocessActivity: (
-    terminalPid: number,
-  ) => Effect.Effect<boolean>;
+  readonly checkSubprocessActivity: (terminalPid: number) => Effect.Effect<boolean>;
 }
 
 /**

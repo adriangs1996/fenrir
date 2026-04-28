@@ -21,9 +21,7 @@ export interface MetasploitShellAdapterShape {
    * Attach to a Metasploit session, returning a push-based shell process.
    * Internally polls session.shell_read and converts to onData callbacks.
    */
-  readonly attach: (
-    sessionId: string,
-  ) => Effect.Effect<MsfShellProcess, MetasploitSessionError>;
+  readonly attach: (sessionId: string) => Effect.Effect<MsfShellProcess, MetasploitSessionError>;
 }
 
 export class MetasploitShellAdapter extends ServiceMap.Service<

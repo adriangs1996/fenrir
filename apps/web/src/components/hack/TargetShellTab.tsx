@@ -114,17 +114,13 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
   useEffect(() => {
     let lastId = 0;
 
-    const unsubscribe = useMetasploitSessionTerminalStore.subscribe(
-      (state) => {
-        const entries = state.entries.filter(
-          (e) => e.sessionId === sessionId && e.id > lastId,
-        );
-        for (const entry of entries) {
-          terminalRef.current?.write(entry.data);
-          lastId = entry.id;
-        }
-      },
-    );
+    const unsubscribe = useMetasploitSessionTerminalStore.subscribe((state) => {
+      const entries = state.entries.filter((e) => e.sessionId === sessionId && e.id > lastId);
+      for (const entry of entries) {
+        terminalRef.current?.write(entry.data);
+        lastId = entry.id;
+      }
+    });
 
     return () => unsubscribe();
   }, [sessionId]);

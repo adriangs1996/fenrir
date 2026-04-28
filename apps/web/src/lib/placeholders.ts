@@ -13,10 +13,7 @@ export function parsePlaceholders(command: string): string[] {
   return result;
 }
 
-export function substitutePlaceholders(
-  command: string,
-  values: Record<string, string>,
-): string {
+export function substitutePlaceholders(command: string, values: Record<string, string>): string {
   return command.replace(PLACEHOLDER_REGEX, (full, name: string) =>
     name in values ? values[name]! : full,
   );

@@ -14,9 +14,7 @@ describe("terminalStateStore tmux tracking", () => {
 
   it("setActiveTmuxProject updates the projectId", () => {
     useTerminalStateStore.getState().setActiveTmuxProject("proj-abc");
-    expect(useTerminalStateStore.getState().activeTmuxProjectId).toBe(
-      "proj-abc",
-    );
+    expect(useTerminalStateStore.getState().activeTmuxProjectId).toBe("proj-abc");
   });
 
   it("setActiveTmuxProject(null) clears the projectId", () => {

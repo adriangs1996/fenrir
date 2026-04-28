@@ -4,37 +4,37 @@ Orchestrates multi-plan feature implementation: reads `.plans/{feature}/` folder
 
 ## Public API
 
-| Method | Input | Output | Description |
-|--------|-------|--------|-------------|
-| `start` | `{ projectId, featureName, modelSelection? }` | `{ runId, branch }` | Start a plan run |
-| `getStatus` | `runId` | `PlanRunSnapshot` | Get current run state |
-| `cancel` | `runId` | `void` | Cancel an active run |
-| `streamEvents` | — | `Stream<PlanRunnerEvent>` | Live event stream |
+| Method         | Input                                         | Output                    | Description           |
+| -------------- | --------------------------------------------- | ------------------------- | --------------------- |
+| `start`        | `{ projectId, featureName, modelSelection? }` | `{ runId, branch }`       | Start a plan run      |
+| `getStatus`    | `runId`                                       | `PlanRunSnapshot`         | Get current run state |
+| `cancel`       | `runId`                                       | `void`                    | Cancel an active run  |
+| `streamEvents` | —                                             | `Stream<PlanRunnerEvent>` | Live event stream     |
 
 ## Events Emitted
 
-| Event | When |
-|-------|------|
-| `planRunner.stateChanged` | Feature-level state transition |
-| `planRunner.planStateChanged` | Per-plan state transition |
-| `planRunner.completed` | Run finished (completed or failed) |
+| Event                         | When                               |
+| ----------------------------- | ---------------------------------- |
+| `planRunner.stateChanged`     | Feature-level state transition     |
+| `planRunner.planStateChanged` | Per-plan state transition          |
+| `planRunner.completed`        | Run finished (completed or failed) |
 
 ## Dependencies
 
-| Service | Purpose |
-|---------|---------|
+| Service                      | Purpose                                    |
+| ---------------------------- | ------------------------------------------ |
 | `OrchestrationEngineService` | Thread creation, turn dispatch, read model |
-| `GitCore` | Branch creation |
-| `ServerConfig` | Working directory (`cwd`) |
-| `FileSystem` | Read plan files |
-| `Path` | Path resolution |
+| `GitCore`                    | Branch creation                            |
+| `ServerConfig`               | Working directory (`cwd`)                  |
+| `FileSystem`                 | Read plan files                            |
+| `Path`                       | Path resolution                            |
 
 ## Error Taxonomy
 
-| Error | When |
-|-------|------|
-| `PlanRunnerError` | General: missing dir, duplicate run, branch failure |
-| `PlanRunnerNotFoundError` | `getStatus`/`cancel` with unknown runId |
+| Error                     | When                                                |
+| ------------------------- | --------------------------------------------------- |
+| `PlanRunnerError`         | General: missing dir, duplicate run, branch failure |
+| `PlanRunnerNotFoundError` | `getStatus`/`cancel` with unknown runId             |
 
 ## Filesystem Layout
 

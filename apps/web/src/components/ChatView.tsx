@@ -1885,58 +1885,49 @@ export default function ChatView(props: ChatViewProps) {
 
   // -- Global action CRUD -------------------------------------------------
 
-  const saveGlobalScript = useCallback(
-    async (input: NewGlobalScriptInput) => {
-      const localApi = readLocalApi();
-      if (!localApi) return;
-      const script = await localApi.server.createGlobalAction({
-        name: input.name,
-        command: input.command,
-        icon: input.icon,
+  const saveGlobalScript = useCallback(async (input: NewGlobalScriptInput) => {
+    const localApi = readLocalApi();
+    if (!localApi) return;
+    const script = await localApi.server.createGlobalAction({
+      name: input.name,
+      command: input.command,
+      icon: input.icon,
+    });
+    if (input.keybinding) {
+      const rule = decodeProjectScriptKeybindingRule({
+        keybinding: input.keybinding,
+        command: commandForGlobalScript(script.id),
       });
-      if (input.keybinding) {
-        const rule = decodeProjectScriptKeybindingRule({
-          keybinding: input.keybinding,
-          command: commandForGlobalScript(script.id),
-        });
-        if (rule) {
-          await localApi.server.upsertKeybinding(rule);
-        }
+      if (rule) {
+        await localApi.server.upsertKeybinding(rule);
       }
-    },
-    [],
-  );
+    }
+  }, []);
 
-  const updateGlobalScript = useCallback(
-    async (scriptId: string, input: NewGlobalScriptInput) => {
-      const localApi = readLocalApi();
-      if (!localApi) return;
-      await localApi.server.updateGlobalAction(scriptId, {
-        name: input.name,
-        command: input.command,
-        icon: input.icon,
+  const updateGlobalScript = useCallback(async (scriptId: string, input: NewGlobalScriptInput) => {
+    const localApi = readLocalApi();
+    if (!localApi) return;
+    await localApi.server.updateGlobalAction(scriptId, {
+      name: input.name,
+      command: input.command,
+      icon: input.icon,
+    });
+    if (input.keybinding) {
+      const rule = decodeProjectScriptKeybindingRule({
+        keybinding: input.keybinding,
+        command: commandForGlobalScript(scriptId),
       });
-      if (input.keybinding) {
-        const rule = decodeProjectScriptKeybindingRule({
-          keybinding: input.keybinding,
-          command: commandForGlobalScript(scriptId),
-        });
-        if (rule) {
-          await localApi.server.upsertKeybinding(rule);
-        }
+      if (rule) {
+        await localApi.server.upsertKeybinding(rule);
       }
-    },
-    [],
-  );
+    }
+  }, []);
 
-  const deleteGlobalScript = useCallback(
-    async (scriptId: string) => {
-      const localApi = readLocalApi();
-      if (!localApi) return;
-      await localApi.server.deleteGlobalAction(scriptId);
-    },
-    [],
-  );
+  const deleteGlobalScript = useCallback(async (scriptId: string) => {
+    const localApi = readLocalApi();
+    if (!localApi) return;
+    await localApi.server.deleteGlobalAction(scriptId);
+  }, []);
 
   // -- Global action execution with placeholder resolution -----------------
 
@@ -1958,7 +1949,13 @@ export default function ChatView(props: ChatViewProps) {
 
       if (placeholders.length === 0) {
         // No placeholders — run immediately like a project script
-        await runProjectScript({ id: script.id, name: script.name, command: script.command, icon: script.icon, runOnWorktreeCreate: false });
+        await runProjectScript({
+          id: script.id,
+          name: script.name,
+          command: script.command,
+          icon: script.icon,
+          runOnWorktreeCreate: false,
+        });
         return;
       }
 
@@ -1973,7 +1970,13 @@ export default function ChatView(props: ChatViewProps) {
       if (allDefaultsFilled && !altKey) {
         // Defaults exist and user didn't hold Alt — run immediately with substitution
         const resolved = substitutePlaceholders(script.command, projectDefaults!.defaults);
-        await runProjectScript({ id: script.id, name: script.name, command: resolved, icon: script.icon, runOnWorktreeCreate: false });
+        await runProjectScript({
+          id: script.id,
+          name: script.name,
+          command: resolved,
+          icon: script.icon,
+          runOnWorktreeCreate: false,
+        });
         return;
       }
 
@@ -1988,7 +1991,13 @@ export default function ChatView(props: ChatViewProps) {
     async (values: Record<string, string>, saveAsDefault: boolean) => {
       if (!pendingGlobalScript) return;
       const resolved = substitutePlaceholders(pendingGlobalScript.command, values);
-      await runProjectScript({ id: pendingGlobalScript.id, name: pendingGlobalScript.name, command: resolved, icon: pendingGlobalScript.icon, runOnWorktreeCreate: false });
+      await runProjectScript({
+        id: pendingGlobalScript.id,
+        name: pendingGlobalScript.name,
+        command: resolved,
+        icon: pendingGlobalScript.icon,
+        runOnWorktreeCreate: false,
+      });
 
       if (saveAsDefault && activeProject) {
         const api = readEnvironmentApi(environmentId);

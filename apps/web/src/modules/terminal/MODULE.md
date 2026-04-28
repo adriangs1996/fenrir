@@ -8,71 +8,71 @@
 
 #### `useTerminalStateStore` (Zustand)
 
-| Selector/Action              | Input                                      | Output                    | Description                                    |
-| ---------------------------- | ------------------------------------------ | ------------------------- | ---------------------------------------------- |
-| `selectThreadTerminalState`  | `terminalStateByThreadKey, threadRef`       | `ThreadTerminalState`     | Get terminal UI state for thread               |
-| `selectTerminalEventEntries` | `entriesByKey, threadRef, terminalId`       | `TerminalEventEntry[]`    | Get buffered events for terminal               |
-| `setTerminalOpen`            | `threadRef, open`                          | `void`                    | Toggle terminal drawer visibility              |
-| `setTerminalHeight`          | `threadRef, height`                        | `void`                    | Set terminal drawer height                     |
-| `splitTerminal`              | `threadRef, terminalId`                    | `void`                    | Split terminal into active group               |
-| `newTerminal`                | `threadRef, terminalId`                    | `void`                    | Create terminal in new group                   |
-| `ensureTerminal`             | `threadRef, terminalId, options?`          | `void`                    | Ensure terminal exists, optionally activate     |
-| `setActiveTerminal`          | `threadRef, terminalId`                    | `void`                    | Switch active terminal                         |
-| `closeTerminal`              | `threadRef, terminalId`                    | `void`                    | Close terminal tab                             |
-| `applyTerminalEvent`         | `threadRef, event`                         | `void`                    | Apply server event to UI state                 |
-| `recordTerminalEvent`        | `threadRef, event`                         | `void`                    | Buffer event without state mutation             |
-| `clearTerminalState`         | `threadRef`                                | `void`                    | Reset terminal state for thread                |
-| `removeTerminalState`        | `threadRef`                                | `void`                    | Remove all terminal state for thread           |
-| `removeOrphanedTerminalStates` | `activeThreadKeys`                       | `void`                    | Clean up stale thread entries                  |
-| `setTerminalLaunchContext`   | `threadRef, context`                       | `void`                    | Store cwd/worktreePath for terminal            |
-| `clearTerminalLaunchContext` | `threadRef`                                | `void`                    | Clear launch context                           |
-| `setTerminalActivity`        | `threadRef, terminalId, hasSubprocess`     | `void`                    | Update subprocess activity indicator           |
-| `setActiveTmuxProject`       | `projectId \| null`                        | `void`                    | Set active tmux project                        |
+| Selector/Action                | Input                                  | Output                 | Description                                 |
+| ------------------------------ | -------------------------------------- | ---------------------- | ------------------------------------------- |
+| `selectThreadTerminalState`    | `terminalStateByThreadKey, threadRef`  | `ThreadTerminalState`  | Get terminal UI state for thread            |
+| `selectTerminalEventEntries`   | `entriesByKey, threadRef, terminalId`  | `TerminalEventEntry[]` | Get buffered events for terminal            |
+| `setTerminalOpen`              | `threadRef, open`                      | `void`                 | Toggle terminal drawer visibility           |
+| `setTerminalHeight`            | `threadRef, height`                    | `void`                 | Set terminal drawer height                  |
+| `splitTerminal`                | `threadRef, terminalId`                | `void`                 | Split terminal into active group            |
+| `newTerminal`                  | `threadRef, terminalId`                | `void`                 | Create terminal in new group                |
+| `ensureTerminal`               | `threadRef, terminalId, options?`      | `void`                 | Ensure terminal exists, optionally activate |
+| `setActiveTerminal`            | `threadRef, terminalId`                | `void`                 | Switch active terminal                      |
+| `closeTerminal`                | `threadRef, terminalId`                | `void`                 | Close terminal tab                          |
+| `applyTerminalEvent`           | `threadRef, event`                     | `void`                 | Apply server event to UI state              |
+| `recordTerminalEvent`          | `threadRef, event`                     | `void`                 | Buffer event without state mutation         |
+| `clearTerminalState`           | `threadRef`                            | `void`                 | Reset terminal state for thread             |
+| `removeTerminalState`          | `threadRef`                            | `void`                 | Remove all terminal state for thread        |
+| `removeOrphanedTerminalStates` | `activeThreadKeys`                     | `void`                 | Clean up stale thread entries               |
+| `setTerminalLaunchContext`     | `threadRef, context`                   | `void`                 | Store cwd/worktreePath for terminal         |
+| `clearTerminalLaunchContext`   | `threadRef`                            | `void`                 | Clear launch context                        |
+| `setTerminalActivity`          | `threadRef, terminalId, hasSubprocess` | `void`                 | Update subprocess activity indicator        |
+| `setActiveTmuxProject`         | `projectId \| null`                    | `void`                 | Set active tmux project                     |
 
 ### Hooks & Utilities
 
 #### Terminal Activity
 
-| Function                             | Input            | Output           | Description                               |
-| ------------------------------------ | ---------------- | ---------------- | ----------------------------------------- |
-| `terminalRunningSubprocessFromEvent` | `TerminalEvent`  | `boolean \| null`| Extract subprocess state from event       |
+| Function                             | Input           | Output            | Description                         |
+| ------------------------------------ | --------------- | ----------------- | ----------------------------------- |
+| `terminalRunningSubprocessFromEvent` | `TerminalEvent` | `boolean \| null` | Extract subprocess state from event |
 
 #### Terminal Links
 
-| Function                    | Input                  | Output            | Description                             |
-| --------------------------- | ---------------------- | ----------------- | --------------------------------------- |
-| `extractTerminalLinks`      | `terminal buffer`      | `TerminalLink[]`  | Extract clickable links from output     |
-| `isTerminalLinkActivation`  | `mouse event`          | `boolean`         | Detect Cmd/Ctrl+click on link           |
-| `resolvePathLinkTarget`     | `rawPath, cwd`         | `string`          | Resolve relative path to absolute       |
+| Function                   | Input             | Output           | Description                         |
+| -------------------------- | ----------------- | ---------------- | ----------------------------------- |
+| `extractTerminalLinks`     | `terminal buffer` | `TerminalLink[]` | Extract clickable links from output |
+| `isTerminalLinkActivation` | `mouse event`     | `boolean`        | Detect Cmd/Ctrl+click on link       |
+| `resolvePathLinkTarget`    | `rawPath, cwd`    | `string`         | Resolve relative path to absolute   |
 
 #### Terminal Context
 
-| Function / Type              | Description                                              |
-| ---------------------------- | -------------------------------------------------------- |
-| `TerminalContextSelection`   | Line range selection from terminal                       |
-| `TerminalContextDraft`       | Selection with id, threadId, timestamp                   |
-| `normalizeTerminalContextText` | Strip leading/trailing newlines                        |
-| `hasTerminalContextText`     | Check if context has content                             |
-| `buildTerminalContextBlock`  | Format context for AI prompt                             |
-| `parseTerminalContextBlocks` | Extract contexts from message text                       |
+| Function / Type                | Description                            |
+| ------------------------------ | -------------------------------------- |
+| `TerminalContextSelection`     | Line range selection from terminal     |
+| `TerminalContextDraft`         | Selection with id, threadId, timestamp |
+| `normalizeTerminalContextText` | Strip leading/trailing newlines        |
+| `hasTerminalContextText`       | Check if context has content           |
+| `buildTerminalContextBlock`    | Format context for AI prompt           |
+| `parseTerminalContextBlocks`   | Extract contexts from message text     |
 
 #### Terminal Focus
 
-| Function            | Input | Output    | Description                          |
-| ------------------- | ----- | --------- | ------------------------------------ |
-| `isTerminalFocused` | —     | `boolean` | Check if terminal drawer has focus   |
+| Function            | Input | Output    | Description                        |
+| ------------------- | ----- | --------- | ---------------------------------- |
+| `isTerminalFocused` | —     | `boolean` | Check if terminal drawer has focus |
 
 #### Extract Last Command Output
 
-| Function                   | Input              | Output           | Description                                |
-| -------------------------- | ------------------ | ---------------- | ------------------------------------------ |
-| `extractLastCommandOutput` | `xterm Terminal`   | `string \| null` | Heuristic prompt detection, extract output |
+| Function                   | Input            | Output           | Description                                |
+| -------------------------- | ---------------- | ---------------- | ------------------------------------------ |
+| `extractLastCommandOutput` | `xterm Terminal` | `string \| null` | Heuristic prompt detection, extract output |
 
 #### Terminal State Cleanup
 
-| Function                         | Input  | Output          | Description                               |
-| -------------------------------- | ------ | --------------- | ----------------------------------------- |
-| `collectActiveTerminalThreadIds` | —      | `Set<string>`   | Gather active thread keys for cleanup     |
+| Function                         | Input | Output        | Description                           |
+| -------------------------------- | ----- | ------------- | ------------------------------------- |
+| `collectActiveTerminalThreadIds` | —     | `Set<string>` | Gather active thread keys for cleanup |
 
 ### Components
 
@@ -92,14 +92,14 @@
 
 ### Events Consumed
 
-| Event               | From Server              | UI Effect                                    |
-| ------------------- | ------------------------ | -------------------------------------------- |
-| `started/restarted` | TerminalManager          | Ensure terminal in UI, set active, open drawer |
-| `output`            | TerminalManager          | Buffer event, write to xterm                  |
-| `exited`            | TerminalManager          | Update status, clear subprocess indicator     |
-| `error`             | TerminalManager          | Display error in terminal                     |
-| `cleared`           | TerminalManager          | Reset xterm buffer                            |
-| `activity`          | TerminalManager          | Update subprocess running indicator           |
+| Event               | From Server     | UI Effect                                      |
+| ------------------- | --------------- | ---------------------------------------------- |
+| `started/restarted` | TerminalManager | Ensure terminal in UI, set active, open drawer |
+| `output`            | TerminalManager | Buffer event, write to xterm                   |
+| `exited`            | TerminalManager | Update status, clear subprocess indicator      |
+| `error`             | TerminalManager | Display error in terminal                      |
+| `cleared`           | TerminalManager | Reset xterm buffer                             |
+| `activity`          | TerminalManager | Update subprocess running indicator            |
 
 ### Contracts (from `@fenrir/contracts`)
 

@@ -1,18 +1,24 @@
 ---
 depends_on:
-  - neovim-09e-editor-component
+  - neovim-09a-zustand-store
 ---
 
-# Plan 09f: NeovimEditorStatusBar + Module Barrel Export
+# Plan 09f: NeovimEditorStatusBar Component
 
 ## Goal
 
-Status bar UI component (mode badge, title, cursor position, connection LED) and the module's public barrel export.
+Status bar UI component (mode badge, title, cursor position, connection LED). Pure presentational — depends only on the zustand store types from 09a, not on the parent `NeovimEditor` component.
+
+> **Dep-graph note**: this plan was previously paired with the module barrel (`index.ts`).
+> The barrel was extracted into `neovim-09g-module-barrel.md` to break the
+> circular dep between 09e (consumes `NeovimEditorStatusBar`) and 09f (was
+> re-exporting `NeovimEditor` via the barrel). 09f now produces only the
+> StatusBar component and runs **before** 09e; 09g produces the barrel and
+> runs **after** 09e.
 
 ## Scope
 
 - New file: `apps/web/src/modules/neovim-editor/components/NeovimEditorStatusBar.tsx`
-- New file: `apps/web/src/modules/neovim-editor/index.ts`
 
 ## Steps
 
@@ -70,20 +76,15 @@ export function NeovimEditorStatusBar({
 
 If the project uses a different className util, swap `cn` accordingly. If no util exists, use template literals.
 
-### Step 2. index.ts barrel
+### Step 2. Public surface check
+
+`NeovimEditor` (built in 09e) imports this file by relative path:
 
 ```typescript
-export { NeovimEditor } from "./components/NeovimEditor";
-export { NeovimEditorStatusBar } from "./components/NeovimEditorStatusBar";
-export { useNeovimEditorStore } from "./stores/neovimState";
-export type { NeovimConnectionStatus } from "./stores/neovimState";
+import { NeovimEditorStatusBar } from "./NeovimEditorStatusBar";
 ```
 
-(Match existing module barrel style — some modules omit `export type` block, etc.)
-
-### Step 3. Public surface check
-
-`apps/web/src/components/ChatView.tsx` (touched in plan 10) imports from `~/modules/neovim-editor`. Confirm path alias resolves; if the project uses a different alias (e.g., `@/modules/...`), use that.
+No barrel re-export here — that lives in 09g.
 
 ## Validation
 
@@ -96,5 +97,5 @@ export type { NeovimConnectionStatus } from "./stores/neovimState";
 - `NeovimEditorStatusBar` renders mode badge with color per mode
 - Cursor position displayed 1-indexed (`Ln {row+1}, Col {col+1}`)
 - Connection LED color reflects status
-- `index.ts` exports `NeovimEditor`, `NeovimEditorStatusBar`, `useNeovimEditorStore`, `NeovimConnectionStatus`
+- File is self-contained — no import of `NeovimEditor` or the module `index.ts`
 - No additional named exports leaked

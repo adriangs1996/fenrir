@@ -5,9 +5,7 @@ export class TmuxNotFoundError extends Error {
   readonly _tag = "TmuxNotFoundError";
 
   constructor() {
-    super(
-      "tmux binary not found on $PATH. Install tmux or ensure it is in your $PATH",
-    );
+    super("tmux binary not found on $PATH. Install tmux or ensure it is in your $PATH");
   }
 }
 

@@ -8,17 +8,17 @@
 
 #### `useNeovimEditorStore` (Zustand)
 
-| Selector/Action          | Input                     | Output                | Description                                    |
-| ------------------------ | ------------------------- | --------------------- | ---------------------------------------------- |
-| `editorOpen`             | —                         | `boolean`             | Whether editor view is active (vs chat)        |
-| `toggleEditor`           | —                         | `void`                | Toggle between editor and chat views           |
-| `setEditorOpen`          | `boolean`                 | `void`                | Explicitly set editor visibility               |
-| `activeProjectId`        | —                         | `string \| null`      | Project whose neovim is currently displayed    |
-| `setActiveProjectId`     | `projectId`               | `void`                | Switch neovim to different project             |
-| `sessionStatus`          | —                         | `NeovimSessionStatus` | `"disconnected" \| "connecting" \| "attached" \| "error"` |
-| `setSessionStatus`       | `status`                  | `void`                | Update connection status                       |
-| `lastError`              | —                         | `string \| null`      | Last error message for display                 |
-| `setLastError`           | `message \| null`         | `void`                | Set/clear error message                        |
+| Selector/Action      | Input             | Output                | Description                                               |
+| -------------------- | ----------------- | --------------------- | --------------------------------------------------------- |
+| `editorOpen`         | —                 | `boolean`             | Whether editor view is active (vs chat)                   |
+| `toggleEditor`       | —                 | `void`                | Toggle between editor and chat views                      |
+| `setEditorOpen`      | `boolean`         | `void`                | Explicitly set editor visibility                          |
+| `activeProjectId`    | —                 | `string \| null`      | Project whose neovim is currently displayed               |
+| `setActiveProjectId` | `projectId`       | `void`                | Switch neovim to different project                        |
+| `sessionStatus`      | —                 | `NeovimSessionStatus` | `"disconnected" \| "connecting" \| "attached" \| "error"` |
+| `setSessionStatus`   | `status`          | `void`                | Update connection status                                  |
+| `lastError`          | —                 | `string \| null`      | Last error message for display                            |
+| `setLastError`       | `message \| null` | `void`                | Set/clear error message                                   |
 
 ### Components
 
@@ -38,27 +38,27 @@
 
 #### `useNeovimBridge`
 
-| Input                    | Output                                | Description                               |
-| ------------------------ | ------------------------------------- | ----------------------------------------- |
-| `projectId, cwd`         | `{ attach, detach, sendInput, sendMouse, resize, status }` | Manages binary WebSocket connection lifecycle |
+| Input            | Output                                                     | Description                                   |
+| ---------------- | ---------------------------------------------------------- | --------------------------------------------- |
+| `projectId, cwd` | `{ attach, detach, sendInput, sendMouse, resize, status }` | Manages binary WebSocket connection lifecycle |
 
 #### `useNeovimRenderer`
 
-| Input                    | Output                                | Description                               |
-| ------------------------ | ------------------------------------- | ----------------------------------------- |
-| `canvasRef, gridState`   | `{ render, setFont, measureCell }`    | Canvas2D + WebGL rendering pipeline       |
+| Input                  | Output                             | Description                         |
+| ---------------------- | ---------------------------------- | ----------------------------------- |
+| `canvasRef, gridState` | `{ render, setFont, measureCell }` | Canvas2D + WebGL rendering pipeline |
 
 #### `useNeovimKeyboard`
 
-| Input                    | Output                                | Description                               |
-| ------------------------ | ------------------------------------- | ----------------------------------------- |
-| `sendInput, editorFocused` | event handler                       | DOM keyboard → neovim notation translator |
+| Input                      | Output        | Description                               |
+| -------------------------- | ------------- | ----------------------------------------- |
+| `sendInput, editorFocused` | event handler | DOM keyboard → neovim notation translator |
 
 #### `useNeovimMouse`
 
-| Input                    | Output                                | Description                               |
-| ------------------------ | ------------------------------------- | ----------------------------------------- |
-| `sendMouse, canvasRef, cellSize` | event handlers                  | DOM mouse → nvim_input_mouse translator   |
+| Input                            | Output         | Description                             |
+| -------------------------------- | -------------- | --------------------------------------- |
+| `sendMouse, canvasRef, cellSize` | event handlers | DOM mouse → nvim_input_mouse translator |
 
 ### Internal Modules
 
@@ -109,10 +109,10 @@
 
 ### Events Consumed
 
-| Event          | From                | Effect                                    |
-| -------------- | ------------------- | ----------------------------------------- |
-| `redraw` batch | Binary WebSocket    | Update GridState → render on flush        |
-| AI file edit   | Orchestration       | Server sends `checktime` → nvim reloads   |
+| Event          | From             | Effect                                  |
+| -------------- | ---------------- | --------------------------------------- |
+| `redraw` batch | Binary WebSocket | Update GridState → render on flush      |
+| AI file edit   | Orchestration    | Server sends `checktime` → nvim reloads |
 
 ### Contracts (from `@fenrir/contracts`)
 

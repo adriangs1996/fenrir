@@ -117,26 +117,21 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
 
   // Traffic Lens
-  trafficLensCreateTab: (url?: string) =>
-    ipcRenderer.invoke(TRAFFIC_LENS_CREATE_TAB_CHANNEL, url),
-  trafficLensCloseTab: (tabId: string) =>
-    ipcRenderer.invoke(TRAFFIC_LENS_CLOSE_TAB_CHANNEL, tabId),
+  trafficLensCreateTab: (url?: string) => ipcRenderer.invoke(TRAFFIC_LENS_CREATE_TAB_CHANNEL, url),
+  trafficLensCloseTab: (tabId: string) => ipcRenderer.invoke(TRAFFIC_LENS_CLOSE_TAB_CHANNEL, tabId),
   trafficLensNavigate: (tabId: string, url: string) =>
     ipcRenderer.invoke(TRAFFIC_LENS_NAVIGATE_CHANNEL, tabId, url),
-  trafficLensGoBack: (tabId: string) =>
-    ipcRenderer.invoke(TRAFFIC_LENS_GO_BACK_CHANNEL, tabId),
+  trafficLensGoBack: (tabId: string) => ipcRenderer.invoke(TRAFFIC_LENS_GO_BACK_CHANNEL, tabId),
   trafficLensGoForward: (tabId: string) =>
     ipcRenderer.invoke(TRAFFIC_LENS_GO_FORWARD_CHANNEL, tabId),
-  trafficLensReload: (tabId: string) =>
-    ipcRenderer.invoke(TRAFFIC_LENS_RELOAD_CHANNEL, tabId),
-  trafficLensGetTabs: () =>
-    ipcRenderer.invoke(TRAFFIC_LENS_GET_TABS_CHANNEL),
-  trafficLensSetBounds: (tabId: string, bounds: { x: number; y: number; width: number; height: number }) =>
-    ipcRenderer.invoke(TRAFFIC_LENS_SET_BOUNDS_CHANNEL, tabId, bounds),
-  trafficLensShowTab: (tabId: string) =>
-    ipcRenderer.invoke(TRAFFIC_LENS_SHOW_TAB_CHANNEL, tabId),
-  trafficLensHideAllTabs: () =>
-    ipcRenderer.invoke(TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL),
+  trafficLensReload: (tabId: string) => ipcRenderer.invoke(TRAFFIC_LENS_RELOAD_CHANNEL, tabId),
+  trafficLensGetTabs: () => ipcRenderer.invoke(TRAFFIC_LENS_GET_TABS_CHANNEL),
+  trafficLensSetBounds: (
+    tabId: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ) => ipcRenderer.invoke(TRAFFIC_LENS_SET_BOUNDS_CHANNEL, tabId, bounds),
+  trafficLensShowTab: (tabId: string) => ipcRenderer.invoke(TRAFFIC_LENS_SHOW_TAB_CHANNEL, tabId),
+  trafficLensHideAllTabs: () => ipcRenderer.invoke(TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL),
   onTrafficLensTabEvent: (listener: (event: any) => void) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, data: unknown) => {
       if (typeof data !== "object" || data === null) return;

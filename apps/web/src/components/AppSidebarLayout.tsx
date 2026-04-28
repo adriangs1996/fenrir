@@ -17,9 +17,7 @@ const THREAD_MAIN_CONTENT_MIN_WIDTH = 40 * 16;
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const activeWorkspace = useUiStateStore((state) => state.activeWorkspace);
-  const setActiveWorkspace = useUiStateStore(
-    (state) => state.setActiveWorkspace,
-  );
+  const setActiveWorkspace = useUiStateStore((state) => state.setActiveWorkspace);
   const [threadSidebarOpen, setThreadSidebarOpenRaw] = useState(() => {
     try {
       return localStorage.getItem(THREAD_SIDEBAR_COLLAPSED_KEY) !== "true";
@@ -66,7 +64,12 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   }, [navigate]);
 
   return (
-    <SidebarProvider className="!h-svh" defaultOpen={threadSidebarOpen} open={threadSidebarOpen} onOpenChange={setThreadSidebarOpen}>
+    <SidebarProvider
+      className="!h-svh"
+      defaultOpen={threadSidebarOpen}
+      open={threadSidebarOpen}
+      onOpenChange={setThreadSidebarOpen}
+    >
       <Sidebar
         side="left"
         collapsible="icon"
@@ -91,9 +94,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         </div>
         <SidebarRail />
       </Sidebar>
-      <main className="flex-1 overflow-hidden min-h-0 min-w-0">
-        {children}
-      </main>
+      <main className="flex-1 overflow-hidden min-h-0 min-w-0">{children}</main>
     </SidebarProvider>
   );
 }

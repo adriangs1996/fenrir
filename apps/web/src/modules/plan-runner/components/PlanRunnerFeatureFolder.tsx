@@ -1,10 +1,4 @@
-import {
-  ChevronRightIcon,
-  FileTextIcon,
-  PlayIcon,
-  SquareIcon,
-  PencilIcon,
-} from "lucide-react";
+import { ChevronRightIcon, FileTextIcon, PlayIcon, SquareIcon, PencilIcon } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { scopeProjectRef } from "@fenrir/client-runtime";
@@ -16,11 +10,7 @@ import {
 import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
-import {
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarMenuSubButton,
-} from "~/components/ui/sidebar";
+import { SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton } from "~/components/ui/sidebar";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "~/components/ui/collapsible";

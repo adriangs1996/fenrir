@@ -104,35 +104,56 @@ export function msgpackDecode(buf: Uint8Array): unknown {
     // negative fixint (0xe0–0xff)
     if (b >= 0xe0) return b - 256;
     switch (b) {
-      case 0xc0: return null;
+      case 0xc0:
+        return null;
       // 0xc1 is never used
-      case 0xc2: return false;
-      case 0xc3: return true;
+      case 0xc2:
+        return false;
+      case 0xc3:
+        return true;
       // bin8/16/32 → decode as UTF-8 string (Ruby compat)
-      case 0xc4: return str(u8());
-      case 0xc5: return str(u16());
-      case 0xc6: return str(u32());
+      case 0xc4:
+        return str(u8());
+      case 0xc5:
+        return str(u16());
+      case 0xc6:
+        return str(u32());
       // float32/64
-      case 0xca: return f32();
-      case 0xcb: return f64();
+      case 0xca:
+        return f32();
+      case 0xcb:
+        return f64();
       // uint8/16/32
-      case 0xcc: return u8();
-      case 0xcd: return u16();
-      case 0xce: return u32();
+      case 0xcc:
+        return u8();
+      case 0xcd:
+        return u16();
+      case 0xce:
+        return u32();
       // int8/16/32
-      case 0xd0: return i8();
-      case 0xd1: return i16();
-      case 0xd2: return i32();
+      case 0xd0:
+        return i8();
+      case 0xd1:
+        return i16();
+      case 0xd2:
+        return i32();
       // str8/16/32
-      case 0xd9: return str(u8());
-      case 0xda: return str(u16());
-      case 0xdb: return str(u32());
+      case 0xd9:
+        return str(u8());
+      case 0xda:
+        return str(u16());
+      case 0xdb:
+        return str(u32());
       // array16/32
-      case 0xdc: return readArray(u16());
-      case 0xdd: return readArray(u32());
+      case 0xdc:
+        return readArray(u16());
+      case 0xdd:
+        return readArray(u32());
       // map16/32
-      case 0xde: return readMap(u16());
-      case 0xdf: return readMap(u32());
+      case 0xde:
+        return readMap(u16());
+      case 0xdf:
+        return readMap(u32());
       default:
         throw new MsgpackDecodeError(
           `Unsupported msgpack type: 0x${b.toString(16)} at offset ${offset - 1}`,
@@ -157,9 +178,7 @@ export function msgpackDecode(buf: Uint8Array): unknown {
   const result = read();
 
   if (offset !== buf.length) {
-    throw new MsgpackDecodeError(
-      `${buf.length - offset} trailing bytes after decoded value`,
-    );
+    throw new MsgpackDecodeError(`${buf.length - offset} trailing bytes after decoded value`);
   }
 
   return result;

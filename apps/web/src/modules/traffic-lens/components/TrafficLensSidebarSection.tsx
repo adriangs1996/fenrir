@@ -26,12 +26,7 @@ export function TrafficLensSidebarSection() {
     <SidebarGroup>
       <div className="flex items-center justify-between">
         <SidebarGroupLabel>Browser</SidebarGroupLabel>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-5 w-5"
-          onClick={() => void handleNewTab()}
-        >
+        <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => void handleNewTab()}>
           <Plus className="h-3 w-3" />
         </Button>
       </div>
@@ -47,16 +42,12 @@ export function TrafficLensSidebarSection() {
                 }}
               >
                 <Globe className="h-4 w-4" />
-                <span className="truncate">
-                  {tab.title || tab.url || "New Tab"}
-                </span>
+                <span className="truncate">{tab.title || tab.url || "New Tab"}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
           {Object.keys(tabs).length === 0 && (
-            <div className="px-2 py-1 text-xs text-muted-foreground">
-              No tabs open
-            </div>
+            <div className="px-2 py-1 text-xs text-muted-foreground">No tabs open</div>
           )}
         </SidebarMenu>
       </SidebarGroupContent>

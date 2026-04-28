@@ -13,10 +13,37 @@ Two React hooks that bind DOM keyboard/mouse listeners to the canvas and forward
 
 ## Scope
 
+- Modify: `apps/web/src/keybindings.ts` (broaden `ShortcutMatchContext`)
 - New file: `apps/web/src/modules/neovim-editor/hooks/useNeovimKeyboard.ts`
 - New file: `apps/web/src/modules/neovim-editor/hooks/useNeovimMouse.ts`
 
 ## Steps
+
+### Step 0. Broaden `ShortcutMatchContext` with optional `neovimFocus`
+
+> Why this lives in 09d, not 10c: `useNeovimKeyboard` (Step 1 below) calls
+> `resolveShortcutCommand(event, keybindings, { context: { neovimFocus: true } })`.
+> If the field is added in 10c instead, 09d fails typecheck and 10c
+> transitively depends on 09d → implicit cycle. Defining the field here as
+> **optional** lets every consumer between 09d and 10c typecheck cleanly;
+> 10c later just populates it at runtime.
+
+In `apps/web/src/keybindings.ts`, locate the `ShortcutMatchContext` type
+(or whatever the current name is — search for `terminalFocus` to find it).
+Add `neovimFocus` as optional:
+
+```typescript
+export interface ShortcutMatchContext {
+  terminalFocus: boolean;
+  terminalOpen: boolean;
+  neovimFocus?: boolean; // ← ADD (optional; populated runtime-side in 10c)
+}
+```
+
+If `resolveShortcutCommand` reads the field with a default of `false`,
+update its `when`-clause evaluator to treat `undefined` as `false`. No
+runtime call site needs to set this field yet — 10c wires the runtime
+context object.
 
 ### Step 1. useNeovimKeyboard.ts
 

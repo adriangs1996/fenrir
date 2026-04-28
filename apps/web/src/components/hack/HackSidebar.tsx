@@ -14,10 +14,7 @@ import {
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { useMetasploitStore } from "../../metasploitStore";
-import {
-  useTrafficLensStore,
-  TrafficLensSidebarSection,
-} from "../../modules/traffic-lens";
+import { useTrafficLensStore, TrafficLensSidebarSection } from "../../modules/traffic-lens";
 import { CreateListenerDialog } from "./CreateListenerDialog";
 import { useMetasploitSync } from "./useMetasploitSync";
 import { isElectron } from "../../env";
@@ -116,13 +113,9 @@ export function HackSidebar() {
                     className="w-full"
                   >
                     <div className="flex w-full items-center justify-between">
-                      <span className="truncate text-sm">
-                        {session.targetHost}
-                      </span>
+                      <span className="truncate text-sm">{session.targetHost}</span>
                       <Badge
-                        variant={
-                          session.type === "meterpreter" ? "default" : "outline"
-                        }
+                        variant={session.type === "meterpreter" ? "default" : "outline"}
                         className="ml-2 text-xs"
                       >
                         {session.type}
@@ -145,9 +138,7 @@ export function HackSidebar() {
       </SidebarContent>
       <SidebarFooter className="p-4">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <div
-            className={`h-2 w-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`}
-          />
+          <div className={`h-2 w-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
           Metasploit {connected ? "Connected" : "Disconnected"}
         </div>
       </SidebarFooter>

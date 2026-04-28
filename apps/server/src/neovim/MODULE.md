@@ -8,39 +8,39 @@
 
 #### `NeovimManager` (public — consumed by WebSocket route handler)
 
-| Method             | Input                          | Output                   | Errors                                                  | Description                                          |
-| ------------------ | ------------------------------ | ------------------------ | ------------------------------------------------------- | ---------------------------------------------------- |
-| `spawn`            | `projectId, cwd`               | `NeovimSessionSnapshot`  | `NeovimNotInstalledError \| NeovimSpawnError \| NeovimCwdError` | Spawn `nvim --embed` for project if not running      |
-| `attachUi`         | `projectId, cols, rows`        | `void`                   | `NeovimAttachError \| NeovimSessionLookupError`         | Send `nvim_ui_attach` with ext_linegrid + ext_multigrid |
-| `detachUi`         | `projectId`                    | `void`                   | `NeovimSessionLookupError`                              | Send `nvim_ui_detach`, keep nvim process alive        |
-| `resize`           | `projectId, cols, rows`        | `void`                   | `NeovimSessionLookupError`                              | Send `nvim_ui_try_resize`                            |
-| `input`            | `projectId, keys`              | `void`                   | `NeovimSessionLookupError`                              | Send `nvim_input(keys)` — non-blocking               |
-| `inputMouse`       | `projectId, button, action, modifier, grid, row, col` | `void` | `NeovimSessionLookupError`               | Send `nvim_input_mouse`                              |
-| `command`          | `projectId, command`           | `void`                   | `NeovimSessionLookupError \| NeovimRpcError`            | Send `nvim_command` (for AI: `checktime`, etc.)      |
-| `getApiInfo`       | `projectId`                    | `NeovimApiInfo`          | `NeovimSessionLookupError \| NeovimRpcError`            | Call `nvim_get_api_info`                             |
-| `kill`             | `projectId`                    | `void`                   | —                                                       | Kill nvim process, clean up session                  |
-| `hasSession`       | `projectId`                    | `boolean`                | —                                                       | Check if nvim process running for project            |
-| `subscribe`        | `(NeovimEvent => void)`        | `() => void`             | —                                                       | Subscribe to lifecycle events (started/crashed/exited) |
-| `getRedrawStream`  | `projectId`                    | `ReadableStream<Uint8Array>` | `NeovimSessionLookupError`                          | Raw msgpack redraw stream for binary WS forwarding   |
+| Method            | Input                                                 | Output                       | Errors                                                          | Description                                             |
+| ----------------- | ----------------------------------------------------- | ---------------------------- | --------------------------------------------------------------- | ------------------------------------------------------- |
+| `spawn`           | `projectId, cwd`                                      | `NeovimSessionSnapshot`      | `NeovimNotInstalledError \| NeovimSpawnError \| NeovimCwdError` | Spawn `nvim --embed` for project if not running         |
+| `attachUi`        | `projectId, cols, rows`                               | `void`                       | `NeovimAttachError \| NeovimSessionLookupError`                 | Send `nvim_ui_attach` with ext_linegrid + ext_multigrid |
+| `detachUi`        | `projectId`                                           | `void`                       | `NeovimSessionLookupError`                                      | Send `nvim_ui_detach`, keep nvim process alive          |
+| `resize`          | `projectId, cols, rows`                               | `void`                       | `NeovimSessionLookupError`                                      | Send `nvim_ui_try_resize`                               |
+| `input`           | `projectId, keys`                                     | `void`                       | `NeovimSessionLookupError`                                      | Send `nvim_input(keys)` — non-blocking                  |
+| `inputMouse`      | `projectId, button, action, modifier, grid, row, col` | `void`                       | `NeovimSessionLookupError`                                      | Send `nvim_input_mouse`                                 |
+| `command`         | `projectId, command`                                  | `void`                       | `NeovimSessionLookupError \| NeovimRpcError`                    | Send `nvim_command` (for AI: `checktime`, etc.)         |
+| `getApiInfo`      | `projectId`                                           | `NeovimApiInfo`              | `NeovimSessionLookupError \| NeovimRpcError`                    | Call `nvim_get_api_info`                                |
+| `kill`            | `projectId`                                           | `void`                       | —                                                               | Kill nvim process, clean up session                     |
+| `hasSession`      | `projectId`                                           | `boolean`                    | —                                                               | Check if nvim process running for project               |
+| `subscribe`       | `(NeovimEvent => void)`                               | `() => void`                 | —                                                               | Subscribe to lifecycle events (started/crashed/exited)  |
+| `getRedrawStream` | `projectId`                                           | `ReadableStream<Uint8Array>` | `NeovimSessionLookupError`                                      | Raw msgpack redraw stream for binary WS forwarding      |
 
 #### `MsgpackRpc` (internal — consumed by NeovimManager only)
 
-| Method       | Input                                 | Output              | Errors            | Description                                      |
-| ------------ | ------------------------------------- | ------------------- | ----------------- | ------------------------------------------------ |
-| `request`    | `method, params`                      | `unknown`           | `NeovimRpcError`  | Send request, await response                     |
-| `notify`     | `method, params`                      | `void`              | —                 | Send notification (fire-and-forget)              |
-| `onNotify`   | `(method, params) => void`            | `() => void`        | —                 | Register notification handler                    |
-| `encode`     | `message`                             | `Uint8Array`        | —                 | Encode msgpack-rpc message                       |
-| `decode`     | `Uint8Array`                          | `MsgpackRpcMessage[]` | `NeovimRpcError` | Decode msgpack-rpc stream chunk                  |
+| Method     | Input                      | Output                | Errors           | Description                         |
+| ---------- | -------------------------- | --------------------- | ---------------- | ----------------------------------- |
+| `request`  | `method, params`           | `unknown`             | `NeovimRpcError` | Send request, await response        |
+| `notify`   | `method, params`           | `void`                | —                | Send notification (fire-and-forget) |
+| `onNotify` | `(method, params) => void` | `() => void`          | —                | Register notification handler       |
+| `encode`   | `message`                  | `Uint8Array`          | —                | Encode msgpack-rpc message          |
+| `decode`   | `Uint8Array`               | `MsgpackRpcMessage[]` | `NeovimRpcError` | Decode msgpack-rpc stream chunk     |
 
 ### Events Emitted
 
-| Event     | Schema                    | When                                    |
-| --------- | ------------------------- | --------------------------------------- |
-| `started` | `NeovimStartedEvent`      | nvim process spawned successfully       |
-| `crashed` | `NeovimCrashedEvent`      | nvim process exited unexpectedly        |
-| `exited`  | `NeovimExitedEvent`       | nvim process exited normally            |
-| `redraw`  | Raw `Uint8Array`          | nvim sends redraw notification (binary) |
+| Event     | Schema               | When                                    |
+| --------- | -------------------- | --------------------------------------- |
+| `started` | `NeovimStartedEvent` | nvim process spawned successfully       |
+| `crashed` | `NeovimCrashedEvent` | nvim process exited unexpectedly        |
+| `exited`  | `NeovimExitedEvent`  | nvim process exited normally            |
+| `redraw`  | Raw `Uint8Array`     | nvim sends redraw notification (binary) |
 
 ### Contracts (from `@fenrir/contracts`)
 
@@ -53,9 +53,9 @@
 
 ### Services Consumed
 
-| Service        | From Module         | Why                                   |
-| -------------- | ------------------- | ------------------------------------- |
-| `ServerConfig` | `config`            | Resolve nvim binary path, data dirs   |
+| Service        | From Module | Why                                 |
+| -------------- | ----------- | ----------------------------------- |
+| `ServerConfig` | `config`    | Resolve nvim binary path, data dirs |
 
 ### Packages
 
@@ -69,15 +69,15 @@
 
 ## Error Taxonomy
 
-| Error                        | Tag                        | Recovery                                            |
-| ---------------------------- | -------------------------- | --------------------------------------------------- |
-| `NeovimNotInstalledError`    | `NeovimNotInstalled`       | Show install instructions to user                   |
-| `NeovimSpawnError`           | `NeovimSpawnError`         | Log, report to client, offer retry                  |
-| `NeovimCwdError`             | `NeovimCwdError`           | Validate cwd exists before spawn                    |
-| `NeovimAttachError`          | `NeovimAttachError`        | UI already attached — detach first                  |
-| `NeovimSessionLookupError`   | `NeovimSessionLookupError` | Session doesn't exist — spawn first                 |
-| `NeovimRpcError`             | `NeovimRpcError`           | Protocol error — log, may need restart              |
-| `NeovimCrashedError`         | `NeovimCrashedError`       | Show crash info to user, offer restart              |
+| Error                      | Tag                        | Recovery                               |
+| -------------------------- | -------------------------- | -------------------------------------- |
+| `NeovimNotInstalledError`  | `NeovimNotInstalled`       | Show install instructions to user      |
+| `NeovimSpawnError`         | `NeovimSpawnError`         | Log, report to client, offer retry     |
+| `NeovimCwdError`           | `NeovimCwdError`           | Validate cwd exists before spawn       |
+| `NeovimAttachError`        | `NeovimAttachError`        | UI already attached — detach first     |
+| `NeovimSessionLookupError` | `NeovimSessionLookupError` | Session doesn't exist — spawn first    |
+| `NeovimRpcError`           | `NeovimRpcError`           | Protocol error — log, may need restart |
+| `NeovimCrashedError`       | `NeovimCrashedError`       | Show crash info to user, offer restart |
 
 ## Filesystem Layout
 

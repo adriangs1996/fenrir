@@ -9,10 +9,7 @@ import type {
 import { Cache, Duration, Effect, Equal, Layer, Option, Result, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { decodeJsonResult } from "@fenrir/shared/schemaJson";
-import {
-  query as claudeQuery,
-  type SDKUserMessage,
-} from "@anthropic-ai/claude-agent-sdk";
+import { query as claudeQuery, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import {
   buildServerProvider,
@@ -411,7 +408,6 @@ function waitForAbortSignal(signal: AbortSignal): Promise<void> {
     signal.addEventListener("abort", () => resolve(), { once: true });
   });
 }
-
 
 /**
  * Probe account information by spawning a lightweight Claude Agent SDK

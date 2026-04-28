@@ -96,7 +96,7 @@ export interface Project {
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
   scripts: ProjectScript[];
-  globalScriptDefaults: GlobalScriptProjectDefaults[];  // empty array when not set
+  globalScriptDefaults: GlobalScriptProjectDefaults[]; // empty array when not set
 }
 
 // Re-export for convenience

@@ -391,12 +391,8 @@ export function useSettingsRestore(onRestored?: () => void) {
         : []),
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
       ...(areProviderSettingsDirty ? ["Providers"] : []),
-      ...(settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily
-        ? ["UI Font"]
-        : []),
-      ...(settings.uiFontSize !== DEFAULT_UNIFIED_SETTINGS.uiFontSize
-        ? ["UI Font Size"]
-        : []),
+      ...(settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily ? ["UI Font"] : []),
+      ...(settings.uiFontSize !== DEFAULT_UNIFIED_SETTINGS.uiFontSize ? ["UI Font Size"] : []),
       ...(settings.terminalFontFamily !== DEFAULT_UNIFIED_SETTINGS.terminalFontFamily
         ? ["Terminal Font"]
         : []),
@@ -724,7 +720,12 @@ export function GeneralSettingsPanel() {
             <Select
               value={theme}
               onValueChange={(value) => {
-                if (value === "system" || value === "light" || value === "dark" || value === "catppuccin-mocha") {
+                if (
+                  value === "system" ||
+                  value === "light" ||
+                  value === "dark" ||
+                  value === "catppuccin-mocha"
+                ) {
                   setTheme(value);
                 }
               }}
@@ -1067,14 +1068,12 @@ export function GeneralSettingsPanel() {
           title="Terminal Font"
           description="Font family used in the terminal emulator. Monospace fonts recommended."
           resetAction={
-            settings.terminalFontFamily !==
-            DEFAULT_UNIFIED_SETTINGS.terminalFontFamily ? (
+            settings.terminalFontFamily !== DEFAULT_UNIFIED_SETTINGS.terminalFontFamily ? (
               <SettingResetButton
                 label="terminal font"
                 onClick={() =>
                   updateSettings({
-                    terminalFontFamily:
-                      DEFAULT_UNIFIED_SETTINGS.terminalFontFamily,
+                    terminalFontFamily: DEFAULT_UNIFIED_SETTINGS.terminalFontFamily,
                   })
                 }
               />
@@ -1083,9 +1082,7 @@ export function GeneralSettingsPanel() {
           control={
             <FontPicker
               value={settings.terminalFontFamily}
-              onChange={(value) =>
-                updateSettings({ terminalFontFamily: value })
-              }
+              onChange={(value) => updateSettings({ terminalFontFamily: value })}
               fonts={fonts}
               filterMonospace
               isLoading={fontsLoading}
@@ -1097,14 +1094,12 @@ export function GeneralSettingsPanel() {
           title="Terminal Font Size"
           description="Font size for the terminal emulator (8–24px)."
           resetAction={
-            settings.terminalFontSize !==
-            DEFAULT_UNIFIED_SETTINGS.terminalFontSize ? (
+            settings.terminalFontSize !== DEFAULT_UNIFIED_SETTINGS.terminalFontSize ? (
               <SettingResetButton
                 label="terminal font size"
                 onClick={() =>
                   updateSettings({
-                    terminalFontSize:
-                      DEFAULT_UNIFIED_SETTINGS.terminalFontSize,
+                    terminalFontSize: DEFAULT_UNIFIED_SETTINGS.terminalFontSize,
                   })
                 }
               />
@@ -1135,14 +1130,12 @@ export function GeneralSettingsPanel() {
           title="Terminal Line Height"
           description="Line spacing multiplier for the terminal (1.0–2.0)."
           resetAction={
-            settings.terminalLineHeight !==
-            DEFAULT_UNIFIED_SETTINGS.terminalLineHeight ? (
+            settings.terminalLineHeight !== DEFAULT_UNIFIED_SETTINGS.terminalLineHeight ? (
               <SettingResetButton
                 label="terminal line height"
                 onClick={() =>
                   updateSettings({
-                    terminalLineHeight:
-                      DEFAULT_UNIFIED_SETTINGS.terminalLineHeight,
+                    terminalLineHeight: DEFAULT_UNIFIED_SETTINGS.terminalLineHeight,
                   })
                 }
               />

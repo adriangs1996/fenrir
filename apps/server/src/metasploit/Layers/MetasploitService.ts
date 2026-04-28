@@ -20,10 +20,7 @@ import {
 } from "@fenrir/contracts";
 
 import { PtyAdapter, type PtyProcess } from "../../terminal/Services/PTY";
-import {
-  MetasploitService,
-  type MetasploitServiceShape,
-} from "../Services/MetasploitService";
+import { MetasploitService, type MetasploitServiceShape } from "../Services/MetasploitService";
 
 // ─── MSFRPC Client ──────────────────────────────────────────────────────────
 
@@ -33,11 +30,7 @@ interface MsfrpcClient {
   dispose(): void;
 }
 
-function createMsfrpcClient(
-  host: string,
-  port: number,
-  password: string,
-): MsfrpcClient {
+function createMsfrpcClient(host: string, port: number, password: string): MsfrpcClient {
   let token: string | null = null;
   let disposed = false;
 
@@ -45,9 +38,7 @@ function createMsfrpcClient(
     if (disposed) {
       throw new Error("MSFRPC client disposed");
     }
-    const body = token
-      ? [method, token, ...params]
-      : [method, ...params];
+    const body = token ? [method, token, ...params] : [method, ...params];
 
     const response = await fetch(`http://${host}:${port}/api/`, {
       method: "POST",
@@ -56,9 +47,7 @@ function createMsfrpcClient(
     });
 
     if (!response.ok) {
-      throw new Error(
-        `MSFRPC request failed: ${response.status} ${response.statusText}`,
-      );
+      throw new Error(`MSFRPC request failed: ${response.status} ${response.statusText}`);
     }
 
     const buffer = await response.arrayBuffer();
@@ -138,15 +127,7 @@ export const MetasploitServiceLive = Layer.effect(
       const proc = yield* ptyAdapter
         .spawn({
           shell: "msfrpcd",
-          args: [
-            "-P",
-            MSFRPC_PASSWORD,
-            "-S",
-            "-a",
-            MSFRPC_HOST,
-            "-p",
-            String(MSFRPC_PORT),
-          ],
+          args: ["-P", MSFRPC_PASSWORD, "-S", "-a", MSFRPC_HOST, "-p", String(MSFRPC_PORT)],
           cwd: "/tmp",
           cols: 80,
           rows: 24,
@@ -154,10 +135,7 @@ export const MetasploitServiceLive = Layer.effect(
         })
         .pipe(
           Effect.mapError((err) => {
-            if (
-              err.message.includes("ENOENT") ||
-              err.message.includes("not found")
-            ) {
+            if (err.message.includes("ENOENT") || err.message.includes("not found")) {
               return MetasploitNotFoundError.default();
             }
             return new MetasploitConnectionError({
@@ -171,11 +149,7 @@ export const MetasploitServiceLive = Layer.effect(
 
       yield* Effect.sleep("3 seconds");
 
-      const client = createMsfrpcClient(
-        MSFRPC_HOST,
-        MSFRPC_PORT,
-        MSFRPC_PASSWORD,
-      );
+      const client = createMsfrpcClient(MSFRPC_HOST, MSFRPC_PORT, MSFRPC_PASSWORD);
 
       yield* Effect.retry(
         Effect.tryPromise({
@@ -209,20 +183,14 @@ export const MetasploitServiceLive = Layer.effect(
         const currentSessionIds = new Set<string>();
 
         if (result && typeof result === "object") {
-          for (const [sessionId, sessionData] of Object.entries(
-            result as Record<string, any>,
-          )) {
+          for (const [sessionId, sessionData] of Object.entries(result as Record<string, any>)) {
             currentSessionIds.add(sessionId);
             if (!knownSessions.has(sessionId)) {
               const snapshot: MsfSessionSnapshot = {
                 sessionId,
-                type: (sessionData as any).type === "meterpreter"
-                  ? "meterpreter"
-                  : "shell",
+                type: (sessionData as any).type === "meterpreter" ? "meterpreter" : "shell",
                 info: String((sessionData as any).info ?? ""),
-                targetHost: String(
-                  (sessionData as any).session_host ?? "unknown",
-                ),
+                targetHost: String((sessionData as any).session_host ?? "unknown"),
                 platform: String((sessionData as any).platform ?? "unknown"),
                 via: String((sessionData as any).via_exploit ?? ""),
                 listenerId: null,
@@ -252,9 +220,7 @@ export const MetasploitServiceLive = Layer.effect(
       }).pipe(Effect.orElseSucceed(() => undefined));
 
       const pollingSchedule = Schedule.spaced(SESSION_POLL_INTERVAL);
-      const fiber = runFork(
-        pollEffect.pipe(Effect.repeat(pollingSchedule)),
-      );
+      const fiber = runFork(pollEffect.pipe(Effect.repeat(pollingSchedule)));
       pollingFiber = {
         interrupt: () => runFork(Fiber.interrupt(fiber)),
       };
@@ -415,10 +381,7 @@ export const MetasploitServiceLive = Layer.effect(
 
       listListeners: () =>
         Effect.try({
-          try: () =>
-            Array.from(listeners.values()).map(
-              (state) => state.snapshot,
-            ),
+          try: () => Array.from(listeners.values()).map((state) => state.snapshot),
           catch: (error) =>
             new MetasploitConnectionError({
               message: `Failed to list listeners: ${error instanceof Error ? error.message : String(error)}`,
@@ -448,9 +411,7 @@ export const MetasploitServiceLive = Layer.effect(
           }
 
           const method =
-            session.type === "meterpreter"
-              ? "session.meterpreter_write"
-              : "session.shell_write";
+            session.type === "meterpreter" ? "session.meterpreter_write" : "session.shell_write";
 
           yield* Effect.tryPromise({
             try: () => client.call(method, [sessionId, data]),
@@ -475,9 +436,7 @@ export const MetasploitServiceLive = Layer.effect(
           }
 
           const method =
-            session.type === "meterpreter"
-              ? "session.meterpreter_read"
-              : "session.shell_read";
+            session.type === "meterpreter" ? "session.meterpreter_read" : "session.shell_read";
 
           const result = yield* Effect.tryPromise({
             try: () => client.call(method, [sessionId]),

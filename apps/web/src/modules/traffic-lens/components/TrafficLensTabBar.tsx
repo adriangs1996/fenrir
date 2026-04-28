@@ -27,12 +27,8 @@ export function TrafficLensTabBar() {
             void window.desktopBridge?.trafficLensShowTab(tab.tabId);
           }}
         >
-          <span className="truncate">
-            {tab.title || tab.url || "New Tab"}
-          </span>
-          {tab.loading && (
-            <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
-          )}
+          <span className="truncate">{tab.title || tab.url || "New Tab"}</span>
+          {tab.loading && <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />}
           <Button
             variant="ghost"
             size="icon"

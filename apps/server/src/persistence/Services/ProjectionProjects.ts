@@ -6,7 +6,13 @@
  *
  * @module ProjectionProjectRepository
  */
-import { GlobalScriptProjectDefaults, IsoDateTime, ModelSelection, ProjectId, ProjectScript } from "@fenrir/contracts";
+import {
+  GlobalScriptProjectDefaults,
+  IsoDateTime,
+  ModelSelection,
+  ProjectId,
+  ProjectScript,
+} from "@fenrir/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 

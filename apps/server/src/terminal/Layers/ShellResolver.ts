@@ -17,11 +17,7 @@ import {
   type TerminalShellResolverShape,
 } from "../Services/ShellResolver";
 
-const TERMINAL_ENV_BLOCKLIST = new Set([
-  "PORT",
-  "ELECTRON_RENDERER_PORT",
-  "ELECTRON_RUN_AS_NODE",
-]);
+const TERMINAL_ENV_BLOCKLIST = new Set(["PORT", "ELECTRON_RENDERER_PORT", "ELECTRON_RUN_AS_NODE"]);
 
 function defaultShellResolver(): string {
   if (process.platform === "win32") {
@@ -44,9 +40,7 @@ function normalizeShellCommand(value: string | undefined): string | null {
   return firstToken.replace(/^['"]|['"]$/g, "");
 }
 
-function shellCandidateFromCommand(
-  command: string | null,
-): ShellCandidate | null {
+function shellCandidateFromCommand(command: string | null): ShellCandidate | null {
   if (!command || command.length === 0) return null;
   const shellName = path.basename(command).toLowerCase();
   if (process.platform !== "win32" && shellName === "zsh") {
@@ -60,9 +54,7 @@ function formatShellCandidate(candidate: ShellCandidate): string {
   return `${candidate.shell} ${candidate.args.join(" ")}`;
 }
 
-function uniqueShellCandidates(
-  candidates: Array<ShellCandidate | null>,
-): ShellCandidate[] {
+function uniqueShellCandidates(candidates: Array<ShellCandidate | null>): ShellCandidate[] {
   const seen = new Set<string>();
   const ordered: ShellCandidate[] = [];
   for (const candidate of candidates) {
@@ -137,16 +129,12 @@ export interface ShellResolverOptions {
   shellResolver?: () => string;
 }
 
-export function makeShellResolver(
-  options?: ShellResolverOptions,
-): TerminalShellResolverShape {
+export function makeShellResolver(options?: ShellResolverOptions): TerminalShellResolverShape {
   const shellResolver = options?.shellResolver ?? defaultShellResolver;
 
   return {
     resolve: () => {
-      const requested = shellCandidateFromCommand(
-        normalizeShellCommand(shellResolver()),
-      );
+      const requested = shellCandidateFromCommand(normalizeShellCommand(shellResolver()));
 
       if (process.platform === "win32") {
         return uniqueShellCandidates([
@@ -197,14 +185,9 @@ export function makeShellResolver(
       if (!env) return null;
       const entries = Object.entries(env);
       if (entries.length === 0) return null;
-      return Object.fromEntries(
-        entries.toSorted(([left], [right]) => left.localeCompare(right)),
-      );
+      return Object.fromEntries(entries.toSorted(([left], [right]) => left.localeCompare(right)));
     },
   };
 }
 
-export const TerminalShellResolverLive = Layer.succeed(
-  TerminalShellResolver,
-  makeShellResolver(),
-);
+export const TerminalShellResolverLive = Layer.succeed(TerminalShellResolver, makeShellResolver());

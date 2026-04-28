@@ -2,9 +2,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { useTrafficLensStore } from "./useTrafficLensStore";
 import type { TrafficLensTabSnapshot, TrafficLensTabEvent } from "@fenrir/contracts";
 
-const makeTab = (
-  overrides?: Partial<TrafficLensTabSnapshot>,
-): TrafficLensTabSnapshot => ({
+const makeTab = (overrides?: Partial<TrafficLensTabSnapshot>): TrafficLensTabSnapshot => ({
   tabId: "tab-1" as any,
   url: "https://target.htb",
   title: "Target",
@@ -51,9 +49,7 @@ describe("trafficLensStore", () => {
 
     it("preserves activeTabId if different tab removed", () => {
       useTrafficLensStore.getState().upsertTab(makeTab());
-      useTrafficLensStore
-        .getState()
-        .upsertTab(makeTab({ tabId: "tab-2" as any }));
+      useTrafficLensStore.getState().upsertTab(makeTab({ tabId: "tab-2" as any }));
       useTrafficLensStore.getState().setActiveTab("tab-1");
       useTrafficLensStore.getState().removeTab("tab-2");
       expect(useTrafficLensStore.getState().activeTabId).toBe("tab-1");
@@ -85,9 +81,7 @@ describe("trafficLensStore", () => {
         tabId: "tab-1",
         url: "https://new-url.htb",
       } as any);
-      expect(useTrafficLensStore.getState().tabs["tab-1"].url).toBe(
-        "https://new-url.htb",
-      );
+      expect(useTrafficLensStore.getState().tabs["tab-1"].url).toBe("https://new-url.htb");
     });
 
     it("handles tab.titleUpdated", () => {
@@ -122,9 +116,7 @@ describe("trafficLensStore", () => {
 
     it("does not mutate other tabs when updating one", () => {
       useTrafficLensStore.getState().upsertTab(makeTab());
-      useTrafficLensStore
-        .getState()
-        .upsertTab(makeTab({ tabId: "tab-2" as any, title: "Tab 2" }));
+      useTrafficLensStore.getState().upsertTab(makeTab({ tabId: "tab-2" as any, title: "Tab 2" }));
       useTrafficLensStore.getState().applyEvent({
         type: "tab.titleUpdated",
         tabId: "tab-1",

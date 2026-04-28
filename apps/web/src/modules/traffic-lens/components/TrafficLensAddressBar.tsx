@@ -6,9 +6,7 @@ import { useTrafficLensStore } from "../stores/useTrafficLensStore";
 
 export function TrafficLensAddressBar() {
   const activeTabId = useTrafficLensStore((s) => s.activeTabId);
-  const activeTab = useTrafficLensStore((s) =>
-    s.activeTabId ? s.tabs[s.activeTabId] : null,
-  );
+  const activeTab = useTrafficLensStore((s) => (s.activeTabId ? s.tabs[s.activeTabId] : null));
   const [urlInput, setUrlInput] = useState("");
 
   // Sync URL input with active tab
@@ -57,11 +55,7 @@ export function TrafficLensAddressBar() {
         className="h-7 w-7"
         onClick={() => void window.desktopBridge?.trafficLensReload(activeTabId)}
       >
-        {activeTab.loading ? (
-          <StopIcon className="h-4 w-4" />
-        ) : (
-          <RotateCw className="h-4 w-4" />
-        )}
+        {activeTab.loading ? <StopIcon className="h-4 w-4" /> : <RotateCw className="h-4 w-4" />}
       </Button>
       <form onSubmit={handleNavigate} className="flex-1">
         <Input

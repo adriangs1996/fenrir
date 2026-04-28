@@ -14,7 +14,10 @@ import { type DraftId } from "~/composerDraftStore";
 import { DiffIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import ProjectScriptsControl, { type NewProjectScriptInput, type NewGlobalScriptInput } from "../ProjectScriptsControl";
+import ProjectScriptsControl, {
+  type NewProjectScriptInput,
+  type NewGlobalScriptInput,
+} from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
