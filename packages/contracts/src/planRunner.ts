@@ -62,6 +62,8 @@ export const PlanRunSnapshot = Schema.Struct({
   worktreePath: Schema.NullOr(Schema.String),
   state: FeatureState,
   plans: Schema.Array(PlanNode),
+  /** Maximum number of plans executing in parallel. */
+  maxConcurrency: Schema.Number,
   analyzerThreadId: Schema.NullOr(ThreadId),
   integrationThreadId: Schema.NullOr(ThreadId),
   startedAt: IsoDateTime,

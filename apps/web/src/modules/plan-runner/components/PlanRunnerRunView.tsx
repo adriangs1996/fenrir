@@ -228,7 +228,11 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
 
       {/* DAG visualization */}
       <div className="flex-1 overflow-auto px-4">
-        <PlanDagView plans={dagPlans} onPlanClick={handlePlanClick} />
+        <PlanDagView
+          plans={dagPlans}
+          maxConcurrency={run.maxConcurrency}
+          onPlanClick={handlePlanClick}
+        />
 
         {/* Plan detail table below the DAG */}
         <div className="mt-2 space-y-1 pb-4">

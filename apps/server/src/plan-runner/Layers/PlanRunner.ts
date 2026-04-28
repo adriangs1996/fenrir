@@ -52,6 +52,7 @@ interface PlanRunState {
   summary: string | null;
   cancelled: boolean;
   modelSelection: ModelSelection;
+  maxConcurrency: number;
 }
 
 /**
@@ -406,6 +407,7 @@ export const PlanRunnerLive = Layer.effect(
           completedAt: p.completedAt,
         }),
       ),
+      maxConcurrency: run.maxConcurrency,
       analyzerThreadId: run.analyzerThreadId as any,
       integrationThreadId: run.integrationThreadId as any,
       startedAt: run.startedAt as any,
@@ -1088,9 +1090,9 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
             continue;
           }
 
-          // Execute ready plans in parallel, capped at 3 concurrent threads
+          // Execute ready plans in parallel, capped at maxConcurrency threads
           yield* Effect.forEach(readyPlans, (plan) => executePlan(run, plan), {
-            concurrency: 3,
+            concurrency: run.maxConcurrency,
           });
         }
 
@@ -1343,6 +1345,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           }
 
           // Construct run state
+          const MAX_CONCURRENCY = 3;
           const run: PlanRunState = {
             runId,
             featureName: input.featureName,
@@ -1359,6 +1362,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             summary: null,
             cancelled: false,
             modelSelection,
+            maxConcurrency: MAX_CONCURRENCY,
           };
 
           // Store run
