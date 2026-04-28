@@ -350,6 +350,24 @@ const createDesktopBridgeStub = (overrides?: {
     }),
     pickFile: vi.fn().mockResolvedValue(null),
     onVpnStateChange: () => () => {},
+    trafficLensCreateTab: vi.fn().mockResolvedValue({
+      tabId: "test-tab",
+      url: "about:blank",
+      title: "",
+      loading: false,
+      canGoBack: false,
+      canGoForward: false,
+    }),
+    trafficLensCloseTab: vi.fn().mockResolvedValue(undefined),
+    trafficLensNavigate: vi.fn().mockResolvedValue(undefined),
+    trafficLensGoBack: vi.fn().mockResolvedValue(undefined),
+    trafficLensGoForward: vi.fn().mockResolvedValue(undefined),
+    trafficLensReload: vi.fn().mockResolvedValue(undefined),
+    trafficLensGetTabs: vi.fn().mockResolvedValue([]),
+    trafficLensSetBounds: vi.fn().mockResolvedValue(undefined),
+    trafficLensShowTab: vi.fn().mockResolvedValue(undefined),
+    trafficLensHideAllTabs: vi.fn().mockResolvedValue(undefined),
+    onTrafficLensTabEvent: () => () => {},
   };
 };
 

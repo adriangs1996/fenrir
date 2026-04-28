@@ -29,7 +29,7 @@ describe("trafficLensStore", () => {
     it("updates existing tab", () => {
       useTrafficLensStore.getState().upsertTab(makeTab());
       useTrafficLensStore.getState().upsertTab(makeTab({ title: "Updated" }));
-      expect(useTrafficLensStore.getState().tabs["tab-1"].title).toBe("Updated");
+      expect(useTrafficLensStore.getState().tabs["tab-1"]!.title).toBe("Updated");
     });
   });
 
@@ -81,7 +81,7 @@ describe("trafficLensStore", () => {
         tabId: "tab-1",
         url: "https://new-url.htb",
       } as any);
-      expect(useTrafficLensStore.getState().tabs["tab-1"].url).toBe("https://new-url.htb");
+      expect(useTrafficLensStore.getState().tabs["tab-1"]!.url).toBe("https://new-url.htb");
     });
 
     it("handles tab.titleUpdated", () => {
@@ -91,7 +91,7 @@ describe("trafficLensStore", () => {
         tabId: "tab-1",
         title: "New Title",
       } as any);
-      expect(useTrafficLensStore.getState().tabs["tab-1"].title).toBe("New Title");
+      expect(useTrafficLensStore.getState().tabs["tab-1"]!.title).toBe("New Title");
     });
 
     it("handles tab.loadingChanged", () => {
@@ -101,7 +101,7 @@ describe("trafficLensStore", () => {
         tabId: "tab-1",
         loading: true,
       } as any);
-      expect(useTrafficLensStore.getState().tabs["tab-1"].loading).toBe(true);
+      expect(useTrafficLensStore.getState().tabs["tab-1"]!.loading).toBe(true);
     });
 
     it("ignores events for nonexistent tabs without crashing", () => {
@@ -122,7 +122,7 @@ describe("trafficLensStore", () => {
         tabId: "tab-1",
         title: "Changed",
       } as any);
-      expect(useTrafficLensStore.getState().tabs["tab-2"].title).toBe("Tab 2");
+      expect(useTrafficLensStore.getState().tabs["tab-2"]!.title).toBe("Tab 2");
     });
   });
 });

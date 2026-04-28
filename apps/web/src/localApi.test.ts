@@ -220,6 +220,19 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     }),
     pickFile: async () => null,
     onVpnStateChange: () => () => undefined,
+    trafficLensCreateTab: async () => {
+      throw new Error("trafficLensCreateTab not implemented in test");
+    },
+    trafficLensCloseTab: async () => undefined,
+    trafficLensNavigate: async () => undefined,
+    trafficLensGoBack: async () => undefined,
+    trafficLensGoForward: async () => undefined,
+    trafficLensReload: async () => undefined,
+    trafficLensGetTabs: async () => [],
+    trafficLensSetBounds: async () => undefined,
+    trafficLensShowTab: async () => undefined,
+    trafficLensHideAllTabs: async () => undefined,
+    onTrafficLensTabEvent: () => () => undefined,
     ...overrides,
   };
 }

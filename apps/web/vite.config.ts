@@ -76,9 +76,6 @@ export default defineConfig({
     "import.meta.env.VITE_WS_URL": JSON.stringify(configuredWsUrl ?? ""),
     "import.meta.env.APP_VERSION": JSON.stringify(pkg.version),
   },
-  resolve: {
-    tsconfigPaths: true,
-  },
   server: {
     host,
     port,

@@ -117,6 +117,7 @@ import {
   MetasploitShellAdapter,
   type MetasploitShellAdapterShape,
 } from "./metasploit/Services/MetasploitShellAdapter.ts";
+import { PlanRunnerService } from "./plan-runner/Services/PlanRunner.ts";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
@@ -472,6 +473,17 @@ const buildAppUnderTest = (options?: {
           getTrafficDetail: () => Effect.die(new Error("not available in test")),
           clearTraffic: () => Effect.void,
           subscribe: () => Effect.succeed(() => {}),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(PlanRunnerService)({
+          start: () => Effect.die(new Error("not available in test")),
+          getStatus: () => Effect.die(new Error("not available in test")),
+          cancel: () => Effect.die(new Error("not available in test")),
+          listFeatures: () => Effect.succeed({ features: [] }),
+          getFeaturePlans: () => Effect.die(new Error("not available in test")),
+          listRuns: () => Effect.succeed({ runs: [] }),
+          streamEvents: Stream.empty,
         }),
       ),
       Layer.provide(

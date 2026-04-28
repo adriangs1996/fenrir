@@ -84,6 +84,11 @@ interface FakeGitTextGeneration {
     message: string;
     modelSelection: ModelSelection;
   }) => Effect.Effect<{ title: string }, TextGenerationError>;
+  extractDependencies: (input: {
+    planIds: string[];
+    planContents: Array<{ planId: string; content: string }>;
+    modelSelection: ModelSelection;
+  }) => Effect.Effect<{ dependencies: Record<string, string[]> }, TextGenerationError>;
 }
 
 type FakePullRequest = NonNullable<FakeGhScenario["pullRequest"]>;
@@ -292,6 +297,10 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
       Effect.succeed({
         title: "Update workflow",
       }),
+    extractDependencies: () =>
+      Effect.succeed({
+        dependencies: {},
+      }),
     ...overrides,
   };
 
@@ -335,6 +344,17 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
           (cause) =>
             new TextGenerationError({
               operation: "generateThreadTitle",
+              detail: "fake text generation failed",
+              ...(cause !== undefined ? { cause } : {}),
+            }),
+        ),
+      ),
+    extractDependencies: (input) =>
+      implementation.extractDependencies(input).pipe(
+        Effect.mapError(
+          (cause) =>
+            new TextGenerationError({
+              operation: "extractDependencies",
               detail: "fake text generation failed",
               ...(cause !== undefined ? { cause } : {}),
             }),

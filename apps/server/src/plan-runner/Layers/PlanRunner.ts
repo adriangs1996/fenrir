@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Layer, Path, PubSub, Ref, Stream } from "effect";
+import { Effect, FileSystem, Layer, Path, PubSub, Ref, Schema, Stream } from "effect";
 import type {
   FeatureState,
   ModelSelection,
@@ -988,7 +988,7 @@ ${planSummaries}`;
                 }
               }
             },
-            catch: () => new Error("Failed to parse analyzer output"),
+            catch: (cause) => ({ _tag: "AnalyzerOutputParseError" as const, cause }),
           }).pipe(Effect.ignore);
         }
 
@@ -1501,7 +1501,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           return { features };
         }).pipe(
           Effect.catch((err) => {
-            if (err instanceof PlanRunnerError) return Effect.fail(err);
+            if (Schema.is(PlanRunnerError)(err)) return Effect.fail(err);
             return Effect.fail(
               new PlanRunnerError({
                 message: "Failed to list features" as any,
@@ -1581,7 +1581,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           return { featureName: input.featureName, plans };
         }).pipe(
           Effect.catch((err) => {
-            if (err instanceof PlanRunnerError) return Effect.fail(err);
+            if (Schema.is(PlanRunnerError)(err)) return Effect.fail(err);
             return Effect.fail(
               new PlanRunnerError({
                 message: "Failed to read feature plans" as any,
