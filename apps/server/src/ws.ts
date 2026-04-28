@@ -551,6 +551,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(
             WS_METHODS.terminalAttachTmux,
             Effect.gen(function* () {
+              const services = yield* Effect.services<never>();
+              const runFork = Effect.runForkWith(services);
+
               const exists = yield* tmuxSessionManager.hasSession(input.projectId);
               if (!exists) {
                 yield* tmuxSessionManager.createSession(input.projectId, input.cwd);
@@ -569,13 +572,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               // Wire the PTY output to the Terminal Manager event bus
               ptyProcess.onData((data) => {
                 if (activeTmuxProcesses.get(input.projectId) !== processRef) return;
-                Effect.runFork(terminalManager.publishTmuxOutput(input.projectId, data));
+                runFork(terminalManager.publishTmuxOutput(input.projectId, data));
               });
 
               ptyProcess.onExit((event) => {
                 if (activeTmuxProcesses.get(input.projectId) !== processRef) return;
                 activeTmuxProcesses.delete(input.projectId);
-                Effect.runFork(
+                runFork(
                   terminalManager.publishTmuxExit(
                     input.projectId,
                     event.exitCode,
@@ -1206,7 +1209,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             Stream.callback<MetasploitEvent>((queue) =>
               Effect.acquireRelease(
                 metasploitService.subscribe((event) => {
-                  Effect.runFork(Queue.offer(queue, event));
+                  Queue.offerUnsafe(queue, event);
                 }),
                 (unsubscribe) => Effect.sync(unsubscribe),
               ),
@@ -1243,7 +1246,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             Stream.callback<TrafficLensEvent>((queue) =>
               Effect.acquireRelease(
                 trafficLensService.subscribe((event) => {
-                  Effect.runFork(Queue.offer(queue, event));
+                  Queue.offerUnsafe(queue, event);
                 }),
                 (unsubscribe) => Effect.sync(unsubscribe),
               ),

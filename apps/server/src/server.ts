@@ -234,8 +234,7 @@ const AuthLayerLive = ServerAuthLive.pipe(
   Layer.provide(ServerSecretStoreLive),
 );
 
-const RuntimeDependenciesLive = ReactorLayerLive.pipe(
-  // Core Services
+const CoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(OrchestrationLayerLive),
@@ -261,8 +260,9 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(RepositoryIdentityResolverLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),
-).pipe(
-  // Misc.
+);
+
+const RuntimeDependenciesLive = CoreDependenciesLive.pipe(
   Layer.provideMerge(AnalyticsServiceLayerLive),
   Layer.provideMerge(OpenLive),
   Layer.provideMerge(ServerLifecycleEventsLive),

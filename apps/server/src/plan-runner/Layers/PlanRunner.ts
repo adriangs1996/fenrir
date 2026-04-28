@@ -271,11 +271,9 @@ export const PlanRunnerLive = Layer.effect(
         const readModel = yield* orchestrationEngine.getReadModel();
         const project = readModel.projects.find((p) => p.id === projectId);
         if (!project) {
-          return yield* Effect.fail(
-            new PlanRunnerError({
-              message: `Project not found: ${projectId}` as any,
-            }),
-          );
+          return yield* new PlanRunnerError({
+            message: `Project not found: ${projectId}` as any,
+          });
         }
         return project.workspaceRoot;
       });
@@ -1211,12 +1209,11 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           // Validate .plans directory exists
           const plansDir = pathService.join(projectCwd, ".plans", input.featureName);
           yield* fs.readDirectory(plansDir).pipe(
-            Effect.catch(() =>
-              Effect.fail(
+            Effect.mapError(
+              () =>
                 new PlanRunnerError({
                   message: `Plan directory not found: .plans/${input.featureName}/` as any,
                 }),
-              ),
             ),
           );
 
@@ -1228,11 +1225,9 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               existing.state !== "completed" &&
               existing.state !== "failed"
             ) {
-              return yield* Effect.fail(
-                new PlanRunnerError({
-                  message: `Run already active for feature "${input.featureName}"` as any,
-                }),
-              );
+              return yield* new PlanRunnerError({
+                message: `Run already active for feature "${input.featureName}"` as any,
+              });
             }
           }
 
@@ -1244,11 +1239,9 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             if (project?.defaultModelSelection) {
               modelSelection = project.defaultModelSelection;
             } else {
-              return yield* Effect.fail(
-                new PlanRunnerError({
-                  message: "No model selection provided and no project default found" as any,
-                }),
-              );
+              return yield* new PlanRunnerError({
+                message: "No model selection provided and no project default found" as any,
+              });
             }
           }
 
@@ -1287,14 +1280,13 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
                   path: null,
                 })
                 .pipe(
-                  Effect.catch((err: any) =>
-                    Effect.fail(
+                  Effect.mapError(
+                    (err: any) =>
                       new PlanRunnerError({
                         message:
                           `Failed to create worktree for existing branch "${branchName}": ${err.message ?? err}` as any,
                         cause: err,
                       }),
-                    ),
                   ),
                 );
               worktreePath = worktreeResult.worktree.path;
@@ -1309,14 +1301,13 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
                 path: null,
               })
               .pipe(
-                Effect.catch((err: any) =>
-                  Effect.fail(
+                Effect.mapError(
+                  (err: any) =>
                     new PlanRunnerError({
                       message:
                         `Failed to create worktree for "${branchName}": ${err.message ?? err}` as any,
                       cause: err,
                     }),
-                  ),
                 ),
               );
             worktreePath = worktreeResult.worktree.path;
@@ -1374,12 +1365,10 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           const runs = yield* Ref.get(activeRuns);
           const run = runs.get(runId);
           if (!run) {
-            return yield* Effect.fail(
-              new PlanRunnerNotFoundError({
-                runId,
-                message: `Plan run "${runId}" not found` as any,
-              }),
-            );
+            return yield* new PlanRunnerNotFoundError({
+              runId,
+              message: `Plan run "${runId}" not found` as any,
+            });
           }
           return toSnapshot(run);
         }),
@@ -1389,12 +1378,10 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           const runs = yield* Ref.get(activeRuns);
           const run = runs.get(runId);
           if (!run) {
-            return yield* Effect.fail(
-              new PlanRunnerNotFoundError({
-                runId,
-                message: `Plan run "${runId}" not found` as any,
-              }),
-            );
+            return yield* new PlanRunnerNotFoundError({
+              runId,
+              message: `Plan run "${runId}" not found` as any,
+            });
           }
 
           // Signal cancellation
@@ -1517,12 +1504,11 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           const featureDir = pathService.join(projectCwd, ".plans", input.featureName);
 
           const dirEntries = yield* fs.readDirectory(featureDir).pipe(
-            Effect.catch(() =>
-              Effect.fail(
+            Effect.mapError(
+              () =>
                 new PlanRunnerError({
                   message: `Feature directory not found: .plans/${input.featureName}` as any,
                 }),
-              ),
             ),
           );
           const files = dirEntries.filter((f: string) => f.endsWith(".md"));
@@ -1537,12 +1523,11 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           for (const filename of files) {
             const filePath = pathService.join(featureDir, filename);
             const rawContent = yield* fs.readFileString(filePath).pipe(
-              Effect.catch(() =>
-                Effect.fail(
+              Effect.mapError(
+                () =>
                   new PlanRunnerError({
                     message: `Failed to read plan file: ${filename}` as any,
                   }),
-                ),
               ),
             );
             const parsed = parseFrontmatter(rawContent, filename.replace(/\.md$/, ""));

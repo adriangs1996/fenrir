@@ -147,12 +147,10 @@ export const TrafficLensServiceLive = Layer.effect(
           `;
 
           if (rows.length === 0) {
-            return yield* Effect.fail(
-              new TrafficLensNotFoundError({
-                trafficId: id,
-                message: `Traffic entry ${id} not found`,
-              }),
-            );
+            return yield* new TrafficLensNotFoundError({
+              trafficId: id,
+              message: `Traffic entry ${id} not found`,
+            });
           }
 
           const r = rows[0] as any;
