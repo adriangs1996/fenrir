@@ -20,12 +20,16 @@ import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 
-const PHASE_LABELS: FeatureStateType[] = [
+/**
+ * Linear progression of feature lifecycle phases. Excludes the terminal
+ * `failed` state because failure can occur mid-progression and is rendered
+ * separately on the phase strip.
+ */
+const PROGRESSION_PHASES: FeatureStateType[] = [
   "analyzing",
   "executing",
   "integrating",
   "completed",
-  "failed",
 ];
 
 const PHASE_BADGE_VARIANT: Record<
@@ -33,7 +37,7 @@ const PHASE_BADGE_VARIANT: Record<
   "info" | "warning" | "success" | "destructive" | "outline"
 > = {
   analyzing: "info",
-  executing: "info",
+  executing: "warning",
   integrating: "warning",
   completed: "success",
   failed: "destructive",
@@ -162,29 +166,43 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
 
       {/* Phase indicator */}
       <div className="flex items-center gap-1 border-b px-4 py-2">
-        {PHASE_LABELS.filter((p) => p !== "failed").map((phase, i) => {
-          const isActive = run.state === phase;
-          const isPast = PHASE_LABELS.indexOf(run.state) > i;
-          return (
-            <div key={phase} className="flex items-center gap-1">
-              {i > 0 && (
-                <div className={`h-px w-4 ${isPast || isActive ? "bg-primary" : "bg-border"}`} />
-              )}
-              <Badge
-                variant={
-                  isActive
-                    ? (PHASE_BADGE_VARIANT[phase] ?? "outline")
-                    : isPast
-                      ? "success"
-                      : "outline"
-                }
-                size="sm"
-              >
-                {phase}
-              </Badge>
-            </div>
-          );
-        })}
+        {(() => {
+          const isFailed = run.state === "failed";
+          // When failed, no progression phase is active. Otherwise locate
+          // current phase in the progression.
+          const currentIdx = isFailed ? -1 : PROGRESSION_PHASES.indexOf(run.state);
+          return PROGRESSION_PHASES.map((phase, i) => {
+            const isActive = !isFailed && i === currentIdx;
+            const isPast = !isFailed && i < currentIdx;
+            return (
+              <div key={phase} className="flex items-center gap-1">
+                {i > 0 && (
+                  <div className={`h-px w-4 ${isPast || isActive ? "bg-primary" : "bg-border"}`} />
+                )}
+                <Badge
+                  variant={
+                    isActive
+                      ? (PHASE_BADGE_VARIANT[phase] ?? "outline")
+                      : isPast
+                        ? "success"
+                        : "outline"
+                  }
+                  size="sm"
+                >
+                  {phase}
+                </Badge>
+              </div>
+            );
+          });
+        })()}
+        {run.state === "failed" && (
+          <>
+            <div className="h-px w-4 bg-destructive" />
+            <Badge variant="destructive" size="sm">
+              failed
+            </Badge>
+          </>
+        )}
       </div>
 
       {/* Analyzer / Integration thread links */}

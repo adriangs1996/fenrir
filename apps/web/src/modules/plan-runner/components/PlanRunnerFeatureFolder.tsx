@@ -20,15 +20,29 @@ type PlanFileSummary = typeof PlanFileSummarySchema.Type;
 
 const EMPTY_PLANS: ReadonlyArray<PlanFileSummary> = [];
 
-const STATE_BADGE_CONFIG: Record<
-  string,
-  { label: string; variant: "info" | "warning" | "success" | "destructive"; pulse?: boolean }
-> = {
+type BadgeConfig = {
+  label: string;
+  variant: "info" | "warning" | "success" | "destructive";
+  pulse?: boolean;
+};
+
+const STATE_BADGE_CONFIG: Record<string, BadgeConfig> = {
   analyzing: { label: "Analyzing", variant: "info", pulse: true },
-  executing: { label: "Executing", variant: "info" },
-  integrating: { label: "Integrating", variant: "warning" },
+  executing: { label: "Executing", variant: "warning", pulse: true },
+  integrating: { label: "Integrating", variant: "warning", pulse: true },
   completed: { label: "Done", variant: "success" },
   failed: { label: "Failed", variant: "destructive" },
+};
+
+/**
+ * Fallback shown when the server reports an active run but the snapshot
+ * hasn't streamed in yet (initial hydration race). Without this the sidebar
+ * renders a Cancel button with no accompanying status text.
+ */
+const ACTIVE_RUN_FALLBACK_BADGE: BadgeConfig = {
+  label: "Running",
+  variant: "info",
+  pulse: true,
 };
 
 interface PlanRunnerFeatureFolderProps {
@@ -67,9 +81,17 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
       .catch((err) => console.error("getFeaturePlans failed:", err));
   }, [expanded, rpcClient, projectId, feature.featureName, featureKey, setPlans]);
 
-  // Determine active run state
+  // Determine active run state. Server reports `hasActiveRun` from
+  // `listFeatures` but the snapshot may not have hydrated into `runById`
+  // yet (e.g. listFeatures resolved before listRuns). Fall back to a
+  // generic "Running" badge so the Cancel button always has matching
+  // status text.
   const activeRun = feature.activeRunId ? runById[feature.activeRunId] : null;
-  const badgeConfig = activeRun ? STATE_BADGE_CONFIG[activeRun.state] : null;
+  const badgeConfig: BadgeConfig | null = activeRun
+    ? (STATE_BADGE_CONFIG[activeRun.state] ?? null)
+    : feature.hasActiveRun
+      ? ACTIVE_RUN_FALLBACK_BADGE
+      : null;
 
   const handleRun = useCallback(() => {
     void navigate({

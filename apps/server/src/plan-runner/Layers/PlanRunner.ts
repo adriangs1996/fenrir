@@ -1002,6 +1002,22 @@ ${planSummaries}`;
           run.state = "failed";
           run.summary = `Circular dependency detected among: ${cycleNodes.join(", ")}`;
           run.completedAt = now();
+          // Mark cycle-involved plans as failed (others remain blocked but
+          // the run is already terminating). Publish per-plan events so the
+          // UI doesn't render lingering blocked circles after termination.
+          const cycleSet = new Set(cycleNodes);
+          for (const node of run.plans.values()) {
+            if (cycleSet.has(node.planId)) {
+              node.state = "failed";
+              node.error = "Part of circular dependency";
+              node.completedAt = now();
+            } else if (node.state === "blocked") {
+              node.state = "skipped";
+              node.error = "Skipped: dependency cycle in feature";
+              node.completedAt = now();
+            }
+            yield* publishPlanStateChanged(run, node.planId);
+          }
           yield* publishEvent({
             type: "planRunner.completed",
             runId: run.runId,
@@ -1159,6 +1175,17 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
                 ? `Plan execution error: ${err.message}`
                 : "Unexpected error during plan execution";
             run.completedAt = now();
+            // Mark any non-terminal plans as skipped and publish per-plan
+            // events so the UI doesn't render stale blocked/ready/running
+            // states after a top-level run failure.
+            for (const node of run.plans.values()) {
+              if (node.state !== "done" && node.state !== "failed" && node.state !== "skipped") {
+                node.state = "skipped";
+                node.error = node.error ?? "Skipped: run failed";
+                node.completedAt = now();
+                yield* publishPlanStateChanged(run, node.planId);
+              }
+            }
             yield* publishEvent({
               type: "planRunner.completed",
               runId: run.runId,
@@ -1321,6 +1348,17 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             return next;
           });
 
+          // Emit an initial stateChanged so subscribed clients have a full
+          // snapshot in their store before any subsequent event. Without
+          // this, an early-fail or quick-cancel `completed` event may
+          // arrive for a runId the client has never seen and be silently
+          // dropped by the store reducer.
+          yield* publishEvent({
+            type: "planRunner.stateChanged",
+            runId: run.runId,
+            snapshot: toSnapshot(run),
+          });
+
           // Fork execution into detached background fiber
           yield* executeRun(run).pipe(
             Effect.ignoreCause({ log: true }),
@@ -1362,7 +1400,10 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           // Signal cancellation
           run.cancelled = true;
 
-          // Stop all active thread sessions and mark non-terminal plans skipped
+          // Stop all active thread sessions and mark non-terminal plans
+          // skipped. Publish a planStateChanged event for each mutated plan
+          // so subscribed UIs don't render stale running/reviewing states
+          // after the run terminates.
           for (const node of run.plans.values()) {
             if (node.state !== "done" && node.state !== "failed" && node.state !== "skipped") {
               if (node.executorThreadId) {
@@ -1374,6 +1415,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               node.state = "skipped";
               node.error = "Cancelled by user";
               node.completedAt = now();
+              yield* publishPlanStateChanged(run, node.planId);
             }
           }
 
