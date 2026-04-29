@@ -17,6 +17,10 @@ describe("trafficLensStore", () => {
     useTrafficLensStore.setState({
       tabs: {},
       activeTabId: null,
+      selectedTrafficId: null,
+      repeaterDetail: null,
+      showRepeater: false,
+      bottomTab: "traffic",
     });
   });
 
@@ -123,6 +127,54 @@ describe("trafficLensStore", () => {
         title: "Changed",
       } as any);
       expect(useTrafficLensStore.getState().tabs["tab-2"]!.title).toBe("Tab 2");
+    });
+  });
+
+  describe("inspector/repeater state", () => {
+    describe("setSelectedTraffic", () => {
+      it("sets selectedTrafficId and switches to inspector tab", () => {
+        useTrafficLensStore.getState().setSelectedTraffic(42);
+        const state = useTrafficLensStore.getState();
+        expect(state.selectedTrafficId).toBe(42);
+        expect(state.bottomTab).toBe("inspector");
+      });
+
+      it("clears to traffic tab with null", () => {
+        useTrafficLensStore.getState().setSelectedTraffic(42);
+        useTrafficLensStore.getState().setSelectedTraffic(null);
+        const state = useTrafficLensStore.getState();
+        expect(state.selectedTrafficId).toBeNull();
+        expect(state.bottomTab).toBe("traffic");
+      });
+    });
+
+    describe("openRepeater", () => {
+      it("sets repeater state and switches tab", () => {
+        const detail = { id: 1, method: "GET", url: "https://x.com" } as any;
+        useTrafficLensStore.getState().openRepeater(detail);
+        const state = useTrafficLensStore.getState();
+        expect(state.showRepeater).toBe(true);
+        expect(state.repeaterDetail).toBe(detail);
+        expect(state.bottomTab).toBe("repeater");
+      });
+    });
+
+    describe("closeRepeater", () => {
+      it("clears repeater state and returns to traffic", () => {
+        useTrafficLensStore.getState().openRepeater({ id: 1 } as any);
+        useTrafficLensStore.getState().closeRepeater();
+        const state = useTrafficLensStore.getState();
+        expect(state.showRepeater).toBe(false);
+        expect(state.repeaterDetail).toBeNull();
+        expect(state.bottomTab).toBe("traffic");
+      });
+    });
+
+    describe("setBottomTab", () => {
+      it("switches tab", () => {
+        useTrafficLensStore.getState().setBottomTab("repeater");
+        expect(useTrafficLensStore.getState().bottomTab).toBe("repeater");
+      });
     });
   });
 });

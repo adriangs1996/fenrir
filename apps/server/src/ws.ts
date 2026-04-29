@@ -1281,6 +1281,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             { "rpc.aggregate": "trafficLens" },
           ),
 
+        [WS_METHODS.trafficLensReplayRequest]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensReplayRequest,
+            trafficLensService.replayRequest(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
         [WS_METHODS.subscribeTrafficLensEvents]: (_input) =>
           observeRpcStream(
             WS_METHODS.subscribeTrafficLensEvents,

@@ -101,6 +101,8 @@ import {
   TrafficLensDetail,
   TrafficLensNotFoundError,
   TrafficLensQueryInput,
+  TrafficLensReplayInput,
+  TrafficLensReplayResponse,
 } from "./trafficLens";
 import {
   PLAN_RUNNER_WS_METHODS,
@@ -203,6 +205,7 @@ export const WS_METHODS = {
   trafficLensGetTraffic: "trafficLens.getTraffic",
   trafficLensGetTrafficDetail: "trafficLens.getTrafficDetail",
   trafficLensClearTraffic: "trafficLens.clearTraffic",
+  trafficLensReplayRequest: "trafficLens.replayRequest",
   subscribeTrafficLensEvents: "subscribeTrafficLensEvents",
 
   // Plan Runner
@@ -586,6 +589,12 @@ export const WsSubscribeTrafficLensEventsRpc = Rpc.make(WS_METHODS.subscribeTraf
   stream: true,
 });
 
+export const WsTrafficLensReplayRequestRpc = Rpc.make(WS_METHODS.trafficLensReplayRequest, {
+  payload: TrafficLensReplayInput,
+  success: TrafficLensReplayResponse,
+  error: TrafficLensError,
+});
+
 // ─── Plan Runner RPCs ──────────────────────────────────────────────────────
 
 export const WsPlanRunnerStartRpc = Rpc.make(WS_METHODS.planRunnerStart, {
@@ -690,6 +699,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsTrafficLensGetTrafficDetailRpc,
   WsTrafficLensClearTrafficRpc,
   WsSubscribeTrafficLensEventsRpc,
+  WsTrafficLensReplayRequestRpc,
   WsPlanRunnerStartRpc,
   WsPlanRunnerGetStatusRpc,
   WsPlanRunnerCancelRpc,

@@ -8,13 +8,14 @@
 
 #### `TrafficLensService`
 
-| Method             | Input                        | Output                        | Errors                     | Description                                    |
-| ------------------ | ---------------------------- | ----------------------------- | -------------------------- | ---------------------------------------------- |
-| `ingestTraffic`    | `TrafficLensIngestPayload`   | `void`                        | —                          | Upsert request/response stage from CDP capture |
-| `queryTraffic`     | `TrafficLensQueryInput`      | `readonly TrafficLensEntry[]` | —                          | Query entries with filters + pagination        |
-| `getTrafficDetail` | `number` (id)                | `TrafficLensDetail`           | `TrafficLensNotFoundError` | Full request/response detail by row ID         |
-| `clearTraffic`     | `string?` (tabId)            | `void`                        | —                          | Delete entries by tabId or all                 |
-| `subscribe`        | `(TrafficLensEvent => void)` | `() => void`                  | —                          | Subscribe to real-time traffic events          |
+| Method             | Input                        | Output                        | Errors                     | Description                                                                    |
+| ------------------ | ---------------------------- | ----------------------------- | -------------------------- | ------------------------------------------------------------------------------ |
+| `ingestTraffic`    | `TrafficLensIngestPayload`   | `void`                        | —                          | Upsert request/response stage from CDP capture                                 |
+| `queryTraffic`     | `TrafficLensQueryInput`      | `readonly TrafficLensEntry[]` | —                          | Query entries with filters + pagination                                        |
+| `getTrafficDetail` | `number` (id)                | `TrafficLensDetail`           | `TrafficLensNotFoundError` | Full request/response detail by row ID                                         |
+| `clearTraffic`     | `string?` (tabId)            | `void`                        | —                          | Delete entries by tabId or all                                                 |
+| `subscribe`        | `(TrafficLensEvent => void)` | `() => void`                  | —                          | Subscribe to real-time traffic events                                          |
+| `replayRequest`    | `TrafficLensReplayInput`     | `TrafficLensReplayResponse`   | `TrafficLensError`         | Execute HTTP request from server process (bypasses CORS), manual redirect mode |
 
 ### Events Emitted
 
@@ -33,6 +34,8 @@
 - `TrafficLensEvent` — Union of all tab events + `TrafficLensCapturedEvent`
 - `TrafficLensNotFoundError` — Tagged error for missing traffic entry
 - `TrafficLensError` — Generic tagged error
+- `TrafficLensReplayInput` — Method, URL, headers record, optional base64 body
+- `TrafficLensReplayResponse` — Status code/text, headers record, base64 body, timing ms
 
 ## Dependencies
 
@@ -94,11 +97,11 @@ apps/server/src/traffic-lens/
 
 ## Extension Points (Future Phases)
 
-### Phase 3 — Inspector & Repeater
+### Phase 3 — Inspector & Repeater (DONE)
 
-- Add `replayRequest(input: TrafficLensReplayInput) => Effect<TrafficLensReplayResult, TrafficLensError>` to service
-- New contract schemas: `TrafficLensReplayInput`, `TrafficLensReplayResult`
-- New RPC method: `trafficLens.replayRequest`
+- `replayRequest` method added to service
+- New schemas: `TrafficLensReplayInput`, `TrafficLensReplayResponse`
+- RPC method: `trafficLens.replayRequest`
 
 ### Phase 4 — Header Rules & CSP Stripping
 

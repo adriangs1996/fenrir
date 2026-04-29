@@ -1,7 +1,11 @@
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { TrafficLensService, type TrafficLensServiceShape } from "../Services/TrafficLensService";
-import { TrafficLensNotFoundError, type TrafficLensEvent } from "@fenrir/contracts";
+import {
+  TrafficLensNotFoundError,
+  TrafficLensError,
+  type TrafficLensEvent,
+} from "@fenrir/contracts";
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -179,6 +183,54 @@ export const TrafficLensServiceLive = Layer.effect(
           return () => {
             eventListeners = eventListeners.filter((l) => l !== listener);
           };
+        }),
+
+      replayRequest: (input) =>
+        Effect.gen(function* () {
+          const startTime = Date.now();
+
+          const fetchHeaders: Record<string, string> = {};
+          for (const [key, value] of Object.entries(input.headers)) {
+            fetchHeaders[key] = value;
+          }
+
+          let fetchBody: Buffer | undefined;
+          if (input.body) {
+            fetchBody = Buffer.from(input.body, "base64");
+          }
+
+          const response = yield* Effect.tryPromise({
+            try: async () => {
+              const resp = await fetch(input.url, {
+                method: input.method,
+                headers: fetchHeaders,
+                body: ["GET", "HEAD"].includes(input.method.toUpperCase()) ? undefined : fetchBody,
+                redirect: "manual",
+              });
+
+              const bodyBuffer = await resp.arrayBuffer();
+              const bodyBase64 = Buffer.from(bodyBuffer).toString("base64");
+
+              const respHeaders: Record<string, string> = {};
+              resp.headers.forEach((value, key) => {
+                respHeaders[key] = value;
+              });
+
+              return {
+                statusCode: resp.status,
+                statusText: resp.statusText,
+                headers: respHeaders,
+                body: bodyBase64,
+                timing: Date.now() - startTime,
+              };
+            },
+            catch: (error) =>
+              new TrafficLensError({
+                message: `Replay request failed: ${error instanceof Error ? error.message : String(error)}`,
+              }),
+          });
+
+          return response;
         }),
     } satisfies TrafficLensServiceShape;
   }),

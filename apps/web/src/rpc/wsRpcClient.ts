@@ -136,6 +136,7 @@ export interface WsRpcClient {
     readonly getTraffic: RpcUnaryMethod<typeof WS_METHODS.trafficLensGetTraffic>;
     readonly getTrafficDetail: RpcUnaryMethod<typeof WS_METHODS.trafficLensGetTrafficDetail>;
     readonly clearTraffic: RpcUnaryMethod<typeof WS_METHODS.trafficLensClearTraffic>;
+    readonly replayRequest: RpcUnaryMethod<typeof WS_METHODS.trafficLensReplayRequest>;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeTrafficLensEvents>;
   };
   readonly planRunner: {
@@ -323,6 +324,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.trafficLensGetTrafficDetail](input)),
       clearTraffic: (input) =>
         transport.request((client) => client[WS_METHODS.trafficLensClearTraffic](input)),
+      replayRequest: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensReplayRequest](input)),
       onEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeTrafficLensEvents]({}),

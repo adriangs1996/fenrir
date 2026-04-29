@@ -10,3 +10,7 @@ export { TrafficLensTabBar } from "./components/TrafficLensTabBar";
 export { TrafficLensSidebarSection } from "./components/TrafficLensSidebarSection";
 export { TrafficLensViewContainer } from "./components/TrafficLensViewContainer";
 export { TrafficLensTable } from "./components/TrafficLensTable";
+
+// Public components (Phase 3)
+export { TrafficLensInspector } from "./components/TrafficLensInspector";
+export { TrafficLensRepeater } from "./components/TrafficLensRepeater";
