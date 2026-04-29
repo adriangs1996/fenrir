@@ -1,16 +1,29 @@
 import { ArrowLeftIcon, Loader2Icon, SquareIcon } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   type PlanNode as PlanNodeType,
   type FeatureState as FeatureStateType,
+  type PlanRunnerStepSnapshot,
   PlanRunId as PlanRunIdSchema,
 } from "@fenrir/contracts";
-import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
+import {
+  stepLogCacheKey,
+  useActiveStepTabs,
+  usePlanRunnerStore,
+  useStartedStepHistory,
+  useStepLog,
+} from "../stores/usePlanRunnerStore";
+import { useStepLogFetcher } from "../hooks/useStepLogFetcher";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
+import { useSettings } from "~/hooks/useSettings";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { PlanDagView, type DagPlan } from "./PlanDagView";
+import { LiveStepMonitorPanel } from "./LiveStepMonitorPanel";
+import { StepHistoryList } from "./StepHistoryList";
+import { StepLogViewer } from "./StepLogViewer";
+import { stepLabel } from "./stepLabels";
 
 /**
  * Linear progression of feature lifecycle phases. Excludes the terminal
@@ -49,12 +62,20 @@ interface PlanRunnerRunViewProps {
   runId: string;
 }
 
+/**
+ * Selection model for the inline log viewer. The page renders one log at a
+ * time, but we track the source so we know whether to highlight the live
+ * panel's tab or merely the history row.
+ */
+type LogSelection = { kind: "live"; stepKey: string } | { kind: "history"; stepKey: string } | null;
+
 export const PlanRunnerRunView = memo(function PlanRunnerRunView({
   runId,
 }: PlanRunnerRunViewProps) {
   const navigate = useNavigate();
   const run = usePlanRunnerStore((s) => s.runById[runId]);
   const upsertRun = usePlanRunnerStore((s) => s.upsertRun);
+  const timestampFormat = useSettings((s) => s.timestampFormat);
 
   const rpcClient = useMemo(() => {
     try {
@@ -66,13 +87,36 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
 
   const brandedRunId = useMemo(() => PlanRunIdSchema.makeUnsafe(runId), [runId]);
 
+  // Lifecycle of the cold-fetch path. `notFound` short-circuits the loader
+  // so stale/replaced run ids resolve to a generic not-found state instead
+  // of spinning forever or being redirected somewhere misleading.
+  const [notFound, setNotFound] = useState(false);
+
+  // Reset not-found whenever we point at a new run id.
+  useEffect(() => {
+    setNotFound(false);
+  }, [runId]);
+
   // Fetch run status if not in store
   useEffect(() => {
     if (run || !rpcClient) return;
+    let cancelled = false;
     rpcClient.planRunner
       .getStatus({ runId: brandedRunId })
-      .then((snapshot) => upsertRun(snapshot))
-      .catch((err) => console.error("getStatus failed:", err));
+      .then((snapshot) => {
+        if (!cancelled) upsertRun(snapshot);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (isPlanRunnerNotFoundError(err)) {
+          setNotFound(true);
+          return;
+        }
+        console.error("getStatus failed:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [run, rpcClient, brandedRunId, upsertRun]);
 
   const handleCancel = useCallback(() => {
@@ -84,15 +128,90 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
     void navigate({ to: "/" });
   }, [navigate]);
 
-  const handleThreadClick = useCallback(
-    (threadId: string | null) => {
-      if (!threadId || !run) return;
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: { environmentId: run.projectId, threadId },
-      });
+  // ── Step / log selection state ─────────────────────────────────────────────
+
+  const activeSteps = useActiveStepTabs(runId);
+  const startedSteps = useStartedStepHistory(runId);
+
+  const [selection, setSelection] = useState<LogSelection>(null);
+
+  // Reset selection when the runId itself changes — we never want a stale
+  // stepKey from a previous run sticking around.
+  useEffect(() => {
+    setSelection(null);
+  }, [runId]);
+
+  // Live-tab stickiness:
+  //   • When the panel transitions from absent → present, auto-select the
+  //     first running step.
+  //   • Keep the user's tab choice while it remains active.
+  //   • When the selected live step disappears, fall through to another live
+  //     tab if any remain, otherwise null (the user can reopen via history).
+  const prevActiveLenRef = useRef(0);
+  useEffect(() => {
+    const prevLen = prevActiveLenRef.current;
+    prevActiveLenRef.current = activeSteps.length;
+
+    setSelection((current) => {
+      if (current?.kind === "live") {
+        const stillActive = activeSteps.some((s) => s.stepKey === current.stepKey);
+        if (stillActive) return current;
+        if (activeSteps.length > 0 && activeSteps[0]) {
+          return { kind: "live", stepKey: activeSteps[0].stepKey };
+        }
+        return null;
+      }
+      // Panel just appeared — auto-pick first running step. This intentionally
+      // overrides any prior history selection so live work takes focus when it
+      // kicks off, matching "auto-select the first running step when the panel
+      // first appears".
+      if (prevLen === 0 && activeSteps.length > 0 && activeSteps[0]) {
+        return { kind: "live", stepKey: activeSteps[0].stepKey };
+      }
+      return current;
+    });
+  }, [activeSteps]);
+
+  // Fetch the log for whatever step is currently selected (live or history).
+  // The fetcher dedupes per (runId, stepKey) so reselecting is free.
+  const selectedStepKey = selection?.stepKey ?? null;
+  useStepLogFetcher(rpcClient, runId, selectedStepKey);
+
+  // Resolve the selected step snapshot for the inline viewer below history.
+  // Prefer the started-history list because it includes finished steps; the
+  // live tabs are always a subset of it.
+  const selectedStep: PlanRunnerStepSnapshot | null = useMemo(() => {
+    if (!selection) return null;
+    return startedSteps.find((s) => s.stepKey === selection.stepKey) ?? null;
+  }, [selection, startedSteps]);
+
+  // Log entries cached for the currently-selected step (empty array when
+  // nothing is selected). The selector falls back to a stable empty tuple, so
+  // this is safe even when the cache is missing.
+  const selectedEntries = useStepLog(runId, selection?.stepKey ?? "");
+
+  // Whether we're still waiting on the first backfill response for the
+  // selected step. Used to show a spinner while the cache is empty.
+  const stepLogsByKey = usePlanRunnerStore((s) => s.stepLogsByKey);
+  const isSelectedLogLoading = useMemo(() => {
+    if (!selection) return false;
+    const key = stepLogCacheKey(runId, selection.stepKey);
+    const cached = stepLogsByKey[key];
+    return !cached || cached.length === 0;
+  }, [selection, runId, stepLogsByKey]);
+
+  const handleSelectLive = useCallback((stepKey: string) => {
+    setSelection({ kind: "live", stepKey });
+  }, []);
+
+  const handleSelectHistory = useCallback(
+    (stepKey: string) => {
+      // If the chosen history row is still active, surface it as a live tab
+      // so the panel highlights it. Otherwise treat it as a postmortem.
+      const isActive = activeSteps.some((s) => s.stepKey === stepKey);
+      setSelection({ kind: isActive ? "live" : "history", stepKey });
     },
-    [navigate, run],
+    [activeSteps],
   );
 
   // Adapt PlanNode[] → DagPlan[] for the shared DAG component
@@ -111,19 +230,32 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
     }));
   }, [run]);
 
+  // Graph clicks switch the inline log viewer instead of navigating away. A
+  // node without a started step (e.g. blocked plan) is a no-op.
   const handlePlanClick = useCallback(
     (plan: DagPlan) => {
-      if (!run) return;
-      // Find matching PlanNode to get thread IDs
-      const node = run.plans.find((p) => p.planId === plan.planId);
-      // Navigate to executor thread if available, else reviewer
-      const threadId = node?.executorThreadId ?? node?.reviewerThreadId;
-      if (threadId) handleThreadClick(threadId);
+      const step = startedSteps.find((s) => s.kind === "plan" && s.planId === plan.planId);
+      if (!step) return;
+      handleSelectHistory(step.stepKey);
     },
-    [run, handleThreadClick],
+    [startedSteps, handleSelectHistory],
   );
 
   if (!run) {
+    if (notFound) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-sm font-medium">Run not found</p>
+          <p className="max-w-sm text-xs text-muted-foreground">
+            This run id is no longer available. It may have been replaced by a newer run for the
+            same feature, or removed.
+          </p>
+          <Button variant="outline" size="sm" onClick={handleBack}>
+            Back to home
+          </Button>
+        </div>
+      );
+    }
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
         <Loader2Icon className="size-8 animate-spin text-muted-foreground" />
@@ -133,6 +265,8 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
   }
 
   const isTerminal = run.state === "completed" || run.state === "failed";
+  const showLivePanel = activeSteps.length > 0;
+  const cwd = run.worktreePath ?? undefined;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -202,48 +336,84 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
         )}
       </div>
 
-      {/* Thread links */}
-      {(run.analyzerThreadId || run.integrationThreadId) && (
-        <div className="flex items-center gap-2 border-b px-4 py-2 text-xs">
-          {run.analyzerThreadId && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleThreadClick(run.analyzerThreadId)}
-            >
-              Analyzer Thread
-            </Button>
-          )}
-          {run.integrationThreadId && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleThreadClick(run.integrationThreadId)}
-            >
-              Integration Thread
-            </Button>
-          )}
+      {/* Main scroll area: graph → live tabs → log viewer → history → summary */}
+      <div className="flex-1 overflow-y-auto">
+        {/* DAG visualization */}
+        <div className="px-4 pt-2">
+          <PlanDagView
+            plans={dagPlans}
+            maxConcurrency={run.maxConcurrency}
+            onPlanClick={handlePlanClick}
+          />
         </div>
-      )}
 
-      {/* DAG visualization */}
-      <div className="flex-1 overflow-auto px-4">
-        <PlanDagView
-          plans={dagPlans}
-          maxConcurrency={run.maxConcurrency}
-          onPlanClick={handlePlanClick}
-        />
+        {/* Live monitor tab strip — only mounted when there are active steps. */}
+        {showLivePanel && (
+          <div className="mt-2">
+            <LiveStepMonitorPanel
+              activeSteps={activeSteps}
+              selectedStepKey={selection?.kind === "live" ? selection.stepKey : null}
+              onSelect={handleSelectLive}
+            />
+          </div>
+        )}
 
-        {/* Plan detail table below the DAG */}
-        <div className="mt-2 space-y-1 pb-4">
-          {run.plans.map((plan) => (
-            <PlanDetailRow key={plan.planId} plan={plan} onThreadClick={handleThreadClick} />
-          ))}
+        {/* Inline log viewer — single instance for either source. */}
+        {selectedStep && (
+          <div className="px-4 pt-3">
+            <div className="h-96 min-h-0">
+              <StepLogViewer
+                entries={selectedEntries}
+                timestampFormat={timestampFormat}
+                cwd={cwd}
+                loading={isSelectedLogLoading}
+                emptyHint={
+                  selection?.kind === "live"
+                    ? "Waiting for first log entry…"
+                    : "No entries recorded for this step."
+                }
+                title={
+                  <>
+                    <span className="truncate font-medium">{stepLabel(selectedStep)}</span>
+                    <Badge
+                      variant={
+                        selectedStep.state === "failed"
+                          ? "destructive"
+                          : selectedStep.state === "done"
+                            ? "success"
+                            : selection?.kind === "live"
+                              ? "info"
+                              : "outline"
+                      }
+                      size="sm"
+                      className="px-1.5 font-normal lowercase"
+                    >
+                      {selectedStep.state}
+                    </Badge>
+                    {selection?.kind === "history" && (
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        postmortem
+                      </span>
+                    )}
+                  </>
+                }
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Unified started-step history */}
+        <div className="mt-3 border-t border-border/60">
+          <StepHistoryList
+            steps={startedSteps}
+            selectedStepKey={selection?.stepKey ?? null}
+            onSelect={handleSelectHistory}
+          />
         </div>
 
         {/* Summary */}
         {isTerminal && run.summary && (
-          <div className="mb-4 rounded-md border p-3">
+          <div className="mx-4 my-3 rounded-md border p-3">
             <h3 className="mb-1 text-xs font-medium text-muted-foreground">Summary</h3>
             <p className="text-sm">{run.summary}</p>
           </div>
@@ -253,47 +423,18 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
   );
 });
 
-// ── Compact detail row (below DAG) ─────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────
 
-const PlanDetailRow = memo(function PlanDetailRow({
-  plan,
-  onThreadClick,
-}: {
-  plan: PlanNodeType;
-  onThreadClick: (threadId: string | null) => void;
-}) {
+/**
+ * Detect a `PlanRunnerNotFoundError` from the wire by its `_tag`. Effect's
+ * `TaggedErrorClass` decodes/encodes errors with a stable `_tag` literal,
+ * which survives the RPC boundary on both success and failure channels.
+ */
+function isPlanRunnerNotFoundError(err: unknown): boolean {
   return (
-    <div className="flex items-center gap-2 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent/30">
-      <span className="min-w-0 flex-1 truncate font-medium text-foreground/80">
-        {plan.filename}
-      </span>
-      <span>{plan.state}</span>
-      {plan.retriesUsed > 0 && (
-        <span>
-          retries {plan.retriesUsed}/{plan.maxRetries}
-        </span>
-      )}
-      {plan.error && <span className="max-w-48 truncate text-destructive">{plan.error}</span>}
-      {plan.executorThreadId && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-5 px-1.5 text-[10px]"
-          onClick={() => onThreadClick(plan.executorThreadId)}
-        >
-          Executor
-        </Button>
-      )}
-      {plan.reviewerThreadId && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-5 px-1.5 text-[10px]"
-          onClick={() => onThreadClick(plan.reviewerThreadId)}
-        >
-          Reviewer
-        </Button>
-      )}
-    </div>
+    typeof err === "object" &&
+    err !== null &&
+    "_tag" in err &&
+    (err as { _tag: unknown })._tag === "PlanRunnerNotFoundError"
   );
-});
+}

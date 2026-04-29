@@ -78,6 +78,7 @@ import {
   useServerObservability,
   useServerProviders,
 } from "../../rpc/serverState";
+import { useInternalPlanRunnerThreadIds } from "~/modules/plan-runner";
 
 const THEME_OPTIONS = [
   {
@@ -1575,12 +1576,20 @@ export function ArchivedThreadsPanel() {
   const projects = useStore(useShallow(selectProjectsAcrossEnvironments));
   const threads = useStore(useShallow(selectThreadShellsAcrossEnvironments));
   const { unarchiveThread, confirmAndDeleteThread } = useThreadActions();
+  // Internal plan-runner threads are persisted but never user-browsable —
+  // hide them from the archive panel even if archivedAt is non-null.
+  const internalPlanRunnerThreadIds = useInternalPlanRunnerThreadIds();
   const archivedGroups = useMemo(() => {
     return projects
       .map((project) => ({
         project,
         threads: threads
-          .filter((thread) => thread.projectId === project.id && thread.archivedAt !== null)
+          .filter(
+            (thread) =>
+              thread.projectId === project.id &&
+              thread.archivedAt !== null &&
+              !internalPlanRunnerThreadIds.has(thread.id),
+          )
           .toSorted((left, right) => {
             const leftKey = left.archivedAt ?? left.createdAt;
             const rightKey = right.archivedAt ?? right.createdAt;
@@ -1588,7 +1597,7 @@ export function ArchivedThreadsPanel() {
           }),
       }))
       .filter((group) => group.threads.length > 0);
-  }, [projects, threads]);
+  }, [projects, threads, internalPlanRunnerThreadIds]);
 
   const handleArchivedThreadContextMenu = useCallback(
     async (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {

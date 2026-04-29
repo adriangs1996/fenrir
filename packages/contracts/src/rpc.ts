@@ -105,7 +105,6 @@ import {
   TrafficLensReplayResponse,
 } from "./trafficLens";
 import {
-  PLAN_RUNNER_WS_METHODS,
   PlanRunnerStartInput,
   PlanRunnerStartResult,
   PlanRunnerGetStatusInput,
@@ -118,8 +117,12 @@ import {
   PlanRunnerListFeaturesResult,
   PlanRunnerGetFeaturePlansInput,
   PlanRunnerGetFeaturePlansResult,
+  PlanRunnerGetFeatureRunInput,
+  PlanRunnerGetFeatureRunResult,
   PlanRunnerListRunsInput,
   PlanRunnerListRunsResult,
+  PlanRunnerGetStepLogInput,
+  PlanRunnerGetStepLogResult,
 } from "./planRunner";
 import {
   ServerConfigStreamEvent,
@@ -215,7 +218,9 @@ export const WS_METHODS = {
   subscribePlanRunnerEvents: "subscribePlanRunnerEvents",
   planRunnerListFeatures: "planRunner.listFeatures",
   planRunnerGetFeaturePlans: "planRunner.getFeaturePlans",
+  planRunnerGetFeatureRun: "planRunner.getFeatureRun",
   planRunnerListRuns: "planRunner.listRuns",
+  planRunnerGetStepLog: "planRunner.getStepLog",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -632,10 +637,22 @@ export const WsPlanRunnerGetFeaturePlansRpc = Rpc.make(WS_METHODS.planRunnerGetF
   error: PlanRunnerError,
 });
 
+export const WsPlanRunnerGetFeatureRunRpc = Rpc.make(WS_METHODS.planRunnerGetFeatureRun, {
+  payload: PlanRunnerGetFeatureRunInput,
+  success: PlanRunnerGetFeatureRunResult,
+  error: PlanRunnerError,
+});
+
 export const WsPlanRunnerListRunsRpc = Rpc.make(WS_METHODS.planRunnerListRuns, {
   payload: PlanRunnerListRunsInput,
   success: PlanRunnerListRunsResult,
   error: PlanRunnerError,
+});
+
+export const WsPlanRunnerGetStepLogRpc = Rpc.make(WS_METHODS.planRunnerGetStepLog, {
+  payload: PlanRunnerGetStepLogInput,
+  success: PlanRunnerGetStepLogResult,
+  error: Schema.Union([PlanRunnerError, PlanRunnerNotFoundError]),
 });
 
 export const WsRpcGroup = RpcGroup.make(
@@ -706,5 +723,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribePlanRunnerEventsRpc,
   WsPlanRunnerListFeaturesRpc,
   WsPlanRunnerGetFeaturePlansRpc,
+  WsPlanRunnerGetFeatureRunRpc,
   WsPlanRunnerListRunsRpc,
+  WsPlanRunnerGetStepLogRpc,
 );

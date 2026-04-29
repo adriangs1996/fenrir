@@ -23,6 +23,10 @@ import { createThreadSelectorByRef } from "../storeSelectors";
 import { resolveThreadRouteRef, buildThreadRouteParams } from "../threadRoutes";
 import { RightPanelSheet } from "../components/RightPanelSheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
+import {
+  useInternalPlanRunnerThreadIds,
+  useInternalPlanRunnerThreadOwners,
+} from "~/modules/plan-runner";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
 const DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_diff_sidebar_width";
@@ -165,6 +169,16 @@ function ChatThreadRouteView() {
   const routeThreadExists = threadExists || draftThreadExists;
   const serverThreadStarted = threadHasStarted(serverThread);
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
+  // Internal plan-runner threads (executor/reviewer/analyzer/integration) are
+  // implementation detail. Direct route access is blocked: redirect to the
+  // owning run view if known, otherwise fall back to the generic
+  // not-available behavior (route home) rather than rendering the thread.
+  const internalPlanRunnerThreadIds = useInternalPlanRunnerThreadIds();
+  const internalPlanRunnerThreadOwners = useInternalPlanRunnerThreadOwners();
+  const isInternalPlanRunnerThread =
+    threadRef !== null && internalPlanRunnerThreadIds.has(threadRef.threadId);
+  const owningRunIdForThread =
+    threadRef !== null ? (internalPlanRunnerThreadOwners.get(threadRef.threadId) ?? null) : null;
   const diffOpen = search.diff === "1";
   const shouldUseDiffSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const currentThreadKey = threadRef ? `${threadRef.environmentId}:${threadRef.threadId}` : null;
@@ -217,10 +231,33 @@ function ChatThreadRouteView() {
       return;
     }
 
+    if (isInternalPlanRunnerThread) {
+      if (owningRunIdForThread !== null) {
+        void navigate({
+          to: "/plan-runner/$runId",
+          params: { runId: owningRunIdForThread },
+          replace: true,
+        });
+      } else {
+        // Owning run unresolvable — fall back to generic not-available
+        // behavior (route home) instead of exposing the internal thread.
+        void navigate({ to: "/", replace: true });
+      }
+      return;
+    }
+
     if (!routeThreadExists && environmentHasAnyThreads) {
       void navigate({ to: "/", replace: true });
     }
-  }, [bootstrapComplete, environmentHasAnyThreads, navigate, routeThreadExists, threadRef]);
+  }, [
+    bootstrapComplete,
+    environmentHasAnyThreads,
+    isInternalPlanRunnerThread,
+    navigate,
+    owningRunIdForThread,
+    routeThreadExists,
+    threadRef,
+  ]);
 
   useEffect(() => {
     if (!threadRef || !serverThreadStarted || !draftThread?.promotedTo) {
@@ -229,7 +266,7 @@ function ChatThreadRouteView() {
     finalizePromotedDraftThreadByRef(threadRef);
   }, [draftThread?.promotedTo, serverThreadStarted, threadRef]);
 
-  if (!threadRef || !bootstrapComplete || !routeThreadExists) {
+  if (!threadRef || !bootstrapComplete || !routeThreadExists || isInternalPlanRunnerThread) {
     return null;
   }
 

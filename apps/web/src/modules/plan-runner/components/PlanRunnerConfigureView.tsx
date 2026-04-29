@@ -1,12 +1,22 @@
-import { ArrowLeftIcon, PlayIcon, Loader2Icon, GitBranchIcon, AlertCircleIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  PlayIcon,
+  Loader2Icon,
+  GitBranchIcon,
+  AlertCircleIcon,
+  HistoryIcon,
+  ActivityIcon,
+} from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import type { ProjectId, ProviderKind, ModelSelection } from "@fenrir/contracts";
+import type { ProviderKind, ModelSelection, FeatureSummary } from "@fenrir/contracts";
 import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
+import { useFeatureProjectId } from "../hooks/useFeatureProjectId";
+import { getFeatureRunStatus, isFeatureStartBlocked } from "./featureRunStatus";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { useSettings } from "~/hooks/useSettings";
 import { useServerProviders } from "~/rpc/serverState";
-import { resolveAppModelSelectionState, getCustomModelOptionsByProvider } from "~/modelSelection";
+import { resolveAppModelSelectionState } from "~/modelSelection";
 import { getProviderModels } from "~/providerModels";
 import { ProviderModelPicker } from "~/components/chat/ProviderModelPicker";
 import { Button } from "~/components/ui/button";
@@ -40,17 +50,7 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
   }, []);
 
   // ── Resolve projectId from store ────────────────────────────────────
-  const projectId = usePlanRunnerStore((s): ProjectId | null => {
-    for (const key of Object.keys(s.plansByFeatureKey)) {
-      if (key.endsWith(`:${featureName}`)) {
-        return (key.split(":")[0] ?? null) as ProjectId | null;
-      }
-    }
-    for (const [pid, features] of Object.entries(s.featuresByProjectId)) {
-      if (features.some((f) => f.featureName === featureName)) return pid as ProjectId;
-    }
-    return null;
-  });
+  const projectId = useFeatureProjectId(featureName);
 
   // ── Plans from store ────────────────────────────────────────────────
   const plans = usePlanRunnerStore((s): readonly PlanFileSummary[] => {
@@ -62,7 +62,9 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
     return [];
   });
 
-  // Fetch plans if not cached
+  // Fetch plans if not cached. Configure/preview always reads live `.plans/`
+  // files so the UI reflects in-flight edits; only the run detail page uses
+  // a frozen run snapshot.
   useEffect(() => {
     if (plans.length > 0 || !rpcClient || !projectId) return;
     rpcClient.planRunner
@@ -70,6 +72,38 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
       .then((result) => setPlans(`${projectId}:${featureName}`, result.plans))
       .catch((err) => console.error("getFeaturePlans failed:", err));
   }, [plans.length, rpcClient, projectId, featureName, setPlans]);
+
+  // ── Feature summary (for last-run navigation + start gating) ───────
+  const featureSummary = usePlanRunnerStore((s): FeatureSummary | null => {
+    if (!projectId) return null;
+    const features = s.featuresByProjectId[projectId];
+    if (!features) return null;
+    return features.find((f) => f.featureName === featureName) ?? null;
+  });
+
+  const featureStatus = useMemo(
+    () => (featureSummary ? getFeatureRunStatus(featureSummary) : "notRun"),
+    [featureSummary],
+  );
+  const startBlocked = featureSummary ? isFeatureStartBlocked(featureSummary) : false;
+  const blockedReason =
+    featureStatus === "recovering" ? "Recovery in progress" : "Run already in progress";
+
+  const handleViewCurrentRun = useCallback(() => {
+    if (!featureSummary?.activeRunId) return;
+    void navigate({
+      to: "/plan-runner/$runId",
+      params: { runId: featureSummary.activeRunId },
+    });
+  }, [navigate, featureSummary?.activeRunId]);
+
+  const handleViewLastRun = useCallback(() => {
+    if (!featureSummary?.lastRunId) return;
+    void navigate({
+      to: "/plan-runner/$runId",
+      params: { runId: featureSummary.lastRunId },
+    });
+  }, [navigate, featureSummary?.lastRunId]);
 
   // ── Model selection state (local, not global) ──────────────────────
   const settings = useSettings();
@@ -124,7 +158,7 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
   const [startError, setStartError] = useState<string | null>(null);
 
   const handleStartRun = useCallback(async () => {
-    if (!rpcClient || !projectId) return;
+    if (!rpcClient || !projectId || startBlocked) return;
     setIsStarting(true);
     setStartError(null);
 
@@ -146,7 +180,7 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
       setStartError(err instanceof Error ? err.message : "Failed to start run");
       setIsStarting(false);
     }
-  }, [rpcClient, projectId, featureName, selectedProvider, selectedModel, navigate]);
+  }, [rpcClient, projectId, featureName, selectedProvider, selectedModel, navigate, startBlocked]);
 
   const handleBack = useCallback(() => {
     void navigate({ to: "/" });
@@ -184,6 +218,11 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
   }
 
   const branchName = `feature/${featureName}`;
+  const showCurrentRunButton = startBlocked && featureSummary?.activeRunId != null;
+  const showLastRunButton =
+    !startBlocked &&
+    featureSummary?.lastRunId != null &&
+    (featureStatus === "passed" || featureStatus === "failed");
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -198,6 +237,20 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
             <GitBranchIcon className="size-3" />
             <span>{branchName}</span>
           </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {showCurrentRunButton && (
+            <Button variant="outline" size="sm" onClick={handleViewCurrentRun}>
+              <ActivityIcon className="mr-1.5 size-3" />
+              View current run
+            </Button>
+          )}
+          {showLastRunButton && (
+            <Button variant="outline" size="sm" onClick={handleViewLastRun}>
+              <HistoryIcon className="mr-1.5 size-3" />
+              View last run
+            </Button>
+          )}
         </div>
       </div>
 
@@ -235,23 +288,31 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
             {startError}
           </div>
         )}
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={handleBack}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleStartRun} disabled={isStarting || !projectId}>
-            {isStarting ? (
-              <>
-                <Loader2Icon className="mr-1.5 size-3 animate-spin" />
-                Starting...
-              </>
-            ) : (
-              <>
-                <PlayIcon className="mr-1.5 size-3" />
-                Start Run
-              </>
-            )}
-          </Button>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs text-muted-foreground">{startBlocked ? blockedReason : null}</div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleBack}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleStartRun}
+              disabled={isStarting || !projectId || startBlocked}
+              title={startBlocked ? blockedReason : undefined}
+            >
+              {isStarting ? (
+                <>
+                  <Loader2Icon className="mr-1.5 size-3 animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <PlayIcon className="mr-1.5 size-3" />
+                  Start Run
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

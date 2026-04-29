@@ -138,7 +138,7 @@ import {
 } from "./Sidebar.logic";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { PlanRunnerProjectSection } from "~/modules/plan-runner";
+import { PlanRunnerProjectSection, useInternalPlanRunnerThreadIds } from "~/modules/plan-runner";
 import { readEnvironmentApi } from "../environmentApi";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
@@ -1100,11 +1100,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       ),
     ),
   );
-  const allSidebarThreads = useMemo(
-    () =>
-      otherMemberThreads.length === 0 ? sidebarThreads : [...sidebarThreads, ...otherMemberThreads],
-    [sidebarThreads, otherMemberThreads],
-  );
+  const internalPlanRunnerThreadIds = useInternalPlanRunnerThreadIds();
+  const allSidebarThreads = useMemo(() => {
+    const combined =
+      otherMemberThreads.length === 0 ? sidebarThreads : [...sidebarThreads, ...otherMemberThreads];
+    if (internalPlanRunnerThreadIds.size === 0) return combined;
+    return combined.filter((thread) => !internalPlanRunnerThreadIds.has(thread.id));
+  }, [sidebarThreads, otherMemberThreads, internalPlanRunnerThreadIds]);
   const sidebarThreadByKey = useMemo(
     () =>
       new Map(
@@ -2449,7 +2451,19 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 
 export default function Sidebar() {
   const projects = useStore(useShallow(selectProjectsAcrossEnvironments));
-  const sidebarThreads = useStore(useShallow(selectSidebarThreadsAcrossEnvironments));
+  const allSidebarThreads = useStore(useShallow(selectSidebarThreadsAcrossEnvironments));
+  // Internal plan-runner threads (executor/reviewer/analyzer/integration) are
+  // persisted for log reconstruction but must not be browsable. Strip them
+  // from every sidebar surface (project grouping, counts, previews, sorts).
+  // See `useInternalPlanRunnerThreadIds` for derivation policy.
+  const internalPlanRunnerThreadIds = useInternalPlanRunnerThreadIds();
+  const sidebarThreads = useMemo(
+    () =>
+      internalPlanRunnerThreadIds.size === 0
+        ? allSidebarThreads
+        : allSidebarThreads.filter((thread) => !internalPlanRunnerThreadIds.has(thread.id)),
+    [allSidebarThreads, internalPlanRunnerThreadIds],
+  );
   const activeEnvironmentId = useStore((store) => store.activeEnvironmentId);
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);

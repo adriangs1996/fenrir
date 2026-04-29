@@ -5,6 +5,8 @@ import type {
   PlanRunSnapshot,
   PlanRunnerEvent,
   PlanRunnerError,
+  PlanRunnerGetFeatureRunResult,
+  PlanRunnerGetStepLogResult,
   PlanRunnerNotFoundError,
   ProjectId,
   ModelSelection,
@@ -30,6 +32,16 @@ export interface PlanRunnerServiceShape {
         planCount: number;
         hasActiveRun: boolean;
         activeRunId: PlanRunId | null;
+        lastRunId: PlanRunId | null;
+        lastRunState:
+          | "analyzing"
+          | "executing"
+          | "integrating"
+          | "completed"
+          | "failed"
+          | "recovering"
+          | null;
+        lastRunUpdatedAt: string | null;
       }>;
     },
     PlanRunnerError
@@ -52,9 +64,19 @@ export interface PlanRunnerServiceShape {
     PlanRunnerError
   >;
 
+  readonly getFeatureRun: (input: {
+    readonly projectId: ProjectId;
+    readonly featureName: string;
+  }) => Effect.Effect<PlanRunnerGetFeatureRunResult, PlanRunnerError>;
+
   readonly listRuns: (input: {
     readonly projectId?: ProjectId | undefined;
   }) => Effect.Effect<{ runs: Array<PlanRunSnapshot> }, PlanRunnerError>;
+
+  readonly getStepLog: (input: {
+    readonly runId: PlanRunId;
+    readonly stepKey: string;
+  }) => Effect.Effect<PlanRunnerGetStepLogResult, PlanRunnerError | PlanRunnerNotFoundError>;
 
   readonly streamEvents: Stream.Stream<PlanRunnerEvent>;
 }

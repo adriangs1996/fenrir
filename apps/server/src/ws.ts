@@ -76,7 +76,7 @@ import {
 } from "./metasploit/Services/MetasploitShellAdapter";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService";
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner";
-import type { TrafficLensEvent, PlanRunnerEvent } from "@fenrir/contracts";
+import type { TrafficLensEvent } from "@fenrir/contracts";
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -1340,8 +1340,20 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             { "rpc.aggregate": "planRunner" },
           ),
 
+        [WS_METHODS.planRunnerGetFeatureRun]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planRunnerGetFeatureRun,
+            planRunnerService.getFeatureRun(input),
+            { "rpc.aggregate": "planRunner" },
+          ),
+
         [WS_METHODS.planRunnerListRuns]: (input) =>
           observeRpcEffect(WS_METHODS.planRunnerListRuns, planRunnerService.listRuns(input), {
+            "rpc.aggregate": "planRunner",
+          }),
+
+        [WS_METHODS.planRunnerGetStepLog]: (input) =>
+          observeRpcEffect(WS_METHODS.planRunnerGetStepLog, planRunnerService.getStepLog(input), {
             "rpc.aggregate": "planRunner",
           }),
       });

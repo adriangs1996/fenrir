@@ -142,10 +142,12 @@ export interface WsRpcClient {
   readonly planRunner: {
     readonly listFeatures: RpcUnaryMethod<typeof WS_METHODS.planRunnerListFeatures>;
     readonly getFeaturePlans: RpcUnaryMethod<typeof WS_METHODS.planRunnerGetFeaturePlans>;
+    readonly getFeatureRun: RpcUnaryMethod<typeof WS_METHODS.planRunnerGetFeatureRun>;
     readonly listRuns: RpcUnaryMethod<typeof WS_METHODS.planRunnerListRuns>;
     readonly start: RpcUnaryMethod<typeof WS_METHODS.planRunnerStart>;
     readonly getStatus: RpcUnaryMethod<typeof WS_METHODS.planRunnerGetStatus>;
     readonly cancel: RpcUnaryMethod<typeof WS_METHODS.planRunnerCancel>;
+    readonly getStepLog: RpcUnaryMethod<typeof WS_METHODS.planRunnerGetStepLog>;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribePlanRunnerEvents>;
   };
   readonly orchestration: {
@@ -338,12 +340,16 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.planRunnerListFeatures](input)),
       getFeaturePlans: (input) =>
         transport.request((client) => client[WS_METHODS.planRunnerGetFeaturePlans](input)),
+      getFeatureRun: (input) =>
+        transport.request((client) => client[WS_METHODS.planRunnerGetFeatureRun](input)),
       listRuns: (input) =>
         transport.request((client) => client[WS_METHODS.planRunnerListRuns](input)),
       start: (input) => transport.request((client) => client[WS_METHODS.planRunnerStart](input)),
       getStatus: (input) =>
         transport.request((client) => client[WS_METHODS.planRunnerGetStatus](input)),
       cancel: (input) => transport.request((client) => client[WS_METHODS.planRunnerCancel](input)),
+      getStepLog: (input) =>
+        transport.request((client) => client[WS_METHODS.planRunnerGetStepLog](input)),
       onEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribePlanRunnerEvents]({}),

@@ -1,4 +1,14 @@
-import { ChevronRightIcon, FileTextIcon, PlayIcon, SquareIcon, PencilIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  CircleDashedIcon,
+  CheckCircle2Icon,
+  FileTextIcon,
+  Loader2Icon,
+  PencilIcon,
+  RotateCwIcon,
+  SquareIcon,
+  XCircleIcon,
+} from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { scopeProjectRef } from "@fenrir/client-runtime";
@@ -8,42 +18,20 @@ import {
   PlanFileSummary as PlanFileSummarySchema,
 } from "@fenrir/contracts";
 import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
+import { getFeatureRunStatus, type FeatureRunStatus } from "./featureRunStatus";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton } from "~/components/ui/sidebar";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "~/components/ui/collapsible";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { formatRelativeTimeLabel } from "~/timestampFormat";
 
 type FeatureSummary = typeof FeatureSummarySchema.Type;
 type PlanFileSummary = typeof PlanFileSummarySchema.Type;
 
 const EMPTY_PLANS: ReadonlyArray<PlanFileSummary> = [];
-
-type BadgeConfig = {
-  label: string;
-  variant: "info" | "warning" | "success" | "destructive";
-  pulse?: boolean;
-};
-
-const STATE_BADGE_CONFIG: Record<string, BadgeConfig> = {
-  analyzing: { label: "Analyzing", variant: "info", pulse: true },
-  executing: { label: "Executing", variant: "warning", pulse: true },
-  integrating: { label: "Integrating", variant: "warning", pulse: true },
-  completed: { label: "Done", variant: "success" },
-  failed: { label: "Failed", variant: "destructive" },
-};
-
-/**
- * Fallback shown when the server reports an active run but the snapshot
- * hasn't streamed in yet (initial hydration race). Without this the sidebar
- * renders a Cancel button with no accompanying status text.
- */
-const ACTIVE_RUN_FALLBACK_BADGE: BadgeConfig = {
-  label: "Running",
-  variant: "info",
-  pulse: true,
-};
 
 interface PlanRunnerFeatureFolderProps {
   feature: FeatureSummary;
@@ -61,7 +49,6 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   const featureKey = `${projectId}:${feature.featureName}`;
   const plans = usePlanRunnerStore((s) => s.plansByFeatureKey[featureKey] ?? EMPTY_PLANS);
   const setPlans = usePlanRunnerStore((s) => s.setPlans);
-  const runById = usePlanRunnerStore((s) => s.runById);
   const { handleNewThread } = useNewThreadHandler();
 
   const rpcClient = useMemo(() => {
@@ -81,19 +68,9 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
       .catch((err) => console.error("getFeaturePlans failed:", err));
   }, [expanded, rpcClient, projectId, feature.featureName, featureKey, setPlans, plans.length]);
 
-  // Determine active run state. Server reports `hasActiveRun` from
-  // `listFeatures` but the snapshot may not have hydrated into `runById`
-  // yet (e.g. listFeatures resolved before listRuns). Fall back to a
-  // generic "Running" badge so the Cancel button always has matching
-  // status text.
-  const activeRun = feature.activeRunId ? runById[feature.activeRunId] : null;
-  const badgeConfig: BadgeConfig | null = activeRun
-    ? (STATE_BADGE_CONFIG[activeRun.state] ?? null)
-    : feature.hasActiveRun
-      ? ACTIVE_RUN_FALLBACK_BADGE
-      : null;
+  const status: FeatureRunStatus = useMemo(() => getFeatureRunStatus(feature), [feature]);
 
-  const handleRun = useCallback(() => {
+  const handleConfigure = useCallback(() => {
     void navigate({
       to: "/plan-runner/$featureName/configure",
       params: { featureName: feature.featureName },
@@ -105,11 +82,12 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
     void rpcClient.planRunner.cancel({ runId: feature.activeRunId });
   }, [rpcClient, feature.activeRunId]);
 
-  const handleRunClick = useCallback(() => {
-    if (feature.activeRunId) {
-      void navigate({ to: "/plan-runner/$runId", params: { runId: feature.activeRunId } });
-    }
-  }, [navigate, feature.activeRunId]);
+  // Status-icon click target: prefer the active run, fall back to last stored run.
+  const statusRunId = feature.activeRunId ?? feature.lastRunId ?? null;
+  const handleStatusClick = useCallback(() => {
+    if (!statusRunId) return;
+    void navigate({ to: "/plan-runner/$runId", params: { runId: statusRunId } });
+  }, [navigate, statusRunId]);
 
   const handlePlanClick = useCallback(
     (plan: PlanFileSummary) => {
@@ -134,34 +112,32 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
     <SidebarMenuSubItem className="w-full">
       <Collapsible open={expanded} onOpenChange={setExpanded}>
         <div className="flex items-center">
-          <CollapsibleTrigger className="flex-1">
-            <SidebarMenuSubButton
-              size="sm"
-              className="h-7 w-full translate-x-0 justify-start gap-1.5 px-2 text-left text-xs text-muted-foreground"
-            >
-              <ChevronRightIcon
-                className={`size-3 shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
-              />
-              <span className="min-w-0 flex-1 truncate">{feature.featureName}</span>
-              <Badge variant="outline" size="sm" className="ml-auto">
-                {feature.planCount}
-              </Badge>
-              {badgeConfig && (
-                <Badge
-                  variant={badgeConfig.variant}
-                  size="sm"
-                  className={`cursor-pointer ${badgeConfig.pulse ? "animate-pulse" : ""}`}
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    handleRunClick();
-                  }}
-                >
-                  {badgeConfig.label}
-                </Badge>
-              )}
-            </SidebarMenuSubButton>
+          <CollapsibleTrigger
+            aria-label={expanded ? "Collapse plans" : "Expand plans"}
+            className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <ChevronRightIcon
+              className={`size-3 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
+            />
           </CollapsibleTrigger>
-          {feature.hasActiveRun ? (
+          <SidebarMenuSubButton
+            size="sm"
+            className="h-7 min-w-0 flex-1 translate-x-0 justify-start gap-1.5 px-2 text-left text-xs text-muted-foreground"
+            onClick={handleConfigure}
+            title={`Open ${feature.featureName} configure`}
+          >
+            <span className="min-w-0 flex-1 truncate">{feature.featureName}</span>
+            <Badge variant="outline" size="sm" className="ml-auto">
+              {feature.planCount}
+            </Badge>
+          </SidebarMenuSubButton>
+          <FeatureStatusIcon
+            status={status}
+            lastUpdatedAt={feature.lastRunUpdatedAt}
+            hasRun={statusRunId !== null}
+            onClick={handleStatusClick}
+          />
+          {feature.hasActiveRun && (
             <Button
               variant="ghost"
               size="icon"
@@ -170,16 +146,6 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
               title="Cancel run"
             >
               <SquareIcon className="size-3" />
-            </Button>
-          ) : (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-5 shrink-0"
-              onClick={handleRun}
-              title="Run plans"
-            >
-              <PlayIcon className="size-3" />
             </Button>
           )}
         </div>
@@ -216,3 +182,105 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
     </SidebarMenuSubItem>
   );
 });
+
+// ── Status icon ────────────────────────────────────────────────────────────
+
+type FeatureStatusIconConfig = {
+  Icon: typeof Loader2Icon;
+  /** Tailwind text color class for the icon. */
+  colorClass: string;
+  /** Animation class applied to the icon (`animate-spin`/`animate-pulse`/empty). */
+  animateClass: string;
+  /** Short state label ("Running", "Failed", …). */
+  label: string;
+  /** One-line meaning of the state. */
+  description: string;
+};
+
+const STATUS_ICON_CONFIG: Record<FeatureRunStatus, FeatureStatusIconConfig> = {
+  notRun: {
+    Icon: CircleDashedIcon,
+    colorClass: "text-muted-foreground/60",
+    animateClass: "",
+    label: "Not run yet",
+    description: "Feature has no stored run.",
+  },
+  running: {
+    Icon: Loader2Icon,
+    colorClass: "text-info",
+    animateClass: "animate-spin",
+    label: "Running",
+    description: "A run is in progress.",
+  },
+  recovering: {
+    Icon: RotateCwIcon,
+    colorClass: "text-warning",
+    animateClass: "animate-pulse",
+    label: "Recovering",
+    description: "The runner is recovering from a failure.",
+  },
+  passed: {
+    Icon: CheckCircle2Icon,
+    colorClass: "text-success",
+    animateClass: "",
+    label: "Passed",
+    description: "Last run completed successfully.",
+  },
+  failed: {
+    Icon: XCircleIcon,
+    colorClass: "text-destructive",
+    animateClass: "",
+    label: "Failed",
+    description: "Last run failed.",
+  },
+};
+
+interface FeatureStatusIconProps {
+  status: FeatureRunStatus;
+  lastUpdatedAt: string | null;
+  hasRun: boolean;
+  onClick: () => void;
+}
+
+function FeatureStatusIcon({ status, lastUpdatedAt, hasRun, onClick }: FeatureStatusIconProps) {
+  const config = STATUS_ICON_CONFIG[status];
+  const clickable = status !== "notRun" && hasRun;
+  const updatedLabel = lastUpdatedAt ? formatRelativeTimeLabel(lastUpdatedAt) : null;
+  const iconClass = `size-3 ${config.animateClass}`.trim();
+  const wrapperClass = `inline-flex size-5 shrink-0 items-center justify-center rounded ${config.colorClass}`;
+
+  // base-ui Tooltip — Trigger renders the actual interactive node so we can
+  // swap between a clickable button and a static span without losing hover.
+  const trigger = clickable ? (
+    <button
+      type="button"
+      aria-label={`${config.label} — open run`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={`${wrapperClass} cursor-pointer hover:bg-accent`}
+    >
+      <config.Icon className={iconClass} />
+    </button>
+  ) : (
+    <span aria-label={config.label} role="img" className={`${wrapperClass} cursor-default`}>
+      <config.Icon className={iconClass} />
+    </span>
+  );
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={trigger} />
+      <TooltipPopup className="max-w-60 px-2 py-1.5">
+        <div className="flex flex-col gap-0.5 text-xs">
+          <span className="font-medium">{config.label}</span>
+          <span className="text-muted-foreground">{config.description}</span>
+          {updatedLabel && (
+            <span className="text-muted-foreground">Last updated {updatedLabel}</span>
+          )}
+        </div>
+      </TooltipPopup>
+    </Tooltip>
+  );
+}

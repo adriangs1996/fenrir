@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import {
   IsoDateTime,
   makeEntityId,
+  NonNegativeInt,
   TrimmedNonEmptyString,
   ThreadId,
   ProjectId,
@@ -12,6 +13,9 @@ import { ModelSelection } from "./orchestration";
 
 export const PlanRunId = makeEntityId("PlanRunId");
 export type PlanRunId = typeof PlanRunId.Type;
+
+export const PlanRunnerLogEntryId = makeEntityId("PlanRunnerLogEntryId");
+export type PlanRunnerLogEntryId = typeof PlanRunnerLogEntryId.Type;
 
 // ─── State Enums ────────────────────────────────────────────────────────────
 
@@ -32,8 +36,32 @@ export const FeatureState = Schema.Literals([
   "integrating",
   "completed",
   "failed",
+  "recovering",
 ]);
 export type FeatureState = typeof FeatureState.Type;
+
+// ─── Step / Thread / Log Kinds ─────────────────────────────────────────────
+
+export const PlanRunnerStepKind = Schema.Literals(["plan", "analyzer", "integration"]);
+export type PlanRunnerStepKind = typeof PlanRunnerStepKind.Type;
+
+export const PlanRunnerThreadRole = Schema.Literals([
+  "executor",
+  "reviewer",
+  "analyzer",
+  "integration",
+]);
+export type PlanRunnerThreadRole = typeof PlanRunnerThreadRole.Type;
+
+export const PlanRunnerLogEntryKind = Schema.Literals([
+  "runner.status",
+  "runner.retry",
+  "runner.recovery",
+  "prompt",
+  "assistant",
+  "activity",
+]);
+export type PlanRunnerLogEntryKind = typeof PlanRunnerLogEntryKind.Type;
 
 // ─── PlanNode ───────────────────────────────────────────────────────────────
 
@@ -52,6 +80,33 @@ export const PlanNode = Schema.Struct({
 });
 export type PlanNode = typeof PlanNode.Type;
 
+// ─── Step Snapshot ──────────────────────────────────────────────────────────
+
+export const PlanRunnerThreadRef = Schema.Struct({
+  threadId: ThreadId,
+  role: PlanRunnerThreadRole,
+});
+export type PlanRunnerThreadRef = typeof PlanRunnerThreadRef.Type;
+
+/**
+ * Per-step snapshot for all started/loggable steps in a run, including the
+ * Analyzer and Integration phases. `stepKey` is the stable identifier used to
+ * fetch step logs and correlate streaming append events.
+ */
+export const PlanRunnerStepSnapshot = Schema.Struct({
+  stepKey: TrimmedNonEmptyString,
+  kind: PlanRunnerStepKind,
+  planId: Schema.NullOr(Schema.String),
+  filename: Schema.NullOr(TrimmedNonEmptyString),
+  state: PlanState,
+  failureSummary: Schema.NullOr(Schema.String),
+  startedAt: Schema.NullOr(IsoDateTime),
+  completedAt: Schema.NullOr(IsoDateTime),
+  executionOrder: Schema.NullOr(NonNegativeInt),
+  threadRefs: Schema.Array(PlanRunnerThreadRef),
+});
+export type PlanRunnerStepSnapshot = typeof PlanRunnerStepSnapshot.Type;
+
 // ─── PlanRunSnapshot ────────────────────────────────────────────────────────
 
 export const PlanRunSnapshot = Schema.Struct({
@@ -66,8 +121,12 @@ export const PlanRunSnapshot = Schema.Struct({
   maxConcurrency: Schema.Number,
   analyzerThreadId: Schema.NullOr(ThreadId),
   integrationThreadId: Schema.NullOr(ThreadId),
+  /** Normalized step history across plan/analyzer/integration phases. */
+  steps: Schema.Array(PlanRunnerStepSnapshot),
   startedAt: IsoDateTime,
   completedAt: Schema.NullOr(IsoDateTime),
+  /** Wall-clock timestamp of the last mutation to this snapshot. */
+  lastUpdatedAt: IsoDateTime,
   summary: Schema.NullOr(Schema.String),
 });
 export type PlanRunSnapshot = typeof PlanRunSnapshot.Type;
@@ -104,7 +163,12 @@ export const FeatureSummary = Schema.Struct({
   planCount: Schema.Number,
   hasActiveRun: Schema.Boolean,
   activeRunId: Schema.NullOr(PlanRunId),
+  /** Most recent stored run for this feature, regardless of active state. */
+  lastRunId: Schema.NullOr(PlanRunId),
+  lastRunState: Schema.NullOr(FeatureState),
+  lastRunUpdatedAt: Schema.NullOr(IsoDateTime),
 });
+export type FeatureSummary = typeof FeatureSummary.Type;
 
 export const PlanRunnerListFeaturesResult = Schema.Struct({
   features: Schema.Array(FeatureSummary),
@@ -130,6 +194,19 @@ export const PlanRunnerGetFeaturePlansResult = Schema.Struct({
   plans: Schema.Array(PlanFileSummary),
 });
 
+// ─── Get Feature Run (feature-scoped lookup) ─────────────────
+
+export const PlanRunnerGetFeatureRunInput = Schema.Struct({
+  projectId: ProjectId,
+  featureName: TrimmedNonEmptyString,
+});
+export type PlanRunnerGetFeatureRunInput = typeof PlanRunnerGetFeatureRunInput.Type;
+
+export const PlanRunnerGetFeatureRunResult = Schema.Struct({
+  run: Schema.NullOr(PlanRunSnapshot),
+});
+export type PlanRunnerGetFeatureRunResult = typeof PlanRunnerGetFeatureRunResult.Type;
+
 // ─── List Runs ───────────────────────────────────────────────
 
 export const PlanRunnerListRunsInput = Schema.Struct({
@@ -139,6 +216,45 @@ export const PlanRunnerListRunsInput = Schema.Struct({
 export const PlanRunnerListRunsResult = Schema.Struct({
   runs: Schema.Array(PlanRunSnapshot),
 });
+
+// ─── Step Logs ───────────────────────────────────────────────
+
+export const PlanRunnerGetStepLogInput = Schema.Struct({
+  runId: PlanRunId,
+  stepKey: TrimmedNonEmptyString,
+});
+export type PlanRunnerGetStepLogInput = typeof PlanRunnerGetStepLogInput.Type;
+
+/**
+ * Normalized log entry produced by the server-side monitor projection. The
+ * server is the source of truth for rendering — `title`/`bodyMarkdown`/
+ * `bodyText`/`copyText` are pre-rendered so the web app does not need to
+ * reach into hidden provider threads.
+ */
+export const PlanRunnerLogEntry = Schema.Struct({
+  entryId: PlanRunnerLogEntryId,
+  runId: PlanRunId,
+  stepKey: TrimmedNonEmptyString,
+  kind: PlanRunnerLogEntryKind,
+  sequence: NonNegativeInt,
+  createdAt: IsoDateTime,
+  threadId: Schema.NullOr(ThreadId),
+  threadRole: Schema.NullOr(PlanRunnerThreadRole),
+  title: TrimmedNonEmptyString,
+  bodyMarkdown: Schema.NullOr(Schema.String),
+  bodyText: Schema.NullOr(Schema.String),
+  copyText: Schema.String,
+  /** Structured payload for client-side affordances (links, refs, etc.). */
+  payload: Schema.Unknown,
+});
+export type PlanRunnerLogEntry = typeof PlanRunnerLogEntry.Type;
+
+export const PlanRunnerGetStepLogResult = Schema.Struct({
+  runId: PlanRunId,
+  stepKey: TrimmedNonEmptyString,
+  entries: Schema.Array(PlanRunnerLogEntry),
+});
+export type PlanRunnerGetStepLogResult = typeof PlanRunnerGetStepLogResult.Type;
 
 // ─── Streaming Events ───────────────────────────────────────────────────────
 
@@ -168,6 +284,12 @@ export const PlanRunnerEvent = Schema.Union([
     projectId: ProjectId,
     features: Schema.Array(FeatureSummary),
   }),
+  Schema.Struct({
+    type: Schema.Literal("planRunner.stepLogAppended"),
+    runId: PlanRunId,
+    stepKey: TrimmedNonEmptyString,
+    entry: PlanRunnerLogEntry,
+  }),
 ]);
 export type PlanRunnerEvent = typeof PlanRunnerEvent.Type;
 
@@ -186,14 +308,3 @@ export class PlanRunnerNotFoundError extends Schema.TaggedErrorClass<PlanRunnerN
   },
 ) {}
 
-// ─── WS Method Constants ────────────────────────────────────────────────────
-
-export const PLAN_RUNNER_WS_METHODS = {
-  start: "planRunner.start",
-  getStatus: "planRunner.getStatus",
-  cancel: "planRunner.cancel",
-  subscribe: "subscribePlanRunnerEvents",
-  listFeatures: "planRunner.listFeatures",
-  getFeaturePlans: "planRunner.getFeaturePlans",
-  listRuns: "planRunner.listRuns",
-} as const;
