@@ -14,7 +14,7 @@ export function looksLikePromptLine(line: string): boolean {
   // Line ends with $ or # (minimal prompts, finished commands)
   if (/[$#]\s*$/.test(trimmed)) return true;
   // zsh-style: path followed by % (with optional trailing space or at end of line)
-  if (/^[~\/].*%(\s|$)/.test(trimmed)) return true;
+  if (/^[~/].*%(\s|$)/.test(trimmed)) return true;
   return false;
 }
 

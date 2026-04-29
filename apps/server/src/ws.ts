@@ -1203,6 +1203,47 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             { "rpc.aggregate": "metasploit" },
           ),
 
+        [WS_METHODS.metasploitSessionAttach]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.metasploitSessionAttach,
+            Effect.gen(function* () {
+              // Idempotent: if already attached, return existing handle.
+              if (activeMsfShellProcesses.has(input.sessionId)) {
+                return { sessionId: input.sessionId, attached: true };
+              }
+
+              const proc = yield* metasploitShellAdapter.attach(input.sessionId);
+
+              // Bridge adapter.onData → service.emitSessionOutput → PubSub.
+              proc.onData((data) => {
+                Effect.runFork(metasploitService.emitSessionOutput(input.sessionId, data));
+              });
+
+              // Auto-cleanup on adapter exit (session closed in MSF).
+              proc.onExit(() => {
+                activeMsfShellProcesses.delete(input.sessionId);
+              });
+
+              activeMsfShellProcesses.set(input.sessionId, proc);
+              return { sessionId: input.sessionId, attached: true };
+            }),
+            { "rpc.aggregate": "metasploit" },
+          ),
+
+        [WS_METHODS.metasploitSessionDetach]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.metasploitSessionDetach,
+            Effect.sync(() => {
+              const proc = activeMsfShellProcesses.get(input.sessionId);
+              if (proc) {
+                proc.close(); // Stops the polling loop, removes callbacks.
+                activeMsfShellProcesses.delete(input.sessionId);
+              }
+              // No-op if not attached. Doesn't kill the underlying MSF session.
+            }),
+            { "rpc.aggregate": "metasploit" },
+          ),
+
         [WS_METHODS.subscribeMetasploitEvents]: (_input) =>
           observeRpcStream(
             WS_METHODS.subscribeMetasploitEvents,

@@ -72,6 +72,8 @@ export interface WsRpcClient {
     readonly sessionResize: RpcUnaryMethod<typeof WS_METHODS.metasploitSessionResize>;
     readonly sessionUpgrade: RpcUnaryMethod<typeof WS_METHODS.metasploitSessionUpgrade>;
     readonly sessionClose: RpcUnaryMethod<typeof WS_METHODS.metasploitSessionClose>;
+    readonly sessionAttach: RpcUnaryMethod<typeof WS_METHODS.metasploitSessionAttach>;
+    readonly sessionDetach: RpcUnaryMethod<typeof WS_METHODS.metasploitSessionDetach>;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeMetasploitEvents>;
   };
   readonly projects: {
@@ -206,6 +208,10 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.metasploitSessionUpgrade](input)),
       sessionClose: (input) =>
         transport.request((client) => client[WS_METHODS.metasploitSessionClose](input)),
+      sessionAttach: (input) =>
+        transport.request((client) => client[WS_METHODS.metasploitSessionAttach](input)),
+      sessionDetach: (input) =>
+        transport.request((client) => client[WS_METHODS.metasploitSessionDetach](input)),
       onEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeMetasploitEvents]({}),

@@ -80,11 +80,15 @@ import {
   MetasploitConnectionError,
   MetasploitEvent,
   MetasploitListenerError,
+  MetasploitListenerLookupError,
   MetasploitNotFoundError,
   MetasploitSessionError,
   MetasploitStatusSnapshot,
   MsfSessionSnapshot,
+  SessionAttachInput,
+  SessionAttachOutput,
   SessionCloseInput,
+  SessionDetachInput,
   SessionResizeInput,
   SessionUpgradeInput,
   SessionWriteInput,
@@ -191,6 +195,8 @@ export const WS_METHODS = {
   metasploitSessionResize: "metasploit.sessionResize",
   metasploitSessionUpgrade: "metasploit.sessionUpgrade",
   metasploitSessionClose: "metasploit.sessionClose",
+  metasploitSessionAttach: "metasploit.sessionAttach",
+  metasploitSessionDetach: "metasploit.sessionDetach",
   subscribeMetasploitEvents: "subscribeMetasploitEvents",
 
   // Traffic Lens
@@ -530,11 +536,22 @@ export const WsMetasploitSessionResizeRpc = Rpc.make(WS_METHODS.metasploitSessio
 export const WsMetasploitSessionUpgradeRpc = Rpc.make(WS_METHODS.metasploitSessionUpgrade, {
   payload: SessionUpgradeInput,
   success: MsfSessionSnapshot,
-  error: MetasploitSessionError,
+  error: Schema.Union([MetasploitSessionError, MetasploitListenerLookupError]),
 });
 
 export const WsMetasploitSessionCloseRpc = Rpc.make(WS_METHODS.metasploitSessionClose, {
   payload: SessionCloseInput,
+  error: MetasploitSessionError,
+});
+
+export const WsMetasploitSessionAttachRpc = Rpc.make(WS_METHODS.metasploitSessionAttach, {
+  payload: SessionAttachInput,
+  success: SessionAttachOutput,
+  error: Schema.Union([MetasploitSessionError, MetasploitConnectionError]),
+});
+
+export const WsMetasploitSessionDetachRpc = Rpc.make(WS_METHODS.metasploitSessionDetach, {
+  payload: SessionDetachInput,
   error: MetasploitSessionError,
 });
 
@@ -666,6 +683,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsMetasploitSessionResizeRpc,
   WsMetasploitSessionUpgradeRpc,
   WsMetasploitSessionCloseRpc,
+  WsMetasploitSessionAttachRpc,
+  WsMetasploitSessionDetachRpc,
   WsSubscribeMetasploitEventsRpc,
   WsTrafficLensGetTrafficRpc,
   WsTrafficLensGetTrafficDetailRpc,

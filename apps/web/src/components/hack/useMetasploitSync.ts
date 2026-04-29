@@ -12,32 +12,46 @@ export function useMetasploitSync(rpcClient: WsRpcClient | null) {
 
   useEffect(() => {
     if (!rpcClient) return;
+    let cancelled = false;
 
-    // Fetch initial state
-    rpcClient.metasploit.status().then(
-      (status) => setConnected(status.connected),
-      () => setConnected(false),
-    );
-
-    rpcClient.metasploit.listListeners().then(
-      (listeners) => listeners.forEach(upsertListener),
-      () => {},
-    );
-
-    rpcClient.metasploit.listSessions().then(
-      (sessions) => sessions.forEach(upsertSession),
-      () => {},
-    );
-
-    // Subscribe to events
+    // 1. Subscribe FIRST so we don't drop events fired between list-call ack and list-result.
     const unsubscribe = rpcClient.metasploit.onEvent((event) => {
+      if (cancelled) return;
       applyEvent(event);
       if (event.type === "session.output") {
         appendOutput(event.sessionId, event.data);
       }
     });
 
+    // 2. Fetch initial state (after subscribe is wired).
+    //    status() also triggers server-side ensureStarted.
+    rpcClient.metasploit.status().then(
+      (status) => {
+        if (!cancelled) setConnected(status.connected);
+      },
+      () => {
+        if (!cancelled) setConnected(false);
+      },
+    );
+
+    rpcClient.metasploit.listListeners().then(
+      (listeners) => {
+        if (cancelled) return;
+        listeners.forEach(upsertListener);
+      },
+      () => {},
+    );
+
+    rpcClient.metasploit.listSessions().then(
+      (sessions) => {
+        if (cancelled) return;
+        sessions.forEach(upsertSession);
+      },
+      () => {},
+    );
+
     return () => {
+      cancelled = true;
       unsubscribe();
     };
   }, [rpcClient, applyEvent, setConnected, upsertListener, upsertSession, appendOutput]);

@@ -113,6 +113,7 @@ it.effect("decodes historical project.created payloads with a default provider",
         model: "gpt-5.4",
       },
       scripts: [],
+      globalScriptDefaults: [],
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });

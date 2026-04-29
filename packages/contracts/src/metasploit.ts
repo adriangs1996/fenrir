@@ -120,6 +120,22 @@ export const SessionCloseInput = Schema.Struct({
 });
 export type SessionCloseInput = typeof SessionCloseInput.Type;
 
+export const SessionAttachInput = Schema.Struct({
+  sessionId: TrimmedNonEmptyString,
+});
+export type SessionAttachInput = typeof SessionAttachInput.Type;
+
+export const SessionAttachOutput = Schema.Struct({
+  sessionId: Schema.String.check(Schema.isNonEmpty()),
+  attached: Schema.Boolean,
+});
+export type SessionAttachOutput = typeof SessionAttachOutput.Type;
+
+export const SessionDetachInput = Schema.Struct({
+  sessionId: TrimmedNonEmptyString,
+});
+export type SessionDetachInput = typeof SessionDetachInput.Type;
+
 export const MetasploitStatusSnapshot = Schema.Struct({
   connected: Schema.Boolean,
   version: Schema.NullOr(Schema.String),
@@ -170,11 +186,22 @@ export class MetasploitNotFoundError extends Schema.TaggedErrorClass<MetasploitN
     });
 }
 
+export class MetasploitListenerLookupError extends Schema.TaggedErrorClass<MetasploitListenerLookupError>()(
+  "MetasploitListenerLookupError",
+  {
+    sessionId: Schema.optional(Schema.String),
+    listenerId: Schema.optional(Schema.String),
+    message: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
 export const MetasploitError = Schema.Union([
   MetasploitConnectionError,
   MetasploitListenerError,
   MetasploitSessionError,
   MetasploitNotFoundError,
+  MetasploitListenerLookupError,
 ]);
 export type MetasploitError = typeof MetasploitError.Type;
 
@@ -218,15 +245,31 @@ const SessionOutputEvent = Schema.Struct({
 const SessionUpgradedEvent = Schema.Struct({
   ...MetasploitEventBaseSchema.fields,
   type: Schema.Literal("session.upgraded"),
+  previousSessionId: Schema.optional(Schema.NonEmptyString),
   snapshot: MsfSessionSnapshot,
+});
+
+const ListenerUpdatedEvent = Schema.Struct({
+  ...MetasploitEventBaseSchema.fields,
+  type: Schema.Literal("listener.updated"),
+  snapshot: ListenerSnapshot,
+});
+
+const ConnectionChangedEvent = Schema.Struct({
+  ...MetasploitEventBaseSchema.fields,
+  type: Schema.Literal("connection.changed"),
+  connected: Schema.Boolean,
+  version: Schema.optional(Schema.String),
 });
 
 export const MetasploitEvent = Schema.Union([
   ListenerCreatedEvent,
   ListenerStoppedEvent,
+  ListenerUpdatedEvent,
   SessionOpenedEvent,
   SessionClosedEvent,
   SessionOutputEvent,
   SessionUpgradedEvent,
+  ConnectionChangedEvent,
 ]);
 export type MetasploitEvent = typeof MetasploitEvent.Type;

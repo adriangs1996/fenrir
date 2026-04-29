@@ -109,14 +109,8 @@ import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
 import { GlobalActionsService, type GlobalActionsShape } from "./globalActions.ts";
-import {
-  MetasploitService,
-  type MetasploitServiceShape,
-} from "./metasploit/Services/MetasploitService.ts";
-import {
-  MetasploitShellAdapter,
-  type MetasploitShellAdapterShape,
-} from "./metasploit/Services/MetasploitShellAdapter.ts";
+import { MetasploitService } from "./metasploit/Services/MetasploitService.ts";
+import { MetasploitShellAdapter } from "./metasploit/Services/MetasploitShellAdapter.ts";
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner.ts";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService.ts";
 
@@ -459,6 +453,7 @@ const buildAppUnderTest = (options?: {
           sessionUpgrade: () => Effect.die(new Error("not available in test")),
           sessionClose: () => Effect.void,
           subscribe: () => Effect.succeed(() => {}),
+          emitSessionOutput: () => Effect.void,
         }),
       ),
       Layer.provide(

@@ -10,6 +10,7 @@ import { msgpackDecode } from "@fenrir/shared/msgpack";
 import {
   MetasploitConnectionError,
   MetasploitListenerError,
+  MetasploitListenerLookupError,
   MetasploitNotFoundError,
   MetasploitSessionError,
   type CreateListenerInput,
@@ -24,13 +25,13 @@ import { MetasploitService, type MetasploitServiceShape } from "../Services/Meta
 
 // ─── MSFRPC Client ──────────────────────────────────────────────────────────
 
-interface MsfrpcClient {
+export interface MsfrpcClient {
   call(method: string, params?: unknown[]): Promise<any>;
   authenticate(): Promise<void>;
   dispose(): void;
 }
 
-function createMsfrpcClient(host: string, port: number, password: string): MsfrpcClient {
+export function createMsfrpcClient(host: string, port: number, password: string): MsfrpcClient {
   let token: string | null = null;
   let disposed = false;
 
@@ -78,6 +79,53 @@ interface ListenerState {
   jobId: string | null;
 }
 
+// ─── Session ↔ Listener Matching ────────────────────────────────────────────
+
+/**
+ * Match a discovered session to a registered listener.
+ *
+ * Returns the listenerId on match, or null if no candidate qualifies.
+ * Match rules:
+ *   - listener.payload === session.via_exploit
+ *   - listener.lport === port(session.tunnel_local) (when parseable)
+ *   - listener.lhost is wildcard ("0.0.0.0" / "::" / "") OR equal to host(session.tunnel_local)
+ * Tie-break: exact host match wins over wildcard match.
+ */
+function findListenerForSession(
+  s: { via_exploit?: unknown; tunnel_local?: unknown },
+  listeners: ReadonlyMap<string, { snapshot: ListenerSnapshot; jobId: string | null }>,
+): string | null {
+  const payload = typeof s.via_exploit === "string" ? s.via_exploit : "";
+  if (!payload) return null;
+
+  const tunnel = typeof s.tunnel_local === "string" ? s.tunnel_local : "";
+  // IPv6-safe host:port split via last colon.
+  const lastColon = tunnel.lastIndexOf(":");
+  const sessionHost = lastColon > 0 ? tunnel.slice(0, lastColon) : "";
+  const sessionPortRaw = lastColon > 0 ? tunnel.slice(lastColon + 1) : "";
+  const sessionPort = sessionPortRaw === "" ? NaN : Number(sessionPortRaw);
+  const havePort = Number.isFinite(sessionPort);
+
+  const candidates: string[] = [];
+  for (const [id, state] of listeners) {
+    const L = state.snapshot;
+    if (L.payload !== payload) continue;
+    if (havePort && Number(L.lport) !== sessionPort) continue;
+
+    const wildcard = L.lhost === "0.0.0.0" || L.lhost === "::" || L.lhost === "";
+    if (!wildcard && sessionHost && L.lhost !== sessionHost) continue;
+
+    candidates.push(id);
+  }
+
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0]!;
+
+  // Multiple candidates — prefer exact host match.
+  const exact = candidates.find((id) => listeners.get(id)?.snapshot.lhost === sessionHost);
+  return exact ?? candidates[0]!;
+}
+
 // ─── Layer ──────────────────────────────────────────────────────────────────
 
 const MSFRPC_HOST = "127.0.0.1";
@@ -85,6 +133,21 @@ const MSFRPC_PORT = 55553;
 const MSFRPC_USER = "msf";
 const MSFRPC_PASSWORD = "fenrir";
 const SESSION_POLL_INTERVAL = "2 seconds";
+
+/** @internal Mutable test seam — tests override properties to inject fakes. Reset in afterEach. */
+export const __testSeams: {
+  createClient: typeof createMsfrpcClient;
+  startupDelay: Duration.Input;
+  upgradeDelay: Duration.Input;
+  sessionPollInterval: Duration.Input;
+  jobPollInterval: Duration.Input;
+} = {
+  createClient: createMsfrpcClient,
+  startupDelay: "3 seconds",
+  upgradeDelay: "5 seconds",
+  sessionPollInterval: SESSION_POLL_INTERVAL,
+  jobPollInterval: "2 seconds",
+};
 
 export const MetasploitServiceLive = Layer.effect(
   MetasploitService,
@@ -99,6 +162,22 @@ export const MetasploitServiceLive = Layer.effect(
     const knownSessions = new Map<string, MsfSessionSnapshot>();
     const eventSubscribers = new Set<(event: MetasploitEvent) => void>();
     let pollingFiber: { interrupt: () => void } | null = null;
+    let jobPollingFiber: { interrupt: () => void } | null = null;
+    /** Per-listener consecutive-miss counter for debounce. */
+    const listenerMissCount = new Map<string, number>();
+    const JOB_POLL_INTERVAL = "2 seconds";
+    const JOB_MISS_THRESHOLD = 2;
+
+    // Connection tracking state
+    let msfVersion: string | null = null;
+    let lastEmittedConnected: boolean | null = null;
+    let pollFailureCount = 0;
+    let cachedClient: MsfrpcClient | null = null;
+    let inFlightStart: Effect.Effect<
+      MsfrpcClient,
+      MetasploitNotFoundError | MetasploitConnectionError
+    > | null = null;
+    const POLL_FAILURE_THRESHOLD = 3;
 
     const emitEvent = (event: MetasploitEvent) => {
       for (const subscriber of eventSubscribers) {
@@ -110,6 +189,18 @@ export const MetasploitServiceLive = Layer.effect(
       }
     };
 
+    /** Emit `connection.changed` only on transitions. */
+    const emitConnectionChanged = (connected: boolean) => {
+      if (lastEmittedConnected === connected) return;
+      lastEmittedConnected = connected;
+      emitEvent({
+        type: "connection.changed",
+        connected,
+        version: connected ? (msfVersion ?? undefined) : undefined,
+        createdAt: new Date().toISOString(),
+      });
+    };
+
     const ensureConnected = (): MsfrpcClient => {
       if (!rpcClient) {
         throw new MetasploitConnectionError({
@@ -119,10 +210,113 @@ export const MetasploitServiceLive = Layer.effect(
       return rpcClient;
     };
 
-    /** Spawn msfrpcd + authenticate if not already running. Idempotent. */
-    const ensureStarted = Effect.gen(function* () {
-      if (rpcClient) return rpcClient;
+    /**
+     * One-shot rehydration of `listeners` and `knownSessions` from msfrpcd's
+     * live state. Best-effort: any RPC failure short-circuits silently; an
+     * empty rehydration is an acceptable initial state.
+     *
+     * Must be called with `rpcClient` set (i.e. inside `ensureStartedRaw`
+     * after authentication succeeds, before polling fibers start).
+     */
+    const hydrateState = (client: MsfrpcClient) =>
+      Effect.gen(function* () {
+        // Wipe stale in-memory state — fresh msfrpcd has fresh truth.
+        listeners.clear();
+        knownSessions.clear();
+        listenerMissCount.clear();
 
+        // ── Hydrate listeners from job.list + job.info ──────────────
+        const jobsResult = yield* Effect.tryPromise({
+          try: () => client.call("job.list"),
+          catch: () => null,
+        }).pipe(Effect.orElseSucceed(() => null));
+
+        if (jobsResult && typeof jobsResult === "object") {
+          for (const [jobIdRaw, infoRaw] of Object.entries(jobsResult as Record<string, unknown>)) {
+            const jobId = String(jobIdRaw);
+            const infoString = typeof infoRaw === "string" ? infoRaw : "";
+            if (!infoString.includes("multi/handler")) continue;
+
+            // Per-job structured info call.
+            const detail = yield* Effect.tryPromise({
+              try: () => client.call("job.info", [jobId]),
+              catch: () => null,
+            }).pipe(Effect.orElseSucceed(() => null));
+
+            if (!detail || typeof detail !== "object") continue;
+
+            const datastore = (detail as { datastore?: Record<string, unknown> }).datastore ?? {};
+            const payload = String(datastore.PAYLOAD ?? "");
+            const lhost = String(datastore.LHOST ?? "0.0.0.0");
+            const lportRaw = datastore.LPORT;
+            const lport =
+              typeof lportRaw === "number"
+                ? lportRaw
+                : typeof lportRaw === "string"
+                  ? Number.parseInt(lportRaw, 10)
+                  : NaN;
+
+            if (!payload || !Number.isFinite(lport)) continue;
+
+            const listenerId = crypto.randomUUID();
+            const snapshot: ListenerSnapshot = {
+              listenerId,
+              name: `hydrated:${payload}@${lhost}:${lport}`,
+              payload: payload as ListenerSnapshot["payload"],
+              lhost,
+              lport,
+              status: "active", // job exists, so active by definition
+              jobId,
+              createdAt: new Date().toISOString(),
+            };
+
+            listeners.set(listenerId, { snapshot, jobId });
+            emitEvent({
+              type: "listener.created",
+              snapshot,
+              createdAt: new Date().toISOString(),
+            });
+          }
+        }
+
+        // ── Hydrate sessions from session.list ──────────────────────
+        const sessionsResult = yield* Effect.tryPromise({
+          try: () => client.call("session.list"),
+          catch: () => null,
+        }).pipe(Effect.orElseSucceed(() => null));
+
+        if (sessionsResult && typeof sessionsResult === "object") {
+          for (const [sessionId, sessionData] of Object.entries(
+            sessionsResult as Record<string, any>,
+          )) {
+            const matchedListenerId = findListenerForSession(
+              sessionData as { via_exploit?: unknown; tunnel_local?: unknown },
+              listeners,
+            );
+
+            const snapshot: MsfSessionSnapshot = {
+              sessionId,
+              type: (sessionData as any).type === "meterpreter" ? "meterpreter" : "shell",
+              info: String((sessionData as any).info ?? ""),
+              targetHost: String((sessionData as any).session_host ?? "unknown"),
+              platform: String((sessionData as any).platform ?? "unknown"),
+              via: String((sessionData as any).via_exploit ?? ""),
+              listenerId: matchedListenerId,
+              openedAt: new Date().toISOString(),
+            };
+
+            knownSessions.set(sessionId, snapshot);
+            emitEvent({
+              type: "session.opened",
+              snapshot,
+              createdAt: new Date().toISOString(),
+            });
+          }
+        }
+      });
+
+    /** Raw start: spawn msfrpcd, authenticate, fetch version. NOT cached. */
+    const ensureStartedRaw = Effect.gen(function* () {
       // Spawn msfrpcd
       const proc = yield* ptyAdapter
         .spawn({
@@ -147,9 +341,24 @@ export const MetasploitServiceLive = Layer.effect(
 
       msfrpcdProcess = proc;
 
-      yield* Effect.sleep("3 seconds");
+      // Hook process exit → mark disconnected.
+      proc.onExit(() => {
+        rpcClient?.dispose();
+        rpcClient = null;
+        cachedClient = null;
+        msfrpcdProcess = null;
+        msfVersion = null;
+        stopJobPolling();
+        stopSessionPolling();
+        emitConnectionChanged(false);
+        // Clear in-memory listener/session maps — fresh msfrpcd will have fresh state.
+        listeners.clear();
+        knownSessions.clear();
+      });
 
-      const client = createMsfrpcClient(MSFRPC_HOST, MSFRPC_PORT, MSFRPC_PASSWORD);
+      yield* Effect.sleep(__testSeams.startupDelay);
+
+      const client = __testSeams.createClient(MSFRPC_HOST, MSFRPC_PORT, MSFRPC_PASSWORD);
 
       yield* Effect.retry(
         Effect.tryPromise({
@@ -163,9 +372,57 @@ export const MetasploitServiceLive = Layer.effect(
         Schedule.recurs(5).pipe(Schedule.addDelay(() => Effect.succeed(Duration.seconds(2)))),
       );
 
+      // Best-effort: fetch core.version.
+      const versionResult = yield* Effect.tryPromise({
+        try: () => client.call("core.version"),
+        catch: () => null,
+      }).pipe(Effect.orElseSucceed(() => null));
+      if (versionResult && typeof versionResult === "object") {
+        msfVersion = String((versionResult as { version?: unknown }).version ?? "unknown");
+      }
+
       rpcClient = client;
+      cachedClient = client;
+      pollFailureCount = 0;
+
+      // Hydrate from msfrpcd live state (best-effort).
+      yield* hydrateState(client).pipe(Effect.orElseSucceed(() => undefined));
+
       startSessionPolling();
+      startJobPolling();
+      emitConnectionChanged(true);
       return client;
+    });
+
+    /**
+     * Single-flight wrapper: concurrent callers share one in-flight Effect.
+     * Caches success forever (until disconnect invalidates `cachedClient`).
+     * On failure, cached entry cleared so next caller retries.
+     */
+    const ensureStarted = Effect.suspend(() => {
+      if (cachedClient) return Effect.succeed(cachedClient);
+      if (inFlightStart) return inFlightStart;
+      const flight = ensureStartedRaw.pipe(
+        Effect.tap((client) =>
+          Effect.sync(() => {
+            cachedClient = client;
+          }),
+        ),
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            cachedClient = null;
+            inFlightStart = null;
+            emitConnectionChanged(false);
+          }),
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            inFlightStart = null;
+          }),
+        ),
+      );
+      inFlightStart = flight;
+      return flight;
     });
 
     const startSessionPolling = () => {
@@ -178,7 +435,23 @@ export const MetasploitServiceLive = Layer.effect(
           catch: () => null,
         });
 
-        if (result == null) return; // Polling failure — retry next interval
+        if (result == null) {
+          pollFailureCount += 1;
+          if (pollFailureCount >= POLL_FAILURE_THRESHOLD) {
+            // Sustained RPC failure → declare disconnected.
+            rpcClient?.dispose();
+            rpcClient = null;
+            cachedClient = null;
+            msfVersion = null;
+            emitConnectionChanged(false);
+            stopJobPolling();
+            stopSessionPolling();
+            listeners.clear();
+            knownSessions.clear();
+          }
+          return;
+        }
+        pollFailureCount = 0; // reset on success
 
         const currentSessionIds = new Set<string>();
 
@@ -186,6 +459,19 @@ export const MetasploitServiceLive = Layer.effect(
           for (const [sessionId, sessionData] of Object.entries(result as Record<string, any>)) {
             currentSessionIds.add(sessionId);
             if (!knownSessions.has(sessionId)) {
+              const matchedListenerId = findListenerForSession(
+                sessionData as { via_exploit?: unknown; tunnel_local?: unknown },
+                listeners,
+              );
+
+              if (matchedListenerId === null) {
+                yield* Effect.logInfo(
+                  `[metasploit] orphan session ${sessionId} (via=${String(
+                    (sessionData as any).via_exploit ?? "?",
+                  )}, tunnel_local=${String((sessionData as any).tunnel_local ?? "?")})`,
+                );
+              }
+
               const snapshot: MsfSessionSnapshot = {
                 sessionId,
                 type: (sessionData as any).type === "meterpreter" ? "meterpreter" : "shell",
@@ -193,7 +479,7 @@ export const MetasploitServiceLive = Layer.effect(
                 targetHost: String((sessionData as any).session_host ?? "unknown"),
                 platform: String((sessionData as any).platform ?? "unknown"),
                 via: String((sessionData as any).via_exploit ?? ""),
-                listenerId: null,
+                listenerId: matchedListenerId,
                 openedAt: new Date().toISOString(),
               };
               knownSessions.set(sessionId, snapshot);
@@ -219,7 +505,7 @@ export const MetasploitServiceLive = Layer.effect(
         }
       }).pipe(Effect.orElseSucceed(() => undefined));
 
-      const pollingSchedule = Schedule.spaced(SESSION_POLL_INTERVAL);
+      const pollingSchedule = Schedule.spaced(__testSeams.sessionPollInterval);
       const fiber = runFork(pollEffect.pipe(Effect.repeat(pollingSchedule)));
       pollingFiber = {
         interrupt: () => runFork(Fiber.interrupt(fiber)),
@@ -231,6 +517,80 @@ export const MetasploitServiceLive = Layer.effect(
         pollingFiber.interrupt();
         pollingFiber = null;
       }
+    };
+
+    const startJobPolling = () => {
+      if (jobPollingFiber) return;
+
+      const pollEffect = Effect.gen(function* () {
+        const client = ensureConnected();
+        const result = yield* Effect.tryPromise({
+          try: () => client.call("job.list"),
+          catch: () => null,
+        });
+
+        if (result == null) return; // RPC failure — session poll handles disconnect.
+        if (typeof result !== "object") return;
+
+        // job.list returns: { "<jobId>": "<info string>", ... }
+        const activeJobIds = new Set<string>(Object.keys(result as Record<string, unknown>));
+
+        for (const [listenerId, state] of listeners) {
+          if (!state.jobId) continue;
+
+          const isActive = activeJobIds.has(state.jobId);
+          const prevStatus = state.snapshot.status;
+          let nextStatus: typeof prevStatus = prevStatus;
+
+          if (isActive) {
+            listenerMissCount.delete(listenerId);
+            if (prevStatus === "waiting" || prevStatus === "stopped") {
+              nextStatus = "active";
+            }
+          } else {
+            // Job missing — debounce.
+            if (prevStatus === "active") {
+              const misses = (listenerMissCount.get(listenerId) ?? 0) + 1;
+              if (misses >= JOB_MISS_THRESHOLD) {
+                nextStatus = "stopped";
+                listenerMissCount.delete(listenerId);
+              } else {
+                listenerMissCount.set(listenerId, misses);
+              }
+            }
+            // prevStatus === "waiting" with job missing: leave as waiting.
+            // Don't auto-flip to stopped — the job may not be registered yet.
+          }
+
+          if (nextStatus !== prevStatus) {
+            const updatedSnapshot: ListenerSnapshot = {
+              ...state.snapshot,
+              status: nextStatus,
+            };
+            listeners.set(listenerId, { ...state, snapshot: updatedSnapshot });
+            emitEvent({
+              type: "listener.updated",
+              snapshot: updatedSnapshot,
+              createdAt: new Date().toISOString(),
+            });
+          }
+        }
+      }).pipe(Effect.orElseSucceed(() => undefined));
+
+      const fiber = runFork(
+        pollEffect.pipe(Effect.repeat(Schedule.spaced(__testSeams.jobPollInterval))),
+      );
+      jobPollingFiber = {
+        interrupt: () => runFork(Fiber.interrupt(fiber)),
+      };
+    };
+
+    const stopJobPolling = () => {
+      if (jobPollingFiber) {
+        jobPollingFiber.interrupt();
+        jobPollingFiber = null;
+      }
+      listenerMissCount.clear();
     };
 
     return {
@@ -259,6 +619,7 @@ export const MetasploitServiceLive = Layer.effect(
 
       stop: () =>
         Effect.sync(() => {
+          stopJobPolling();
           stopSessionPolling();
 
           if (rpcClient) {
@@ -279,24 +640,28 @@ export const MetasploitServiceLive = Layer.effect(
 
           listeners.clear();
           knownSessions.clear();
+
+          msfVersion = null;
+          cachedClient = null;
+          inFlightStart = null;
+          lastEmittedConnected = null;
+          pollFailureCount = 0;
+          emitConnectionChanged(false);
         }),
 
       status: () =>
-        Effect.try({
-          try: () => {
-            const snapshot: MetasploitStatusSnapshot = {
-              connected: rpcClient !== null,
-              version: null,
-              listenersCount: listeners.size,
-              sessionsCount: knownSessions.size,
-            };
-            return snapshot;
-          },
-          catch: (error) =>
-            new MetasploitConnectionError({
-              message: `Failed to get status: ${error instanceof Error ? error.message : String(error)}`,
-              cause: error,
-            }),
+        Effect.gen(function* () {
+          // Auto-start: best-effort, swallow not-found / connection errors so status
+          // can be queried even when msfrpcd is unavailable (UI shows "Disconnected").
+          yield* ensureStarted.pipe(Effect.orElseSucceed(() => null));
+
+          const snapshot: MetasploitStatusSnapshot = {
+            connected: rpcClient !== null,
+            version: msfVersion,
+            listenersCount: listeners.size,
+            sessionsCount: knownSessions.size,
+          };
+          return snapshot;
         }),
 
       createListener: (input: CreateListenerInput) =>
@@ -463,16 +828,47 @@ export const MetasploitServiceLive = Layer.effect(
           }
 
           if (session.type === "meterpreter") {
-            return session; // Already upgraded
+            return session; // Already upgraded.
           }
 
+          // ── Listener lookup — strict (Q5/Q5b) ────────────────────────
+          if (!session.listenerId) {
+            // Orphan session — can't upgrade. Drop it from UI so the user
+            // gets clear feedback (button disappears with the session).
+            knownSessions.delete(sessionId);
+            emitEvent({
+              type: "session.closed",
+              sessionId,
+              createdAt: new Date().toISOString(),
+            });
+            return yield* new MetasploitListenerLookupError({
+              sessionId,
+              message: `Session ${sessionId} has no associated listener; cannot upgrade orphan session.`,
+            });
+          }
+
+          const listenerState = listeners.get(session.listenerId);
+          if (!listenerState) {
+            // listenerId set but listener removed (e.g. stopped). Drop session same as orphan.
+            knownSessions.delete(sessionId);
+            emitEvent({
+              type: "session.closed",
+              sessionId,
+              createdAt: new Date().toISOString(),
+            });
+            return yield* new MetasploitListenerLookupError({
+              sessionId,
+              listenerId: session.listenerId,
+              message: `Listener ${session.listenerId} for session ${sessionId} not found.`,
+            });
+          }
+
+          const lhost = listenerState.snapshot.lhost;
+          const lport = String(listenerState.snapshot.lport);
+
+          // ── Trigger upgrade ──────────────────────────────────────────
           yield* Effect.tryPromise({
-            try: () =>
-              client.call("session.shell_upgrade", [
-                sessionId,
-                MSFRPC_HOST,
-                "0", // Let Metasploit pick a port
-              ]),
+            try: () => client.call("session.shell_upgrade", [sessionId, lhost, lport]),
             catch: (error) =>
               new MetasploitSessionError({
                 sessionId,
@@ -481,10 +877,10 @@ export const MetasploitServiceLive = Layer.effect(
               }),
           });
 
-          // Wait for upgrade to complete
-          yield* Effect.sleep("5 seconds");
+          // ── Wait for upgrade to complete ─────────────────────────────
+          yield* Effect.sleep(__testSeams.upgradeDelay);
 
-          // Re-fetch session info
+          // ── Verify by re-listing sessions ────────────────────────────
           const result = yield* Effect.tryPromise({
             try: () => client.call("session.list"),
             catch: (error) =>
@@ -495,10 +891,10 @@ export const MetasploitServiceLive = Layer.effect(
               }),
           });
 
-          // Find the new meterpreter session
-          const sessions = result as Record<string, any> | null;
-          if (sessions) {
-            for (const [id, data] of Object.entries(sessions)) {
+          // Find the new meterpreter session.
+          const sessionsMap = result as Record<string, any> | null;
+          if (sessionsMap) {
+            for (const [id, data] of Object.entries(sessionsMap)) {
               if (
                 (data as any).type === "meterpreter" &&
                 (data as any).session_host === session.targetHost
@@ -515,13 +911,20 @@ export const MetasploitServiceLive = Layer.effect(
                 };
                 knownSessions.set(id, upgraded);
 
-                // Remove old shell session if different ID
+                // Emit session.closed for the OLD id BEFORE session.upgraded.
+                // Backstop: store also handles previousSessionId on the upgraded event.
                 if (id !== sessionId) {
                   knownSessions.delete(sessionId);
+                  emitEvent({
+                    type: "session.closed",
+                    sessionId,
+                    createdAt: new Date().toISOString(),
+                  });
                 }
 
                 emitEvent({
                   type: "session.upgraded",
+                  previousSessionId: id !== sessionId ? sessionId : undefined,
                   snapshot: upgraded,
                   createdAt: new Date().toISOString(),
                 });
@@ -566,12 +969,42 @@ export const MetasploitServiceLive = Layer.effect(
         }),
 
       subscribe: (listener: (event: MetasploitEvent) => void) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
+          // Auto-start (best-effort) so subscribers see live data even on first connect.
+          yield* ensureStarted.pipe(Effect.orElseSucceed(() => null));
+
           eventSubscribers.add(listener);
+
+          // Seed: deliver current connection state to new subscriber as one-shot.
+          // Bypasses transitions-only filter for this subscriber only.
+          try {
+            listener({
+              type: "connection.changed",
+              connected: rpcClient !== null,
+              version: msfVersion ?? undefined,
+              createdAt: new Date().toISOString(),
+            });
+          } catch {
+            // Ignore subscriber errors during seed.
+          }
+
           return () => {
             eventSubscribers.delete(listener);
           };
         }),
+
+      emitSessionOutput: (sessionId, data) =>
+        Effect.sync(() => {
+          emitEvent({
+            type: "session.output",
+            sessionId,
+            data,
+            createdAt: new Date().toISOString(),
+          });
+        }),
     } satisfies MetasploitServiceShape;
   }),
 );
+
+// Test-only export.
+export { findListenerForSession as __findListenerForSessionForTests };

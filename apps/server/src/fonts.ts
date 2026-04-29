@@ -122,7 +122,7 @@ export function parseFcListOutput(output: string): SystemFont[] {
     familyMap.set(family, { family, category });
   }
 
-  return Array.from(familyMap.values()).sort((a, b) => a.family.localeCompare(b.family));
+  return Array.from(familyMap.values()).toSorted((a, b) => a.family.localeCompare(b.family));
 }
 
 function parsePowerShellOutput(output: string): SystemFont[] {
@@ -135,7 +135,7 @@ function parsePowerShellOutput(output: string): SystemFont[] {
     familyMap.set(family, { family, category: classifyFontByName(family) });
   }
 
-  return Array.from(familyMap.values()).sort((a, b) => a.family.localeCompare(b.family));
+  return Array.from(familyMap.values()).toSorted((a, b) => a.family.localeCompare(b.family));
 }
 
 async function discoverFonts(): Promise<SystemFont[]> {
@@ -165,7 +165,9 @@ async function discoverFonts(): Promise<SystemFont[]> {
               category: classifyFontByName(family),
             });
           }
-          return Array.from(familyMap.values()).sort((a, b) => a.family.localeCompare(b.family));
+          return Array.from(familyMap.values()).toSorted((a, b) =>
+            a.family.localeCompare(b.family),
+          );
         }
         return [];
       }

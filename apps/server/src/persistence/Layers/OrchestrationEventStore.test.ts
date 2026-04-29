@@ -37,6 +37,7 @@ layer("OrchestrationEventStore", (it) => {
           workspaceRoot: "/tmp/project-roundtrip",
           defaultModelSelection: null,
           scripts: [],
+          globalScriptDefaults: [],
           createdAt: now,
           updatedAt: now,
         },

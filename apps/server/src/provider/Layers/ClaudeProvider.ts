@@ -631,11 +631,26 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 
   const parsed = parseClaudeAuthStatusFromOutput(authProbe.success.value);
   const authMetadata = claudeAuthMetadata({ subscriptionType, authMethod });
+
+  // Filter models based on the detected Claude Code version.
+  const versionFilteredModels = providerModelsFromSettings(
+    getBuiltInClaudeModelsForVersion(parsedVersion),
+    PROVIDER,
+    claudeSettings.customModels,
+    DEFAULT_CLAUDE_MODEL_CAPABILITIES,
+  );
+  const opus47Hidden = !supportsClaudeOpus47(parsedVersion);
+  const upgradeMessage =
+    opus47Hidden && parsedVersion ? formatClaudeOpus47UpgradeMessage(parsedVersion) : undefined;
+  // Prefer the upgrade message when auth is fine but Opus 4.7 is unavailable,
+  // otherwise keep the auth-level message.
+  const resolvedMessage = parsed.message ?? upgradeMessage;
+
   return buildServerProvider({
     provider: PROVIDER,
     enabled: claudeSettings.enabled,
     checkedAt,
-    models: allModels,
+    models: versionFilteredModels,
     probe: {
       installed: true,
       version: parsedVersion,
@@ -644,7 +659,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         ...parsed.auth,
         ...(authMetadata ? authMetadata : {}),
       },
-      ...(parsed.message ? { message: parsed.message } : {}),
+      ...(resolvedMessage ? { message: resolvedMessage } : {}),
     },
   });
 });

@@ -1,10 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { buildTerminalFontFamily } from "@fenrir/contracts";
 import { useMetasploitSessionTerminalStore } from "../../metasploitSessionTerminalStore";
 import { useSettings } from "../../hooks/useSettings";
+import { getPrimaryEnvironmentConnection } from "../../environments/runtime";
 
 interface TargetShellTabProps {
   sessionId: string;
@@ -15,6 +16,7 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const serializeAddonRef = useRef<SerializeAddon | null>(null);
+  const rpcClient = useMemo(() => getPrimaryEnvironmentConnection().client, []);
   const { terminalFontFamily, terminalFontSize, terminalLineHeight } = useSettings((s) => ({
     terminalFontFamily: s.terminalFontFamily,
     terminalFontSize: s.terminalFontSize,
@@ -66,10 +68,18 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
     fitAddonRef.current = fitAddon;
     serializeAddonRef.current = serializeAddon;
 
-    // Handle user input -- send to session via RPC
-    const inputDisposable = terminal.onData((_data) => {
-      // Will be wired to environmentApi.metasploit.sessionWrite
-      // once the RPC bridge for hack sessions is connected.
+    // Handle user input — forward keystrokes to MSF session.
+    const inputDisposable = terminal.onData((data) => {
+      void rpcClient.metasploit.sessionWrite({ sessionId, data }).catch((err) => {
+        console.warn(`[shell] sessionWrite failed for ${sessionId}:`, err);
+      });
+    });
+
+    // Forward terminal size changes to MSF.
+    const resizeDisposable = terminal.onResize(({ cols, rows }) => {
+      void rpcClient.metasploit.sessionResize({ sessionId, cols, rows }).catch((err) => {
+        console.warn(`[shell] sessionResize failed for ${sessionId}:`, err);
+      });
     });
 
     // Resize observer
@@ -101,6 +111,7 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
 
     return () => {
       inputDisposable.dispose();
+      resizeDisposable.dispose();
       themeObserver.disconnect();
       resizeObserver.disconnect();
       terminal.dispose();
@@ -108,7 +119,20 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
       fitAddonRef.current = null;
       serializeAddonRef.current = null;
     };
-  }, [sessionId]);
+  }, [rpcClient, sessionId]);
+
+  // Attach to MSF session on mount; detach on unmount or sessionId change.
+  useEffect(() => {
+    rpcClient.metasploit.sessionAttach({ sessionId }).catch((err) => {
+      console.warn(`[shell] sessionAttach failed for ${sessionId}:`, err);
+    });
+
+    return () => {
+      rpcClient.metasploit.sessionDetach({ sessionId }).catch(() => {
+        // Detach errors are non-fatal; session may already be gone.
+      });
+    };
+  }, [rpcClient, sessionId]);
 
   // Subscribe to session output from the terminal store
   useEffect(() => {

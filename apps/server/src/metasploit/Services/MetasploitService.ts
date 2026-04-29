@@ -13,6 +13,7 @@ import type {
   MetasploitConnectionError,
   MetasploitEvent,
   MetasploitListenerError,
+  MetasploitListenerLookupError,
   MetasploitNotFoundError,
   MetasploitSessionError,
   MetasploitStatusSnapshot,
@@ -61,13 +62,21 @@ export interface MetasploitServiceShape {
   /** Upgrade a raw shell session to Meterpreter */
   readonly sessionUpgrade: (
     sessionId: string,
-  ) => Effect.Effect<MsfSessionSnapshot, MetasploitSessionError>;
+  ) => Effect.Effect<MsfSessionSnapshot, MetasploitSessionError | MetasploitListenerLookupError>;
 
   /** Close/kill a session */
   readonly sessionClose: (sessionId: string) => Effect.Effect<void, MetasploitSessionError>;
 
   /** Subscribe to metasploit events (listeners, sessions) */
   readonly subscribe: (listener: (event: MetasploitEvent) => void) => Effect.Effect<() => void>;
+
+  /**
+   * @internal
+   * Emit a `session.output` event on the internal PubSub.
+   * Called only by the ws layer to bridge `MetasploitShellAdapter.onData`
+   * callbacks into the event stream that web clients subscribe to.
+   */
+  readonly emitSessionOutput: (sessionId: string, data: string) => Effect.Effect<void>;
 }
 
 export class MetasploitService extends ServiceMap.Service<

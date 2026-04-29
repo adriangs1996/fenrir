@@ -163,7 +163,7 @@ function computeLayout(plans: readonly DagPlan[]) {
     columnBuckets.set(col, bucket);
   }
 
-  const sortedColKeys = [...columnBuckets.keys()].sort((a, b) => a - b);
+  const sortedColKeys = [...columnBuckets.keys()].toSorted((a, b) => a - b);
 
   // 4. Multi-pass bidirectional barycenter to minimize edge crossings.
   const nodeRow = new Map<string, number>();

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useMetasploitStore } from "../../metasploitStore";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -7,6 +7,7 @@ import { TargetFilesTab } from "./TargetFilesTab";
 import { TargetProcessesTab } from "./TargetProcessesTab";
 import { TargetNetworkTab } from "./TargetNetworkTab";
 import { TargetAgentInput } from "./TargetAgentInput";
+import { getPrimaryEnvironmentConnection } from "../../environments/runtime";
 
 type Tab = "shell" | "files" | "processes" | "network";
 
@@ -17,6 +18,24 @@ interface TargetWorkspaceProps {
 export function TargetWorkspace({ sessionId }: TargetWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<Tab>("shell");
   const session = useMetasploitStore((s) => s.sessions[sessionId]);
+  const rpcClient = useMemo(() => getPrimaryEnvironmentConnection().client, []);
+  const [upgrading, setUpgrading] = useState(false);
+
+  const canUpgrade = session?.type === "shell" && session?.listenerId != null;
+
+  const handleUpgrade = useCallback(async () => {
+    if (!canUpgrade) return;
+    setUpgrading(true);
+    try {
+      await rpcClient.metasploit.sessionUpgrade({ sessionId });
+      // Success: store updates via session.closed + session.upgraded events.
+      // Component will re-render with new sessionId or unmount if active changed.
+      // Don't reset `upgrading` on success — re-mount handles it.
+    } catch (err) {
+      console.warn(`[upgrade] failed for ${sessionId}:`, err);
+      setUpgrading(false);
+    }
+  }, [rpcClient, sessionId, canUpgrade]);
 
   if (!session) {
     return (
@@ -40,8 +59,16 @@ export function TargetWorkspace({ sessionId }: TargetWorkspaceProps) {
           </span>
         </div>
         {!isMeterpreter && (
-          <Button variant="outline" size="sm">
-            Upgrade to Meterpreter
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleUpgrade}
+            disabled={upgrading || !canUpgrade}
+            title={
+              !canUpgrade ? "Cannot upgrade: orphan session has no associated listener." : undefined
+            }
+          >
+            {upgrading ? "Upgrading…" : "Upgrade to Meterpreter"}
           </Button>
         )}
       </div>

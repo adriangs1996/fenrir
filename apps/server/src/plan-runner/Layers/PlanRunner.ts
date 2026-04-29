@@ -641,7 +641,7 @@ export const PlanRunnerLive = Layer.effect(
         const thread = readModel.threads.find((t) => t.id === threadId);
         if (!thread) return null;
 
-        const messages = [...thread.messages].reverse();
+        const messages = [...thread.messages].toReversed();
         const assistantMsg = messages.find((m) => m.role === "assistant");
         if (!assistantMsg) return null;
 
@@ -934,7 +934,7 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
 
         // Phase 1: Read plan files
         const entries = yield* fs.readDirectory(plansDir);
-        const mdFiles = entries.filter((f) => f.endsWith(".md")).sort();
+        const mdFiles = entries.filter((f) => f.endsWith(".md")).toSorted();
 
         if (mdFiles.length === 0) {
           run.state = "failed";

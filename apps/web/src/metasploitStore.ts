@@ -60,6 +60,13 @@ export const useMetasploitStore = create<MetasploitState>((set) => ({
           const { [event.listenerId]: _, ...rest } = state.listeners;
           return { listeners: rest };
         }
+        case "listener.updated":
+          return {
+            listeners: {
+              ...state.listeners,
+              [event.snapshot.listenerId]: event.snapshot,
+            },
+          };
         case "session.opened":
           return {
             sessions: {
@@ -77,13 +84,29 @@ export const useMetasploitStore = create<MetasploitState>((set) => ({
         }
         case "session.output":
           return state; // Output handled by terminal store
-        case "session.upgraded":
+        case "connection.changed":
+          return { connected: event.connected };
+        case "session.upgraded": {
+          const newSnapshot = event.snapshot;
+          // Defensive backstop: server emits session.closed for the old id, but if
+          // we somehow miss that event, drop it here when the upgraded id differs.
+          const remaining =
+            event.previousSessionId && event.previousSessionId !== newSnapshot.sessionId
+              ? Object.fromEntries(
+                  Object.entries(state.sessions).filter(([id]) => id !== event.previousSessionId),
+                )
+              : state.sessions;
           return {
             sessions: {
-              ...state.sessions,
-              [event.snapshot.sessionId]: event.snapshot,
+              ...remaining,
+              [newSnapshot.sessionId]: newSnapshot,
             },
+            activeSessionId:
+              event.previousSessionId && state.activeSessionId === event.previousSessionId
+                ? newSnapshot.sessionId
+                : state.activeSessionId,
           };
+        }
         default:
           return state;
       }
