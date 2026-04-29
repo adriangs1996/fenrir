@@ -6,6 +6,9 @@ import type {
   TrafficLensIngestPayload,
   TrafficLensNotFoundError,
   TrafficLensEvent,
+  TrafficLensReplayInput,
+  TrafficLensReplayResponse,
+  TrafficLensError,
 } from "@fenrir/contracts";
 
 export interface TrafficLensServiceShape {
@@ -18,6 +21,9 @@ export interface TrafficLensServiceShape {
   ) => Effect.Effect<TrafficLensDetail, TrafficLensNotFoundError>;
   readonly clearTraffic: (tabId?: string) => Effect.Effect<void>;
   readonly subscribe: (listener: (event: TrafficLensEvent) => void) => Effect.Effect<() => void>;
+  readonly replayRequest: (
+    input: TrafficLensReplayInput,
+  ) => Effect.Effect<TrafficLensReplayResponse, TrafficLensError>;
 }
 
 export class TrafficLensService extends ServiceMap.Service<

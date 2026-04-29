@@ -158,6 +158,26 @@ export const TrafficLensIngestPayload = Schema.Struct({
 });
 export type TrafficLensIngestPayload = typeof TrafficLensIngestPayload.Type;
 
+// ─── Replay Schemas ───────────────────────────────────────────────────────
+
+export const TrafficLensReplayInput = Schema.Struct({
+  trafficId: Schema.optional(Schema.Number),
+  method: Schema.String,
+  url: Schema.String,
+  headers: Schema.Record(Schema.String, Schema.String),
+  body: Schema.optional(Schema.NullOr(Schema.String)), // base64
+});
+export type TrafficLensReplayInput = typeof TrafficLensReplayInput.Type;
+
+export const TrafficLensReplayResponse = Schema.Struct({
+  statusCode: Schema.Number,
+  statusText: Schema.String,
+  headers: Schema.Record(Schema.String, Schema.String),
+  body: Schema.NullOr(Schema.String), // base64
+  timing: Schema.Number, // ms
+});
+export type TrafficLensReplayResponse = typeof TrafficLensReplayResponse.Type;
+
 // ─── Traffic Events ────────────────────────────────────────────────────────
 
 export const TrafficLensCapturedEvent = Schema.Struct({

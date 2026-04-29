@@ -8,17 +8,25 @@
 
 #### `useTrafficLensStore` (Zustand)
 
-| Selector/Action  | Input                    | Output                                   | Description                              |
-| ---------------- | ------------------------ | ---------------------------------------- | ---------------------------------------- |
-| `tabs`           | —                        | `Record<string, TrafficLensTabSnapshot>` | All open tab snapshots                   |
-| `activeTabId`    | —                        | `string \| null`                         | Currently selected tab                   |
-| `trafficEntries` | —                        | `TrafficLensEntry[]`                     | Captured traffic (newest first)          |
-| `upsertTab`      | `TrafficLensTabSnapshot` | `void`                                   | Add or update tab snapshot               |
-| `removeTab`      | `tabId: string`          | `void`                                   | Remove tab, clear activeTabId if matches |
-| `setActiveTab`   | `tabId: string \| null`  | `void`                                   | Switch active tab                        |
-| `applyEvent`     | `TrafficLensTabEvent`    | `void`                                   | Apply tab lifecycle event to state       |
-| `appendTraffic`  | `TrafficLensEntry`       | `void`                                   | Upsert traffic entry by requestId        |
-| `clearTraffic`   | —                        | `void`                                   | Wipe all traffic entries                 |
+| Selector/Action      | Input                                    | Output                                   | Description                                 |
+| -------------------- | ---------------------------------------- | ---------------------------------------- | ------------------------------------------- |
+| `tabs`               | —                                        | `Record<string, TrafficLensTabSnapshot>` | All open tab snapshots                      |
+| `activeTabId`        | —                                        | `string \| null`                         | Currently selected tab                      |
+| `trafficEntries`     | —                                        | `TrafficLensEntry[]`                     | Captured traffic (newest first)             |
+| `selectedTrafficId`  | —                                        | `number \| null`                         | Selected traffic row id (drives Inspector)  |
+| `repeaterDetail`     | —                                        | `TrafficLensDetail \| null`              | Active Repeater seed detail                 |
+| `showRepeater`       | —                                        | `boolean`                                | Whether the Repeater is visible             |
+| `bottomTab`          | —                                        | `"traffic" \| "inspector" \| "repeater"` | Active bottom-panel tab                     |
+| `upsertTab`          | `TrafficLensTabSnapshot`                 | `void`                                   | Add or update tab snapshot                  |
+| `removeTab`          | `tabId: string`                          | `void`                                   | Remove tab, clear activeTabId if matches    |
+| `setActiveTab`       | `tabId: string \| null`                  | `void`                                   | Switch active tab                           |
+| `applyEvent`         | `TrafficLensTabEvent`                    | `void`                                   | Apply tab lifecycle event to state          |
+| `appendTraffic`      | `TrafficLensEntry`                       | `void`                                   | Upsert traffic entry by requestId           |
+| `clearTraffic`       | —                                        | `void`                                   | Wipe all traffic entries                    |
+| `setSelectedTraffic` | `id: number \| null`                     | `void`                                   | Select traffic row, switch to Inspector tab |
+| `openRepeater`       | `TrafficLensDetail`                      | `void`                                   | Seed Repeater + switch to Repeater tab      |
+| `closeRepeater`      | —                                        | `void`                                   | Clear Repeater + return to Traffic tab      |
+| `setBottomTab`       | `"traffic" \| "inspector" \| "repeater"` | `void`                                   | Switch bottom-panel tab                     |
 
 ### Hooks
 
@@ -60,6 +68,18 @@ Wrapper div that hosts the Electron `WebContentsView` overlay. Uses `useTrafficL
 
 Virtual-scrolled table of captured HTTP traffic. Color-coded methods and status codes. Clear button.
 
+#### `TrafficLensInspector`
+
+Request/response detail viewer for a single traffic entry. Tabs for Request and Response, headers table, and embedded `BodyViewer`. Fetches detail via `client.trafficLens.getTrafficDetail`. "Send to Repeater" hands the detail off to `openRepeater`.
+
+#### `TrafficLensRepeater`
+
+Editable request + replay panel. Method dropdown, URL input, headers textarea (`key: value` per line), body textarea (encoded as base64 on send). Sends via `client.trafficLens.replayRequest` and renders the response (status, headers, body) using `BodyViewer`.
+
+#### `BodyViewer` (internal)
+
+Multi-format display for base64 bodies. Modes: `auto`, `text`, `json` (pretty-printed), `hex` (offset + bytes + ASCII), `image` (data URL). Auto-detects from content-type and body prefix. Used by `TrafficLensInspector` and `TrafficLensRepeater`. Not exported from the barrel.
+
 ## Dependencies
 
 ### Services Consumed
@@ -71,7 +91,7 @@ Virtual-scrolled table of captured HTTP traffic. Color-coded methods and status 
 
 ### Packages
 
-- `@fenrir/contracts` — `TrafficLensTabSnapshot`, `TrafficLensTabEvent`, `TrafficLensEntry`
+- `@fenrir/contracts` — `TrafficLensTabSnapshot`, `TrafficLensTabEvent`, `TrafficLensEntry`, `TrafficLensDetail`, `TrafficLensReplayResponse`
 - `zustand` — State management
 - `react` — Components + hooks
 
@@ -82,6 +102,8 @@ Virtual-scrolled table of captured HTTP traffic. Color-coded methods and status 
 | IPC call fails         | desktopBridge | Silently ignore (desktop may not be running) |
 | WS subscription drops  | rpcClient     | Auto-reconnect handled by transport layer    |
 | Tab not found in store | applyEvent    | No-op (stale event, tab already removed)     |
+| Detail fetch fails     | Inspector     | Renders "Not found" / error message          |
+| Replay request fails   | Repeater      | Renders error banner above response area     |
 
 ## Filesystem Layout
 
@@ -102,15 +124,20 @@ apps/web/src/modules/traffic-lens/
     TrafficLensSidebarSection.tsx
     TrafficLensViewContainer.tsx
     TrafficLensTable.tsx
-  __tests__/
+    TrafficLensInspector.tsx            # Phase 3
+    TrafficLensRepeater.tsx             # Phase 3
+    BodyViewer.tsx                      # Phase 3 (internal)
+    __tests__/
+      BodyViewer.test.ts
 ```
 
 ## Integration Points
 
 - **Upstream**: `routes/hack.tsx` calls `useTrafficLensLifecycle` on mount
+- **Upstream**: `routes/hack.tsx` renders `TrafficLensInspector` and `TrafficLensRepeater` as bottom-panel tabs
 - **Upstream**: `HackSidebar.tsx` renders `TrafficLensSidebarSection`
 - **Downstream**: IPC to desktop `TrafficLensManager` for tab control
-- **Downstream**: WebSocket RPC to server `TrafficLensService` for traffic data
+- **Downstream**: WebSocket RPC to server `TrafficLensService` for traffic data + replay
 - **Events**: Tab events flow IPC → store. Traffic events flow WS → store.
 
 ## Working On This Module
@@ -119,24 +146,27 @@ apps/web/src/modules/traffic-lens/
 
 - Components in `components/` are internal — rearrange freely
 - `useTrafficLensSync` is internal — only `useTrafficLensLifecycle` uses it
+- `BodyViewer` is internal — only `TrafficLensInspector` and `TrafficLensRepeater` use it
 - Store shape changes affect all internal components — update together
-- Tests for store in `stores/`, component tests in `__tests__/`
+- Tests for store in `stores/`, component tests in `components/__tests__/`
 
 ### For consumers (working in OTHER modules):
 
 - Import ONLY from `modules/traffic-lens/index.ts`
 - Use `useTrafficLensLifecycle` in route — do NOT manually subscribe to events
-- Use `useTrafficLensStore` for reading state (tabs, traffic, activeTabId)
+- Use `useTrafficLensStore` for reading state (tabs, traffic, activeTabId, selected, repeater)
 - Use `TrafficLensSidebarSection` for sidebar integration
+- Use `TrafficLensInspector` and `TrafficLensRepeater` for inspection/replay UI
 - Never import from `hooks/`, `stores/`, or `components/` directly
 
 ## Extension Points (Future Phases)
 
-### Phase 3 — Inspector & Repeater
+### Phase 3 — Inspector & Repeater ✅ done
 
-- New component: `TrafficLensInspector.tsx` — request/response detail viewer
-- New component: `TrafficLensRepeater.tsx` — edit + resend requests
-- Store extension: `selectedTrafficId`, `repeaterState`
+- `TrafficLensInspector.tsx` — request/response detail viewer
+- `TrafficLensRepeater.tsx` — edit + resend requests
+- `BodyViewer.tsx` — multi-format body display (internal)
+- Store extension: `selectedTrafficId`, `repeaterDetail`, `showRepeater`, `bottomTab`
 
 ### Phase 4 — Header Rules
 

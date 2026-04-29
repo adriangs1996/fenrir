@@ -3,12 +3,19 @@ import type {
   TrafficLensTabSnapshot,
   TrafficLensTabEvent,
   TrafficLensEntry,
+  TrafficLensDetail,
 } from "@fenrir/contracts";
 
 interface TrafficLensState {
   tabs: Record<string, TrafficLensTabSnapshot>;
   activeTabId: string | null;
   trafficEntries: TrafficLensEntry[];
+
+  // Inspector/Repeater state
+  selectedTrafficId: number | null;
+  repeaterDetail: TrafficLensDetail | null;
+  showRepeater: boolean;
+  bottomTab: "traffic" | "inspector" | "repeater";
 
   // Actions
   upsertTab: (snapshot: TrafficLensTabSnapshot) => void;
@@ -17,12 +24,23 @@ interface TrafficLensState {
   applyEvent: (event: TrafficLensTabEvent) => void;
   appendTraffic: (entry: TrafficLensEntry) => void;
   clearTraffic: () => void;
+
+  // Inspector/Repeater actions
+  setSelectedTraffic: (id: number | null) => void;
+  openRepeater: (detail: TrafficLensDetail) => void;
+  closeRepeater: () => void;
+  setBottomTab: (tab: "traffic" | "inspector" | "repeater") => void;
 }
 
 export const useTrafficLensStore = create<TrafficLensState>((set) => ({
   tabs: {},
   activeTabId: null,
   trafficEntries: [],
+
+  selectedTrafficId: null,
+  repeaterDetail: null,
+  showRepeater: false,
+  bottomTab: "traffic" as const,
 
   upsertTab: (snapshot) =>
     set((state) => ({
@@ -106,4 +124,26 @@ export const useTrafficLensStore = create<TrafficLensState>((set) => ({
     }),
 
   clearTraffic: () => set({ trafficEntries: [] }),
+
+  setSelectedTraffic: (id) =>
+    set({
+      selectedTrafficId: id,
+      bottomTab: id ? "inspector" : "traffic",
+    }),
+
+  openRepeater: (detail) =>
+    set({
+      repeaterDetail: detail,
+      showRepeater: true,
+      bottomTab: "repeater",
+    }),
+
+  closeRepeater: () =>
+    set({
+      showRepeater: false,
+      repeaterDetail: null,
+      bottomTab: "traffic",
+    }),
+
+  setBottomTab: (tab) => set({ bottomTab: tab }),
 }));
