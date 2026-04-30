@@ -3,6 +3,7 @@ import {
   ArrowUpDownIcon,
   ChevronRightIcon,
   CloudIcon,
+  FileTextIcon,
   FolderIcon,
   GitPullRequestIcon,
   PlusIcon,
@@ -139,6 +140,7 @@ import {
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { PlanRunnerProjectSection, useInternalPlanRunnerThreadIds } from "~/modules/plan-runner";
+import { NEW_PLAN_PROMPT } from "~/modules/plan-runner/planPrompts";
 import { readEnvironmentApi } from "../environmentApi";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
@@ -1121,7 +1123,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   // already fetched into allSidebarThreads, so we can use them directly.
   const projectThreads = allSidebarThreads;
   const projectExpanded = useUiStateStore(
-    (state) => state.projectExpandedById[project.projectKey] ?? true,
+    (state) => state.projectExpandedById[project.projectKey] ?? false,
+  );
+  const threadFolderOpen = useUiStateStore(
+    (state) => state.projectThreadFolderExpandedByCwd[project.cwd] ?? false,
+  );
+  const setProjectThreadFolderExpanded = useUiStateStore(
+    (state) => state.setProjectThreadFolderExpanded,
   );
   const threadLastVisitedAts = useUiStateStore(
     useShallow((state) =>
@@ -1133,7 +1141,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       ),
     ),
   );
-  const [threadFolderOpen, setThreadFolderOpen] = useState(true);
   const [renamingThreadKey, setRenamingThreadKey] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [confirmingArchiveThreadKey, setConfirmingArchiveThreadKey] = useState<string | null>(null);
@@ -1503,8 +1510,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     ],
   );
 
-  const handleCreateThreadClick = useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => {
+  const handleCreateProjectDraftClick = useCallback(
+    (
+      event: React.MouseEvent<HTMLButtonElement>,
+      options?: {
+        initialPrompt?: string;
+      },
+    ) => {
       event.preventDefault();
       event.stopPropagation();
       const currentRouteParams =
@@ -1550,9 +1562,24 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           ? { worktreePath: seedContext.worktreePath }
           : {}),
         envMode: seedContext.envMode,
+        ...(options?.initialPrompt !== undefined ? { initialPrompt: options.initialPrompt } : {}),
       });
     },
     [defaultThreadEnvMode, handleNewThread, project.environmentId, project.id, router],
+  );
+
+  const handleCreateThreadClick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      handleCreateProjectDraftClick(event);
+    },
+    [handleCreateProjectDraftClick],
+  );
+
+  const handleCreatePlanClick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      handleCreateProjectDraftClick(event, { initialPrompt: NEW_PLAN_PROMPT });
+    },
+    [handleCreateProjectDraftClick],
   );
 
   const attemptArchiveThread = useCallback(
@@ -1766,10 +1793,26 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             </TooltipPopup>
           </Tooltip>
         )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <div className="pointer-events-none absolute top-1 right-1.5 opacity-0 transition-opacity duration-150 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
+        <div className="pointer-events-none absolute top-1 right-1.5 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`Create plan in ${project.name}`}
+                  data-testid="new-plan-button"
+                  className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-secondary hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                  onClick={handleCreatePlanClick}
+                >
+                  <FileTextIcon className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">Create plan</TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
                 <button
                   type="button"
                   aria-label={`Create new thread in ${project.name}`}
@@ -1779,19 +1822,22 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 >
                   <SquarePenIcon className="size-3.5" />
                 </button>
-              </div>
-            }
-          />
-          <TooltipPopup side="top">
-            {newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"}
-          </TooltipPopup>
-        </Tooltip>
+              }
+            />
+            <TooltipPopup side="top">
+              {newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"}
+            </TooltipPopup>
+          </Tooltip>
+        </div>
       </div>
 
       {shouldShowThreadPanel && (
         <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0">
           <SidebarMenuSubItem className="w-full">
-            <Collapsible open={threadFolderOpen} onOpenChange={setThreadFolderOpen}>
+            <Collapsible
+              open={threadFolderOpen}
+              onOpenChange={(expanded) => setProjectThreadFolderExpanded(project.cwd, expanded)}
+            >
               <CollapsibleTrigger className="w-full">
                 <SidebarMenuSubButton
                   size="sm"
@@ -1847,7 +1893,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       )}
 
       {projectExpanded && (
-        <PlanRunnerProjectSection projectId={project.id} environmentId={project.environmentId} />
+        <PlanRunnerProjectSection
+          projectId={project.id}
+          projectCwd={project.cwd}
+          environmentId={project.environmentId}
+        />
       )}
     </>
   );
@@ -2466,6 +2516,9 @@ export default function Sidebar() {
   );
   const activeEnvironmentId = useStore((store) => store.activeEnvironmentId);
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
+  const projectThreadFolderExpandedByCwd = useUiStateStore(
+    (store) => store.projectThreadFolderExpandedByCwd,
+  );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const navigate = useNavigate();
@@ -2921,7 +2974,7 @@ export default function Sidebar() {
           ),
           sidebarThreadSortOrder,
         );
-        const projectExpanded = projectExpandedById[project.projectKey] ?? true;
+        const projectExpanded = projectExpandedById[project.projectKey] ?? false;
         const activeThreadKey = routeThreadKey ?? undefined;
         const pinnedCollapsedThread =
           !projectExpanded && activeThreadKey
@@ -2933,6 +2986,10 @@ export default function Sidebar() {
             : null;
         const shouldShowThreadPanel = projectExpanded || pinnedCollapsedThread !== null;
         if (!shouldShowThreadPanel) {
+          return [];
+        }
+        const threadFolderOpen = projectThreadFolderExpandedByCwd[project.cwd] ?? false;
+        if (!threadFolderOpen) {
           return [];
         }
         const isThreadListExpanded = expandedThreadListsByProject.has(project.projectKey);
@@ -2950,6 +3007,7 @@ export default function Sidebar() {
       sidebarThreadSortOrder,
       expandedThreadListsByProject,
       projectExpandedById,
+      projectThreadFolderExpandedByCwd,
       routeThreadKey,
       sortedProjects,
       threadsByProjectKey,

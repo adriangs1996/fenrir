@@ -529,6 +529,45 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
   );
 }
 
+function setComposerDraftPrompt(
+  draftsByThreadKey: Record<string, ComposerThreadDraftState>,
+  threadKey: string,
+  prompt: string | undefined,
+): {
+  changed: boolean;
+  draftsByThreadKey: Record<string, ComposerThreadDraftState>;
+} {
+  if (prompt === undefined) {
+    return {
+      changed: false,
+      draftsByThreadKey,
+    };
+  }
+
+  const existing = draftsByThreadKey[threadKey] ?? createEmptyThreadDraft();
+  if (existing.prompt === prompt) {
+    return {
+      changed: false,
+      draftsByThreadKey,
+    };
+  }
+
+  const nextDraft: ComposerThreadDraftState = {
+    ...existing,
+    prompt,
+  };
+  const nextDraftsByThreadKey = { ...draftsByThreadKey };
+  if (shouldRemoveDraft(nextDraft)) {
+    delete nextDraftsByThreadKey[threadKey];
+  } else {
+    nextDraftsByThreadKey[threadKey] = nextDraft;
+  }
+  return {
+    changed: true,
+    draftsByThreadKey: nextDraftsByThreadKey,
+  };
+}
+
 function normalizeProviderKind(value: unknown): ProviderKind | null {
   return value === "codex" || value === "claudeAgent" ? value : null;
 }
@@ -1872,9 +1911,6 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               options,
             );
             const hasSameLogicalMapping = previousThreadKeyForLogicalProject === draftId;
-            if (hasSameLogicalMapping && draftThreadsEqual(existingThread, nextDraftThread)) {
-              return state;
-            }
             const nextLogicalProjectDraftThreadKeyByLogicalProjectKey: Record<string, string> = {
               ...state.logicalProjectDraftThreadKeyByLogicalProjectKey,
               [normalizedLogicalProjectKey]: draftId,
@@ -1902,6 +1938,19 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 nextDraftsByThreadKey = { ...state.draftsByThreadKey };
                 delete nextDraftsByThreadKey[previousThreadKeyForLogicalProject];
               }
+            }
+            const promptUpdate = setComposerDraftPrompt(
+              nextDraftsByThreadKey,
+              draftId,
+              options?.initialPrompt,
+            );
+            nextDraftsByThreadKey = promptUpdate.draftsByThreadKey;
+            if (
+              hasSameLogicalMapping &&
+              draftThreadsEqual(existingThread, nextDraftThread) &&
+              !promptUpdate.changed
+            ) {
+              return state;
             }
             return {
               draftsByThreadKey: nextDraftsByThreadKey,

@@ -535,6 +535,31 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
   });
 
+  it("seeds the composer prompt when creating a project draft with an initial prompt", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setProjectDraftThreadId(projectRef, draftId, {
+      threadId,
+      initialPrompt: "Plan this feature",
+    });
+
+    expect(draftByKey(draftId)?.prompt).toBe("Plan this feature");
+  });
+
+  it("updates the composer prompt when remapping the same project draft with an initial prompt", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    store.setPrompt(draftId, "Old prompt");
+
+    store.setProjectDraftThreadId(projectRef, draftId, {
+      threadId,
+      initialPrompt: "New prompt",
+    });
+
+    expect(draftByKey(draftId)?.prompt).toBe("New prompt");
+  });
+
   it("clears only matching project draft mapping entries", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, { threadId });

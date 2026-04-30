@@ -1,42 +1,34 @@
-import { ChevronRightIcon, FolderOpenIcon, PlusIcon } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { scopeProjectRef } from "@fenrir/client-runtime";
+import { ChevronRightIcon, FolderOpenIcon } from "lucide-react";
+import { memo, useEffect, useMemo } from "react";
 import type { EnvironmentId, ProjectId } from "@fenrir/contracts";
 import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { PlanRunnerFeatureFolder } from "./PlanRunnerFeatureFolder";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
-import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton } from "~/components/ui/sidebar";
-import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "~/components/ui/collapsible";
+import { useUiStateStore } from "~/uiStateStore";
 
 const EMPTY_FEATURES: ReadonlyArray<never> = [];
 
-const NEW_PLAN_PROMPT = `Help me break down a new feature into implementation plans.
-
-Create a \`.plans/{featureName}/\` directory with .md plan files. Each plan should have YAML frontmatter with:
-- id: unique identifier
-- depends_on: array of plan IDs this depends on
-- max_retries: number (default 2)
-
-Then the markdown body with the full implementation plan.
-
-Feature to plan: `;
-
 interface PlanRunnerProjectSectionProps {
   projectId: ProjectId;
+  projectCwd: string;
   environmentId: EnvironmentId;
 }
 
+const PLAN_RUNNER_PROJECT_FOLDER_KEY_PREFIX = "plan-runner:project:";
+
 export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
   projectId,
+  projectCwd,
   environmentId,
 }: PlanRunnerProjectSectionProps) {
-  const [expanded, setExpanded] = useState(false);
+  const expansionKey = `${PLAN_RUNNER_PROJECT_FOLDER_KEY_PREFIX}${projectCwd}`;
+  const expanded = useUiStateStore((s) => s.planRunnerFolderExpandedByKey[expansionKey] ?? false);
+  const setPlanRunnerFolderExpanded = useUiStateStore((s) => s.setPlanRunnerFolderExpanded);
   const features = usePlanRunnerStore((s) => s.featuresByProjectId[projectId] ?? EMPTY_FEATURES);
   const setFeatures = usePlanRunnerStore((s) => s.setFeatures);
-  const { handleNewThread } = useNewThreadHandler();
 
   const rpcClient = useMemo(() => {
     try {
@@ -58,18 +50,16 @@ export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
       });
   }, [rpcClient, projectId, setFeatures]);
 
-  const handleNewPlan = useCallback(() => {
-    const ref = scopeProjectRef(environmentId, projectId);
-    void handleNewThread(ref, { initialPrompt: NEW_PLAN_PROMPT });
-  }, [environmentId, projectId, handleNewThread]);
-
   // Don't render section if no features and no way to create them
   if (features.length === 0 && !rpcClient) return null;
 
   return (
     <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0">
       <SidebarMenuSubItem className="w-full">
-        <Collapsible open={expanded} onOpenChange={setExpanded}>
+        <Collapsible
+          open={expanded}
+          onOpenChange={(open) => setPlanRunnerFolderExpanded(expansionKey, open)}
+        >
           <div className="flex items-center">
             <CollapsibleTrigger className="flex-1">
               <SidebarMenuSubButton
@@ -88,15 +78,6 @@ export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
                 )}
               </SidebarMenuSubButton>
             </CollapsibleTrigger>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-5 shrink-0 text-muted-foreground/50 hover:text-muted-foreground/80"
-              onClick={handleNewPlan}
-              title="New Plan"
-            >
-              <PlusIcon className="size-3" />
-            </Button>
           </div>
 
           <CollapsibleContent>
@@ -111,6 +92,7 @@ export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
                     key={feature.featureName}
                     feature={feature}
                     projectId={projectId}
+                    projectCwd={projectCwd}
                     environmentId={environmentId}
                   />
                 ))

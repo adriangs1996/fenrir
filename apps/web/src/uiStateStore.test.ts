@@ -5,7 +5,9 @@ import {
   clearThreadUi,
   markThreadUnread,
   reorderProjects,
+  setPlanRunnerFolderExpanded,
   setProjectExpanded,
+  setProjectThreadFolderExpanded,
   setThreadChangedFilesExpanded,
   syncProjects,
   syncThreads,
@@ -15,10 +17,12 @@ import {
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
+    projectThreadFolderExpandedByCwd: {},
     projectOrder: [],
     threadLastVisitedAtById: {},
     activeWorkspace: "code",
     threadChangedFilesExpandedById: {},
+    planRunnerFolderExpandedByKey: {},
     ...overrides,
   };
 }
@@ -180,6 +184,14 @@ describe("uiStateStore pure functions", () => {
     expect(next.projectExpandedById[project2]).toBe(false);
   });
 
+  it("syncProjects defaults new projects to collapsed", () => {
+    const project1 = ProjectId.makeUnsafe("project-1");
+
+    const next = syncProjects(makeUiState(), [{ key: project1, cwd: "/tmp/project-1" }]);
+
+    expect(next.projectExpandedById[project1]).toBe(false);
+  });
+
   it("syncProjects preserves manual order when a project is recreated with the same cwd", () => {
     const oldProject1 = ProjectId.makeUnsafe("project-1");
     const oldProject2 = ProjectId.makeUnsafe("project-2");
@@ -285,6 +297,28 @@ describe("uiStateStore pure functions", () => {
 
     expect(next.projectExpandedById[project1]).toBe(false);
     expect(next.projectOrder).toEqual([project1]);
+  });
+
+  it("setProjectThreadFolderExpanded stores thread folder expansion per cwd", () => {
+    const initialState = makeUiState();
+
+    const next = setProjectThreadFolderExpanded(initialState, "/tmp/project-1", true);
+
+    expect(next.projectThreadFolderExpandedByCwd["/tmp/project-1"]).toBe(true);
+  });
+
+  it("setPlanRunnerFolderExpanded stores plan runner folder expansion by key", () => {
+    const initialState = makeUiState();
+
+    const next = setPlanRunnerFolderExpanded(
+      initialState,
+      "plan-runner:feature:/tmp/project-1:feature-a",
+      true,
+    );
+
+    expect(next.planRunnerFolderExpandedByKey["plan-runner:feature:/tmp/project-1:feature-a"]).toBe(
+      true,
+    );
   });
 
   it("clearThreadUi removes visit state for deleted threads", () => {

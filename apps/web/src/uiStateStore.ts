@@ -17,12 +17,15 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 
 interface PersistedUiState {
   expandedProjectCwds?: string[];
+  expandedProjectThreadFolderCwds?: string[];
+  expandedPlanRunnerFolderKeys?: string[];
   projectOrderCwds?: string[];
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
 }
 
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
+  projectThreadFolderExpandedByCwd: Record<string, boolean>;
   projectOrder: string[];
 }
 
@@ -31,7 +34,11 @@ export interface UiThreadState {
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
 }
 
-export interface UiState extends UiProjectState, UiThreadState {
+export interface UiPlanRunnerState {
+  planRunnerFolderExpandedByKey: Record<string, boolean>;
+}
+
+export interface UiState extends UiProjectState, UiThreadState, UiPlanRunnerState {
   activeWorkspace: "code" | "hack";
 }
 
@@ -47,10 +54,12 @@ export interface SyncThreadInput {
 
 const initialState: UiState = {
   projectExpandedById: {},
+  projectThreadFolderExpandedByCwd: {},
   projectOrder: [],
   threadLastVisitedAtById: {},
   activeWorkspace: "code" as const,
   threadChangedFilesExpandedById: {},
+  planRunnerFolderExpandedByKey: {},
 };
 
 const persistedExpandedProjectCwds = new Set<string>();
@@ -79,6 +88,12 @@ function readPersistedState(): UiState {
     hydratePersistedProjectState(parsed);
     return {
       ...initialState,
+      projectThreadFolderExpandedByCwd: sanitizePersistedExpandedKeys(
+        parsed.expandedProjectThreadFolderCwds,
+      ),
+      planRunnerFolderExpandedByKey: sanitizePersistedExpandedKeys(
+        parsed.expandedPlanRunnerFolderKeys,
+      ),
       threadChangedFilesExpandedById: sanitizePersistedThreadChangedFilesExpanded(
         parsed.threadChangedFilesExpandedById,
       ),
@@ -116,6 +131,23 @@ function sanitizePersistedThreadChangedFilesExpanded(
   return nextState;
 }
 
+function sanitizePersistedExpandedKeys(
+  value: readonly string[] | undefined,
+): Record<string, boolean> {
+  if (!Array.isArray(value)) {
+    return {};
+  }
+
+  const nextState: Record<string, boolean> = {};
+  for (const key of value) {
+    if (typeof key === "string" && key.length > 0) {
+      nextState[key] = true;
+    }
+  }
+
+  return nextState;
+}
+
 function hydratePersistedProjectState(parsed: PersistedUiState): void {
   persistedExpandedProjectCwds.clear();
   persistedProjectOrderCwds.length = 0;
@@ -142,6 +174,12 @@ function persistState(state: UiState): void {
         const cwd = currentProjectCwdById.get(projectId);
         return cwd ? [cwd] : [];
       });
+    const expandedProjectThreadFolderCwds = Object.entries(state.projectThreadFolderExpandedByCwd)
+      .filter(([, expanded]) => expanded)
+      .map(([projectCwd]) => projectCwd);
+    const expandedPlanRunnerFolderKeys = Object.entries(state.planRunnerFolderExpandedByKey)
+      .filter(([, expanded]) => expanded)
+      .map(([key]) => key);
     const projectOrderCwds = state.projectOrder.flatMap((projectId) => {
       const cwd = currentProjectCwdById.get(projectId);
       return cwd ? [cwd] : [];
@@ -158,6 +196,8 @@ function persistState(state: UiState): void {
       PERSISTED_STATE_KEY,
       JSON.stringify({
         expandedProjectCwds,
+        expandedProjectThreadFolderCwds,
+        expandedPlanRunnerFolderKeys,
         projectOrderCwds,
         threadChangedFilesExpandedById,
       } satisfies PersistedUiState),
@@ -235,9 +275,7 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
     const expanded =
       previousExpandedById[project.key] ??
       (previousProjectIdForCwd ? previousExpandedById[previousProjectIdForCwd] : undefined) ??
-      (persistedExpandedProjectCwds.size > 0
-        ? persistedExpandedProjectCwds.has(project.cwd)
-        : true);
+      persistedExpandedProjectCwds.has(project.cwd);
     nextExpandedById[project.key] = expanded;
     return {
       id: project.key,
@@ -460,7 +498,7 @@ export function setThreadChangedFilesExpanded(
 }
 
 export function toggleProject(state: UiState, projectId: string): UiState {
-  const expanded = state.projectExpandedById[projectId] ?? true;
+  const expanded = state.projectExpandedById[projectId] ?? false;
   return {
     ...state,
     projectExpandedById: {
@@ -471,7 +509,7 @@ export function toggleProject(state: UiState, projectId: string): UiState {
 }
 
 export function setProjectExpanded(state: UiState, projectId: string, expanded: boolean): UiState {
-  if ((state.projectExpandedById[projectId] ?? true) === expanded) {
+  if ((state.projectExpandedById[projectId] ?? false) === expanded) {
     return state;
   }
   return {
@@ -479,6 +517,40 @@ export function setProjectExpanded(state: UiState, projectId: string, expanded: 
     projectExpandedById: {
       ...state.projectExpandedById,
       [projectId]: expanded,
+    },
+  };
+}
+
+export function setProjectThreadFolderExpanded(
+  state: UiState,
+  projectCwd: string,
+  expanded: boolean,
+): UiState {
+  if ((state.projectThreadFolderExpandedByCwd[projectCwd] ?? false) === expanded) {
+    return state;
+  }
+  return {
+    ...state,
+    projectThreadFolderExpandedByCwd: {
+      ...state.projectThreadFolderExpandedByCwd,
+      [projectCwd]: expanded,
+    },
+  };
+}
+
+export function setPlanRunnerFolderExpanded(
+  state: UiState,
+  key: string,
+  expanded: boolean,
+): UiState {
+  if ((state.planRunnerFolderExpandedByKey[key] ?? false) === expanded) {
+    return state;
+  }
+  return {
+    ...state,
+    planRunnerFolderExpandedByKey: {
+      ...state.planRunnerFolderExpandedByKey,
+      [key]: expanded,
     },
   };
 }
@@ -531,6 +603,8 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
+  setProjectThreadFolderExpanded: (projectCwd: string, expanded: boolean) => void;
+  setPlanRunnerFolderExpanded: (key: string, expanded: boolean) => void;
   reorderProjects: (draggedProjectIds: readonly string[], targetProjectId: string) => void;
   setActiveWorkspace: (workspace: "code" | "hack") => void;
 }
@@ -549,6 +623,10 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),
+  setProjectThreadFolderExpanded: (projectCwd, expanded) =>
+    set((state) => setProjectThreadFolderExpanded(state, projectCwd, expanded)),
+  setPlanRunnerFolderExpanded: (key, expanded) =>
+    set((state) => setPlanRunnerFolderExpanded(state, key, expanded)),
   reorderProjects: (draggedProjectIds, targetProjectId) =>
     set((state) => reorderProjects(state, draggedProjectIds, targetProjectId)),
   setActiveWorkspace: (workspace) => set({ activeWorkspace: workspace }),

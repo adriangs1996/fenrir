@@ -9,7 +9,7 @@ import {
   SquareIcon,
   XCircleIcon,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { scopeProjectRef } from "@fenrir/client-runtime";
 import type { EnvironmentId, ProjectId } from "@fenrir/contracts";
@@ -19,6 +19,7 @@ import {
 } from "@fenrir/contracts";
 import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { getFeatureRunStatus, type FeatureRunStatus } from "./featureRunStatus";
+import { buildPlanRefinementPrompt } from "../planPrompts";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton } from "~/components/ui/sidebar";
@@ -27,6 +28,7 @@ import { Button } from "~/components/ui/button";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "~/components/ui/collapsible";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { useUiStateStore } from "~/uiStateStore";
 
 type FeatureSummary = typeof FeatureSummarySchema.Type;
 type PlanFileSummary = typeof PlanFileSummarySchema.Type;
@@ -36,17 +38,23 @@ const EMPTY_PLANS: ReadonlyArray<PlanFileSummary> = [];
 interface PlanRunnerFeatureFolderProps {
   feature: FeatureSummary;
   projectId: ProjectId;
+  projectCwd: string;
   environmentId: EnvironmentId;
 }
+
+const PLAN_RUNNER_FEATURE_FOLDER_KEY_PREFIX = "plan-runner:feature:";
 
 export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   feature,
   projectId,
+  projectCwd,
   environmentId,
 }: PlanRunnerFeatureFolderProps) {
-  const [expanded, setExpanded] = useState(false);
   const navigate = useNavigate();
   const featureKey = `${projectId}:${feature.featureName}`;
+  const expansionKey = `${PLAN_RUNNER_FEATURE_FOLDER_KEY_PREFIX}${projectCwd}:${feature.featureName}`;
+  const expanded = useUiStateStore((s) => s.planRunnerFolderExpandedByKey[expansionKey] ?? false);
+  const setPlanRunnerFolderExpanded = useUiStateStore((s) => s.setPlanRunnerFolderExpanded);
   const plans = usePlanRunnerStore((s) => s.plansByFeatureKey[featureKey] ?? EMPTY_PLANS);
   const setPlans = usePlanRunnerStore((s) => s.setPlans);
   const { handleNewThread } = useNewThreadHandler();
@@ -102,7 +110,10 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   const handleRefine = useCallback(
     (plan: PlanFileSummary) => {
       const ref = scopeProjectRef(environmentId, projectId);
-      const prompt = `Here is a plan file I'd like to refine:\n\n# ${plan.filename}\n${plan.content}\n\nPlease update this plan based on the following feedback:\n`;
+      const prompt = buildPlanRefinementPrompt({
+        filename: plan.filename,
+        content: plan.content,
+      });
       void handleNewThread(ref, { initialPrompt: prompt });
     },
     [environmentId, projectId, handleNewThread],
@@ -110,7 +121,10 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
 
   return (
     <SidebarMenuSubItem className="w-full">
-      <Collapsible open={expanded} onOpenChange={setExpanded}>
+      <Collapsible
+        open={expanded}
+        onOpenChange={(open) => setPlanRunnerFolderExpanded(expansionKey, open)}
+      >
         <div className="flex items-center">
           <CollapsibleTrigger
             aria-label={expanded ? "Collapse plans" : "Expand plans"}

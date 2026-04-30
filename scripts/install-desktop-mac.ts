@@ -30,7 +30,7 @@ const findLatestDmg = (): string => {
     .filter((f) => f.endsWith(suffix))
     .map((f) => join(releaseDir, f))
     .map((p) => ({ path: p, mtime: statSync(p).mtimeMs }))
-    .sort((a, b) => b.mtime - a.mtime);
+    .toSorted((a, b) => b.mtime - a.mtime);
   if (candidates.length === 0) {
     throw new Error(`No *${suffix} found in ${releaseDir}.`);
   }

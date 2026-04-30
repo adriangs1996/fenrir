@@ -2,13 +2,15 @@ import { ArrowLeftIcon, PencilIcon } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { scopeProjectRef } from "@fenrir/client-runtime";
-import type { ProjectId, EnvironmentId } from "@fenrir/contracts";
+import type { ProjectId } from "@fenrir/contracts";
 import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
+import { buildPlanRefinementPrompt } from "../planPrompts";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import ChatMarkdown from "~/components/ChatMarkdown";
+import { selectProjectsAcrossEnvironments, useStore } from "~/store";
 
 interface PlanRunnerPlanPreviewProps {
   featureName: string;
@@ -55,6 +57,12 @@ export const PlanRunnerPlanPreview = memo(function PlanRunnerPlanPreview({
     }
     return null;
   });
+  const project = useStore((store) =>
+    projectId
+      ? (selectProjectsAcrossEnvironments(store).find((candidate) => candidate.id === projectId) ??
+        null)
+      : null,
+  );
 
   // Fetch plans if not cached
   useEffect(() => {
@@ -70,11 +78,14 @@ export const PlanRunnerPlanPreview = memo(function PlanRunnerPlanPreview({
   }, [navigate]);
 
   const handleRefine = useCallback(() => {
-    if (!plan || !projectId) return;
-    const ref = scopeProjectRef(projectId as unknown as EnvironmentId, projectId);
-    const prompt = `Here is a plan file I'd like to refine:\n\n# ${plan.filename}\n${plan.content}\n\nPlease update this plan based on the following feedback:\n`;
+    if (!plan || !project) return;
+    const ref = scopeProjectRef(project.environmentId, project.id);
+    const prompt = buildPlanRefinementPrompt({
+      filename: plan.filename,
+      content: plan.content,
+    });
     void handleNewThread(ref, { initialPrompt: prompt });
-  }, [plan, projectId, handleNewThread]);
+  }, [plan, project, handleNewThread]);
 
   if (!plan) {
     return (
