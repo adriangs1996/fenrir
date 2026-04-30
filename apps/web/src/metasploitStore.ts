@@ -6,6 +6,8 @@ interface MetasploitState {
   listeners: Record<string, ListenerSnapshot>;
   sessions: Record<string, MsfSessionSnapshot>;
   activeSessionId: string | null;
+  /** Maps previousSessionId → newSessionId after upgrade. Used for auto-navigation. */
+  upgradeRedirects: Record<string, string>;
 
   // Actions
   setConnected: (connected: boolean) => void;
@@ -15,13 +17,16 @@ interface MetasploitState {
   removeSession: (sessionId: string) => void;
   setActiveSessionId: (sessionId: string | null) => void;
   applyEvent: (event: MetasploitEvent) => void;
+  /** Consume and clear a redirect entry. Returns new sessionId or null. */
+  consumeUpgradeRedirect: (previousSessionId: string) => string | null;
 }
 
-export const useMetasploitStore = create<MetasploitState>((set) => ({
+export const useMetasploitStore = create<MetasploitState>((set, get) => ({
   connected: false,
   listeners: {},
   sessions: {},
   activeSessionId: null,
+  upgradeRedirects: {},
 
   setConnected: (connected) => set({ connected }),
   upsertListener: (snapshot) =>
@@ -46,6 +51,16 @@ export const useMetasploitStore = create<MetasploitState>((set) => ({
       };
     }),
   setActiveSessionId: (sessionId) => set({ activeSessionId: sessionId }),
+  consumeUpgradeRedirect: (previousSessionId) => {
+    const newId = get().upgradeRedirects[previousSessionId] ?? null;
+    if (newId) {
+      set((state) => {
+        const { [previousSessionId]: _, ...rest } = state.upgradeRedirects;
+        return { upgradeRedirects: rest };
+      });
+    }
+    return newId;
+  },
   applyEvent: (event) =>
     set((state) => {
       switch (event.type) {
@@ -88,14 +103,20 @@ export const useMetasploitStore = create<MetasploitState>((set) => ({
           return { connected: event.connected };
         case "session.upgraded": {
           const newSnapshot = event.snapshot;
-          // Defensive backstop: server emits session.closed for the old id, but if
-          // we somehow miss that event, drop it here when the upgraded id differs.
           const remaining =
             event.previousSessionId && event.previousSessionId !== newSnapshot.sessionId
               ? Object.fromEntries(
                   Object.entries(state.sessions).filter(([id]) => id !== event.previousSessionId),
                 )
               : state.sessions;
+          // Track redirect so TargetWorkspace can auto-navigate.
+          const redirects =
+            event.previousSessionId && event.previousSessionId !== newSnapshot.sessionId
+              ? {
+                  ...state.upgradeRedirects,
+                  [event.previousSessionId]: newSnapshot.sessionId,
+                }
+              : state.upgradeRedirects;
           return {
             sessions: {
               ...remaining,
@@ -105,6 +126,7 @@ export const useMetasploitStore = create<MetasploitState>((set) => ({
               event.previousSessionId && state.activeSessionId === event.previousSessionId
                 ? newSnapshot.sessionId
                 : state.activeSessionId,
+            upgradeRedirects: redirects,
           };
         }
         default:

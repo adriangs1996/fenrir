@@ -41,6 +41,12 @@ type ProviderIntentEvent = Extract<
   }
 >;
 
+interface QueuedProviderIntentEvent {
+  readonly event: ProviderIntentEvent;
+  readonly enqueuedAtMs: number;
+  readonly queueDepthAtEnqueue: number;
+}
+
 function toNonEmptyProviderInput(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : undefined;
@@ -76,6 +82,22 @@ const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const WORKTREE_BRANCH_PREFIX = "fenrir";
 const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
 const DEFAULT_THREAD_TITLE = "New thread";
+const PROVIDER_REACTOR_QUEUE_WARN_MS = 15_000;
+const PROVIDER_REACTOR_PROCESS_WARN_MS = 30_000;
+
+function shouldLogProviderLifecycleEvent(event: ProviderIntentEvent): boolean {
+  return (
+    event.type === "thread.turn-start-requested" || event.type === "thread.session-stop-requested"
+  );
+}
+
+function providerIntentEventLogFields(event: ProviderIntentEvent): Record<string, unknown> {
+  return {
+    eventType: event.type,
+    threadId: event.payload.threadId,
+    ...(event.commandId ? { commandId: event.commandId } : {}),
+  };
+}
 
 function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolean {
   const trimmedCurrentTitle = currentTitle.trim();
@@ -168,6 +190,7 @@ const make = Effect.gen(function* () {
     );
 
   const threadModelSelections = new Map<string, ModelSelection>();
+  let pendingIntentEventCount = 0;
 
   const appendProviderFailureActivity = (input: {
     readonly threadId: ThreadId;
@@ -207,13 +230,24 @@ const make = Effect.gen(function* () {
     readonly session: OrchestrationSession;
     readonly createdAt: string;
   }) =>
-    orchestrationEngine.dispatch({
-      type: "thread.session.set",
-      commandId: serverCommandId("provider-session-set"),
+    Effect.logInfo("provider command reactor emitting thread.session.set", {
       threadId: input.threadId,
-      session: input.session,
-      createdAt: input.createdAt,
-    });
+      status: input.session.status,
+      providerName: input.session.providerName,
+      runtimeMode: input.session.runtimeMode,
+      activeTurnId: input.session.activeTurnId,
+      lastError: input.session.lastError,
+    }).pipe(
+      Effect.flatMap(() =>
+        orchestrationEngine.dispatch({
+          type: "thread.session.set",
+          commandId: serverCommandId("provider-session-set"),
+          threadId: input.threadId,
+          session: input.session,
+          createdAt: input.createdAt,
+        }),
+      ),
+    );
 
   const resolveThread = Effect.fn("resolveThread")(function* (threadId: ThreadId) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -267,13 +301,33 @@ const make = Effect.gen(function* () {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
     }) =>
-      providerService.startSession(threadId, {
-        threadId,
-        ...(preferredProvider ? { provider: preferredProvider } : {}),
-        ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-        modelSelection: desiredModelSelection,
-        ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
-        runtimeMode: desiredRuntimeMode,
+      Effect.gen(function* () {
+        yield* Effect.logInfo("provider command reactor starting provider session", {
+          threadId,
+          provider: preferredProvider,
+          runtimeMode: desiredRuntimeMode,
+          cwd: effectiveCwd ?? null,
+          modelProvider: desiredModelSelection.provider,
+          model: desiredModelSelection.model,
+          hasResumeCursor: input?.resumeCursor !== undefined,
+        });
+        const session = yield* providerService.startSession(threadId, {
+          threadId,
+          ...(preferredProvider ? { provider: preferredProvider } : {}),
+          ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+          modelSelection: desiredModelSelection,
+          ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+          runtimeMode: desiredRuntimeMode,
+        });
+        yield* Effect.logInfo("provider command reactor started provider session", {
+          threadId,
+          provider: session.provider,
+          runtimeMode: session.runtimeMode,
+          cwd: session.cwd ?? null,
+          model: session.model ?? null,
+          hasResumeCursor: session.resumeCursor !== undefined,
+        });
+        return session;
       });
 
     const bindSessionToThread = (session: ProviderSession) =>
@@ -409,12 +463,26 @@ const make = Effect.gen(function* () {
           : requestedModelSelection
         : input.modelSelection;
 
+    yield* Effect.logInfo("provider command reactor sending provider turn", {
+      threadId: input.threadId,
+      interactionMode: input.interactionMode ?? null,
+      hasInput: normalizedInput !== undefined,
+      attachmentCount: normalizedAttachments.length,
+      sessionProvider: activeSession?.provider ?? null,
+      sessionModel: activeSession?.model ?? null,
+      requestedModelProvider: modelForTurn?.provider ?? null,
+      requestedModel: modelForTurn?.model ?? null,
+    });
+
     yield* providerService.sendTurn({
       threadId: input.threadId,
       ...(normalizedInput ? { input: normalizedInput } : {}),
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
+    });
+    yield* Effect.logInfo("provider command reactor accepted provider turn", {
+      threadId: input.threadId,
     });
   });
 
@@ -721,8 +789,36 @@ const make = Effect.gen(function* () {
     }
 
     const now = event.payload.createdAt;
+    yield* Effect.logInfo("provider command reactor stopping thread session", {
+      ...providerIntentEventLogFields(event),
+      hasSession: thread.session !== null,
+      sessionStatus: thread.session?.status ?? null,
+      providerName: thread.session?.providerName ?? null,
+    });
+
     if (thread.session && thread.session.status !== "stopped") {
-      yield* providerService.stopSession({ threadId: thread.id });
+      const stopStartedAtMs = Date.now();
+      yield* providerService.stopSession({ threadId: thread.id }).pipe(
+        Effect.catchCause((cause) =>
+          appendProviderFailureActivity({
+            threadId: event.payload.threadId,
+            kind: "provider.session.stop.failed",
+            summary: "Provider session stop failed",
+            detail: Cause.pretty(cause),
+            turnId: null,
+            createdAt: event.payload.createdAt,
+          }).pipe(
+            Effect.flatMap(() =>
+              Effect.logWarning("provider command reactor failed to stop provider session", {
+                ...providerIntentEventLogFields(event),
+                providerName: thread.session?.providerName ?? null,
+                durationMs: Date.now() - stopStartedAtMs,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          ),
+        ),
+      );
     }
 
     yield* setThreadSession({
@@ -737,6 +833,10 @@ const make = Effect.gen(function* () {
         updatedAt: now,
       },
       createdAt: now,
+    });
+    yield* Effect.logInfo("provider command reactor stopped thread session", {
+      ...providerIntentEventLogFields(event),
+      providerName: thread.session?.providerName ?? null,
     });
   });
 
@@ -796,7 +896,53 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const worker = yield* makeDrainableWorker(processDomainEventSafely);
+  const processQueuedDomainEventSafely = (queuedEvent: QueuedProviderIntentEvent) =>
+    Effect.gen(function* () {
+      pendingIntentEventCount = Math.max(0, pendingIntentEventCount - 1);
+      const startedAtMs = Date.now();
+      const queueWaitMs = startedAtMs - queuedEvent.enqueuedAtMs;
+      const shouldLogLifecycle = shouldLogProviderLifecycleEvent(queuedEvent.event);
+      if (shouldLogLifecycle || queueWaitMs >= PROVIDER_REACTOR_QUEUE_WARN_MS) {
+        if (queueWaitMs >= PROVIDER_REACTOR_QUEUE_WARN_MS) {
+          yield* Effect.logWarning("provider command reactor dequeued event", {
+            ...providerIntentEventLogFields(queuedEvent.event),
+            queueWaitMs,
+            queueDepthAtEnqueue: queuedEvent.queueDepthAtEnqueue,
+            pendingEventCount: pendingIntentEventCount,
+          });
+        } else {
+          yield* Effect.logInfo("provider command reactor dequeued event", {
+            ...providerIntentEventLogFields(queuedEvent.event),
+            queueWaitMs,
+            queueDepthAtEnqueue: queuedEvent.queueDepthAtEnqueue,
+            pendingEventCount: pendingIntentEventCount,
+          });
+        }
+      }
+
+      yield* processDomainEventSafely(queuedEvent.event);
+
+      const processDurationMs = Date.now() - startedAtMs;
+      if (shouldLogLifecycle || processDurationMs >= PROVIDER_REACTOR_PROCESS_WARN_MS) {
+        if (processDurationMs >= PROVIDER_REACTOR_PROCESS_WARN_MS) {
+          yield* Effect.logWarning("provider command reactor completed event", {
+            ...providerIntentEventLogFields(queuedEvent.event),
+            queueWaitMs,
+            processDurationMs,
+            pendingEventCount: pendingIntentEventCount,
+          });
+        } else {
+          yield* Effect.logInfo("provider command reactor completed event", {
+            ...providerIntentEventLogFields(queuedEvent.event),
+            queueWaitMs,
+            processDurationMs,
+            pendingEventCount: pendingIntentEventCount,
+          });
+        }
+      }
+    });
+
+  const worker = yield* makeDrainableWorker(processQueuedDomainEventSafely);
 
   const start: ProviderCommandReactorShape["start"] = Effect.fn("start")(function* () {
     const processEvent = Effect.fn("processEvent")(function* (event: OrchestrationEvent) {
@@ -808,7 +954,19 @@ const make = Effect.gen(function* () {
         event.type === "thread.user-input-response-requested" ||
         event.type === "thread.session-stop-requested"
       ) {
-        return yield* worker.enqueue(event);
+        pendingIntentEventCount += 1;
+        const queuedEvent: QueuedProviderIntentEvent = {
+          event,
+          enqueuedAtMs: Date.now(),
+          queueDepthAtEnqueue: pendingIntentEventCount,
+        };
+        if (shouldLogProviderLifecycleEvent(event)) {
+          yield* Effect.logInfo("provider command reactor enqueued event", {
+            ...providerIntentEventLogFields(event),
+            pendingEventCount: pendingIntentEventCount,
+          });
+        }
+        return yield* worker.enqueue(queuedEvent);
       }
     });
 

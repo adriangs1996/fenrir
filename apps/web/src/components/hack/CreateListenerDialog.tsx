@@ -15,11 +15,19 @@ interface CreateListenerDialogProps {
 const PAYLOAD_OPTIONS = [
   {
     value: "windows/meterpreter/reverse_tcp",
-    label: "Windows Meterpreter (TCP)",
+    label: "Windows Meterpreter x86 (TCP)",
+  },
+  {
+    value: "windows/x64/meterpreter/reverse_tcp",
+    label: "Windows Meterpreter x64 (TCP)",
   },
   {
     value: "linux/x86/meterpreter/reverse_tcp",
-    label: "Linux Meterpreter (TCP)",
+    label: "Linux Meterpreter x86 (TCP)",
+  },
+  {
+    value: "linux/x64/meterpreter/reverse_tcp",
+    label: "Linux Meterpreter x64 (TCP)",
   },
   { value: "cmd/unix/reverse_bash", label: "Unix Reverse Bash" },
   { value: "generic/shell_reverse_tcp", label: "Generic Reverse Shell (TCP)" },
@@ -43,12 +51,16 @@ export function CreateListenerDialog({
   const [lhost, setLhost] = useState("0.0.0.0");
   const [lport, setLport] = useState("4444");
 
+  const parsedPort = Number(lport);
+  const isPortValid = Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65535;
+
   const handleCreate = () => {
+    if (!isPortValid) return;
     onCreateListener({
       name: name.trim(),
       payload,
       lhost: lhost.trim(),
-      lport: Number(lport),
+      lport: parsedPort,
     } as CreateListenerInput);
     onOpenChange(false);
     setName("");
@@ -114,7 +126,7 @@ export function CreateListenerDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleCreate} disabled={!name.trim()}>
+          <Button onClick={handleCreate} disabled={!name.trim() || !isPortValid}>
             Create
           </Button>
         </DialogFooter>

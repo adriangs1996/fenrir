@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useMetasploitStore } from "../../metasploitStore";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -18,8 +19,19 @@ interface TargetWorkspaceProps {
 export function TargetWorkspace({ sessionId }: TargetWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<Tab>("shell");
   const session = useMetasploitStore((s) => s.sessions[sessionId]);
+  const consumeUpgradeRedirect = useMetasploitStore((s) => s.consumeUpgradeRedirect);
   const rpcClient = useMemo(() => getPrimaryEnvironmentConnection().client, []);
+  const navigate = useNavigate();
   const [upgrading, setUpgrading] = useState(false);
+
+  // Auto-navigate to upgraded session when this session disappears due to upgrade.
+  useEffect(() => {
+    if (session) return; // Session still exists — nothing to redirect.
+    const newSessionId = consumeUpgradeRedirect(sessionId);
+    if (newSessionId) {
+      void navigate({ to: `/hack/${newSessionId}` as string });
+    }
+  }, [session, sessionId, consumeUpgradeRedirect, navigate]);
 
   const canUpgrade = session?.type === "shell" && session?.listenerId != null;
 

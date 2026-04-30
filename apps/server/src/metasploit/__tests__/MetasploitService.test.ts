@@ -218,10 +218,17 @@ describe("MetasploitService — bug coverage", () => {
 
     await Effect.runPromise(program.pipe(Effect.provide(makeLayer())));
 
-    // Verify session.shell_upgrade was called with listener's lhost/lport (NOT 127.0.0.1/0).
+    // Verify session.shell_upgrade was called with listener's lhost and a dynamic upgrade port
+    // (NOT the same port as the listener, to avoid port conflict with ExitOnSession=false).
     const upgradeCall = fake.call.mock.calls.find((c) => c[0] === "session.shell_upgrade");
     expect(upgradeCall).toBeDefined();
-    expect(upgradeCall![1]).toEqual(["1", "0.0.0.0", "4444"]);
+    const [upgSessionId, upgLhost, upgLport] = upgradeCall![1] as [string, string, string];
+    expect(upgSessionId).toBe("1");
+    expect(upgLhost).toBe("0.0.0.0");
+    // Upgrade port must be in dynamic range (49152-65535), NOT the listener's port (4444).
+    const portNum = Number(upgLport);
+    expect(portNum).toBeGreaterThanOrEqual(49152);
+    expect(portNum).toBeLessThanOrEqual(65535);
 
     // Verify event ordering: session.closed for "1" appears before session.upgraded.
     const closeIdx = events.findIndex((e) => e.type === "session.closed" && e.sessionId === "1");

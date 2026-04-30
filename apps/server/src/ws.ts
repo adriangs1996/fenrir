@@ -1165,10 +1165,14 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         [WS_METHODS.metasploitSessionResize]: (input) =>
           observeRpcEffect(
             WS_METHODS.metasploitSessionResize,
-            Effect.sync(() => {
+            Effect.gen(function* () {
               const shellProc = activeMsfShellProcesses.get(input.sessionId);
               if (shellProc) {
                 shellProc.resize(input.cols, input.rows);
+              } else {
+                yield* Effect.logDebug(
+                  `[metasploit] sessionResize ignored: no active shell process for ${input.sessionId}`,
+                );
               }
             }).pipe(
               Effect.mapError(

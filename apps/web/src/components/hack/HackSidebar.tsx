@@ -16,14 +16,17 @@ import { Badge } from "../ui/badge";
 import { useMetasploitStore } from "../../metasploitStore";
 import { useTrafficLensStore, TrafficLensSidebarSection } from "../../modules/traffic-lens";
 import { CreateListenerDialog } from "./CreateListenerDialog";
+import { PayloadCommandsDialog } from "./PayloadCommandsDialog";
 import { useMetasploitSync } from "./useMetasploitSync";
 import { isElectron } from "../../env";
 import { getPrimaryEnvironmentConnection } from "../../environments/runtime";
 import { toastManager } from "../ui/toast";
+import type { ListenerSnapshot } from "@fenrir/contracts";
 
 export function HackSidebar() {
   const navigate = useNavigate();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [payloadDialogListener, setPayloadDialogListener] = useState<ListenerSnapshot | null>(null);
 
   const rpcClient = useMemo(() => getPrimaryEnvironmentConnection().client, []);
   useMetasploitSync(rpcClient);
@@ -67,18 +70,32 @@ export function HackSidebar() {
                   <SidebarMenuButton className="w-full">
                     <div className="flex w-full items-center justify-between">
                       <span className="truncate text-sm">{listener.name}</span>
-                      <Badge
-                        variant={
-                          listener.status === "waiting"
-                            ? "outline"
-                            : listener.status === "active"
-                              ? "default"
-                              : "secondary"
-                        }
-                        className="ml-2 text-xs"
-                      >
-                        {listener.status}
-                      </Badge>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 w-5 p-0 text-xs"
+                          title="Copy payload commands"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPayloadDialogListener(listener);
+                          }}
+                        >
+                          &lt;/&gt;
+                        </Button>
+                        <Badge
+                          variant={
+                            listener.status === "waiting"
+                              ? "outline"
+                              : listener.status === "active"
+                                ? "default"
+                                : "secondary"
+                          }
+                          className="text-xs"
+                        >
+                          {listener.status}
+                        </Badge>
+                      </div>
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {listener.lhost}:{listener.lport}
@@ -163,6 +180,12 @@ export function HackSidebar() {
                 description: err instanceof Error ? err.message : String(err),
               });
             });
+        }}
+      />
+      <PayloadCommandsDialog
+        listener={payloadDialogListener}
+        onOpenChange={(open) => {
+          if (!open) setPayloadDialogListener(null);
         }}
       />
     </>

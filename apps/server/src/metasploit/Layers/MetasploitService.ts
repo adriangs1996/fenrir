@@ -4,7 +4,7 @@
  * Spawns msfrpcd via PtyAdapter, communicates via MSFRPC MessagePack-RPC over HTTP,
  * polls for session changes, and emits events via internal PubSub.
  */
-import { Duration, Effect, Fiber, Layer, Schedule } from "effect";
+import { Duration, Effect, Fiber, Layer, Schedule, Schema } from "effect";
 import { encode as msgpackEncode } from "@msgpack/msgpack";
 import { msgpackDecode } from "@fenrir/shared/msgpack";
 import {
@@ -13,6 +13,7 @@ import {
   MetasploitListenerLookupError,
   MetasploitNotFoundError,
   MetasploitSessionError,
+  PayloadType,
   type CreateListenerInput,
   type ListenerSnapshot,
   type MetasploitEvent,
@@ -138,13 +139,14 @@ const SESSION_POLL_INTERVAL = "2 seconds";
 export const __testSeams: {
   createClient: typeof createMsfrpcClient;
   startupDelay: Duration.Input;
+  /** Polling interval between upgrade verification attempts (default 2s, up to MAX_UPGRADE_ATTEMPTS). */
   upgradeDelay: Duration.Input;
   sessionPollInterval: Duration.Input;
   jobPollInterval: Duration.Input;
 } = {
   createClient: createMsfrpcClient,
   startupDelay: "3 seconds",
-  upgradeDelay: "5 seconds",
+  upgradeDelay: "2 seconds",
   sessionPollInterval: SESSION_POLL_INTERVAL,
   jobPollInterval: "2 seconds",
 };
@@ -201,14 +203,18 @@ export const MetasploitServiceLive = Layer.effect(
       });
     };
 
-    const ensureConnected = (): MsfrpcClient => {
-      if (!rpcClient) {
-        throw new MetasploitConnectionError({
-          message: "Metasploit is not connected",
-        });
-      }
-      return rpcClient;
-    };
+    const ensureConnected: Effect.Effect<MsfrpcClient, MetasploitConnectionError> = Effect.suspend(
+      () => {
+        if (!rpcClient) {
+          return Effect.fail(
+            new MetasploitConnectionError({
+              message: "Metasploit is not connected",
+            }),
+          );
+        }
+        return Effect.succeed(rpcClient);
+      },
+    );
 
     /**
      * One-shot rehydration of `listeners` and `knownSessions` from msfrpcd's
@@ -258,11 +264,15 @@ export const MetasploitServiceLive = Layer.effect(
 
             if (!payload || !Number.isFinite(lport)) continue;
 
+            // Validate payload against known PayloadType schema — skip unknown payloads.
+            const payloadDecoded = Schema.decodeUnknownOption(PayloadType)(payload);
+            if (payloadDecoded._tag === "None") continue;
+
             const listenerId = crypto.randomUUID();
             const snapshot: ListenerSnapshot = {
               listenerId,
               name: `hydrated:${payload}@${lhost}:${lport}`,
-              payload: payload as ListenerSnapshot["payload"],
+              payload: payloadDecoded.value,
               lhost,
               lport,
               status: "active", // job exists, so active by definition
@@ -429,7 +439,7 @@ export const MetasploitServiceLive = Layer.effect(
       if (pollingFiber) return;
 
       const pollEffect = Effect.gen(function* () {
-        const client = ensureConnected();
+        const client = yield* ensureConnected;
         const result = yield* Effect.tryPromise({
           try: () => client.call("session.list"),
           catch: () => null,
@@ -523,7 +533,7 @@ export const MetasploitServiceLive = Layer.effect(
       if (jobPollingFiber) return;
 
       const pollEffect = Effect.gen(function* () {
-        const client = ensureConnected();
+        const client = yield* ensureConnected;
         const result = yield* Effect.tryPromise({
           try: () => client.call("job.list"),
           catch: () => null,
@@ -766,7 +776,9 @@ export const MetasploitServiceLive = Layer.effect(
 
       sessionWrite: (sessionId: string, data: string) =>
         Effect.gen(function* () {
-          const client = ensureConnected();
+          const client = yield* ensureConnected.pipe(
+            Effect.mapError((e) => new MetasploitSessionError({ sessionId, message: e.message })),
+          );
           const session = knownSessions.get(sessionId);
           if (!session) {
             return yield* new MetasploitSessionError({
@@ -791,7 +803,9 @@ export const MetasploitServiceLive = Layer.effect(
 
       sessionRead: (sessionId: string) =>
         Effect.gen(function* () {
-          const client = ensureConnected();
+          const client = yield* ensureConnected.pipe(
+            Effect.mapError((e) => new MetasploitSessionError({ sessionId, message: e.message })),
+          );
           const session = knownSessions.get(sessionId);
           if (!session) {
             return yield* new MetasploitSessionError({
@@ -818,7 +832,9 @@ export const MetasploitServiceLive = Layer.effect(
 
       sessionUpgrade: (sessionId: string) =>
         Effect.gen(function* () {
-          const client = ensureConnected();
+          const client = yield* ensureConnected.pipe(
+            Effect.mapError((e) => new MetasploitSessionError({ sessionId, message: e.message })),
+          );
           const session = knownSessions.get(sessionId);
           if (!session) {
             return yield* new MetasploitSessionError({
@@ -833,8 +849,6 @@ export const MetasploitServiceLive = Layer.effect(
 
           // ── Listener lookup — strict (Q5/Q5b) ────────────────────────
           if (!session.listenerId) {
-            // Orphan session — can't upgrade. Drop it from UI so the user
-            // gets clear feedback (button disappears with the session).
             knownSessions.delete(sessionId);
             emitEvent({
               type: "session.closed",
@@ -849,7 +863,6 @@ export const MetasploitServiceLive = Layer.effect(
 
           const listenerState = listeners.get(session.listenerId);
           if (!listenerState) {
-            // listenerId set but listener removed (e.g. stopped). Drop session same as orphan.
             knownSessions.delete(sessionId);
             emitEvent({
               type: "session.closed",
@@ -864,11 +877,16 @@ export const MetasploitServiceLive = Layer.effect(
           }
 
           const lhost = listenerState.snapshot.lhost;
-          const lport = String(listenerState.snapshot.lport);
+          // Use a different port for the upgrade handler to avoid port conflict
+          // with the original listener (which has ExitOnSession=false and still binds LPORT).
+          const upgradePort = String(49152 + Math.floor(Math.random() * 16383));
+
+          // Snapshot known session IDs before upgrade so we can detect the NEW one.
+          const preUpgradeSessionIds = new Set(knownSessions.keys());
 
           // ── Trigger upgrade ──────────────────────────────────────────
           yield* Effect.tryPromise({
-            try: () => client.call("session.shell_upgrade", [sessionId, lhost, lport]),
+            try: () => client.call("session.shell_upgrade", [sessionId, lhost, upgradePort]),
             catch: (error) =>
               new MetasploitSessionError({
                 sessionId,
@@ -877,27 +895,32 @@ export const MetasploitServiceLive = Layer.effect(
               }),
           });
 
-          // ── Wait for upgrade to complete ─────────────────────────────
-          yield* Effect.sleep(__testSeams.upgradeDelay);
+          // ── Poll for the new meterpreter session (up to 30s) ─────────
+          const UPGRADE_POLL_INTERVAL = __testSeams.upgradeDelay;
+          const MAX_UPGRADE_ATTEMPTS = 15;
 
-          // ── Verify by re-listing sessions ────────────────────────────
-          const result = yield* Effect.tryPromise({
-            try: () => client.call("session.list"),
-            catch: (error) =>
-              new MetasploitSessionError({
-                sessionId,
-                message: `Failed to verify upgrade: ${error instanceof Error ? error.message : String(error)}`,
-                cause: error,
-              }),
-          });
+          for (let attempt = 0; attempt < MAX_UPGRADE_ATTEMPTS; attempt++) {
+            yield* Effect.sleep(UPGRADE_POLL_INTERVAL);
 
-          // Find the new meterpreter session.
-          const sessionsMap = result as Record<string, any> | null;
-          if (sessionsMap) {
+            const result = yield* Effect.tryPromise({
+              try: () => client.call("session.list"),
+              catch: (error) =>
+                new MetasploitSessionError({
+                  sessionId,
+                  message: `Failed to verify upgrade: ${error instanceof Error ? error.message : String(error)}`,
+                  cause: error,
+                }),
+            });
+
+            const sessionsMap = result as Record<string, any> | null;
+            if (!sessionsMap) continue;
+
             for (const [id, data] of Object.entries(sessionsMap)) {
+              // Must be meterpreter, from same target, and NOT a pre-existing session.
               if (
                 (data as any).type === "meterpreter" &&
-                (data as any).session_host === session.targetHost
+                (data as any).session_host === session.targetHost &&
+                !preUpgradeSessionIds.has(id)
               ) {
                 const upgraded: MsfSessionSnapshot = {
                   sessionId: id,
@@ -911,8 +934,6 @@ export const MetasploitServiceLive = Layer.effect(
                 };
                 knownSessions.set(id, upgraded);
 
-                // Emit session.closed for the OLD id BEFORE session.upgraded.
-                // Backstop: store also handles previousSessionId on the upgraded event.
                 if (id !== sessionId) {
                   knownSessions.delete(sessionId);
                   emitEvent({
@@ -936,13 +957,16 @@ export const MetasploitServiceLive = Layer.effect(
 
           return yield* new MetasploitSessionError({
             sessionId,
-            message: "Session upgrade did not produce a meterpreter session",
+            message:
+              "Session upgrade timed out — no meterpreter session appeared within 30 seconds",
           });
         }),
 
       sessionClose: (sessionId: string) =>
         Effect.gen(function* () {
-          const client = ensureConnected();
+          const client = yield* ensureConnected.pipe(
+            Effect.mapError((e) => new MetasploitSessionError({ sessionId, message: e.message })),
+          );
           if (!knownSessions.has(sessionId)) {
             return yield* new MetasploitSessionError({
               sessionId,

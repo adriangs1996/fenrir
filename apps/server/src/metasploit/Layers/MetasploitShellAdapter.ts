@@ -38,6 +38,18 @@ export const MetasploitShellAdapterLive = Layer.effect(
             activeProcesses.delete(sessionId);
           }
 
+          // Resolve session type so resize can behave correctly per session kind.
+          const sessions = yield* metasploitService.listSessions().pipe(
+            Effect.mapError(
+              () =>
+                new MetasploitSessionError({
+                  sessionId,
+                  message: "Failed to query session type for attach",
+                }),
+            ),
+          );
+          const sessionType = sessions.find((s) => s.sessionId === sessionId)?.type ?? "shell";
+
           const dataCallbacks = new Set<(data: string) => void>();
           const exitCallbacks = new Set<() => void>();
           let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -122,8 +134,9 @@ export const MetasploitShellAdapterLive = Layer.effect(
 
             resize(cols: number, rows: number) {
               if (closed) return;
-              // Best-effort resize: send stty for raw shells,
-              // structured command for meterpreter
+              // Meterpreter has no TTY — sending stty would produce error output.
+              // Only send stty resize for raw shell sessions.
+              if (sessionType === "meterpreter") return;
               const sttyCommand = `stty rows ${rows} cols ${cols}\n`;
               runFork(metasploitService.sessionWrite(sessionId, sttyCommand));
             },
