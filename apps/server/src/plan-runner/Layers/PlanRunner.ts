@@ -46,6 +46,7 @@ import type {
   PlanRunnerSyntheticLogEntryRow,
 } from "../../persistence/Services/PlanRunnerRepository";
 import { PlanRunnerService, type PlanRunnerServiceShape } from "../Services/PlanRunner";
+import { parsePlanFrontmatter } from "../frontmatter";
 
 // ─── Internal types ─────────────────────────────────────────────────────────
 
@@ -130,59 +131,39 @@ interface SyntheticStepStatePatch {
   completedAt?: string | null;
 }
 
-interface ParsedFrontmatter {
-  id: string;
-  depends_on: string[];
-  max_retries: number;
-  body: string;
-}
-
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const ANALYZER_STEP_KEY = "analyzer";
 const INTEGRATION_STEP_KEY = "integration";
 const planStepKey = (planId: string) => `plan:${planId}`;
 
-function parseFrontmatter(content: string, fallbackId: string): ParsedFrontmatter {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
-  if (!match || !match[1] || !match[2]) {
-    return { id: fallbackId, depends_on: [], max_retries: 2, body: content };
+function parseFrontmatterOrThrow(content: string, fallbackId: string, filename: string) {
+  try {
+    return parsePlanFrontmatter(content, fallbackId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown frontmatter parse error";
+    throw new PlanRunnerError({
+      message: `Invalid plan frontmatter in ${filename}: ${message}` as any,
+      cause: error,
+    });
   }
+}
 
-  const yaml = match[1];
-  const body = match[2];
-
-  let id: string | null = null;
-  let depends_on: string[] = [];
-  let max_retries = 2;
-
-  for (const line of yaml.split("\n")) {
-    const trimmed = line.trim();
-    const idMatch = trimmed.match(/^id:\s*(.+)$/);
-    if (idMatch?.[1]) {
-      id = idMatch[1].trim().replace(/^["']|["']$/g, "");
+function findDuplicatePlanId(
+  plans: ReadonlyArray<{ planId: string; filename: string }>,
+): { planId: string; filenames: [string, string] } | null {
+  const seen = new Map<string, string>();
+  for (const plan of plans) {
+    const firstFilename = seen.get(plan.planId);
+    if (firstFilename) {
+      return {
+        planId: plan.planId,
+        filenames: [firstFilename, plan.filename],
+      };
     }
-    const retriesMatch = trimmed.match(/^max_retries:\s*(\d+)$/);
-    if (retriesMatch?.[1]) {
-      max_retries = parseInt(retriesMatch[1], 10);
-    }
-    const depsMatch = trimmed.match(/^depends_on:\s*\[(.+)\]$/);
-    if (depsMatch?.[1]) {
-      depends_on = depsMatch[1].split(",").map((d) => d.trim().replace(/^["']|["']$/g, ""));
-    }
+    seen.set(plan.planId, plan.filename);
   }
-
-  // Handle multi-line depends_on (YAML list format)
-  const depsListMatch = yaml.match(/depends_on:\s*\n((?:\s+-\s+.+\n?)*)/);
-  if (depsListMatch?.[1] && depends_on.length === 0) {
-    depends_on = depsListMatch[1]
-      .split("\n")
-      .map((line) => line.replace(/^\s*-\s*/, "").trim())
-      .filter(Boolean)
-      .map((d) => d.replace(/^["']|["']$/g, ""));
-  }
-
-  return { id: id ?? fallbackId, depends_on, max_retries, body };
+  return null;
 }
 
 function parseMarkdownList(s: string | undefined): string[] {
@@ -1820,13 +1801,19 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
             ? failedPlans.map((p) => `- ${p.planId}: ${p.error ?? "unknown"}`).join("\n")
             : "None";
 
-        const integrationPrompt = `You are an integration agent for feature "${run.featureName}".
+        const integrationPrompt = `
+You are an integration agent for feature "${run.featureName}".
 Multiple executors implemented plans in parallel. Your job:
 
-1. Run full check suite: bun typecheck && bun lint && bun test
+1. Run full check suite: 
+  - typecheck if the project allows it
+  - linters 
+  - Tests
 2. Fix conflicts between parallel implementations
 3. Check: duplicate imports, conflicting exports, inconsistent naming, missing wiring
 4. Make fixes to get suite passing
+5. If everything is ok and the implementation is in a worktree, then
+  commit the changes with a detailed message.
 
 Completed plans:
 ${doneList}
@@ -1993,7 +1980,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             ),
           );
           const fallbackId = file.replace(/\.md$/, "");
-          const parsed = parseFrontmatter(rawContent, fallbackId);
+          const parsed = parseFrontmatterOrThrow(rawContent, fallbackId, file);
           if (!parsed.body.trim()) continue;
           frozen.push({
             planId: parsed.id,
@@ -2001,6 +1988,14 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             dependsOn: parsed.depends_on,
             maxRetries: parsed.max_retries,
             content: parsed.body,
+          });
+        }
+
+        const duplicatePlanId = findDuplicatePlanId(frozen);
+        if (duplicatePlanId) {
+          return yield* new PlanRunnerError({
+            message:
+              `Duplicate plan id "${duplicatePlanId.planId}" found in ${duplicatePlanId.filenames[0]} and ${duplicatePlanId.filenames[1]}` as any,
           });
         }
 
@@ -2072,7 +2067,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               plan.filename,
             );
             content = yield* fs.readFileString(planPath).pipe(
-              Effect.map((raw) => parseFrontmatter(raw, plan.planId).body),
+              Effect.map((raw) => parsePlanFrontmatter(raw, plan.planId).body),
               Effect.catch(() => Effect.succeed("")),
             );
           }
@@ -2965,13 +2960,25 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
                   }),
               ),
             );
-            const parsed = parseFrontmatter(rawContent, filename.replace(/\.md$/, ""));
+            const parsed = parseFrontmatterOrThrow(
+              rawContent,
+              filename.replace(/\.md$/, ""),
+              filename,
+            );
             plans.push({
               planId: parsed.id,
               filename,
               dependsOn: parsed.depends_on,
               maxRetries: parsed.max_retries,
               content: parsed.body,
+            });
+          }
+
+          const duplicatePlanId = findDuplicatePlanId(plans);
+          if (duplicatePlanId) {
+            return yield* new PlanRunnerError({
+              message:
+                `Duplicate plan id "${duplicatePlanId.planId}" found in ${duplicatePlanId.filenames[0]} and ${duplicatePlanId.filenames[1]}` as any,
             });
           }
 
@@ -3075,7 +3082,10 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
           // ── 1. Synthetic entries (durable runner-native log rows). ──
           const syntheticRows = yield* repo
-            .listSyntheticLogEntries({ runId: input.runId, stepKey: input.stepKey as any })
+            .listSyntheticLogEntries({
+              runId: input.runId,
+              stepKey: input.stepKey as any,
+            })
             .pipe(
               Effect.catch(() =>
                 Effect.succeed([] as ReadonlyArray<PlanRunnerSyntheticLogEntryRow>),

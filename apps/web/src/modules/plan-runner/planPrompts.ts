@@ -6,6 +6,9 @@ Create a \`.plans/{featureName}/\` directory with .md plan files. Each plan shou
 - depends_on: array of plan IDs this depends on
 
 Then the markdown body with the full implementation plan.
+Each plan should be specific and small enough for an agent to be completed
+without to much effort. The plan can include code snippets, and
+concrete instructions for the agent to follow.
 
 Interview me relentlessly about every aspect of this feature until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
 Do one question at a time.
@@ -14,9 +17,6 @@ If a question can be answered by exploring the codebase, explore the codebase in
 
 Feature to plan: `;
 
-export function buildPlanRefinementPrompt(input: {
-  filename: string;
-  content: string;
-}): string {
+export function buildPlanRefinementPrompt(input: { filename: string; content: string }): string {
   return `Here is a plan file I'd like to refine:\n\n# @${input.filename}\n\nPlease update this plan based on the following feedback:\n`;
 }
