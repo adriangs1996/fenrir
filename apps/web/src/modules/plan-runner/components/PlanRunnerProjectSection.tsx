@@ -1,11 +1,10 @@
 import { ChevronRightIcon, FolderOpenIcon } from "lucide-react";
 import { memo, useEffect, useMemo } from "react";
-import type { EnvironmentId, ProjectId } from "@fenrir/contracts";
+import type { ProjectId } from "@fenrir/contracts";
 import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { PlanRunnerFeatureFolder } from "./PlanRunnerFeatureFolder";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton } from "~/components/ui/sidebar";
-import { Badge } from "~/components/ui/badge";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "~/components/ui/collapsible";
 import { useUiStateStore } from "~/uiStateStore";
 
@@ -14,7 +13,6 @@ const EMPTY_FEATURES: ReadonlyArray<never> = [];
 interface PlanRunnerProjectSectionProps {
   projectId: ProjectId;
   projectCwd: string;
-  environmentId: EnvironmentId;
 }
 
 const PLAN_RUNNER_PROJECT_FOLDER_KEY_PREFIX = "plan-runner:project:";
@@ -22,7 +20,6 @@ const PLAN_RUNNER_PROJECT_FOLDER_KEY_PREFIX = "plan-runner:project:";
 export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
   projectId,
   projectCwd,
-  environmentId,
 }: PlanRunnerProjectSectionProps) {
   const expansionKey = `${PLAN_RUNNER_PROJECT_FOLDER_KEY_PREFIX}${projectCwd}`;
   const expanded = useUiStateStore((s) => s.planRunnerFolderExpandedByKey[expansionKey] ?? false);
@@ -71,11 +68,6 @@ export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
                 />
                 <FolderOpenIcon className="size-3 shrink-0" />
                 <span>Plans</span>
-                {features.length > 0 && (
-                  <Badge variant="outline" size="sm" className="ml-auto">
-                    {features.length}
-                  </Badge>
-                )}
               </SidebarMenuSubButton>
             </CollapsibleTrigger>
           </div>
@@ -93,7 +85,6 @@ export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
                     feature={feature}
                     projectId={projectId}
                     projectCwd={projectCwd}
-                    environmentId={environmentId}
                   />
                 ))
               )}

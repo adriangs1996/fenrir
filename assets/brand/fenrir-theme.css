@@ -27,7 +27,7 @@
 
   /* === Semantic Colors === */
   --fenrir-red: #f38ba8; /* Errors, destructive, agent failed, critical */
-  --fenrir-yellow: #f9e2af; /* Warnings, pending, agent thinking */
+  --fenrir-yellow: #fcf9c3; /* Warnings, pending, agent thinking */
   --fenrir-blue: #89b4fa; /* Info, links, agent running, secondary actions */
   --fenrir-mauve: #cba6f7; /* AI reasoning, agent output highlights */
   --fenrir-peach: #fab387; /* Tool calls, file ops, git actions */
@@ -38,7 +38,7 @@
   /* === Badge Backgrounds (12% opacity fills) === */
   --fenrir-badge-green: rgba(166, 227, 161, 0.12);
   --fenrir-badge-red: rgba(243, 139, 168, 0.12);
-  --fenrir-badge-yellow: rgba(249, 226, 175, 0.12);
+  --fenrir-badge-yellow: #fcf9c3;
   --fenrir-badge-blue: rgba(137, 180, 250, 0.12);
   --fenrir-badge-mauve: rgba(203, 166, 247, 0.12);
   --fenrir-badge-peach: rgba(250, 179, 135, 0.12);

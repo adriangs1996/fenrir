@@ -10,19 +10,15 @@ import {
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { scopeProjectRef } from "@fenrir/client-runtime";
-import type { EnvironmentId, ProjectId } from "@fenrir/contracts";
+import type { ProjectId } from "@fenrir/contracts";
 import {
   FeatureSummary as FeatureSummarySchema,
   PlanFileSummary as PlanFileSummarySchema,
 } from "@fenrir/contracts";
 import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { getFeatureRunStatus, type FeatureRunStatus } from "./featureRunStatus";
-import { buildPlanRefinementPrompt } from "../planPrompts";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
-import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton } from "~/components/ui/sidebar";
-import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "~/components/ui/collapsible";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -38,7 +34,6 @@ interface PlanRunnerFeatureFolderProps {
   feature: FeatureSummary;
   projectId: ProjectId;
   projectCwd: string;
-  environmentId: EnvironmentId;
 }
 
 const PLAN_RUNNER_FEATURE_FOLDER_KEY_PREFIX = "plan-runner:feature:";
@@ -47,7 +42,6 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   feature,
   projectId,
   projectCwd,
-  environmentId,
 }: PlanRunnerFeatureFolderProps) {
   const navigate = useNavigate();
   const featureKey = `${projectId}:${feature.featureName}`;
@@ -56,7 +50,6 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   const setPlanRunnerFolderExpanded = useUiStateStore((s) => s.setPlanRunnerFolderExpanded);
   const plans = usePlanRunnerStore((s) => s.plansByFeatureKey[featureKey] ?? EMPTY_PLANS);
   const setPlans = usePlanRunnerStore((s) => s.setPlans);
-  const { handleNewThread } = useNewThreadHandler();
 
   const rpcClient = useMemo(() => {
     try {
@@ -79,7 +72,7 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
 
   const handleConfigure = useCallback(() => {
     void navigate({
-      to: "/plan-runner/$featureName/configure",
+      to: "/plan-runner/$featureName/run",
       params: { featureName: feature.featureName },
     });
   }, [navigate, feature.featureName]);
@@ -109,18 +102,6 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
     [navigate, feature.featureName],
   );
 
-  const handleRefine = useCallback(
-    (plan: PlanFileSummary) => {
-      const ref = scopeProjectRef(environmentId, projectId);
-      const prompt = buildPlanRefinementPrompt({
-        filename: plan.filename,
-        content: plan.content,
-      });
-      void handleNewThread(ref, { initialPrompt: prompt });
-    },
-    [environmentId, projectId, handleNewThread],
-  );
-
   return (
     <SidebarMenuSubItem className="w-full">
       <Collapsible
@@ -140,12 +121,9 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
             size="sm"
             className="h-7 min-w-0 flex-1 translate-x-0 justify-start gap-1.5 px-2 text-left text-xs text-muted-foreground"
             onClick={handleConfigure}
-            title={`Open ${feature.featureName} configure`}
+            title={`Open ${feature.featureName} run`}
           >
             <span className="min-w-0 flex-1 truncate">{feature.featureName}</span>
-            <Badge variant="outline" size="sm" className="ml-auto">
-              {feature.planCount}
-            </Badge>
           </SidebarMenuSubButton>
           <FeatureStatusIcon
             status={status}

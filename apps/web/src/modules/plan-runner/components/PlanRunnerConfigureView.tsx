@@ -4,21 +4,17 @@ import {
   Loader2Icon,
   GitBranchIcon,
   AlertCircleIcon,
-  HistoryIcon,
   ActivityIcon,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import type { ProviderKind, ModelSelection, FeatureSummary } from "@fenrir/contracts";
+import type { FeatureSummary } from "@fenrir/contracts";
 import { selectFeaturePlans, usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { useFeatureProjectId } from "../hooks/useFeatureProjectId";
+import { usePlanRunnerModelSelection } from "../hooks/usePlanRunnerModelSelection";
 import { getFeatureRunStatus, isFeatureStartBlocked } from "./featureRunStatus";
+import { PlanRunnerModelSelectionPanel } from "./PlanRunnerModelSelectionPanel";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
-import { useSettings } from "~/hooks/useSettings";
-import { useServerProviders } from "~/rpc/serverState";
-import { resolveAppModelSelectionState } from "~/modelSelection";
-import { getProviderModels } from "~/providerModels";
-import { ProviderModelPicker } from "~/components/chat/ProviderModelPicker";
 import { Button } from "~/components/ui/button";
 import { PlanDagView, type DagPlan } from "./PlanDagView";
 
@@ -114,61 +110,23 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
     });
   }, [navigate, featureSummary?.activeRunId]);
 
-  const handleViewLastRun = useCallback(() => {
+  useEffect(() => {
     if (!featureSummary?.lastRunId) return;
     void navigate({
       to: "/plan-runner/$runId",
       params: { runId: featureSummary.lastRunId },
+      replace: true,
     });
   }, [navigate, featureSummary?.lastRunId]);
 
-  // ── Model selection state (local, not global) ──────────────────────
-  const settings = useSettings();
-  const providers = useServerProviders();
-
-  const defaultProvider = useMemo(() => {
-    try {
-      return resolveAppModelSelectionState(settings, providers).provider;
-    } catch {
-      return "codex" as ProviderKind;
-    }
-  }, [settings, providers]);
-
-  const defaultModel = useMemo(() => {
-    try {
-      return resolveAppModelSelectionState(settings, providers).model;
-    } catch {
-      return "";
-    }
-  }, [settings, providers]);
-
-  const [selectedProvider, setSelectedProvider] = useState<ProviderKind>(defaultProvider);
-  const [selectedModel, setSelectedModel] = useState<string>(defaultModel);
-  const [hasUserSelected, setHasUserSelected] = useState(false);
-
-  // Sync defaults only until user makes a selection
-  useEffect(() => {
-    if (!hasUserSelected && defaultProvider && defaultModel) {
-      setSelectedProvider(defaultProvider);
-      setSelectedModel(defaultModel);
-    }
-  }, [hasUserSelected, defaultProvider, defaultModel]);
-
-  const modelOptionsByProvider = useMemo<
-    Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>
-  >(
-    () => ({
-      codex: getProviderModels(providers, "codex"),
-      claudeAgent: getProviderModels(providers, "claudeAgent"),
-    }),
-    [providers],
-  );
-
-  const handleProviderModelChange = useCallback((provider: ProviderKind, model: string) => {
-    setHasUserSelected(true);
-    setSelectedProvider(provider);
-    setSelectedModel(model);
-  }, []);
+  const {
+    providers,
+    selectedProvider,
+    selectedModel,
+    modelSelection,
+    modelOptionsByProvider,
+    handleProviderModelChange,
+  } = usePlanRunnerModelSelection();
 
   // ── Start run ──────────────────────────────────────────────────────
   const [isStarting, setIsStarting] = useState(false);
@@ -180,10 +138,6 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
     setStartError(null);
 
     try {
-      const modelSelection: ModelSelection = {
-        provider: selectedProvider,
-        model: selectedModel,
-      };
       const result = await rpcClient.planRunner.start({
         projectId,
         featureName: featureName as any,
@@ -197,7 +151,7 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
       setStartError(err instanceof Error ? err.message : "Failed to start run");
       setIsStarting(false);
     }
-  }, [rpcClient, projectId, featureName, selectedProvider, selectedModel, navigate, startBlocked]);
+  }, [rpcClient, projectId, featureName, modelSelection, navigate, startBlocked]);
 
   const handleBack = useCallback(() => {
     void navigate({ to: "/" });
@@ -247,10 +201,6 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
 
   const branchName = `feature/${featureName}`;
   const showCurrentRunButton = startBlocked && featureSummary?.activeRunId != null;
-  const showLastRunButton =
-    !startBlocked &&
-    featureSummary?.lastRunId != null &&
-    (featureStatus === "passed" || featureStatus === "failed");
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -273,28 +223,17 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
               View current run
             </Button>
           )}
-          {showLastRunButton && (
-            <Button variant="outline" size="sm" onClick={handleViewLastRun}>
-              <HistoryIcon className="mr-1.5 size-3" />
-              View last run
-            </Button>
-          )}
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
         {/* Model selection */}
         <div className="border-b px-4 py-4">
-          <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Model
-          </h3>
-          <ProviderModelPicker
+          <PlanRunnerModelSelectionPanel
             provider={selectedProvider}
             model={selectedModel}
-            lockedProvider={null}
             providers={providers}
             modelOptionsByProvider={modelOptionsByProvider}
-            triggerVariant="outline"
             onProviderModelChange={handleProviderModelChange}
           />
         </div>

@@ -175,6 +175,40 @@ function parseMarkdownList(s: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function activityPayloadDetail(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const detail = (payload as { detail?: unknown }).detail;
+  if (typeof detail !== "string") {
+    return null;
+  }
+  const trimmed = detail.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function findRecentProviderTurnStartFailure(
+  thread: {
+    readonly activities: ReadonlyArray<{
+      readonly kind: string;
+      readonly summary: string;
+      readonly payload: unknown;
+      readonly createdAt: string;
+    }>;
+  },
+  notBeforeIso: string,
+): string | null {
+  const activity = thread.activities
+    .toReversed()
+    .find(
+      (entry) => entry.kind === "provider.turn.start.failed" && entry.createdAt >= notBeforeIso,
+    );
+  if (!activity) {
+    return null;
+  }
+  return activityPayloadDetail(activity.payload) ?? activity.summary;
+}
+
 /**
  * Extract the inner text of an XML-style `<tag>...</tag>` block.
  * Returns `undefined` if the tag is absent. Case-insensitive on the tag name,
@@ -1040,6 +1074,7 @@ export const PlanRunnerLive = Layer.effect(
       run?: PlanRunState,
     ): Effect.Effect<{ ok: boolean; error: string | null }, never, never> => {
       const startedAtMs = Date.now();
+      const waitStartedAtIso = new Date(startedAtMs).toISOString();
       // Track whether we've ever observed activeTurnId !== null.
       // This distinguishes "session just bound, turn hasn't started yet"
       // from "turn ran and completed (activeTurnId back to null)".
@@ -1067,6 +1102,14 @@ export const PlanRunnerLive = Layer.effect(
 
           if (!thread) {
             return { ok: false, error: `Thread ${targetThreadId} not found` };
+          }
+
+          const providerTurnStartFailure = findRecentProviderTurnStartFailure(
+            thread,
+            waitStartedAtIso,
+          );
+          if (providerTurnStartFailure) {
+            return { ok: false, error: providerTurnStartFailure };
           }
 
           if (!thread.session) {

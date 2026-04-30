@@ -1,7 +1,16 @@
 export const NEW_PLAN_PROMPT = `
 Help me break down a new feature into implementation plans.
 
-Create a \`.plans/{featureName}/\` directory with .md plan files. Each plan should have YAML frontmatter with:
+If this project does not contains sub-projects then
+  Create a \`.plans/{featureName}/\` directory with .md plan files.
+Else:
+  Create a \`{projectName}/.plans/{featureName}/\` directory with .md plan files
+  for each project this feature might affect.
+
+A subproject usually referes to git submodules or gitignored folders that contain
+other git repos. Packages in a monorepo are not considered subprojects.
+
+Each plan should have YAML frontmatter with:
 - id: unique identifier
 - depends_on: array of plan IDs this depends on
 
@@ -15,7 +24,7 @@ Do one question at a time.
 
 If a question can be answered by exploring the codebase, explore the codebase instead.
 
-Feature to plan: `;
+Feature to plan: \n\n`;
 
 export function buildPlanRefinementPrompt(input: { filename: string; content: string }): string {
   return `Here is a plan file I'd like to refine:\n\n# @${input.filename}\n\nPlease update this plan based on the following feedback:\n`;

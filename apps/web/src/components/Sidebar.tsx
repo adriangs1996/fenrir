@@ -1893,11 +1893,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       )}
 
       {projectExpanded && (
-        <PlanRunnerProjectSection
-          projectId={project.id}
-          projectCwd={project.cwd}
-          environmentId={project.environmentId}
-        />
+        <PlanRunnerProjectSection projectId={project.id} projectCwd={project.cwd} />
       )}
     </>
   );

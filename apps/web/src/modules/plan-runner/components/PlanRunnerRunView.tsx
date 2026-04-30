@@ -1,7 +1,8 @@
-import { ArrowLeftIcon, Loader2Icon, SquareIcon } from "lucide-react";
+import { AlertCircleIcon, ArrowLeftIcon, Loader2Icon, SquareIcon } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  type FeatureSummary,
   type PlanNode as PlanNodeType,
   type FeatureState as FeatureStateType,
   type PlanRunnerStepSnapshot,
@@ -15,12 +16,15 @@ import {
   useStepLog,
 } from "../stores/usePlanRunnerStore";
 import { useStepLogFetcher } from "../hooks/useStepLogFetcher";
+import { usePlanRunnerModelSelection } from "../hooks/usePlanRunnerModelSelection";
+import { getFeatureRunStatus, isFeatureStartBlocked } from "./featureRunStatus";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { useSettings } from "~/hooks/useSettings";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import { PlanDagView, type DagPlan } from "./PlanDagView";
 import { LiveStepMonitorPanel } from "./LiveStepMonitorPanel";
+import { PlanRunnerModelSelectionPanel } from "./PlanRunnerModelSelectionPanel";
 import { StepHistoryList } from "./StepHistoryList";
 import { StepLogViewer } from "./StepLogViewer";
 import { stepLabel } from "./stepLabels";
@@ -76,6 +80,14 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
   const run = usePlanRunnerStore((s) => s.runById[runId]);
   const upsertRun = usePlanRunnerStore((s) => s.upsertRun);
   const timestampFormat = useSettings((s) => s.timestampFormat);
+  const {
+    providers,
+    selectedProvider,
+    selectedModel,
+    modelSelection,
+    modelOptionsByProvider,
+    handleProviderModelChange,
+  } = usePlanRunnerModelSelection();
 
   const rpcClient = useMemo(() => {
     try {
@@ -124,6 +136,41 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
     void rpcClient.planRunner.cancel({ runId: brandedRunId });
   }, [rpcClient, brandedRunId]);
 
+  const featureSummary = usePlanRunnerStore((s): FeatureSummary | null => {
+    if (!run) return null;
+    const features = s.featuresByProjectId[run.projectId];
+    if (!features) return null;
+    return features.find((feature) => feature.featureName === run.featureName) ?? null;
+  });
+  const featureStatus = featureSummary ? getFeatureRunStatus(featureSummary) : "notRun";
+  const startBlocked = featureSummary ? isFeatureStartBlocked(featureSummary) : false;
+  const blockedReason =
+    featureStatus === "recovering" ? "Recovery in progress" : "Run already in progress";
+
+  const [isStarting, setIsStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+
+  const handleStartRun = useCallback(async () => {
+    if (!rpcClient || !run || startBlocked) return;
+    setIsStarting(true);
+    setStartError(null);
+
+    try {
+      const result = await rpcClient.planRunner.start({
+        projectId: run.projectId,
+        featureName: run.featureName,
+        modelSelection,
+      });
+      void navigate({
+        to: "/plan-runner/$runId",
+        params: { runId: result.runId },
+      });
+    } catch (err) {
+      setStartError(err instanceof Error ? err.message : "Failed to start run");
+      setIsStarting(false);
+    }
+  }, [rpcClient, run, startBlocked, modelSelection, navigate]);
+
   const handleBack = useCallback(() => {
     void navigate({ to: "/" });
   }, [navigate]);
@@ -139,6 +186,11 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
   // stepKey from a previous run sticking around.
   useEffect(() => {
     setSelection(null);
+  }, [runId]);
+
+  useEffect(() => {
+    setStartError(null);
+    setIsStarting(false);
   }, [runId]);
 
   // Live-tab stickiness:
@@ -295,6 +347,41 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
           </Button>
         )}
       </div>
+
+      {isTerminal && (
+        <div className="border-b px-4 py-4">
+          {startError && (
+            <div className="mb-3 flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertCircleIcon className="size-4 shrink-0" />
+              {startError}
+            </div>
+          )}
+          <div className="flex items-end justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <PlanRunnerModelSelectionPanel
+                provider={selectedProvider}
+                model={selectedModel}
+                providers={providers}
+                modelOptionsByProvider={modelOptionsByProvider}
+                onProviderModelChange={handleProviderModelChange}
+              />
+            </div>
+            <Button size="sm" onClick={handleStartRun} disabled={isStarting || startBlocked}>
+              {isStarting ? (
+                <>
+                  <Loader2Icon className="mr-1.5 size-3 animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                "Start Run"
+              )}
+            </Button>
+          </div>
+          <div className="mt-2 text-xs text-muted-foreground">
+            {startBlocked ? blockedReason : null}
+          </div>
+        </div>
+      )}
 
       {/* Phase indicator */}
       <div className="flex items-center gap-1 border-b px-4 py-2">

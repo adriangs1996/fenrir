@@ -39,6 +39,7 @@ import {
   startEnvironmentConnectionService,
 } from "../environments/runtime";
 import { configureClientTracing } from "../observability/clientTracing";
+import { persistCurrentRoute } from "../routePersistence";
 import {
   ensurePrimaryEnvironmentReady,
   resolveInitialServerAuthGateState,
@@ -93,6 +94,7 @@ function FontSettingsSync() {
 }
 
 function RootRouteView() {
+  const location = useLocation();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();
 
@@ -104,6 +106,10 @@ function RootRouteView() {
       window.cancelAnimationFrame(frame);
     };
   }, [pathname]);
+
+  useEffect(() => {
+    persistCurrentRoute();
+  }, [location]);
 
   if (pathname === "/pair") {
     return <Outlet />;
