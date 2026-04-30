@@ -10,7 +10,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { ProviderKind, ModelSelection, FeatureSummary } from "@fenrir/contracts";
-import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
+import { selectFeaturePlans, usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { useFeatureProjectId } from "../hooks/useFeatureProjectId";
 import { getFeatureRunStatus, isFeatureStartBlocked } from "./featureRunStatus";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
@@ -51,27 +51,44 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
 
   // ── Resolve projectId from store ────────────────────────────────────
   const projectId = useFeatureProjectId(featureName);
+  const featurePlansKey = projectId ? `${projectId}:${featureName}` : null;
 
   // ── Plans from store ────────────────────────────────────────────────
-  const plans = usePlanRunnerStore((s): readonly PlanFileSummary[] => {
-    for (const [key, cachedPlans] of Object.entries(s.plansByFeatureKey)) {
-      if (key.endsWith(`:${featureName}`)) {
-        return cachedPlans;
-      }
-    }
-    return [];
-  });
+  const plans = usePlanRunnerStore((s): readonly PlanFileSummary[] =>
+    selectFeaturePlans(s.plansByFeatureKey, featurePlansKey),
+  );
+  const [plansLoadState, setPlansLoadState] = useState<"idle" | "loading" | "ready" | "error">(
+    "idle",
+  );
+  const [plansLoadError, setPlansLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPlansLoadState("idle");
+    setPlansLoadError(null);
+  }, [featurePlansKey]);
 
   // Fetch plans if not cached. Configure/preview always reads live `.plans/`
   // files so the UI reflects in-flight edits; only the run detail page uses
   // a frozen run snapshot.
   useEffect(() => {
-    if (plans.length > 0 || !rpcClient || !projectId) return;
+    if (plans.length > 0) {
+      setPlansLoadState("ready");
+      return;
+    }
+    if (!rpcClient || !projectId || plansLoadState !== "idle") return;
+    setPlansLoadState("loading");
     rpcClient.planRunner
       .getFeaturePlans({ projectId, featureName: featureName as any })
-      .then((result) => setPlans(`${projectId}:${featureName}`, result.plans))
-      .catch((err) => console.error("getFeaturePlans failed:", err));
-  }, [plans.length, rpcClient, projectId, featureName, setPlans]);
+      .then((result) => {
+        setPlans(`${projectId}:${featureName}`, result.plans);
+        setPlansLoadState("ready");
+      })
+      .catch((err) => {
+        console.error("getFeaturePlans failed:", err);
+        setPlansLoadError(err instanceof Error ? err.message : "Failed to load plans");
+        setPlansLoadState("error");
+      });
+  }, [plans.length, plansLoadState, rpcClient, projectId, featureName, setPlans]);
 
   // ── Feature summary (for last-run navigation + start gating) ───────
   const featureSummary = usePlanRunnerStore((s): FeatureSummary | null => {
@@ -208,11 +225,22 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
   );
 
   // ── Loading state ──────────────────────────────────────────────────
-  if (plans.length === 0) {
+  if (!projectId || plansLoadState === "idle" || plansLoadState === "loading") {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
         <Loader2Icon className="size-8 animate-spin text-muted-foreground" />
         <p className="text-sm text-muted-foreground">Loading plans...</p>
+      </div>
+    );
+  }
+
+  if (plansLoadState === "error") {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+        <p className="text-sm font-medium">Could not load plans</p>
+        <p className="text-xs text-muted-foreground">
+          {plansLoadError ?? "The plan files could not be loaded."}
+        </p>
       </div>
     );
   }
@@ -297,8 +325,10 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
             <Button
               size="sm"
               onClick={handleStartRun}
-              disabled={isStarting || !projectId || startBlocked}
-              title={startBlocked ? blockedReason : undefined}
+              disabled={isStarting || plans.length === 0 || startBlocked}
+              title={
+                startBlocked ? blockedReason : plans.length === 0 ? "No plans available" : undefined
+              }
             >
               {isStarting ? (
                 <>

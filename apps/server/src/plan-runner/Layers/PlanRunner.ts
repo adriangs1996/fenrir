@@ -15,7 +15,6 @@ import {
 import type {
   FeatureState,
   ModelSelection,
-  PlanNode,
   PlanRunId,
   PlanRunnerEvent,
   PlanRunnerLogEntry,
@@ -120,6 +119,15 @@ interface MutablePlanNode {
   reviewFeedback: ReviewFeedback[];
   /** True once `executionOrder` has been assigned + persisted. */
   executionOrderAssigned: boolean;
+}
+
+interface SyntheticStepStatePatch {
+  stepKey: string;
+  state: PlanState;
+  error?: string | null;
+  failureSummary?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
 }
 
 interface ParsedFrontmatter {
@@ -440,6 +448,19 @@ export const PlanRunnerLive = Layer.effect(
     const publishEvent = (event: PlanRunnerEvent) =>
       PubSub.publish(eventPubSub, event).pipe(Effect.asVoid);
 
+    const publishPersistedSnapshot = (runId: PlanRunId) =>
+      Effect.gen(function* () {
+        const persisted = yield* repo
+          .getRunById({ runId })
+          .pipe(Effect.catch(() => Effect.succeed(Option.none<PlanRunSnapshot>())));
+        if (Option.isNone(persisted)) return;
+        yield* publishEvent({
+          type: "planRunner.stateChanged",
+          runId,
+          snapshot: persisted.value,
+        });
+      });
+
     // ── Step-log helpers ──────────────────────────────────────────────
 
     /**
@@ -633,17 +654,20 @@ export const PlanRunnerLive = Layer.effect(
     // ── Persistence helpers (write-through cache) ─────────────────────
 
     const persistRunStateTransition = (run: PlanRunState) =>
-      repo
-        .updateRunState({
-          runId: run.runId,
-          patch: {
-            state: run.state,
-            summary: run.summary,
-            completedAt: run.completedAt,
-            lastUpdatedAt: now() as any,
-          },
-        })
-        .pipe(Effect.ignoreCause({ log: true }));
+      Effect.gen(function* () {
+        yield* repo
+          .updateRunState({
+            runId: run.runId,
+            patch: {
+              state: run.state,
+              summary: run.summary,
+              completedAt: run.completedAt,
+              lastUpdatedAt: now() as any,
+            },
+          })
+          .pipe(Effect.ignoreCause({ log: true }));
+        yield* publishPersistedSnapshot(run.runId).pipe(Effect.ignoreCause({ log: true }));
+      });
 
     const persistStepStateTransition = (run: PlanRunState, plan: MutablePlanNode) =>
       Effect.gen(function* () {
@@ -684,6 +708,30 @@ export const PlanRunnerLive = Layer.effect(
             })
             .pipe(Effect.ignoreCause({ log: true }));
         }
+        yield* publishPersistedSnapshot(run.runId).pipe(Effect.ignoreCause({ log: true }));
+      });
+
+    const persistSyntheticStepStateTransition = (
+      run: PlanRunState,
+      patch: SyntheticStepStatePatch,
+    ) =>
+      Effect.gen(function* () {
+        const lastUpdatedAt = now();
+        yield* repo
+          .updateStepState({
+            runId: run.runId,
+            stepKey: patch.stepKey as any,
+            patch: {
+              state: patch.state,
+              error: patch.error,
+              failureSummary: patch.failureSummary,
+              startedAt: patch.startedAt,
+              completedAt: patch.completedAt,
+            },
+            lastUpdatedAt: lastUpdatedAt as any,
+          })
+          .pipe(Effect.ignoreCause({ log: true }));
+        yield* publishPersistedSnapshot(run.runId).pipe(Effect.ignoreCause({ log: true }));
       });
 
     const persistInternalThread = (
@@ -703,20 +751,24 @@ export const PlanRunnerLive = Layer.effect(
           })
           .pipe(Effect.ignoreCause({ log: true }));
         yield* registerThreadForStep(run.runId, stepKey, threadId, threadRole);
+        yield* publishPersistedSnapshot(run.runId).pipe(Effect.ignoreCause({ log: true }));
       });
 
     const persistRunSummary = (run: PlanRunState) =>
-      repo
-        .updateRunState({
-          runId: run.runId,
-          patch: {
-            state: run.state,
-            summary: run.summary,
-            completedAt: run.completedAt,
-            lastUpdatedAt: now() as any,
-          },
-        })
-        .pipe(Effect.ignoreCause({ log: true }));
+      Effect.gen(function* () {
+        yield* repo
+          .updateRunState({
+            runId: run.runId,
+            patch: {
+              state: run.state,
+              summary: run.summary,
+              completedAt: run.completedAt,
+              lastUpdatedAt: now() as any,
+            },
+          })
+          .pipe(Effect.ignoreCause({ log: true }));
+        yield* publishPersistedSnapshot(run.runId).pipe(Effect.ignoreCause({ log: true }));
+      });
 
     // ── Feature scanner (shared between listFeatures and watcher) ────
 
@@ -864,40 +916,6 @@ export const PlanRunnerLive = Layer.effect(
           }).pipe(Effect.ignoreCause({ log: true })),
         ).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(watcherScope), Effect.asVoid);
       });
-
-    // ── Snapshot builder (in-memory only) ─────────────────────────────
-
-    const toSnapshot = (run: PlanRunState): PlanRunSnapshot => ({
-      runId: run.runId,
-      featureName: run.featureName as any,
-      projectId: run.projectId,
-      branch: run.branch as any,
-      worktreePath: run.worktreePath,
-      state: run.state,
-      plans: [...run.plans.values()].map(
-        (p): PlanNode => ({
-          planId: p.planId,
-          filename: p.filename as any,
-          state: p.state,
-          dependsOn: p.dependsOn,
-          maxRetries: p.maxRetries,
-          retriesUsed: p.retriesUsed,
-          executorThreadId: p.executorThreadId as any,
-          reviewerThreadId: p.reviewerThreadId as any,
-          error: p.error,
-          startedAt: p.startedAt,
-          completedAt: p.completedAt,
-        }),
-      ),
-      maxConcurrency: run.maxConcurrency,
-      analyzerThreadId: run.analyzerThreadId as any,
-      integrationThreadId: run.integrationThreadId as any,
-      steps: [],
-      startedAt: run.startedAt as any,
-      completedAt: run.completedAt,
-      lastUpdatedAt: (run.completedAt ?? run.startedAt) as any,
-      summary: run.summary,
-    });
 
     // ── Thread lifecycle helpers ─────────────────────────────────────
 
@@ -1542,6 +1560,14 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
         // the snapshot already has plans + dependsOn validated, so we skip
         // straight to executing.
         if (run.state === "analyzing") {
+          yield* persistSyntheticStepStateTransition(run, {
+            stepKey: ANALYZER_STEP_KEY,
+            state: "running",
+            startedAt: now(),
+            completedAt: null,
+            error: null,
+            failureSummary: null,
+          });
           yield* emitSyntheticLogEntry(run, ANALYZER_STEP_KEY, {
             kind: "runner.status",
             title: `Analyzer started for "${run.featureName}"`,
@@ -1568,6 +1594,13 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
             run.state = "failed";
             run.summary = "All plan files have empty content";
             run.completedAt = now();
+            yield* persistSyntheticStepStateTransition(run, {
+              stepKey: ANALYZER_STEP_KEY,
+              state: "failed",
+              completedAt: run.completedAt,
+              error: run.summary,
+              failureSummary: run.summary,
+            });
             yield* persistRunSummary(run);
             yield* emitSyntheticLogEntry(run, ANALYZER_STEP_KEY, {
               kind: "runner.status",
@@ -1602,6 +1635,13 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
             run.state = "failed";
             run.summary = `Circular dependency detected among: ${cycleNodes.join(", ")}`;
             run.completedAt = now();
+            yield* persistSyntheticStepStateTransition(run, {
+              stepKey: ANALYZER_STEP_KEY,
+              state: "failed",
+              completedAt: run.completedAt,
+              error: run.summary,
+              failureSummary: run.summary,
+            });
             const cycleSet = new Set(cycleNodes);
             for (const node of run.plans.values()) {
               if (cycleSet.has(node.planId)) {
@@ -1656,10 +1696,12 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
 
           run.state = "executing";
           yield* persistRunStateTransition(run);
-          yield* publishEvent({
-            type: "planRunner.stateChanged",
-            runId: run.runId,
-            snapshot: toSnapshot(run),
+          yield* persistSyntheticStepStateTransition(run, {
+            stepKey: ANALYZER_STEP_KEY,
+            state: "done",
+            completedAt: now(),
+            error: null,
+            failureSummary: null,
           });
           yield* emitSyntheticLogEntry(run, ANALYZER_STEP_KEY, {
             kind: "runner.status",
@@ -1712,6 +1754,14 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
           run.state = "failed";
           run.summary = "No plans completed successfully";
           run.completedAt = now();
+          yield* persistSyntheticStepStateTransition(run, {
+            stepKey: INTEGRATION_STEP_KEY,
+            state: "skipped",
+            startedAt: now(),
+            completedAt: run.completedAt,
+            error: run.summary,
+            failureSummary: run.summary,
+          });
           yield* persistRunSummary(run);
           yield* emitSyntheticLogEntry(run, INTEGRATION_STEP_KEY, {
             kind: "runner.status",
@@ -1740,10 +1790,13 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
         if (run.state !== "integrating") {
           run.state = "integrating";
           yield* persistRunStateTransition(run);
-          yield* publishEvent({
-            type: "planRunner.stateChanged",
-            runId: run.runId,
-            snapshot: toSnapshot(run),
+          yield* persistSyntheticStepStateTransition(run, {
+            stepKey: INTEGRATION_STEP_KEY,
+            state: "running",
+            startedAt: now(),
+            completedAt: null,
+            error: null,
+            failureSummary: null,
           });
           yield* emitSyntheticLogEntry(run, INTEGRATION_STEP_KEY, {
             kind: "runner.status",
@@ -1826,6 +1879,13 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
         }
 
         run.completedAt = now();
+        yield* persistSyntheticStepStateTransition(run, {
+          stepKey: INTEGRATION_STEP_KEY,
+          state: run.state === "completed" ? "done" : "failed",
+          completedAt: run.completedAt,
+          error: run.state === "completed" ? null : run.summary,
+          failureSummary: run.state === "completed" ? null : run.summary,
+        });
         yield* persistRunSummary(run);
         yield* emitSyntheticLogEntry(run, INTEGRATION_STEP_KEY, {
           kind: "runner.status",
@@ -2199,11 +2259,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           })
           .pipe(Effect.ignoreCause({ log: true }));
 
-        yield* publishEvent({
-          type: "planRunner.stateChanged",
-          runId: recoveringRun.runId,
-          snapshot: toSnapshot(recoveringRun),
-        });
+        yield* publishPersistedSnapshot(recoveringRun.runId);
 
         // Cache the run in memory BEFORE emitting the recovery synthetic
         // log entry so the live publish path is gated by an active-run
@@ -2293,18 +2349,15 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
         // analyzer phase is skipped because plans are already frozen +
         // validated in persistence.
         recoveringRun.state =
-          previousState === "analyzing" || previousState === "executing"
-            ? "executing"
-            : previousState === "integrating"
-              ? "integrating"
-              : "executing";
+          previousState === "analyzing"
+            ? "analyzing"
+            : previousState === "executing"
+              ? "executing"
+              : previousState === "integrating"
+                ? "integrating"
+                : "executing";
 
         yield* persistRunStateTransition(recoveringRun);
-        yield* publishEvent({
-          type: "planRunner.stateChanged",
-          runId: recoveringRun.runId,
-          snapshot: toSnapshot(recoveringRun),
-        });
 
         yield* emitSyntheticLogEntry(recoveringRun, ANALYZER_STEP_KEY, {
           kind: "runner.recovery",
@@ -2737,11 +2790,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           // this, an early-fail or quick-cancel `completed` event may
           // arrive for a runId the client has never seen and be silently
           // dropped by the store reducer.
-          yield* publishEvent({
-            type: "planRunner.stateChanged",
-            runId: run.runId,
-            snapshot: toSnapshot(run),
-          });
+          yield* publishPersistedSnapshot(run.runId);
 
           // Fork execution into detached background fiber bound to the
           // runtime scope so the layer scope tears it down on shutdown.
@@ -2756,11 +2805,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
       getStatus: (runId) =>
         Effect.gen(function* () {
-          const runs = yield* Ref.get(activeRuns);
-          const run = runs.get(runId);
-          if (run) return toSnapshot(run);
-          // Fall through to persistence — the run may be terminal and
-          // already evicted from the hot cache.
           const persisted = yield* repo.getRunById({ runId }).pipe(
             Effect.mapError(
               (err) =>
@@ -2969,7 +3013,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
       listRuns: (input) =>
         Effect.gen(function* () {
-          const persisted = yield* repo
+          const runs = yield* repo
             .listRuns(input.projectId ? { projectId: input.projectId } : {})
             .pipe(
               Effect.mapError(
@@ -2981,34 +3025,11 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
                   }),
               ),
             );
-          // Overlay in-memory hot cache for runs whose persistence write may
-          // be lagging the executor by a tick.
-          const memory = yield* Ref.get(activeRuns);
-          const byId = new Map<string, PlanRunSnapshot>();
-          for (const snap of persisted) byId.set(snap.runId, snap);
-          for (const run of memory.values()) {
-            if (input.projectId && run.projectId !== input.projectId) continue;
-            byId.set(run.runId, toSnapshot(run));
-          }
-          return { runs: [...byId.values()] };
+          return { runs: [...runs] };
         }),
 
       getFeatureRun: (input) =>
         Effect.gen(function* () {
-          const memory = yield* Ref.get(activeRuns);
-          let memoryLatest: PlanRunState | null = null;
-          for (const run of memory.values()) {
-            if (run.projectId !== input.projectId) continue;
-            if (run.featureName !== input.featureName) continue;
-            const candidate = run.completedAt ?? run.startedAt;
-            const incumbent = memoryLatest
-              ? (memoryLatest.completedAt ?? memoryLatest.startedAt)
-              : null;
-            if (incumbent === null || candidate > incumbent) {
-              memoryLatest = run;
-            }
-          }
-
           const persisted = yield* repo
             .getFeatureRun({
               projectId: input.projectId,
@@ -3024,19 +3045,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
                   }),
               ),
             );
-
-          // In-memory wins over persistence when newer — the runtime might
-          // not have written through yet for the most recent transition.
-          if (memoryLatest) {
-            const memSnapshot = toSnapshot(memoryLatest);
-            if (Option.isNone(persisted)) {
-              return { run: memSnapshot };
-            }
-            const persistedTs = persisted.value.lastUpdatedAt ?? persisted.value.startedAt;
-            const memoryTs = memSnapshot.lastUpdatedAt ?? memSnapshot.startedAt;
-            return { run: memoryTs >= persistedTs ? memSnapshot : persisted.value };
-          }
-
           return { run: Option.isSome(persisted) ? persisted.value : null };
         }),
 

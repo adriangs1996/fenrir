@@ -196,8 +196,7 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
   const isSelectedLogLoading = useMemo(() => {
     if (!selection) return false;
     const key = stepLogCacheKey(runId, selection.stepKey);
-    const cached = stepLogsByKey[key];
-    return !cached || cached.length === 0;
+    return !Object.prototype.hasOwnProperty.call(stepLogsByKey, key);
   }, [selection, runId, stepLogsByKey]);
 
   const handleSelectLive = useCallback((stepKey: string) => {

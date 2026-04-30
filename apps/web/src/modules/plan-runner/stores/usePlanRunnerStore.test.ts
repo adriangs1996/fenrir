@@ -17,6 +17,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   selectActiveStepTabs,
+  selectFeaturePlans,
   selectInternalThreadIds,
   selectRunIdByInternalThreadId,
   selectStartedStepHistory,
@@ -114,6 +115,32 @@ function resetStore(): void {
 }
 
 beforeEach(resetStore);
+
+describe("selectFeaturePlans", () => {
+  it("returns a stable empty array for missing feature keys", () => {
+    const first = selectFeaturePlans({}, null);
+    const second = selectFeaturePlans({}, null);
+    const third = selectFeaturePlans({}, "proj:feature");
+
+    expect(first).toBe(second);
+    expect(second).toBe(third);
+    expect(first).toEqual([]);
+  });
+
+  it("returns the cached plans for an existing feature key", () => {
+    const plans = [
+      {
+        planId: "plan-1",
+        filename: tn("01-plan.md"),
+        dependsOn: [],
+        maxRetries: 2,
+        content: "# Plan 1",
+      },
+    ] as const;
+
+    expect(selectFeaturePlans({ "proj:feature": plans }, "proj:feature")).toBe(plans);
+  });
+});
 
 // ─── Hidden-thread selectors ────────────────────────────────────────────────
 

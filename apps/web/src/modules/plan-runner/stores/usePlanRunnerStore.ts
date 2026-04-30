@@ -13,6 +13,7 @@ import {
 
 type FeatureSummary = typeof FeatureSummarySchema.Type;
 type PlanFileSummary = typeof PlanFileSummarySchema.Type;
+const EMPTY_FEATURE_PLANS: readonly PlanFileSummary[] = [];
 
 /** Build the composite cache key for per-step log entries. */
 export function stepLogCacheKey(runId: string, stepKey: string): string {
@@ -46,6 +47,16 @@ interface PlanRunnerState {
   setPlans: (key: string, plans: readonly PlanFileSummary[]) => void;
   setStepLog: (runId: string, stepKey: string, entries: readonly PlanRunnerLogEntry[]) => void;
   applyEvent: (event: PlanRunnerEvent) => void;
+}
+
+export function selectFeaturePlans(
+  plansByFeatureKey: Record<string, readonly PlanFileSummary[]>,
+  featureKey: string | null,
+): readonly PlanFileSummary[] {
+  if (!featureKey) {
+    return EMPTY_FEATURE_PLANS;
+  }
+  return plansByFeatureKey[featureKey] ?? EMPTY_FEATURE_PLANS;
 }
 
 /**
