@@ -1123,7 +1123,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   // already fetched into allSidebarThreads, so we can use them directly.
   const projectThreads = allSidebarThreads;
   const projectExpanded = useUiStateStore(
-    (state) => state.projectExpandedById[project.projectKey] ?? false,
+    (state) => state.projectExpandedById[project.cwd] ?? false,
   );
   const threadFolderOpen = useUiStateStore(
     (state) => state.projectThreadFolderExpandedByCwd[project.cwd] ?? false,
@@ -1278,12 +1278,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (selectedThreadCount > 0) {
         clearSelection();
       }
-      toggleProject(project.projectKey);
+      toggleProject(project.cwd);
     },
     [
       clearSelection,
       dragInProgressRef,
-      project.projectKey,
+      project.cwd,
       selectedThreadCount,
       suppressProjectClickAfterDragRef,
       suppressProjectClickForContextMenuRef,
@@ -1298,9 +1298,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       if (dragInProgressRef.current) {
         return;
       }
-      toggleProject(project.projectKey);
+      toggleProject(project.cwd);
     },
-    [dragInProgressRef, project.projectKey, toggleProject],
+    [dragInProgressRef, project.cwd, toggleProject],
   );
 
   const handleProjectButtonPointerDownCapture = useCallback(
@@ -2974,7 +2974,7 @@ export default function Sidebar() {
           ),
           sidebarThreadSortOrder,
         );
-        const projectExpanded = projectExpandedById[project.projectKey] ?? false;
+        const projectExpanded = projectExpandedById[project.cwd] ?? false;
         const activeThreadKey = routeThreadKey ?? undefined;
         const pinnedCollapsedThread =
           !projectExpanded && activeThreadKey

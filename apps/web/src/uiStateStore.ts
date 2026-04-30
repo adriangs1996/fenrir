@@ -170,10 +170,7 @@ function persistState(state: UiState): void {
   try {
     const expandedProjectCwds = Object.entries(state.projectExpandedById)
       .filter(([, expanded]) => expanded)
-      .flatMap(([projectId]) => {
-        const cwd = currentProjectCwdById.get(projectId);
-        return cwd ? [cwd] : [];
-      });
+      .map(([projectCwd]) => projectCwd);
     const expandedProjectThreadFolderCwds = Object.entries(state.projectThreadFolderExpandedByCwd)
       .filter(([, expanded]) => expanded)
       .map(([projectCwd]) => projectCwd);
@@ -254,9 +251,6 @@ function nestedBooleanRecordsEqual(
 
 export function syncProjects(state: UiState, projects: readonly SyncProjectInput[]): UiState {
   const previousProjectCwdById = new Map(currentProjectCwdById);
-  const previousProjectIdByCwd = new Map(
-    [...previousProjectCwdById.entries()].map(([projectId, cwd]) => [cwd, projectId] as const),
-  );
   currentProjectCwdById.clear();
   for (const project of projects) {
     currentProjectCwdById.set(project.key, project.cwd);
@@ -271,12 +265,12 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
     persistedProjectOrderCwds.map((cwd, index) => [cwd, index] as const),
   );
   const mappedProjects = projects.map((project, index) => {
-    const previousProjectIdForCwd = previousProjectIdByCwd.get(project.cwd);
+    const previousCwdForProjectId = previousProjectCwdById.get(project.key);
     const expanded =
-      previousExpandedById[project.key] ??
-      (previousProjectIdForCwd ? previousExpandedById[previousProjectIdForCwd] : undefined) ??
+      previousExpandedById[project.cwd] ??
+      (previousCwdForProjectId ? previousExpandedById[previousCwdForProjectId] : undefined) ??
       persistedExpandedProjectCwds.has(project.cwd);
-    nextExpandedById[project.key] = expanded;
+    nextExpandedById[project.cwd] = expanded;
     return {
       id: project.key,
       cwd: project.cwd,
@@ -497,26 +491,26 @@ export function setThreadChangedFilesExpanded(
   };
 }
 
-export function toggleProject(state: UiState, projectId: string): UiState {
-  const expanded = state.projectExpandedById[projectId] ?? false;
+export function toggleProject(state: UiState, projectCwd: string): UiState {
+  const expanded = state.projectExpandedById[projectCwd] ?? false;
   return {
     ...state,
     projectExpandedById: {
       ...state.projectExpandedById,
-      [projectId]: !expanded,
+      [projectCwd]: !expanded,
     },
   };
 }
 
-export function setProjectExpanded(state: UiState, projectId: string, expanded: boolean): UiState {
-  if ((state.projectExpandedById[projectId] ?? false) === expanded) {
+export function setProjectExpanded(state: UiState, projectCwd: string, expanded: boolean): UiState {
+  if ((state.projectExpandedById[projectCwd] ?? false) === expanded) {
     return state;
   }
   return {
     ...state,
     projectExpandedById: {
       ...state.projectExpandedById,
-      [projectId]: expanded,
+      [projectCwd]: expanded,
     },
   };
 }
@@ -601,8 +595,8 @@ interface UiStateStore extends UiState {
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   clearThreadUi: (threadId: string) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
-  toggleProject: (projectId: string) => void;
-  setProjectExpanded: (projectId: string, expanded: boolean) => void;
+  toggleProject: (projectCwd: string) => void;
+  setProjectExpanded: (projectCwd: string, expanded: boolean) => void;
   setProjectThreadFolderExpanded: (projectCwd: string, expanded: boolean) => void;
   setPlanRunnerFolderExpanded: (key: string, expanded: boolean) => void;
   reorderProjects: (draggedProjectIds: readonly string[], targetProjectId: string) => void;

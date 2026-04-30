@@ -1,5 +1,5 @@
 import { type ServerLifecycleWelcomePayload } from "@fenrir/contracts";
-import { scopedProjectKey, scopeProjectRef } from "@fenrir/client-runtime";
+import { scopeProjectRef } from "@fenrir/client-runtime";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -30,7 +30,7 @@ import {
   useServerConfigUpdatedSubscription,
   useServerWelcomeSubscription,
 } from "../rpc/serverState";
-import { useStore } from "../store";
+import { selectProjectByRef, useStore } from "../store";
 import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import {
@@ -251,14 +251,14 @@ function EventRouter() {
       if (!payload.bootstrapProjectId || !payload.bootstrapThreadId) {
         return;
       }
-      useUiStateStore
-        .getState()
-        .setProjectExpanded(
-          scopedProjectKey(
-            scopeProjectRef(payload.environment.environmentId, payload.bootstrapProjectId),
-          ),
-          true,
-        );
+      const bootstrapProjectRef = scopeProjectRef(
+        payload.environment.environmentId,
+        payload.bootstrapProjectId,
+      );
+      const bootstrapProject = selectProjectByRef(useStore.getState(), bootstrapProjectRef);
+      if (bootstrapProject) {
+        useUiStateStore.getState().setProjectExpanded(bootstrapProject.cwd, true);
+      }
 
       if (readPathname() !== "/") {
         return;

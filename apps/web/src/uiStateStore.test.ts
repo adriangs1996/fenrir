@@ -166,76 +166,84 @@ describe("uiStateStore pure functions", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
     const project2 = ProjectId.makeUnsafe("project-2");
     const project3 = ProjectId.makeUnsafe("project-3");
+    const project1Cwd = "/tmp/project-1";
+    const project2Cwd = "/tmp/project-2";
+    const project3Cwd = "/tmp/project-3";
     const initialState = makeUiState({
       projectExpandedById: {
-        [project1]: true,
-        [project2]: false,
+        [project1Cwd]: true,
+        [project2Cwd]: false,
       },
       projectOrder: [project2, project1],
     });
 
     const next = syncProjects(initialState, [
-      { key: project1, cwd: "/tmp/project-1" },
-      { key: project2, cwd: "/tmp/project-2" },
-      { key: project3, cwd: "/tmp/project-3" },
+      { key: project1, cwd: project1Cwd },
+      { key: project2, cwd: project2Cwd },
+      { key: project3, cwd: project3Cwd },
     ]);
 
     expect(next.projectOrder).toEqual([project2, project1, project3]);
-    expect(next.projectExpandedById[project2]).toBe(false);
+    expect(next.projectExpandedById[project2Cwd]).toBe(false);
   });
 
   it("syncProjects defaults new projects to collapsed", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
+    const project1Cwd = "/tmp/project-1";
 
-    const next = syncProjects(makeUiState(), [{ key: project1, cwd: "/tmp/project-1" }]);
+    const next = syncProjects(makeUiState(), [{ key: project1, cwd: project1Cwd }]);
 
-    expect(next.projectExpandedById[project1]).toBe(false);
+    expect(next.projectExpandedById[project1Cwd]).toBe(false);
   });
 
   it("syncProjects preserves manual order when a project is recreated with the same cwd", () => {
     const oldProject1 = ProjectId.makeUnsafe("project-1");
     const oldProject2 = ProjectId.makeUnsafe("project-2");
     const recreatedProject2 = ProjectId.makeUnsafe("project-2b");
+    const project1Cwd = "/tmp/project-1";
+    const project2Cwd = "/tmp/project-2";
     const initialState = syncProjects(
       makeUiState({
         projectExpandedById: {
-          [oldProject1]: true,
-          [oldProject2]: false,
+          [project1Cwd]: true,
+          [project2Cwd]: false,
         },
         projectOrder: [oldProject2, oldProject1],
       }),
       [
-        { key: oldProject1, cwd: "/tmp/project-1" },
-        { key: oldProject2, cwd: "/tmp/project-2" },
+        { key: oldProject1, cwd: project1Cwd },
+        { key: oldProject2, cwd: project2Cwd },
       ],
     );
 
     const next = syncProjects(initialState, [
-      { key: oldProject1, cwd: "/tmp/project-1" },
-      { key: recreatedProject2, cwd: "/tmp/project-2" },
+      { key: oldProject1, cwd: project1Cwd },
+      { key: recreatedProject2, cwd: project2Cwd },
     ]);
 
     expect(next.projectOrder).toEqual([recreatedProject2, oldProject1]);
-    expect(next.projectExpandedById[recreatedProject2]).toBe(false);
+    expect(next.projectExpandedById[project2Cwd]).toBe(false);
   });
 
   it("syncProjects returns a new state when only project cwd changes", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
+    const previousCwd = "/tmp/project-1";
+    const renamedCwd = "/tmp/project-1-renamed";
     const initialState = syncProjects(
       makeUiState({
         projectExpandedById: {
-          [project1]: false,
+          [previousCwd]: false,
         },
         projectOrder: [project1],
       }),
-      [{ key: project1, cwd: "/tmp/project-1" }],
+      [{ key: project1, cwd: previousCwd }],
     );
 
-    const next = syncProjects(initialState, [{ key: project1, cwd: "/tmp/project-1-renamed" }]);
+    const next = syncProjects(initialState, [{ key: project1, cwd: renamedCwd }]);
 
     expect(next).not.toBe(initialState);
     expect(next.projectOrder).toEqual([project1]);
-    expect(next.projectExpandedById[project1]).toBe(false);
+    expect(next.projectExpandedById[renamedCwd]).toBe(false);
   });
 
   it("syncThreads prunes missing thread UI state", () => {
