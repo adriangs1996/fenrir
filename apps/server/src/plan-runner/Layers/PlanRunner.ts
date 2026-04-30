@@ -35,6 +35,7 @@ import {
   PlanRunnerNotFoundError,
   ThreadId,
 } from "@fenrir/contracts";
+import { formatProviderActivityLogDisplay } from "@fenrir/shared/providerActivityLog";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine";
 import { GitCore } from "../../git/Services/GitCore";
 import { PlanRunnerRepository } from "../../persistence/Services/PlanRunnerRepository";
@@ -606,7 +607,14 @@ export const PlanRunnerLive = Layer.effect(
       sequence: number;
     }): PlanRunnerLogEntry | null => {
       const summary = (input.summary ?? "").trim();
-      if (summary.length === 0) return null;
+      const display = formatProviderActivityLogDisplay({
+        kind: input.kind,
+        summary,
+        payload: input.payload,
+      });
+      if (summary.length === 0 && display.title === "Activity" && display.bodyText === null) {
+        return null;
+      }
       return {
         entryId: PlanRunnerLogEntryId.makeUnsafe(
           `${input.runId}:${input.stepKey}:act:${input.activityId}`,
@@ -618,10 +626,10 @@ export const PlanRunnerLive = Layer.effect(
         createdAt: input.createdAt,
         threadId: ThreadId.makeUnsafe(input.threadId),
         threadRole: input.threadRole,
-        title: summary as PlanRunnerLogEntry["title"],
+        title: display.title as PlanRunnerLogEntry["title"],
         bodyMarkdown: null,
-        bodyText: input.summary,
-        copyText: input.summary,
+        bodyText: display.bodyText,
+        copyText: display.copyText,
         payload: {
           kind: input.kind,
           tone: input.tone,
@@ -3179,17 +3187,28 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
             for (const activity of thread.activities) {
               const summary = (activity.summary ?? "").trim();
-              if (summary.length === 0) continue;
+              const display = formatProviderActivityLogDisplay({
+                kind: activity.kind,
+                summary,
+                payload: activity.payload,
+              });
+              if (
+                summary.length === 0 &&
+                display.title === "Activity" &&
+                display.bodyText === null
+              ) {
+                continue;
+              }
               combined.push({
                 createdAt: activity.createdAt,
                 kind: "activity",
                 threadId: ref.threadId as string,
                 threadRole: ref.threadRole,
                 entryId: `${input.runId}:${input.stepKey}:act:${activity.id}`,
-                title: summary,
+                title: display.title,
                 bodyMarkdown: null,
-                bodyText: activity.summary,
-                copyText: activity.summary,
+                bodyText: display.bodyText,
+                copyText: display.copyText,
                 payload: {
                   kind: activity.kind,
                   tone: activity.tone,

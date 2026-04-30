@@ -53,14 +53,16 @@ export const PlanRunnerPlanPreview = memo(function PlanRunnerPlanPreview({
     }
     // Fallback: check features
     for (const [pid, features] of Object.entries(s.featuresByProjectId)) {
-      if (features.some((f) => f.featureName === featureName)) return pid as ProjectId;
+      if (features.some((f) => f.featureName === featureName))
+        return pid as ProjectId;
     }
     return null;
   });
   const project = useStore((store) =>
     projectId
-      ? (selectProjectsAcrossEnvironments(store).find((candidate) => candidate.id === projectId) ??
-        null)
+      ? (selectProjectsAcrossEnvironments(store).find(
+          (candidate) => candidate.id === projectId,
+        ) ?? null)
       : null,
   );
 
@@ -108,7 +110,7 @@ export const PlanRunnerPlanPreview = memo(function PlanRunnerPlanPreview({
         </div>
         <Button variant="outline" size="sm" onClick={handleRefine}>
           <PencilIcon className="mr-1.5 size-3" />
-          Refine with Claude
+          Refine
         </Button>
       </div>
 

@@ -11,7 +11,6 @@ import {
   WrenchIcon,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { measureElement as measureVirtualElement, useVirtualizer } from "@tanstack/react-virtual";
 import { type PlanRunnerLogEntry, type PlanRunnerLogEntryKind } from "@fenrir/contracts";
 import { type TimestampFormat } from "@fenrir/contracts/settings";
 import ChatMarkdown from "~/components/ChatMarkdown";
@@ -86,6 +85,34 @@ function formatActivityPayload(payload: unknown): string | null {
   }
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function asTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function formatActivityMetaLabel(value: string): string {
+  return value.replaceAll("_", " ").replaceAll(".", " ");
+}
+
+function getActivityMeta(entry: PlanRunnerLogEntry): {
+  kind: string | null;
+  itemType: string | null;
+} {
+  const root = asRecord(entry.payload);
+  const nested = asRecord(root?.payload);
+  return {
+    kind: asTrimmedString(root?.kind),
+    itemType: asTrimmedString(nested?.itemType),
+  };
+}
+
 // ─── Copy text ───────────────────────────────────────────────────────────────
 
 /**
@@ -126,6 +153,7 @@ const EntryRow = memo(function EntryRow({
 }: EntryRowProps) {
   const cfg = kindCfg(entry.kind);
   const Icon = cfg.icon;
+  const activityMeta = entry.kind === "activity" ? getActivityMeta(entry) : null;
 
   // Generated runner prompts (`kind === "prompt"`) are collapsed by default
   // behind a disclosure. Other kinds are always visible.
@@ -193,6 +221,16 @@ const EntryRow = memo(function EntryRow({
         {entry.threadRole && (
           <Badge variant="outline" size="sm" className="px-1.5 font-normal lowercase">
             {entry.threadRole}
+          </Badge>
+        )}
+        {activityMeta?.kind && (
+          <Badge variant="outline" size="sm" className="px-1.5 font-normal lowercase">
+            {formatActivityMetaLabel(activityMeta.kind)}
+          </Badge>
+        )}
+        {activityMeta?.itemType && (
+          <Badge variant="outline" size="sm" className="px-1.5 font-normal lowercase">
+            {formatActivityMetaLabel(activityMeta.itemType)}
           </Badge>
         )}
         <span className="min-w-0 flex-1 truncate text-foreground/90">{entry.title}</span>
@@ -290,15 +328,13 @@ export const StepLogViewer = memo(function StepLogViewer({
   className,
 }: StepLogViewerProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
 
-  const rowVirtualizer = useVirtualizer({
-    count: entries.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 96,
-    measureElement: measureVirtualElement,
-    overscan: 6,
-    getItemKey: (index) => entries[index]?.entryId ?? String(index),
-  });
+  const updateStickiness = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  }, []);
 
   // Auto-scroll-to-bottom on new entries when the user is already near the
   // bottom. This keeps live tailing feeling natural without yanking the
@@ -313,16 +349,18 @@ export const StepLogViewer = memo(function StepLogViewer({
     const grew = entries.length > lastCountRef.current;
     lastCountRef.current = entries.length;
     if (!grew) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    if (nearBottom) {
+    if (stickToBottomRef.current) {
       // Defer one frame so the new row's measurement is committed.
       requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
+        const next = scrollRef.current;
+        if (!next) return;
+        next.scrollTop = next.scrollHeight;
       });
     }
   }, [entries.length]);
-
-  const items = rowVirtualizer.getVirtualItems();
+  useEffect(() => {
+    updateStickiness();
+  }, [entries.length, updateStickiness]);
 
   return (
     <div
@@ -339,7 +377,8 @@ export const StepLogViewer = memo(function StepLogViewer({
       <ViewerHeader entries={entries} loading={loading} emptyHint={emptyHint} />
       <div
         ref={scrollRef}
-        className="relative min-h-0 flex-1 overflow-y-auto"
+        onScroll={updateStickiness}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
         data-testid="step-log-viewer-scroll"
       >
         {entries.length === 0 ? (
@@ -347,34 +386,16 @@ export const StepLogViewer = memo(function StepLogViewer({
             {loading ? "Loading…" : emptyHint}
           </div>
         ) : (
-          <div
-            style={{ height: rowVirtualizer.getTotalSize(), position: "relative", width: "100%" }}
-          >
-            {items.map((virtualRow) => {
-              const entry = entries[virtualRow.index];
-              if (!entry) return null;
-              return (
-                <div
-                  key={virtualRow.key}
-                  data-index={virtualRow.index}
-                  ref={rowVirtualizer.measureElement}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
-                >
-                  <EntryRow
-                    entry={entry}
-                    timestampFormat={timestampFormat}
-                    cwd={cwd}
-                    isPromptDefaultCollapsed
-                  />
-                </div>
-              );
-            })}
+          <div>
+            {entries.map((entry) => (
+              <EntryRow
+                key={entry.entryId}
+                entry={entry}
+                timestampFormat={timestampFormat}
+                cwd={cwd}
+                isPromptDefaultCollapsed
+              />
+            ))}
           </div>
         )}
       </div>

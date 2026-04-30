@@ -4,7 +4,6 @@ import {
   CheckCircle2Icon,
   FileTextIcon,
   Loader2Icon,
-  PencilIcon,
   RotateCwIcon,
   SquareIcon,
   XCircleIcon,
@@ -94,7 +93,10 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   const statusRunId = feature.activeRunId ?? feature.lastRunId ?? null;
   const handleStatusClick = useCallback(() => {
     if (!statusRunId) return;
-    void navigate({ to: "/plan-runner/$runId", params: { runId: statusRunId } });
+    void navigate({
+      to: "/plan-runner/$runId",
+      params: { runId: statusRunId },
+    });
   }, [navigate, statusRunId]);
 
   const handlePlanClick = useCallback(
@@ -175,18 +177,6 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
                 >
                   <FileTextIcon className="size-3 shrink-0" />
                   <span className="min-w-0 flex-1 truncate">{plan.filename}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="invisible ml-auto size-4 group-hover:visible"
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
-                      handleRefine(plan);
-                    }}
-                    title="Refine with Claude"
-                  >
-                    <PencilIcon className="size-3" />
-                  </Button>
                 </SidebarMenuSubButton>
               </SidebarMenuSubItem>
             ))}

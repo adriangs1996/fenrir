@@ -59,6 +59,10 @@
     "./msgpack": {
       "types": "./src/msgpack.ts",
       "import": "./src/msgpack.ts"
+    },
+    "./providerActivityLog": {
+      "types": "./src/providerActivityLog.ts",
+      "import": "./src/providerActivityLog.ts"
     }
   },
   "scripts": {
