@@ -1916,14 +1916,14 @@ function FenrirIcon() {
       xmlns="http://www.w3.org/2000/svg"
     >
       {/* Eyes */}
-      <ellipse cx="80" cy="35" rx="7" ry="3.5" fill="currentColor" />
-      <ellipse cx="120" cy="35" rx="7" ry="3.5" fill="currentColor" />
+      <ellipse cx="80" cy="35" rx="6" ry="3" fill="currentColor" opacity={0.9} />
+      <ellipse cx="120" cy="35" rx="6" ry="3" fill="currentColor" opacity={0.9} />
       {/* Upper jaw */}
       <path
         d="M42,88 L58,55 L75,72 L88,40 L100,62 L112,40 L125,72 L142,55 L158,88"
         fill="none"
         stroke="currentColor"
-        strokeWidth="7"
+        strokeWidth="4"
         strokeLinejoin="round"
         strokeLinecap="round"
       />
@@ -1931,19 +1931,19 @@ function FenrirIcon() {
       <line
         x1="88"
         y1="40"
-        x2="91"
-        y2="115"
+        x2="90"
+        y2="90"
         stroke="currentColor"
-        strokeWidth="7"
+        strokeWidth="4"
         strokeLinecap="round"
       />
       <line
         x1="112"
         y1="40"
-        x2="109"
-        y2="115"
+        x2="110"
+        y2="90"
         stroke="currentColor"
-        strokeWidth="7"
+        strokeWidth="4"
         strokeLinecap="round"
       />
       {/* Small upper teeth */}
@@ -1953,9 +1953,9 @@ function FenrirIcon() {
         x2="77"
         y2="92"
         stroke="currentColor"
-        strokeWidth="5"
+        strokeWidth="2.5"
         strokeLinecap="round"
-        opacity="0.7"
+        opacity={0.6}
       />
       <line
         x1="125"
@@ -1963,16 +1963,16 @@ function FenrirIcon() {
         x2="123"
         y2="92"
         stroke="currentColor"
-        strokeWidth="5"
+        strokeWidth="2.5"
         strokeLinecap="round"
-        opacity="0.7"
+        opacity={0.6}
       />
       {/* Lower jaw */}
       <path
         d="M48,112 L68,132 L88,118 L100,138 L112,118 L132,132 L152,112"
         fill="none"
         stroke="currentColor"
-        strokeWidth="7"
+        strokeWidth="4"
         strokeLinejoin="round"
         strokeLinecap="round"
       />
@@ -1980,19 +1980,19 @@ function FenrirIcon() {
       <line
         x1="88"
         y1="118"
-        x2="90"
-        y2="85"
+        x2="89"
+        y2="110"
         stroke="currentColor"
-        strokeWidth="6"
+        strokeWidth="3.5"
         strokeLinecap="round"
       />
       <line
         x1="112"
         y1="118"
-        x2="110"
-        y2="85"
+        x2="111"
+        y2="110"
         stroke="currentColor"
-        strokeWidth="6"
+        strokeWidth="3.5"
         strokeLinecap="round"
       />
     </svg>

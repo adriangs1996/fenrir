@@ -23,6 +23,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     activeWorkspace: "code",
     threadChangedFilesExpandedById: {},
     planRunnerFolderExpandedByKey: {},
+    workspaceLastPathByName: {},
     ...overrides,
   };
 }

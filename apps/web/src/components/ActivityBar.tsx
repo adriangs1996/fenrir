@@ -1,7 +1,13 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { isElectron } from "../env";
+import { useUiStateStore } from "../uiStateStore";
 
 type Workspace = "code" | "hack";
+
+const WORKSPACE_DEFAULT_PATH: Record<Workspace, string> = {
+  code: "/",
+  hack: "/hack",
+};
 
 interface ActivityBarProps {
   activeWorkspace: Workspace;
@@ -17,6 +23,9 @@ export function ActivityBar({
   onToggleSidebar,
 }: ActivityBarProps) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const workspaceLastPathByName = useUiStateStore((s) => s.workspaceLastPathByName);
+  const setWorkspaceLastPath = useUiStateStore((s) => s.setWorkspaceLastPath);
 
   const handleWorkspaceClick = (workspace: Workspace) => {
     if (workspace === activeWorkspace && onToggleSidebar) {
@@ -24,16 +33,19 @@ export function ActivityBar({
       onToggleSidebar();
       return;
     }
+
+    // Save current path for active workspace before switching
+    setWorkspaceLastPath(activeWorkspace, location.pathname);
+
     onWorkspaceChange(workspace);
     // If sidebar is collapsed, expand it when switching workspace
     if (sidebarOpen === false && onToggleSidebar) {
       onToggleSidebar();
     }
-    if (workspace === "hack") {
-      void navigate({ to: "/hack" as string });
-    } else {
-      void navigate({ to: "/" });
-    }
+
+    // Restore last path for target workspace, or fall back to default
+    const targetPath = workspaceLastPathByName[workspace] ?? WORKSPACE_DEFAULT_PATH[workspace];
+    void navigate({ to: targetPath });
   };
 
   return (
