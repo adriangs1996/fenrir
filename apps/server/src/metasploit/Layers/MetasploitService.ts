@@ -12,6 +12,7 @@ import {
   MetasploitNotFoundError,
   MetasploitSessionError,
   PayloadType,
+  isDirectTcpPayload,
   type CreateListenerInput,
   type ListenerSnapshot,
   type MetasploitEvent,
@@ -26,6 +27,7 @@ import { MetasploitService, type MetasploitServiceShape } from "../Services/Meta
 import type { MsfrpcClient } from "./msfrpcClient";
 import type { ListenerState } from "./listenerMatching";
 import { buildSessionSnapshot } from "./sessionSnapshot";
+import { createRawTcpListener } from "./RawTcpListener";
 import {
   MSFRPC_HOST,
   MSFRPC_PORT,
@@ -63,6 +65,19 @@ export const MetasploitServiceLive = Layer.effect(
     const listenerMissCount = new Map<string, number>();
     let pollingFiber: { interrupt: () => void } | null = null;
     let jobPollingFiber: { interrupt: () => void } | null = null;
+
+    // ── Raw TCP Socket Lookup ───────────────────────────────────────────
+
+    /** Find the raw TCP socket for a direct-TCP session by iterating listeners. */
+    const findRawTcpSocket = (sessionId: string): import("node:net").Socket | null => {
+      for (const state of listeners.values()) {
+        if (state.transport === "direct-tcp" && state.tcpHandle) {
+          const rawSession = state.tcpHandle.getSession(sessionId);
+          if (rawSession) return rawSession.socket;
+        }
+      }
+      return null;
+    };
 
     // ── Event Emission ───────────────────────────────────────────────────
 
@@ -109,6 +124,12 @@ export const MetasploitServiceLive = Layer.effect(
       msfVersion = null;
       stopJobPolling();
       stopSessionPolling();
+      // Close all direct-tcp listeners before clearing
+      for (const state of listeners.values()) {
+        if (state.transport === "direct-tcp" && state.tcpHandle) {
+          state.tcpHandle.close();
+        }
+      }
       listeners.clear();
       knownSessions.clear();
       emitConnectionChanged(false);
@@ -179,7 +200,7 @@ export const MetasploitServiceLive = Layer.effect(
             createdAt: new Date().toISOString(),
           };
 
-          listeners.set(listenerId, { snapshot, jobId });
+          listeners.set(listenerId, { snapshot, jobId, transport: "msfrpc" });
           emitEvent({ type: "listener.created", snapshot, createdAt: new Date().toISOString() });
         }
       });
@@ -391,8 +412,9 @@ export const MetasploitServiceLive = Layer.effect(
           }
         }
 
-        // Detect closed sessions
+        // Detect closed sessions — skip raw-TCP sessions (not tracked by msfrpc)
         for (const [sessionId] of knownSessions) {
+          if (sessionId.startsWith("raw-")) continue;
           if (!currentSessionIds.has(sessionId)) {
             knownSessions.delete(sessionId);
             emitEvent({ type: "session.closed", sessionId, createdAt: new Date().toISOString() });
@@ -430,6 +452,8 @@ export const MetasploitServiceLive = Layer.effect(
         const activeJobIds = new Set<string>(Object.keys(result as Record<string, unknown>));
 
         for (const [listenerId, state] of listeners) {
+          // Skip direct-tcp listeners — not managed by msfrpc jobs
+          if (state.transport === "direct-tcp") continue;
           if (!state.jobId) continue;
 
           const isActive = activeJobIds.has(state.jobId);
@@ -525,6 +549,13 @@ export const MetasploitServiceLive = Layer.effect(
             }, 5_000);
           }
 
+          // Close all direct-tcp listeners
+          for (const state of listeners.values()) {
+            if (state.transport === "direct-tcp" && state.tcpHandle) {
+              state.tcpHandle.close();
+            }
+          }
+
           listeners.clear();
           knownSessions.clear();
           msfVersion = null;
@@ -548,8 +579,74 @@ export const MetasploitServiceLive = Layer.effect(
 
       createListener: (input: CreateListenerInput) =>
         Effect.gen(function* () {
-          const client = yield* ensureStarted;
           const listenerId = crypto.randomUUID();
+
+          // ── Direct TCP path — raw shell payloads (no msfrpcd needed) ───
+          if (isDirectTcpPayload(input.payload)) {
+            const handle = yield* Effect.tryPromise({
+              try: () =>
+                createRawTcpListener(listenerId, input.lhost, input.lport, {
+                  onSession: (rawSession) => {
+                    const sessionSnapshot: MsfSessionSnapshot = {
+                      sessionId: rawSession.sessionId,
+                      type: "shell",
+                      info: "",
+                      targetHost: rawSession.remoteAddress,
+                      platform: "unknown",
+                      via: input.payload,
+                      listenerId,
+                      openedAt: rawSession.connectedAt,
+                    };
+                    knownSessions.set(rawSession.sessionId, sessionSnapshot);
+                    emitEvent({
+                      type: "session.opened",
+                      snapshot: sessionSnapshot,
+                      createdAt: new Date().toISOString(),
+                    });
+                  },
+                  onSessionClosed: (sessionId) => {
+                    knownSessions.delete(sessionId);
+                    emitEvent({
+                      type: "session.closed",
+                      sessionId,
+                      createdAt: new Date().toISOString(),
+                    });
+                  },
+                  onError: (error) => {
+                    console.error(`[raw-tcp] listener ${listenerId} error:`, error);
+                  },
+                }),
+              catch: (error) =>
+                new MetasploitListenerError({
+                  listenerId,
+                  message: `Failed to create TCP listener: ${error instanceof Error ? error.message : String(error)}`,
+                  cause: error,
+                }),
+            });
+
+            const snapshot: ListenerSnapshot = {
+              listenerId,
+              name: input.name,
+              payload: input.payload,
+              lhost: input.lhost,
+              lport: input.lport,
+              status: "active",
+              jobId: null,
+              createdAt: new Date().toISOString(),
+            };
+
+            listeners.set(listenerId, {
+              snapshot,
+              jobId: null,
+              transport: "direct-tcp",
+              tcpHandle: handle,
+            });
+            emitEvent({ type: "listener.created", snapshot, createdAt: new Date().toISOString() });
+            return snapshot;
+          }
+
+          // ── MSFRPC path — staged/meterpreter payloads ─────────────────
+          const client = yield* ensureStarted;
 
           const result = yield* Effect.tryPromise({
             try: () =>
@@ -584,7 +681,7 @@ export const MetasploitServiceLive = Layer.effect(
             createdAt: new Date().toISOString(),
           };
 
-          listeners.set(listenerId, { snapshot, jobId });
+          listeners.set(listenerId, { snapshot, jobId, transport: "msfrpc" });
           emitEvent({ type: "listener.created", snapshot, createdAt: new Date().toISOString() });
           return snapshot;
         }),
@@ -599,7 +696,13 @@ export const MetasploitServiceLive = Layer.effect(
             });
           }
 
-          if (listenerState.jobId && rpcClient) {
+          if (listenerState.transport === "direct-tcp") {
+            // Direct TCP: close the TCP server and all its sessions
+            if (listenerState.tcpHandle) {
+              listenerState.tcpHandle.close();
+            }
+          } else if (listenerState.jobId && rpcClient) {
+            // MSFRPC: stop the job
             yield* Effect.tryPromise({
               try: () => rpcClient!.call("job.stop", [listenerState.jobId]),
               catch: (error) =>
@@ -622,9 +725,6 @@ export const MetasploitServiceLive = Layer.effect(
 
       sessionWrite: (sessionId: string, data: string) =>
         Effect.gen(function* () {
-          const client = yield* ensureConnected.pipe(
-            Effect.mapError((e) => new MetasploitSessionError({ sessionId, message: e.message })),
-          );
           const session = knownSessions.get(sessionId);
           if (!session) {
             return yield* new MetasploitSessionError({
@@ -633,6 +733,31 @@ export const MetasploitServiceLive = Layer.effect(
             });
           }
 
+          // Raw TCP path — write directly to socket
+          if (sessionId.startsWith("raw-")) {
+            const socket = findRawTcpSocket(sessionId);
+            if (!socket) {
+              return yield* new MetasploitSessionError({
+                sessionId,
+                message: `No TCP socket found for raw session ${sessionId}`,
+              });
+            }
+            yield* Effect.try({
+              try: () => socket.write(data),
+              catch: (error) =>
+                new MetasploitSessionError({
+                  sessionId,
+                  message: `Failed to write to raw TCP session: ${error instanceof Error ? error.message : String(error)}`,
+                  cause: error,
+                }),
+            });
+            return;
+          }
+
+          // MSFRPC path
+          const client = yield* ensureConnected.pipe(
+            Effect.mapError((e) => new MetasploitSessionError({ sessionId, message: e.message })),
+          );
           const method =
             session.type === "meterpreter" ? "session.meterpreter_write" : "session.shell_write";
 
@@ -649,9 +774,6 @@ export const MetasploitServiceLive = Layer.effect(
 
       sessionRead: (sessionId: string) =>
         Effect.gen(function* () {
-          const client = yield* ensureConnected.pipe(
-            Effect.mapError((e) => new MetasploitSessionError({ sessionId, message: e.message })),
-          );
           const session = knownSessions.get(sessionId);
           if (!session) {
             return yield* new MetasploitSessionError({
@@ -660,6 +782,13 @@ export const MetasploitServiceLive = Layer.effect(
             });
           }
 
+          // Raw TCP sessions are push-based — no buffered reads.
+          if (sessionId.startsWith("raw-")) return "";
+
+          // MSFRPC path
+          const client = yield* ensureConnected.pipe(
+            Effect.mapError((e) => new MetasploitSessionError({ sessionId, message: e.message })),
+          );
           const method =
             session.type === "meterpreter" ? "session.meterpreter_read" : "session.shell_read";
 
@@ -794,9 +923,6 @@ export const MetasploitServiceLive = Layer.effect(
 
       sessionClose: (sessionId: string) =>
         Effect.gen(function* () {
-          const client = yield* ensureConnected.pipe(
-            Effect.mapError((e) => new MetasploitSessionError({ sessionId, message: e.message })),
-          );
           if (!knownSessions.has(sessionId)) {
             return yield* new MetasploitSessionError({
               sessionId,
@@ -804,15 +930,27 @@ export const MetasploitServiceLive = Layer.effect(
             });
           }
 
-          yield* Effect.tryPromise({
-            try: () => client.call("session.stop", [sessionId]),
-            catch: (error) =>
-              new MetasploitSessionError({
-                sessionId,
-                message: `Failed to close session: ${error instanceof Error ? error.message : String(error)}`,
-                cause: error,
-              }),
-          });
+          if (sessionId.startsWith("raw-")) {
+            // Raw TCP: destroy the socket directly
+            const socket = findRawTcpSocket(sessionId);
+            if (socket && !socket.destroyed) {
+              socket.destroy();
+            }
+          } else {
+            // MSFRPC: stop via RPC
+            const client = yield* ensureConnected.pipe(
+              Effect.mapError((e) => new MetasploitSessionError({ sessionId, message: e.message })),
+            );
+            yield* Effect.tryPromise({
+              try: () => client.call("session.stop", [sessionId]),
+              catch: (error) =>
+                new MetasploitSessionError({
+                  sessionId,
+                  message: `Failed to close session: ${error instanceof Error ? error.message : String(error)}`,
+                  cause: error,
+                }),
+            });
+          }
 
           knownSessions.delete(sessionId);
           emitEvent({ type: "session.closed", sessionId, createdAt: new Date().toISOString() });
@@ -823,16 +961,16 @@ export const MetasploitServiceLive = Layer.effect(
           eventSubscribers.add(listener);
 
           // Seed: deliver current connection state to new subscriber.
-          try {
-            listener({
-              type: "connection.changed",
-              connected: rpcClient !== null,
-              version: msfVersion ?? undefined,
-              createdAt: new Date().toISOString(),
-            });
-          } catch {
-            // Ignore subscriber errors during seed.
-          }
+          yield* Effect.try({
+            try: () =>
+              listener({
+                type: "connection.changed",
+                connected: rpcClient !== null,
+                version: msfVersion ?? undefined,
+                createdAt: new Date().toISOString(),
+              }),
+            catch: () => undefined,
+          }).pipe(Effect.ignore);
 
           return () => {
             eventSubscribers.delete(listener);
@@ -848,6 +986,8 @@ export const MetasploitServiceLive = Layer.effect(
             createdAt: new Date().toISOString(),
           });
         }),
+
+      getRawTcpSocket: (sessionId: string) => Effect.sync(() => findRawTcpSocket(sessionId)),
     } satisfies MetasploitServiceShape;
   }),
 );

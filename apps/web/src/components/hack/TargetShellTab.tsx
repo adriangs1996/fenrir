@@ -17,18 +17,20 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
   const fitAddonRef = useRef<FitAddon | null>(null);
   const serializeAddonRef = useRef<SerializeAddon | null>(null);
   const rpcClient = useMemo(() => getPrimaryEnvironmentConnection().client, []);
-  const { terminalFontFamily, terminalFontSize, terminalLineHeight } = useSettings((s) => ({
-    terminalFontFamily: s.terminalFontFamily,
-    terminalFontSize: s.terminalFontSize,
-    terminalLineHeight: s.terminalLineHeight,
-  }));
+  const { terminalFontFamily, terminalFontSize, terminalLineHeight } =
+    useSettings((s) => ({
+      terminalFontFamily: s.terminalFontFamily,
+      terminalFontSize: s.terminalFontSize,
+      terminalLineHeight: s.terminalLineHeight,
+    }));
 
   // Reactively update terminal font when settings change
   useEffect(() => {
     const activeTerminal = terminalRef.current;
     const activeFitAddon = fitAddonRef.current;
     if (!activeTerminal) return;
-    activeTerminal.options.fontFamily = buildTerminalFontFamily(terminalFontFamily);
+    activeTerminal.options.fontFamily =
+      buildTerminalFontFamily(terminalFontFamily);
     activeTerminal.options.fontSize = terminalFontSize;
     activeTerminal.options.lineHeight = terminalLineHeight;
     try {
@@ -68,11 +70,26 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
     fitAddonRef.current = fitAddon;
     serializeAddonRef.current = serializeAddon;
 
-    // Handle user input — forward keystrokes to MSF session.
+    // Handle user input — buffer keystrokes and flush every frame (~16ms).
+    // Batches rapid typing into a single RPC call instead of one per keystroke.
+    let writeBuf = "";
+    let writeTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushWrite = () => {
+      writeTimer = null;
+      if (!writeBuf) return;
+      const data = writeBuf;
+      writeBuf = "";
+      void rpcClient.metasploit
+        .sessionWrite({ sessionId, data })
+        .catch((err) => {
+          console.warn(`[shell] sessionWrite failed for ${sessionId}:`, err);
+        });
+    };
     const inputDisposable = terminal.onData((data) => {
-      void rpcClient.metasploit.sessionWrite({ sessionId, data }).catch((err) => {
-        console.warn(`[shell] sessionWrite failed for ${sessionId}:`, err);
-      });
+      writeBuf += data;
+      if (!writeTimer) {
+        writeTimer = setTimeout(flushWrite, 16);
+      }
     });
 
     // Forward terminal size changes to MSF.
@@ -84,9 +101,11 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
         resizeSkipFirst = false;
         return;
       }
-      void rpcClient.metasploit.sessionResize({ sessionId, cols, rows }).catch((err) => {
-        console.warn(`[shell] sessionResize failed for ${sessionId}:`, err);
-      });
+      void rpcClient.metasploit
+        .sessionResize({ sessionId, cols, rows })
+        .catch((err) => {
+          console.warn(`[shell] sessionResize failed for ${sessionId}:`, err);
+        });
     });
 
     // Resize observer
@@ -117,6 +136,8 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
     });
 
     return () => {
+      if (writeTimer) clearTimeout(writeTimer);
+      flushWrite(); // Send any remaining buffered input
       inputDisposable.dispose();
       resizeDisposable.dispose();
       themeObserver.disconnect();
@@ -134,9 +155,11 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
     const term = terminalRef.current;
     const cols = term?.cols ?? 80;
     const rows = term?.rows ?? 24;
-    rpcClient.metasploit.sessionAttach({ sessionId, cols, rows }).catch((err) => {
-      console.warn(`[shell] sessionAttach failed for ${sessionId}:`, err);
-    });
+    rpcClient.metasploit
+      .sessionAttach({ sessionId, cols, rows })
+      .catch((err) => {
+        console.warn(`[shell] sessionAttach failed for ${sessionId}:`, err);
+      });
 
     return () => {
       rpcClient.metasploit.sessionDetach({ sessionId }).catch(() => {
@@ -150,7 +173,9 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
     let lastId = 0;
 
     const unsubscribe = useMetasploitSessionTerminalStore.subscribe((state) => {
-      const entries = state.entries.filter((e) => e.sessionId === sessionId && e.id > lastId);
+      const entries = state.entries.filter(
+        (e) => e.sessionId === sessionId && e.id > lastId,
+      );
       for (const entry of entries) {
         terminalRef.current?.write(entry.data);
         lastId = entry.id;

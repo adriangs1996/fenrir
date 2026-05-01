@@ -48,6 +48,14 @@ export const PayloadType = Schema.Literals([
 ]);
 export type PayloadType = typeof PayloadType.Type;
 
+/** Payloads that produce a raw TCP reverse shell — can be handled by a direct TCP listener. */
+const DIRECT_TCP_PAYLOADS: ReadonlySet<string> = new Set(["cmd/unix/reverse_bash"]);
+
+/** Returns true if the payload can be served by a direct TCP listener (no msfrpcd needed). */
+export function isDirectTcpPayload(payload: string): boolean {
+  return DIRECT_TCP_PAYLOADS.has(payload);
+}
+
 // ─── Payload Command Generation ────────────────────────────────────────────
 
 const PAYLOAD_FORMAT_MAP: Record<string, { ext: string; format: string }> = {

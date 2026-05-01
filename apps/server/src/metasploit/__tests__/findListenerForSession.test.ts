@@ -5,7 +5,10 @@ import type { ListenerSnapshot } from "@fenrir/contracts";
 /** Build a minimal ListenerState entry for the listeners map. */
 function L(
   overrides: Partial<ListenerSnapshot> & { listenerId: string },
-): [string, { snapshot: ListenerSnapshot; jobId: string | null }] {
+): [
+  string,
+  { snapshot: ListenerSnapshot; jobId: string | null; transport: "msfrpc" | "direct-tcp" },
+] {
   const snapshot = {
     listenerId: overrides.listenerId,
     name: overrides.name ?? "test",
@@ -16,7 +19,7 @@ function L(
     jobId: overrides.jobId ?? "1",
     createdAt: overrides.createdAt ?? new Date().toISOString(),
   } as ListenerSnapshot;
-  return [overrides.listenerId, { snapshot, jobId: overrides.jobId ?? "1" }];
+  return [overrides.listenerId, { snapshot, jobId: overrides.jobId ?? "1", transport: "msfrpc" }];
 }
 
 describe("findListenerForSession", () => {

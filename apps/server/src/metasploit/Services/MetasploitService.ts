@@ -77,6 +77,13 @@ export interface MetasploitServiceShape {
    * callbacks into the event stream that web clients subscribe to.
    */
   readonly emitSessionOutput: (sessionId: string, data: string) => Effect.Effect<void>;
+
+  /**
+   * @internal
+   * Get the raw TCP socket for a direct-TCP session.
+   * Returns null for MSFRPC-managed sessions.
+   */
+  readonly getRawTcpSocket: (sessionId: string) => Effect.Effect<import("node:net").Socket | null>;
 }
 
 export class MetasploitService extends ServiceMap.Service<

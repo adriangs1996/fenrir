@@ -4,12 +4,16 @@
  * Pure function — no side effects, no service dependencies.
  */
 import type { ListenerSnapshot } from "@fenrir/contracts";
+import type { RawTcpListenerHandle } from "./RawTcpListener";
 
 // ─── Internal State Type ───────────────────────────────────────────────────
 
 export interface ListenerState {
   snapshot: ListenerSnapshot;
   jobId: string | null;
+  transport: "msfrpc" | "direct-tcp";
+  /** Non-null only when transport === "direct-tcp". */
+  tcpHandle?: RawTcpListenerHandle;
 }
 
 // ─── Matching ──────────────────────────────────────────────────────────────
