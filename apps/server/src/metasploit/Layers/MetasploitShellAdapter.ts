@@ -27,15 +27,10 @@ const MAX_READ_FAILURES = 5;
 // ─── PTY Upgrade ──────────────────────────────────────────────────────────
 
 /**
- * Commands tried in order to upgrade a raw shell to a full PTY.
- * Each entry is [test, command]: test runs first; if it succeeds, command spawns the PTY.
- * Falls back through the list until one works.
+ * Single command to upgrade a raw shell to a full PTY.
+ * Uses `||` so only the first available python runs — no nested PTYs.
  */
-const PTY_UPGRADE_COMMANDS = [
-  `python3 -c 'import pty; pty.spawn("/bin/bash")'`,
-  `python -c 'import pty; pty.spawn("/bin/bash")'`,
-  `script -qc /bin/bash /dev/null`,
-];
+const PTY_UPGRADE_CMD = `python3 -c 'import pty; pty.spawn("/bin/bash")' 2>/dev/null || python -c 'import pty; pty.spawn("/bin/bash")' 2>/dev/null`;
 
 /** Delay after sending PTY upgrade command before sending env/stty setup. */
 const PTY_UPGRADE_SETTLE_MS = 800;
@@ -149,36 +144,8 @@ export const MetasploitShellAdapterLive = Layer.effect(
               if (closed) return;
 
               console.log(`[msf-shell] upgrading session ${sessionId} to PTY...`);
-
-              // Try each PTY upgrade command in order
-              for (const cmd of PTY_UPGRADE_COMMANDS) {
-                await writeCmd(cmd + "\n");
-                await new Promise((r) => setTimeout(r, PTY_UPGRADE_SETTLE_MS));
-                if (closed) return;
-
-                // Check if we got a new prompt (PTY spawned successfully).
-                // Read any pending output to look for a prompt indicator.
-                try {
-                  const output = await runPromise(metasploitService.sessionRead(sessionId));
-                  // If we got output that looks like a shell prompt, upgrade succeeded.
-                  if (output && (output.includes("$") || output.includes("#") || output.includes("%"))) {
-                    console.log(`[msf-shell] PTY upgrade succeeded for ${sessionId} via: ${cmd.split(" ")[0]}`);
-                    // Drain this output to the terminal
-                    for (const cb of dataCallbacks) {
-                      try {
-                        cb(output);
-                      } catch {
-                        // ignore
-                      }
-                    }
-                    break;
-                  }
-                } catch {
-                  // Read failed — try next command
-                  continue;
-                }
-              }
-
+              await writeCmd(PTY_UPGRADE_CMD + "\n");
+              await new Promise((r) => setTimeout(r, PTY_UPGRADE_SETTLE_MS));
               if (closed) return;
 
               // Set terminal environment
@@ -190,6 +157,7 @@ export const MetasploitShellAdapterLive = Layer.effect(
               if (closed) return;
               // Clear screen for clean start
               await writeCmd("clear\n");
+              console.log(`[msf-shell] PTY upgrade complete for ${sessionId}`);
             })();
           }
 
