@@ -55,7 +55,9 @@ export function CreateListenerDialog({
   const isPortValid = Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65535;
 
   const handleCreate = () => {
-    if (!isPortValid) return;
+    if (!isPortValid) {
+      return;
+    }
     onCreateListener({
       name: name.trim(),
       payload,

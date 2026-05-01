@@ -67,15 +67,16 @@ describe("MetasploitService — bug coverage", () => {
     return MetasploitServiceLive.pipe(Layer.provide(ptyLayer));
   }
 
-  // ── Bug #5: status() auto-starts ensureStarted ──────────────────────────
+  // ── Bug #5: explicit start() then status() returns connected ────────────
 
-  it("Bug #5: status() auto-starts ensureStarted (best-effort)", async () => {
+  it("Bug #5: explicit start() + status() returns connected", async () => {
     fake.whenCalled("session.list", () => ({}));
     fake.whenCalled("job.list", () => ({}));
     fake.whenCalled("core.version", () => ({ version: "6.4.10" }));
 
     const program = Effect.gen(function* () {
       const svc = yield* MetasploitService;
+      yield* svc.start();
       const result = yield* svc.status();
       yield* svc.stop();
       return result;
@@ -98,14 +99,14 @@ describe("MetasploitService — bug coverage", () => {
 
     const program = Effect.gen(function* () {
       const svc = yield* MetasploitService;
-      // status() triggers ensureStarted — emits connection.changed(true) internally.
-      yield* svc.status();
+      // Explicit start triggers ensureStarted — emits connection.changed(true) internally.
+      yield* svc.start();
 
       // subscribe() does NOT re-emit connection.changed via emitConnectionChanged
       // because lastEmittedConnected is already true. It does deliver a one-shot seed.
       const unsubscribe = yield* svc.subscribe((e) => events.push(e));
 
-      // Calling status() again — no new connection.changed event.
+      // Calling status() — no new connection.changed event.
       yield* svc.status();
       yield* svc.status();
 
@@ -262,8 +263,8 @@ describe("MetasploitService — bug coverage", () => {
       const svc = yield* MetasploitService;
       yield* svc.subscribe((e) => events.push(e));
 
-      // Session "9" is hydrated during ensureStarted with listenerId: null.
-      // Wait a tick for subscribe's ensureStarted to complete.
+      // Explicit start hydrates session "9" with listenerId: null.
+      yield* svc.start();
       yield* Effect.sleep("200 millis");
 
       let caughtError: unknown = null;

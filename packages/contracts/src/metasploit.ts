@@ -205,6 +205,10 @@ export type SessionCloseInput = typeof SessionCloseInput.Type;
 
 export const SessionAttachInput = Schema.Struct({
   sessionId: TrimmedNonEmptyString,
+  /** Initial terminal columns — used for PTY upgrade stty sizing. */
+  cols: Schema.optionalKey(Schema.Int),
+  /** Initial terminal rows — used for PTY upgrade stty sizing. */
+  rows: Schema.optionalKey(Schema.Int),
 });
 export type SessionAttachInput = typeof SessionAttachInput.Type;
 

@@ -1109,6 +1109,16 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
 
         // ─── Metasploit RPCs ──────────────────────────────────────────────
 
+        [WS_METHODS.metasploitStart]: (_input) =>
+          observeRpcEffect(WS_METHODS.metasploitStart, metasploitService.start(), {
+            "rpc.aggregate": "metasploit",
+          }),
+
+        [WS_METHODS.metasploitStop]: (_input) =>
+          observeRpcEffect(WS_METHODS.metasploitStop, metasploitService.stop(), {
+            "rpc.aggregate": "metasploit",
+          }),
+
         [WS_METHODS.metasploitStatus]: (_input) =>
           observeRpcEffect(WS_METHODS.metasploitStatus, metasploitService.status(), {
             "rpc.aggregate": "metasploit",
@@ -1148,7 +1158,10 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 shellProc.write(input.data);
                 return;
               }
-              // Otherwise write directly through the service
+              // Fallback: write directly through the service (no attached adapter)
+              console.warn(
+                `[msf-ws] sessionWrite fallback: no adapter for ${input.sessionId}, writing directly`,
+              );
               yield* metasploitService.sessionWrite(input.sessionId, input.data);
             }).pipe(
               Effect.mapError(
@@ -1213,22 +1226,32 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             Effect.gen(function* () {
               // Idempotent: if already attached, return existing handle.
               if (activeMsfShellProcesses.has(input.sessionId)) {
+                console.log(`[msf-ws] session ${input.sessionId} already attached`);
                 return { sessionId: input.sessionId, attached: true };
               }
 
-              const proc = yield* metasploitShellAdapter.attach(input.sessionId);
+              console.log(`[msf-ws] attaching session ${input.sessionId}...`);
+              const msfRunFork = Effect.runForkWith(yield* Effect.services<never>());
+              const proc = yield* metasploitShellAdapter.attach(input.sessionId, {
+                cols: input.cols,
+                rows: input.rows,
+              });
 
               // Bridge adapter.onData → service.emitSessionOutput → PubSub.
               proc.onData((data) => {
-                Effect.runFork(metasploitService.emitSessionOutput(input.sessionId, data));
+                msfRunFork(metasploitService.emitSessionOutput(input.sessionId, data));
               });
 
               // Auto-cleanup on adapter exit (session closed in MSF).
               proc.onExit(() => {
+                console.log(
+                  `[msf-ws] session ${input.sessionId} adapter exited — removing from active map`,
+                );
                 activeMsfShellProcesses.delete(input.sessionId);
               });
 
               activeMsfShellProcesses.set(input.sessionId, proc);
+              console.log(`[msf-ws] session ${input.sessionId} attached successfully`);
               return { sessionId: input.sessionId, attached: true };
             }),
             { "rpc.aggregate": "metasploit" },

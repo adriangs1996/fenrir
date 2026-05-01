@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   SidebarContent,
   SidebarFooter,
@@ -36,6 +36,28 @@ export function HackSidebar() {
   const connected = useMetasploitStore((s) => s.connected);
   const upsertListener = useMetasploitStore((s) => s.upsertListener);
   const setActiveTab = useTrafficLensStore((state) => state.setActiveTab);
+  const [daemonLoading, setDaemonLoading] = useState(false);
+
+  const toggleDaemon = useCallback(() => {
+    if (daemonLoading) return;
+    setDaemonLoading(true);
+    const action = connected ? rpcClient.metasploit.stop() : rpcClient.metasploit.start();
+    action
+      .then(() => {
+        toastManager.add({
+          type: "success",
+          title: connected ? "msfrpcd stopped" : "msfrpcd started",
+        });
+      })
+      .catch((err) => {
+        toastManager.add({
+          type: "error",
+          title: connected ? "Failed to stop msfrpcd" : "Failed to start msfrpcd",
+          description: err instanceof Error ? err.message : String(err),
+        });
+      })
+      .finally(() => setDaemonLoading(false));
+  }, [rpcClient, connected, daemonLoading]);
 
   return (
     <>
@@ -83,6 +105,32 @@ export function HackSidebar() {
                           }}
                         >
                           &lt;/&gt;
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 w-5 p-0 text-xs text-destructive hover:text-destructive"
+                          title="Stop listener"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            rpcClient.metasploit
+                              .stopListener({ listenerId: listener.listenerId })
+                              .then(() => {
+                                toastManager.add({
+                                  type: "success",
+                                  title: "Listener stopped",
+                                });
+                              })
+                              .catch((err) => {
+                                toastManager.add({
+                                  type: "error",
+                                  title: "Failed to stop listener",
+                                  description: err instanceof Error ? err.message : String(err),
+                                });
+                              });
+                          }}
+                        >
+                          ✕
                         </Button>
                         <Badge
                           variant={
@@ -155,10 +203,32 @@ export function HackSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="p-4">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <div className={`h-2 w-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
-          Metasploit {connected ? "Connected" : "Disconnected"}
-        </div>
+        <button
+          type="button"
+          onClick={toggleDaemon}
+          disabled={daemonLoading}
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+        >
+          <div
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              daemonLoading
+                ? "animate-pulse bg-yellow-500"
+                : connected
+                  ? "bg-green-500"
+                  : "bg-red-500"
+            }`}
+          />
+          <span className="truncate">
+            {daemonLoading
+              ? connected
+                ? "Stopping..."
+                : "Starting..."
+              : connected
+                ? "msfrpcd Running"
+                : "msfrpcd Stopped"}
+          </span>
+          <span className="ml-auto text-[10px] opacity-60">{connected ? "Stop" : "Start"}</span>
+        </button>
       </SidebarFooter>
       <CreateListenerDialog
         open={createDialogOpen}

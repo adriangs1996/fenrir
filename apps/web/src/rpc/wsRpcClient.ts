@@ -63,6 +63,8 @@ export interface WsRpcClient {
     readonly resizeTmux: RpcUnaryMethod<typeof WS_METHODS.terminalResizeTmux>;
   };
   readonly metasploit: {
+    readonly start: RpcUnaryNoArgMethod<typeof WS_METHODS.metasploitStart>;
+    readonly stop: RpcUnaryNoArgMethod<typeof WS_METHODS.metasploitStop>;
     readonly status: RpcUnaryNoArgMethod<typeof WS_METHODS.metasploitStatus>;
     readonly createListener: RpcUnaryMethod<typeof WS_METHODS.metasploitCreateListener>;
     readonly stopListener: RpcUnaryMethod<typeof WS_METHODS.metasploitStopListener>;
@@ -194,6 +196,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.terminalResizeTmux](input)),
     },
     metasploit: {
+      start: () => transport.request((client) => client[WS_METHODS.metasploitStart]({})),
+      stop: () => transport.request((client) => client[WS_METHODS.metasploitStop]({})),
       status: () => transport.request((client) => client[WS_METHODS.metasploitStatus]({})),
       createListener: (input) =>
         transport.request((client) => client[WS_METHODS.metasploitCreateListener](input)),

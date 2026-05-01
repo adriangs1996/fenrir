@@ -5,8 +5,6 @@
  * polls for session changes, and emits events via internal PubSub.
  */
 import { Deferred, Duration, Effect, Fiber, Layer, Schedule, Schema } from "effect";
-import { encode as msgpackEncode } from "@msgpack/msgpack";
-import { msgpackDecode } from "@fenrir/shared/msgpack";
 import {
   MetasploitConnectionError,
   MetasploitListenerError,
@@ -24,132 +22,21 @@ import {
 import { PtyAdapter, type PtyProcess } from "../../terminal/Services/PTY";
 import { MetasploitService, type MetasploitServiceShape } from "../Services/MetasploitService";
 
-// ─── MSFRPC Client ──────────────────────────────────────────────────────────
-
-export interface MsfrpcClient {
-  call(method: string, params?: unknown[]): Promise<any>;
-  authenticate(): Promise<void>;
-  dispose(): void;
-}
-
-export function createMsfrpcClient(host: string, port: number, password: string): MsfrpcClient {
-  let token: string | null = null;
-  let disposed = false;
-
-  const call = async (method: string, params: unknown[] = []): Promise<any> => {
-    if (disposed) {
-      throw new Error("MSFRPC client disposed");
-    }
-    const body = token ? [method, token, ...params] : [method, ...params];
-
-    const response = await fetch(`http://${host}:${port}/api/`, {
-      method: "POST",
-      headers: { "Content-Type": "binary/message-pack" },
-      body: msgpackEncode(body),
-    });
-
-    if (!response.ok) {
-      throw new Error(`MSFRPC request failed: ${response.status} ${response.statusText}`);
-    }
-
-    const buffer = await response.arrayBuffer();
-    return msgpackDecode(new Uint8Array(buffer));
-  };
-
-  return {
-    call,
-    authenticate: async () => {
-      const result = await call("auth.login", [MSFRPC_USER, password]);
-      if (result?.result === "success" && result?.token) {
-        token = result.token;
-      } else {
-        throw new Error("MSFRPC authentication failed");
-      }
-    },
-    dispose: () => {
-      disposed = true;
-      token = null;
-    },
-  };
-}
-
-// ─── Internal State ─────────────────────────────────────────────────────────
-
-interface ListenerState {
-  snapshot: ListenerSnapshot;
-  jobId: string | null;
-}
-
-// ─── Session ↔ Listener Matching ────────────────────────────────────────────
-
-/**
- * Match a discovered session to a registered listener.
- *
- * Returns the listenerId on match, or null if no candidate qualifies.
- * Match rules:
- *   - listener.payload === session.via_exploit
- *   - listener.lport === port(session.tunnel_local) (when parseable)
- *   - listener.lhost is wildcard ("0.0.0.0" / "::" / "") OR equal to host(session.tunnel_local)
- * Tie-break: exact host match wins over wildcard match.
- */
-function findListenerForSession(
-  s: { via_exploit?: unknown; tunnel_local?: unknown },
-  listeners: ReadonlyMap<string, { snapshot: ListenerSnapshot; jobId: string | null }>,
-): string | null {
-  const payload = typeof s.via_exploit === "string" ? s.via_exploit : "";
-  if (!payload) return null;
-
-  const tunnel = typeof s.tunnel_local === "string" ? s.tunnel_local : "";
-  // IPv6-safe host:port split via last colon.
-  const lastColon = tunnel.lastIndexOf(":");
-  const sessionHost = lastColon > 0 ? tunnel.slice(0, lastColon) : "";
-  const sessionPortRaw = lastColon > 0 ? tunnel.slice(lastColon + 1) : "";
-  const sessionPort = sessionPortRaw === "" ? NaN : Number(sessionPortRaw);
-  const havePort = Number.isFinite(sessionPort);
-
-  const candidates: string[] = [];
-  for (const [id, state] of listeners) {
-    const L = state.snapshot;
-    if (L.payload !== payload) continue;
-    if (havePort && Number(L.lport) !== sessionPort) continue;
-
-    const wildcard = L.lhost === "0.0.0.0" || L.lhost === "::" || L.lhost === "";
-    if (!wildcard && sessionHost && L.lhost !== sessionHost) continue;
-
-    candidates.push(id);
-  }
-
-  if (candidates.length === 0) return null;
-  if (candidates.length === 1) return candidates[0]!;
-
-  // Multiple candidates — prefer exact host match.
-  const exact = candidates.find((id) => listeners.get(id)?.snapshot.lhost === sessionHost);
-  return exact ?? candidates[0]!;
-}
+// Extracted modules
+import type { MsfrpcClient } from "./msfrpcClient";
+import type { ListenerState } from "./listenerMatching";
+import { buildSessionSnapshot } from "./sessionSnapshot";
+import {
+  MSFRPC_HOST,
+  MSFRPC_PORT,
+  MSFRPC_USER,
+  MSFRPC_PASSWORD,
+  JOB_MISS_THRESHOLD,
+  POLL_FAILURE_THRESHOLD,
+  __testSeams,
+} from "./constants";
 
 // ─── Layer ──────────────────────────────────────────────────────────────────
-
-const MSFRPC_HOST = "127.0.0.1";
-const MSFRPC_PORT = 55553;
-const MSFRPC_USER = "msf";
-const MSFRPC_PASSWORD = "fenrir";
-const SESSION_POLL_INTERVAL = "2 seconds";
-
-/** @internal Mutable test seam — tests override properties to inject fakes. Reset in afterEach. */
-export const __testSeams: {
-  createClient: typeof createMsfrpcClient;
-  startupDelay: Duration.Input;
-  /** Polling interval between upgrade verification attempts (default 2s, up to MAX_UPGRADE_ATTEMPTS). */
-  upgradeDelay: Duration.Input;
-  sessionPollInterval: Duration.Input;
-  jobPollInterval: Duration.Input;
-} = {
-  createClient: createMsfrpcClient,
-  startupDelay: "3 seconds",
-  upgradeDelay: "2 seconds",
-  sessionPollInterval: SESSION_POLL_INTERVAL,
-  jobPollInterval: "2 seconds",
-};
 
 export const MetasploitServiceLive = Layer.effect(
   MetasploitService,
@@ -157,37 +44,27 @@ export const MetasploitServiceLive = Layer.effect(
     const ptyAdapter = yield* PtyAdapter;
     const runFork = Effect.runForkWith(yield* Effect.services());
 
-    // Internal state
+    // ── Mutable State ────────────────────────────────────────────────────
+
     let msfrpcdProcess: PtyProcess | null = null;
     let rpcClient: MsfrpcClient | null = null;
-    const listeners = new Map<string, ListenerState>();
-    const knownSessions = new Map<string, MsfSessionSnapshot>();
-    const eventSubscribers = new Set<(event: MetasploitEvent) => void>();
-    let pollingFiber: { interrupt: () => void } | null = null;
-    let jobPollingFiber: { interrupt: () => void } | null = null;
-    /** Per-listener consecutive-miss counter for debounce. */
-    const listenerMissCount = new Map<string, number>();
-    const JOB_POLL_INTERVAL = "2 seconds";
-    const JOB_MISS_THRESHOLD = 2;
-
-    // Connection tracking state
     let msfVersion: string | null = null;
     let lastEmittedConnected: boolean | null = null;
     let pollFailureCount = 0;
     let cachedClient: MsfrpcClient | null = null;
-    /**
-     * Single-flight deferred: concurrent callers of `ensureStarted` share
-     * a single in-flight startup via Deferred.await.
-     * Previous `inFlightStart` stored an Effect value, which is a lazy
-     * blueprint — yielding it in two fibers ran ensureStartedRaw twice,
-     * spawning two msfrpcd processes.  The second process's onExit handler
-     * then nuked state set by the first (successful) one.
-     */
     let startDeferred: Deferred.Deferred<
       MsfrpcClient,
       MetasploitNotFoundError | MetasploitConnectionError
     > | null = null;
-    const POLL_FAILURE_THRESHOLD = 3;
+
+    const listeners = new Map<string, ListenerState>();
+    const knownSessions = new Map<string, MsfSessionSnapshot>();
+    const eventSubscribers = new Set<(event: MetasploitEvent) => void>();
+    const listenerMissCount = new Map<string, number>();
+    let pollingFiber: { interrupt: () => void } | null = null;
+    let jobPollingFiber: { interrupt: () => void } | null = null;
+
+    // ── Event Emission ───────────────────────────────────────────────────
 
     const emitEvent = (event: MetasploitEvent) => {
       for (const subscriber of eventSubscribers) {
@@ -211,135 +88,153 @@ export const MetasploitServiceLive = Layer.effect(
       });
     };
 
+    // ── Connection Guard ─────────────────────────────────────────────────
+
     const ensureConnected: Effect.Effect<MsfrpcClient, MetasploitConnectionError> = Effect.suspend(
       () => {
         if (!rpcClient) {
           return Effect.fail(
-            new MetasploitConnectionError({
-              message: "Metasploit is not connected",
-            }),
+            new MetasploitConnectionError({ message: "Metasploit is not connected" }),
           );
         }
         return Effect.succeed(rpcClient);
       },
     );
 
+    /** Clear all connection state — used on process exit and sustained RPC failure. */
+    const clearConnectionState = () => {
+      rpcClient?.dispose();
+      rpcClient = null;
+      cachedClient = null;
+      msfVersion = null;
+      stopJobPolling();
+      stopSessionPolling();
+      listeners.clear();
+      knownSessions.clear();
+      emitConnectionChanged(false);
+    };
+
+    // ── State Hydration ──────────────────────────────────────────────────
+
     /**
      * One-shot rehydration of `listeners` and `knownSessions` from msfrpcd's
-     * live state. Best-effort: any RPC failure short-circuits silently; an
-     * empty rehydration is an acceptable initial state.
-     *
-     * Must be called with `rpcClient` set (i.e. inside `ensureStartedRaw`
-     * after authentication succeeds, before polling fibers start).
+     * live state. Best-effort: any RPC failure short-circuits silently.
      */
     const hydrateState = (client: MsfrpcClient) =>
       Effect.gen(function* () {
-        // Wipe stale in-memory state — fresh msfrpcd has fresh truth.
         listeners.clear();
         knownSessions.clear();
         listenerMissCount.clear();
 
-        // ── Hydrate listeners from job.list + job.info ──────────────
+        yield* hydrateListeners(client);
+        yield* hydrateSessions(client);
+      });
+
+    const hydrateListeners = (client: MsfrpcClient) =>
+      Effect.gen(function* () {
         const jobsResult = yield* Effect.tryPromise({
           try: () => client.call("job.list"),
           catch: () => null,
         }).pipe(Effect.orElseSucceed(() => null));
 
-        if (jobsResult && typeof jobsResult === "object") {
-          for (const [jobIdRaw, infoRaw] of Object.entries(jobsResult as Record<string, unknown>)) {
-            const jobId = String(jobIdRaw);
-            const infoString = typeof infoRaw === "string" ? infoRaw : "";
-            if (!infoString.includes("multi/handler")) continue;
+        if (!jobsResult || typeof jobsResult !== "object") return;
 
-            // Per-job structured info call.
-            const detail = yield* Effect.tryPromise({
-              try: () => client.call("job.info", [jobId]),
-              catch: () => null,
-            }).pipe(Effect.orElseSucceed(() => null));
+        for (const [jobIdRaw, infoRaw] of Object.entries(jobsResult as Record<string, unknown>)) {
+          const jobId = String(jobIdRaw);
+          const infoString = typeof infoRaw === "string" ? infoRaw : "";
+          if (!infoString.includes("multi/handler")) continue;
 
-            if (!detail || typeof detail !== "object") continue;
+          const detail = yield* Effect.tryPromise({
+            try: () => client.call("job.info", [jobId]),
+            catch: () => null,
+          }).pipe(Effect.orElseSucceed(() => null));
 
-            const datastore = (detail as { datastore?: Record<string, unknown> }).datastore ?? {};
-            const payload = String(datastore.PAYLOAD ?? "");
-            const lhost = String(datastore.LHOST ?? "0.0.0.0");
-            const lportRaw = datastore.LPORT;
-            const lport =
-              typeof lportRaw === "number"
-                ? lportRaw
-                : typeof lportRaw === "string"
-                  ? Number.parseInt(lportRaw, 10)
-                  : NaN;
+          if (!detail || typeof detail !== "object") continue;
 
-            if (!payload || !Number.isFinite(lport)) continue;
+          const datastore = (detail as { datastore?: Record<string, unknown> }).datastore ?? {};
+          const payload = String(datastore.PAYLOAD ?? "");
+          const lhost = String(datastore.LHOST ?? "0.0.0.0");
+          const lportRaw = datastore.LPORT;
+          const lport =
+            typeof lportRaw === "number"
+              ? lportRaw
+              : typeof lportRaw === "string"
+                ? Number.parseInt(lportRaw, 10)
+                : NaN;
 
-            // Validate payload against known PayloadType schema — skip unknown payloads.
-            const payloadDecoded = Schema.decodeUnknownOption(PayloadType)(payload);
-            if (payloadDecoded._tag === "None") continue;
+          if (!payload || !Number.isFinite(lport)) continue;
 
-            const listenerId = crypto.randomUUID();
-            const snapshot: ListenerSnapshot = {
-              listenerId,
-              name: `hydrated:${payload}@${lhost}:${lport}`,
-              payload: payloadDecoded.value,
-              lhost,
-              lport,
-              status: "active", // job exists, so active by definition
-              jobId,
-              createdAt: new Date().toISOString(),
-            };
+          const payloadDecoded = Schema.decodeUnknownOption(PayloadType)(payload);
+          if (payloadDecoded._tag === "None") continue;
 
-            listeners.set(listenerId, { snapshot, jobId });
-            emitEvent({
-              type: "listener.created",
-              snapshot,
-              createdAt: new Date().toISOString(),
-            });
-          }
+          const listenerId = crypto.randomUUID();
+          const snapshot: ListenerSnapshot = {
+            listenerId,
+            name: `hydrated:${payload}@${lhost}:${lport}`,
+            payload: payloadDecoded.value,
+            lhost,
+            lport,
+            status: "active",
+            jobId,
+            createdAt: new Date().toISOString(),
+          };
+
+          listeners.set(listenerId, { snapshot, jobId });
+          emitEvent({ type: "listener.created", snapshot, createdAt: new Date().toISOString() });
         }
+      });
 
-        // ── Hydrate sessions from session.list ──────────────────────
+    const hydrateSessions = (client: MsfrpcClient) =>
+      Effect.gen(function* () {
         const sessionsResult = yield* Effect.tryPromise({
           try: () => client.call("session.list"),
           catch: () => null,
         }).pipe(Effect.orElseSucceed(() => null));
 
-        if (sessionsResult && typeof sessionsResult === "object") {
-          for (const [sessionId, sessionData] of Object.entries(
-            sessionsResult as Record<string, any>,
-          )) {
-            const matchedListenerId = findListenerForSession(
-              sessionData as { via_exploit?: unknown; tunnel_local?: unknown },
-              listeners,
-            );
+        if (!sessionsResult || typeof sessionsResult !== "object") return;
 
-            const snapshot: MsfSessionSnapshot = {
-              sessionId,
-              type: (sessionData as any).type === "meterpreter" ? "meterpreter" : "shell",
-              info: String((sessionData as any).info ?? ""),
-              targetHost: String((sessionData as any).session_host ?? "unknown"),
-              platform: String((sessionData as any).platform ?? "unknown"),
-              via: String((sessionData as any).via_exploit ?? ""),
-              listenerId: matchedListenerId,
-              openedAt: new Date().toISOString(),
-            };
-
-            knownSessions.set(sessionId, snapshot);
-            emitEvent({
-              type: "session.opened",
-              snapshot,
-              createdAt: new Date().toISOString(),
-            });
-          }
+        for (const [sessionId, sessionData] of Object.entries(
+          sessionsResult as Record<string, any>,
+        )) {
+          const snapshot = buildSessionSnapshot(sessionId, sessionData, listeners);
+          knownSessions.set(sessionId, snapshot);
+          emitEvent({ type: "session.opened", snapshot, createdAt: new Date().toISOString() });
         }
       });
 
+    // ── Startup Lifecycle ────────────────────────────────────────────────
+
+    /** Kill any in-flight msfrpcd process and wipe connection state. */
+    const killMsfrpcd = () => {
+      if (msfrpcdProcess) {
+        msfrpcdProcess.kill("SIGTERM");
+        msfrpcdProcess = null;
+      }
+      clearConnectionState();
+    };
+
     /** Raw start: spawn msfrpcd, authenticate, fetch version. NOT cached. */
     const ensureStartedRaw = Effect.gen(function* () {
-      // Spawn msfrpcd
+      // Kill leftover process from a previous failed start to free the port.
+      killMsfrpcd();
+
+      let processExited = false;
+
       const proc = yield* ptyAdapter
         .spawn({
           shell: "msfrpcd",
-          args: ["-P", MSFRPC_PASSWORD, "-S", "-a", MSFRPC_HOST, "-p", String(MSFRPC_PORT)],
+          args: [
+            "-U",
+            MSFRPC_USER,
+            "-P",
+            MSFRPC_PASSWORD,
+            "-S",
+            "-f",
+            "-a",
+            MSFRPC_HOST,
+            "-p",
+            String(MSFRPC_PORT),
+          ],
           cwd: "/tmp",
           cols: 80,
           rows: 24,
@@ -359,34 +254,35 @@ export const MetasploitServiceLive = Layer.effect(
 
       msfrpcdProcess = proc;
 
-      // Hook process exit → mark disconnected.
       proc.onExit(() => {
-        rpcClient?.dispose();
-        rpcClient = null;
-        cachedClient = null;
+        processExited = true;
         msfrpcdProcess = null;
-        msfVersion = null;
-        stopJobPolling();
-        stopSessionPolling();
-        emitConnectionChanged(false);
-        // Clear in-memory listener/session maps — fresh msfrpcd will have fresh state.
-        listeners.clear();
-        knownSessions.clear();
+        clearConnectionState();
       });
 
       yield* Effect.sleep(__testSeams.startupDelay);
 
       const client = __testSeams.createClient(MSFRPC_HOST, MSFRPC_PORT, MSFRPC_PASSWORD);
 
-      yield* Effect.retry(
-        Effect.tryPromise({
+      // Auth retry that aborts early when msfrpcd exits (no point retrying a dead process).
+      const authAttempt = Effect.gen(function* () {
+        if (processExited) {
+          return yield* new MetasploitConnectionError({
+            message: "msfrpcd exited before authentication could complete",
+          });
+        }
+        yield* Effect.tryPromise({
           try: () => client.authenticate(),
           catch: (error) =>
             new MetasploitConnectionError({
               message: `MSFRPC authentication failed: ${error instanceof Error ? error.message : String(error)}`,
               cause: error,
             }),
-        }),
+        });
+      });
+
+      yield* Effect.retry(
+        authAttempt,
         Schedule.recurs(5).pipe(Schedule.addDelay(() => Effect.succeed(Duration.seconds(2)))),
       );
 
@@ -403,7 +299,6 @@ export const MetasploitServiceLive = Layer.effect(
       cachedClient = client;
       pollFailureCount = 0;
 
-      // Hydrate from msfrpcd live state (best-effort).
       yield* hydrateState(client).pipe(Effect.orElseSucceed(() => undefined));
 
       startSessionPolling();
@@ -413,24 +308,20 @@ export const MetasploitServiceLive = Layer.effect(
     });
 
     /**
-     * Single-flight wrapper using Deferred: concurrent callers share one
-     * in-flight startup.  The first caller runs `ensureStartedRaw`; later
-     * callers `Deferred.await` the same result.  On disconnect the cached
-     * client is cleared so the next call starts fresh.
+     * Single-flight wrapper via Deferred: concurrent callers share one
+     * in-flight startup. First caller runs `ensureStartedRaw`; later
+     * callers `Deferred.await` the same result.
      */
     const ensureStarted: Effect.Effect<
       MsfrpcClient,
       MetasploitNotFoundError | MetasploitConnectionError
     > = Effect.gen(function* () {
-      // Fast path: already connected.
       if (cachedClient) return cachedClient;
 
-      // Single-flight: wait for in-progress start.
       if (startDeferred) {
         return yield* Deferred.await(startDeferred);
       }
 
-      // First caller: create deferred and run startup.
       const deferred = yield* Deferred.make<
         MsfrpcClient,
         MetasploitNotFoundError | MetasploitConnectionError
@@ -445,8 +336,8 @@ export const MetasploitServiceLive = Layer.effect(
         ),
         Effect.tapError((err) =>
           Effect.sync(() => {
-            cachedClient = null;
-            emitConnectionChanged(false);
+            // Kill the orphaned msfrpcd so the next attempt gets a clean port.
+            killMsfrpcd();
           }).pipe(Effect.andThen(Deferred.fail(deferred, err))),
         ),
         Effect.ensuring(
@@ -456,6 +347,8 @@ export const MetasploitServiceLive = Layer.effect(
         ),
       );
     });
+
+    // ── Session Polling ──────────────────────────────────────────────────
 
     const startSessionPolling = () => {
       if (pollingFiber) return;
@@ -470,57 +363,31 @@ export const MetasploitServiceLive = Layer.effect(
         if (result == null) {
           pollFailureCount += 1;
           if (pollFailureCount >= POLL_FAILURE_THRESHOLD) {
-            // Sustained RPC failure → declare disconnected.
-            rpcClient?.dispose();
-            rpcClient = null;
-            cachedClient = null;
-            msfVersion = null;
-            emitConnectionChanged(false);
-            stopJobPolling();
-            stopSessionPolling();
-            listeners.clear();
-            knownSessions.clear();
+            clearConnectionState();
           }
           return;
         }
-        pollFailureCount = 0; // reset on success
+        pollFailureCount = 0;
+
+        if (!result || typeof result !== "object") return;
 
         const currentSessionIds = new Set<string>();
 
-        if (result && typeof result === "object") {
-          for (const [sessionId, sessionData] of Object.entries(result as Record<string, any>)) {
-            currentSessionIds.add(sessionId);
-            if (!knownSessions.has(sessionId)) {
-              const matchedListenerId = findListenerForSession(
-                sessionData as { via_exploit?: unknown; tunnel_local?: unknown },
-                listeners,
+        for (const [sessionId, sessionData] of Object.entries(result as Record<string, any>)) {
+          currentSessionIds.add(sessionId);
+          if (!knownSessions.has(sessionId)) {
+            const snapshot = buildSessionSnapshot(sessionId, sessionData, listeners);
+
+            if (snapshot.listenerId === null) {
+              yield* Effect.logInfo(
+                `[metasploit] orphan session ${sessionId} (via=${String(
+                  (sessionData as any).via_exploit ?? "?",
+                )}, tunnel_local=${String((sessionData as any).tunnel_local ?? "?")})`,
               );
-
-              if (matchedListenerId === null) {
-                yield* Effect.logInfo(
-                  `[metasploit] orphan session ${sessionId} (via=${String(
-                    (sessionData as any).via_exploit ?? "?",
-                  )}, tunnel_local=${String((sessionData as any).tunnel_local ?? "?")})`,
-                );
-              }
-
-              const snapshot: MsfSessionSnapshot = {
-                sessionId,
-                type: (sessionData as any).type === "meterpreter" ? "meterpreter" : "shell",
-                info: String((sessionData as any).info ?? ""),
-                targetHost: String((sessionData as any).session_host ?? "unknown"),
-                platform: String((sessionData as any).platform ?? "unknown"),
-                via: String((sessionData as any).via_exploit ?? ""),
-                listenerId: matchedListenerId,
-                openedAt: new Date().toISOString(),
-              };
-              knownSessions.set(sessionId, snapshot);
-              emitEvent({
-                type: "session.opened",
-                snapshot,
-                createdAt: new Date().toISOString(),
-              });
             }
+
+            knownSessions.set(sessionId, snapshot);
+            emitEvent({ type: "session.opened", snapshot, createdAt: new Date().toISOString() });
           }
         }
 
@@ -528,20 +395,15 @@ export const MetasploitServiceLive = Layer.effect(
         for (const [sessionId] of knownSessions) {
           if (!currentSessionIds.has(sessionId)) {
             knownSessions.delete(sessionId);
-            emitEvent({
-              type: "session.closed",
-              sessionId,
-              createdAt: new Date().toISOString(),
-            });
+            emitEvent({ type: "session.closed", sessionId, createdAt: new Date().toISOString() });
           }
         }
       }).pipe(Effect.orElseSucceed(() => undefined));
 
-      const pollingSchedule = Schedule.spaced(__testSeams.sessionPollInterval);
-      const fiber = runFork(pollEffect.pipe(Effect.repeat(pollingSchedule)));
-      pollingFiber = {
-        interrupt: () => runFork(Fiber.interrupt(fiber)),
-      };
+      const fiber = runFork(
+        pollEffect.pipe(Effect.repeat(Schedule.spaced(__testSeams.sessionPollInterval))),
+      );
+      pollingFiber = { interrupt: () => runFork(Fiber.interrupt(fiber)) };
     };
 
     const stopSessionPolling = () => {
@@ -550,6 +412,8 @@ export const MetasploitServiceLive = Layer.effect(
         pollingFiber = null;
       }
     };
+
+    // ── Job Polling ──────────────────────────────────────────────────────
 
     const startJobPolling = () => {
       if (jobPollingFiber) return;
@@ -561,10 +425,8 @@ export const MetasploitServiceLive = Layer.effect(
           catch: () => null,
         });
 
-        if (result == null) return; // RPC failure — session poll handles disconnect.
-        if (typeof result !== "object") return;
+        if (result == null || typeof result !== "object") return;
 
-        // job.list returns: { "<jobId>": "<info string>", ... }
         const activeJobIds = new Set<string>(Object.keys(result as Record<string, unknown>));
 
         for (const [listenerId, state] of listeners) {
@@ -580,7 +442,6 @@ export const MetasploitServiceLive = Layer.effect(
               nextStatus = "active";
             }
           } else {
-            // Job missing — debounce.
             if (prevStatus === "active") {
               const misses = (listenerMissCount.get(listenerId) ?? 0) + 1;
               if (misses >= JOB_MISS_THRESHOLD) {
@@ -590,15 +451,10 @@ export const MetasploitServiceLive = Layer.effect(
                 listenerMissCount.set(listenerId, misses);
               }
             }
-            // prevStatus === "waiting" with job missing: leave as waiting.
-            // Don't auto-flip to stopped — the job may not be registered yet.
           }
 
           if (nextStatus !== prevStatus) {
-            const updatedSnapshot: ListenerSnapshot = {
-              ...state.snapshot,
-              status: nextStatus,
-            };
+            const updatedSnapshot: ListenerSnapshot = { ...state.snapshot, status: nextStatus };
             listeners.set(listenerId, { ...state, snapshot: updatedSnapshot });
             emitEvent({
               type: "listener.updated",
@@ -612,9 +468,7 @@ export const MetasploitServiceLive = Layer.effect(
       const fiber = runFork(
         pollEffect.pipe(Effect.repeat(Schedule.spaced(__testSeams.jobPollInterval))),
       );
-      jobPollingFiber = {
-        interrupt: () => runFork(Fiber.interrupt(fiber)),
-      };
+      jobPollingFiber = { interrupt: () => runFork(Fiber.interrupt(fiber)) };
     };
 
     const stopJobPolling = () => {
@@ -624,6 +478,8 @@ export const MetasploitServiceLive = Layer.effect(
       }
       listenerMissCount.clear();
     };
+
+    // ── Service Methods ──────────────────────────────────────────────────
 
     return {
       isAvailable: Effect.gen(function* () {
@@ -661,7 +517,6 @@ export const MetasploitServiceLive = Layer.effect(
 
           if (msfrpcdProcess) {
             msfrpcdProcess.kill("SIGTERM");
-            // Force kill after 5 seconds if still alive
             setTimeout(() => {
               if (msfrpcdProcess) {
                 msfrpcdProcess.kill("SIGKILL");
@@ -672,7 +527,6 @@ export const MetasploitServiceLive = Layer.effect(
 
           listeners.clear();
           knownSessions.clear();
-
           msfVersion = null;
           cachedClient = null;
           startDeferred = null;
@@ -682,11 +536,7 @@ export const MetasploitServiceLive = Layer.effect(
         }),
 
       status: () =>
-        Effect.gen(function* () {
-          // Auto-start: best-effort, swallow not-found / connection errors so status
-          // can be queried even when msfrpcd is unavailable (UI shows "Disconnected").
-          yield* ensureStarted.pipe(Effect.orElseSucceed(() => null));
-
+        Effect.sync(() => {
           const snapshot: MetasploitStatusSnapshot = {
             connected: rpcClient !== null,
             version: msfVersion,
@@ -699,7 +549,6 @@ export const MetasploitServiceLive = Layer.effect(
       createListener: (input: CreateListenerInput) =>
         Effect.gen(function* () {
           const client = yield* ensureStarted;
-
           const listenerId = crypto.randomUUID();
 
           const result = yield* Effect.tryPromise({
@@ -736,13 +585,7 @@ export const MetasploitServiceLive = Layer.effect(
           };
 
           listeners.set(listenerId, { snapshot, jobId });
-
-          emitEvent({
-            type: "listener.created",
-            snapshot,
-            createdAt: new Date().toISOString(),
-          });
-
+          emitEvent({ type: "listener.created", snapshot, createdAt: new Date().toISOString() });
           return snapshot;
         }),
 
@@ -769,26 +612,13 @@ export const MetasploitServiceLive = Layer.effect(
           }
 
           listeners.delete(listenerId);
-          emitEvent({
-            type: "listener.stopped",
-            listenerId,
-            createdAt: new Date().toISOString(),
-          });
+          emitEvent({ type: "listener.stopped", listenerId, createdAt: new Date().toISOString() });
         }),
 
       listListeners: () =>
-        Effect.gen(function* () {
-          // Wait for startup/hydration so we don't return empty before
-          // msfrpcd state is loaded into the in-memory map.
-          yield* ensureStarted.pipe(Effect.orElseSucceed(() => null));
-          return Array.from(listeners.values()).map((state) => state.snapshot);
-        }),
+        Effect.sync(() => Array.from(listeners.values()).map((state) => state.snapshot)),
 
-      listSessions: () =>
-        Effect.gen(function* () {
-          yield* ensureStarted.pipe(Effect.orElseSucceed(() => null));
-          return Array.from(knownSessions.values());
-        }),
+      listSessions: () => Effect.sync(() => Array.from(knownSessions.values())),
 
       sessionWrite: (sessionId: string, data: string) =>
         Effect.gen(function* () {
@@ -859,18 +689,12 @@ export const MetasploitServiceLive = Layer.effect(
             });
           }
 
-          if (session.type === "meterpreter") {
-            return session; // Already upgraded.
-          }
+          if (session.type === "meterpreter") return session;
 
-          // ── Listener lookup — strict (Q5/Q5b) ────────────────────────
+          // Listener lookup — strict
           if (!session.listenerId) {
             knownSessions.delete(sessionId);
-            emitEvent({
-              type: "session.closed",
-              sessionId,
-              createdAt: new Date().toISOString(),
-            });
+            emitEvent({ type: "session.closed", sessionId, createdAt: new Date().toISOString() });
             return yield* new MetasploitListenerLookupError({
               sessionId,
               message: `Session ${sessionId} has no associated listener; cannot upgrade orphan session.`,
@@ -880,11 +704,7 @@ export const MetasploitServiceLive = Layer.effect(
           const listenerState = listeners.get(session.listenerId);
           if (!listenerState) {
             knownSessions.delete(sessionId);
-            emitEvent({
-              type: "session.closed",
-              sessionId,
-              createdAt: new Date().toISOString(),
-            });
+            emitEvent({ type: "session.closed", sessionId, createdAt: new Date().toISOString() });
             return yield* new MetasploitListenerLookupError({
               sessionId,
               listenerId: session.listenerId,
@@ -893,14 +713,10 @@ export const MetasploitServiceLive = Layer.effect(
           }
 
           const lhost = listenerState.snapshot.lhost;
-          // Use a different port for the upgrade handler to avoid port conflict
-          // with the original listener (which has ExitOnSession=false and still binds LPORT).
           const upgradePort = String(49152 + Math.floor(Math.random() * 16383));
-
-          // Snapshot known session IDs before upgrade so we can detect the NEW one.
           const preUpgradeSessionIds = new Set(knownSessions.keys());
 
-          // ── Trigger upgrade ──────────────────────────────────────────
+          // Trigger upgrade
           yield* Effect.tryPromise({
             try: () => client.call("session.shell_upgrade", [sessionId, lhost, upgradePort]),
             catch: (error) =>
@@ -911,12 +727,11 @@ export const MetasploitServiceLive = Layer.effect(
               }),
           });
 
-          // ── Poll for the new meterpreter session (up to 30s) ─────────
-          const UPGRADE_POLL_INTERVAL = __testSeams.upgradeDelay;
+          // Poll for new meterpreter session (up to 30s)
           const MAX_UPGRADE_ATTEMPTS = 15;
 
           for (let attempt = 0; attempt < MAX_UPGRADE_ATTEMPTS; attempt++) {
-            yield* Effect.sleep(UPGRADE_POLL_INTERVAL);
+            yield* Effect.sleep(__testSeams.upgradeDelay);
 
             const result = yield* Effect.tryPromise({
               try: () => client.call("session.list"),
@@ -932,7 +747,6 @@ export const MetasploitServiceLive = Layer.effect(
             if (!sessionsMap) continue;
 
             for (const [id, data] of Object.entries(sessionsMap)) {
-              // Must be meterpreter, from same target, and NOT a pre-existing session.
               if (
                 (data as any).type === "meterpreter" &&
                 (data as any).session_host === session.targetHost &&
@@ -1001,26 +815,14 @@ export const MetasploitServiceLive = Layer.effect(
           });
 
           knownSessions.delete(sessionId);
-          emitEvent({
-            type: "session.closed",
-            sessionId,
-            createdAt: new Date().toISOString(),
-          });
+          emitEvent({ type: "session.closed", sessionId, createdAt: new Date().toISOString() });
         }),
 
       subscribe: (listener: (event: MetasploitEvent) => void) =>
         Effect.gen(function* () {
-          // Register subscriber FIRST so hydration events emitted during
-          // ensureStarted (listener.created, session.opened from hydrateState)
-          // are captured.  Previously the subscriber was added after
-          // ensureStarted, so hydration events were lost.
           eventSubscribers.add(listener);
 
-          // Auto-start (best-effort) so subscribers see live data even on first connect.
-          yield* ensureStarted.pipe(Effect.orElseSucceed(() => null));
-
-          // Seed: deliver current connection state to new subscriber as one-shot.
-          // Bypasses transitions-only filter for this subscriber only.
+          // Seed: deliver current connection state to new subscriber.
           try {
             listener({
               type: "connection.changed",
@@ -1050,5 +852,9 @@ export const MetasploitServiceLive = Layer.effect(
   }),
 );
 
-// Test-only export.
-export { findListenerForSession as __findListenerForSessionForTests };
+// ── Re-exports for backward compatibility ──────────────────────────────────
+
+export { type MsfrpcClient } from "./msfrpcClient";
+export { createMsfrpcClient } from "./msfrpcClient";
+export { __testSeams } from "./constants";
+export { findListenerForSession as __findListenerForSessionForTests } from "./listenerMatching";

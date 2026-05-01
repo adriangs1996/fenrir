@@ -16,12 +16,23 @@ export interface MsfShellProcess {
   close(): void;
 }
 
+export interface AttachOptions {
+  /** Initial terminal columns for PTY stty sizing. */
+  cols?: number | undefined;
+  /** Initial terminal rows for PTY stty sizing. */
+  rows?: number | undefined;
+}
+
 export interface MetasploitShellAdapterShape {
   /**
    * Attach to a Metasploit session, returning a push-based shell process.
    * Internally polls session.shell_read and converts to onData callbacks.
+   * For raw shell sessions, automatically upgrades to a full PTY via python3.
    */
-  readonly attach: (sessionId: string) => Effect.Effect<MsfShellProcess, MetasploitSessionError>;
+  readonly attach: (
+    sessionId: string,
+    options?: AttachOptions,
+  ) => Effect.Effect<MsfShellProcess, MetasploitSessionError>;
 }
 
 export class MetasploitShellAdapter extends ServiceMap.Service<

@@ -76,7 +76,14 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
     });
 
     // Forward terminal size changes to MSF.
+    // Skip the first resize event — it fires from fitAddon.fit() before
+    // the session is attached, causing a stty command on a non-TTY shell.
+    let resizeSkipFirst = true;
     const resizeDisposable = terminal.onResize(({ cols, rows }) => {
+      if (resizeSkipFirst) {
+        resizeSkipFirst = false;
+        return;
+      }
       void rpcClient.metasploit.sessionResize({ sessionId, cols, rows }).catch((err) => {
         console.warn(`[shell] sessionResize failed for ${sessionId}:`, err);
       });
@@ -122,8 +129,12 @@ export function TargetShellTab({ sessionId }: TargetShellTabProps) {
   }, [rpcClient, sessionId]);
 
   // Attach to MSF session on mount; detach on unmount or sessionId change.
+  // Pass terminal dimensions so PTY upgrade can set correct stty size.
   useEffect(() => {
-    rpcClient.metasploit.sessionAttach({ sessionId }).catch((err) => {
+    const term = terminalRef.current;
+    const cols = term?.cols ?? 80;
+    const rows = term?.rows ?? 24;
+    rpcClient.metasploit.sessionAttach({ sessionId, cols, rows }).catch((err) => {
       console.warn(`[shell] sessionAttach failed for ${sessionId}:`, err);
     });
 

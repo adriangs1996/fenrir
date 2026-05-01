@@ -191,6 +191,8 @@ export const WS_METHODS = {
   terminalResizeTmux: "terminal.resizeTmux",
 
   // Metasploit
+  metasploitStart: "metasploit.start",
+  metasploitStop: "metasploit.stop",
   metasploitStatus: "metasploit.status",
   metasploitCreateListener: "metasploit.createListener",
   metasploitStopListener: "metasploit.stopListener",
@@ -498,6 +500,15 @@ export const WsTerminalResizeTmuxRpc = Rpc.make(WS_METHODS.terminalResizeTmux, {
 
 // ─── Metasploit RPCs ────────────────────────────────────────────────────────
 
+export const WsMetasploitStartRpc = Rpc.make(WS_METHODS.metasploitStart, {
+  payload: Schema.Struct({}),
+  error: Schema.Union([MetasploitNotFoundError, MetasploitConnectionError]),
+});
+
+export const WsMetasploitStopRpc = Rpc.make(WS_METHODS.metasploitStop, {
+  payload: Schema.Struct({}),
+});
+
 export const WsMetasploitStatusRpc = Rpc.make(WS_METHODS.metasploitStatus, {
   payload: Schema.Struct({}),
   success: MetasploitStatusSnapshot,
@@ -700,6 +711,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalDetachTmuxRpc,
   WsTerminalWriteTmuxRpc,
   WsTerminalResizeTmuxRpc,
+  WsMetasploitStartRpc,
+  WsMetasploitStopRpc,
   WsMetasploitStatusRpc,
   WsMetasploitCreateListenerRpc,
   WsMetasploitStopListenerRpc,
