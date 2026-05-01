@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { computeExecutionDispatch, findRecentProviderTurnStartFailure } from "./PlanRunner";
+import {
+  buildWorkspacePromptContext,
+  computeExecutionDispatch,
+  findRecentProviderTurnStartFailure,
+} from "./PlanRunner";
 
 describe("findRecentProviderTurnStartFailure", () => {
   it("returns the recent provider failure detail", () => {
@@ -108,5 +112,27 @@ describe("computeExecutionDispatch", () => {
       occupiedSlots: 1,
       readyPlanIds: ["b"],
     });
+  });
+});
+
+describe("buildWorkspacePromptContext", () => {
+  it("describes the project root when no worktree is active", () => {
+    expect(
+      buildWorkspacePromptContext({
+        projectCwd: "/repo/project",
+        worktreePath: null,
+      }),
+    ).toBe("# Workspace\n- Thread cwd: /repo/project");
+  });
+
+  it("describes the worktree cwd and project root when they differ", () => {
+    expect(
+      buildWorkspacePromptContext({
+        projectCwd: "/repo/project",
+        worktreePath: "/repo/.worktrees/feature-a",
+      }),
+    ).toBe(
+      "# Workspace\n- Thread cwd: /repo/.worktrees/feature-a\n- Project root: /repo/project\n- This run is executing inside a git worktree, not the project root.",
+    );
   });
 });

@@ -34,6 +34,7 @@ export function HackSidebar() {
   const sessions = useMetasploitStore((s) => s.sessions);
   const activeSessionId = useMetasploitStore((s) => s.activeSessionId);
   const connected = useMetasploitStore((s) => s.connected);
+  const upsertListener = useMetasploitStore((s) => s.upsertListener);
   const setActiveTab = useTrafficLensStore((state) => state.setActiveTab);
 
   return (
@@ -166,6 +167,9 @@ export function HackSidebar() {
           rpcClient.metasploit
             .createListener(input)
             .then((snapshot) => {
+              // Optimistic update: put listener in store immediately from
+              // RPC response instead of relying solely on event stream.
+              upsertListener(snapshot);
               toastManager.add({
                 type: "success",
                 title: "Listener created",

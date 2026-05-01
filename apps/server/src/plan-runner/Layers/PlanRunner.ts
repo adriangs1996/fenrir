@@ -46,10 +46,7 @@ import type {
   PlanRunnerSyntheticLogEntryAppend,
   PlanRunnerSyntheticLogEntryRow,
 } from "../../persistence/Services/PlanRunnerRepository";
-import {
-  PlanRunnerService,
-  type PlanRunnerServiceShape,
-} from "../Services/PlanRunner";
+import { PlanRunnerService, type PlanRunnerServiceShape } from "../Services/PlanRunner";
 import { parsePlanFrontmatter } from "../frontmatter";
 
 // ─── Internal types ─────────────────────────────────────────────────────────
@@ -141,18 +138,11 @@ const ANALYZER_STEP_KEY = "analyzer";
 const INTEGRATION_STEP_KEY = "integration";
 const planStepKey = (planId: string) => `plan:${planId}`;
 
-function parseFrontmatterOrThrow(
-  content: string,
-  fallbackId: string,
-  filename: string,
-) {
+function parseFrontmatterOrThrow(content: string, fallbackId: string, filename: string) {
   try {
     return parsePlanFrontmatter(content, fallbackId);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Unknown frontmatter parse error";
+    const message = error instanceof Error ? error.message : "Unknown frontmatter parse error";
     throw new PlanRunnerError({
       message: `Invalid plan frontmatter in ${filename}: ${message}` as any,
       cause: error,
@@ -185,6 +175,21 @@ function parseMarkdownList(s: string | undefined): string[] {
     .filter(Boolean);
 }
 
+export function buildWorkspacePromptContext(input: {
+  projectCwd: string;
+  worktreePath: string | null;
+}): string {
+  const executionCwd = input.worktreePath ?? input.projectCwd;
+  const lines = ["# Workspace", `- Thread cwd: ${executionCwd}`];
+
+  if (input.worktreePath && input.worktreePath !== input.projectCwd) {
+    lines.push(`- Project root: ${input.projectCwd}`);
+    lines.push("- This run is executing inside a git worktree, not the project root.");
+  }
+
+  return lines.join("\n");
+}
+
 function activityPayloadDetail(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") {
     return null;
@@ -211,9 +216,7 @@ export function findRecentProviderTurnStartFailure(
   const activity = thread.activities
     .toReversed()
     .find(
-      (entry) =>
-        entry.kind === "provider.turn.start.failed" &&
-        entry.createdAt >= notBeforeIso,
+      (entry) => entry.kind === "provider.turn.start.failed" && entry.createdAt >= notBeforeIso,
     );
   if (!activity) {
     return null;
@@ -293,15 +296,11 @@ function now(): string {
   return new Date().toISOString();
 }
 
-const featureKey = (projectId: ProjectId, featureName: string) =>
-  `${projectId}:${featureName}`;
+const featureKey = (projectId: ProjectId, featureName: string) => `${projectId}:${featureName}`;
 
 const stepLogKey = (runId: PlanRunId, stepKey: string) => `${runId}:${stepKey}`;
 
-const TERMINAL_FEATURE_STATES: ReadonlyArray<FeatureState> = [
-  "completed",
-  "failed",
-] as const;
+const TERMINAL_FEATURE_STATES: ReadonlyArray<FeatureState> = ["completed", "failed"] as const;
 
 const isTerminalFeatureState = (state: FeatureState): boolean =>
   TERMINAL_FEATURE_STATES.includes(state);
@@ -400,9 +399,7 @@ export function computeExecutionDispatch(input: {
   }
 
   const readyPlanIds = input.plans
-    .filter(
-      (plan) => plan.state === "ready" && !occupiedPlanIds.has(plan.planId),
-    )
+    .filter((plan) => plan.state === "ready" && !occupiedPlanIds.has(plan.planId))
     .slice(0, availableSlots)
     .map((plan) => plan.planId);
 
@@ -521,9 +518,7 @@ export const PlanRunnerLive = Layer.effect(
       Effect.gen(function* () {
         const persisted = yield* repo
           .getRunById({ runId })
-          .pipe(
-            Effect.catch(() => Effect.succeed(Option.none<PlanRunSnapshot>())),
-          );
+          .pipe(Effect.catch(() => Effect.succeed(Option.none<PlanRunSnapshot>())));
         if (Option.isNone(persisted)) return;
         yield* publishEvent({
           type: "planRunner.stateChanged",
@@ -553,11 +548,7 @@ export const PlanRunnerLive = Layer.effect(
      * appends are emitted with sequences greater than any sequence returned
      * from a prior `getStepLog` snapshot.
      */
-    const ensureSequenceAtLeast = (
-      runId: PlanRunId,
-      stepKey: string,
-      min: number,
-    ) =>
+    const ensureSequenceAtLeast = (runId: PlanRunId, stepKey: string, min: number) =>
       Ref.update(stepLogSequences, (m) => {
         const key = stepLogKey(runId, stepKey);
         if ((m.get(key) ?? 0) >= min) return m;
@@ -589,12 +580,9 @@ export const PlanRunnerLive = Layer.effect(
     ): PlanRunnerLogEntry => {
       const fallbackTitle = "Plan runner event";
       const title = (row.title ?? fallbackTitle).trim() || fallbackTitle;
-      const copy =
-        (row.copyText ?? row.title ?? row.bodyText ?? title).trim() || title;
+      const copy = (row.copyText ?? row.title ?? row.bodyText ?? title).trim() || title;
       return {
-        entryId: PlanRunnerLogEntryId.makeUnsafe(
-          `${row.runId}:${row.stepKey}:syn:${row.sequence}`,
-        ),
+        entryId: PlanRunnerLogEntryId.makeUnsafe(`${row.runId}:${row.stepKey}:syn:${row.sequence}`),
         runId: row.runId,
         stepKey: row.stepKey,
         kind: row.kind,
@@ -662,8 +650,7 @@ export const PlanRunnerLive = Layer.effect(
       if (input.streaming) return null;
       const text = (input.text ?? "").trim();
       if (text.length === 0) return null;
-      const kind: PlanRunnerLogEntryKind =
-        input.role === "user" ? "prompt" : "assistant";
+      const kind: PlanRunnerLogEntryKind = input.role === "user" ? "prompt" : "assistant";
       const title = kind === "prompt" ? "User prompt" : "Assistant message";
       return {
         entryId: PlanRunnerLogEntryId.makeUnsafe(
@@ -709,11 +696,7 @@ export const PlanRunnerLive = Layer.effect(
         summary,
         payload: input.payload,
       });
-      if (
-        summary.length === 0 &&
-        display.title === "Activity" &&
-        display.bodyText === null
-      ) {
+      if (summary.length === 0 && display.title === "Activity" && display.bodyText === null) {
         return null;
       }
       return {
@@ -756,15 +739,10 @@ export const PlanRunnerLive = Layer.effect(
             },
           })
           .pipe(Effect.ignoreCause({ log: true }));
-        yield* publishPersistedSnapshot(run.runId).pipe(
-          Effect.ignoreCause({ log: true }),
-        );
+        yield* publishPersistedSnapshot(run.runId).pipe(Effect.ignoreCause({ log: true }));
       });
 
-    const persistStepStateTransition = (
-      run: PlanRunState,
-      plan: MutablePlanNode,
-    ) =>
+    const persistStepStateTransition = (run: PlanRunState, plan: MutablePlanNode) =>
       Effect.gen(function* () {
         const lastUpdatedAt = now();
         yield* repo
@@ -803,9 +781,7 @@ export const PlanRunnerLive = Layer.effect(
             })
             .pipe(Effect.ignoreCause({ log: true }));
         }
-        yield* publishPersistedSnapshot(run.runId).pipe(
-          Effect.ignoreCause({ log: true }),
-        );
+        yield* publishPersistedSnapshot(run.runId).pipe(Effect.ignoreCause({ log: true }));
       });
 
     const persistSyntheticStepStateTransition = (
@@ -828,9 +804,7 @@ export const PlanRunnerLive = Layer.effect(
             lastUpdatedAt: lastUpdatedAt as any,
           })
           .pipe(Effect.ignoreCause({ log: true }));
-        yield* publishPersistedSnapshot(run.runId).pipe(
-          Effect.ignoreCause({ log: true }),
-        );
+        yield* publishPersistedSnapshot(run.runId).pipe(Effect.ignoreCause({ log: true }));
       });
 
     const persistInternalThread = (
@@ -850,9 +824,7 @@ export const PlanRunnerLive = Layer.effect(
           })
           .pipe(Effect.ignoreCause({ log: true }));
         yield* registerThreadForStep(run.runId, stepKey, threadId, threadRole);
-        yield* publishPersistedSnapshot(run.runId).pipe(
-          Effect.ignoreCause({ log: true }),
-        );
+        yield* publishPersistedSnapshot(run.runId).pipe(Effect.ignoreCause({ log: true }));
       });
 
     const persistRunSummary = (run: PlanRunState) =>
@@ -868,9 +840,7 @@ export const PlanRunnerLive = Layer.effect(
             },
           })
           .pipe(Effect.ignoreCause({ log: true }));
-        yield* publishPersistedSnapshot(run.runId).pipe(
-          Effect.ignoreCause({ log: true }),
-        );
+        yield* publishPersistedSnapshot(run.runId).pipe(Effect.ignoreCause({ log: true }));
       });
 
     // ── Feature scanner (shared between listFeatures and watcher) ────
@@ -894,9 +864,7 @@ export const PlanRunnerLive = Layer.effect(
         const entries: string[] = [];
         for (const entry of dirEntries) {
           const entryPath = pathService.join(plansDir, entry);
-          const stat = yield* fs
-            .stat(entryPath)
-            .pipe(Effect.catch(() => Effect.succeed(null)));
+          const stat = yield* fs.stat(entryPath).pipe(Effect.catch(() => Effect.succeed(null)));
           if (stat?.type === "Directory") {
             entries.push(entry);
           }
@@ -905,10 +873,7 @@ export const PlanRunnerLive = Layer.effect(
         const persistedSummaries = yield* repo
           .listFeatureSummaries({ projectId })
           .pipe(Effect.catch(() => Effect.succeed([] as const)));
-        const persistedByFeature = new Map<
-          string,
-          (typeof persistedSummaries)[number]
-        >();
+        const persistedByFeature = new Map<string, (typeof persistedSummaries)[number]>();
         for (const summary of persistedSummaries) {
           persistedByFeature.set(summary.featureName, summary);
         }
@@ -935,42 +900,31 @@ export const PlanRunnerLive = Layer.effect(
         for (const featureName of entries) {
           const featureDir = pathService.join(plansDir, featureName);
           const planCount = yield* fs.readDirectory(featureDir).pipe(
-            Effect.map(
-              (files) => files.filter((f) => f.endsWith(".md")).length,
-            ),
+            Effect.map((files) => files.filter((f) => f.endsWith(".md")).length),
             Effect.catch(() => Effect.succeed(0)),
           );
 
           const persisted = persistedByFeature.get(featureName) ?? null;
           let hasActiveRun = persisted ? persisted.hasActiveRun : false;
-          let activeRunId: PlanRunId | null = persisted
-            ? persisted.activeRunId
+          let activeRunId: PlanRunId | null = persisted ? persisted.activeRunId : null;
+          let lastRunId: PlanRunId | null = persisted ? persisted.lastRunId : null;
+          let lastRunState: (typeof features)[number]["lastRunState"] = persisted
+            ? persisted.lastRunState
             : null;
-          let lastRunId: PlanRunId | null = persisted
-            ? persisted.lastRunId
-            : null;
-          let lastRunState: (typeof features)[number]["lastRunState"] =
-            persisted ? persisted.lastRunState : null;
-          let lastRunUpdatedAt: string | null = persisted
-            ? persisted.lastRunUpdatedAt
-            : null;
+          let lastRunUpdatedAt: string | null = persisted ? persisted.lastRunUpdatedAt : null;
 
           // Memory-cache may be fresher than persisted columns mid-write. If
           // it is, prefer it — the persistence write that the runtime
           // dispatches lags the in-memory mutation by at most one tick.
           for (const run of memoryRuns.values()) {
-            if (run.projectId !== projectId || run.featureName !== featureName)
-              continue;
+            if (run.projectId !== projectId || run.featureName !== featureName) continue;
             const runActive = !isTerminalFeatureState(run.state);
             if (runActive) {
               hasActiveRun = true;
               activeRunId = run.runId;
             }
             const candidateUpdatedAt = run.completedAt ?? run.startedAt;
-            if (
-              lastRunUpdatedAt === null ||
-              candidateUpdatedAt > lastRunUpdatedAt
-            ) {
+            if (lastRunUpdatedAt === null || candidateUpdatedAt > lastRunUpdatedAt) {
               lastRunId = run.runId;
               lastRunState = run.state;
               lastRunUpdatedAt = candidateUpdatedAt;
@@ -1010,9 +964,7 @@ export const PlanRunnerLive = Layer.effect(
         if (!plansDirExists) return;
 
         // Debounced watch on .plans/ — editors fire multiple events per save
-        const debouncedEvents = fs
-          .watch(plansDir)
-          .pipe(Stream.debounce(Duration.millis(200)));
+        const debouncedEvents = fs.watch(plansDir).pipe(Stream.debounce(Duration.millis(200)));
 
         yield* Stream.runForEach(debouncedEvents, () =>
           Effect.gen(function* () {
@@ -1035,11 +987,7 @@ export const PlanRunnerLive = Layer.effect(
               features,
             });
           }).pipe(Effect.ignoreCause({ log: true })),
-        ).pipe(
-          Effect.ignoreCause({ log: true }),
-          Effect.forkIn(watcherScope),
-          Effect.asVoid,
-        );
+        ).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(watcherScope), Effect.asVoid);
       });
 
     // ── Thread lifecycle helpers ─────────────────────────────────────
@@ -1124,9 +1072,7 @@ export const PlanRunnerLive = Layer.effect(
     }) =>
       Effect.gen(function* () {
         const threadId = ThreadId.makeUnsafe(makeId());
-        const commandId = CommandId.makeUnsafe(
-          `plan-runner:create:${makeId()}`,
-        );
+        const commandId = CommandId.makeUnsafe(`plan-runner:create:${makeId()}`);
         const createdAt = now();
 
         yield* Effect.logInfo("plan runner bootstrapping internal thread", {
@@ -1154,20 +1100,15 @@ export const PlanRunnerLive = Layer.effect(
         });
 
         // Start turn with prompt
-        const turnCommandId = CommandId.makeUnsafe(
-          `plan-runner:turn:${makeId()}`,
-        );
+        const turnCommandId = CommandId.makeUnsafe(`plan-runner:turn:${makeId()}`);
         const messageId = MessageId.makeUnsafe(makeId());
 
-        yield* Effect.logInfo(
-          "plan runner dispatching initial internal thread turn",
-          {
-            projectId: input.projectId,
-            threadId,
-            commandId: turnCommandId,
-            messageId,
-          },
-        );
+        yield* Effect.logInfo("plan runner dispatching initial internal thread turn", {
+          projectId: input.projectId,
+          threadId,
+          commandId: turnCommandId,
+          messageId,
+        });
 
         yield* orchestrationEngine.dispatch({
           type: "thread.turn.start",
@@ -1205,90 +1146,88 @@ export const PlanRunnerLive = Layer.effect(
       // from "turn ran and completed (activeTurnId back to null)".
       let turnWasActive = false;
 
-      const poll: Effect.Effect<
-        { ok: boolean; error: string | null },
-        never,
-        never
-      > = Effect.gen(function* () {
-        // Check cancellation if run context is provided
-        if (run?.cancelled) {
-          return { ok: false, error: "Run cancelled" };
-        }
+      const poll: Effect.Effect<{ ok: boolean; error: string | null }, never, never> = Effect.gen(
+        function* () {
+          // Check cancellation if run context is provided
+          if (run?.cancelled) {
+            return { ok: false, error: "Run cancelled" };
+          }
 
-        const elapsedMs = Date.now() - startedAtMs;
+          const elapsedMs = Date.now() - startedAtMs;
 
-        // Absolute timeout — prevent infinite hangs
-        if (elapsedMs > MAX_POLL_WAIT_MS) {
-          return {
-            ok: false,
-            error: `Turn did not complete within ${MAX_POLL_WAIT_MS / 1000}s timeout`,
-          };
-        }
-
-        const readModel = yield* orchestrationEngine.getReadModel();
-        const thread = readModel.threads.find((t) => t.id === targetThreadId);
-
-        if (!thread) {
-          return { ok: false, error: `Thread ${targetThreadId} not found` };
-        }
-
-        const providerTurnStartFailure = findRecentProviderTurnStartFailure(
-          thread,
-          waitStartedAtIso,
-        );
-        if (providerTurnStartFailure) {
-          return { ok: false, error: providerTurnStartFailure };
-        }
-
-        if (!thread.session) {
-          // Session not yet established — ProviderCommandReactor hasn't
-          // processed the turn-start-requested event yet. Expected
-          // immediately after thread creation.
-          if (elapsedMs > MAX_SESSION_WAIT_MS) {
+          // Absolute timeout — prevent infinite hangs
+          if (elapsedMs > MAX_POLL_WAIT_MS) {
             return {
               ok: false,
-              error: `Provider session was not established within ${MAX_SESSION_WAIT_MS / 1000}s. This usually means the serialized provider command queue is still draining earlier work, such as prior thread cleanup, session teardown, or provider bootstrap.`,
+              error: `Turn did not complete within ${MAX_POLL_WAIT_MS / 1000}s timeout`,
             };
           }
-          yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
-          return yield* poll;
-        }
 
-        const session = thread.session;
+          const readModel = yield* orchestrationEngine.getReadModel();
+          const thread = readModel.threads.find((t) => t.id === targetThreadId);
 
-        if (session.activeTurnId !== null) {
-          // Turn is running — remember we saw it active
-          turnWasActive = true;
-          yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
-          return yield* poll;
-        }
+          if (!thread) {
+            return { ok: false, error: `Thread ${targetThreadId} not found` };
+          }
 
-        // activeTurnId === null from here
-        if (session.status === "error" || session.status === "stopped") {
-          return {
-            ok: false,
-            error: session.lastError ?? "Thread session error",
-          };
-        }
+          const providerTurnStartFailure = findRecentProviderTurnStartFailure(
+            thread,
+            waitStartedAtIso,
+          );
+          if (providerTurnStartFailure) {
+            return { ok: false, error: providerTurnStartFailure };
+          }
 
-        if (!turnWasActive) {
-          // Session exists but we never saw the turn become active.
-          // The turn hasn't started yet — ProviderCommandReactor may still
-          // be sending the turn to the provider. Keep waiting.
-          if (elapsedMs > MAX_SESSION_WAIT_MS) {
+          if (!thread.session) {
+            // Session not yet established — ProviderCommandReactor hasn't
+            // processed the turn-start-requested event yet. Expected
+            // immediately after thread creation.
+            if (elapsedMs > MAX_SESSION_WAIT_MS) {
+              return {
+                ok: false,
+                error: `Provider session was not established within ${MAX_SESSION_WAIT_MS / 1000}s. This usually means the serialized provider command queue is still draining earlier work, such as prior thread cleanup, session teardown, or provider bootstrap.`,
+              };
+            }
+            yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
+            return yield* poll;
+          }
+
+          const session = thread.session;
+
+          if (session.activeTurnId !== null) {
+            // Turn is running — remember we saw it active
+            turnWasActive = true;
+            yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
+            return yield* poll;
+          }
+
+          // activeTurnId === null from here
+          if (session.status === "error" || session.status === "stopped") {
             return {
               ok: false,
-              error:
-                "Turn was never started by provider within timeout. The provider command queue may still be draining earlier work or waiting for session bootstrap to finish.",
+              error: session.lastError ?? "Thread session error",
             };
           }
-          yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
-          return yield* poll;
-        }
 
-        // Turn was active and now completed — success
-        return { ok: true, error: null };
-      });
+          if (!turnWasActive) {
+            // Session exists but we never saw the turn become active.
+            // The turn hasn't started yet — ProviderCommandReactor may still
+            // be sending the turn to the provider. Keep waiting.
+            if (elapsedMs > MAX_SESSION_WAIT_MS) {
+              return {
+                ok: false,
+                error:
+                  "Turn was never started by provider within timeout. The provider command queue may still be draining earlier work or waiting for session bootstrap to finish.",
+              };
+            }
+            yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
+            return yield* poll;
+          }
+
+          // Turn was active and now completed — success
+          return { ok: true, error: null };
+        },
+      );
 
       return poll;
     };
@@ -1312,10 +1251,7 @@ export const PlanRunnerLive = Layer.effect(
 
     // ── Mark dependents skipped (recursive) ───────────────────────────
 
-    const markDependentsSkipped = (
-      run: PlanRunState,
-      failedPlanId: string,
-    ): string[] => {
+    const markDependentsSkipped = (run: PlanRunState, failedPlanId: string): string[] => {
       const skippedIds: string[] = [];
       const visited = new Set<string>();
 
@@ -1342,10 +1278,7 @@ export const PlanRunnerLive = Layer.effect(
       return skippedIds;
     };
 
-    const markDependentsSkippedAndPublish = (
-      run: PlanRunState,
-      failedPlanId: string,
-    ) =>
+    const markDependentsSkippedAndPublish = (run: PlanRunState, failedPlanId: string) =>
       Effect.gen(function* () {
         const skippedIds = markDependentsSkipped(run, failedPlanId);
         for (const id of skippedIds) {
@@ -1373,6 +1306,12 @@ export const PlanRunnerLive = Layer.effect(
 
     const executePlan = (run: PlanRunState, plan: MutablePlanNode) =>
       Effect.gen(function* () {
+        const projectCwd = yield* resolveProjectCwd(run.projectId);
+        const workspacePromptContext = buildWorkspacePromptContext({
+          projectCwd,
+          worktreePath: run.worktreePath,
+        });
+
         // Mark running
         plan.state = "running";
         plan.startedAt = plan.startedAt ?? now();
@@ -1400,6 +1339,8 @@ export const PlanRunnerLive = Layer.effect(
           const executorPrompt = `
 You are implementing a plan as part of a larger feature. Implement completely. No TODOs. No placeholders.
 
+${workspacePromptContext}
+
 # Plan: ${plan.planId}
 # Feature: ${run.featureName}
 
@@ -1414,19 +1355,11 @@ ${plan.content}`;
           });
           executorThreadId = bootstrapped.threadId;
           plan.executorThreadId = executorThreadId;
-          yield* persistInternalThread(
-            run,
-            plan.stepKey,
-            executorThreadId,
-            "executor",
-          );
+          yield* persistInternalThread(run, plan.stepKey, executorThreadId, "executor");
         }
 
         // Wait for executor
-        const execResult = yield* waitForThreadTurnComplete(
-          executorThreadId,
-          run,
-        );
+        const execResult = yield* waitForThreadTurnComplete(executorThreadId, run);
         if (!execResult.ok) {
           // Executor done (failed). Archive — reviewer never spawned here.
           yield* finalizeThread(executorThreadId);
@@ -1483,6 +1416,8 @@ ${plan.content}`;
 You are a code reviewer AND fixer for plan "${plan.planId}" in feature "${run.featureName}".
 The executor has just implemented this plan. Your job:
 
+${workspacePromptContext}
+
 1. Run verification:
    - Typechecks if the project allows it
    - Linters
@@ -1535,12 +1470,7 @@ ${plan.content}
           });
           reviewerThreadId = bootstrapped.threadId;
           plan.reviewerThreadId = reviewerThreadId;
-          yield* persistInternalThread(
-            run,
-            plan.stepKey,
-            reviewerThreadId,
-            "reviewer",
-          );
+          yield* persistInternalThread(run, plan.stepKey, reviewerThreadId, "reviewer");
         }
 
         // Reviewer fix-and-reverify loop. Each iteration is one turn on the
@@ -1553,10 +1483,7 @@ ${plan.content}
         let exhausted = false;
 
         while (true) {
-          const turnResult = yield* waitForThreadTurnComplete(
-            reviewerThreadId,
-            run,
-          );
+          const turnResult = yield* waitForThreadTurnComplete(reviewerThreadId, run);
           if (!turnResult.ok) {
             // Treat reviewer thread errors as terminal — no point retrying
             // on top of a broken session.
@@ -1574,9 +1501,7 @@ ${plan.content}
           // FAIL — capture parsed feedback for telemetry/snapshots before
           // deciding whether to push another fix turn.
           if (reviewResponse) {
-            plan.reviewFeedback.push(
-              parseReviewFeedback(reviewResponse, plan.retriesUsed + 1),
-            );
+            plan.reviewFeedback.push(parseReviewFeedback(reviewResponse, plan.retriesUsed + 1));
           }
 
           if (plan.retriesUsed >= plan.maxRetries) {
@@ -1647,10 +1572,7 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
 
           // Unblock dependents and notify UI
           for (const node of run.plans.values()) {
-            if (
-              node.state === "blocked" &&
-              node.dependsOn.includes(plan.planId)
-            ) {
+            if (node.state === "blocked" && node.dependsOn.includes(plan.planId)) {
               const allDepsResolved = node.dependsOn.every((dep) => {
                 const depNode = run.plans.get(dep);
                 return !depNode || depNode.state === "done";
@@ -1709,9 +1631,7 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
             }
             plan.state = "failed";
             plan.error =
-              err instanceof Error
-                ? `Executor error: ${err.message}`
-                : "Unexpected executor error";
+              err instanceof Error ? `Executor error: ${err.message}` : "Unexpected executor error";
             plan.completedAt = now();
             yield* persistStepStateTransition(run, plan);
             yield* publishPlanStateChanged(run, plan.planId);
@@ -1955,9 +1875,7 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
         }
 
         // Phase 4: Integration — state = "integrating"
-        const donePlans = [...run.plans.values()].filter(
-          (p) => p.state === "done",
-        );
+        const donePlans = [...run.plans.values()].filter((p) => p.state === "done");
         const failedPlans = [...run.plans.values()].filter(
           (p) => p.state === "failed" || p.state === "skipped",
         );
@@ -2029,14 +1947,19 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
         const doneList = donePlans.map((p) => `- ${p.planId}`).join("\n");
         const failedList =
           failedPlans.length > 0
-            ? failedPlans
-                .map((p) => `- ${p.planId}: ${p.error ?? "unknown"}`)
-                .join("\n")
+            ? failedPlans.map((p) => `- ${p.planId}: ${p.error ?? "unknown"}`).join("\n")
             : "None";
+        const projectCwd = yield* resolveProjectCwd(run.projectId);
+        const workspacePromptContext = buildWorkspacePromptContext({
+          projectCwd,
+          worktreePath: run.worktreePath,
+        });
 
         const integrationPrompt = `
 You are an integration agent for feature "${run.featureName}".
 Multiple executors implemented plans in parallel. Your job:
+
+${workspacePromptContext}
 
 1. Run full check suite: 
   - typecheck if the project allows it
@@ -2060,31 +1983,24 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
         // Run integration — graceful degradation on failure. Reuse an
         // existing integration thread on recovery rather than spawn a
         // duplicate.
-        const integrationResponse: string | null = yield* Effect.gen(
-          function* () {
-            let threadId = run.integrationThreadId;
-            if (!threadId) {
-              const bootstrapped = yield* bootstrapThreadWithPrompt({
-                projectId: run.projectId,
-                title: `[PlanRunner] Integration: ${run.featureName}`,
-                prompt: integrationPrompt,
-                modelSelection: run.modelSelection,
-                branch: run.branch,
-                worktreePath: run.worktreePath,
-              });
-              threadId = bootstrapped.threadId;
-              run.integrationThreadId = threadId;
-              yield* persistInternalThread(
-                run,
-                INTEGRATION_STEP_KEY,
-                threadId,
-                "integration",
-              );
-            }
-            yield* waitForThreadTurnComplete(threadId, run);
-            return yield* readLastAssistantMessage(threadId);
-          },
-        ).pipe(Effect.catch(() => Effect.succeed(null)));
+        const integrationResponse: string | null = yield* Effect.gen(function* () {
+          let threadId = run.integrationThreadId;
+          if (!threadId) {
+            const bootstrapped = yield* bootstrapThreadWithPrompt({
+              projectId: run.projectId,
+              title: `[PlanRunner] Integration: ${run.featureName}`,
+              prompt: integrationPrompt,
+              modelSelection: run.modelSelection,
+              branch: run.branch,
+              worktreePath: run.worktreePath,
+            });
+            threadId = bootstrapped.threadId;
+            run.integrationThreadId = threadId;
+            yield* persistInternalThread(run, INTEGRATION_STEP_KEY, threadId, "integration");
+          }
+          yield* waitForThreadTurnComplete(threadId, run);
+          return yield* readLastAssistantMessage(threadId);
+        }).pipe(Effect.catch(() => Effect.succeed(null)));
 
         if (integrationResponse?.includes("INTEGRATION_PASS")) {
           run.state = "completed";
@@ -2148,11 +2064,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
                 : "Unexpected error during plan execution";
             run.completedAt = now();
             for (const node of run.plans.values()) {
-              if (
-                node.state !== "done" &&
-                node.state !== "failed" &&
-                node.state !== "skipped"
-              ) {
+              if (node.state !== "done" && node.state !== "failed" && node.state !== "skipped") {
                 node.state = "skipped";
                 node.error = node.error ?? "Skipped: run failed";
                 node.completedAt = now();
@@ -2183,26 +2095,19 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           }),
         ),
         // Cleanup worktree on failure. On success, keep it for user inspection.
-        Effect.tap(() =>
-          run.state === "failed" ? cleanupWorktree(run) : Effect.void,
-        ),
+        Effect.tap(() => (run.state === "failed" ? cleanupWorktree(run) : Effect.void)),
       );
 
     // ── Plan freeze (read .plans/ once at start time) ─────────────────
 
-    const freezePlans = (
-      projectId: ProjectId,
-      featureName: string,
-      projectCwd: string,
-    ) =>
+    const freezePlans = (projectId: ProjectId, featureName: string, projectCwd: string) =>
       Effect.gen(function* () {
         const plansDir = pathService.join(projectCwd, ".plans", featureName);
         const entries = yield* fs.readDirectory(plansDir).pipe(
           Effect.mapError(
             () =>
               new PlanRunnerError({
-                message:
-                  `Plan directory not found: .plans/${featureName}/` as any,
+                message: `Plan directory not found: .plans/${featureName}/` as any,
               }),
           ),
         );
@@ -2261,8 +2166,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
         if (frozen.length === 0) {
           return yield* new PlanRunnerError({
-            message:
-              `All plan files in .plans/${featureName}/ have empty content` as any,
+            message: `All plan files in .plans/${featureName}/ have empty content` as any,
           });
         }
         void projectId;
@@ -2284,9 +2188,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
         const threadRows = yield* repo
           .listInternalThreadRefs({ runId: snapshot.runId })
           .pipe(
-            Effect.catch(() =>
-              Effect.succeed([] as ReadonlyArray<PlanRunnerInternalThreadRow>),
-            ),
+            Effect.catch(() => Effect.succeed([] as ReadonlyArray<PlanRunnerInternalThreadRow>)),
           );
 
         const planContent = new Map<string, string>();
@@ -2304,15 +2206,9 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
         for (const plan of snapshot.plans) {
           const stepKey = planStepKey(plan.planId);
-          const threadsForStep = threadRows.filter(
-            (t) => t.stepKey === stepKey,
-          );
-          const executor = threadsForStep.find(
-            (t) => t.threadRole === "executor",
-          );
-          const reviewer = threadsForStep.find(
-            (t) => t.threadRole === "reviewer",
-          );
+          const threadsForStep = threadRows.filter((t) => t.stepKey === stepKey);
+          const executor = threadsForStep.find((t) => t.threadRole === "executor");
+          const reviewer = threadsForStep.find((t) => t.threadRole === "reviewer");
 
           // Best-effort markdown rehydrate from disk if the file still
           // matches the frozen filename. The persisted plan_markdown is the
@@ -2342,10 +2238,8 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             dependsOn: [...plan.dependsOn],
             maxRetries: plan.maxRetries,
             retriesUsed: plan.retriesUsed,
-            executorThreadId:
-              executor?.threadId ?? plan.executorThreadId ?? null,
-            reviewerThreadId:
-              reviewer?.threadId ?? plan.reviewerThreadId ?? null,
+            executorThreadId: executor?.threadId ?? plan.executorThreadId ?? null,
+            reviewerThreadId: reviewer?.threadId ?? plan.reviewerThreadId ?? null,
             error: plan.error,
             startedAt: plan.startedAt,
             completedAt: plan.completedAt,
@@ -2355,12 +2249,8 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           });
         }
 
-        const analyzerThread = threadRows.find(
-          (t) => t.threadRole === "analyzer",
-        );
-        const integrationThread = threadRows.find(
-          (t) => t.threadRole === "integration",
-        );
+        const analyzerThread = threadRows.find((t) => t.threadRole === "analyzer");
+        const integrationThread = threadRows.find((t) => t.threadRole === "integration");
 
         const nextExecutionOrder = Math.max(
           0,
@@ -2378,10 +2268,8 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           state: snapshot.state,
           plans,
           nextExecutionOrder,
-          analyzerThreadId:
-            analyzerThread?.threadId ?? snapshot.analyzerThreadId ?? null,
-          integrationThreadId:
-            integrationThread?.threadId ?? snapshot.integrationThreadId ?? null,
+          analyzerThreadId: analyzerThread?.threadId ?? snapshot.analyzerThreadId ?? null,
+          integrationThreadId: integrationThread?.threadId ?? snapshot.integrationThreadId ?? null,
           startedAt: snapshot.startedAt,
           completedAt: snapshot.completedAt,
           summary: snapshot.summary,
@@ -2397,9 +2285,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
         // re-attach to the existing thread, which already carries its
         // original model selection.
         const readModel = yield* orchestrationEngine.getReadModel();
-        const project = readModel.projects.find(
-          (p) => p.id === snapshot.projectId,
-        );
+        const project = readModel.projects.find((p) => p.id === snapshot.projectId);
         if (project?.defaultModelSelection) {
           run.modelSelection = project.defaultModelSelection;
         }
@@ -2473,9 +2359,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
         while (true) {
           const readModel = yield* orchestrationEngine.getReadModel();
           const liveThreadIds = new Set(
-            readModel.threads
-              .filter((t) => t.deletedAt === null)
-              .map((t) => t.id),
+            readModel.threads.filter((t) => t.deletedAt === null).map((t) => t.id),
           );
 
           let missing: Expected | null = null;
@@ -2581,11 +2465,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           // Mark any non-terminal plan steps skipped so persistence
           // reflects a fully terminated graph.
           for (const node of recoveringRun.plans.values()) {
-            if (
-              node.state !== "done" &&
-              node.state !== "failed" &&
-              node.state !== "skipped"
-            ) {
+            if (node.state !== "done" && node.state !== "failed" && node.state !== "skipped") {
               node.state = "skipped";
               node.error = node.error ?? "Skipped: run unrecoverable";
               node.completedAt = now();
@@ -2679,11 +2559,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
     // for the same feature even before the recovery fiber executes.
     const recoverableRuns = yield* repo
       .listRecoverableRuns()
-      .pipe(
-        Effect.catch(() =>
-          Effect.succeed([] as ReadonlyArray<PlanRunSnapshot>),
-        ),
-      );
+      .pipe(Effect.catch(() => Effect.succeed([] as ReadonlyArray<PlanRunSnapshot>)));
 
     for (const snapshot of recoverableRuns) {
       yield* Ref.update(recoveringFeatures, (s) => {
@@ -2709,10 +2585,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
     // have already received.
     yield* Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) =>
       Effect.gen(function* () {
-        if (
-          event.type !== "thread.message-sent" &&
-          event.type !== "thread.activity-appended"
-        ) {
+        if (event.type !== "thread.message-sent" && event.type !== "thread.activity-appended") {
           return;
         }
 
@@ -2782,11 +2655,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           entry,
         });
       }).pipe(Effect.ignoreCause({ log: true })),
-    ).pipe(
-      Effect.ignoreCause({ log: true }),
-      Effect.forkIn(runtimeScope),
-      Effect.asVoid,
-    );
+    ).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(runtimeScope), Effect.asVoid);
 
     // ── Service implementation ────────────────────────────────────────
 
@@ -2815,8 +2684,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               !isTerminalFeatureState(existing.state)
             ) {
               return yield* new PlanRunnerError({
-                message:
-                  `Run already active for feature "${input.featureName}"` as any,
+                message: `Run already active for feature "${input.featureName}"` as any,
               });
             }
           }
@@ -2838,10 +2706,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
                   }),
               ),
             );
-          if (
-            Option.isSome(persistedRun) &&
-            !isTerminalFeatureState(persistedRun.value.state)
-          ) {
+          if (Option.isSome(persistedRun) && !isTerminalFeatureState(persistedRun.value.state)) {
             return yield* new PlanRunnerError({
               message:
                 `Persisted run for feature "${input.featureName}" is still ${persistedRun.value.state}; cannot start a new run.` as any,
@@ -2856,25 +2721,18 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           });
 
           // Step 1: freeze plans from disk into persisted snapshot
-          const frozenPlans = yield* freezePlans(
-            input.projectId,
-            input.featureName,
-            projectCwd,
-          );
+          const frozenPlans = yield* freezePlans(input.projectId, input.featureName, projectCwd);
 
           // Get model selection — use provided or get from project default
           let modelSelection: ModelSelection | undefined = input.modelSelection;
           if (!modelSelection) {
             const readModel = yield* orchestrationEngine.getReadModel();
-            const project = readModel.projects.find(
-              (p) => p.id === input.projectId,
-            );
+            const project = readModel.projects.find((p) => p.id === input.projectId);
             if (project?.defaultModelSelection) {
               modelSelection = project.defaultModelSelection;
             } else {
               return yield* new PlanRunnerError({
-                message:
-                  "No model selection provided and no project default found" as any,
+                message: "No model selection provided and no project default found" as any,
               });
             }
           }
@@ -3012,27 +2870,15 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               .listInternalThreadRefs({ runId: persistedRun.value.runId })
               .pipe(
                 Effect.catch(() =>
-                  Effect.succeed(
-                    [] as ReadonlyArray<PlanRunnerInternalThreadRow>,
-                  ),
+                  Effect.succeed([] as ReadonlyArray<PlanRunnerInternalThreadRow>),
                 ),
               );
             return refs.map((r) => r.threadId as string);
           });
 
           const stepRows: PlanRunnerStepRow[] = [
-            buildSyntheticStepRow(
-              run,
-              ANALYZER_STEP_KEY,
-              "analyzer",
-              analyzerOrder,
-            ),
-            buildSyntheticStepRow(
-              run,
-              INTEGRATION_STEP_KEY,
-              "integration",
-              integrationOrder,
-            ),
+            buildSyntheticStepRow(run, ANALYZER_STEP_KEY, "analyzer", analyzerOrder),
+            buildSyntheticStepRow(run, INTEGRATION_STEP_KEY, "integration", integrationOrder),
           ];
           let nextOrder = planBaseOrder;
           for (const plan of run.plans.values()) {
@@ -3049,9 +2895,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               run: runRow,
               steps: stepRows,
               internalThreads: [],
-              ...(Option.isSome(persistedRun)
-                ? { oldRunId: persistedRun.value.runId }
-                : {}),
+              ...(Option.isSome(persistedRun) ? { oldRunId: persistedRun.value.runId } : {}),
             })
             .pipe(
               Effect.mapError(
@@ -3071,16 +2915,12 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             const dispatchResult = yield* orchestrationEngine
               .dispatch({
                 type: "thread.delete",
-                commandId: CommandId.makeUnsafe(
-                  `plan-runner:replace-delete:${makeId()}`,
-                ),
+                commandId: CommandId.makeUnsafe(`plan-runner:replace-delete:${makeId()}`),
                 threadId: ThreadId.makeUnsafe(oldThreadId),
               })
               .pipe(Effect.exit);
             if (dispatchResult._tag === "Failure") {
-              yield* repo
-                .deleteRun({ runId: run.runId })
-                .pipe(Effect.ignoreCause({ log: true }));
+              yield* repo.deleteRun({ runId: run.runId }).pipe(Effect.ignoreCause({ log: true }));
               return yield* new PlanRunnerError({
                 message:
                   `Failed to delete prior run threads when replacing feature "${run.featureName}". New run aborted.` as any,
@@ -3153,11 +2993,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           // skipped. Persist + publish each transition so the UI doesn't
           // render stale running/reviewing states after termination.
           for (const node of run.plans.values()) {
-            if (
-              node.state !== "done" &&
-              node.state !== "failed" &&
-              node.state !== "skipped"
-            ) {
+            if (node.state !== "done" && node.state !== "failed" && node.state !== "skipped") {
               if (node.executorThreadId) {
                 yield* stopThreadSession(node.executorThreadId);
               }
@@ -3190,9 +3026,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           // active log view. Integration during integrate phase, analyzer
           // otherwise.
           const cancelStepKey =
-            run.integrationThreadId !== null
-              ? INTEGRATION_STEP_KEY
-              : ANALYZER_STEP_KEY;
+            run.integrationThreadId !== null ? INTEGRATION_STEP_KEY : ANALYZER_STEP_KEY;
           yield* emitSyntheticLogEntry(run, cancelStepKey, {
             kind: "runner.status",
             title: `Run cancelled for "${run.featureName}"`,
@@ -3253,18 +3087,13 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           }
 
           const projectCwd = yield* resolveProjectCwd(input.projectId);
-          const featureDir = pathService.join(
-            projectCwd,
-            ".plans",
-            input.featureName,
-          );
+          const featureDir = pathService.join(projectCwd, ".plans", input.featureName);
 
           const dirEntries = yield* fs.readDirectory(featureDir).pipe(
             Effect.mapError(
               () =>
                 new PlanRunnerError({
-                  message:
-                    `Feature directory not found: .plans/${input.featureName}` as any,
+                  message: `Feature directory not found: .plans/${input.featureName}` as any,
                 }),
             ),
           );
@@ -3389,18 +3218,16 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           if (!memoryRun) {
             // Confirm the run exists in persistence before claiming "not
             // found" so callers reading historical runs get terminal data.
-            const persisted = yield* repo
-              .getRunById({ runId: input.runId })
-              .pipe(
-                Effect.mapError(
-                  (err) =>
-                    new PlanRunnerNotFoundError({
-                      runId: input.runId,
-                      message:
-                        `Failed to read persisted run "${input.runId}": ${(err as { message?: string }).message ?? "unknown"}` as any,
-                    }),
-                ),
-              );
+            const persisted = yield* repo.getRunById({ runId: input.runId }).pipe(
+              Effect.mapError(
+                (err) =>
+                  new PlanRunnerNotFoundError({
+                    runId: input.runId,
+                    message:
+                      `Failed to read persisted run "${input.runId}": ${(err as { message?: string }).message ?? "unknown"}` as any,
+                  }),
+              ),
+            );
             if (Option.isNone(persisted)) {
               return yield* new PlanRunnerNotFoundError({
                 runId: input.runId,
@@ -3417,9 +3244,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             })
             .pipe(
               Effect.catch(() =>
-                Effect.succeed(
-                  [] as ReadonlyArray<PlanRunnerSyntheticLogEntryRow>,
-                ),
+                Effect.succeed([] as ReadonlyArray<PlanRunnerSyntheticLogEntryRow>),
               ),
             );
 
@@ -3428,15 +3253,9 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           const threadRows = yield* repo
             .listInternalThreadRefs({ runId: input.runId })
             .pipe(
-              Effect.catch(() =>
-                Effect.succeed(
-                  [] as ReadonlyArray<PlanRunnerInternalThreadRow>,
-                ),
-              ),
+              Effect.catch(() => Effect.succeed([] as ReadonlyArray<PlanRunnerInternalThreadRow>)),
             );
-          const stepThreads = threadRows.filter(
-            (row) => row.stepKey === input.stepKey,
-          );
+          const stepThreads = threadRows.filter((row) => row.stepKey === input.stepKey);
           const readModel = yield* orchestrationEngine.getReadModel();
 
           /**
@@ -3466,9 +3285,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             const fallbackTitle = "Plan runner event";
             const title = (row.title ?? fallbackTitle).trim() || fallbackTitle;
             const copy =
-              (
-                (row.copyText ?? row.title ?? row.bodyText ?? title) as string
-              ).trim() || title;
+              ((row.copyText ?? row.title ?? row.bodyText ?? title) as string).trim() || title;
             combined.push({
               createdAt: row.createdAt,
               kind: row.kind,
@@ -3486,9 +3303,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           }
 
           for (const ref of stepThreads) {
-            const thread = readModel.threads.find(
-              (t) => t.id === (ref.threadId as string),
-            );
+            const thread = readModel.threads.find((t) => t.id === (ref.threadId as string));
             if (!thread) continue;
 
             for (const msg of thread.messages) {
@@ -3496,10 +3311,8 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               if (msg.streaming) continue;
               const text = (msg.text ?? "").trim();
               if (text.length === 0) continue;
-              const kind: PlanRunnerLogEntryKind =
-                msg.role === "user" ? "prompt" : "assistant";
-              const title =
-                kind === "prompt" ? "User prompt" : "Assistant message";
+              const kind: PlanRunnerLogEntryKind = msg.role === "user" ? "prompt" : "assistant";
+              const title = kind === "prompt" ? "User prompt" : "Assistant message";
               combined.push({
                 createdAt: msg.createdAt,
                 kind,
@@ -3558,8 +3371,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           }
 
           combined.sort((a, b) => {
-            if (a.createdAt !== b.createdAt)
-              return a.createdAt < b.createdAt ? -1 : 1;
+            if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
             if (a.tieRank !== b.tieRank) return a.tieRank - b.tieRank;
             return a.tieKey < b.tieKey ? -1 : a.tieKey > b.tieKey ? 1 : 0;
           });
@@ -3571,8 +3383,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             kind: c.kind,
             sequence: NonNegativeInt.makeUnsafe(i),
             createdAt: c.createdAt,
-            threadId:
-              c.threadId === null ? null : ThreadId.makeUnsafe(c.threadId),
+            threadId: c.threadId === null ? null : ThreadId.makeUnsafe(c.threadId),
             threadRole: c.threadRole,
             title: c.title as PlanRunnerLogEntry["title"],
             bodyMarkdown: c.bodyMarkdown,
@@ -3585,11 +3396,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           // with a sequence greater than every entry we just returned.
           // Keeps the client's append-by-sequence ordering monotonic across
           // load + live append boundaries.
-          yield* ensureSequenceAtLeast(
-            input.runId,
-            input.stepKey,
-            entries.length,
-          );
+          yield* ensureSequenceAtLeast(input.runId, input.stepKey, entries.length);
 
           return {
             runId: input.runId,

@@ -4,7 +4,7 @@
  * Spawns msfrpcd via PtyAdapter, communicates via MSFRPC MessagePack-RPC over HTTP,
  * polls for session changes, and emits events via internal PubSub.
  */
-import { Duration, Effect, Fiber, Layer, Schedule, Schema } from "effect";
+import { Deferred, Duration, Effect, Fiber, Layer, Schedule, Schema } from "effect";
 import { encode as msgpackEncode } from "@msgpack/msgpack";
 import { msgpackDecode } from "@fenrir/shared/msgpack";
 import {
@@ -175,7 +175,15 @@ export const MetasploitServiceLive = Layer.effect(
     let lastEmittedConnected: boolean | null = null;
     let pollFailureCount = 0;
     let cachedClient: MsfrpcClient | null = null;
-    let inFlightStart: Effect.Effect<
+    /**
+     * Single-flight deferred: concurrent callers of `ensureStarted` share
+     * a single in-flight startup via Deferred.await.
+     * Previous `inFlightStart` stored an Effect value, which is a lazy
+     * blueprint — yielding it in two fibers ran ensureStartedRaw twice,
+     * spawning two msfrpcd processes.  The second process's onExit handler
+     * then nuked state set by the first (successful) one.
+     */
+    let startDeferred: Deferred.Deferred<
       MsfrpcClient,
       MetasploitNotFoundError | MetasploitConnectionError
     > | null = null;
@@ -405,34 +413,48 @@ export const MetasploitServiceLive = Layer.effect(
     });
 
     /**
-     * Single-flight wrapper: concurrent callers share one in-flight Effect.
-     * Caches success forever (until disconnect invalidates `cachedClient`).
-     * On failure, cached entry cleared so next caller retries.
+     * Single-flight wrapper using Deferred: concurrent callers share one
+     * in-flight startup.  The first caller runs `ensureStartedRaw`; later
+     * callers `Deferred.await` the same result.  On disconnect the cached
+     * client is cleared so the next call starts fresh.
      */
-    const ensureStarted = Effect.suspend(() => {
-      if (cachedClient) return Effect.succeed(cachedClient);
-      if (inFlightStart) return inFlightStart;
-      const flight = ensureStartedRaw.pipe(
+    const ensureStarted: Effect.Effect<
+      MsfrpcClient,
+      MetasploitNotFoundError | MetasploitConnectionError
+    > = Effect.gen(function* () {
+      // Fast path: already connected.
+      if (cachedClient) return cachedClient;
+
+      // Single-flight: wait for in-progress start.
+      if (startDeferred) {
+        return yield* Deferred.await(startDeferred);
+      }
+
+      // First caller: create deferred and run startup.
+      const deferred = yield* Deferred.make<
+        MsfrpcClient,
+        MetasploitNotFoundError | MetasploitConnectionError
+      >();
+      startDeferred = deferred;
+
+      return yield* ensureStartedRaw.pipe(
         Effect.tap((client) =>
           Effect.sync(() => {
             cachedClient = client;
-          }),
+          }).pipe(Effect.andThen(Deferred.succeed(deferred, client))),
         ),
-        Effect.tapError(() =>
+        Effect.tapError((err) =>
           Effect.sync(() => {
             cachedClient = null;
-            inFlightStart = null;
             emitConnectionChanged(false);
-          }),
+          }).pipe(Effect.andThen(Deferred.fail(deferred, err))),
         ),
         Effect.ensuring(
           Effect.sync(() => {
-            inFlightStart = null;
+            startDeferred = null;
           }),
         ),
       );
-      inFlightStart = flight;
-      return flight;
     });
 
     const startSessionPolling = () => {
@@ -653,7 +675,7 @@ export const MetasploitServiceLive = Layer.effect(
 
           msfVersion = null;
           cachedClient = null;
-          inFlightStart = null;
+          startDeferred = null;
           lastEmittedConnected = null;
           pollFailureCount = 0;
           emitConnectionChanged(false);
@@ -755,23 +777,17 @@ export const MetasploitServiceLive = Layer.effect(
         }),
 
       listListeners: () =>
-        Effect.try({
-          try: () => Array.from(listeners.values()).map((state) => state.snapshot),
-          catch: (error) =>
-            new MetasploitConnectionError({
-              message: `Failed to list listeners: ${error instanceof Error ? error.message : String(error)}`,
-              cause: error,
-            }),
+        Effect.gen(function* () {
+          // Wait for startup/hydration so we don't return empty before
+          // msfrpcd state is loaded into the in-memory map.
+          yield* ensureStarted.pipe(Effect.orElseSucceed(() => null));
+          return Array.from(listeners.values()).map((state) => state.snapshot);
         }),
 
       listSessions: () =>
-        Effect.try({
-          try: () => Array.from(knownSessions.values()),
-          catch: (error) =>
-            new MetasploitConnectionError({
-              message: `Failed to list sessions: ${error instanceof Error ? error.message : String(error)}`,
-              cause: error,
-            }),
+        Effect.gen(function* () {
+          yield* ensureStarted.pipe(Effect.orElseSucceed(() => null));
+          return Array.from(knownSessions.values());
         }),
 
       sessionWrite: (sessionId: string, data: string) =>
@@ -994,10 +1010,14 @@ export const MetasploitServiceLive = Layer.effect(
 
       subscribe: (listener: (event: MetasploitEvent) => void) =>
         Effect.gen(function* () {
+          // Register subscriber FIRST so hydration events emitted during
+          // ensureStarted (listener.created, session.opened from hydrateState)
+          // are captured.  Previously the subscriber was added after
+          // ensureStarted, so hydration events were lost.
+          eventSubscribers.add(listener);
+
           // Auto-start (best-effort) so subscribers see live data even on first connect.
           yield* ensureStarted.pipe(Effect.orElseSucceed(() => null));
-
-          eventSubscribers.add(listener);
 
           // Seed: deliver current connection state to new subscriber as one-shot.
           // Bypasses transitions-only filter for this subscriber only.
