@@ -1,267 +1,119 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useMemo, useState } from "react";
-import {
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "../ui/sidebar";
-import { Button } from "../ui/button";
+
+import { usePrimaryEnvironmentId } from "../../environments/primary";
+import { readEnvironmentApi } from "../../environmentApi";
+import { useRawTcpStore } from "../../rawTcpStore";
 import { Badge } from "../ui/badge";
-import { useMetasploitStore } from "../../metasploitStore";
-import { useTrafficLensStore, TrafficLensSidebarSection } from "../../modules/traffic-lens";
+import { Button } from "../ui/button";
 import { CreateListenerDialog } from "./CreateListenerDialog";
-import { PayloadCommandsDialog } from "./PayloadCommandsDialog";
-import { useMetasploitSync } from "./useMetasploitSync";
-import { isElectron } from "../../env";
-import { getPrimaryEnvironmentConnection } from "../../environments/runtime";
-import { toastManager } from "../ui/toast";
-import type { ListenerSnapshot } from "@fenrir/contracts";
+import { useRawTcpSync } from "./useRawTcpSync";
 
 export function HackSidebar() {
+  const environmentId = usePrimaryEnvironmentId();
+  useRawTcpSync(environmentId);
+
+  const listeners = useRawTcpStore((s) => s.listeners);
+  const sessions = useRawTcpStore((s) => s.sessions);
+  const activeSessionId = useRawTcpStore((s) => s.activeSessionId);
   const navigate = useNavigate();
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [payloadDialogListener, setPayloadDialogListener] = useState<ListenerSnapshot | null>(null);
 
-  const rpcClient = useMemo(() => getPrimaryEnvironmentConnection().client, []);
-  useMetasploitSync(rpcClient);
-  const listeners = useMetasploitStore((s) => s.listeners);
-  const sessions = useMetasploitStore((s) => s.sessions);
-  const activeSessionId = useMetasploitStore((s) => s.activeSessionId);
-  const connected = useMetasploitStore((s) => s.connected);
-  const upsertListener = useMetasploitStore((s) => s.upsertListener);
-  const setActiveTab = useTrafficLensStore((state) => state.setActiveTab);
-  const [daemonLoading, setDaemonLoading] = useState(false);
+  const stopListener = async (listenerId: string) => {
+    if (!environmentId) return;
+    const api = readEnvironmentApi(environmentId);
+    if (!api) return;
+    await api.rawTcp.stopListener({
+      listenerId: listenerId as never,
+    });
+  };
 
-  const toggleDaemon = useCallback(() => {
-    if (daemonLoading) return;
-    setDaemonLoading(true);
-    const action = connected ? rpcClient.metasploit.stop() : rpcClient.metasploit.start();
-    action
-      .then(() => {
-        toastManager.add({
-          type: "success",
-          title: connected ? "msfrpcd stopped" : "msfrpcd started",
-        });
-      })
-      .catch((err) => {
-        toastManager.add({
-          type: "error",
-          title: connected ? "Failed to stop msfrpcd" : "Failed to start msfrpcd",
-          description: err instanceof Error ? err.message : String(err),
-        });
-      })
-      .finally(() => setDaemonLoading(false));
-  }, [rpcClient, connected, daemonLoading]);
+  const listenerList = Object.values(listeners);
+  const sessionList = Object.values(sessions);
 
   return (
-    <>
-      <SidebarHeader
-        className={
-          isElectron
-            ? "drag-region h-[52px] flex-row items-center gap-2 px-4 py-0 pl-[90px]"
-            : "gap-3 px-3 py-2 sm:gap-2.5 sm:px-4 sm:py-3"
-        }
-      >
-        <span className="truncate text-sm font-medium tracking-tight text-foreground">
-          Hack Mode
-        </span>
-      </SidebarHeader>
-      <SidebarContent>
-        <TrafficLensSidebarSection />
-        <SidebarGroup>
-          <div className="flex items-center justify-between px-2">
-            <SidebarGroupLabel>Listeners</SidebarGroupLabel>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 p-0"
-              onClick={() => setCreateDialogOpen(true)}
-            >
-              +
+    <div className="flex h-full flex-col overflow-hidden text-sm">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <span className="font-medium">Hack</span>
+        <CreateListenerDialog
+          environmentId={environmentId}
+          trigger={
+            <Button size="xs" variant="outline">
+              + Listener
             </Button>
-          </div>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {Object.values(listeners).map((listener) => (
-                <SidebarMenuItem key={listener.listenerId}>
-                  <SidebarMenuButton className="w-full">
-                    <div className="flex w-full items-center justify-between">
-                      <span className="truncate text-sm">{listener.name}</span>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-5 w-5 p-0 text-xs"
-                          title="Copy payload commands"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPayloadDialogListener(listener);
-                          }}
-                        >
-                          &lt;/&gt;
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-5 w-5 p-0 text-xs text-destructive hover:text-destructive"
-                          title="Stop listener"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            rpcClient.metasploit
-                              .stopListener({ listenerId: listener.listenerId })
-                              .then(() => {
-                                toastManager.add({
-                                  type: "success",
-                                  title: "Listener stopped",
-                                });
-                              })
-                              .catch((err) => {
-                                toastManager.add({
-                                  type: "error",
-                                  title: "Failed to stop listener",
-                                  description: err instanceof Error ? err.message : String(err),
-                                });
-                              });
-                          }}
-                        >
-                          ✕
-                        </Button>
+          }
+        />
+      </div>
+      <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
+        <section>
+          <h3 className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+            Listeners ({listenerList.length})
+          </h3>
+          {listenerList.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No listeners</p>
+          ) : (
+            <ul className="space-y-1">
+              {listenerList.map((l) => (
+                <li
+                  key={l.listenerId}
+                  className="flex items-center justify-between rounded border border-border px-2 py-1"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{l.label}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {l.host}:{l.port}
+                    </div>
+                  </div>
+                  <Button size="xs" variant="ghost" onClick={() => void stopListener(l.listenerId)}>
+                    Stop
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section>
+          <h3 className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+            Sessions ({sessionList.length})
+          </h3>
+          {sessionList.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No active sessions</p>
+          ) : (
+            <ul className="space-y-1">
+              {sessionList.map((s) => {
+                const isActive = s.sessionId === activeSessionId;
+                return (
+                  <li key={s.sessionId}>
+                    <button
+                      type="button"
+                      className={`block w-full rounded px-2 py-1 text-left ${
+                        isActive ? "bg-accent text-accent-foreground" : "hover:bg-muted"
+                      }`}
+                      onClick={() =>
+                        void navigate({
+                          to: "/hack/$sessionId",
+                          params: { sessionId: s.sessionId },
+                        })
+                      }
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <div className="truncate font-mono text-xs">{s.sessionId}</div>
                         <Badge
-                          variant={
-                            listener.status === "waiting"
-                              ? "outline"
-                              : listener.status === "active"
-                                ? "default"
-                                : "secondary"
-                          }
-                          className="text-xs"
+                          variant={s.terminalMode === "pty" ? "secondary" : "outline"}
+                          size="sm"
+                          className="shrink-0 uppercase"
                         >
-                          {listener.status}
+                          {s.terminalMode}
                         </Badge>
                       </div>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {listener.lhost}:{listener.lport}
-                    </div>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-              {Object.keys(listeners).length === 0 && (
-                <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                  No active listeners
-                </div>
-              )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>Sessions</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {Object.values(sessions).map((session) => (
-                <SidebarMenuItem key={session.sessionId}>
-                  <SidebarMenuButton
-                    isActive={session.sessionId === activeSessionId}
-                    onClick={() => {
-                      setActiveTab(null);
-                      void window.desktopBridge?.trafficLensHideAllTabs();
-                      void navigate({
-                        to: `/hack/${session.sessionId}` as string,
-                      });
-                    }}
-                    className="w-full"
-                  >
-                    <div className="flex w-full items-center justify-between">
-                      <span className="truncate text-sm">{session.targetHost}</span>
-                      <Badge
-                        variant={session.type === "meterpreter" ? "default" : "outline"}
-                        className="ml-2 text-xs"
-                      >
-                        {session.type}
-                      </Badge>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {session.platform} · {session.info}
-                    </div>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-              {Object.keys(sessions).length === 0 && (
-                <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                  No active sessions
-                </div>
-              )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-      <SidebarFooter className="p-4">
-        <button
-          type="button"
-          onClick={toggleDaemon}
-          disabled={daemonLoading}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-        >
-          <div
-            className={`h-2 w-2 shrink-0 rounded-full ${
-              daemonLoading
-                ? "animate-pulse bg-yellow-500"
-                : connected
-                  ? "bg-green-500"
-                  : "bg-red-500"
-            }`}
-          />
-          <span className="truncate">
-            {daemonLoading
-              ? connected
-                ? "Stopping..."
-                : "Starting..."
-              : connected
-                ? "msfrpcd Running"
-                : "msfrpcd Stopped"}
-          </span>
-          <span className="ml-auto text-[10px] opacity-60">{connected ? "Stop" : "Start"}</span>
-        </button>
-      </SidebarFooter>
-      <CreateListenerDialog
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
-        onCreateListener={(input) => {
-          rpcClient.metasploit
-            .createListener(input)
-            .then((snapshot) => {
-              // Optimistic update: put listener in store immediately from
-              // RPC response instead of relying solely on event stream.
-              upsertListener(snapshot);
-              toastManager.add({
-                type: "success",
-                title: "Listener created",
-                description: `${snapshot.name} listening on ${snapshot.lhost}:${snapshot.lport}`,
-              });
-            })
-            .catch((err) => {
-              console.error("createListener failed:", err);
-              toastManager.add({
-                type: "error",
-                title: "Failed to create listener",
-                description: err instanceof Error ? err.message : String(err),
-              });
-            });
-        }}
-      />
-      <PayloadCommandsDialog
-        listener={payloadDialogListener}
-        onOpenChange={(open) => {
-          if (!open) setPayloadDialogListener(null);
-        }}
-      />
-    </>
+                      <div className="text-xs text-muted-foreground">{s.remoteAddress}</div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      </div>
+    </div>
   );
 }

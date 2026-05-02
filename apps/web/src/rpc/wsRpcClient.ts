@@ -5,7 +5,6 @@ import {
   type GitStatusResult,
   type GitStatusStreamEvent,
   type LocalApi,
-  type MetasploitEvent,
   ORCHESTRATION_WS_METHODS,
   type CreateGlobalActionInput,
   type UpdateGlobalActionInput,
@@ -62,21 +61,15 @@ export interface WsRpcClient {
     readonly writeTmux: RpcUnaryMethod<typeof WS_METHODS.terminalWriteTmux>;
     readonly resizeTmux: RpcUnaryMethod<typeof WS_METHODS.terminalResizeTmux>;
   };
-  readonly metasploit: {
-    readonly start: RpcUnaryNoArgMethod<typeof WS_METHODS.metasploitStart>;
-    readonly stop: RpcUnaryNoArgMethod<typeof WS_METHODS.metasploitStop>;
-    readonly status: RpcUnaryNoArgMethod<typeof WS_METHODS.metasploitStatus>;
-    readonly createListener: RpcUnaryMethod<typeof WS_METHODS.metasploitCreateListener>;
-    readonly stopListener: RpcUnaryMethod<typeof WS_METHODS.metasploitStopListener>;
-    readonly listListeners: RpcUnaryNoArgMethod<typeof WS_METHODS.metasploitListListeners>;
-    readonly listSessions: RpcUnaryNoArgMethod<typeof WS_METHODS.metasploitListSessions>;
-    readonly sessionWrite: RpcUnaryMethod<typeof WS_METHODS.metasploitSessionWrite>;
-    readonly sessionResize: RpcUnaryMethod<typeof WS_METHODS.metasploitSessionResize>;
-    readonly sessionUpgrade: RpcUnaryMethod<typeof WS_METHODS.metasploitSessionUpgrade>;
-    readonly sessionClose: RpcUnaryMethod<typeof WS_METHODS.metasploitSessionClose>;
-    readonly sessionAttach: RpcUnaryMethod<typeof WS_METHODS.metasploitSessionAttach>;
-    readonly sessionDetach: RpcUnaryMethod<typeof WS_METHODS.metasploitSessionDetach>;
-    readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeMetasploitEvents>;
+  readonly rawTcp: {
+    readonly createListener: RpcUnaryMethod<typeof WS_METHODS.rawTcpCreateListener>;
+    readonly stopListener: RpcUnaryMethod<typeof WS_METHODS.rawTcpStopListener>;
+    readonly listListeners: RpcUnaryNoArgMethod<typeof WS_METHODS.rawTcpListListeners>;
+    readonly listSessions: RpcUnaryNoArgMethod<typeof WS_METHODS.rawTcpListSessions>;
+    readonly sessionWrite: RpcUnaryMethod<typeof WS_METHODS.rawTcpSessionWrite>;
+    readonly sessionUpgradePty: RpcUnaryMethod<typeof WS_METHODS.rawTcpSessionUpgradePty>;
+    readonly sessionClose: RpcUnaryMethod<typeof WS_METHODS.rawTcpSessionClose>;
+    readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeRawTcpEvents>;
   };
   readonly projects: {
     readonly searchEntries: RpcUnaryMethod<typeof WS_METHODS.projectsSearchEntries>;
@@ -195,33 +188,23 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       resizeTmux: (input) =>
         transport.request((client) => client[WS_METHODS.terminalResizeTmux](input)),
     },
-    metasploit: {
-      start: () => transport.request((client) => client[WS_METHODS.metasploitStart]({})),
-      stop: () => transport.request((client) => client[WS_METHODS.metasploitStop]({})),
-      status: () => transport.request((client) => client[WS_METHODS.metasploitStatus]({})),
+    rawTcp: {
       createListener: (input) =>
-        transport.request((client) => client[WS_METHODS.metasploitCreateListener](input)),
+        transport.request((client) => client[WS_METHODS.rawTcpCreateListener](input)),
       stopListener: (input) =>
-        transport.request((client) => client[WS_METHODS.metasploitStopListener](input)),
+        transport.request((client) => client[WS_METHODS.rawTcpStopListener](input)),
       listListeners: () =>
-        transport.request((client) => client[WS_METHODS.metasploitListListeners]({})),
-      listSessions: () =>
-        transport.request((client) => client[WS_METHODS.metasploitListSessions]({})),
+        transport.request((client) => client[WS_METHODS.rawTcpListListeners]({})),
+      listSessions: () => transport.request((client) => client[WS_METHODS.rawTcpListSessions]({})),
       sessionWrite: (input) =>
-        transport.request((client) => client[WS_METHODS.metasploitSessionWrite](input)),
-      sessionResize: (input) =>
-        transport.request((client) => client[WS_METHODS.metasploitSessionResize](input)),
-      sessionUpgrade: (input) =>
-        transport.request((client) => client[WS_METHODS.metasploitSessionUpgrade](input)),
+        transport.request((client) => client[WS_METHODS.rawTcpSessionWrite](input)),
+      sessionUpgradePty: (input) =>
+        transport.request((client) => client[WS_METHODS.rawTcpSessionUpgradePty](input)),
       sessionClose: (input) =>
-        transport.request((client) => client[WS_METHODS.metasploitSessionClose](input)),
-      sessionAttach: (input) =>
-        transport.request((client) => client[WS_METHODS.metasploitSessionAttach](input)),
-      sessionDetach: (input) =>
-        transport.request((client) => client[WS_METHODS.metasploitSessionDetach](input)),
+        transport.request((client) => client[WS_METHODS.rawTcpSessionClose](input)),
       onEvent: (listener, options) =>
         transport.subscribe(
-          (client) => client[WS_METHODS.subscribeMetasploitEvents]({}),
+          (client) => client[WS_METHODS.subscribeRawTcpEvents]({}),
           listener,
           options,
         ),

@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { TargetWorkspace } from "../components/hack/TargetWorkspace";
 import { useEffect } from "react";
-import { useMetasploitStore } from "../metasploitStore";
+
+import { TargetWorkspace } from "../components/hack/TargetWorkspace";
+import { useRawTcpStore } from "../rawTcpStore";
 
 function HackSessionRouteView() {
   const { sessionId } = Route.useParams();
-  const setActiveSessionId = useMetasploitStore((s) => s.setActiveSessionId);
+  const setActiveSessionId = useRawTcpStore((s) => s.setActiveSessionId);
 
   useEffect(() => {
     setActiveSessionId(sessionId);

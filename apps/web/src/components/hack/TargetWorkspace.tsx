@@ -1,118 +1,168 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
-import { useNavigate } from "@tanstack/react-router";
-import { useMetasploitStore } from "../../metasploitStore";
-import { Button } from "../ui/button";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+
+import { usePrimaryEnvironmentId } from "../../environments/primary";
+import { readEnvironmentApi } from "../../environmentApi";
+import { terminalHandlerStore } from "../../modules/reverse-shells/stores/terminalHandlerStore";
+import { useRawTcpStore } from "../../rawTcpStore";
 import { Badge } from "../ui/badge";
-import { TargetShellTab } from "./TargetShellTab";
-import { TargetFilesTab } from "./TargetFilesTab";
-import { TargetProcessesTab } from "./TargetProcessesTab";
-import { TargetNetworkTab } from "./TargetNetworkTab";
-import { TargetAgentInput } from "./TargetAgentInput";
-import { getPrimaryEnvironmentConnection } from "../../environments/runtime";
+import { Button } from "../ui/button";
+import { useRawTcpSync } from "./useRawTcpSync";
 
-type Tab = "shell" | "files" | "processes" | "network";
-
-interface TargetWorkspaceProps {
+interface Props {
   sessionId: string;
 }
 
-export function TargetWorkspace({ sessionId }: TargetWorkspaceProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("shell");
-  const session = useMetasploitStore((s) => s.sessions[sessionId]);
-  const consumeUpgradeRedirect = useMetasploitStore((s) => s.consumeUpgradeRedirect);
-  const rpcClient = useMemo(() => getPrimaryEnvironmentConnection().client, []);
-  const navigate = useNavigate();
-  const [upgrading, setUpgrading] = useState(false);
+export function TargetWorkspace({ sessionId }: Props) {
+  const environmentId = usePrimaryEnvironmentId();
+  useRawTcpSync(environmentId);
 
-  // Auto-navigate to upgraded session when this session disappears due to upgrade.
+  const session = useRawTcpStore((s) => s.sessions[sessionId]);
+  const output = useRawTcpStore((s) => s.sessionOutput[sessionId] ?? "");
+  const terminalContainerRef = useRef<HTMLDivElement | null>(null);
+  const [upgradingPty, setUpgradingPty] = useState(false);
+
+  const sendData = useEffectEvent((data: string) => {
+    if (!session || !environmentId) return;
+    const api = readEnvironmentApi(environmentId);
+    if (!api) return;
+
+    void api.rawTcp
+      .sessionWrite({
+        sessionId: sessionId as never,
+        data,
+      })
+      .catch((error) => {
+        terminalHandlerStore
+          .getState()
+          .writeSystemMessage(error instanceof Error ? error.message : "Failed to send input");
+      });
+  });
+
   useEffect(() => {
-    if (session) return; // Session still exists — nothing to redirect.
-    const newSessionId = consumeUpgradeRedirect(sessionId);
-    if (newSessionId) {
-      void navigate({ to: `/hack/${newSessionId}` as string });
-    }
-  }, [session, sessionId, consumeUpgradeRedirect, navigate]);
+    const container = terminalContainerRef.current;
+    if (!container) return;
 
-  const canUpgrade = session?.type === "shell" && session?.listenerId != null;
+    const terminalHandler = terminalHandlerStore.getState();
+    terminalHandler.mount({
+      container,
+      onData: (data) => {
+        sendData(data);
+      },
+    });
 
-  const handleUpgrade = useCallback(async () => {
-    if (!canUpgrade) return;
-    setUpgrading(true);
+    const focusFrame = window.requestAnimationFrame(() => {
+      terminalHandlerStore.getState().focus();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      terminalHandlerStore.getState().dispose();
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
+    terminalHandlerStore.getState().syncOutput(output);
+  }, [output]);
+
+  useEffect(() => {
+    terminalHandlerStore.getState().setInputEnabled(Boolean(session));
+  }, [session]);
+
+  const closeSession = async () => {
+    if (!session || !environmentId) return;
+    const api = readEnvironmentApi(environmentId);
+    if (!api) return;
+
     try {
-      await rpcClient.metasploit.sessionUpgrade({ sessionId });
-      // Success: store updates via session.closed + session.upgraded events.
-      // Component will re-render with new sessionId or unmount if active changed.
-      // Don't reset `upgrading` on success — re-mount handles it.
-    } catch (err) {
-      console.warn(`[upgrade] failed for ${sessionId}:`, err);
-      setUpgrading(false);
+      await api.rawTcp.sessionClose({
+        sessionId: sessionId as never,
+      });
+    } catch (error) {
+      terminalHandlerStore
+        .getState()
+        .writeSystemMessage(error instanceof Error ? error.message : "Failed to close session");
     }
-  }, [rpcClient, sessionId, canUpgrade]);
+  };
 
-  if (!session) {
-    return (
-      <div className="flex h-full flex-1 items-center justify-center text-muted-foreground">
-        Session not found
-      </div>
-    );
-  }
+  const upgradeSessionPty = async () => {
+    if (!session || !environmentId) return;
+    const api = readEnvironmentApi(environmentId);
+    if (!api) return;
 
-  const isMeterpreter = session.type === "meterpreter";
+    const viewport = terminalHandlerStore.getState().getViewport();
+    const cols = Math.max(1, viewport?.cols ?? 80);
+    const rows = Math.max(1, viewport?.rows ?? 24);
+
+    setUpgradingPty(true);
+    try {
+      await api.rawTcp.sessionUpgradePty({
+        sessionId: sessionId as never,
+        cols,
+        rows,
+      });
+      terminalHandlerStore.getState().writeSystemMessage("PTY upgrade command sent");
+    } catch (error) {
+      terminalHandlerStore
+        .getState()
+        .writeSystemMessage(error instanceof Error ? error.message : "Failed to upgrade PTY");
+    } finally {
+      setUpgradingPty(false);
+    }
+  };
 
   return (
-    <div className="flex h-full flex-1 flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-2">
-        <div className="flex items-center gap-3">
-          <span className="font-medium">{session.targetHost}</span>
-          <Badge variant={isMeterpreter ? "default" : "outline"}>{session.type}</Badge>
-          <span className="text-sm text-muted-foreground">
-            {session.platform} · {session.info}
-          </span>
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <div className="truncate font-mono text-sm">{sessionId}</div>
+            {session ? (
+              <Badge
+                variant={session.terminalMode !== "raw" ? "secondary" : "outline"}
+                size="sm"
+                className="uppercase"
+              >
+                {session.terminalMode}
+              </Badge>
+            ) : null}
+          </div>
+          {session ? (
+            <div className="text-xs text-muted-foreground">
+              from {session.remoteAddress} · listener {session.listenerId}
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground">session disconnected</div>
+          )}
         </div>
-        {!isMeterpreter && (
+        <div className="flex items-center gap-2">
           <Button
+            size="xs"
             variant="outline"
-            size="sm"
-            onClick={handleUpgrade}
-            disabled={upgrading || !canUpgrade}
-            title={
-              !canUpgrade ? "Cannot upgrade: orphan session has no associated listener." : undefined
-            }
+            disabled={!session || upgradingPty}
+            onClick={() => void upgradeSessionPty()}
           >
-            {upgrading ? "Upgrading…" : "Upgrade to Meterpreter"}
+            {upgradingPty
+              ? "Upgrading…"
+              : session?.terminalMode !== "raw"
+                ? "Re-run PTY"
+                : "Upgrade PTY"}
           </Button>
-        )}
-      </div>
-
-      {/* Tab Bar */}
-      <div className="flex border-b border-border">
-        {(["shell", "files", "processes", "network"] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm font-medium capitalize transition-colors ${
-              activeTab === tab
-                ? "border-b-2 border-primary text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={!session}
+            onClick={() => void closeSession()}
           >
-            {tab}
-          </button>
-        ))}
+            Close
+          </Button>
+        </div>
       </div>
-
-      {/* Tab Content */}
-      <div className="flex-1 overflow-hidden">
-        {activeTab === "shell" && <TargetShellTab sessionId={sessionId} />}
-        {activeTab === "files" && <TargetFilesTab sessionType={session.type} />}
-        {activeTab === "processes" && <TargetProcessesTab sessionType={session.type} />}
-        {activeTab === "network" && <TargetNetworkTab sessionType={session.type} />}
+      <div
+        data-xterm-theme-surface
+        className="target-workspace-terminal min-h-0 flex-1 overflow-hidden bg-zinc-950 text-zinc-100"
+      >
+        <div ref={terminalContainerRef} className="h-full w-full" />
       </div>
-
-      {/* Docked Agent Input */}
-      <TargetAgentInput sessionId={sessionId} />
     </div>
   );
 }

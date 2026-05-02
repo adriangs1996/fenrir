@@ -42,8 +42,7 @@ import { TerminalHistoryManagerLive } from "./terminal/Layers/HistoryManager";
 import { TerminalShellResolverLive } from "./terminal/Layers/ShellResolver";
 import { TerminalProcessLifecycleLive } from "./terminal/Layers/ProcessLifecycle";
 import { TmuxSessionManagerLive } from "./terminal/Layers/TmuxSessionManager";
-import { MetasploitServiceLive } from "./metasploit/Layers/MetasploitService";
-import { MetasploitShellAdapterLive } from "./metasploit/Layers/MetasploitShellAdapter";
+import { RawTcpListenerServiceLive } from "./raw-tcp/Layers/RawTcpListenerService";
 import { TrafficLensServiceLive } from "./traffic-lens/Layers/TrafficLensService";
 import { PlanRunnerLive } from "./plan-runner/Layers/PlanRunner";
 import { GitManagerLive } from "./git/Layers/GitManager";
@@ -219,11 +218,6 @@ const TerminalLayerLive = Layer.mergeAll(
   TmuxSessionManagerLive,
 ).pipe(Layer.provide(PtyAdapterLive));
 
-const MetasploitLayerLive = Layer.mergeAll(
-  MetasploitServiceLive,
-  MetasploitShellAdapterLive.pipe(Layer.provide(MetasploitServiceLive)),
-).pipe(Layer.provide(PtyAdapterLive));
-
 const WorkspaceLayerLive = Layer.mergeAll(
   WorkspacePathsLive,
   WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
@@ -244,7 +238,7 @@ const CoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
   Layer.provideMerge(ProviderLayerLive),
   Layer.provideMerge(TerminalLayerLive),
-  Layer.provideMerge(MetasploitLayerLive),
+  Layer.provideMerge(RawTcpListenerServiceLive),
   Layer.provideMerge(TrafficLensServiceLive),
   Layer.provideMerge(
     PlanRunnerLive.pipe(

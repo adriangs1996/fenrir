@@ -75,25 +75,17 @@ import {
   TmuxWriteInput,
 } from "./terminal";
 import {
-  CreateListenerInput,
-  ListenerSnapshot,
-  MetasploitConnectionError,
-  MetasploitEvent,
-  MetasploitListenerError,
-  MetasploitListenerLookupError,
-  MetasploitNotFoundError,
-  MetasploitSessionError,
-  MetasploitStatusSnapshot,
-  MsfSessionSnapshot,
-  SessionAttachInput,
-  SessionAttachOutput,
-  SessionCloseInput,
-  SessionDetachInput,
-  SessionResizeInput,
-  SessionUpgradeInput,
-  SessionWriteInput,
-  StopListenerInput,
-} from "./metasploit";
+  CreateRawTcpListenerInput,
+  RawTcpEvent,
+  RawTcpListenerError,
+  RawTcpListenerSnapshot,
+  RawTcpSessionCloseInput,
+  RawTcpSessionError,
+  RawTcpSessionSnapshot,
+  RawTcpSessionUpgradePtyInput,
+  RawTcpSessionWriteInput,
+  StopRawTcpListenerInput,
+} from "./rawTcpListener";
 import {
   TrafficLensError,
   TrafficLensEvent,
@@ -190,21 +182,15 @@ export const WS_METHODS = {
   terminalWriteTmux: "terminal.writeTmux",
   terminalResizeTmux: "terminal.resizeTmux",
 
-  // Metasploit
-  metasploitStart: "metasploit.start",
-  metasploitStop: "metasploit.stop",
-  metasploitStatus: "metasploit.status",
-  metasploitCreateListener: "metasploit.createListener",
-  metasploitStopListener: "metasploit.stopListener",
-  metasploitListListeners: "metasploit.listListeners",
-  metasploitListSessions: "metasploit.listSessions",
-  metasploitSessionWrite: "metasploit.sessionWrite",
-  metasploitSessionResize: "metasploit.sessionResize",
-  metasploitSessionUpgrade: "metasploit.sessionUpgrade",
-  metasploitSessionClose: "metasploit.sessionClose",
-  metasploitSessionAttach: "metasploit.sessionAttach",
-  metasploitSessionDetach: "metasploit.sessionDetach",
-  subscribeMetasploitEvents: "subscribeMetasploitEvents",
+  // Raw TCP Listener
+  rawTcpCreateListener: "rawTcp.createListener",
+  rawTcpStopListener: "rawTcp.stopListener",
+  rawTcpListListeners: "rawTcp.listListeners",
+  rawTcpListSessions: "rawTcp.listSessions",
+  rawTcpSessionWrite: "rawTcp.sessionWrite",
+  rawTcpSessionUpgradePty: "rawTcp.sessionUpgradePty",
+  rawTcpSessionClose: "rawTcp.sessionClose",
+  subscribeRawTcpEvents: "subscribeRawTcpEvents",
 
   // Traffic Lens
   trafficLensGetTraffic: "trafficLens.getTraffic",
@@ -498,85 +484,48 @@ export const WsTerminalResizeTmuxRpc = Rpc.make(WS_METHODS.terminalResizeTmux, {
   error: TmuxError,
 });
 
-// ─── Metasploit RPCs ────────────────────────────────────────────────────────
+// ─── Raw TCP Listener RPCs ─────────────────────────────────────────────────
 
-export const WsMetasploitStartRpc = Rpc.make(WS_METHODS.metasploitStart, {
+export const WsRawTcpCreateListenerRpc = Rpc.make(WS_METHODS.rawTcpCreateListener, {
+  payload: CreateRawTcpListenerInput,
+  success: RawTcpListenerSnapshot,
+  error: RawTcpListenerError,
+});
+
+export const WsRawTcpStopListenerRpc = Rpc.make(WS_METHODS.rawTcpStopListener, {
+  payload: StopRawTcpListenerInput,
+  error: RawTcpListenerError,
+});
+
+export const WsRawTcpListListenersRpc = Rpc.make(WS_METHODS.rawTcpListListeners, {
   payload: Schema.Struct({}),
-  error: Schema.Union([MetasploitNotFoundError, MetasploitConnectionError]),
+  success: Schema.Array(RawTcpListenerSnapshot),
 });
 
-export const WsMetasploitStopRpc = Rpc.make(WS_METHODS.metasploitStop, {
+export const WsRawTcpListSessionsRpc = Rpc.make(WS_METHODS.rawTcpListSessions, {
   payload: Schema.Struct({}),
+  success: Schema.Array(RawTcpSessionSnapshot),
 });
 
-export const WsMetasploitStatusRpc = Rpc.make(WS_METHODS.metasploitStatus, {
+export const WsRawTcpSessionWriteRpc = Rpc.make(WS_METHODS.rawTcpSessionWrite, {
+  payload: RawTcpSessionWriteInput,
+  error: RawTcpSessionError,
+});
+
+export const WsRawTcpSessionUpgradePtyRpc = Rpc.make(WS_METHODS.rawTcpSessionUpgradePty, {
+  payload: RawTcpSessionUpgradePtyInput,
+  success: RawTcpSessionSnapshot,
+  error: RawTcpSessionError,
+});
+
+export const WsRawTcpSessionCloseRpc = Rpc.make(WS_METHODS.rawTcpSessionClose, {
+  payload: RawTcpSessionCloseInput,
+  error: RawTcpSessionError,
+});
+
+export const WsSubscribeRawTcpEventsRpc = Rpc.make(WS_METHODS.subscribeRawTcpEvents, {
   payload: Schema.Struct({}),
-  success: MetasploitStatusSnapshot,
-  error: MetasploitConnectionError,
-});
-
-export const WsMetasploitCreateListenerRpc = Rpc.make(WS_METHODS.metasploitCreateListener, {
-  payload: CreateListenerInput,
-  success: ListenerSnapshot,
-  error: Schema.Union([
-    MetasploitListenerError,
-    MetasploitConnectionError,
-    MetasploitNotFoundError,
-  ]),
-});
-
-export const WsMetasploitStopListenerRpc = Rpc.make(WS_METHODS.metasploitStopListener, {
-  payload: StopListenerInput,
-  error: MetasploitListenerError,
-});
-
-export const WsMetasploitListListenersRpc = Rpc.make(WS_METHODS.metasploitListListeners, {
-  payload: Schema.Struct({}),
-  success: Schema.Array(ListenerSnapshot),
-  error: MetasploitConnectionError,
-});
-
-export const WsMetasploitListSessionsRpc = Rpc.make(WS_METHODS.metasploitListSessions, {
-  payload: Schema.Struct({}),
-  success: Schema.Array(MsfSessionSnapshot),
-  error: MetasploitConnectionError,
-});
-
-export const WsMetasploitSessionWriteRpc = Rpc.make(WS_METHODS.metasploitSessionWrite, {
-  payload: SessionWriteInput,
-  error: MetasploitSessionError,
-});
-
-export const WsMetasploitSessionResizeRpc = Rpc.make(WS_METHODS.metasploitSessionResize, {
-  payload: SessionResizeInput,
-  error: MetasploitSessionError,
-});
-
-export const WsMetasploitSessionUpgradeRpc = Rpc.make(WS_METHODS.metasploitSessionUpgrade, {
-  payload: SessionUpgradeInput,
-  success: MsfSessionSnapshot,
-  error: Schema.Union([MetasploitSessionError, MetasploitListenerLookupError]),
-});
-
-export const WsMetasploitSessionCloseRpc = Rpc.make(WS_METHODS.metasploitSessionClose, {
-  payload: SessionCloseInput,
-  error: MetasploitSessionError,
-});
-
-export const WsMetasploitSessionAttachRpc = Rpc.make(WS_METHODS.metasploitSessionAttach, {
-  payload: SessionAttachInput,
-  success: SessionAttachOutput,
-  error: Schema.Union([MetasploitSessionError, MetasploitConnectionError]),
-});
-
-export const WsMetasploitSessionDetachRpc = Rpc.make(WS_METHODS.metasploitSessionDetach, {
-  payload: SessionDetachInput,
-  error: MetasploitSessionError,
-});
-
-export const WsSubscribeMetasploitEventsRpc = Rpc.make(WS_METHODS.subscribeMetasploitEvents, {
-  payload: Schema.Struct({}),
-  success: MetasploitEvent,
+  success: RawTcpEvent,
   stream: true,
 });
 
@@ -711,20 +660,14 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalDetachTmuxRpc,
   WsTerminalWriteTmuxRpc,
   WsTerminalResizeTmuxRpc,
-  WsMetasploitStartRpc,
-  WsMetasploitStopRpc,
-  WsMetasploitStatusRpc,
-  WsMetasploitCreateListenerRpc,
-  WsMetasploitStopListenerRpc,
-  WsMetasploitListListenersRpc,
-  WsMetasploitListSessionsRpc,
-  WsMetasploitSessionWriteRpc,
-  WsMetasploitSessionResizeRpc,
-  WsMetasploitSessionUpgradeRpc,
-  WsMetasploitSessionCloseRpc,
-  WsMetasploitSessionAttachRpc,
-  WsMetasploitSessionDetachRpc,
-  WsSubscribeMetasploitEventsRpc,
+  WsRawTcpCreateListenerRpc,
+  WsRawTcpStopListenerRpc,
+  WsRawTcpListListenersRpc,
+  WsRawTcpListSessionsRpc,
+  WsRawTcpSessionWriteRpc,
+  WsRawTcpSessionUpgradePtyRpc,
+  WsRawTcpSessionCloseRpc,
+  WsSubscribeRawTcpEventsRpc,
   WsTrafficLensGetTrafficRpc,
   WsTrafficLensGetTrafficDetailRpc,
   WsTrafficLensClearTrafficRpc,

@@ -1,137 +1,96 @@
-import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
+import { useState, type FormEvent } from "react";
+import type { EnvironmentId } from "@fenrir/contracts";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { readEnvironmentApi } from "../../environmentApi";
 
-import type { CreateListenerInput } from "@fenrir/contracts";
-
-interface CreateListenerDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onCreateListener: (input: CreateListenerInput) => void;
+interface Props {
+  environmentId: EnvironmentId | null;
+  trigger: React.ReactElement;
 }
 
-const PAYLOAD_OPTIONS = [
-  {
-    value: "windows/meterpreter/reverse_tcp",
-    label: "Windows Meterpreter x86 (TCP)",
-  },
-  {
-    value: "windows/x64/meterpreter/reverse_tcp",
-    label: "Windows Meterpreter x64 (TCP)",
-  },
-  {
-    value: "linux/x86/meterpreter/reverse_tcp",
-    label: "Linux Meterpreter x86 (TCP)",
-  },
-  {
-    value: "linux/x64/meterpreter/reverse_tcp",
-    label: "Linux Meterpreter x64 (TCP)",
-  },
-  { value: "cmd/unix/reverse_bash", label: "Unix Reverse Bash" },
-  { value: "generic/shell_reverse_tcp", label: "Generic Reverse Shell (TCP)" },
-  {
-    value: "java/meterpreter/reverse_tcp",
-    label: "Java Meterpreter (TCP)",
-  },
-  {
-    value: "php/meterpreter/reverse_tcp",
-    label: "PHP Meterpreter (TCP)",
-  },
-] as const;
+export function CreateListenerDialog({ environmentId, trigger }: Props) {
+  const [open, setOpen] = useState(false);
+  const [label, setLabel] = useState("");
+  const [host, setHost] = useState("0.0.0.0");
+  const [port, setPort] = useState("4444");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-export function CreateListenerDialog({
-  open,
-  onOpenChange,
-  onCreateListener,
-}: CreateListenerDialogProps) {
-  const [name, setName] = useState("");
-  const [payload, setPayload] = useState(PAYLOAD_OPTIONS[0].value);
-  const [lhost, setLhost] = useState("0.0.0.0");
-  const [lport, setLport] = useState("4444");
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!environmentId) return;
+    const api = readEnvironmentApi(environmentId);
+    if (!api) return;
 
-  const parsedPort = Number(lport);
-  const isPortValid = Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65535;
-
-  const handleCreate = () => {
-    if (!isPortValid) {
+    const portNum = Number.parseInt(port, 10);
+    if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+      setError("Port must be 1–65535");
       return;
     }
-    onCreateListener({
-      name: name.trim(),
-      payload,
-      lhost: lhost.trim(),
-      lport: parsedPort,
-    } as CreateListenerInput);
-    onOpenChange(false);
-    setName("");
-    setPayload(PAYLOAD_OPTIONS[0].value);
-    setLhost("0.0.0.0");
-    setLport("4444");
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      await api.rawTcp.createListener({
+        label: label.trim() || `Listener on ${host}:${portNum}`,
+        host: host.trim() || "0.0.0.0",
+        port: portNum,
+      });
+      setOpen(false);
+      setLabel("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create listener");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={trigger} />
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create Listener</DialogTitle>
+          <DialogTitle>Create raw TCP listener</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid gap-2">
-            <Label htmlFor="listener-name">Name</Label>
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="rtl-label">Label</Label>
             <Input
-              id="listener-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="My Listener"
+              id="rtl-label"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="optional"
             />
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="listener-payload">Payload</Label>
-            <select
-              id="listener-payload"
-              value={payload}
-              onChange={(e) => setPayload(e.target.value as typeof payload)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              {PAYLOAD_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+          <div className="space-y-2">
+            <Label htmlFor="rtl-host">Host</Label>
+            <Input id="rtl-host" value={host} onChange={(e) => setHost(e.target.value)} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="listener-lhost">LHOST</Label>
-              <Input
-                id="listener-lhost"
-                value={lhost}
-                onChange={(e) => setLhost(e.target.value)}
-                placeholder="0.0.0.0"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="listener-lport">LPORT</Label>
-              <Input
-                id="listener-lport"
-                type="number"
-                value={lport}
-                onChange={(e) => setLport(e.target.value)}
-                placeholder="4444"
-              />
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="rtl-port">Port</Label>
+            <Input id="rtl-port" value={port} onChange={(e) => setPort(e.target.value)} />
           </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleCreate} disabled={!name.trim() || !isPortValid}>
-            Create
-          </Button>
-        </DialogFooter>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={submitting || !environmentId}>
+              {submitting ? "Creating…" : "Create"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

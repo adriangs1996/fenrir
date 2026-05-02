@@ -19,13 +19,10 @@ import {
   GlobalActionsRpcError,
   ThreadId,
   type TerminalEvent,
-  type MetasploitEvent,
+  type RawTcpEvent,
   WS_METHODS,
   WsRpcGroup,
   TmuxError,
-  MetasploitConnectionError,
-  MetasploitListenerError,
-  MetasploitSessionError,
 } from "@fenrir/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
@@ -69,11 +66,7 @@ import {
 } from "./auth/Services/SessionCredentialService";
 import { respondToAuthError } from "./auth/http";
 import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager";
-import { MetasploitService } from "./metasploit/Services/MetasploitService";
-import {
-  MetasploitShellAdapter,
-  type MsfShellProcess,
-} from "./metasploit/Services/MetasploitShellAdapter";
+import { RawTcpListenerService } from "./raw-tcp/Services/RawTcpListenerService";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService";
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner";
 import type { TrafficLensEvent } from "@fenrir/contracts";
@@ -145,12 +138,10 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const bootstrapCredentials = yield* BootstrapCredentialService;
       const sessions = yield* SessionCredentialService;
       const tmuxSessionManager = yield* TmuxSessionManager;
-      const metasploitService = yield* MetasploitService;
-      const metasploitShellAdapter = yield* MetasploitShellAdapter;
+      const rawTcpListenerService = yield* RawTcpListenerService;
       const trafficLensService = yield* TrafficLensService;
       const planRunnerService = yield* PlanRunnerService;
       const activeTmuxProcesses = new Map<string, { pid: number }>();
-      const activeMsfShellProcesses = new Map<string, MsfShellProcess>();
 
       const serverCommandId = (tag: string) =>
         CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
@@ -1107,182 +1098,65 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             { "rpc.aggregate": "auth" },
           ),
 
-        // ─── Metasploit RPCs ──────────────────────────────────────────────
+        // ─── Raw TCP Listener RPCs ─────────────────────────────────────
 
-        [WS_METHODS.metasploitStart]: (_input) =>
-          observeRpcEffect(WS_METHODS.metasploitStart, metasploitService.start(), {
-            "rpc.aggregate": "metasploit",
+        [WS_METHODS.rawTcpCreateListener]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.rawTcpCreateListener,
+            rawTcpListenerService.createListener(input),
+            { "rpc.aggregate": "rawTcp" },
+          ),
+
+        [WS_METHODS.rawTcpStopListener]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.rawTcpStopListener,
+            rawTcpListenerService.stopListener(input.listenerId),
+            { "rpc.aggregate": "rawTcp" },
+          ),
+
+        [WS_METHODS.rawTcpListListeners]: (_input) =>
+          observeRpcEffect(WS_METHODS.rawTcpListListeners, rawTcpListenerService.listListeners(), {
+            "rpc.aggregate": "rawTcp",
           }),
 
-        [WS_METHODS.metasploitStop]: (_input) =>
-          observeRpcEffect(WS_METHODS.metasploitStop, metasploitService.stop(), {
-            "rpc.aggregate": "metasploit",
+        [WS_METHODS.rawTcpListSessions]: (_input) =>
+          observeRpcEffect(WS_METHODS.rawTcpListSessions, rawTcpListenerService.listSessions(), {
+            "rpc.aggregate": "rawTcp",
           }),
 
-        [WS_METHODS.metasploitStatus]: (_input) =>
-          observeRpcEffect(WS_METHODS.metasploitStatus, metasploitService.status(), {
-            "rpc.aggregate": "metasploit",
-          }),
-
-        [WS_METHODS.metasploitCreateListener]: (input) =>
+        [WS_METHODS.rawTcpSessionWrite]: (input) =>
           observeRpcEffect(
-            WS_METHODS.metasploitCreateListener,
-            metasploitService.createListener(input),
-            { "rpc.aggregate": "metasploit" },
+            WS_METHODS.rawTcpSessionWrite,
+            rawTcpListenerService.sessionWrite(input.sessionId, input.data),
+            { "rpc.aggregate": "rawTcp" },
           ),
 
-        [WS_METHODS.metasploitStopListener]: (input) =>
+        [WS_METHODS.rawTcpSessionUpgradePty]: (input) =>
           observeRpcEffect(
-            WS_METHODS.metasploitStopListener,
-            metasploitService.stopListener(input.listenerId),
-            { "rpc.aggregate": "metasploit" },
+            WS_METHODS.rawTcpSessionUpgradePty,
+            rawTcpListenerService.sessionUpgradePty(input),
+            { "rpc.aggregate": "rawTcp" },
           ),
 
-        [WS_METHODS.metasploitListListeners]: (_input) =>
-          observeRpcEffect(WS_METHODS.metasploitListListeners, metasploitService.listListeners(), {
-            "rpc.aggregate": "metasploit",
-          }),
-
-        [WS_METHODS.metasploitListSessions]: (_input) =>
-          observeRpcEffect(WS_METHODS.metasploitListSessions, metasploitService.listSessions(), {
-            "rpc.aggregate": "metasploit",
-          }),
-
-        [WS_METHODS.metasploitSessionWrite]: (input) =>
+        [WS_METHODS.rawTcpSessionClose]: (input) =>
           observeRpcEffect(
-            WS_METHODS.metasploitSessionWrite,
-            Effect.gen(function* () {
-              // If we have an active shell process, write through it
-              const shellProc = activeMsfShellProcesses.get(input.sessionId);
-              if (shellProc) {
-                shellProc.write(input.data);
-                return;
-              }
-              // Fallback: write directly through the service (no attached adapter)
-              console.warn(
-                `[msf-ws] sessionWrite fallback: no adapter for ${input.sessionId}, writing directly`,
-              );
-              yield* metasploitService.sessionWrite(input.sessionId, input.data);
-            }).pipe(
-              Effect.mapError(
-                (err) =>
-                  new MetasploitSessionError({
-                    sessionId: input.sessionId,
-                    message: err instanceof Error ? err.message : "Session write failed",
-                  }),
-              ),
-            ),
-            { "rpc.aggregate": "metasploit" },
+            WS_METHODS.rawTcpSessionClose,
+            rawTcpListenerService.sessionClose(input.sessionId),
+            { "rpc.aggregate": "rawTcp" },
           ),
 
-        [WS_METHODS.metasploitSessionResize]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.metasploitSessionResize,
-            Effect.gen(function* () {
-              const shellProc = activeMsfShellProcesses.get(input.sessionId);
-              if (shellProc) {
-                shellProc.resize(input.cols, input.rows);
-              } else {
-                yield* Effect.logDebug(
-                  `[metasploit] sessionResize ignored: no active shell process for ${input.sessionId}`,
-                );
-              }
-            }).pipe(
-              Effect.mapError(
-                () =>
-                  new MetasploitSessionError({
-                    sessionId: input.sessionId,
-                    message: "Session resize failed",
-                  }),
-              ),
-            ),
-            { "rpc.aggregate": "metasploit" },
-          ),
-
-        [WS_METHODS.metasploitSessionUpgrade]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.metasploitSessionUpgrade,
-            metasploitService.sessionUpgrade(input.sessionId),
-            { "rpc.aggregate": "metasploit" },
-          ),
-
-        [WS_METHODS.metasploitSessionClose]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.metasploitSessionClose,
-            Effect.gen(function* () {
-              const shellProc = activeMsfShellProcesses.get(input.sessionId);
-              if (shellProc) {
-                shellProc.close();
-                activeMsfShellProcesses.delete(input.sessionId);
-              }
-              yield* metasploitService.sessionClose(input.sessionId);
-            }),
-            { "rpc.aggregate": "metasploit" },
-          ),
-
-        [WS_METHODS.metasploitSessionAttach]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.metasploitSessionAttach,
-            Effect.gen(function* () {
-              // Idempotent: if already attached, return existing handle.
-              if (activeMsfShellProcesses.has(input.sessionId)) {
-                console.log(`[msf-ws] session ${input.sessionId} already attached`);
-                return { sessionId: input.sessionId, attached: true };
-              }
-
-              console.log(`[msf-ws] attaching session ${input.sessionId}...`);
-              const msfRunFork = Effect.runForkWith(yield* Effect.services<never>());
-              const proc = yield* metasploitShellAdapter.attach(input.sessionId, {
-                cols: input.cols,
-                rows: input.rows,
-              });
-
-              // Bridge adapter.onData → service.emitSessionOutput → PubSub.
-              proc.onData((data) => {
-                msfRunFork(metasploitService.emitSessionOutput(input.sessionId, data));
-              });
-
-              // Auto-cleanup on adapter exit (session closed in MSF).
-              proc.onExit(() => {
-                console.log(
-                  `[msf-ws] session ${input.sessionId} adapter exited — removing from active map`,
-                );
-                activeMsfShellProcesses.delete(input.sessionId);
-              });
-
-              activeMsfShellProcesses.set(input.sessionId, proc);
-              console.log(`[msf-ws] session ${input.sessionId} attached successfully`);
-              return { sessionId: input.sessionId, attached: true };
-            }),
-            { "rpc.aggregate": "metasploit" },
-          ),
-
-        [WS_METHODS.metasploitSessionDetach]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.metasploitSessionDetach,
-            Effect.sync(() => {
-              const proc = activeMsfShellProcesses.get(input.sessionId);
-              if (proc) {
-                proc.close(); // Stops the polling loop, removes callbacks.
-                activeMsfShellProcesses.delete(input.sessionId);
-              }
-              // No-op if not attached. Doesn't kill the underlying MSF session.
-            }),
-            { "rpc.aggregate": "metasploit" },
-          ),
-
-        [WS_METHODS.subscribeMetasploitEvents]: (_input) =>
+        [WS_METHODS.subscribeRawTcpEvents]: (_input) =>
           observeRpcStream(
-            WS_METHODS.subscribeMetasploitEvents,
-            Stream.callback<MetasploitEvent>((queue) =>
+            WS_METHODS.subscribeRawTcpEvents,
+            Stream.callback<RawTcpEvent>((queue) =>
               Effect.acquireRelease(
-                metasploitService.subscribe((event) => {
+                rawTcpListenerService.subscribe((event) => {
                   Queue.offerUnsafe(queue, event);
                 }),
                 (unsubscribe) => Effect.sync(unsubscribe),
               ),
             ),
-            { "rpc.aggregate": "metasploit" },
+            { "rpc.aggregate": "rawTcp" },
           ),
 
         // ─── Traffic Lens RPCs ─────────────────────────────────────────

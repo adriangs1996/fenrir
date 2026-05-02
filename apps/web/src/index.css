@@ -296,15 +296,18 @@ code {
 }
 
 /* Terminal drawer scrollbar parity with chat */
-.thread-terminal-drawer .xterm .xterm-scrollable-element > .scrollbar.vertical {
+.thread-terminal-drawer .xterm .xterm-scrollable-element > .scrollbar.vertical,
+[data-xterm-theme-surface] .xterm .xterm-scrollable-element > .scrollbar.vertical {
   width: 6px !important;
 }
 
-.thread-terminal-drawer .xterm .xterm-scrollable-element > .scrollbar > .slider {
+.thread-terminal-drawer .xterm .xterm-scrollable-element > .scrollbar > .slider,
+[data-xterm-theme-surface] .xterm .xterm-scrollable-element > .scrollbar > .slider {
   border-radius: 3px;
 }
 
-.thread-terminal-drawer .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
+.thread-terminal-drawer .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider,
+[data-xterm-theme-surface] .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
   width: 6px !important;
   left: 0 !important;
 }

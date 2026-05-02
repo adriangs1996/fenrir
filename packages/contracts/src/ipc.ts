@@ -63,17 +63,15 @@ import { ClientSettings, ServerSettings, ServerSettingsPatch } from "./settings"
 import type { VpnConnectionState, VpnProfile, VpnProfileId } from "./vpn";
 import type { TrafficLensTabSnapshot, TrafficLensTabEvent } from "./trafficLens";
 import type {
-  CreateListenerInput,
-  ListenerSnapshot,
-  MetasploitEvent,
-  MetasploitStatusSnapshot,
-  MsfSessionSnapshot,
-  SessionCloseInput,
-  SessionResizeInput,
-  SessionUpgradeInput,
-  SessionWriteInput,
-  StopListenerInput,
-} from "./metasploit";
+  CreateRawTcpListenerInput,
+  RawTcpEvent,
+  RawTcpListenerSnapshot,
+  RawTcpSessionCloseInput,
+  RawTcpSessionSnapshot,
+  RawTcpSessionUpgradePtyInput,
+  RawTcpSessionWriteInput,
+  StopRawTcpListenerInput,
+} from "./rawTcpListener";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -293,17 +291,15 @@ export interface EnvironmentApi {
     writeTmux: (input: typeof TmuxWriteInput.Encoded) => Promise<void>;
     resizeTmux: (input: typeof TmuxResizeInput.Encoded) => Promise<void>;
   };
-  metasploit: {
-    status: () => Promise<MetasploitStatusSnapshot>;
-    createListener: (input: CreateListenerInput) => Promise<ListenerSnapshot>;
-    stopListener: (input: StopListenerInput) => Promise<void>;
-    listListeners: () => Promise<readonly ListenerSnapshot[]>;
-    listSessions: () => Promise<readonly MsfSessionSnapshot[]>;
-    sessionWrite: (input: SessionWriteInput) => Promise<void>;
-    sessionResize: (input: SessionResizeInput) => Promise<void>;
-    sessionUpgrade: (input: SessionUpgradeInput) => Promise<MsfSessionSnapshot>;
-    sessionClose: (input: SessionCloseInput) => Promise<void>;
-    onEvent: (callback: (event: MetasploitEvent) => void) => () => void;
+  rawTcp: {
+    createListener: (input: CreateRawTcpListenerInput) => Promise<RawTcpListenerSnapshot>;
+    stopListener: (input: StopRawTcpListenerInput) => Promise<void>;
+    listListeners: () => Promise<readonly RawTcpListenerSnapshot[]>;
+    listSessions: () => Promise<readonly RawTcpSessionSnapshot[]>;
+    sessionWrite: (input: RawTcpSessionWriteInput) => Promise<void>;
+    sessionUpgradePty: (input: RawTcpSessionUpgradePtyInput) => Promise<RawTcpSessionSnapshot>;
+    sessionClose: (input: RawTcpSessionCloseInput) => Promise<void>;
+    onEvent: (callback: (event: RawTcpEvent) => void) => () => void;
   };
   projects: {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;

@@ -14,7 +14,7 @@ export * from "./orchestration";
 export * from "./editor";
 export * from "./project";
 export * from "./rpc";
-export * from "./metasploit";
+export * from "./rawTcpListener";
 export * from "./vpn";
 export * from "./trafficLens";
 export * from "./planRunner";
