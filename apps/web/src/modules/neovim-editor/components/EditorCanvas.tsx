@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import { useContainerSize } from "../hooks/useContainerSize";
 import { useGridSize } from "../hooks/useGridSize";
 import { useResize } from "../hooks/useResize";
-import { useRenderer } from "../hooks/useRenderer";
 import { useInput } from "../hooks/useInput";
 import { useNeovim } from "../hooks/useNeovim";
 
@@ -17,20 +16,19 @@ export function EditorCanvas({ cwd }: EditorCanvasProps) {
   const { width, height } = useContainerSize(containerRef);
   const { cols, rows, cellWidth, cellHeight } = useGridSize(width, height);
 
-  const nvim = useNeovim(cwd, cols, rows);
+  const nvim = useNeovim(cwd, cols, rows, canvasRef);
   const { onKeyDown } = useInput(nvim);
+
+  useResize(nvim, cols, rows);
 
   useEffect(() => {
     if (nvim) containerRef.current?.focus();
   }, [nvim]);
 
-  useResize(nvim, cols, rows);
-  useRenderer(canvasRef);
-
   return (
     <div
       ref={containerRef}
-      style={{ width: "100%", height: "100%", background: "#1e1e1e" }}
+      style={{ width: "100%", height: "100%", background: "#1e1e2e", overflow: "hidden" }}
       tabIndex={0}
       onKeyDown={onKeyDown}
     >
