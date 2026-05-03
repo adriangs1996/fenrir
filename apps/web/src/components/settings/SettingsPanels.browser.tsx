@@ -368,6 +368,11 @@ const createDesktopBridgeStub = (overrides?: {
     trafficLensShowTab: vi.fn().mockResolvedValue(undefined),
     trafficLensHideAllTabs: vi.fn().mockResolvedValue(undefined),
     onTrafficLensTabEvent: () => () => {},
+    neovimAttach: vi.fn().mockResolvedValue(undefined),
+    neovimDetach: vi.fn().mockResolvedValue(undefined),
+    neovimInput: vi.fn().mockResolvedValue(undefined),
+    neovimResize: vi.fn().mockResolvedValue(undefined),
+    onNeovimRedraw: () => () => {},
   };
 };
 

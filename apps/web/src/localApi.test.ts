@@ -233,6 +233,11 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     trafficLensShowTab: async () => undefined,
     trafficLensHideAllTabs: async () => undefined,
     onTrafficLensTabEvent: () => () => undefined,
+    neovimAttach: async () => undefined,
+    neovimDetach: async () => undefined,
+    neovimInput: async () => undefined,
+    neovimResize: async () => undefined,
+    onNeovimRedraw: () => () => undefined,
     ...overrides,
   };
 }

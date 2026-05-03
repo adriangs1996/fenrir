@@ -12,8 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PairRouteImport } from './routes/pair'
 import { Route as HackRouteImport } from './routes/hack'
+import { Route as CodeRouteImport } from './routes/code'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as HackIndexRouteImport } from './routes/hack.index'
+import { Route as CodeIndexRouteImport } from './routes/code.index'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsVpnRouteImport } from './routes/settings.vpn'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
@@ -42,6 +44,11 @@ const HackRoute = HackRouteImport.update({
   path: '/hack',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CodeRoute = CodeRouteImport.update({
+  id: '/code',
+  path: '/code',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChatRoute = ChatRouteImport.update({
   id: '/_chat',
   getParentRoute: () => rootRouteImport,
@@ -50,6 +57,11 @@ const HackIndexRoute = HackIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => HackRoute,
+} as any)
+const CodeIndexRoute = CodeIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => CodeRoute,
 } as any)
 const ChatIndexRoute = ChatIndexRouteImport.update({
   id: '/',
@@ -118,6 +130,7 @@ const ChatPlanRunnerFeatureNamePlanIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
+  '/code': typeof CodeRouteWithChildren
   '/hack': typeof HackRouteWithChildren
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
@@ -126,6 +139,7 @@ export interface FileRoutesByFullPath {
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/vpn': typeof SettingsVpnRoute
+  '/code/': typeof CodeIndexRoute
   '/hack/': typeof HackIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -143,6 +157,7 @@ export interface FileRoutesByTo {
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/vpn': typeof SettingsVpnRoute
   '/': typeof ChatIndexRoute
+  '/code': typeof CodeIndexRoute
   '/hack': typeof HackIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -154,6 +169,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
+  '/code': typeof CodeRouteWithChildren
   '/hack': typeof HackRouteWithChildren
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
@@ -163,6 +179,7 @@ export interface FileRoutesById {
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/vpn': typeof SettingsVpnRoute
   '/_chat/': typeof ChatIndexRoute
+  '/code/': typeof CodeIndexRoute
   '/hack/': typeof HackIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
@@ -175,6 +192,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/code'
     | '/hack'
     | '/pair'
     | '/settings'
@@ -183,6 +201,7 @@ export interface FileRouteTypes {
     | '/settings/connections'
     | '/settings/general'
     | '/settings/vpn'
+    | '/code/'
     | '/hack/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
@@ -200,6 +219,7 @@ export interface FileRouteTypes {
     | '/settings/general'
     | '/settings/vpn'
     | '/'
+    | '/code'
     | '/hack'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
@@ -210,6 +230,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_chat'
+    | '/code'
     | '/hack'
     | '/pair'
     | '/settings'
@@ -219,6 +240,7 @@ export interface FileRouteTypes {
     | '/settings/general'
     | '/settings/vpn'
     | '/_chat/'
+    | '/code/'
     | '/hack/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
@@ -230,6 +252,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
+  CodeRoute: typeof CodeRouteWithChildren
   HackRoute: typeof HackRouteWithChildren
   PairRoute: typeof PairRoute
   SettingsRoute: typeof SettingsRouteWithChildren
@@ -258,6 +281,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/code': {
+      id: '/code'
+      path: '/code'
+      fullPath: '/code'
+      preLoaderRoute: typeof CodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_chat': {
       id: '/_chat'
       path: ''
@@ -271,6 +301,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/hack/'
       preLoaderRoute: typeof HackIndexRouteImport
       parentRoute: typeof HackRoute
+    }
+    '/code/': {
+      id: '/code/'
+      path: '/'
+      fullPath: '/code/'
+      preLoaderRoute: typeof CodeIndexRouteImport
+      parentRoute: typeof CodeRoute
     }
     '/_chat/': {
       id: '/_chat/'
@@ -382,6 +419,16 @@ const ChatRouteChildren: ChatRouteChildren = {
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
+interface CodeRouteChildren {
+  CodeIndexRoute: typeof CodeIndexRoute
+}
+
+const CodeRouteChildren: CodeRouteChildren = {
+  CodeIndexRoute: CodeIndexRoute,
+}
+
+const CodeRouteWithChildren = CodeRoute._addFileChildren(CodeRouteChildren)
+
 interface HackRouteChildren {
   HackSessionIdRoute: typeof HackSessionIdRoute
   HackIndexRoute: typeof HackIndexRoute
@@ -414,6 +461,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
+  CodeRoute: CodeRouteWithChildren,
   HackRoute: HackRouteWithChildren,
   PairRoute: PairRoute,
   SettingsRoute: SettingsRouteWithChildren,

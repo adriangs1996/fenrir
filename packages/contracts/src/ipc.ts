@@ -205,6 +205,13 @@ export interface DesktopBridge {
   trafficLensShowTab: (tabId: string) => Promise<void>;
   trafficLensHideAllTabs: () => Promise<void>;
   onTrafficLensTabEvent: (listener: (event: TrafficLensTabEvent) => void) => () => void;
+
+  // Neovim
+  neovimAttach: (cwd: string, cols: number, rows: number) => Promise<void>;
+  neovimDetach: () => Promise<void>;
+  neovimInput: (keys: string) => Promise<void>;
+  neovimResize: (cols: number, rows: number) => Promise<void>;
+  onNeovimRedraw: (listener: (events: unknown[]) => void) => () => void;
 }
 
 /**

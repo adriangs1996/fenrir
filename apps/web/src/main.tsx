@@ -19,6 +19,10 @@ const history = isElectron ? createHashHistory() : createBrowserHistory();
 
 const router = getRouter(history);
 
+if (import.meta.env.DEV) {
+  (window as any).__router = router;
+}
+
 if (isElectron) {
   syncDocumentWindowControlsOverlayClass();
 }

@@ -41,6 +41,11 @@ const TRAFFIC_LENS_SET_BOUNDS_CHANNEL = "desktop:traffic-lens-set-bounds";
 const TRAFFIC_LENS_SHOW_TAB_CHANNEL = "desktop:traffic-lens-show-tab";
 const TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL = "desktop:traffic-lens-hide-all-tabs";
 const TRAFFIC_LENS_TAB_EVENT_CHANNEL = "desktop:traffic-lens-tab-event";
+const NEOVIM_ATTACH_CHANNEL = "desktop:neovim-attach";
+const NEOVIM_DETACH_CHANNEL = "desktop:neovim-detach";
+const NEOVIM_INPUT_CHANNEL = "desktop:neovim-input";
+const NEOVIM_RESIZE_CHANNEL = "desktop:neovim-resize";
+const NEOVIM_REDRAW_CHANNEL = "desktop:neovim-redraw";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getLocalEnvironmentBootstrap: () => {
@@ -140,6 +145,24 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(TRAFFIC_LENS_TAB_EVENT_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(TRAFFIC_LENS_TAB_EVENT_CHANNEL, wrappedListener);
+    };
+  },
+
+  // Neovim
+  neovimAttach: (cwd: string, cols: number, rows: number) =>
+    ipcRenderer.invoke(NEOVIM_ATTACH_CHANNEL, cwd, cols, rows),
+  neovimDetach: () => ipcRenderer.invoke(NEOVIM_DETACH_CHANNEL),
+  neovimInput: (keys: string) => ipcRenderer.invoke(NEOVIM_INPUT_CHANNEL, keys),
+  neovimResize: (cols: number, rows: number) =>
+    ipcRenderer.invoke(NEOVIM_RESIZE_CHANNEL, cols, rows),
+  onNeovimRedraw: (listener: (events: unknown[]) => void) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, events: unknown) => {
+      if (!Array.isArray(events)) return;
+      listener(events);
+    };
+    ipcRenderer.on(NEOVIM_REDRAW_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(NEOVIM_REDRAW_CHANNEL, wrappedListener);
     };
   },
 } satisfies DesktopBridge);
