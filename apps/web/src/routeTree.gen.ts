@@ -20,6 +20,7 @@ import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsVpnRouteImport } from './routes/settings.vpn'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
+import { Route as SettingsArchivedPlansRouteImport } from './routes/settings.archived-plans'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as HackSessionIdRouteImport } from './routes/hack.$sessionId'
 import { Route as ChatPlanRunnerRunIdRouteImport } from './routes/_chat.plan-runner.$runId'
@@ -83,6 +84,11 @@ const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
   path: '/connections',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsArchivedPlansRoute = SettingsArchivedPlansRouteImport.update({
+  id: '/archived-plans',
+  path: '/archived-plans',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsArchivedRoute = SettingsArchivedRouteImport.update({
   id: '/archived',
   path: '/archived',
@@ -136,6 +142,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRouteWithChildren
   '/hack/$sessionId': typeof HackSessionIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
+  '/settings/archived-plans': typeof SettingsArchivedPlansRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/vpn': typeof SettingsVpnRoute
@@ -153,6 +160,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRouteWithChildren
   '/hack/$sessionId': typeof HackSessionIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
+  '/settings/archived-plans': typeof SettingsArchivedPlansRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/vpn': typeof SettingsVpnRoute
@@ -175,6 +183,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRouteWithChildren
   '/hack/$sessionId': typeof HackSessionIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
+  '/settings/archived-plans': typeof SettingsArchivedPlansRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/vpn': typeof SettingsVpnRoute
@@ -198,6 +207,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/hack/$sessionId'
     | '/settings/archived'
+    | '/settings/archived-plans'
     | '/settings/connections'
     | '/settings/general'
     | '/settings/vpn'
@@ -215,6 +225,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/hack/$sessionId'
     | '/settings/archived'
+    | '/settings/archived-plans'
     | '/settings/connections'
     | '/settings/general'
     | '/settings/vpn'
@@ -236,6 +247,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/hack/$sessionId'
     | '/settings/archived'
+    | '/settings/archived-plans'
     | '/settings/connections'
     | '/settings/general'
     | '/settings/vpn'
@@ -335,6 +347,13 @@ declare module '@tanstack/react-router' {
       path: '/connections'
       fullPath: '/settings/connections'
       preLoaderRoute: typeof SettingsConnectionsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/archived-plans': {
+      id: '/settings/archived-plans'
+      path: '/archived-plans'
+      fullPath: '/settings/archived-plans'
+      preLoaderRoute: typeof SettingsArchivedPlansRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/archived': {
@@ -443,6 +462,7 @@ const HackRouteWithChildren = HackRoute._addFileChildren(HackRouteChildren)
 
 interface SettingsRouteChildren {
   SettingsArchivedRoute: typeof SettingsArchivedRoute
+  SettingsArchivedPlansRoute: typeof SettingsArchivedPlansRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsVpnRoute: typeof SettingsVpnRoute
@@ -450,6 +470,7 @@ interface SettingsRouteChildren {
 
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsArchivedRoute: SettingsArchivedRoute,
+  SettingsArchivedPlansRoute: SettingsArchivedPlansRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsVpnRoute: SettingsVpnRoute,

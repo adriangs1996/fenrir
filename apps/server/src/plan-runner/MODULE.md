@@ -11,27 +11,31 @@ runs that have already terminated and been evicted.
 
 ## Public API
 
-| Method            | Input                                         | Output                             | Description                                |
-| ----------------- | --------------------------------------------- | ---------------------------------- | ------------------------------------------ |
-| `start`           | `{ projectId, featureName, modelSelection? }` | `{ runId, branch }`                | Start a plan run                           |
-| `getStatus`       | `runId`                                       | `PlanRunSnapshot`                  | Current run snapshot (cache → repo)        |
-| `cancel`          | `runId`                                       | `void`                             | Cancel an active run                       |
-| `listFeatures`    | `{ projectId }`                               | `{ features: FeatureSummary[] }`   | Filesystem + persisted feature summary     |
-| `getFeaturePlans` | `{ projectId, featureName }`                  | `{ featureName, plans }`           | Plan files in `.plans/<feature>/`          |
-| `getFeatureRun`   | `{ projectId, featureName }`                  | `{ run: PlanRunSnapshot \| null }` | Latest run for a feature (cache → repo)    |
-| `listRuns`        | `{ projectId? }`                              | `{ runs: PlanRunSnapshot[] }`      | All persisted runs, hot-cache overlaid     |
-| `getStepLog`      | `{ runId, stepKey }`                          | `{ runId, stepKey, entries }`      | Per-step log entries (assembly in plan 05) |
-| `streamEvents`    | —                                             | `Stream<PlanRunnerEvent>`          | Live event stream                          |
+| Method                 | Input                                         | Output                             | Description                                |
+| ---------------------- | --------------------------------------------- | ---------------------------------- | ------------------------------------------ |
+| `start`                | `{ projectId, featureName, modelSelection? }` | `{ runId, branch }`                | Start a plan run                           |
+| `getStatus`            | `runId`                                       | `PlanRunSnapshot`                  | Current run snapshot (cache → repo)        |
+| `cancel`               | `runId`                                       | `void`                             | Cancel an active run                       |
+| `listFeatures`         | `{ projectId }`                               | `{ features: FeatureSummary[] }`   | Filesystem + persisted feature summary     |
+| `getFeaturePlans`      | `{ projectId, featureName }`                  | `{ featureName, plans }`           | Plan files in `.plans/<feature>/`          |
+| `getFeatureRun`        | `{ projectId, featureName }`                  | `{ run: PlanRunSnapshot \| null }` | Latest run for a feature (cache → repo)    |
+| `listRuns`             | `{ projectId? }`                              | `{ runs: PlanRunSnapshot[] }`      | All persisted runs, hot-cache overlaid     |
+| `getStepLog`           | `{ runId, stepKey }`                          | `{ runId, stepKey, entries }`      | Per-step log entries (assembly in plan 05) |
+| `archiveFeature`       | `{ projectId, featureName }`                  | `{ archivedDirName }`              | Move `.plans/{f}/` → `.plans/.archive/`    |
+| `unarchiveFeature`     | `{ projectId, archivedDirName }`              | `{ featureName }`                  | Inverse rename                             |
+| `listArchivedFeatures` | `{ projectId? }`                              | `{ features }`                     | Read `.plans/.archive/`                    |
+| `streamEvents`         | —                                             | `Stream<PlanRunnerEvent>`          | Live event stream                          |
 
 ## Events Emitted
 
-| Event                         | When                                                   |
-| ----------------------------- | ------------------------------------------------------ |
-| `planRunner.stateChanged`     | Feature-level state transition (incl. recovery start)  |
-| `planRunner.planStateChanged` | Per-plan state transition                              |
-| `planRunner.completed`        | Run finished (completed or failed)                     |
-| `planRunner.featuresChanged`  | `.plans/` watcher fired or persisted summaries changed |
-| `planRunner.stepLogAppended`  | Per-step synthetic log entry appended (next plan)      |
+| Event                                | When                                                            |
+| ------------------------------------ | --------------------------------------------------------------- |
+| `planRunner.stateChanged`            | Feature-level state transition (incl. recovery start)           |
+| `planRunner.planStateChanged`        | Per-plan state transition                                       |
+| `planRunner.completed`               | Run finished (completed or failed)                              |
+| `planRunner.featuresChanged`         | `.plans/` watcher fired or persisted summaries changed          |
+| `planRunner.stepLogAppended`         | Per-step synthetic log entry appended (next plan)               |
+| `planRunner.archivedFeaturesChanged` | `.plans/.archive/` watcher fired or archive/unarchive completed |
 
 ## Run Lifecycle
 
@@ -125,6 +129,28 @@ The first two cases are the primary contract; the third is a defense-in-
 depth check that catches inconsistencies (e.g. a recovery fiber that
 crashed before clearing its cache entry).
 
+## Archive Lifecycle
+
+Archive/unarchive is a **filesystem-only** operation — persisted run rows
+are untouched.
+
+- **`archiveFeature`** renames `.plans/{featureName}/` →
+  `.plans/.archive/{featureName}/`. If the destination already exists, a
+  suffix `--archived-{epochMs}` is appended so both copies co-exist.
+- **`unarchiveFeature`** is the inverse rename. The `--archived-{epochMs}`
+  suffix is stripped from the directory name so the feature restores under
+  its original display name. Rejects if a feature with the same name already
+  exists in `.plans/`.
+- **`listArchivedFeatures`** reads `.plans/.archive/` and parses
+  `archivedAt` from the epoch suffix when present, falling back to the
+  directory's `mtime` otherwise. Results are sorted by `archivedAt` desc.
+- The **active-run gate** uses the same predicate as `start()` (extracted
+  to `assertNoActiveRun`): recovering features, in-memory active runs, and
+  persisted non-terminal runs all block archiving.
+- **Path traversal** is rejected at the input layer — feature names
+  containing `/`, `\`, or `..` produce an immediate `PlanRunnerError`
+  before any filesystem operation.
+
 ## Dependencies
 
 | Service                      | Purpose                                                |
@@ -156,7 +182,7 @@ apps/server/src/plan-runner/
 
 ## Integration Points
 
-- **Upstream**: `ws.ts` RPC layer (8 handlers + event subscription)
+- **Upstream**: `ws.ts` RPC layer (11 handlers + event subscription)
 - **Downstream**: `OrchestrationEngine` (thread lifecycle), `GitCore`
   (branching), `PlanRunnerRepository` (persistence)
 - **Layer composition**: Wired into `RuntimeDependenciesLive` in

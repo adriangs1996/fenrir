@@ -5,6 +5,7 @@ import type { WsRpcClient } from "~/rpc/wsRpcClient";
 export function usePlanRunnerSync(rpcClient: WsRpcClient | null) {
   const applyEvent = usePlanRunnerStore((s) => s.applyEvent);
   const upsertRun = usePlanRunnerStore((s) => s.upsertRun);
+  const fetchArchivedFeatures = usePlanRunnerStore((s) => s.fetchArchivedFeatures);
 
   useEffect(() => {
     if (!rpcClient) return;
@@ -15,6 +16,9 @@ export function usePlanRunnerSync(rpcClient: WsRpcClient | null) {
       (err) => console.error("planRunner.listRuns failed:", err),
     );
 
+    // Fetch archived features on mount
+    void fetchArchivedFeatures();
+
     // Subscribe to real-time events
     const unsubscribe = rpcClient.planRunner.onEvent((event) => {
       applyEvent(event);
@@ -23,5 +27,5 @@ export function usePlanRunnerSync(rpcClient: WsRpcClient | null) {
     return () => {
       unsubscribe();
     };
-  }, [rpcClient, applyEvent, upsertRun]);
+  }, [rpcClient, applyEvent, upsertRun, fetchArchivedFeatures]);
 }

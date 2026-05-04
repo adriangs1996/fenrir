@@ -13,7 +13,19 @@ import {
   type PlanRunnerStepSnapshot,
 } from "@fenrir/contracts";
 import { act } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const rpcMock = vi.hoisted(() => ({
+  archiveFeature: vi.fn<(input: any) => Promise<any>>().mockResolvedValue({ archivedDirName: "x" }),
+  unarchiveFeature: vi.fn<(input: any) => Promise<any>>().mockResolvedValue({ featureName: "x" }),
+  listArchivedFeatures: vi.fn<(input: any) => Promise<any>>().mockResolvedValue({ features: [] }),
+}));
+
+vi.mock("~/environments/runtime", () => ({
+  getPrimaryEnvironmentConnection: () => ({
+    client: { planRunner: rpcMock },
+  }),
+}));
 
 import {
   selectActiveStepTabs,
@@ -110,6 +122,7 @@ function resetStore(): void {
       runById: {},
       plansByFeatureKey: {},
       stepLogsByKey: {},
+      archivedFeaturesByProjectId: {},
     });
   });
 }
@@ -455,5 +468,198 @@ describe("usePlanRunnerStore reducer", () => {
     const state = usePlanRunnerStore.getState();
     expect(state.featuresByProjectId[projectId]?.length).toBe(1);
     expect(state.plansByFeatureKey[`${projectId}:f`]).toBeUndefined();
+  });
+});
+
+// ─── Archive lifecycle ────────────────────────────────────────────────────
+
+function makeArchivedFeature(partial: {
+  projectId?: string;
+  featureName: string;
+  archivedDirName?: string;
+  planCount?: number;
+  archivedAt?: string;
+}) {
+  return {
+    projectId: pid(partial.projectId ?? "proj"),
+    featureName: tn(partial.featureName),
+    archivedDirName: tn(partial.archivedDirName ?? partial.featureName),
+    planCount: partial.planCount ?? 1,
+    archivedAt: ts(partial.archivedAt ?? "2026-04-01T00:00:00.000Z"),
+  };
+}
+
+describe("archiveFeature store action", () => {
+  it("optimistically removes the feature from featuresByProjectId", async () => {
+    const projectId = "proj";
+    const featureName = "feat-to-archive";
+    const features = [
+      {
+        featureName: tn(featureName),
+        planCount: 2,
+        hasActiveRun: false,
+        activeRunId: null,
+        lastRunId: null,
+        lastRunState: null,
+        lastRunUpdatedAt: null,
+      },
+      {
+        featureName: tn("other"),
+        planCount: 1,
+        hasActiveRun: false,
+        activeRunId: null,
+        lastRunId: null,
+        lastRunState: null,
+        lastRunUpdatedAt: null,
+      },
+    ] as const;
+
+    act(() => {
+      usePlanRunnerStore.getState().setFeatures(projectId, features);
+    });
+
+    rpcMock.archiveFeature.mockResolvedValue({ archivedDirName: featureName });
+
+    const promise = usePlanRunnerStore.getState().archiveFeature(pid(projectId), featureName);
+
+    // Check optimistic removal happened synchronously
+    const afterOptimistic = usePlanRunnerStore.getState();
+    expect(afterOptimistic.featuresByProjectId[projectId]?.length).toBe(1);
+    expect(afterOptimistic.featuresByProjectId[projectId]?.[0]?.featureName).toBe("other");
+
+    await promise;
+    expect(rpcMock.archiveFeature).toHaveBeenCalledWith({ projectId: pid(projectId), featureName });
+  });
+
+  it("rolls back on RPC error", async () => {
+    const projectId = "proj";
+    const featureName = "feat-rollback";
+    const features = [
+      {
+        featureName: tn(featureName),
+        planCount: 1,
+        hasActiveRun: false,
+        activeRunId: null,
+        lastRunId: null,
+        lastRunState: null,
+        lastRunUpdatedAt: null,
+      },
+    ] as const;
+
+    act(() => {
+      usePlanRunnerStore.getState().setFeatures(projectId, features);
+    });
+
+    rpcMock.archiveFeature.mockRejectedValueOnce(new Error("RPC failed"));
+
+    await expect(
+      usePlanRunnerStore.getState().archiveFeature(pid(projectId), featureName),
+    ).rejects.toThrow("RPC failed");
+
+    // Rolled back
+    const state = usePlanRunnerStore.getState();
+    expect(state.featuresByProjectId[projectId]?.length).toBe(1);
+    expect(state.featuresByProjectId[projectId]?.[0]?.featureName).toBe(featureName);
+  });
+});
+
+describe("unarchiveFeature store action", () => {
+  it("calls RPC and returns the restored feature name", async () => {
+    const projectId = "proj";
+    const archivedDirName = "feat--archived-1700000000000";
+
+    rpcMock.unarchiveFeature.mockResolvedValue({ featureName: "feat" });
+
+    const result = await usePlanRunnerStore
+      .getState()
+      .unarchiveFeature(pid(projectId), archivedDirName);
+
+    expect(rpcMock.unarchiveFeature).toHaveBeenCalledWith({
+      projectId: pid(projectId),
+      archivedDirName,
+    });
+    expect(result).toEqual({ featureName: "feat" });
+  });
+
+  it("propagates RPC errors to the caller", async () => {
+    rpcMock.unarchiveFeature.mockRejectedValueOnce(new Error("Feature already exists in .plans/"));
+
+    await expect(
+      usePlanRunnerStore.getState().unarchiveFeature(pid("proj"), "feat"),
+    ).rejects.toThrow("already exists");
+  });
+});
+
+describe("archivedFeaturesChanged event", () => {
+  it("updates archivedFeaturesByProjectId from event payload", () => {
+    const projectId = "proj";
+    const archived = [
+      makeArchivedFeature({ featureName: "a", archivedAt: "2026-04-01T00:00:00.000Z" }),
+      makeArchivedFeature({ featureName: "b", archivedAt: "2026-04-02T00:00:00.000Z" }),
+    ];
+
+    act(() => {
+      usePlanRunnerStore.getState().applyEvent({
+        type: "planRunner.archivedFeaturesChanged",
+        projectId: pid(projectId),
+        features: archived,
+      });
+    });
+
+    const state = usePlanRunnerStore.getState();
+    expect(state.archivedFeaturesByProjectId[projectId]?.length).toBe(2);
+    expect(state.archivedFeaturesByProjectId[projectId]?.[0]?.featureName).toBe("a");
+    expect(state.archivedFeaturesByProjectId[projectId]?.[1]?.featureName).toBe("b");
+  });
+
+  it("replaces previous archived list for the same project", () => {
+    const projectId = "proj";
+
+    act(() => {
+      usePlanRunnerStore.getState().applyEvent({
+        type: "planRunner.archivedFeaturesChanged",
+        projectId: pid(projectId),
+        features: [makeArchivedFeature({ featureName: "old" })],
+      });
+    });
+
+    act(() => {
+      usePlanRunnerStore.getState().applyEvent({
+        type: "planRunner.archivedFeaturesChanged",
+        projectId: pid(projectId),
+        features: [
+          makeArchivedFeature({ featureName: "new-a" }),
+          makeArchivedFeature({ featureName: "new-b" }),
+        ],
+      });
+    });
+
+    const state = usePlanRunnerStore.getState();
+    expect(state.archivedFeaturesByProjectId[projectId]?.length).toBe(2);
+    expect(state.archivedFeaturesByProjectId[projectId]?.some((f) => f.featureName === "old")).toBe(
+      false,
+    );
+  });
+
+  it("preserves archived features for other projects", () => {
+    act(() => {
+      usePlanRunnerStore.getState().applyEvent({
+        type: "planRunner.archivedFeaturesChanged",
+        projectId: pid("proj-a"),
+        features: [makeArchivedFeature({ projectId: "proj-a", featureName: "x" })],
+      });
+    });
+
+    act(() => {
+      usePlanRunnerStore.getState().applyEvent({
+        type: "planRunner.archivedFeaturesChanged",
+        projectId: pid("proj-b"),
+        features: [makeArchivedFeature({ projectId: "proj-b", featureName: "y" })],
+      });
+    });
+
+    const state = usePlanRunnerStore.getState();
+    expect(state.archivedFeaturesByProjectId["proj-a"]?.length).toBe(1);
+    expect(state.archivedFeaturesByProjectId["proj-b"]?.length).toBe(1);
   });
 });

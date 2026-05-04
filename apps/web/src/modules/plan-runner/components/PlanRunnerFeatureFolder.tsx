@@ -1,4 +1,5 @@
 import {
+  ArchiveIcon,
   ChevronRightIcon,
   CircleDashedIcon,
   CheckCircle2Icon,
@@ -22,6 +23,7 @@ import { SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton } from "~/comp
 import { Button } from "~/components/ui/button";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "~/components/ui/collapsible";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { toastManager } from "~/components/ui/toast";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { useUiStateStore } from "~/uiStateStore";
 
@@ -50,6 +52,7 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   const setPlanRunnerFolderExpanded = useUiStateStore((s) => s.setPlanRunnerFolderExpanded);
   const plans = usePlanRunnerStore((s) => s.plansByFeatureKey[featureKey] ?? EMPTY_PLANS);
   const setPlans = usePlanRunnerStore((s) => s.setPlans);
+  const archiveFeature = usePlanRunnerStore((s) => s.archiveFeature);
 
   const rpcClient = useMemo(() => {
     try {
@@ -81,6 +84,19 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
     if (!rpcClient || !feature.activeRunId) return;
     void rpcClient.planRunner.cancel({ runId: feature.activeRunId });
   }, [rpcClient, feature.activeRunId]);
+
+  const canArchive = !feature.hasActiveRun;
+
+  const handleArchive = useCallback(() => {
+    if (!canArchive) return;
+    archiveFeature(projectId, feature.featureName).catch((err) => {
+      toastManager.add({
+        type: "error",
+        title: "Failed to archive feature",
+        description: err instanceof Error ? err.message : "An error occurred.",
+      });
+    });
+  }, [canArchive, archiveFeature, projectId, feature.featureName]);
 
   // Status-icon click target: prefer the active run, fall back to last stored run.
   const statusRunId = feature.activeRunId ?? feature.lastRunId ?? null;
@@ -142,6 +158,23 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
               <SquareIcon className="size-3" />
             </Button>
           )}
+          <button
+            type="button"
+            className={`inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:opacity-100 ${
+              canArchive
+                ? "hover:bg-accent hover:text-foreground"
+                : "cursor-not-allowed opacity-50 group-hover/menu-sub-item:opacity-50"
+            }`}
+            disabled={!canArchive}
+            title={canArchive ? "Archive feature" : "Cannot archive feature with active run"}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleArchive();
+            }}
+            aria-label={`Archive feature ${feature.featureName}`}
+          >
+            <ArchiveIcon className="size-3" />
+          </button>
         </div>
 
         <CollapsibleContent>

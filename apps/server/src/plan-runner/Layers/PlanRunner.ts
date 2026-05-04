@@ -13,6 +13,7 @@ import {
   Stream,
 } from "effect";
 import type {
+  ArchivedFeatureSummary,
   FeatureState,
   ModelSelection,
   PlanRunId,
@@ -304,6 +305,17 @@ const TERMINAL_FEATURE_STATES: ReadonlyArray<FeatureState> = ["completed", "fail
 
 const isTerminalFeatureState = (state: FeatureState): boolean =>
   TERMINAL_FEATURE_STATES.includes(state);
+
+const ARCHIVE_DIR_NAME = ".archive";
+const ARCHIVE_SUFFIX = "--archived-";
+
+function parseArchivedDirName(dir: string): { displayName: string; archivedAt: Date | null } {
+  const match = dir.match(/^(.+)--archived-(\d+)$/);
+  if (match) {
+    return { displayName: match[1]!, archivedAt: new Date(Number(match[2])) };
+  }
+  return { displayName: dir, archivedAt: null };
+}
 
 // ─── Persistence row builders (pure, hoisted for reuse) ─────────────────────
 
@@ -863,6 +875,7 @@ export const PlanRunnerLive = Layer.effect(
 
         const entries: string[] = [];
         for (const entry of dirEntries) {
+          if (entry === ARCHIVE_DIR_NAME || entry.startsWith(".")) continue;
           const entryPath = pathService.join(plansDir, entry);
           const stat = yield* fs.stat(entryPath).pipe(Effect.catch(() => Effect.succeed(null)));
           if (stat?.type === "Directory") {
@@ -945,6 +958,94 @@ export const PlanRunnerLive = Layer.effect(
         return features;
       });
 
+    // ── Archived feature scanner ─────────────────────────────────────
+
+    const scanArchivedFeatures = (projectId: ProjectId, projectCwd: string) =>
+      Effect.gen(function* () {
+        const archDir = pathService.join(projectCwd, ".plans", ARCHIVE_DIR_NAME);
+        const dirEntries = yield* fs
+          .readDirectory(archDir)
+          .pipe(Effect.catch(() => Effect.succeed([] as string[])));
+        if (dirEntries.length === 0) return [] as ArchivedFeatureSummary[];
+
+        const features: ArchivedFeatureSummary[] = [];
+        for (const entry of dirEntries) {
+          const entryPath = pathService.join(archDir, entry);
+          const stat = yield* fs.stat(entryPath).pipe(Effect.catch(() => Effect.succeed(null)));
+          if (stat?.type !== "Directory") continue;
+
+          const planCount = yield* fs.readDirectory(entryPath).pipe(
+            Effect.map((files) => files.filter((f) => f.endsWith(".md")).length),
+            Effect.catch(() => Effect.succeed(0)),
+          );
+
+          const { displayName, archivedAt } = parseArchivedDirName(entry);
+          const effectiveDate =
+            archivedAt ?? (Option.isSome(stat.mtime) ? stat.mtime.value : new Date());
+
+          features.push({
+            projectId,
+            featureName: displayName as any,
+            archivedDirName: entry as any,
+            planCount,
+            archivedAt: effectiveDate.toISOString() as any,
+          });
+        }
+
+        features.sort((a, b) => (a.archivedAt > b.archivedAt ? -1 : 1));
+        return features;
+      });
+
+    // ── Active-run gating helper ─────────────────────────────────────
+
+    const assertNoActiveRun = (projectId: ProjectId, featureName: string) =>
+      Effect.gen(function* () {
+        const fkey = featureKey(projectId, featureName);
+
+        const recovering = yield* Ref.get(recoveringFeatures);
+        if (recovering.has(fkey)) {
+          return yield* new PlanRunnerError({
+            message:
+              `Run for feature "${featureName}" is being recovered after a server restart. Wait for recovery to finish before starting a new run.` as any,
+          });
+        }
+
+        const memoryRuns = yield* Ref.get(activeRuns);
+        for (const existing of memoryRuns.values()) {
+          if (
+            existing.featureName === featureName &&
+            existing.projectId === projectId &&
+            !isTerminalFeatureState(existing.state)
+          ) {
+            return yield* new PlanRunnerError({
+              message: `Run already active for feature "${featureName}"` as any,
+            });
+          }
+        }
+
+        const persistedRun = yield* repo
+          .getFeatureRun({
+            projectId,
+            featureName: featureName as any,
+          })
+          .pipe(
+            Effect.mapError(
+              (err) =>
+                new PlanRunnerError({
+                  message:
+                    `Failed to read persisted run for feature "${featureName}": ${(err as { message?: string }).message ?? "unknown"}` as any,
+                  cause: err,
+                }),
+            ),
+          );
+        if (Option.isSome(persistedRun) && !isTerminalFeatureState(persistedRun.value.state)) {
+          return yield* new PlanRunnerError({
+            message:
+              `Persisted run for feature "${featureName}" is still ${persistedRun.value.state}; cannot start a new run.` as any,
+          });
+        }
+      });
+
     // ── File watcher for .plans/ directory ────────────────────────────
 
     /**
@@ -979,12 +1080,20 @@ export const PlanRunnerLive = Layer.effect(
               return next;
             });
 
-            // Re-scan and publish
+            // Re-scan and publish active features
             const features = yield* scanFeatures(projectId, projectCwd);
             yield* publishEvent({
               type: "planRunner.featuresChanged",
               projectId,
               features,
+            });
+
+            // Re-scan and publish archived features
+            const archived = yield* scanArchivedFeatures(projectId, projectCwd);
+            yield* publishEvent({
+              type: "planRunner.archivedFeaturesChanged",
+              projectId,
+              features: archived,
             });
           }).pipe(Effect.ignoreCause({ log: true })),
         ).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(watcherScope), Effect.asVoid);
@@ -2664,33 +2773,11 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
         Effect.gen(function* () {
           const branchName = `feature/${input.featureName}`;
           const projectCwd = yield* resolveProjectCwd(input.projectId);
-          const fkey = featureKey(input.projectId, input.featureName);
 
-          // Gate: feature must not be in boot recovery for this feature.
-          const recovering = yield* Ref.get(recoveringFeatures);
-          if (recovering.has(fkey)) {
-            return yield* new PlanRunnerError({
-              message:
-                `Run for feature "${input.featureName}" is being recovered after a server restart. Wait for recovery to finish before starting a new run.` as any,
-            });
-          }
+          // Gate: no active or recovering run for this feature
+          yield* assertNoActiveRun(input.projectId, input.featureName);
 
-          // Gate: no in-memory active run for this feature.
-          const memoryRuns = yield* Ref.get(activeRuns);
-          for (const existing of memoryRuns.values()) {
-            if (
-              existing.featureName === input.featureName &&
-              existing.projectId === input.projectId &&
-              !isTerminalFeatureState(existing.state)
-            ) {
-              return yield* new PlanRunnerError({
-                message: `Run already active for feature "${input.featureName}"` as any,
-              });
-            }
-          }
-
-          // Gate: no persisted active run for this feature (defense in
-          // depth — recovery should have caught this already).
+          // Read persisted run (if any) for old-run cleanup later
           const persistedRun = yield* repo
             .getFeatureRun({
               projectId: input.projectId,
@@ -2706,12 +2793,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
                   }),
               ),
             );
-          if (Option.isSome(persistedRun) && !isTerminalFeatureState(persistedRun.value.state)) {
-            return yield* new PlanRunnerError({
-              message:
-                `Persisted run for feature "${input.featureName}" is still ${persistedRun.value.state}; cannot start a new run.` as any,
-            });
-          }
 
           // Invalidate feature plans cache — disk content may have changed
           yield* Ref.update(featurePlansCache, (m) => {
@@ -3404,6 +3485,179 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             entries,
           };
         }),
+
+      archiveFeature: (input) =>
+        Effect.gen(function* () {
+          // Path traversal guard
+          if (/[/\\]|\.\./.test(input.featureName)) {
+            return yield* new PlanRunnerError({
+              message: `Invalid feature name: must not contain '/', '\\', or '..'` as any,
+            });
+          }
+
+          const projectCwd = yield* resolveProjectCwd(input.projectId);
+          const plansDir = pathService.join(projectCwd, ".plans");
+          const src = pathService.join(plansDir, input.featureName);
+          const archDir = pathService.join(plansDir, ARCHIVE_DIR_NAME);
+
+          // Validate source exists
+          const srcExists = yield* fs.exists(src);
+          if (!srcExists) {
+            return yield* new PlanRunnerError({
+              message: `Feature folder not found: ${input.featureName}` as any,
+            });
+          }
+
+          // Gate: no active run
+          yield* assertNoActiveRun(input.projectId, input.featureName);
+
+          // Ensure archive directory exists
+          yield* fs
+            .makeDirectory(archDir, { recursive: true })
+            .pipe(Effect.catch(() => Effect.void));
+
+          // Determine destination — suffix with epoch if name collision
+          let dstName = input.featureName;
+          const dstExists = yield* fs.exists(pathService.join(archDir, dstName));
+          if (dstExists) {
+            dstName = `${input.featureName}${ARCHIVE_SUFFIX}${Date.now()}`;
+          }
+          const finalDst = pathService.join(archDir, dstName);
+
+          yield* fs.rename(src, finalDst);
+
+          // Invalidate cache
+          yield* Ref.update(featurePlansCache, (m) => {
+            const next = new Map(m);
+            next.delete(featureKey(input.projectId, input.featureName));
+            return next;
+          });
+
+          // Re-scan and publish both events
+          const features = yield* scanFeatures(input.projectId, projectCwd);
+          yield* publishEvent({
+            type: "planRunner.featuresChanged",
+            projectId: input.projectId,
+            features,
+          });
+          const archived = yield* scanArchivedFeatures(input.projectId, projectCwd);
+          yield* publishEvent({
+            type: "planRunner.archivedFeaturesChanged",
+            projectId: input.projectId,
+            features: archived,
+          });
+
+          return { archivedDirName: dstName };
+        }).pipe(
+          Effect.catch((err) => {
+            if (Schema.is(PlanRunnerError)(err)) return Effect.fail(err);
+            return Effect.fail(
+              new PlanRunnerError({
+                message:
+                  `Failed to archive feature: ${(err as { message?: string }).message ?? "unknown"}` as any,
+                cause: err,
+              }),
+            );
+          }),
+        ),
+
+      unarchiveFeature: (input) =>
+        Effect.gen(function* () {
+          // Path traversal guard
+          if (/[/\\]|\.\./.test(input.archivedDirName)) {
+            return yield* new PlanRunnerError({
+              message: `Invalid archive dir name: must not contain '/', '\\', or '..'` as any,
+            });
+          }
+
+          const projectCwd = yield* resolveProjectCwd(input.projectId);
+          const plansDir = pathService.join(projectCwd, ".plans");
+          const archDir = pathService.join(plansDir, ARCHIVE_DIR_NAME);
+          const src = pathService.join(archDir, input.archivedDirName);
+
+          // Validate source exists
+          const srcExists = yield* fs.exists(src);
+          if (!srcExists) {
+            return yield* new PlanRunnerError({
+              message: `Archived feature not found: ${input.archivedDirName}` as any,
+            });
+          }
+
+          const { displayName } = parseArchivedDirName(input.archivedDirName);
+          const dst = pathService.join(plansDir, displayName);
+
+          // Check no collision with active feature
+          const dstExists = yield* fs.exists(dst);
+          if (dstExists) {
+            return yield* new PlanRunnerError({
+              message: `Feature "${displayName}" already exists in .plans/` as any,
+            });
+          }
+
+          yield* fs.rename(src, dst);
+
+          // Re-scan and publish both events
+          const features = yield* scanFeatures(input.projectId, projectCwd);
+          yield* publishEvent({
+            type: "planRunner.featuresChanged",
+            projectId: input.projectId,
+            features,
+          });
+          const archived = yield* scanArchivedFeatures(input.projectId, projectCwd);
+          yield* publishEvent({
+            type: "planRunner.archivedFeaturesChanged",
+            projectId: input.projectId,
+            features: archived,
+          });
+
+          return { featureName: displayName };
+        }).pipe(
+          Effect.catch((err) => {
+            if (Schema.is(PlanRunnerError)(err)) return Effect.fail(err);
+            return Effect.fail(
+              new PlanRunnerError({
+                message:
+                  `Failed to unarchive feature: ${(err as { message?: string }).message ?? "unknown"}` as any,
+                cause: err,
+              }),
+            );
+          }),
+        ),
+
+      listArchivedFeatures: (input) =>
+        Effect.gen(function* () {
+          let projects: Array<{ id: ProjectId; cwd: string }>;
+          if (input.projectId) {
+            const cwd = yield* resolveProjectCwd(input.projectId);
+            projects = [{ id: input.projectId, cwd }];
+          } else {
+            const readModel = yield* orchestrationEngine.getReadModel();
+            projects = readModel.projects.map((p) => ({
+              id: p.id as ProjectId,
+              cwd: p.workspaceRoot,
+            }));
+          }
+
+          const allFeatures: ArchivedFeatureSummary[] = [];
+          for (const { id, cwd } of projects) {
+            const features = yield* scanArchivedFeatures(id, cwd);
+            allFeatures.push(...features);
+          }
+
+          allFeatures.sort((a, b) => (a.archivedAt > b.archivedAt ? -1 : 1));
+          return { features: allFeatures };
+        }).pipe(
+          Effect.catch((err) => {
+            if (Schema.is(PlanRunnerError)(err)) return Effect.fail(err);
+            return Effect.fail(
+              new PlanRunnerError({
+                message:
+                  `Failed to list archived features: ${(err as { message?: string }).message ?? "unknown"}` as any,
+                cause: err,
+              }),
+            );
+          }),
+        ),
 
       get streamEvents() {
         return Stream.fromPubSub(eventPubSub);

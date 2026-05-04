@@ -143,6 +143,9 @@ export interface WsRpcClient {
     readonly getStatus: RpcUnaryMethod<typeof WS_METHODS.planRunnerGetStatus>;
     readonly cancel: RpcUnaryMethod<typeof WS_METHODS.planRunnerCancel>;
     readonly getStepLog: RpcUnaryMethod<typeof WS_METHODS.planRunnerGetStepLog>;
+    readonly archiveFeature: RpcUnaryMethod<typeof WS_METHODS.planRunnerArchiveFeature>;
+    readonly unarchiveFeature: RpcUnaryMethod<typeof WS_METHODS.planRunnerUnarchiveFeature>;
+    readonly listArchivedFeatures: RpcUnaryMethod<typeof WS_METHODS.planRunnerListArchivedFeatures>;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribePlanRunnerEvents>;
   };
   readonly orchestration: {
@@ -337,6 +340,12 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       cancel: (input) => transport.request((client) => client[WS_METHODS.planRunnerCancel](input)),
       getStepLog: (input) =>
         transport.request((client) => client[WS_METHODS.planRunnerGetStepLog](input)),
+      archiveFeature: (input) =>
+        transport.request((client) => client[WS_METHODS.planRunnerArchiveFeature](input)),
+      unarchiveFeature: (input) =>
+        transport.request((client) => client[WS_METHODS.planRunnerUnarchiveFeature](input)),
+      listArchivedFeatures: (input) =>
+        transport.request((client) => client[WS_METHODS.planRunnerListArchivedFeatures](input)),
       onEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribePlanRunnerEvents]({}),

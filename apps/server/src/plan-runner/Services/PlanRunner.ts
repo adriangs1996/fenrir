@@ -7,6 +7,9 @@ import type {
   PlanRunnerError,
   PlanRunnerGetFeatureRunResult,
   PlanRunnerGetStepLogResult,
+  PlanRunnerArchiveFeatureResult,
+  PlanRunnerUnarchiveFeatureResult,
+  PlanRunnerListArchivedFeaturesResult,
   PlanRunnerNotFoundError,
   ProjectId,
   ModelSelection,
@@ -77,6 +80,20 @@ export interface PlanRunnerServiceShape {
     readonly runId: PlanRunId;
     readonly stepKey: string;
   }) => Effect.Effect<PlanRunnerGetStepLogResult, PlanRunnerError | PlanRunnerNotFoundError>;
+
+  readonly archiveFeature: (input: {
+    readonly projectId: ProjectId;
+    readonly featureName: string;
+  }) => Effect.Effect<PlanRunnerArchiveFeatureResult, PlanRunnerError>;
+
+  readonly unarchiveFeature: (input: {
+    readonly projectId: ProjectId;
+    readonly archivedDirName: string;
+  }) => Effect.Effect<PlanRunnerUnarchiveFeatureResult, PlanRunnerError>;
+
+  readonly listArchivedFeatures: (input: {
+    readonly projectId?: ProjectId | undefined;
+  }) => Effect.Effect<PlanRunnerListArchivedFeaturesResult, PlanRunnerError>;
 
   readonly streamEvents: Stream.Stream<PlanRunnerEvent>;
 }

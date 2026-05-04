@@ -1257,6 +1257,27 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(WS_METHODS.planRunnerGetStepLog, planRunnerService.getStepLog(input), {
             "rpc.aggregate": "planRunner",
           }),
+
+        [WS_METHODS.planRunnerArchiveFeature]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planRunnerArchiveFeature,
+            planRunnerService.archiveFeature(input),
+            { "rpc.aggregate": "planRunner" },
+          ),
+
+        [WS_METHODS.planRunnerUnarchiveFeature]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planRunnerUnarchiveFeature,
+            planRunnerService.unarchiveFeature(input),
+            { "rpc.aggregate": "planRunner" },
+          ),
+
+        [WS_METHODS.planRunnerListArchivedFeatures]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planRunnerListArchivedFeatures,
+            planRunnerService.listArchivedFeatures(input),
+            { "rpc.aggregate": "planRunner" },
+          ),
       });
     }),
   );

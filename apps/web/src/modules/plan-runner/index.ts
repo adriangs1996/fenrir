@@ -10,6 +10,8 @@ export {
   useStartedStepHistory,
   useStepLog,
   stepLogCacheKey,
+  useArchivedFeatures,
+  type ArchivedFeatureSummary,
 } from "./stores/usePlanRunnerStore";
 export { usePlanRunnerLifecycle } from "./hooks/usePlanRunnerLifecycle";
 export { useFeatureProjectId } from "./hooks/useFeatureProjectId";

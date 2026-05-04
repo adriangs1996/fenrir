@@ -115,6 +115,12 @@ import {
   PlanRunnerListRunsResult,
   PlanRunnerGetStepLogInput,
   PlanRunnerGetStepLogResult,
+  PlanRunnerArchiveFeatureInput,
+  PlanRunnerArchiveFeatureResult,
+  PlanRunnerUnarchiveFeatureInput,
+  PlanRunnerUnarchiveFeatureResult,
+  PlanRunnerListArchivedFeaturesInput,
+  PlanRunnerListArchivedFeaturesResult,
 } from "./planRunner";
 import {
   ServerConfigStreamEvent,
@@ -209,6 +215,9 @@ export const WS_METHODS = {
   planRunnerGetFeatureRun: "planRunner.getFeatureRun",
   planRunnerListRuns: "planRunner.listRuns",
   planRunnerGetStepLog: "planRunner.getStepLog",
+  planRunnerArchiveFeature: "planRunner.archiveFeature",
+  planRunnerUnarchiveFeature: "planRunner.unarchiveFeature",
+  planRunnerListArchivedFeatures: "planRunner.listArchivedFeatures",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -615,6 +624,27 @@ export const WsPlanRunnerGetStepLogRpc = Rpc.make(WS_METHODS.planRunnerGetStepLo
   error: Schema.Union([PlanRunnerError, PlanRunnerNotFoundError]),
 });
 
+export const WsPlanRunnerArchiveFeatureRpc = Rpc.make(WS_METHODS.planRunnerArchiveFeature, {
+  payload: PlanRunnerArchiveFeatureInput,
+  success: PlanRunnerArchiveFeatureResult,
+  error: PlanRunnerError,
+});
+
+export const WsPlanRunnerUnarchiveFeatureRpc = Rpc.make(WS_METHODS.planRunnerUnarchiveFeature, {
+  payload: PlanRunnerUnarchiveFeatureInput,
+  success: PlanRunnerUnarchiveFeatureResult,
+  error: PlanRunnerError,
+});
+
+export const WsPlanRunnerListArchivedFeaturesRpc = Rpc.make(
+  WS_METHODS.planRunnerListArchivedFeatures,
+  {
+    payload: PlanRunnerListArchivedFeaturesInput,
+    success: PlanRunnerListArchivedFeaturesResult,
+    error: PlanRunnerError,
+  },
+);
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -682,4 +712,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPlanRunnerGetFeatureRunRpc,
   WsPlanRunnerListRunsRpc,
   WsPlanRunnerGetStepLogRpc,
+  WsPlanRunnerArchiveFeatureRpc,
+  WsPlanRunnerUnarchiveFeatureRpc,
+  WsPlanRunnerListArchivedFeaturesRpc,
 );

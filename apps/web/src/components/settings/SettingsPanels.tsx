@@ -5,15 +5,17 @@ import {
   InfoIcon,
   LoaderIcon,
   PlusIcon,
+  FolderArchiveIcon,
   RefreshCwIcon,
   XIcon,
 } from "lucide-react";
 import { FontPicker } from "./FontPicker";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   PROVIDER_DISPLAY_NAMES,
   type ScopedThreadRef,
+  type ProjectId,
   type ProviderKind,
   type ServerProvider,
   type ServerProviderModel,
@@ -78,7 +80,11 @@ import {
   useServerObservability,
   useServerProviders,
 } from "../../rpc/serverState";
-import { useInternalPlanRunnerThreadIds } from "~/modules/plan-runner";
+import {
+  useInternalPlanRunnerThreadIds,
+  usePlanRunnerStore,
+  type ArchivedFeatureSummary,
+} from "~/modules/plan-runner";
 
 const THEME_OPTIONS = [
   {
@@ -1697,6 +1703,126 @@ export function ArchivedThreadsPanel() {
                   <span>Unarchive</span>
                 </Button>
               </div>
+            ))}
+          </SettingsSection>
+        ))
+      )}
+    </SettingsPageContainer>
+  );
+}
+
+// ── Archived Plans Panel ──────────────────────────────────────────────────
+
+function ArchivedFeatureRow({
+  feature,
+  onUnarchive,
+}: {
+  feature: ArchivedFeatureSummary;
+  onUnarchive: () => Promise<void>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useRelativeTimeTick();
+
+  const handleUnarchive = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onUnarchive();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unarchive failed.";
+      if (/already exists/i.test(msg)) {
+        setError(
+          `A feature named "${feature.featureName}" already exists. Rename or delete the existing .plans/${feature.featureName}/ folder, then retry.`,
+        );
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1 border-t border-border px-4 py-3 first:border-t-0 sm:px-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-sm font-medium text-foreground">{feature.featureName}</h3>
+          <p className="text-xs text-muted-foreground">
+            {feature.planCount} {feature.planCount === 1 ? "plan" : "plans"}
+            {" · Archived "}
+            {formatRelativeTimeLabel(feature.archivedAt)}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
+          disabled={busy}
+          onClick={() => void handleUnarchive()}
+        >
+          <ArchiveX className="size-3.5" />
+          <span>Unarchive</span>
+        </Button>
+      </div>
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
+export function ArchivedPlansPanel() {
+  const projects = useStore(useShallow(selectProjectsAcrossEnvironments));
+  const archivedByProject = usePlanRunnerStore((s) => s.archivedFeaturesByProjectId);
+
+  useEffect(() => {
+    void usePlanRunnerStore.getState().fetchArchivedFeatures();
+  }, []);
+
+  const archivedGroups = useMemo(() => {
+    return projects
+      .map((project) => {
+        const features = archivedByProject[project.id] ?? [];
+        return {
+          project,
+          features: features.toSorted((a, b) => b.archivedAt.localeCompare(a.archivedAt)),
+        };
+      })
+      .filter((group) => group.features.length > 0);
+  }, [projects, archivedByProject]);
+
+  const handleUnarchive = useCallback(async (projectId: ProjectId, archivedDirName: string) => {
+    await usePlanRunnerStore.getState().unarchiveFeature(projectId, archivedDirName);
+  }, []);
+
+  return (
+    <SettingsPageContainer>
+      {archivedGroups.length === 0 ? (
+        <SettingsSection title="Archived plans">
+          <Empty className="min-h-88">
+            <EmptyMedia variant="icon">
+              <FolderArchiveIcon />
+            </EmptyMedia>
+            <EmptyHeader>
+              <EmptyTitle>No archived plans</EmptyTitle>
+              <EmptyDescription>Archived plans will appear here.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </SettingsSection>
+      ) : (
+        archivedGroups.map(({ project, features }) => (
+          <SettingsSection
+            key={project.id}
+            title={project.name}
+            icon={<ProjectFavicon environmentId={project.environmentId} cwd={project.cwd} />}
+          >
+            {features.map((feature) => (
+              <ArchivedFeatureRow
+                key={feature.archivedDirName}
+                feature={feature}
+                onUnarchive={() => handleUnarchive(project.id, feature.archivedDirName)}
+              />
             ))}
           </SettingsSection>
         ))

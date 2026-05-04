@@ -459,6 +459,9 @@ const buildAppUnderTest = (options?: {
           listFeatures: () => Effect.succeed({ features: [] }),
           getFeaturePlans: () => Effect.die(new Error("not available in test")),
           listRuns: () => Effect.succeed({ runs: [] }),
+          archiveFeature: () => Effect.succeed({ archivedDirName: "test-feature" }),
+          unarchiveFeature: () => Effect.succeed({ featureName: "test-feature" }),
+          listArchivedFeatures: () => Effect.succeed({ features: [] }),
           streamEvents: Stream.empty,
         }),
       ),
@@ -1812,6 +1815,51 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.deepEqual(response.issues, []);
       assert.deepEqual(response.keybindings, [resolved]);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  // ── Plan-runner archive RPC smoke tests ────────────────────────────────
+
+  it.effect("routes websocket rpc planRunner.archiveFeature", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.planRunnerArchiveFeature]({
+            projectId: ProjectId.makeUnsafe("project-1"),
+            featureName: "test-feature",
+          }),
+        ),
+      );
+      assert.strictEqual(response.archivedDirName, "test-feature");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc planRunner.unarchiveFeature", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.planRunnerUnarchiveFeature]({
+            projectId: ProjectId.makeUnsafe("project-1"),
+            archivedDirName: "test-feature",
+          }),
+        ),
+      );
+      assert.strictEqual(response.featureName, "test-feature");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc planRunner.listArchivedFeatures", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.planRunnerListArchivedFeatures]({})),
+      );
+      assert.deepEqual(response.features, []);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

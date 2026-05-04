@@ -256,6 +256,59 @@ export const PlanRunnerGetStepLogResult = Schema.Struct({
 });
 export type PlanRunnerGetStepLogResult = typeof PlanRunnerGetStepLogResult.Type;
 
+// ─── Archive Feature ──────────────────────────────────────────────────────
+
+export const PlanRunnerArchiveFeatureInput = Schema.Struct({
+  projectId: ProjectId,
+  featureName: TrimmedNonEmptyString,
+});
+export type PlanRunnerArchiveFeatureInput = typeof PlanRunnerArchiveFeatureInput.Type;
+
+export const PlanRunnerArchiveFeatureResult = Schema.Struct({
+  /** Final on-disk dir name inside `.plans/.archive/` (may be suffixed). */
+  archivedDirName: TrimmedNonEmptyString,
+});
+export type PlanRunnerArchiveFeatureResult = typeof PlanRunnerArchiveFeatureResult.Type;
+
+// ─── Unarchive Feature ────────────────────────────────────────────────────
+
+export const PlanRunnerUnarchiveFeatureInput = Schema.Struct({
+  projectId: ProjectId,
+  /** Raw dir name inside `.plans/.archive/` (with any suffix). */
+  archivedDirName: TrimmedNonEmptyString,
+});
+export type PlanRunnerUnarchiveFeatureInput = typeof PlanRunnerUnarchiveFeatureInput.Type;
+
+export const PlanRunnerUnarchiveFeatureResult = Schema.Struct({
+  /** Restored feature name in `.plans/`. */
+  featureName: TrimmedNonEmptyString,
+});
+export type PlanRunnerUnarchiveFeatureResult = typeof PlanRunnerUnarchiveFeatureResult.Type;
+
+// ─── List Archived Features ───────────────────────────────────────────────
+
+export const PlanRunnerListArchivedFeaturesInput = Schema.Struct({
+  /** Optional. If absent, returns archives for all projects. */
+  projectId: Schema.optional(ProjectId),
+});
+
+export const ArchivedFeatureSummary = Schema.Struct({
+  projectId: ProjectId,
+  /** Display name (suffix stripped). */
+  featureName: TrimmedNonEmptyString,
+  /** Raw dir name (e.g. `foo--archived-1730000000000`). Pass to unarchive. */
+  archivedDirName: TrimmedNonEmptyString,
+  planCount: Schema.Number,
+  /** Parsed from suffix; falls back to dir mtime. */
+  archivedAt: IsoDateTime,
+});
+export type ArchivedFeatureSummary = typeof ArchivedFeatureSummary.Type;
+
+export const PlanRunnerListArchivedFeaturesResult = Schema.Struct({
+  features: Schema.Array(ArchivedFeatureSummary),
+});
+export type PlanRunnerListArchivedFeaturesResult = typeof PlanRunnerListArchivedFeaturesResult.Type;
+
 // ─── Streaming Events ───────────────────────────────────────────────────────
 
 export const PlanRunnerEvent = Schema.Union([
@@ -289,6 +342,11 @@ export const PlanRunnerEvent = Schema.Union([
     runId: PlanRunId,
     stepKey: TrimmedNonEmptyString,
     entry: PlanRunnerLogEntry,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("planRunner.archivedFeaturesChanged"),
+    projectId: ProjectId,
+    features: Schema.Array(ArchivedFeatureSummary),
   }),
 ]);
 export type PlanRunnerEvent = typeof PlanRunnerEvent.Type;

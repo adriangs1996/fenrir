@@ -1,5 +1,12 @@
 import type { ComponentType } from "react";
-import { ArchiveIcon, ArrowLeftIcon, Link2Icon, Settings2Icon, ShieldIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArrowLeftIcon,
+  FolderArchiveIcon,
+  Link2Icon,
+  Settings2Icon,
+  ShieldIcon,
+} from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 
 import {
@@ -16,7 +23,8 @@ export type SettingsSectionPath =
   | "/settings/general"
   | "/settings/connections"
   | "/settings/vpn"
-  | "/settings/archived";
+  | "/settings/archived"
+  | "/settings/archived-plans";
 
 export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   label: string;
@@ -26,7 +34,8 @@ export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   { label: "General", to: "/settings/general", icon: Settings2Icon },
   { label: "Connections", to: "/settings/connections", icon: Link2Icon },
   { label: "VPN", to: "/settings/vpn", icon: ShieldIcon },
-  { label: "Archive", to: "/settings/archived", icon: ArchiveIcon },
+  { label: "Archived threads", to: "/settings/archived", icon: ArchiveIcon },
+  { label: "Archived plans", to: "/settings/archived-plans", icon: FolderArchiveIcon },
 ];
 
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {

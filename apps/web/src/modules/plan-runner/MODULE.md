@@ -15,6 +15,16 @@ UI for discovering `.plans/` folders, browsing plan content, launching runs, mon
 | `PlanRunnerProjectSection`          | Component     | Per-project sidebar section showing features      |
 | `PlanRunnerRunView`                 | Component     | Full run detail page (route component)            |
 | `PlanRunnerPlanPreview`             | Component     | Read-only plan markdown preview (route component) |
+| `archiveFeature` action             | Store action  | Optimistic remove + RPC archive                   |
+| `unarchiveFeature` action           | Store action  | RPC unarchive + watcher refresh                   |
+| `archivedFeaturesByProjectId`       | Selector      | `Record<ProjectId, ArchivedFeatureSummary[]>`     |
+
+## Archived Plans UI
+
+`ArchivedPlansPanel` lives in `@/components/settings/SettingsPanels.tsx`, not
+inside the plan-runner module folder, but consumes `usePlanRunnerStore` for
+the `archivedFeaturesByProjectId` selector and `archiveFeature` /
+`unarchiveFeature` / `fetchArchivedFeatures` actions.
 
 ## Hidden-Thread Policy
 

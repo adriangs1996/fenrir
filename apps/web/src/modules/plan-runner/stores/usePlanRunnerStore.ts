@@ -4,16 +4,21 @@ import {
   type PlanRunSnapshot,
   type PlanRunnerEvent,
   type PlanRunId,
+  type ProjectId,
   type ThreadId,
   type PlanRunnerLogEntry,
   type PlanRunnerStepSnapshot,
   FeatureSummary as FeatureSummarySchema,
   PlanFileSummary as PlanFileSummarySchema,
+  ArchivedFeatureSummary as ArchivedFeatureSummarySchema,
 } from "@fenrir/contracts";
+import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 
 type FeatureSummary = typeof FeatureSummarySchema.Type;
 type PlanFileSummary = typeof PlanFileSummarySchema.Type;
+export type ArchivedFeatureSummary = typeof ArchivedFeatureSummarySchema.Type;
 const EMPTY_FEATURE_PLANS: readonly PlanFileSummary[] = [];
+const EMPTY_ARCHIVED: readonly ArchivedFeatureSummary[] = [];
 
 /** Build the composite cache key for per-step log entries. */
 export function stepLogCacheKey(runId: string, stepKey: string): string {
@@ -39,6 +44,8 @@ interface PlanRunnerState {
    * streaming events.
    */
   stepLogsByKey: Record<string, readonly PlanRunnerLogEntry[]>;
+  // Archived features (keyed by projectId)
+  archivedFeaturesByProjectId: Record<string, readonly ArchivedFeatureSummary[]>;
 
   // Actions
   setFeatures: (projectId: string, features: readonly FeatureSummary[]) => void;
@@ -47,6 +54,12 @@ interface PlanRunnerState {
   setPlans: (key: string, plans: readonly PlanFileSummary[]) => void;
   setStepLog: (runId: string, stepKey: string, entries: readonly PlanRunnerLogEntry[]) => void;
   applyEvent: (event: PlanRunnerEvent) => void;
+  archiveFeature: (projectId: ProjectId, featureName: string) => Promise<void>;
+  fetchArchivedFeatures: (projectId?: ProjectId) => Promise<void>;
+  unarchiveFeature: (
+    projectId: ProjectId,
+    archivedDirName: string,
+  ) => Promise<{ featureName: string }>;
 }
 
 export function selectFeaturePlans(
@@ -121,11 +134,12 @@ function mergeStepLogEntry(
   return [...existing, entry].toSorted((a, b) => a.sequence - b.sequence);
 }
 
-export const usePlanRunnerStore = create<PlanRunnerState>((set) => ({
+export const usePlanRunnerStore = create<PlanRunnerState>((set, get) => ({
   featuresByProjectId: {},
   runById: {},
   plansByFeatureKey: {},
   stepLogsByKey: {},
+  archivedFeaturesByProjectId: {},
 
   setFeatures: (projectId, features) =>
     set((state) => ({
@@ -319,10 +333,78 @@ export const usePlanRunnerStore = create<PlanRunnerState>((set) => ({
           };
         }
 
+        case "planRunner.archivedFeaturesChanged": {
+          return {
+            archivedFeaturesByProjectId: {
+              ...state.archivedFeaturesByProjectId,
+              [event.projectId]: event.features,
+            },
+          };
+        }
+
         default:
           return state;
       }
     }),
+
+  archiveFeature: async (projectId, featureName) => {
+    // Optimistically remove feature from sidebar list
+    const prev = get().featuresByProjectId[projectId] ?? [];
+    set((state) => ({
+      featuresByProjectId: {
+        ...state.featuresByProjectId,
+        [projectId]: (state.featuresByProjectId[projectId] ?? []).filter(
+          (f) => f.featureName !== featureName,
+        ),
+      },
+    }));
+
+    try {
+      const client = getPrimaryEnvironmentConnection().client;
+      await client.planRunner.archiveFeature({ projectId, featureName });
+    } catch (err) {
+      // Roll back optimistic removal
+      set((state) => ({
+        featuresByProjectId: {
+          ...state.featuresByProjectId,
+          [projectId]: prev,
+        },
+      }));
+      throw err;
+    }
+  },
+
+  fetchArchivedFeatures: async (projectId) => {
+    try {
+      const client = getPrimaryEnvironmentConnection().client;
+      const result = await client.planRunner.listArchivedFeatures(projectId ? { projectId } : {});
+      // Group returned features by projectId
+      const grouped: Record<string, ArchivedFeatureSummary[]> = {};
+      for (const feature of result.features) {
+        const list = grouped[feature.projectId] ?? [];
+        list.push(feature);
+        grouped[feature.projectId] = list;
+      }
+      set((state) => ({
+        archivedFeaturesByProjectId: {
+          ...state.archivedFeaturesByProjectId,
+          ...grouped,
+        },
+      }));
+    } catch (err) {
+      console.error("planRunner.listArchivedFeatures failed:", err);
+    }
+  },
+
+  unarchiveFeature: async (projectId, archivedDirName) => {
+    const client = getPrimaryEnvironmentConnection().client;
+    const result = await client.planRunner.unarchiveFeature({
+      projectId,
+      archivedDirName,
+    });
+    // Watcher events refresh both lists via archivedFeaturesChanged / featuresChanged.
+    return { featureName: result.featureName };
+  },
 }));
 
 /**
@@ -437,3 +519,8 @@ export function useStepLog(runId: string, stepKey: string): readonly PlanRunnerL
 }
 
 const EMPTY_LOG: readonly PlanRunnerLogEntry[] = [];
+
+/** Archived features for a single project, or empty if none cached. */
+export function useArchivedFeatures(projectId: string): readonly ArchivedFeatureSummary[] {
+  return usePlanRunnerStore((s) => s.archivedFeaturesByProjectId[projectId] ?? EMPTY_ARCHIVED);
+}
