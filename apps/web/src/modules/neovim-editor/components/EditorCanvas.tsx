@@ -4,6 +4,8 @@ import { useGridSize } from "../hooks/useGridSize";
 import { useResize } from "../hooks/useResize";
 import { useInput } from "../hooks/useInput";
 import { useNeovim } from "../hooks/useNeovim";
+import { DebugOverlay } from "../debug/DebugOverlay";
+import { setFocus } from "../debug/debug";
 
 interface EditorCanvasProps {
   cwd: string;
@@ -31,6 +33,8 @@ export function EditorCanvas({ cwd }: EditorCanvasProps) {
       style={{ width: "100%", height: "100%", background: "#1e1e2e", overflow: "hidden" }}
       tabIndex={0}
       onKeyDown={onKeyDown}
+      onFocus={() => setFocus(true)}
+      onBlur={() => setFocus(false)}
     >
       <canvas
         ref={canvasRef}
@@ -38,6 +42,7 @@ export function EditorCanvas({ cwd }: EditorCanvasProps) {
         height={rows * cellHeight}
         style={{ display: "block" }}
       />
+      <DebugOverlay />
     </div>
   );
 }

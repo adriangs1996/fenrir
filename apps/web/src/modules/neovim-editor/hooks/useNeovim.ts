@@ -2,6 +2,24 @@ import { useEffect, useRef, useState } from "react";
 import { parseRedrawBatch } from "../protocol/RedrawParser";
 import type { GridState, HlAttr, ModeInfo } from "../protocol/RedrawParser";
 import { useNeovimStore } from "../stores/neovimStore";
+import {
+  debugEnabled,
+  debugLog,
+  debugWarn,
+  moduleId as debugModuleId,
+  recordDraw,
+  recordEvent,
+  recordRawEvent,
+  recordScroll,
+  setAttached,
+  setBridge,
+  setCursor,
+  setCwd,
+  setDefaultColors,
+  setDims,
+  setMode,
+  snapshotGrids,
+} from "../debug/debug";
 
 const CELL_W = 10;
 const CELL_H = 18;
@@ -75,7 +93,8 @@ export function useNeovim(
   const colsRef = useRef(0);
   const fgRef = useRef("#cccccc");
   const bgRef = useRef("#1e1e2e");
-  const rafRef = useRef<number | null>(null);
+  const drawScheduledRef = useRef(false);
+  const frameCounterRef = useRef(0);
 
   const initialDimsRef = useRef<{ cols: number; rows: number } | null>(null);
   if (cols > 0 && rows > 0 && !initialDimsRef.current) {
@@ -102,6 +121,13 @@ export function useNeovim(
     const y = offsetY + row * cellHeight;
     const pct = (modeInfo.cellPercentage ?? 100) / 100;
 
+    if (debugEnabled() && (row >= grid.height || col >= grid.width || row < 0 || col < 0)) {
+      debugWarn(
+        "cursor",
+        `cursor out of grid bounds: (${row},${col}) grid ${grid.width}x${grid.height}`,
+      );
+    }
+
     ctx.fillStyle = colorToHex(fgRef.current);
 
     switch (modeInfo.cursorShape) {
@@ -119,6 +145,27 @@ export function useNeovim(
         ctx.fillRect(x, y, Math.max(1, cellWidth * pct), cellHeight);
         break;
     }
+  }
+
+  // Visible-when-debugging fallback so cursor presence/position can be
+  // verified even when modeInfo hasn't arrived yet or shape data is wrong.
+  function drawDebugCursorOutline(
+    ctx: CanvasRenderingContext2D,
+    cellWidth: number,
+    cellHeight: number,
+    offsetX: number,
+    offsetY: number,
+  ) {
+    if (!debugEnabled()) return;
+    const { row, col } = cursorRef.current;
+    const x = offsetX + col * cellWidth;
+    const y = offsetY + row * cellHeight;
+    ctx.save();
+    ctx.strokeStyle = "#ff5577";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 2]);
+    ctx.strokeRect(x + 0.5, y + 0.5, cellWidth - 1, cellHeight - 1);
+    ctx.restore();
   }
 
   function drawGrid(
@@ -260,14 +307,19 @@ export function useNeovim(
 
     if (grid.hasCursor) {
       drawCursor(ctx, grid, cellWidth, cellHeight, offsetX, offsetY);
+      drawDebugCursorOutline(ctx, cellWidth, cellHeight, offsetX, offsetY);
     }
   }
 
   function drawFrame() {
-    rafRef.current = null;
+    drawScheduledRef.current = false;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
-    if (!ctx || !canvas) return;
+    if (!ctx || !canvas) {
+      debugWarn("draw", "skipped: ctx or canvas null");
+      return;
+    }
+    recordDraw(canvas.width, canvas.height);
 
     const cellWidth = CELL_W;
     const cellHeight = CELL_H;
@@ -275,6 +327,15 @@ export function useNeovim(
     // 1. Background fill
     ctx.fillStyle = colorToHex(bgRef.current);
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Debug: tiny "alive" indicator (8×8) in top-LEFT corner. Color cycles per
+    // frame so it's obvious from the screenshot if drawFrame is firing.
+    if (debugEnabled()) {
+      frameCounterRef.current = (frameCounterRef.current + 1) & 0xff;
+      const hue = frameCounterRef.current * 4;
+      ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+      ctx.fillRect(0, 0, 8, 8);
+    }
 
     // 2. Partition grids
     const allGrids = gridsRef.current.filter((g): g is GridState => !!g && !g.hidden);
@@ -292,18 +353,32 @@ export function useNeovim(
   }
 
   function scheduleFrame() {
-    if (rafRef.current !== null) return;
-    rafRef.current = requestAnimationFrame(drawFrame);
+    if (drawScheduledRef.current) return;
+    drawScheduledRef.current = true;
+    // queueMicrotask instead of requestAnimationFrame: rAF gets throttled or
+    // paused when the Electron window is occluded/unfocused, leaving the flag
+    // stuck and starving subsequent flushes. Microtasks always fire after the
+    // current task, regardless of window state. Multiple flushes within the
+    // same task still coalesce via the flag.
+    queueMicrotask(drawFrame);
   }
 
   useEffect(() => {
     const bridge = getDesktopBridge();
+    setBridge(!!bridge);
+    setCwd(cwd);
     const dims = initialDimsRef.current;
     if (!bridge) {
       console.warn("[neovim] desktopBridge not available — are you in the Electron app?");
+      setAttached(false, "desktopBridge missing on window");
       return;
     }
-    if (!dims) return;
+    if (!dims) {
+      debugLog("attach", "skipping — initial dims not ready");
+      return;
+    }
+    setDims(dims.cols, dims.rows);
+    debugLog("attach", `cwd=${cwd} ${dims.cols}x${dims.rows} debugModuleId=${debugModuleId}`);
 
     let cancelled = false;
 
@@ -319,10 +394,33 @@ export function useNeovim(
     };
     setHandle(h);
 
+    let rawBatchesLogged = 0;
     const unsubRedraw = bridge.onNeovimRedraw((rawEvents) => {
       if (cancelled) return;
 
+      // Pre-parse raw counter — counts every event nvim sends, even ones the
+      // parser drops. If raw shows grid_cursor_goto but parsed doesn't, parser
+      // is broken. If raw also lacks it, nvim isn't emitting it.
+      if (debugEnabled() && Array.isArray(rawEvents)) {
+        for (const raw of rawEvents) {
+          if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === "string") {
+            recordRawEvent(raw[0]);
+          } else {
+            recordRawEvent("(non-array-or-bad-shape)");
+          }
+        }
+        // Print first few raw batches verbatim so we can see the shape.
+        if (rawBatchesLogged < 6) {
+          rawBatchesLogged++;
+          const types = rawEvents
+            .map((e) => (Array.isArray(e) && typeof e[0] === "string" ? e[0] : "?"))
+            .join(",");
+          debugLog("raw", `batch#${rawBatchesLogged} len=${rawEvents.length} [${types}]`);
+        }
+      }
+
       for (const event of parseRedrawBatch(rawEvents)) {
+        recordEvent(event.type);
         switch (event.type) {
           case "hl_attr_define":
             hlRef.current.set(event.id, event.rgbAttr);
@@ -333,6 +431,7 @@ export function useNeovim(
             // 0 is valid (pure black), so check !== -1, not > 0.
             if (event.rgbFg !== -1) fgRef.current = colorToHex(event.rgbFg);
             if (event.rgbBg !== -1) bgRef.current = colorToHex(event.rgbBg);
+            setDefaultColors(fgRef.current, bgRef.current);
             break;
 
           case "grid_resize": {
@@ -370,6 +469,7 @@ export function useNeovim(
               rowsRef.current = height;
               colsRef.current = width;
               setGridSize(height, width);
+              setDims(width, height);
             }
             break;
           }
@@ -395,8 +495,12 @@ export function useNeovim(
 
           case "grid_scroll": {
             const { grid, top, bot, left, right, rows } = event;
+            recordScroll(grid, top, bot, left, right, rows);
             const g = gridsRef.current[grid];
-            if (!g) break;
+            if (!g) {
+              debugWarn("scroll", `grid ${grid} missing for grid_scroll`);
+              break;
+            }
             if (rows > 0) {
               for (let r = top; r < bot - rows; r++) {
                 const dst = g.cells[r];
@@ -449,8 +553,16 @@ export function useNeovim(
               if (g) g.hasCursor = false;
             }
             const g = gridsRef.current[event.grid];
-            if (g) g.hasCursor = true;
+            if (g) {
+              g.hasCursor = true;
+            } else {
+              debugWarn(
+                "cursor",
+                `grid_cursor_goto for missing grid ${event.grid} (${event.row},${event.col})`,
+              );
+            }
             cursorRef.current = { row: event.row, col: event.col };
+            setCursor(event.grid, event.row, event.col);
             break;
           }
 
@@ -470,13 +582,18 @@ export function useNeovim(
 
           case "mode_info_set":
             modeInfoRef.current = event.modeInfo;
+            setMode(activeModeIdxRef.current, modeInfoRef.current[activeModeIdxRef.current]);
+            debugLog("mode", `mode_info_set: ${event.modeInfo.length} modes`);
             break;
 
           case "mode_change":
             activeModeIdxRef.current = event.modeIdx;
+            setMode(event.modeIdx, modeInfoRef.current[event.modeIdx]);
+            debugLog("mode", `mode_change → ${event.modeName} (idx ${event.modeIdx})`);
             break;
 
           case "flush":
+            snapshotGrids(gridsRef.current);
             scheduleFrame();
             break;
 
@@ -550,16 +667,27 @@ export function useNeovim(
 
     bridge
       .neovimAttach(cwd, dims.cols, dims.rows)
-      .catch((e: unknown) => console.error("[neovim] attach failed:", e));
+      .then(() => {
+        if (!cancelled) {
+          setAttached(true);
+          debugLog("attach", "ok");
+        }
+      })
+      .catch((e: unknown) => {
+        console.error("[neovim] attach failed:", e);
+        const msg = e instanceof Error ? e.message : String(e);
+        setAttached(false, msg);
+      });
 
     return () => {
       cancelled = true;
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+      // Pending microtask, if any, will fire after this cleanup. drawFrame
+      // safely no-ops when canvasRef.current is null after unmount, so no
+      // explicit cancel needed.
+      drawScheduledRef.current = false;
       unsubRedraw();
       setHandle(null);
+      setAttached(false);
       document.title = "Fenrir";
       bridge.neovimDetach().catch(console.error);
     };

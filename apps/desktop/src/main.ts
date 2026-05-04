@@ -1723,10 +1723,14 @@ function registerIpcHandlers(): void {
           .map((p) => Path.join(p, "nvim"))
           .find((p) => FS.existsSync(p)) ?? "nvim";
       console.log("[neovim:main] spawning nvim at:", nvimBin);
-      const proc = ChildProcess.spawn(nvimBin, ["--embed"], {
-        cwd,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+      const proc = ChildProcess.spawn(
+        nvimBin,
+        ["--embed", "--clean", "--cmd", "tnoremap <Esc> <C-\\><C-n>"],
+        {
+          cwd,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
 
       proc.on("error", (err) => console.error("[neovim:main] proc error:", err));
       proc.on("exit", (code, signal) =>
@@ -1761,7 +1765,11 @@ function registerIpcHandlers(): void {
       });
 
       console.log("[neovim:main] calling uiAttach —", cols, rows);
-      await client.uiAttach(cols, rows, { rgb: true, ext_linegrid: true });
+      await client.uiAttach(cols, rows, {
+        rgb: true,
+        ext_linegrid: true,
+        ext_multigrid: true,
+      });
       console.log("[neovim:main] uiAttach done");
     },
   );
