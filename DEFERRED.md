@@ -9,6 +9,7 @@ Each item is a candidate for its own planning session.
 
 **Events:** `mouse_on`, `mouse_off`, `nvim_input_mouse`
 **What's needed:**
+
 - Map canvas pixel coordinates to grid + local row/col (requires hit-testing grids
   in reverse `compindex` order to find topmost grid at click point).
 - Handle left click (cursor move), right click (extend selection).
@@ -24,6 +25,7 @@ Mouse is a clean standalone feature once the compositor is in place.
 
 **Attribute:** `blend` (0–100) in `hl_attr_define`
 **What's needed:**
+
 - Per-cell background color lerp against whatever is rendered below the float.
 - Either `canvas.globalAlpha` approximation or manual `getImageData` readback.
 
@@ -36,6 +38,7 @@ via `globalAlpha` is lossy. Most real-world float UIs work fine at full opacity.
 
 **Events:** `compositionstart`, `compositionupdate`, `compositionend`
 **What's needed:**
+
 - Invisible `<input>` or `<textarea>` overlay to capture browser composition.
 - Forward final composed string to `nvim.input()`.
 - Suppress raw `keydown` events during active composition.
@@ -49,6 +52,7 @@ design (overlay positioning, z-index, focus management).
 
 **Neovim registers:** `+` (system clipboard), `*` (primary selection)
 **What's needed:**
+
 - Detect yank/paste to `+`/`*` registers via Neovim RPC or `g:clipboard` provider.
 - Bridge to `navigator.clipboard.writeText()` / `readText()`.
 
@@ -61,6 +65,7 @@ Separate planning session needed for the RPC bridge design.
 
 **Events:** `busy_start`, `busy_stop`
 **What's needed:**
+
 - A loading indicator (spinner, progress bar, cursor change) shown during `busy_start`.
 - Hidden on `busy_stop`.
 
@@ -73,6 +78,7 @@ Separate planning session needed for the RPC bridge design.
 
 **File:** `apps/server/src/neovim/MODULE.md`
 **What's needed:**
+
 - Migrate neovim process management from `apps/desktop/src/main.ts` to the Node.js server.
 - Update `nvim_ui_attach` call in the server module to include `ext_multigrid`.
 

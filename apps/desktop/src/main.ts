@@ -34,10 +34,7 @@ import { autoUpdater } from "electron-updater";
 import type { ContextMenuItem } from "@fenrir/contracts";
 import { RotatingFileSink } from "@fenrir/shared/logging";
 import { parsePersistedServerObservabilitySettings } from "@fenrir/shared/serverSettings";
-import {
-  DEFAULT_DESKTOP_BACKEND_PORT,
-  resolveDesktopBackendPort,
-} from "./backendPort";
+import { DEFAULT_DESKTOP_BACKEND_PORT, resolveDesktopBackendPort } from "./backendPort";
 import {
   DEFAULT_DESKTOP_SETTINGS,
   readDesktopSettings,
@@ -53,17 +50,11 @@ import {
   writeSavedEnvironmentRegistry,
   writeSavedEnvironmentSecret,
 } from "./clientPersistence";
-import {
-  isBackendReadinessAborted,
-  waitForHttpReady,
-} from "./backendReadiness";
+import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { resolveDesktopServerExposure } from "./serverExposure";
 import { syncShellEnvironment } from "./syncShellEnvironment";
-import {
-  getAutoUpdateDisabledReason,
-  shouldBroadcastDownloadProgress,
-} from "./updateState";
+import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState";
 import {
   createInitialDesktopUpdateState,
   reduceDesktopUpdateStateOnCheckFailure,
@@ -76,15 +67,8 @@ import {
   reduceDesktopUpdateStateOnNoUpdate,
   reduceDesktopUpdateStateOnUpdateAvailable,
 } from "./updateMachine";
-import {
-  isArm64HostRunningIntelBuild,
-  resolveDesktopRuntimeInfo,
-} from "./runtimeArch";
-import {
-  readVpnProfiles,
-  addVpnProfile,
-  removeVpnProfile,
-} from "./vpnSettings";
+import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
+import { readVpnProfiles, addVpnProfile, removeVpnProfile } from "./vpnSettings";
 import {
   checkOpenvpnInstalled,
   connectVpn,
@@ -94,10 +78,7 @@ import {
   onVpnStateChange,
   stopVpn,
 } from "./vpnManager";
-import {
-  createTrafficLensManager,
-  type TrafficLensManager,
-} from "./trafficLensManager";
+import { createTrafficLensManager, type TrafficLensManager } from "./trafficLensManager";
 
 syncShellEnvironment();
 
@@ -112,20 +93,14 @@ const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
-const GET_LOCAL_ENVIRONMENT_BOOTSTRAP_CHANNEL =
-  "desktop:get-local-environment-bootstrap";
+const GET_LOCAL_ENVIRONMENT_BOOTSTRAP_CHANNEL = "desktop:get-local-environment-bootstrap";
 const GET_CLIENT_SETTINGS_CHANNEL = "desktop:get-client-settings";
 const SET_CLIENT_SETTINGS_CHANNEL = "desktop:set-client-settings";
-const GET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL =
-  "desktop:get-saved-environment-registry";
-const SET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL =
-  "desktop:set-saved-environment-registry";
-const GET_SAVED_ENVIRONMENT_SECRET_CHANNEL =
-  "desktop:get-saved-environment-secret";
-const SET_SAVED_ENVIRONMENT_SECRET_CHANNEL =
-  "desktop:set-saved-environment-secret";
-const REMOVE_SAVED_ENVIRONMENT_SECRET_CHANNEL =
-  "desktop:remove-saved-environment-secret";
+const GET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL = "desktop:get-saved-environment-registry";
+const SET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL = "desktop:set-saved-environment-registry";
+const GET_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:get-saved-environment-secret";
+const SET_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:set-saved-environment-secret";
+const REMOVE_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:remove-saved-environment-secret";
 const GET_SERVER_EXPOSURE_STATE_CHANNEL = "desktop:get-server-exposure-state";
 const SET_SERVER_EXPOSURE_MODE_CHANNEL = "desktop:set-server-exposure-mode";
 const VPN_GET_STATE_CHANNEL = "desktop:vpn-get-state";
@@ -152,26 +127,18 @@ const NEOVIM_DETACH_CHANNEL = "desktop:neovim-detach";
 const NEOVIM_INPUT_CHANNEL = "desktop:neovim-input";
 const NEOVIM_RESIZE_CHANNEL = "desktop:neovim-resize";
 const NEOVIM_REDRAW_CHANNEL = "desktop:neovim-redraw";
-const BASE_DIR =
-  process.env.FENRIR_HOME?.trim() || Path.join(OS.homedir(), ".fenrir");
+const BASE_DIR = process.env.FENRIR_HOME?.trim() || Path.join(OS.homedir(), ".fenrir");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
 const CLIENT_SETTINGS_PATH = Path.join(STATE_DIR, "client-settings.json");
-const SAVED_ENVIRONMENT_REGISTRY_PATH = Path.join(
-  STATE_DIR,
-  "saved-environments.json",
-);
+const SAVED_ENVIRONMENT_REGISTRY_PATH = Path.join(STATE_DIR, "saved-environments.json");
 const VPN_PROFILES_PATH = Path.join(STATE_DIR, "vpn-profiles.json");
 const DESKTOP_SCHEME = "t3";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const APP_DISPLAY_NAME = isDevelopment ? "Fenrir (Dev)" : "Fenrir";
-const APP_USER_MODEL_ID = isDevelopment
-  ? "com.fenrir.app.dev"
-  : "com.fenrir.app";
-const LINUX_DESKTOP_ENTRY_NAME = isDevelopment
-  ? "fenrir-dev.desktop"
-  : "fenrir.desktop";
+const APP_USER_MODEL_ID = isDevelopment ? "com.fenrir.app.dev" : "com.fenrir.app";
+const LINUX_DESKTOP_ENTRY_NAME = isDevelopment ? "fenrir-dev.desktop" : "fenrir.desktop";
 const LINUX_WM_CLASS = isDevelopment ? "fenrir-dev" : "fenrir";
 const USER_DATA_DIR_NAME = isDevelopment ? "fenrir-dev" : "fenrir";
 const LEGACY_USER_DATA_DIR_NAME = isDevelopment ? "Fenrir (Dev)" : "Fenrir";
@@ -227,8 +194,7 @@ let nvimSession: {
 } | null = null;
 let backendObservabilitySettings = readPersistedBackendObservabilitySettings();
 let desktopSettings = readDesktopSettings(DESKTOP_SETTINGS_PATH);
-let desktopServerExposureMode: DesktopServerExposureMode =
-  desktopSettings.serverExposureMode;
+let desktopServerExposureMode: DesktopServerExposureMode = desktopSettings.serverExposureMode;
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
 const expectedBackendExitChildren = new WeakSet<ChildProcess.ChildProcess>();
@@ -260,21 +226,14 @@ function readPersistedBackendObservabilitySettings(): {
     if (!FS.existsSync(SERVER_SETTINGS_PATH)) {
       return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined };
     }
-    return parsePersistedServerObservabilitySettings(
-      FS.readFileSync(SERVER_SETTINGS_PATH, "utf8"),
-    );
+    return parsePersistedServerObservabilitySettings(FS.readFileSync(SERVER_SETTINGS_PATH, "utf8"));
   } catch (error) {
-    console.warn(
-      "[desktop] failed to read persisted backend observability settings",
-      error,
-    );
+    console.warn("[desktop] failed to read persisted backend observability settings", error);
     return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined };
   }
 }
 
-function resolveConfiguredDesktopBackendPort(
-  rawPort: string | undefined,
-): number | undefined {
+function resolveConfiguredDesktopBackendPort(rawPort: string | undefined): number | undefined {
   if (!rawPort) {
     return undefined;
   }
@@ -347,9 +306,7 @@ async function applyDesktopServerExposureMode(
 
   if (requestedMode === "network-accessible" && exposure.endpointUrl === null) {
     if (options?.rejectIfUnavailable) {
-      throw new Error(
-        "No reachable network address is available for this desktop right now.",
-      );
+      throw new Error("No reachable network address is available for this desktop right now.");
     }
     exposure = resolveDesktopServerExposure({
       mode: "local-only",
@@ -360,10 +317,7 @@ async function applyDesktopServerExposureMode(
   }
 
   desktopServerExposureMode = exposure.mode;
-  desktopSettings = setDesktopServerExposurePreference(
-    desktopSettings,
-    requestedMode,
-  );
+  desktopSettings = setDesktopServerExposurePreference(desktopSettings, requestedMode);
   backendBindHost = exposure.bindHost;
   backendHttpUrl = exposure.localHttpUrl;
   backendWsUrl = exposure.localWsUrl;
@@ -406,15 +360,10 @@ function relaunchDesktopApp(reason: string): void {
 
 function writeDesktopLogHeader(message: string): void {
   if (!desktopLogSink) return;
-  desktopLogSink.write(
-    `[${logTimestamp()}] [${logScope("desktop")}] ${message}\n`,
-  );
+  desktopLogSink.write(`[${logTimestamp()}] [${logScope("desktop")}] ${message}\n`);
 }
 
-function writeBackendSessionBoundary(
-  phase: "START" | "END",
-  details: string,
-): void {
+function writeBackendSessionBoundary(phase: "START" | "END", details: string): void {
   if (!backendLogSink) return;
   const normalizedDetails = sanitizeLogValue(details);
   backendLogSink.write(
@@ -485,10 +434,7 @@ function writeDesktopStreamChunk(
   if (!desktopLogSink) return;
   const buffer = Buffer.isBuffer(chunk)
     ? chunk
-    : Buffer.from(
-        String(chunk),
-        typeof chunk === "string" ? encoding : undefined,
-      );
+    : Buffer.from(String(chunk), typeof chunk === "string" ? encoding : undefined);
   desktopLogSink.write(`[${logTimestamp()}] [${logScope(streamName)}] `);
   desktopLogSink.write(buffer);
   if (buffer.length === 0 || buffer[buffer.length - 1] !== 0x0a) {
@@ -497,11 +443,7 @@ function writeDesktopStreamChunk(
 }
 
 function installStdIoCapture(): void {
-  if (
-    !app.isPackaged ||
-    desktopLogSink === null ||
-    restoreStdIoCapture !== null
-  ) {
+  if (!app.isPackaged || desktopLogSink === null || restoreStdIoCapture !== null) {
     return;
   }
 
@@ -509,17 +451,13 @@ function installStdIoCapture(): void {
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
 
   const patchWrite =
-    (
-      streamName: "stdout" | "stderr",
-      originalWrite: typeof process.stdout.write,
-    ) =>
+    (streamName: "stdout" | "stderr", originalWrite: typeof process.stdout.write) =>
     (
       chunk: string | Uint8Array,
       encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
       callback?: (error?: Error | null) => void,
     ): boolean => {
-      const encoding =
-        typeof encodingOrCallback === "string" ? encodingOrCallback : undefined;
+      const encoding = typeof encodingOrCallback === "string" ? encodingOrCallback : undefined;
       writeDesktopStreamChunk(streamName, chunk, encoding);
       if (typeof encodingOrCallback === "function") {
         return originalWrite(chunk, encodingOrCallback);
@@ -568,9 +506,7 @@ function captureBackendOutput(child: ChildProcess.ChildProcess): void {
   if (!app.isPackaged || backendLogSink === null) return;
   const writeChunk = (chunk: unknown): void => {
     if (!backendLogSink) return;
-    const buffer = Buffer.isBuffer(chunk)
-      ? chunk
-      : Buffer.from(String(chunk), "utf8");
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
     backendLogSink.write(buffer);
   };
   child.stdout?.on("data", writeChunk);
@@ -736,10 +672,7 @@ function resolveDesktopStaticDir(): string | null {
   return null;
 }
 
-function resolveDesktopStaticPath(
-  staticRoot: string,
-  requestUrl: string,
-): string {
+function resolveDesktopStaticPath(staticRoot: string, requestUrl: string): string {
   const url = new URL(requestUrl);
   const rawPath = decodeURIComponent(url.pathname);
   const normalizedPath = Path.posix.normalize(rawPath).replace(/^\/+/, "");
@@ -747,8 +680,7 @@ function resolveDesktopStaticPath(
     return Path.join(staticRoot, "index.html");
   }
 
-  const requestedPath =
-    normalizedPath.length > 0 ? normalizedPath : "index.html";
+  const requestedPath = normalizedPath.length > 0 ? normalizedPath : "index.html";
   const resolvedPath = Path.join(staticRoot, requestedPath);
 
   if (Path.extname(resolvedPath)) {
@@ -775,19 +707,12 @@ function isStaticAssetRequest(requestUrl: string): boolean {
 function handleFatalStartupError(stage: string, error: unknown): void {
   const message = formatErrorMessage(error);
   const detail =
-    error instanceof Error && typeof error.stack === "string"
-      ? `\n${error.stack}`
-      : "";
-  writeDesktopLogHeader(
-    `fatal startup error stage=${stage} message=${message}`,
-  );
+    error instanceof Error && typeof error.stack === "string" ? `\n${error.stack}` : "";
+  writeDesktopLogHeader(`fatal startup error stage=${stage} message=${message}`);
   console.error(`[desktop] fatal startup error (${stage})`, error);
   if (!isQuitting) {
     isQuitting = true;
-    dialog.showErrorBox(
-      "Fenrir failed to start",
-      `Stage: ${stage}\n${message}${detail}`,
-    );
+    dialog.showErrorBox("Fenrir failed to start", `Stage: ${stage}\n${message}${detail}`);
   }
   stopBackend();
   restoreStdIoCapture?.();
@@ -810,14 +735,10 @@ function registerDesktopProtocol(): void {
 
   protocol.registerFileProtocol(DESKTOP_SCHEME, (request, callback) => {
     try {
-      const candidate = resolveDesktopStaticPath(
-        staticRootResolved,
-        request.url,
-      );
+      const candidate = resolveDesktopStaticPath(staticRootResolved, request.url);
       const resolvedCandidate = Path.resolve(candidate);
       const isInRoot =
-        resolvedCandidate === fallbackIndex ||
-        resolvedCandidate.startsWith(staticRootPrefix);
+        resolvedCandidate === fallbackIndex || resolvedCandidate.startsWith(staticRootPrefix);
       const isAssetRequest = isStaticAssetRequest(request.url);
 
       if (!isInRoot || !FS.existsSync(resolvedCandidate)) {
@@ -840,9 +761,7 @@ function registerDesktopProtocol(): void {
 
 function dispatchMenuAction(action: string): void {
   const existingWindow =
-    BrowserWindow.getFocusedWindow() ??
-    mainWindow ??
-    BrowserWindow.getAllWindows()[0];
+    BrowserWindow.getFocusedWindow() ?? mainWindow ?? BrowserWindow.getAllWindows()[0];
   const targetWindow = existingWindow ?? createWindow();
   if (!existingWindow) {
     mainWindow = targetWindow;
@@ -864,8 +783,7 @@ function dispatchMenuAction(action: string): void {
 
 function handleCheckForUpdatesMenuClick(): void {
   const hasUpdateFeedConfig =
-    readAppUpdateYml() !== null ||
-    Boolean(process.env.FENRIR_DESKTOP_MOCK_UPDATES);
+    readAppUpdateYml() !== null || Boolean(process.env.FENRIR_DESKTOP_MOCK_UPDATES);
   const disabledReason = getAutoUpdateDisabledReason({
     isDevelopment,
     isPackaged: app.isPackaged,
@@ -875,9 +793,7 @@ function handleCheckForUpdatesMenuClick(): void {
     hasUpdateFeedConfig,
   });
   if (disabledReason) {
-    console.info(
-      "[desktop-updater] Manual update check requested, but updates are disabled.",
-    );
+    console.info("[desktop-updater] Manual update check requested, but updates are disabled.");
     void dialog.showMessageBox({
       type: "info",
       title: "Updates unavailable",
@@ -909,9 +825,7 @@ async function checkForUpdatesFromMenu(): Promise<void> {
       type: "warning",
       title: "Update check failed",
       message: "Could not check for updates.",
-      detail:
-        updateState.message ??
-        "An unknown error occurred. Please try again later.",
+      detail: updateState.message ?? "An unknown error occurred. Please try again later.",
       buttons: ["OK"],
     });
   }
@@ -1114,8 +1028,7 @@ function setUpdateState(patch: Partial<DesktopUpdateState>): void {
 
 function shouldEnableAutoUpdates(): boolean {
   const hasUpdateFeedConfig =
-    readAppUpdateYml() !== null ||
-    Boolean(process.env.FENRIR_DESKTOP_MOCK_UPDATES);
+    readAppUpdateYml() !== null || Boolean(process.env.FENRIR_DESKTOP_MOCK_UPDATES);
   return (
     getAutoUpdateDisabledReason({
       isDevelopment,
@@ -1130,19 +1043,14 @@ function shouldEnableAutoUpdates(): boolean {
 
 async function checkForUpdates(reason: string): Promise<boolean> {
   if (isQuitting || !updaterConfigured || updateCheckInFlight) return false;
-  if (
-    updateState.status === "downloading" ||
-    updateState.status === "downloaded"
-  ) {
+  if (updateState.status === "downloading" || updateState.status === "downloaded") {
     console.info(
       `[desktop-updater] Skipping update check (${reason}) while status=${updateState.status}.`,
     );
     return false;
   }
   updateCheckInFlight = true;
-  setUpdateState(
-    reduceDesktopUpdateStateOnCheckStart(updateState, new Date().toISOString()),
-  );
+  setUpdateState(reduceDesktopUpdateStateOnCheckStart(updateState, new Date().toISOString()));
   console.info(`[desktop-updater] Checking for updates (${reason})...`);
 
   try {
@@ -1151,11 +1059,7 @@ async function checkForUpdates(reason: string): Promise<boolean> {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     setUpdateState(
-      reduceDesktopUpdateStateOnCheckFailure(
-        updateState,
-        message,
-        new Date().toISOString(),
-      ),
+      reduceDesktopUpdateStateOnCheckFailure(updateState, message, new Date().toISOString()),
     );
     console.error(`[desktop-updater] Failed to check for updates: ${message}`);
     return true;
@@ -1168,17 +1072,12 @@ async function downloadAvailableUpdate(): Promise<{
   accepted: boolean;
   completed: boolean;
 }> {
-  if (
-    !updaterConfigured ||
-    updateDownloadInFlight ||
-    updateState.status !== "available"
-  ) {
+  if (!updaterConfigured || updateDownloadInFlight || updateState.status !== "available") {
     return { accepted: false, completed: false };
   }
   updateDownloadInFlight = true;
   setUpdateState(reduceDesktopUpdateStateOnDownloadStart(updateState));
-  autoUpdater.disableDifferentialDownload =
-    isArm64HostRunningIntelBuild(desktopRuntimeInfo);
+  autoUpdater.disableDifferentialDownload = isArm64HostRunningIntelBuild(desktopRuntimeInfo);
   console.info("[desktop-updater] Downloading update...");
 
   try {
@@ -1186,9 +1085,7 @@ async function downloadAvailableUpdate(): Promise<{
     return { accepted: true, completed: true };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    setUpdateState(
-      reduceDesktopUpdateStateOnDownloadFailure(updateState, message),
-    );
+    setUpdateState(reduceDesktopUpdateStateOnDownloadFailure(updateState, message));
     console.error(`[desktop-updater] Failed to download update: ${message}`);
     return { accepted: true, completed: false };
   } finally {
@@ -1222,9 +1119,7 @@ async function installDownloadedUpdate(): Promise<{
     const message = formatErrorMessage(error);
     updateInstallInFlight = false;
     isQuitting = false;
-    setUpdateState(
-      reduceDesktopUpdateStateOnInstallFailure(updateState, message),
-    );
+    setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
     console.error(`[desktop-updater] Failed to install update: ${message}`);
     return { accepted: true, completed: false };
   }
@@ -1232,9 +1127,7 @@ async function installDownloadedUpdate(): Promise<{
 
 function configureAutoUpdater(): void {
   const githubToken =
-    process.env.FENRIR_DESKTOP_UPDATE_GITHUB_TOKEN?.trim() ||
-    process.env.GH_TOKEN?.trim() ||
-    "";
+    process.env.FENRIR_DESKTOP_UPDATE_GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim() || "";
   if (githubToken) {
     // When a token is provided, re-configure the feed with `private: true` so
     // electron-updater uses the GitHub API (api.github.com) instead of the
@@ -1274,8 +1167,7 @@ function configureAutoUpdater(): void {
   autoUpdater.channel = DESKTOP_UPDATE_CHANNEL;
   autoUpdater.allowPrerelease = DESKTOP_UPDATE_ALLOW_PRERELEASE;
   autoUpdater.allowDowngrade = false;
-  autoUpdater.disableDifferentialDownload =
-    isArm64HostRunningIntelBuild(desktopRuntimeInfo);
+  autoUpdater.disableDifferentialDownload = isArm64HostRunningIntelBuild(desktopRuntimeInfo);
   let lastLoggedDownloadMilestone = -1;
 
   if (isArm64HostRunningIntelBuild(desktopRuntimeInfo)) {
@@ -1299,9 +1191,7 @@ function configureAutoUpdater(): void {
     console.info(`[desktop-updater] Update available: ${info.version}`);
   });
   autoUpdater.on("update-not-available", () => {
-    setUpdateState(
-      reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()),
-    );
+    setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
     lastLoggedDownloadMilestone = -1;
     console.info("[desktop-updater] No updates available.");
   });
@@ -1310,9 +1200,7 @@ function configureAutoUpdater(): void {
     if (updateInstallInFlight) {
       updateInstallInFlight = false;
       isQuitting = false;
-      setUpdateState(
-        reduceDesktopUpdateStateOnInstallFailure(updateState, message),
-      );
+      setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
       console.error(`[desktop-updater] Updater error: ${message}`);
       return;
     }
@@ -1323,9 +1211,7 @@ function configureAutoUpdater(): void {
         checkedAt: new Date().toISOString(),
         downloadPercent: null,
         errorContext: resolveUpdaterErrorContext(),
-        canRetry:
-          updateState.availableVersion !== null ||
-          updateState.downloadedVersion !== null,
+        canRetry: updateState.availableVersion !== null || updateState.downloadedVersion !== null,
       });
     }
     console.error(`[desktop-updater] Updater error: ${message}`);
@@ -1336,12 +1222,7 @@ function configureAutoUpdater(): void {
       shouldBroadcastDownloadProgress(updateState, progress.percent) ||
       updateState.message !== null
     ) {
-      setUpdateState(
-        reduceDesktopUpdateStateOnDownloadProgress(
-          updateState,
-          progress.percent,
-        ),
-      );
+      setUpdateState(reduceDesktopUpdateStateOnDownloadProgress(updateState, progress.percent));
     }
     const milestone = percent - (percent % 10);
     if (milestone > lastLoggedDownloadMilestone) {
@@ -1350,9 +1231,7 @@ function configureAutoUpdater(): void {
     }
   });
   autoUpdater.on("update-downloaded", (info) => {
-    setUpdateState(
-      reduceDesktopUpdateStateOnDownloadComplete(updateState, info.version),
-    );
+    setUpdateState(reduceDesktopUpdateStateOnDownloadComplete(updateState, info.version));
     console.info(`[desktop-updater] Update downloaded: ${info.version}`);
   });
 
@@ -1374,9 +1253,7 @@ function scheduleBackendRestart(reason: string): void {
 
   const delayMs = Math.min(500 * 2 ** restartAttempt, 10_000);
   restartAttempt += 1;
-  console.error(
-    `[desktop] backend exited unexpectedly (${reason}); restarting in ${delayMs}ms`,
-  );
+  console.error(`[desktop] backend exited unexpectedly (${reason}); restarting in ${delayMs}ms`);
 
   restartTimer = setTimeout(() => {
     restartTimer = null;
@@ -1395,22 +1272,18 @@ function startBackend(): void {
   }
 
   const captureBackendLogs = app.isPackaged && backendLogSink !== null;
-  const child = ChildProcess.spawn(
-    process.execPath,
-    [backendEntry, "--bootstrap-fd", "3"],
-    {
-      cwd: resolveBackendCwd(),
-      // In Electron main, process.execPath points to the Electron binary.
-      // Run the child in Node mode so this backend process does not become a GUI app instance.
-      env: {
-        ...backendChildEnv(),
-        ELECTRON_RUN_AS_NODE: "1",
-      },
-      stdio: captureBackendLogs
-        ? ["ignore", "pipe", "pipe", "pipe"]
-        : ["ignore", "inherit", "inherit", "pipe"],
+  const child = ChildProcess.spawn(process.execPath, [backendEntry, "--bootstrap-fd", "3"], {
+    cwd: resolveBackendCwd(),
+    // In Electron main, process.execPath points to the Electron binary.
+    // Run the child in Node mode so this backend process does not become a GUI app instance.
+    env: {
+      ...backendChildEnv(),
+      ELECTRON_RUN_AS_NODE: "1",
     },
-  );
+    stdio: captureBackendLogs
+      ? ["ignore", "pipe", "pipe", "pipe"]
+      : ["ignore", "inherit", "inherit", "pipe"],
+  });
   const bootstrapStream = child.stdio[3];
   if (bootstrapStream && "write" in bootstrapStream) {
     bootstrapStream.write(
@@ -1511,8 +1384,7 @@ async function stopBackendAndWaitForExit(timeoutMs = 5_000): Promise<void> {
   backendProcess = null;
   if (!child) return;
   const backendChild = child;
-  if (backendChild.exitCode !== null || backendChild.signalCode !== null)
-    return;
+  if (backendChild.exitCode !== null || backendChild.signalCode !== null) return;
   expectedBackendExitChildren.add(backendChild);
 
   await new Promise<void>((resolve) => {
@@ -1566,21 +1438,16 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(GET_CLIENT_SETTINGS_CHANNEL);
-  ipcMain.handle(GET_CLIENT_SETTINGS_CHANNEL, async () =>
-    readClientSettings(CLIENT_SETTINGS_PATH),
-  );
+  ipcMain.handle(GET_CLIENT_SETTINGS_CHANNEL, async () => readClientSettings(CLIENT_SETTINGS_PATH));
 
   ipcMain.removeHandler(SET_CLIENT_SETTINGS_CHANNEL);
-  ipcMain.handle(
-    SET_CLIENT_SETTINGS_CHANNEL,
-    async (_event, rawSettings: unknown) => {
-      if (typeof rawSettings !== "object" || rawSettings === null) {
-        throw new Error("Invalid client settings payload.");
-      }
+  ipcMain.handle(SET_CLIENT_SETTINGS_CHANNEL, async (_event, rawSettings: unknown) => {
+    if (typeof rawSettings !== "object" || rawSettings === null) {
+      throw new Error("Invalid client settings payload.");
+    }
 
-      writeClientSettings(CLIENT_SETTINGS_PATH, rawSettings as ClientSettings);
-    },
-  );
+    writeClientSettings(CLIENT_SETTINGS_PATH, rawSettings as ClientSettings);
+  });
 
   ipcMain.removeHandler(GET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL);
   ipcMain.handle(GET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL, async () =>
@@ -1588,28 +1455,22 @@ function registerIpcHandlers(): void {
   );
 
   ipcMain.removeHandler(SET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL);
-  ipcMain.handle(
-    SET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL,
-    async (_event, rawRecords: unknown) => {
-      if (!Array.isArray(rawRecords)) {
-        throw new Error("Invalid saved environment registry payload.");
-      }
+  ipcMain.handle(SET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL, async (_event, rawRecords: unknown) => {
+    if (!Array.isArray(rawRecords)) {
+      throw new Error("Invalid saved environment registry payload.");
+    }
 
-      writeSavedEnvironmentRegistry(
-        SAVED_ENVIRONMENT_REGISTRY_PATH,
-        rawRecords as readonly PersistedSavedEnvironmentRecord[],
-      );
-    },
-  );
+    writeSavedEnvironmentRegistry(
+      SAVED_ENVIRONMENT_REGISTRY_PATH,
+      rawRecords as readonly PersistedSavedEnvironmentRecord[],
+    );
+  });
 
   ipcMain.removeHandler(GET_SAVED_ENVIRONMENT_SECRET_CHANNEL);
   ipcMain.handle(
     GET_SAVED_ENVIRONMENT_SECRET_CHANNEL,
     async (_event, rawEnvironmentId: unknown) => {
-      if (
-        typeof rawEnvironmentId !== "string" ||
-        rawEnvironmentId.trim().length === 0
-      ) {
+      if (typeof rawEnvironmentId !== "string" || rawEnvironmentId.trim().length === 0) {
         return null;
       }
 
@@ -1625,10 +1486,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     SET_SAVED_ENVIRONMENT_SECRET_CHANNEL,
     async (_event, rawEnvironmentId: unknown, rawSecret: unknown) => {
-      if (
-        typeof rawEnvironmentId !== "string" ||
-        rawEnvironmentId.trim().length === 0
-      ) {
+      if (typeof rawEnvironmentId !== "string" || rawEnvironmentId.trim().length === 0) {
         throw new Error("Invalid saved environment id.");
       }
       if (typeof rawSecret !== "string" || rawSecret.trim().length === 0) {
@@ -1648,10 +1506,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     REMOVE_SAVED_ENVIRONMENT_SECRET_CHANNEL,
     async (_event, rawEnvironmentId: unknown) => {
-      if (
-        typeof rawEnvironmentId !== "string" ||
-        rawEnvironmentId.trim().length === 0
-      ) {
+      if (typeof rawEnvironmentId !== "string" || rawEnvironmentId.trim().length === 0) {
         return;
       }
 
@@ -1663,31 +1518,26 @@ function registerIpcHandlers(): void {
   );
 
   ipcMain.removeHandler(GET_SERVER_EXPOSURE_STATE_CHANNEL);
-  ipcMain.handle(GET_SERVER_EXPOSURE_STATE_CHANNEL, async () =>
-    getDesktopServerExposureState(),
-  );
+  ipcMain.handle(GET_SERVER_EXPOSURE_STATE_CHANNEL, async () => getDesktopServerExposureState());
 
   ipcMain.removeHandler(SET_SERVER_EXPOSURE_MODE_CHANNEL);
-  ipcMain.handle(
-    SET_SERVER_EXPOSURE_MODE_CHANNEL,
-    async (_event, rawMode: unknown) => {
-      if (rawMode !== "local-only" && rawMode !== "network-accessible") {
-        throw new Error("Invalid desktop server exposure input.");
-      }
+  ipcMain.handle(SET_SERVER_EXPOSURE_MODE_CHANNEL, async (_event, rawMode: unknown) => {
+    if (rawMode !== "local-only" && rawMode !== "network-accessible") {
+      throw new Error("Invalid desktop server exposure input.");
+    }
 
-      const nextMode = rawMode as DesktopServerExposureMode;
-      if (nextMode === desktopServerExposureMode) {
-        return getDesktopServerExposureState();
-      }
+    const nextMode = rawMode as DesktopServerExposureMode;
+    if (nextMode === desktopServerExposureMode) {
+      return getDesktopServerExposureState();
+    }
 
-      const nextState = await applyDesktopServerExposureMode(nextMode, {
-        persist: true,
-        rejectIfUnavailable: true,
-      });
-      relaunchDesktopApp(`serverExposureMode=${nextMode}`);
-      return nextState;
-    },
-  );
+    const nextState = await applyDesktopServerExposureMode(nextMode, {
+      persist: true,
+      rejectIfUnavailable: true,
+    });
+    relaunchDesktopApp(`serverExposureMode=${nextMode}`);
+    return nextState;
+  });
 
   // ---- VPN ----
 
@@ -1697,40 +1547,27 @@ function registerIpcHandlers(): void {
   ipcMain.handle(VPN_GET_STATE_CHANNEL, async () => getVpnState());
 
   ipcMain.removeHandler(VPN_GET_PROFILES_CHANNEL);
-  ipcMain.handle(VPN_GET_PROFILES_CHANNEL, async () =>
-    readVpnProfiles(VPN_PROFILES_PATH),
-  );
+  ipcMain.handle(VPN_GET_PROFILES_CHANNEL, async () => readVpnProfiles(VPN_PROFILES_PATH));
 
   ipcMain.removeHandler(VPN_ADD_PROFILE_CHANNEL);
-  ipcMain.handle(
-    VPN_ADD_PROFILE_CHANNEL,
-    async (_event, label: unknown, configPath: unknown) => {
-      if (typeof label !== "string" || typeof configPath !== "string") {
-        throw new Error("Invalid VPN profile input.");
-      }
-      return addVpnProfile(VPN_PROFILES_PATH, label, configPath);
-    },
-  );
+  ipcMain.handle(VPN_ADD_PROFILE_CHANNEL, async (_event, label: unknown, configPath: unknown) => {
+    if (typeof label !== "string" || typeof configPath !== "string") {
+      throw new Error("Invalid VPN profile input.");
+    }
+    return addVpnProfile(VPN_PROFILES_PATH, label, configPath);
+  });
 
   ipcMain.removeHandler(VPN_REMOVE_PROFILE_CHANNEL);
-  ipcMain.handle(
-    VPN_REMOVE_PROFILE_CHANNEL,
-    async (_event, profileId: unknown) => {
-      if (typeof profileId !== "string") {
-        throw new Error("Invalid VPN profile ID.");
-      }
-      const state = getVpnState();
-      if (
-        state.activeProfileId === profileId &&
-        state.status !== "disconnected"
-      ) {
-        throw new Error(
-          "Cannot remove an active VPN profile. Disconnect first.",
-        );
-      }
-      removeVpnProfile(VPN_PROFILES_PATH, profileId);
-    },
-  );
+  ipcMain.handle(VPN_REMOVE_PROFILE_CHANNEL, async (_event, profileId: unknown) => {
+    if (typeof profileId !== "string") {
+      throw new Error("Invalid VPN profile ID.");
+    }
+    const state = getVpnState();
+    if (state.activeProfileId === profileId && state.status !== "disconnected") {
+      throw new Error("Cannot remove an active VPN profile. Disconnect first.");
+    }
+    removeVpnProfile(VPN_PROFILES_PATH, profileId);
+  });
 
   ipcMain.removeHandler(VPN_CONNECT_CHANNEL);
   ipcMain.handle(VPN_CONNECT_CHANNEL, async (_event, profileId: unknown) => {
@@ -1786,73 +1623,51 @@ function registerIpcHandlers(): void {
   }
 
   ipcMain.removeHandler(TRAFFIC_LENS_CREATE_TAB_CHANNEL);
-  ipcMain.handle(
-    TRAFFIC_LENS_CREATE_TAB_CHANNEL,
-    async (_event, url: unknown) => {
-      const validUrl = typeof url === "string" ? url : undefined;
-      return trafficLensManager?.createTab(validUrl);
-    },
-  );
+  ipcMain.handle(TRAFFIC_LENS_CREATE_TAB_CHANNEL, async (_event, url: unknown) => {
+    const validUrl = typeof url === "string" ? url : undefined;
+    return trafficLensManager?.createTab(validUrl);
+  });
 
   ipcMain.removeHandler(TRAFFIC_LENS_CLOSE_TAB_CHANNEL);
-  ipcMain.handle(
-    TRAFFIC_LENS_CLOSE_TAB_CHANNEL,
-    async (_event, tabId: unknown) => {
-      if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-      trafficLensManager?.closeTab(tabId);
-    },
-  );
+  ipcMain.handle(TRAFFIC_LENS_CLOSE_TAB_CHANNEL, async (_event, tabId: unknown) => {
+    if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
+    trafficLensManager?.closeTab(tabId);
+  });
 
   ipcMain.removeHandler(TRAFFIC_LENS_NAVIGATE_CHANNEL);
-  ipcMain.handle(
-    TRAFFIC_LENS_NAVIGATE_CHANNEL,
-    async (_event, tabId: unknown, url: unknown) => {
-      if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-      if (typeof url !== "string") throw new Error("Invalid URL.");
-      trafficLensManager?.navigateTab(tabId, url);
-    },
-  );
+  ipcMain.handle(TRAFFIC_LENS_NAVIGATE_CHANNEL, async (_event, tabId: unknown, url: unknown) => {
+    if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
+    if (typeof url !== "string") throw new Error("Invalid URL.");
+    trafficLensManager?.navigateTab(tabId, url);
+  });
 
   ipcMain.removeHandler(TRAFFIC_LENS_GO_BACK_CHANNEL);
-  ipcMain.handle(
-    TRAFFIC_LENS_GO_BACK_CHANNEL,
-    async (_event, tabId: unknown) => {
-      if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-      trafficLensManager?.goBack(tabId);
-    },
-  );
+  ipcMain.handle(TRAFFIC_LENS_GO_BACK_CHANNEL, async (_event, tabId: unknown) => {
+    if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
+    trafficLensManager?.goBack(tabId);
+  });
 
   ipcMain.removeHandler(TRAFFIC_LENS_GO_FORWARD_CHANNEL);
-  ipcMain.handle(
-    TRAFFIC_LENS_GO_FORWARD_CHANNEL,
-    async (_event, tabId: unknown) => {
-      if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-      trafficLensManager?.goForward(tabId);
-    },
-  );
+  ipcMain.handle(TRAFFIC_LENS_GO_FORWARD_CHANNEL, async (_event, tabId: unknown) => {
+    if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
+    trafficLensManager?.goForward(tabId);
+  });
 
   ipcMain.removeHandler(TRAFFIC_LENS_RELOAD_CHANNEL);
-  ipcMain.handle(
-    TRAFFIC_LENS_RELOAD_CHANNEL,
-    async (_event, tabId: unknown) => {
-      if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-      trafficLensManager?.reloadTab(tabId);
-    },
-  );
+  ipcMain.handle(TRAFFIC_LENS_RELOAD_CHANNEL, async (_event, tabId: unknown) => {
+    if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
+    trafficLensManager?.reloadTab(tabId);
+  });
 
   ipcMain.removeHandler(TRAFFIC_LENS_GET_TABS_CHANNEL);
-  ipcMain.handle(
-    TRAFFIC_LENS_GET_TABS_CHANNEL,
-    async () => trafficLensManager?.getTabs() ?? [],
-  );
+  ipcMain.handle(TRAFFIC_LENS_GET_TABS_CHANNEL, async () => trafficLensManager?.getTabs() ?? []);
 
   ipcMain.removeHandler(TRAFFIC_LENS_SET_BOUNDS_CHANNEL);
   ipcMain.handle(
     TRAFFIC_LENS_SET_BOUNDS_CHANNEL,
     async (_event, tabId: unknown, bounds: unknown) => {
       if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-      if (typeof bounds !== "object" || bounds === null)
-        throw new Error("Invalid bounds.");
+      if (typeof bounds !== "object" || bounds === null) throw new Error("Invalid bounds.");
       const b = bounds as Record<string, unknown>;
       if (
         typeof b.x !== "number" ||
@@ -1872,18 +1687,13 @@ function registerIpcHandlers(): void {
   );
 
   ipcMain.removeHandler(TRAFFIC_LENS_SHOW_TAB_CHANNEL);
-  ipcMain.handle(
-    TRAFFIC_LENS_SHOW_TAB_CHANNEL,
-    async (_event, tabId: unknown) => {
-      if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-      trafficLensManager?.showTab(tabId);
-    },
-  );
+  ipcMain.handle(TRAFFIC_LENS_SHOW_TAB_CHANNEL, async (_event, tabId: unknown) => {
+    if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
+    trafficLensManager?.showTab(tabId);
+  });
 
   ipcMain.removeHandler(TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL);
-  ipcMain.handle(TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL, async () =>
-    trafficLensManager?.hideAllTabs(),
-  );
+  ipcMain.handle(TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL, async () => trafficLensManager?.hideAllTabs());
 
   // Push traffic lens tab events to renderer
   trafficLensManager?.onTabEvent((event) => {
@@ -1908,7 +1718,10 @@ function registerIpcHandlers(): void {
       }
 
       const { attach } = await import("neovim");
-      const nvimBin = process.env.PATH?.split(":").map(p => Path.join(p, "nvim")).find(p => FS.existsSync(p)) ?? "nvim";
+      const nvimBin =
+        process.env.PATH?.split(":")
+          .map((p) => Path.join(p, "nvim"))
+          .find((p) => FS.existsSync(p)) ?? "nvim";
       console.log("[neovim:main] spawning nvim at:", nvimBin);
       const proc = ChildProcess.spawn(nvimBin, ["--embed"], {
         cwd,
@@ -1916,7 +1729,9 @@ function registerIpcHandlers(): void {
       });
 
       proc.on("error", (err) => console.error("[neovim:main] proc error:", err));
-      proc.on("exit", (code, signal) => console.log("[neovim:main] proc exit — code:", code, "signal:", signal));
+      proc.on("exit", (code, signal) =>
+        console.log("[neovim:main] proc exit — code:", code, "signal:", signal),
+      );
 
       const client = attach({ proc });
 
@@ -1938,7 +1753,9 @@ function registerIpcHandlers(): void {
       client.on("notification", (method: string, args: unknown) => {
         if (method !== "redraw") return;
         const sanitized = sanitizeForIpc(args);
-        const names = Array.isArray(sanitized) ? (sanitized as any[]).map((e: any) => Array.isArray(e) ? e[0] : e) : [];
+        const names = Array.isArray(sanitized)
+          ? (sanitized as any[]).map((e: any) => (Array.isArray(e) ? e[0] : e))
+          : [];
         console.log("[neovim:main] redraw →", names);
         mainWindow?.webContents.send(NEOVIM_REDRAW_CHANNEL, sanitized);
       });
@@ -1966,15 +1783,12 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(NEOVIM_RESIZE_CHANNEL);
-  ipcMain.handle(
-    NEOVIM_RESIZE_CHANNEL,
-    async (_event, cols: unknown, rows: unknown) => {
-      if (typeof cols !== "number") throw new Error("Invalid cols");
-      if (typeof rows !== "number") throw new Error("Invalid rows");
-      if (!nvimSession) return;
-      await nvimSession.client.uiTryResize(cols, rows);
-    },
-  );
+  ipcMain.handle(NEOVIM_RESIZE_CHANNEL, async (_event, cols: unknown, rows: unknown) => {
+    if (typeof cols !== "number") throw new Error("Invalid cols");
+    if (typeof rows !== "number") throw new Error("Invalid rows");
+    if (!nvimSession) return;
+    await nvimSession.client.uiTryResize(cols, rows);
+  });
 
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
   ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
@@ -2013,16 +1827,9 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(CONTEXT_MENU_CHANNEL);
   ipcMain.handle(
     CONTEXT_MENU_CHANNEL,
-    async (
-      _event,
-      items: ContextMenuItem[],
-      position?: { x: number; y: number },
-    ) => {
+    async (_event, items: ContextMenuItem[], position?: { x: number; y: number }) => {
       const normalizedItems = items
-        .filter(
-          (item) =>
-            typeof item.id === "string" && typeof item.label === "string",
-        )
+        .filter((item) => typeof item.id === "string" && typeof item.label === "string")
         .map((item) => ({
           id: item.id,
           label: item.label,
@@ -2052,11 +1859,7 @@ function registerIpcHandlers(): void {
         const template: MenuItemConstructorOptions[] = [];
         let hasInsertedDestructiveSeparator = false;
         for (const item of normalizedItems) {
-          if (
-            item.destructive &&
-            !hasInsertedDestructiveSeparator &&
-            template.length > 0
-          ) {
+          if (item.destructive && !hasInsertedDestructiveSeparator && template.length > 0) {
             template.push({ type: "separator" });
             hasInsertedDestructiveSeparator = true;
           }
@@ -2321,9 +2124,7 @@ configureAppIdentity();
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
-  const configuredBackendPort = resolveConfiguredDesktopBackendPort(
-    process.env.FENRIR_PORT,
-  );
+  const configuredBackendPort = resolveConfiguredDesktopBackendPort(process.env.FENRIR_PORT);
   if (isDevelopment && configuredBackendPort === undefined) {
     throw new Error("FENRIR_PORT is required in desktop development.");
   }
@@ -2340,10 +2141,7 @@ async function bootstrap(): Promise<void> {
       : `using configured backend port port=${backendPort}`,
   );
   backendBootstrapToken = Crypto.randomBytes(24).toString("hex");
-  if (
-    desktopSettings.serverExposureMode !==
-    DEFAULT_DESKTOP_SETTINGS.serverExposureMode
-  ) {
+  if (desktopSettings.serverExposureMode !== DEFAULT_DESKTOP_SETTINGS.serverExposureMode) {
     writeDesktopLogHeader(
       `bootstrap restoring persisted server exposure mode mode=${desktopSettings.serverExposureMode}`,
     );
@@ -2351,14 +2149,10 @@ async function bootstrap(): Promise<void> {
   const serverExposureState = await applyDesktopServerExposureMode(
     desktopSettings.serverExposureMode,
     {
-      persist:
-        desktopSettings.serverExposureMode !==
-        DEFAULT_DESKTOP_SETTINGS.serverExposureMode,
+      persist: desktopSettings.serverExposureMode !== DEFAULT_DESKTOP_SETTINGS.serverExposureMode,
     },
   );
-  writeDesktopLogHeader(
-    `bootstrap resolved backend endpoint baseUrl=${backendHttpUrl}`,
-  );
+  writeDesktopLogHeader(`bootstrap resolved backend endpoint baseUrl=${backendHttpUrl}`);
   if (serverExposureState.endpointUrl) {
     writeDesktopLogHeader(
       `bootstrap enabled network access endpointUrl=${serverExposureState.endpointUrl}`,
@@ -2388,10 +2182,7 @@ async function bootstrap(): Promise<void> {
         writeDesktopLogHeader(
           `bootstrap backend readiness warning message=${formatErrorMessage(error)}`,
         );
-        console.warn(
-          "[desktop] backend readiness check timed out during dev bootstrap",
-          error,
-        );
+        console.warn("[desktop] backend readiness check timed out during dev bootstrap", error);
       });
     return;
   }

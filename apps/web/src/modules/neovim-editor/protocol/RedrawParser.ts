@@ -6,6 +6,31 @@ export interface GridLineCell {
   repeat: number;
 }
 
+// ── Grid state ──
+
+export interface GridState {
+  // Cell data
+  cells: string[][]; // [row][col] = character text (empty string = continuation of wide char)
+  hlIds: number[][]; // [row][col] = highlight attribute ID
+
+  // Dimensions
+  width: number;
+  height: number;
+
+  // Canvas position (set by win_pos / win_float_pos / msg_set_pos)
+  startRow: number;
+  startCol: number;
+
+  // Compositor ordering
+  isFloat: boolean;
+  zindex: number;
+  compindex: number; // render order for floating windows
+  hidden: boolean;
+
+  // Cursor ownership
+  hasCursor: boolean;
+}
+
 // ── Grid events ──
 
 export interface GridLineEvent {
@@ -148,8 +173,17 @@ export interface WinFloatPosEvent {
   anchorGrid: number;
   anchorRow: number;
   anchorCol: number;
-  focusable: boolean;
+  mouseEnabled: boolean;
   zindex: number;
+  compindex: number;
+  screenRow: number;
+  screenCol: number;
+}
+
+export interface WinExternalPosEvent {
+  type: "win_external_pos";
+  grid: number;
+  win: number;
 }
 
 export interface WinHideEvent {
@@ -180,6 +214,8 @@ export interface MsgSetPosEvent {
   row: number;
   scrolled: boolean;
   sepChar: string;
+  zindex: number;
+  compindex: number;
 }
 
 // ── Misc ──
@@ -225,6 +261,7 @@ export type RedrawEvent =
   | OptionSetEvent
   | WinPosEvent
   | WinFloatPosEvent
+  | WinExternalPosEvent
   | WinHideEvent
   | WinCloseEvent
   | WinViewportEvent
@@ -266,7 +303,12 @@ export function parseRedrawBatch(rawEvents: unknown[]): RedrawEvent[] {
 function parseOne(type: string, a: unknown[]): RedrawEvent | null {
   switch (type) {
     case "grid_resize":
-      return { type: "grid_resize", grid: a[0] as number, width: a[1] as number, height: a[2] as number };
+      return {
+        type: "grid_resize",
+        grid: a[0] as number,
+        width: a[1] as number,
+        height: a[2] as number,
+      };
 
     case "grid_line": {
       const rawCells = (a[3] ?? []) as unknown[][];
@@ -278,7 +320,14 @@ function parseOne(type: string, a: unknown[]): RedrawEvent | null {
         lastHlId = hlId;
         cells.push({ text: c[0] as string, hlId, repeat: (c[2] as number | undefined) ?? 1 });
       }
-      return { type: "grid_line", grid: a[0] as number, row: a[1] as number, colStart: a[2] as number, cells, wrap: (a[4] as boolean | undefined) ?? false };
+      return {
+        type: "grid_line",
+        grid: a[0] as number,
+        row: a[1] as number,
+        colStart: a[2] as number,
+        cells,
+        wrap: (a[4] as boolean | undefined) ?? false,
+      };
     }
 
     case "grid_clear":
@@ -288,16 +337,43 @@ function parseOne(type: string, a: unknown[]): RedrawEvent | null {
       return { type: "grid_destroy", grid: a[0] as number };
 
     case "grid_cursor_goto":
-      return { type: "grid_cursor_goto", grid: a[0] as number, row: a[1] as number, col: a[2] as number };
+      return {
+        type: "grid_cursor_goto",
+        grid: a[0] as number,
+        row: a[1] as number,
+        col: a[2] as number,
+      };
 
     case "grid_scroll":
-      return { type: "grid_scroll", grid: a[0] as number, top: a[1] as number, bot: a[2] as number, left: a[3] as number, right: a[4] as number, rows: a[5] as number, cols: (a[6] as number | undefined) ?? 0 };
+      return {
+        type: "grid_scroll",
+        grid: a[0] as number,
+        top: a[1] as number,
+        bot: a[2] as number,
+        left: a[3] as number,
+        right: a[4] as number,
+        rows: a[5] as number,
+        cols: (a[6] as number | undefined) ?? 0,
+      };
 
     case "hl_attr_define":
-      return { type: "hl_attr_define", id: a[0] as number, rgbAttr: (a[1] ?? {}) as HlAttr, ctermAttr: (a[2] ?? {}) as Record<string, unknown>, info: (a[3] ?? []) as unknown[] };
+      return {
+        type: "hl_attr_define",
+        id: a[0] as number,
+        rgbAttr: (a[1] ?? {}) as HlAttr,
+        ctermAttr: (a[2] ?? {}) as Record<string, unknown>,
+        info: (a[3] ?? []) as unknown[],
+      };
 
     case "default_colors_set":
-      return { type: "default_colors_set", rgbFg: a[0] as number, rgbBg: a[1] as number, rgbSp: a[2] as number, ctermFg: a[3] as number, ctermBg: a[4] as number };
+      return {
+        type: "default_colors_set",
+        rgbFg: a[0] as number,
+        rgbBg: a[1] as number,
+        rgbSp: a[2] as number,
+        ctermFg: a[3] as number,
+        ctermBg: a[4] as number,
+      };
 
     case "mode_info_set": {
       const rawModes = (a[1] ?? []) as Record<string, unknown>[];
@@ -347,10 +423,38 @@ function parseOne(type: string, a: unknown[]): RedrawEvent | null {
       return { type: "chdir", path: a[0] as string };
 
     case "win_pos":
-      return { type: "win_pos", grid: a[0] as number, win: a[1] as number, startRow: a[2] as number, startCol: a[3] as number, width: a[4] as number, height: a[5] as number };
+      return {
+        type: "win_pos",
+        grid: a[0] as number,
+        win: a[1] as number,
+        startRow: a[2] as number,
+        startCol: a[3] as number,
+        width: a[4] as number,
+        height: a[5] as number,
+      };
 
     case "win_float_pos":
-      return { type: "win_float_pos", grid: a[0] as number, win: a[1] as number, anchor: a[2] as string, anchorGrid: a[3] as number, anchorRow: a[4] as number, anchorCol: a[5] as number, focusable: a[6] as boolean, zindex: a[7] as number };
+      return {
+        type: "win_float_pos",
+        grid: a[0] as number,
+        win: a[1] as number,
+        anchor: a[2] as string,
+        anchorGrid: a[3] as number,
+        anchorRow: a[4] as number,
+        anchorCol: a[5] as number,
+        mouseEnabled: a[6] as boolean,
+        zindex: a[7] as number,
+        compindex: a[8] as number,
+        screenRow: a[9] as number,
+        screenCol: a[10] as number,
+      };
+
+    case "win_external_pos":
+      return {
+        type: "win_external_pos",
+        grid: a[0] as number,
+        win: a[1] as number,
+      };
 
     case "win_hide":
       return { type: "win_hide", grid: a[0] as number };
@@ -359,10 +463,28 @@ function parseOne(type: string, a: unknown[]): RedrawEvent | null {
       return { type: "win_close", grid: a[0] as number };
 
     case "win_viewport":
-      return { type: "win_viewport", grid: a[0] as number, win: a[1] as number, topline: a[2] as number, botline: a[3] as number, curline: a[4] as number, curcol: a[5] as number, lineCount: a[6] as number, scrollDelta: a[7] as number };
+      return {
+        type: "win_viewport",
+        grid: a[0] as number,
+        win: a[1] as number,
+        topline: a[2] as number,
+        botline: a[3] as number,
+        curline: a[4] as number,
+        curcol: a[5] as number,
+        lineCount: a[6] as number,
+        scrollDelta: a[7] as number,
+      };
 
     case "msg_set_pos":
-      return { type: "msg_set_pos", grid: a[0] as number, row: a[1] as number, scrolled: a[2] as boolean, sepChar: a[3] as string };
+      return {
+        type: "msg_set_pos",
+        grid: a[0] as number,
+        row: a[1] as number,
+        scrolled: a[2] as boolean,
+        sepChar: a[3] as string,
+        zindex: a[4] as number,
+        compindex: a[5] as number,
+      };
 
     default:
       return null;

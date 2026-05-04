@@ -131,17 +131,17 @@ prepare to handle any UI event. A more featureful UI, which might need
 additional configuration of the Nvim process, should use the following startup
 procedure:
 
-1. Invoke |nvim_get_api_info()|, if needed to setup the client library and/or
+1.  Invoke |nvim_get_api_info()|, if needed to setup the client library and/or
     to get the list of supported UI extensions.
-2. Do any configuration that should be happen before user config is loaded.
+2.  Do any configuration that should be happen before user config is loaded.
     Buffers and windows are not available at this point, but this could be used
     to set |g:| variables visible to init.vim
-3. If the UI wants to do additional setup after user config is loaded,
+3.  If the UI wants to do additional setup after user config is loaded,
     register a VimEnter autocmd: >lua
     nvim_command("autocmd VimEnter \* call rpcrequest(1, 'vimenter')")
-4. Now invoke |nvim_ui_attach()|. The UI must handle user input by now:
+4.  Now invoke |nvim_ui_attach()|. The UI must handle user input by now:
     sourcing init.vim and loading buffers might lead to blocking prompts.
-5. If step 3 was used, Nvim will send a blocking "vimenter" request to the UI.
+5.  If step 3 was used, Nvim will send a blocking "vimenter" request to the UI.
     Inside this request handler, the UI can safely do any initialization before
     entering normal mode, for example reading variables set by init.vim.
 
@@ -149,11 +149,11 @@ procedure:
 
     UIs can support reading from stdin (like `command | nvim -`, see |--|) as follows:
 
-6. The embedding process detects that the stdin fd is not a terminal.
-7. It then needs to forward this fd to Nvim. Because fd=0 is already is used
+6.  The embedding process detects that the stdin fd is not a terminal.
+7.  It then needs to forward this fd to Nvim. Because fd=0 is already is used
     to send RPC data from embedder to Nvim, it must use some other file
     descriptor, like fd=3 or higher.
-8. Then pass the fd as the `stdin_fd` parameter of `nvim_ui_attach`. Nvim will
+8.  Then pass the fd as the `stdin_fd` parameter of `nvim_ui_attach`. Nvim will
     read it as text into buffer 1.
 
 ==============================================================================
@@ -1210,7 +1210,9 @@ clicked on.
 Double-click on a word selects that word. 'iskeyword' is used to specify
 which characters are included in a word. Double-click on a character that has
 a match selects until that match (like using "v%"). If the match is an
+
 # if/#else/#endif block, the selection becomes linewise. The time for
+
 double-clicking can be set with the 'mousetime' option.
 
 Example: configure double-click to jump to the tag under the cursor: >vim

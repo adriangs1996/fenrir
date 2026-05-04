@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { parseRedrawBatch } from "../protocol/RedrawParser";
-import type { HlAttr, ModeInfo } from "../protocol/RedrawParser";
+import type { GridState, HlAttr, ModeInfo } from "../protocol/RedrawParser";
 import { useNeovimStore } from "../stores/neovimStore";
 
 const CELL_W = 10;
@@ -23,9 +23,39 @@ function getDesktopBridge() {
     | undefined;
 }
 
-function numToColor(n: number): string | null {
-  if (n === -1) return null;
-  return `#${n.toString(16).padStart(6, "0")}`;
+function colorToHex(c: string | number): string {
+  if (typeof c === "string") return c;
+  if (c < 0) return "#000000";
+  return `#${c.toString(16).padStart(6, "0")}`;
+}
+
+function getColor(value: number | undefined | null, defaultColor: string): string {
+  if (value === undefined || value === null || value === -1) return defaultColor;
+  return `#${value.toString(16).padStart(6, "0")}`;
+}
+
+function dimColor(hex: string): string {
+  if (!hex.startsWith("#") || hex.length !== 7) return hex;
+  const r = Math.round(parseInt(hex.slice(1, 3), 16) * 0.5);
+  const g = Math.round(parseInt(hex.slice(3, 5), 16) * 0.5);
+  const b = Math.round(parseInt(hex.slice(5, 7), 16) * 0.5);
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+}
+
+function makeGrid(width: number, height: number): GridState {
+  return {
+    cells: Array.from({ length: height }, () => Array(width).fill(" ")),
+    hlIds: Array.from({ length: height }, () => Array(width).fill(0)),
+    width,
+    height,
+    startRow: 0,
+    startCol: 0,
+    isFloat: false,
+    zindex: 0,
+    compindex: 0,
+    hidden: false,
+    hasCursor: false,
+  };
 }
 
 export function useNeovim(
@@ -36,8 +66,7 @@ export function useNeovim(
 ): NeovimHandle | null {
   const [handle, setHandle] = useState<NeovimHandle | null>(null);
 
-  const gridRef = useRef<string[][]>([]);
-  const cellHlRef = useRef<number[][]>([]);
+  const gridsRef = useRef<GridState[]>([]);
   const hlRef = useRef<Map<number, HlAttr>>(new Map());
   const cursorRef = useRef({ row: 0, col: 0 });
   const modeInfoRef = useRef<ModeInfo[]>([]);
@@ -55,180 +84,210 @@ export function useNeovim(
   const dimsReady = cols > 0 && rows > 0;
 
   const setGridSize = useNeovimStore((s) => s.setGridSize);
-  const moveCursor = useNeovimStore((s) => s.moveCursor);
+  // moveCursor removed — cursor position lives in cursorRef only
 
-  function resizeGrid(r: number, c: number) {
-    rowsRef.current = r;
-    colsRef.current = c;
-    gridRef.current = Array.from({ length: r }, (_, row) => {
-      const existing = gridRef.current[row];
-      return Array.from({ length: c }, (_, col) => existing?.[col] ?? " ");
-    });
-    cellHlRef.current = Array.from({ length: r }, (_, row) => {
-      const existing = cellHlRef.current[row];
-      return Array.from({ length: c }, (_, col) => existing?.[col] ?? 0);
-    });
-    setGridSize(r, c);
+  function drawCursor(
+    ctx: CanvasRenderingContext2D,
+    grid: GridState,
+    cellWidth: number,
+    cellHeight: number,
+    offsetX: number,
+    offsetY: number,
+  ) {
+    const { row, col } = cursorRef.current;
+    const modeInfo = modeInfoRef.current[activeModeIdxRef.current];
+    if (!modeInfo) return;
+
+    const x = offsetX + col * cellWidth;
+    const y = offsetY + row * cellHeight;
+    const pct = (modeInfo.cellPercentage ?? 100) / 100;
+
+    ctx.fillStyle = colorToHex(fgRef.current);
+
+    switch (modeInfo.cursorShape) {
+      case "block":
+        ctx.fillRect(x, y, cellWidth, cellHeight);
+        // Re-draw char in background color so it's visible on cursor block.
+        ctx.font = `${cellHeight - 2}px monospace`;
+        ctx.fillStyle = colorToHex(bgRef.current);
+        ctx.fillText(grid.cells[row]?.[col] ?? " ", x, y + cellHeight - 4);
+        break;
+      case "horizontal":
+        ctx.fillRect(x, y + cellHeight * (1 - pct), cellWidth, cellHeight * pct);
+        break;
+      case "vertical":
+        ctx.fillRect(x, y, Math.max(1, cellWidth * pct), cellHeight);
+        break;
+    }
   }
 
-  function clearGrid() {
-    gridRef.current = Array.from({ length: rowsRef.current }, () =>
-      Array.from({ length: colsRef.current }, () => " "),
-    );
-    cellHlRef.current = Array.from({ length: rowsRef.current }, () =>
-      Array.from({ length: colsRef.current }, () => 0),
-    );
-  }
+  function drawGrid(
+    ctx: CanvasRenderingContext2D,
+    grid: GridState,
+    cellWidth: number,
+    cellHeight: number,
+  ) {
+    const offsetX = grid.startCol * cellWidth;
+    const offsetY = grid.startRow * cellHeight;
+    const defaultBgHex = colorToHex(bgRef.current);
 
-  function resolveHL(hlId: number): {
-    fg: string;
-    bg: string;
-    bold: boolean;
-    italic: boolean;
-    underline: boolean;
-    undercurl: boolean;
-    strikethrough: boolean;
-    dim: boolean;
-    special: string | null;
-  } {
-    const defaultFg = fgRef.current;
-    const defaultBg = bgRef.current;
+    for (let row = 0; row < grid.height; row++) {
+      const rowBuf = grid.cells[row];
+      const hlRow = grid.hlIds[row];
+      if (!rowBuf || !hlRow) continue;
 
-    const attr = hlRef.current.get(hlId);
-    if (!attr) {
-      return { fg: defaultFg, bg: defaultBg, bold: false, italic: false, underline: false, undercurl: false, strikethrough: false, dim: false, special: null };
+      let runStart = 0;
+      let runHlId = hlRow[0] ?? 0;
+
+      const flushRun = (runEnd: number) => {
+        const attr = hlRef.current.get(runHlId) ?? {};
+        const fg = attr.reverse
+          ? getColor(attr.background, bgRef.current)
+          : getColor(attr.foreground, fgRef.current);
+        const bg = attr.reverse
+          ? getColor(attr.foreground, fgRef.current)
+          : getColor(attr.background, bgRef.current);
+        const text = rowBuf.slice(runStart, runEnd).join("");
+        const x = offsetX + runStart * cellWidth;
+        const y = offsetY + row * cellHeight;
+        const runWidth = (runEnd - runStart) * cellWidth;
+
+        // Background
+        if (bg !== defaultBgHex) {
+          ctx.fillStyle = bg;
+          ctx.fillRect(x, y, runWidth, cellHeight);
+        }
+
+        // Font style
+        const fontStyle = [attr.bold ? "bold" : "", attr.italic ? "italic" : ""]
+          .filter(Boolean)
+          .join(" ");
+        ctx.font = `${fontStyle} ${cellHeight - 2}px monospace`.trim();
+        ctx.fillStyle = attr.dim ? dimColor(fg) : fg;
+
+        // Text (skip if conceal attr set)
+        const concealed = (attr as { conceal?: boolean }).conceal === true;
+        if (!concealed) {
+          ctx.fillText(text, x, y + cellHeight - 4);
+        }
+
+        // Decorations
+        const specialColor = getColor(attr.special, fg);
+        const baseY = y + cellHeight - 2;
+
+        if (attr.underline) {
+          ctx.strokeStyle = specialColor;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(x, baseY);
+          ctx.lineTo(x + runWidth, baseY);
+          ctx.stroke();
+        }
+
+        if (attr.undercurl) {
+          ctx.strokeStyle = specialColor;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          for (let wx = 0; wx < runWidth; wx += 4) {
+            const wy = wx % 8 < 4 ? baseY - 1 : baseY + 1;
+            if (wx === 0) ctx.moveTo(x + wx, wy);
+            else ctx.lineTo(x + wx, wy);
+          }
+          ctx.stroke();
+        }
+
+        if (attr.strikethrough) {
+          ctx.strokeStyle = fg;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(x, y + cellHeight / 2);
+          ctx.lineTo(x + runWidth, y + cellHeight / 2);
+          ctx.stroke();
+        }
+
+        if (attr.underdouble) {
+          ctx.strokeStyle = specialColor;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([]);
+          // Top line
+          ctx.beginPath();
+          ctx.moveTo(x, baseY - 2);
+          ctx.lineTo(x + runWidth, baseY - 2);
+          ctx.stroke();
+          // Bottom line
+          ctx.beginPath();
+          ctx.moveTo(x, baseY);
+          ctx.lineTo(x + runWidth, baseY);
+          ctx.stroke();
+        }
+
+        if (attr.underdotted) {
+          ctx.strokeStyle = specialColor;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([1, 2]);
+          ctx.beginPath();
+          ctx.moveTo(x, baseY);
+          ctx.lineTo(x + runWidth, baseY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        if (attr.underdashed) {
+          ctx.strokeStyle = specialColor;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x, baseY);
+          ctx.lineTo(x + runWidth, baseY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      };
+
+      // Iterate cols 1..width inclusive; sentinel hlId = -1 at width forces final flush.
+      for (let col = 1; col <= grid.width; col++) {
+        const hlId = col < grid.width ? (hlRow[col] ?? 0) : -1;
+        if (hlId !== runHlId) {
+          flushRun(col);
+          runStart = col;
+          runHlId = hlId;
+        }
+      }
     }
 
-    let fg = numToColor(attr.foreground ?? -1) ?? defaultFg;
-    let bg = numToColor(attr.background ?? -1) ?? defaultBg;
-    const special = numToColor(attr.special ?? -1);
-
-    if (attr.reverse) [fg, bg] = [bg, fg];
-
-    return {
-      fg,
-      bg,
-      bold: attr.bold ?? false,
-      italic: attr.italic ?? false,
-      underline: attr.underline ?? false,
-      undercurl: attr.undercurl ?? false,
-      strikethrough: attr.strikethrough ?? false,
-      dim: attr.dim ?? false,
-      special,
-    };
+    if (grid.hasCursor) {
+      drawCursor(ctx, grid, cellWidth, cellHeight, offsetX, offsetY);
+    }
   }
 
   function drawFrame() {
     rafRef.current = null;
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const ctx = canvas?.getContext("2d");
+    if (!ctx || !canvas) return;
 
-    const defaultBg = bgRef.current;
-    const defaultFg = fgRef.current;
+    const cellWidth = CELL_W;
+    const cellHeight = CELL_H;
 
-    ctx.fillStyle = defaultBg;
+    // 1. Background fill
+    ctx.fillStyle = colorToHex(bgRef.current);
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const r = rowsRef.current;
-    const c = colsRef.current;
-    const grid = gridRef.current;
-    const cellHl = cellHlRef.current;
+    // 2. Partition grids
+    const allGrids = gridsRef.current.filter((g): g is GridState => !!g && !g.hidden);
+    const normalGrids = allGrids
+      .filter((g) => !g.isFloat)
+      .toSorted((a, b) => a.compindex - b.compindex);
+    const floatGrids = allGrids
+      .filter((g) => g.isFloat)
+      .toSorted((a, b) => a.compindex - b.compindex);
 
-    for (let row = 0; row < r; row++) {
-      const rowBuf = grid[row];
-      const hlRow = cellHl[row];
-      if (!rowBuf || !hlRow) continue;
-
-      let runStart = 0;
-      let runHl = hlRow[0] ?? 0;
-
-      const flushRun = (end: number) => {
-        const hl = resolveHL(runHl);
-
-        if (hl.bg !== defaultBg) {
-          ctx.fillStyle = hl.bg;
-          ctx.fillRect(runStart * CELL_W, row * CELL_H, (end - runStart) * CELL_W, CELL_H);
-        }
-
-        let fontStr = "14px monospace";
-        if (hl.bold && hl.italic) fontStr = "bold italic 14px monospace";
-        else if (hl.bold) fontStr = "bold 14px monospace";
-        else if (hl.italic) fontStr = "italic 14px monospace";
-        ctx.font = fontStr;
-
-        const text = rowBuf.slice(runStart, end).join("");
-        if (hl.dim) ctx.globalAlpha = 0.5;
-        ctx.fillStyle = hl.fg;
-        ctx.fillText(text, runStart * CELL_W, row * CELL_H + CELL_H - 3);
-        if (hl.dim) ctx.globalAlpha = 1.0;
-
-        if (hl.underline) {
-          const lineY = row * CELL_H + CELL_H - 2;
-          ctx.strokeStyle = hl.special ?? hl.fg;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(runStart * CELL_W, lineY);
-          ctx.lineTo(end * CELL_W, lineY);
-          ctx.stroke();
-        }
-
-        if (hl.undercurl && !hl.underline) {
-          const lineY = row * CELL_H + CELL_H - 2;
-          ctx.strokeStyle = hl.special ?? hl.fg;
-          ctx.lineWidth = 1;
-          ctx.setLineDash([2, 2]);
-          ctx.beginPath();
-          ctx.moveTo(runStart * CELL_W, lineY);
-          ctx.lineTo(end * CELL_W, lineY);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
-
-        if (hl.strikethrough) {
-          const midY = row * CELL_H + CELL_H / 2;
-          ctx.strokeStyle = hl.fg;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(runStart * CELL_W, midY);
-          ctx.lineTo(end * CELL_W, midY);
-          ctx.stroke();
-        }
-      };
-
-      for (let col = 1; col < c; col++) {
-        const hl = hlRow[col] ?? 0;
-        if (hl !== runHl) {
-          flushRun(col);
-          runStart = col;
-          runHl = hl;
-        }
-      }
-      flushRun(c);
-    }
-
-    // Reset font to default after row rendering before cursor
-    ctx.font = "14px monospace";
-    ctx.fillStyle = defaultFg;
-
-    // Cursor — shape driven by active mode
-    const { row: cr, col: cc } = cursorRef.current;
-    const modeInfo = modeInfoRef.current[activeModeIdxRef.current];
-    const shape = modeInfo?.cursorShape ?? "block";
-    const pct = (modeInfo?.cellPercentage ?? 100) / 100;
-
-    ctx.fillStyle = "rgba(255,255,255,0.7)";
-    switch (shape) {
-      case "block":
-        ctx.fillRect(cc * CELL_W, cr * CELL_H, CELL_W, CELL_H);
-        break;
-      case "horizontal":
-        ctx.fillRect(cc * CELL_W, cr * CELL_H + CELL_H * (1 - pct), CELL_W, CELL_H * pct);
-        break;
-      case "vertical":
-        ctx.fillRect(cc * CELL_W, cr * CELL_H, Math.max(1, CELL_W * pct), CELL_H);
-        break;
+    // 3. Paint in order: non-floats (incl. msg grid by zindex/compindex) → floats
+    for (const grid of [...normalGrids, ...floatGrids]) {
+      drawGrid(ctx, grid, cellWidth, cellHeight);
     }
   }
 
@@ -248,6 +307,12 @@ export function useNeovim(
 
     let cancelled = false;
 
+    // Grid 1 is the global background grid, always present.
+    // Its startRow/startCol are always 0 and compindex is 0 (rendered behind everything).
+    rowsRef.current = dims.rows;
+    colsRef.current = dims.cols;
+    gridsRef.current[1] = makeGrid(dims.cols, dims.rows);
+
     const h: NeovimHandle = {
       input: (keys) => bridge.neovimInput(keys),
       uiTryResize: (c, r) => bridge.neovimResize(c, r),
@@ -266,22 +331,59 @@ export function useNeovim(
           case "default_colors_set":
             // -1 means "unset, use terminal default" (ext_termcolors mode);
             // 0 is valid (pure black), so check !== -1, not > 0.
-            if (event.rgbFg !== -1) fgRef.current = `#${event.rgbFg.toString(16).padStart(6, "0")}`;
-            if (event.rgbBg !== -1) bgRef.current = `#${event.rgbBg.toString(16).padStart(6, "0")}`;
+            if (event.rgbFg !== -1) fgRef.current = colorToHex(event.rgbFg);
+            if (event.rgbBg !== -1) bgRef.current = colorToHex(event.rgbBg);
             break;
 
-          case "grid_resize":
-            resizeGrid(event.height, event.width);
+          case "grid_resize": {
+            const { grid, width, height } = event;
+            const existing = gridsRef.current[grid];
+            if (existing) {
+              existing.width = width;
+              existing.height = height;
+              while (existing.cells.length < height) {
+                existing.cells.push(Array(width).fill(" "));
+                existing.hlIds.push(Array(width).fill(0));
+              }
+              existing.cells.length = height;
+              existing.hlIds.length = height;
+              for (let r = 0; r < height; r++) {
+                const cellRow = existing.cells[r];
+                const hlRow = existing.hlIds[r];
+                if (!cellRow || !hlRow) {
+                  existing.cells[r] = Array(width).fill(" ");
+                  existing.hlIds[r] = Array(width).fill(0);
+                } else {
+                  const oldLen = cellRow.length;
+                  cellRow.length = width;
+                  hlRow.length = width;
+                  if (width > oldLen) {
+                    cellRow.fill(" ", oldLen, width);
+                    hlRow.fill(0, oldLen, width);
+                  }
+                }
+              }
+            } else {
+              gridsRef.current[grid] = makeGrid(width, height);
+            }
+            if (grid === 1) {
+              rowsRef.current = height;
+              colsRef.current = width;
+              setGridSize(height, width);
+            }
             break;
+          }
 
           case "grid_line": {
-            const rowBuf = gridRef.current[event.row];
-            const hlRow = cellHlRef.current[event.row];
+            const g = gridsRef.current[event.grid];
+            if (!g) break;
+            const rowBuf = g.cells[event.row];
+            const hlRow = g.hlIds[event.row];
             if (!rowBuf || !hlRow) break;
             let col = event.colStart;
             for (const cell of event.cells) {
               for (let rep = 0; rep < cell.repeat; rep++) {
-                if (col < rowBuf.length) {
+                if (col < g.width) {
                   rowBuf[col] = cell.text;
                   hlRow[col] = cell.hlId;
                 }
@@ -292,53 +394,78 @@ export function useNeovim(
           }
 
           case "grid_scroll": {
-            const { top, bot, left, right, rows } = event;
-            const g = gridRef.current;
-            const hl = cellHlRef.current;
+            const { grid, top, bot, left, right, rows } = event;
+            const g = gridsRef.current[grid];
+            if (!g) break;
             if (rows > 0) {
-              for (let row = top; row < bot - rows; row++) {
-                for (let col = left; col < right; col++) {
-                  if (g[row] && g[row + rows]) {
-                    g[row]![col] = g[row + rows]![col] ?? " ";
-                    hl[row]![col] = hl[row + rows]?.[col] ?? 0;
-                  }
+              for (let r = top; r < bot - rows; r++) {
+                const dst = g.cells[r];
+                const dstHl = g.hlIds[r];
+                const src = g.cells[r + rows];
+                const srcHl = g.hlIds[r + rows];
+                if (!dst || !dstHl || !src || !srcHl) continue;
+                for (let c = left; c < right; c++) {
+                  dst[c] = src[c] ?? " ";
+                  dstHl[c] = srcHl[c] ?? 0;
                 }
               }
-              for (let row = bot - rows; row < bot; row++) {
-                for (let col = left; col < right; col++) {
-                  if (g[row]) { g[row]![col] = " "; hl[row]![col] = 0; }
+              for (let r = bot - rows; r < bot; r++) {
+                const dst = g.cells[r];
+                const dstHl = g.hlIds[r];
+                if (!dst || !dstHl) continue;
+                for (let c = left; c < right; c++) {
+                  dst[c] = " ";
+                  dstHl[c] = 0;
                 }
               }
             } else if (rows < 0) {
               const abs = -rows;
-              for (let row = bot - 1; row >= top + abs; row--) {
-                for (let col = left; col < right; col++) {
-                  if (g[row] && g[row - abs]) {
-                    g[row]![col] = g[row - abs]![col] ?? " ";
-                    hl[row]![col] = hl[row - abs]?.[col] ?? 0;
-                  }
+              for (let r = bot - 1; r >= top + abs; r--) {
+                const dst = g.cells[r];
+                const dstHl = g.hlIds[r];
+                const src = g.cells[r - abs];
+                const srcHl = g.hlIds[r - abs];
+                if (!dst || !dstHl || !src || !srcHl) continue;
+                for (let c = left; c < right; c++) {
+                  dst[c] = src[c] ?? " ";
+                  dstHl[c] = srcHl[c] ?? 0;
                 }
               }
-              for (let row = top; row < top + abs; row++) {
-                for (let col = left; col < right; col++) {
-                  if (g[row]) { g[row]![col] = " "; hl[row]![col] = 0; }
+              for (let r = top; r < top + abs; r++) {
+                const dst = g.cells[r];
+                const dstHl = g.hlIds[r];
+                if (!dst || !dstHl) continue;
+                for (let c = left; c < right; c++) {
+                  dst[c] = " ";
+                  dstHl[c] = 0;
                 }
               }
             }
             break;
           }
 
-          case "grid_cursor_goto":
+          case "grid_cursor_goto": {
+            for (const g of gridsRef.current) {
+              if (g) g.hasCursor = false;
+            }
+            const g = gridsRef.current[event.grid];
+            if (g) g.hasCursor = true;
             cursorRef.current = { row: event.row, col: event.col };
-            moveCursor(event.row, event.col);
             break;
+          }
 
-          case "grid_clear":
-            clearGrid();
+          case "grid_clear": {
+            const g = gridsRef.current[event.grid];
+            if (!g) break;
+            for (let r = 0; r < g.height; r++) {
+              g.cells[r]?.fill(" ");
+              g.hlIds[r]?.fill(0);
+            }
             break;
+          }
 
           case "grid_destroy":
-            if (event.grid === 1) clearGrid();
+            gridsRef.current[event.grid] = undefined as unknown as GridState;
             break;
 
           case "mode_info_set":
@@ -353,15 +480,77 @@ export function useNeovim(
             scheduleFrame();
             break;
 
-          // Phase 4: set_title, busy_start/stop, bell, chdir → store updates
-          // Phase 5: win_pos, win_float_pos, win_hide, win_close → multigrid compositor
+          case "set_title": {
+            const t = event.title;
+            document.title = t ? `${t} — Neovim` : "Neovim";
+            break;
+          }
+
+          case "win_pos": {
+            const g = gridsRef.current[event.grid];
+            if (!g) break;
+            g.startRow = event.startRow;
+            g.startCol = event.startCol;
+            g.width = event.width;
+            g.height = event.height;
+            g.isFloat = false;
+            g.hidden = false;
+            // win_pos has no compindex; non-float windows don't overlap, so
+            // grid id gives a stable ordering.
+            g.compindex = event.grid;
+            g.zindex = 0;
+            break;
+          }
+
+          case "win_float_pos": {
+            const g = gridsRef.current[event.grid];
+            if (!g) break;
+            g.startRow = event.screenRow;
+            g.startCol = event.screenCol;
+            g.isFloat = true;
+            g.zindex = event.zindex;
+            g.compindex = event.compindex;
+            g.hidden = false;
+            break;
+          }
+
+          case "win_external_pos": {
+            const g = gridsRef.current[event.grid];
+            if (g) g.hidden = true;
+            break;
+          }
+
+          case "win_hide": {
+            const g = gridsRef.current[event.grid];
+            if (g) g.hidden = true;
+            break;
+          }
+
+          case "win_close": {
+            gridsRef.current[event.grid] = undefined as unknown as GridState;
+            break;
+          }
+
+          case "msg_set_pos": {
+            const g = gridsRef.current[event.grid];
+            if (!g) break;
+            g.startRow = event.row;
+            g.startCol = 0;
+            g.isFloat = false;
+            g.zindex = event.zindex;
+            g.compindex = event.compindex;
+            g.hidden = false;
+            break;
+          }
+
+          // Phase 4: busy_start/stop, bell, chdir → store updates
         }
       }
     });
 
-    bridge.neovimAttach(cwd, dims.cols, dims.rows).catch((e: unknown) =>
-      console.error("[neovim] attach failed:", e),
-    );
+    bridge
+      .neovimAttach(cwd, dims.cols, dims.rows)
+      .catch((e: unknown) => console.error("[neovim] attach failed:", e));
 
     return () => {
       cancelled = true;
@@ -371,6 +560,7 @@ export function useNeovim(
       }
       unsubRedraw();
       setHandle(null);
+      document.title = "Fenrir";
       bridge.neovimDetach().catch(console.error);
     };
     // Resize is handled by useResize → uiTryResize, not by re-attaching.

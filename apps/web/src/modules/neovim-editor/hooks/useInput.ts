@@ -7,26 +7,58 @@ export function useInput(nvim: any) {
 
     // Named keys
     switch (e.key) {
-      case "Escape":       return "<Esc>";
-      case "Enter":        return "<CR>";
-      case "Backspace":    return "<BS>";
-      case "Delete":       return "<Del>";
-      case "Tab":          return shift ? "<S-Tab>" : "<Tab>";
-      case "ArrowUp":      return ctrl ? "<C-Up>"    : "<Up>";
-      case "ArrowDown":    return ctrl ? "<C-Down>"  : "<Down>";
-      case "ArrowLeft":    return ctrl ? "<C-Left>"  : "<Left>";
-      case "ArrowRight":   return ctrl ? "<C-Right>" : "<Right>";
-      case "Home":         return "<Home>";
-      case "End":          return "<End>";
-      case "PageUp":       return "<PageUp>";
-      case "PageDown":     return "<PageDown>";
-      case "Insert":       return "<Insert>";
-      case "F1":  return "<F1>";  case "F2":  return "<F2>";
-      case "F3":  return "<F3>";  case "F4":  return "<F4>";
-      case "F5":  return "<F5>";  case "F6":  return "<F6>";
-      case "F7":  return "<F7>";  case "F8":  return "<F8>";
-      case "F9":  return "<F9>";  case "F10": return "<F10>";
-      case "F11": return "<F11>"; case "F12": return "<F12>";
+      case "Escape":
+        return "<Esc>";
+      case "Enter":
+        return "<CR>";
+      case "Backspace":
+        return "<BS>";
+      case "Delete":
+        return "<Del>";
+      case "Tab":
+        return shift ? "<S-Tab>" : "<Tab>";
+      case "ArrowUp":
+        return ctrl ? "<C-Up>" : "<Up>";
+      case "ArrowDown":
+        return ctrl ? "<C-Down>" : "<Down>";
+      case "ArrowLeft":
+        return ctrl ? "<C-Left>" : "<Left>";
+      case "ArrowRight":
+        return ctrl ? "<C-Right>" : "<Right>";
+      case "Home":
+        return "<Home>";
+      case "End":
+        return "<End>";
+      case "PageUp":
+        return "<PageUp>";
+      case "PageDown":
+        return "<PageDown>";
+      case "Insert":
+        return "<Insert>";
+      case "F1":
+        return "<F1>";
+      case "F2":
+        return "<F2>";
+      case "F3":
+        return "<F3>";
+      case "F4":
+        return "<F4>";
+      case "F5":
+        return "<F5>";
+      case "F6":
+        return "<F6>";
+      case "F7":
+        return "<F7>";
+      case "F8":
+        return "<F8>";
+      case "F9":
+        return "<F9>";
+      case "F10":
+        return "<F10>";
+      case "F11":
+        return "<F11>";
+      case "F12":
+        return "<F12>";
     }
 
     // Ctrl+letter / Ctrl+symbol
