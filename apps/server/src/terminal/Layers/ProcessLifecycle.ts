@@ -150,9 +150,6 @@ export const makeProcessLifecycle = Effect.fn("makeProcessLifecycle")(function* 
   const workerScope = yield* Scope.make("sequential");
   yield* Effect.addFinalizer(() => Scope.close(workerScope, Exit.void));
 
-  const services = yield* Effect.services();
-  const runFork = Effect.runForkWith(services);
-
   const killFibersRef = yield* SynchronizedRef.make(
     new Map<PtyProcess, Fiber.Fiber<void, never>>(),
   );

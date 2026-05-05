@@ -1,5 +1,5 @@
-import { Effect, Layer, Result, Schema, SchemaIssue } from "effect";
-import { PositiveInt, TrimmedNonEmptyString } from "@fenrir/contracts";
+import { Effect, Layer, Result, Schema } from "effect";
+import { TrimmedNonEmptyString } from "@fenrir/contracts";
 
 import { runProcess } from "../../processRunner";
 import { GitHubCliError } from "@fenrir/contracts";

@@ -1488,6 +1488,19 @@ async function shutdownNvim(reason: string): Promise<void> {
   }
 }
 
+function sanitizeForIpc(val: unknown): unknown {
+  if (Array.isArray(val)) return val.map(sanitizeForIpc);
+  if (
+    val !== null &&
+    typeof val === "object" &&
+    "data" in val &&
+    (val as any).data instanceof Uint8Array
+  ) {
+    return Buffer.from((val as any).data).readUInt32BE(0);
+  }
+  return val;
+}
+
 function registerIpcHandlers(): void {
   ipcMain.removeAllListeners(GET_LOCAL_ENVIRONMENT_BOOTSTRAP_CHANNEL);
   ipcMain.on(GET_LOCAL_ENVIRONMENT_BOOTSTRAP_CHANNEL, (event) => {
@@ -1796,19 +1809,6 @@ function registerIpcHandlers(): void {
       const client = attach({ proc });
 
       nvimSession = { client, proc };
-
-      function sanitizeForIpc(val: unknown): unknown {
-        if (Array.isArray(val)) return val.map(sanitizeForIpc);
-        if (
-          val !== null &&
-          typeof val === "object" &&
-          "data" in val &&
-          (val as any).data instanceof Uint8Array
-        ) {
-          return Buffer.from((val as any).data).readUInt32BE(0);
-        }
-        return val;
-      }
 
       // Catch-all notification logger so we can see EVERY notification name
       // nvim emits, not just redraw. Helps diagnose whether nvim is emitting

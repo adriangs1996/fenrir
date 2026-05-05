@@ -167,7 +167,7 @@ function keybindingFromEvent(event: KeyboardEvent<HTMLInputElement>): string | n
 export default function ProjectScriptsControl({
   scripts,
   globalScripts,
-  globalScriptDefaults,
+  globalScriptDefaults: _globalScriptDefaults,
   keybindings,
   preferredScriptId = null,
   onRunScript,

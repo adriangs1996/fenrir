@@ -19,7 +19,6 @@ import {
 } from "@fenrir/contracts/settings";
 import { ensureLocalApi } from "~/localApi";
 import { Struct } from "effect";
-import { deepMerge } from "@fenrir/shared/Struct";
 import { applyServerSettingsPatch } from "@fenrir/shared/serverSettings";
 import { applySettingsUpdated, getServerConfig, useServerSettings } from "~/rpc/serverState";
 

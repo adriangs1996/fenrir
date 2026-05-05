@@ -21,9 +21,6 @@
 
 export class MsgpackDecodeError extends Error {
   override readonly name = "MsgpackDecodeError";
-  constructor(message: string) {
-    super(message);
-  }
 }
 
 /**

@@ -217,6 +217,7 @@ export const usePlanRunnerStore = create<PlanRunnerState>((set, get) => ({
           const projectId = event.snapshot.projectId;
           const features = state.featuresByProjectId[projectId];
           if (features) {
+            // oxlint-disable-next-line oxc/no-map-spread -- immutable Zustand state update requires copy-on-write
             const nextFeatures = features.map((f) => {
               if (f.featureName === event.snapshot.featureName) {
                 const isActive =
@@ -277,6 +278,7 @@ export const usePlanRunnerStore = create<PlanRunnerState>((set, get) => ({
           // Clear active run from features
           const features = state.featuresByProjectId[run.projectId];
           if (features) {
+            // oxlint-disable-next-line oxc/no-map-spread -- immutable Zustand state update requires copy-on-write
             const nextFeatures = features.map((f) =>
               f.activeRunId === event.runId
                 ? {

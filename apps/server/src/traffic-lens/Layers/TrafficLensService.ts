@@ -9,6 +9,27 @@ import {
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
 
+function mapRow(r: any) {
+  return {
+    id: r.id,
+    tabId: r.tab_id,
+    requestId: r.request_id,
+    method: r.method,
+    url: r.url,
+    host: r.host,
+    path: r.path,
+    statusCode: r.status_code ?? null,
+    contentType: r.content_type ?? null,
+    contentLength: r.content_length ?? null,
+    bodyTruncated: Boolean(r.body_truncated),
+    isWebSocket: Boolean(r.is_websocket),
+    timingStartedAt: r.timing_started_at,
+    timingResponseAt: r.timing_response_at ?? null,
+    timingCompletedAt: r.timing_completed_at ?? null,
+    createdAt: r.created_at,
+  };
+}
+
 export const TrafficLensServiceLive = Layer.effect(
   TrafficLensService,
   Effect.gen(function* () {
@@ -23,27 +44,6 @@ export const TrafficLensServiceLive = Layer.effect(
           // swallow
         }
       }
-    }
-
-    function mapRow(r: any) {
-      return {
-        id: r.id,
-        tabId: r.tab_id,
-        requestId: r.request_id,
-        method: r.method,
-        url: r.url,
-        host: r.host,
-        path: r.path,
-        statusCode: r.status_code ?? null,
-        contentType: r.content_type ?? null,
-        contentLength: r.content_length ?? null,
-        bodyTruncated: Boolean(r.body_truncated),
-        isWebSocket: Boolean(r.is_websocket),
-        timingStartedAt: r.timing_started_at,
-        timingResponseAt: r.timing_response_at ?? null,
-        timingCompletedAt: r.timing_completed_at ?? null,
-        createdAt: r.created_at,
-      };
     }
 
     return {

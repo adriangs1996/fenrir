@@ -308,7 +308,7 @@ describe("fixarray", () => {
 describe("array16", () => {
   it("decodes 16-element array", () => {
     // array16: 0xdc + 2-byte length + elements
-    const elements = new Array(16).fill(0).map((_, i) => i);
+    const elements = Array.from({ length: 16 }, (_, i) => i);
     const data = concat(bytes(0xdc, 0x00, 0x10), bytes(...elements));
     expect(msgpackDecode(data)).toEqual(elements);
   });

@@ -8,13 +8,14 @@ export function TrafficLensAddressBar() {
   const activeTabId = useTrafficLensStore((s) => s.activeTabId);
   const activeTab = useTrafficLensStore((s) => (s.activeTabId ? s.tabs[s.activeTabId] : null));
   const [urlInput, setUrlInput] = useState("");
+  const activeUrl = activeTab?.url;
 
   // Sync URL input with active tab
   useEffect(() => {
-    if (activeTab) {
-      setUrlInput(activeTab.url);
+    if (activeUrl !== undefined) {
+      setUrlInput(activeUrl);
     }
-  }, [activeTab?.url]);
+  }, [activeUrl]);
 
   if (!activeTabId || !activeTab) return null;
 

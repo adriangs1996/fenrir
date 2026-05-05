@@ -304,12 +304,13 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
           const nextProjectIdByCwd = new Map(
             mappedProjects.map((project) => [project.cwd, project.id] as const),
           );
+          const nextProjectIds = new Set(mappedProjects.map((project) => project.id));
           const usedProjectIds = new Set<string>();
           const orderedProjectIds: string[] = [];
 
           for (const projectId of state.projectOrder) {
             const matchedProjectId =
-              (projectId in nextExpandedById ? projectId : undefined) ??
+              (nextProjectIds.has(projectId) ? projectId : undefined) ??
               (() => {
                 const previousCwd = previousProjectCwdById.get(projectId);
                 return previousCwd ? nextProjectIdByCwd.get(previousCwd) : undefined;

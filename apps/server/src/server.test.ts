@@ -82,10 +82,7 @@ import { ServerLifecycleEvents, type ServerLifecycleEventsShape } from "./server
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService, type ServerSettingsShape } from "./serverSettings.ts";
 import { TerminalManager, type TerminalManagerShape } from "./terminal/Services/Manager.ts";
-import {
-  TmuxSessionManager,
-  type TmuxSessionManagerShape,
-} from "./terminal/Services/TmuxSessionManager.ts";
+import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager.ts";
 import {
   BrowserTraceCollector,
   type BrowserTraceCollectorShape,

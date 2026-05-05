@@ -20,7 +20,7 @@ interface ListenerEntry {
 
 export const RawTcpListenerServiceLive = Layer.effect(
   RawTcpListenerService,
-  Effect.gen(function* () {
+  Effect.sync(() => {
     const listeners = new Map<RawTcpListenerId, ListenerEntry>();
     const sessionToListener = new Map<RawTcpSessionId, RawTcpListenerId>();
     const sessionSnapshots = new Map<RawTcpSessionId, RawTcpSessionSnapshot>();

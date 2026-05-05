@@ -1,10 +1,4 @@
-import {
-  type MessageId,
-  type ScopedProjectRef,
-  type ScopedThreadRef,
-  type ThreadId,
-  type TurnId,
-} from "@fenrir/contracts";
+import { type ScopedProjectRef, type ScopedThreadRef, type ThreadId } from "@fenrir/contracts";
 import { selectEnvironmentState, type AppState, type EnvironmentState } from "./store";
 import { type Project, type SidebarThreadSummary, type Thread } from "./types";
 import { getThreadFromEnvironmentState } from "./threadDerivation";

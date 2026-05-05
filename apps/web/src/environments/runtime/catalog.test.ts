@@ -95,6 +95,7 @@ describe("environment runtime catalog stores", () => {
   });
 
   it("does not let stale hydration overwrite records added while hydration is in flight", async () => {
+    // oxlint-disable-next-line unicorn/consistent-function-scoping -- sentinel reassigned inside stubbed nativeApi
     let resolveRegistryRead: () => void = () => {
       throw new Error("Registry read resolver was not initialized.");
     };

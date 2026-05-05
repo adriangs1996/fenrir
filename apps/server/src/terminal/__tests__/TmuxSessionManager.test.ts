@@ -31,9 +31,9 @@ class FakeTmuxPtyProcess implements PtyProcess {
     this.writes.push(data);
   }
 
-  resize(cols: number, rows: number): void {}
+  resize(_cols: number, _rows: number): void {}
 
-  kill(signal?: string): void {}
+  kill(_signal?: string): void {}
 
   onData(callback: (data: string) => void): () => void {
     this.dataListeners.add(callback);
