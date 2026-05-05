@@ -57,6 +57,7 @@ import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletion
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { GlobalActionsLive } from "./globalActions";
 import { ServerSettingsLive } from "./serverSettings";
+import { SkillServiceLive } from "./skill/SkillService";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { RepositoryIdentityResolverLive } from "./project/Layers/RepositoryIdentityResolver";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
@@ -254,6 +255,7 @@ const CoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(ServerSettingsLive),
   Layer.provideMerge(GlobalActionsLive),
+  Layer.provideMerge(SkillServiceLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
   Layer.provideMerge(RepositoryIdentityResolverLive),

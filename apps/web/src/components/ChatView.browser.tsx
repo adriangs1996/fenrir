@@ -185,6 +185,7 @@ function createBaseServerConfig(): ServerConfig {
       ...DEFAULT_CLIENT_SETTINGS,
     },
     globalActions: [],
+    skills: [],
   };
 }
 

@@ -112,6 +112,7 @@ import { GlobalActionsService, type GlobalActionsShape } from "./globalActions.t
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner.ts";
 import { RawTcpListenerService } from "./raw-tcp/Services/RawTcpListenerService.ts";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService.ts";
+import { SkillService, type SkillServiceShape } from "./skill/SkillService.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -318,6 +319,7 @@ const buildAppUnderTest = (options?: {
     serverEnvironment?: Partial<ServerEnvironmentShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
     globalActions?: Partial<GlobalActionsShape>;
+    skillService?: Partial<SkillServiceShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -547,6 +549,21 @@ const buildAppUnderTest = (options?: {
           delete: () => Effect.die(new Error("not available in test")),
           streamChanges: Stream.empty,
           ...options?.layers?.globalActions,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(SkillService)({
+          start: Effect.void,
+          ready: Effect.void,
+          getAll: Effect.succeed([]),
+          getByName: () => Effect.die(new Error("not available in test")),
+          create: () => Effect.die(new Error("not available in test")),
+          update: () => Effect.die(new Error("not available in test")),
+          delete: () => Effect.die(new Error("not available in test")),
+          toggleEnabled: () => Effect.die(new Error("not available in test")),
+          resolveConflict: () => Effect.die(new Error("not available in test")),
+          streamChanges: Stream.empty,
+          ...options?.layers?.skillService,
         }),
       ),
       Layer.provideMerge(authTestLayer),

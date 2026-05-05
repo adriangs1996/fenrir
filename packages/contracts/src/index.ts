@@ -19,3 +19,4 @@ export * from "./vpn";
 export * from "./trafficLens";
 export * from "./planRunner";
 export * from "./fonts";
+export * from "./skill";

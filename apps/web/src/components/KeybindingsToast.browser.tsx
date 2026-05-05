@@ -100,6 +100,7 @@ function createBaseServerConfig(): ServerConfig {
       },
     },
     globalActions: [],
+    skills: [],
   };
 }
 

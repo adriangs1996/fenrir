@@ -92,6 +92,7 @@ import {
   LockOpenIcon,
   PenLineIcon,
   XIcon,
+  ZapIcon,
 } from "lucide-react";
 import { proposedPlanTitle } from "../../proposedPlan";
 import { resolveSelectableProvider, getProviderModels } from "../../providerModels";
@@ -100,6 +101,7 @@ import type { SessionPhase, Thread } from "../../types";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import type { PendingApproval, PendingUserInput } from "../../session-logic";
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
+import { useSkills } from "~/hooks/useSkills";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 
@@ -162,9 +164,11 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   showPlanToggle: boolean;
   planSidebarLabel: string;
   planSidebarOpen: boolean;
+  skillsPanelOpen: boolean;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   onTogglePlanSidebar: () => void;
+  onToggleSkillsPanel: () => void;
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
@@ -253,6 +257,24 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           </Button>
         </>
       ) : null}
+
+      <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
+      <Button
+        variant="ghost"
+        className={cn(
+          "shrink-0 whitespace-nowrap px-2 sm:px-3",
+          props.skillsPanelOpen
+            ? "text-blue-400 hover:text-blue-300"
+            : "text-muted-foreground/70 hover:text-foreground/80",
+        )}
+        size="sm"
+        type="button"
+        onClick={props.onToggleSkillsPanel}
+        title={props.skillsPanelOpen ? "Hide skills panel" : "Show skills panel"}
+      >
+        <ZapIcon />
+        <span className="sr-only sm:not-sr-only">Skills</span>
+      </Button>
     </>
   );
 });
@@ -437,6 +459,8 @@ export interface ChatComposerProps {
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
   togglePlanSidebar: () => void;
+  skillsPanelOpen: boolean;
+  toggleSkillsPanel: () => void;
 
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
@@ -508,11 +532,18 @@ export const ChatComposer = memo(
       handleRuntimeModeChange,
       handleInteractionModeChange,
       togglePlanSidebar,
+      skillsPanelOpen,
+      toggleSkillsPanel,
       focusComposer,
       scheduleComposerFocus,
       setThreadError,
       onExpandImage,
     } = props;
+
+    // ------------------------------------------------------------------
+    // Skills
+    // ------------------------------------------------------------------
+    const skills = useSkills();
 
     // ------------------------------------------------------------------
     // Store subscriptions (prompt / images / terminal contexts)
@@ -735,12 +766,29 @@ export const ChatComposer = memo(
           },
         ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
         const query = composerTrigger.query.trim().toLowerCase();
-        if (!query) {
-          return [...slashCommandItems];
-        }
-        return slashCommandItems.filter(
-          (item) => item.command.includes(query) || item.label.slice(1).includes(query),
-        );
+        const matchedSlashCommands = query
+          ? slashCommandItems.filter(
+              (item) => item.command.includes(query) || item.label.slice(1).includes(query),
+            )
+          : slashCommandItems;
+        const matchedSkills: Array<Extract<ComposerCommandItem, { type: "skill" }>> = skills
+          .filter((s) => s.enabled)
+          .filter((s) => {
+            if (!query) return true;
+            return s.name.includes(query) || s.displayName.toLowerCase().includes(query);
+          })
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .slice(0, 8)
+          .map((s) => ({
+            id: `skill:${s.name}`,
+            type: "skill" as const,
+            name: s.name,
+            displayName: s.displayName,
+            description: s.description,
+            ...(s.icon !== undefined ? { icon: s.icon } : {}),
+            body: s.body,
+          }));
+        return [...matchedSlashCommands, ...matchedSkills];
       }
       return searchableModelOptions
         .filter(({ searchSlug, searchName, searchProvider }) => {
@@ -760,7 +808,7 @@ export const ChatComposer = memo(
           label: name,
           description: `${providerLabel} · ${slug}`,
         }));
-    }, [composerTrigger, searchableModelOptions, workspaceEntries]);
+    }, [composerTrigger, searchableModelOptions, workspaceEntries, skills]);
 
     const composerMenuOpen = Boolean(composerTrigger);
     const activeComposerMenuItem = useMemo(
@@ -1340,6 +1388,18 @@ export const ChatComposer = memo(
           }
           return;
         }
+        if (item.type === "skill") {
+          // Replace the slash trigger text with the skill body so the user
+          // can review / edit before sending. Auto-send is only available
+          // via the Skills panel "Run" action.
+          const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, item.body, {
+            expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+          });
+          if (applied) {
+            setComposerHighlightedItemId(null);
+          }
+          return;
+        }
         onProviderModelSelect(item.provider, item.model);
         const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
@@ -1841,10 +1901,12 @@ export const ChatComposer = memo(
                       interactionMode={interactionMode}
                       planSidebarLabel={planSidebarLabel}
                       planSidebarOpen={planSidebarOpen}
+                      skillsPanelOpen={skillsPanelOpen}
                       runtimeMode={runtimeMode}
                       traitsMenuContent={providerTraitsMenuContent}
                       onToggleInteractionMode={toggleInteractionMode}
                       onTogglePlanSidebar={togglePlanSidebar}
+                      onToggleSkillsPanel={toggleSkillsPanel}
                       onRuntimeModeChange={handleRuntimeModeChange}
                     />
                   ) : (
@@ -1864,9 +1926,11 @@ export const ChatComposer = memo(
                         showPlanToggle={showPlanSidebarToggle}
                         planSidebarLabel={planSidebarLabel}
                         planSidebarOpen={planSidebarOpen}
+                        skillsPanelOpen={skillsPanelOpen}
                         onToggleInteractionMode={toggleInteractionMode}
                         onRuntimeModeChange={handleRuntimeModeChange}
                         onTogglePlanSidebar={togglePlanSidebar}
+                        onToggleSkillsPanel={toggleSkillsPanel}
                       />
                     </>
                   )}

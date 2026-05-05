@@ -9,6 +9,9 @@ import {
   type CreateGlobalActionInput,
   type UpdateGlobalActionInput,
   type ServerSettingsPatch,
+  type CreateSkillInput,
+  type UpdateSkillInput,
+  type ResolveSkillConflictInput,
   WS_METHODS,
 } from "@fenrir/contracts";
 import { applyGitStatusStreamEvent } from "@fenrir/shared/git";
@@ -123,6 +126,19 @@ export interface WsRpcClient {
     readonly deleteGlobalAction: (
       id: string,
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverDeleteGlobalAction>>;
+    readonly listSkills: RpcUnaryNoArgMethod<typeof WS_METHODS.serverListSkills>;
+    readonly createSkill: (
+      input: CreateSkillInput,
+    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverCreateSkill>>;
+    readonly updateSkill: (
+      input: UpdateSkillInput,
+    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverUpdateSkill>>;
+    readonly deleteSkill: (
+      name: string,
+    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverDeleteSkill>>;
+    readonly resolveSkillConflict: (
+      input: ResolveSkillConflictInput,
+    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverResolveSkillConflict>>;
     readonly subscribeConfig: RpcStreamMethod<typeof WS_METHODS.subscribeServerConfig>;
     readonly subscribeLifecycle: RpcStreamMethod<typeof WS_METHODS.subscribeServerLifecycle>;
     readonly subscribeAuthAccess: RpcStreamMethod<typeof WS_METHODS.subscribeAuthAccess>;
@@ -290,6 +306,15 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         ),
       deleteGlobalAction: (id) =>
         transport.request((client) => client[WS_METHODS.serverDeleteGlobalAction]({ id })),
+      listSkills: () => transport.request((client) => client[WS_METHODS.serverListSkills]({})),
+      createSkill: (input) =>
+        transport.request((client) => client[WS_METHODS.serverCreateSkill](input)),
+      updateSkill: (input) =>
+        transport.request((client) => client[WS_METHODS.serverUpdateSkill](input)),
+      deleteSkill: (name) =>
+        transport.request((client) => client[WS_METHODS.serverDeleteSkill]({ name })),
+      resolveSkillConflict: (input) =>
+        transport.request((client) => client[WS_METHODS.serverResolveSkillConflict](input)),
       subscribeConfig: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeServerConfig]({}),

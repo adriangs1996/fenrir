@@ -8,6 +8,7 @@ import {
   type ServerLifecycleWelcomePayload,
   type ServerProvider,
   type ServerProviderUpdatedPayload,
+  type ServerProviderSkill,
   type ServerSettings,
 } from "@fenrir/contracts";
 import { Atom } from "effect/unstable/reactivity";
@@ -44,6 +45,7 @@ function toServerConfigUpdatedPayload(config: ServerConfig): ServerConfigUpdated
 const EMPTY_AVAILABLE_EDITORS: ReadonlyArray<EditorId> = [];
 const EMPTY_KEYBINDINGS: ServerConfig["keybindings"] = [];
 const EMPTY_SERVER_PROVIDERS: ReadonlyArray<ServerProvider> = [];
+const EMPTY_SKILLS: ReadonlyArray<ServerProviderSkill> = [];
 
 const selectAvailableEditors = (config: ServerConfig | null): ReadonlyArray<EditorId> =>
   config?.availableEditors ?? EMPTY_AVAILABLE_EDITORS;
@@ -55,6 +57,8 @@ const selectProviders = (config: ServerConfig | null) =>
   config?.providers ?? EMPTY_SERVER_PROVIDERS;
 const selectSettings = (config: ServerConfig | null): ServerSettings =>
   config?.settings ?? DEFAULT_SERVER_SETTINGS;
+const selectSkills = (config: ServerConfig | null): ReadonlyArray<ServerProviderSkill> =>
+  config?.skills ?? EMPTY_SKILLS;
 
 export const welcomeAtom = makeStateAtom<ServerLifecycleWelcomePayload | null>(
   "server-welcome",
@@ -119,6 +123,19 @@ export function applyServerConfigEvent(event: ServerConfigStreamEvent): void {
       const nextConfig = {
         ...latestServerConfig,
         globalActions: event.payload.globalActions,
+      } satisfies ServerConfig;
+      resolveServerConfig(nextConfig);
+      emitServerConfigUpdated(toServerConfigUpdatedPayload(nextConfig), event.type);
+      return;
+    }
+    case "skillsUpdated": {
+      const latestServerConfig = getServerConfig();
+      if (!latestServerConfig) {
+        return;
+      }
+      const nextConfig = {
+        ...latestServerConfig,
+        skills: event.payload.skills,
       } satisfies ServerConfig;
       resolveServerConfig(nextConfig);
       emitServerConfigUpdated(toServerConfigUpdatedPayload(nextConfig), event.type);
@@ -297,6 +314,10 @@ export function useServerKeybindingsConfigPath(): string | null {
 
 export function useServerObservability(): ServerConfig["observability"] | null {
   return useAtomValue(serverConfigAtom, selectObservability);
+}
+
+export function useServerSkills(): ReadonlyArray<ServerProviderSkill> {
+  return useAtomValue(serverConfigAtom, selectSkills);
 }
 
 export function useServerWelcomeSubscription(

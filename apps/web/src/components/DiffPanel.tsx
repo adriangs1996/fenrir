@@ -39,20 +39,31 @@ import { useSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { Button } from "./ui/button";
-import { useSidebar } from "./ui/sidebar";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
 
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
 
-/** Close button rendered only in sidebar mode (inside SidebarProvider context). */
+/** Close button rendered only in sidebar mode. Navigates to strip diff URL params. */
 function DiffPanelSidebarCloseButton() {
-  const { setOpen } = useSidebar();
+  const navigate = useNavigate();
+  const routeThreadRef = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteRef(params),
+  });
+
   return (
     <Button
       size="icon-xs"
       variant="ghost"
-      onClick={() => setOpen(false)}
+      onClick={() => {
+        if (!routeThreadRef) return;
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(routeThreadRef),
+          search: (prev) => stripDiffSearchParams(prev),
+        });
+      }}
       aria-label="Close diff panel"
       className="text-muted-foreground/50 hover:text-foreground/70"
     >

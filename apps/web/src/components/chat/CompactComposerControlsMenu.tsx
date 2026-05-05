@@ -1,6 +1,6 @@
 import { ProviderInteractionMode, RuntimeMode } from "@fenrir/contracts";
 import { memo, type ReactNode } from "react";
-import { EllipsisIcon, ListTodoIcon } from "lucide-react";
+import { EllipsisIcon, ListTodoIcon, ZapIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -17,10 +17,12 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   interactionMode: ProviderInteractionMode;
   planSidebarLabel: string;
   planSidebarOpen: boolean;
+  skillsPanelOpen: boolean;
   runtimeMode: RuntimeMode;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
   onTogglePlanSidebar: () => void;
+  onToggleSkillsPanel: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
   return (
@@ -68,17 +70,20 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           <MenuRadioItem value="auto-accept-edits">Auto-accept edits</MenuRadioItem>
           <MenuRadioItem value="full-access">Full access</MenuRadioItem>
         </MenuRadioGroup>
+        <MenuDivider />
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Panels</div>
         {props.activePlan ? (
-          <>
-            <MenuDivider />
-            <MenuItem onClick={props.onTogglePlanSidebar}>
-              <ListTodoIcon className="size-4 shrink-0" />
-              {props.planSidebarOpen
-                ? `Hide ${props.planSidebarLabel.toLowerCase()} sidebar`
-                : `Show ${props.planSidebarLabel.toLowerCase()} sidebar`}
-            </MenuItem>
-          </>
+          <MenuItem onClick={props.onTogglePlanSidebar}>
+            <ListTodoIcon className="size-4 shrink-0" />
+            {props.planSidebarOpen
+              ? `Hide ${props.planSidebarLabel.toLowerCase()} sidebar`
+              : `Show ${props.planSidebarLabel.toLowerCase()} sidebar`}
+          </MenuItem>
         ) : null}
+        <MenuItem onClick={props.onToggleSkillsPanel}>
+          <ZapIcon className="size-4 shrink-0" />
+          {props.skillsPanelOpen ? "Hide skills panel" : "Show skills panel"}
+        </MenuItem>
       </MenuPopup>
     </Menu>
   );

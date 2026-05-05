@@ -86,6 +86,7 @@ const baseServerConfig: ServerConfig = {
   },
   settings: DEFAULT_SERVER_SETTINGS,
   globalActions: [],
+  skills: [],
 };
 
 const serverApi = {

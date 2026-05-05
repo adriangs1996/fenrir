@@ -131,6 +131,13 @@ import {
   ServerUpsertKeybindingResult,
 } from "./server";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
+import {
+  CreateSkillInput,
+  ResolveSkillConflictInput,
+  ServerProviderSkill,
+  SkillRpcError,
+  UpdateSkillInput,
+} from "./skill";
 export const WS_METHODS = {
   // Project registry methods
   projectsList: "projects.list",
@@ -218,6 +225,13 @@ export const WS_METHODS = {
   planRunnerArchiveFeature: "planRunner.archiveFeature",
   planRunnerUnarchiveFeature: "planRunner.unarchiveFeature",
   planRunnerListArchivedFeatures: "planRunner.listArchivedFeatures",
+
+  // Skills
+  serverListSkills: "serverListSkills",
+  serverCreateSkill: "serverCreateSkill",
+  serverUpdateSkill: "serverUpdateSkill",
+  serverDeleteSkill: "serverDeleteSkill",
+  serverResolveSkillConflict: "serverResolveSkillConflict",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -645,6 +659,37 @@ export const WsPlanRunnerListArchivedFeaturesRpc = Rpc.make(
   },
 );
 
+// ─── Skill RPCs ────────────────────────────────────────────────────────────
+
+export const WsServerListSkillsRpc = Rpc.make(WS_METHODS.serverListSkills, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(ServerProviderSkill),
+  error: SkillRpcError,
+});
+
+export const WsServerCreateSkillRpc = Rpc.make(WS_METHODS.serverCreateSkill, {
+  payload: CreateSkillInput,
+  success: ServerProviderSkill,
+  error: SkillRpcError,
+});
+
+export const WsServerUpdateSkillRpc = Rpc.make(WS_METHODS.serverUpdateSkill, {
+  payload: UpdateSkillInput,
+  success: ServerProviderSkill,
+  error: SkillRpcError,
+});
+
+export const WsServerDeleteSkillRpc = Rpc.make(WS_METHODS.serverDeleteSkill, {
+  payload: Schema.Struct({ name: Schema.String }),
+  error: SkillRpcError,
+});
+
+export const WsServerResolveSkillConflictRpc = Rpc.make(WS_METHODS.serverResolveSkillConflict, {
+  payload: ResolveSkillConflictInput,
+  success: ServerProviderSkill,
+  error: SkillRpcError,
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -715,4 +760,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsPlanRunnerArchiveFeatureRpc,
   WsPlanRunnerUnarchiveFeatureRpc,
   WsPlanRunnerListArchivedFeaturesRpc,
+  WsServerListSkillsRpc,
+  WsServerCreateSkillRpc,
+  WsServerUpdateSkillRpc,
+  WsServerDeleteSkillRpc,
+  WsServerResolveSkillConflictRpc,
 );
