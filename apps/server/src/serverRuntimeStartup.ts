@@ -31,6 +31,7 @@ import { ServerSettingsService } from "./serverSettings";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { ServerAuth } from "./auth/Services/ServerAuth";
+import { SkillService } from "./skill/SkillService";
 
 const isWildcardHost = (host: string | undefined): boolean =>
   host === "0.0.0.0" || host === "::" || host === "[::]";
@@ -277,6 +278,7 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
   const lifecycleEvents = yield* ServerLifecycleEvents;
   const serverSettings = yield* ServerSettingsService;
   const serverEnvironment = yield* ServerEnvironment;
+  const skillService = yield* SkillService;
 
   const commandGate = yield* makeCommandGate;
   const httpListening = yield* Deferred.make<void>();
@@ -308,6 +310,20 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
           Effect.logWarning("failed to start server settings runtime", {
             path: error.settingsPath,
             detail: error.detail,
+            cause: error.cause,
+          }),
+        ),
+        Effect.forkScoped,
+      ),
+    );
+
+    yield* Effect.logDebug("startup phase: starting skill service runtime");
+    yield* runStartupPhase(
+      "skills.start",
+      skillService.start.pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("failed to start skill service runtime", {
+            message: error.message,
             cause: error.cause,
           }),
         ),

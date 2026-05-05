@@ -17,12 +17,14 @@ import {
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   GlobalActionsRpcError,
+  SkillRpcError,
   ThreadId,
   type TerminalEvent,
   type RawTcpEvent,
   WS_METHODS,
   WsRpcGroup,
   TmuxError,
+  type ServerProviderSkill,
 } from "@fenrir/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
@@ -70,6 +72,7 @@ import { RawTcpListenerService } from "./raw-tcp/Services/RawTcpListenerService"
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService";
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner";
 import type { TrafficLensEvent } from "@fenrir/contracts";
+import { SkillService } from "./skill/SkillService";
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -141,6 +144,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const rawTcpListenerService = yield* RawTcpListenerService;
       const trafficLensService = yield* TrafficLensService;
       const planRunnerService = yield* PlanRunnerService;
+      const skillService = yield* SkillService;
       const activeTmuxProcesses = new Map<string, { pid: number }>();
 
       const serverCommandId = (tag: string) =>
@@ -482,6 +486,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           },
           settings,
           globalActions: globalActionsList,
+          skills: yield* skillService.getAll.pipe(
+            Effect.orElseSucceed(() => [] as readonly ServerProviderSkill[]),
+          ),
         };
       });
 
@@ -1032,6 +1039,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   payload: { globalActions: globalActionsList },
                 })),
               );
+              const skillsUpdates = skillService.streamChanges.pipe(
+                Stream.map((skillsList) => ({
+                  version: 1 as const,
+                  type: "skillsUpdated" as const,
+                  payload: { skills: skillsList },
+                })),
+              );
 
               return Stream.concat(
                 Stream.make({
@@ -1043,7 +1057,10 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   keybindingsUpdates,
                   Stream.merge(
                     providerStatuses,
-                    Stream.merge(settingsUpdates, globalActionsUpdates),
+                    Stream.merge(
+                      settingsUpdates,
+                      Stream.merge(globalActionsUpdates, skillsUpdates),
+                    ),
                   ),
                 ),
               );
@@ -1284,6 +1301,54 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             WS_METHODS.planRunnerListArchivedFeatures,
             planRunnerService.listArchivedFeatures(input),
             { "rpc.aggregate": "planRunner" },
+          ),
+        [WS_METHODS.serverListSkills]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.serverListSkills,
+            skillService.getAll.pipe(
+              Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
+            ),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverCreateSkill]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverCreateSkill,
+            skillService
+              .create(input)
+              .pipe(
+                Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
+              ),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverUpdateSkill]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverUpdateSkill,
+            skillService
+              .update(input)
+              .pipe(
+                Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
+              ),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverDeleteSkill]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverDeleteSkill,
+            skillService
+              .delete(input.name)
+              .pipe(
+                Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
+              ),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverResolveSkillConflict]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverResolveSkillConflict,
+            skillService
+              .resolveConflict(input)
+              .pipe(
+                Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
+              ),
+            { "rpc.aggregate": "server" },
           ),
       });
     }),

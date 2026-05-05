@@ -13,6 +13,7 @@ import { EditorId } from "./editor";
 import { ModelCapabilities } from "./model";
 import { GlobalScript, ProviderKind } from "./orchestration";
 import { ServerSettings } from "./settings";
+import { ServerProviderSkill } from "./skill";
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
   kind: Schema.Literal("keybindings.malformed-config"),
@@ -96,6 +97,7 @@ export const ServerConfig = Schema.Struct({
   observability: ServerObservability,
   settings: ServerSettings,
   globalActions: Schema.Array(GlobalScript),
+  skills: Schema.Array(ServerProviderSkill),
 });
 export type ServerConfig = typeof ServerConfig.Type;
 
@@ -174,12 +176,24 @@ const ServerConfigStreamGlobalActionsUpdatedEvent = Schema.Struct({
   payload: ServerConfigGlobalActionsUpdatedPayload,
 });
 
+export const ServerConfigSkillsUpdatedPayload = Schema.Struct({
+  skills: Schema.Array(ServerProviderSkill),
+});
+export type ServerConfigSkillsUpdatedPayload = typeof ServerConfigSkillsUpdatedPayload.Type;
+
+const ServerConfigStreamSkillsUpdatedEvent = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("skillsUpdated"),
+  payload: ServerConfigSkillsUpdatedPayload,
+});
+
 export const ServerConfigStreamEvent = Schema.Union([
   ServerConfigStreamSnapshotEvent,
   ServerConfigStreamKeybindingsUpdatedEvent,
   ServerConfigStreamProviderStatusesEvent,
   ServerConfigStreamSettingsUpdatedEvent,
   ServerConfigStreamGlobalActionsUpdatedEvent,
+  ServerConfigStreamSkillsUpdatedEvent,
 ]);
 export type ServerConfigStreamEvent = typeof ServerConfigStreamEvent.Type;
 

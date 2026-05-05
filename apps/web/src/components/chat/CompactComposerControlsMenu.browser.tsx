@@ -137,8 +137,10 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
           onPromptChange={onPromptChange}
         />
       }
+      skillsPanelOpen={false}
       onToggleInteractionMode={vi.fn()}
       onTogglePlanSidebar={vi.fn()}
+      onToggleSkillsPanel={vi.fn()}
       onRuntimeModeChange={vi.fn()}
     />,
     { container: host },

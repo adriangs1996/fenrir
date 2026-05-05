@@ -93,9 +93,10 @@ import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
+import { useRightPanelStore } from "../rightPanelStore";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
-import PlanSidebar from "./PlanSidebar";
+import { RightPanelTabs } from "./chat/RightPanelTabs";
 import ThreadTerminalDrawer from "~/modules/terminal/components/ThreadTerminalDrawer";
 import { ChevronDownIcon } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
@@ -644,6 +645,16 @@ export default function ChatView(props: ChatViewProps) {
     (store) => store.getComposerDraft(composerDraftTarget)?.activeProvider ?? null,
   );
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
+  const handleSkillInsert = useCallback(
+    (skillName: string) => {
+      const draft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
+      const current = draft?.prompt ?? "";
+      const insertion = `/${skillName}`;
+      const next = current.length > 0 ? `${current} ${insertion}` : insertion;
+      setComposerDraftPrompt(composerDraftTarget, next);
+    },
+    [composerDraftTarget, setComposerDraftPrompt],
+  );
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
     (store) => store.setTerminalContexts,
@@ -693,8 +704,9 @@ export default function ChatView(props: ChatViewProps) {
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
-  const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const rightPanel = useRightPanelStore();
+  const planSidebarOpen = rightPanel.activeTab === "plan";
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
   // When set, the thread-change reset effect will open the sidebar instead of closing it.
@@ -2066,21 +2078,24 @@ export default function ChatView(props: ChatViewProps) {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
   const togglePlanSidebar = useCallback(() => {
-    setPlanSidebarOpen((open) => {
-      if (open) {
-        planSidebarDismissedForTurnRef.current =
-          activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
-      } else {
-        planSidebarDismissedForTurnRef.current = null;
-      }
-      return !open;
-    });
-  }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
+    const isOpen = rightPanel.activeTab === "plan";
+    if (isOpen) {
+      planSidebarDismissedForTurnRef.current =
+        activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
+      rightPanel.close();
+    } else {
+      planSidebarDismissedForTurnRef.current = null;
+      rightPanel.openTab("plan");
+    }
+  }, [activePlan?.turnId, rightPanel, sidebarProposedPlan?.turnId]);
   const closePlanSidebar = useCallback(() => {
-    setPlanSidebarOpen(false);
+    rightPanel.close();
     planSidebarDismissedForTurnRef.current =
       activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
-  }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
+  }, [activePlan?.turnId, rightPanel, sidebarProposedPlan?.turnId]);
+  const toggleSkillsPanel = useCallback(() => {
+    rightPanel.toggleTab("skills");
+  }, [rightPanel]);
 
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -2301,11 +2316,14 @@ export default function ChatView(props: ChatViewProps) {
     setPullRequestDialogState(null);
     if (planSidebarOpenOnNextThreadRef.current) {
       planSidebarOpenOnNextThreadRef.current = false;
-      setPlanSidebarOpen(true);
+      rightPanel.openTab("plan");
     } else {
-      setPlanSidebarOpen(false);
+      rightPanel.close();
     }
     planSidebarDismissedForTurnRef.current = null;
+    // rightPanel intentionally omitted: store is stable and we only want
+    // this effect to fire on thread change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThread?.id]);
 
   // Auto-open the plan sidebar when plan/todo steps arrive for the current turn.
@@ -2317,8 +2335,51 @@ export default function ChatView(props: ChatViewProps) {
     if (latestTurnId && activePlan.turnId !== latestTurnId) return;
     const turnKey = activePlan.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
     if (planSidebarDismissedForTurnRef.current === turnKey) return;
-    setPlanSidebarOpen(true);
+    rightPanel.openTab("plan");
+    // rightPanel intentionally omitted from deps: store is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePlan, activeLatestTurn?.turnId, planSidebarOpen, sidebarProposedPlan?.turnId]);
+
+  // Sync URL diff param → store: when the URL has ?diff=1, open the diff tab.
+  // Runs on page load and when navigating to/from ?diff=1.
+  useEffect(() => {
+    if (diffOpen && rightPanel.activeTab !== "diff") {
+      rightPanel.openTab("diff");
+    } else if (!diffOpen && rightPanel.activeTab === "diff") {
+      rightPanel.close();
+    }
+    // rightPanel intentionally omitted: stable store reference.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diffOpen]);
+
+  // Sync store → URL: when the diff tab is opened/closed in the store,
+  // update the URL so deep links and the DiffPanel (which reads from URL) stay correct.
+  const prevActiveTabRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevActiveTabRef.current;
+    prevActiveTabRef.current = rightPanel.activeTab;
+    if (!isServerThread) return;
+
+    if (rightPanel.activeTab === "diff" && prev !== "diff" && !diffOpen) {
+      // Diff tab opened via store (e.g. tab click) → write ?diff=1 to URL
+      onDiffPanelOpen?.();
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId, threadId },
+        search: (s) => ({ ...stripDiffSearchParams(s), diff: "1" }),
+      });
+    } else if (rightPanel.activeTab !== "diff" && prev === "diff" && diffOpen) {
+      // Diff tab closed via store → clear ?diff=1 from URL
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId, threadId },
+        search: (s) => stripDiffSearchParams(s),
+      });
+    }
+    // diffOpen, navigate, etc. intentionally omitted to prevent loops;
+    // we only want this to fire when activeTab changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rightPanel.activeTab]);
 
   useEffect(() => {
     setIsRevertingCheckpoint(false);
@@ -3221,7 +3282,7 @@ export default function ChatView(props: ChatViewProps) {
         // step-tracking activities that the sidebar will display.
         if (nextInteractionMode === "default") {
           planSidebarDismissedForTurnRef.current = null;
-          setPlanSidebarOpen(true);
+          rightPanel.openTab("plan");
         }
         sendInFlightRef.current = false;
       } catch (err) {
@@ -3667,6 +3728,8 @@ export default function ChatView(props: ChatViewProps) {
               handleRuntimeModeChange={handleRuntimeModeChange}
               handleInteractionModeChange={handleInteractionModeChange}
               togglePlanSidebar={togglePlanSidebar}
+              skillsPanelOpen={rightPanel.activeTab === "skills"}
+              toggleSkillsPanel={toggleSkillsPanel}
               focusComposer={focusComposer}
               scheduleComposerFocus={scheduleComposerFocus}
               setThreadError={setThreadError}
@@ -3712,18 +3775,20 @@ export default function ChatView(props: ChatViewProps) {
         </div>
         {/* end chat column */}
 
-        {/* Plan sidebar */}
-        {planSidebarOpen && !shouldUsePlanSidebarSheet ? (
-          <PlanSidebar
-            activePlan={activePlan}
-            activeProposedPlan={sidebarProposedPlan}
-            label={planSidebarLabel}
-            environmentId={environmentId}
-            markdownCwd={gitCwd ?? undefined}
-            workspaceRoot={activeWorkspaceRoot}
-            timestampFormat={timestampFormat}
-            mode="sidebar"
-            onClose={closePlanSidebar}
+        {/* Right panel tabs (Plan / Diff / Skills) — desktop inline */}
+        {rightPanel.activeTab !== null && !shouldUsePlanSidebarSheet ? (
+          <RightPanelTabs
+            planProps={{
+              activePlan,
+              activeProposedPlan: sidebarProposedPlan,
+              label: planSidebarLabel,
+              environmentId,
+              markdownCwd: gitCwd ?? undefined,
+              workspaceRoot: activeWorkspaceRoot,
+              timestampFormat,
+              onClose: closePlanSidebar,
+            }}
+            onSkillInsert={handleSkillInsert}
           />
         ) : null}
       </div>
@@ -3746,18 +3811,22 @@ export default function ChatView(props: ChatViewProps) {
           onAddTerminalContext={addTerminalContextToDraft}
         />
       ))}
+      {/* Right panel tabs — mobile sheet */}
       {shouldUsePlanSidebarSheet ? (
-        <RightPanelSheet open={planSidebarOpen} onClose={closePlanSidebar}>
-          <PlanSidebar
-            activePlan={activePlan}
-            activeProposedPlan={sidebarProposedPlan}
-            label={planSidebarLabel}
-            environmentId={environmentId}
-            markdownCwd={gitCwd ?? undefined}
-            workspaceRoot={activeWorkspaceRoot}
-            timestampFormat={timestampFormat}
+        <RightPanelSheet open={rightPanel.activeTab !== null} onClose={rightPanel.close}>
+          <RightPanelTabs
+            planProps={{
+              activePlan,
+              activeProposedPlan: sidebarProposedPlan,
+              label: planSidebarLabel,
+              environmentId,
+              markdownCwd: gitCwd ?? undefined,
+              workspaceRoot: activeWorkspaceRoot,
+              timestampFormat,
+              onClose: closePlanSidebar,
+            }}
             mode="sheet"
-            onClose={closePlanSidebar}
+            onSkillInsert={handleSkillInsert}
           />
         </RightPanelSheet>
       ) : null}

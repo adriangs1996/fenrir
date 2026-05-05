@@ -10,8 +10,6 @@ export interface ComposerTrigger {
   rangeStart: number;
   rangeEnd: number;
 }
-
-const SLASH_COMMANDS: readonly ComposerSlashCommand[] = ["model", "plan", "default"];
 const isInlineTokenSegment = (
   segment: { type: "text"; text: string } | { type: "mention" } | { type: "terminal-context" },
 ): boolean => segment.type !== "text";
@@ -201,15 +199,14 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
           rangeEnd: cursor,
         };
       }
-      if (SLASH_COMMANDS.some((command) => command.startsWith(commandQuery.toLowerCase()))) {
-        return {
-          kind: "slash-command",
-          query: commandQuery,
-          rangeStart: lineStart,
-          rangeEnd: cursor,
-        };
-      }
-      return null;
+      // Return slash-command for any /word pattern — built-in commands and skills are
+      // both shown in the menu and filtered there, not here.
+      return {
+        kind: "slash-command",
+        query: commandQuery,
+        rangeStart: lineStart,
+        rangeEnd: cursor,
+      };
     }
 
     const modelMatch = /^\/model(?:\s+(.*))?$/.exec(linePrefix);

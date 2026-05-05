@@ -72,6 +72,12 @@ import type {
   RawTcpSessionWriteInput,
   StopRawTcpListenerInput,
 } from "./rawTcpListener";
+import type {
+  ServerProviderSkill,
+  CreateSkillInput,
+  UpdateSkillInput,
+  ResolveSkillConflictInput,
+} from "./skill";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -272,6 +278,11 @@ export interface LocalApi {
     createGlobalAction: (input: CreateGlobalActionInput) => Promise<GlobalScript>;
     updateGlobalAction: (id: string, input: UpdateGlobalActionInput) => Promise<GlobalScript>;
     deleteGlobalAction: (id: string) => Promise<void>;
+    listSkills: () => Promise<ServerProviderSkill[]>;
+    createSkill: (input: CreateSkillInput) => Promise<ServerProviderSkill>;
+    updateSkill: (input: UpdateSkillInput) => Promise<ServerProviderSkill>;
+    deleteSkill: (name: string) => Promise<void>;
+    resolveSkillConflict: (input: ResolveSkillConflictInput) => Promise<ServerProviderSkill>;
   };
 }
 
