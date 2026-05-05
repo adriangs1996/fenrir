@@ -29,7 +29,7 @@ export function stepLogCacheKey(runId: string, stepKey: string): string {
  * Step states considered "active" — i.e. the step is currently producing
  * output and should be surfaced as an active tab in run views.
  */
-const ACTIVE_STEP_STATES = new Set(["ready", "running", "reviewing"]);
+const ACTIVE_STEP_STATES = new Set(["ready", "running"]);
 
 interface PlanRunnerState {
   // Feature discovery (keyed by projectId)
@@ -492,7 +492,7 @@ export function selectStartedStepHistory(
 
 /**
  * Active-step tabs for a run: the subset of started steps whose state is
- * still in-flight (`ready`/`running`/`reviewing`). Order matches
+ * still in-flight (`ready`/`running`). Order matches
  * `selectStartedStepHistory`.
  */
 export function selectActiveStepTabs(

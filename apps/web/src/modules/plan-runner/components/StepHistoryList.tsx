@@ -2,7 +2,6 @@ import { memo, useCallback } from "react";
 import {
   CheckCircle2Icon,
   CircleDotIcon,
-  EyeIcon,
   Loader2Icon,
   MinusCircleIcon,
   XCircleIcon,
@@ -18,7 +17,6 @@ const STATE_CFG: Record<PlanState, { icon: React.ElementType; cls: string }> = {
   blocked: { icon: CircleIcon, cls: "text-muted-foreground/40" },
   ready: { icon: CircleDotIcon, cls: "text-muted-foreground" },
   running: { icon: Loader2Icon, cls: "animate-spin text-blue-400" },
-  reviewing: { icon: EyeIcon, cls: "text-amber-400" },
   done: { icon: CheckCircle2Icon, cls: "text-emerald-400" },
   failed: { icon: XCircleIcon, cls: "text-red-400" },
   skipped: { icon: MinusCircleIcon, cls: "text-muted-foreground/50" },

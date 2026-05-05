@@ -121,6 +121,7 @@ import {
   PlanRunnerUnarchiveFeatureResult,
   PlanRunnerListArchivedFeaturesInput,
   PlanRunnerListArchivedFeaturesResult,
+  PlanRunnerRerunFromFailureInput,
 } from "./planRunner";
 import {
   ServerConfigStreamEvent,
@@ -218,6 +219,7 @@ export const WS_METHODS = {
   planRunnerArchiveFeature: "planRunner.archiveFeature",
   planRunnerUnarchiveFeature: "planRunner.unarchiveFeature",
   planRunnerListArchivedFeatures: "planRunner.listArchivedFeatures",
+  planRunnerRerunFromFailure: "planRunner.rerunFromFailure",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -645,6 +647,12 @@ export const WsPlanRunnerListArchivedFeaturesRpc = Rpc.make(
   },
 );
 
+export const WsPlanRunnerRerunFromFailureRpc = Rpc.make(WS_METHODS.planRunnerRerunFromFailure, {
+  payload: PlanRunnerRerunFromFailureInput,
+  success: PlanRunnerStartResult,
+  error: Schema.Union([PlanRunnerError, PlanRunnerNotFoundError]),
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -715,4 +723,5 @@ export const WsRpcGroup = RpcGroup.make(
   WsPlanRunnerArchiveFeatureRpc,
   WsPlanRunnerUnarchiveFeatureRpc,
   WsPlanRunnerListArchivedFeaturesRpc,
+  WsPlanRunnerRerunFromFailureRpc,
 );

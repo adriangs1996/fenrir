@@ -168,7 +168,6 @@ function buildSnapshot(
     .map((s) => {
       const stepThreads = stepThreadsByKey.get(s.stepKey) ?? [];
       const executor = stepThreads.find((t) => t.threadRole === "executor");
-      const reviewer = stepThreads.find((t) => t.threadRole === "reviewer");
       // Outer filter ensures planId/filename non-null; bang here because
       // Array.filter does not narrow element types.
       return {
@@ -179,7 +178,6 @@ function buildSnapshot(
         maxRetries: s.maxRetries,
         retriesUsed: s.retriesUsed,
         executorThreadId: executor?.threadId ?? null,
-        reviewerThreadId: reviewer?.threadId ?? null,
         error: s.error,
         startedAt: s.startedAt,
         completedAt: s.completedAt,

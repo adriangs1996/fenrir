@@ -2,8 +2,8 @@
 
 Orchestrates multi-plan feature implementation: reads `.plans/{feature}/`
 folders, freezes the plan graph at `start()`, persists every state
-transition through `PlanRunnerRepository`, spawns executor/reviewer threads
-per plan, and runs a final integration pass.
+transition through `PlanRunnerRepository`, spawns executor threads per
+plan, and runs a final integration pass.
 
 Persistence is the source of truth. The in-memory `activeRuns` map is a
 hot-cache for the executor fiber; reads fall through to the repository for
@@ -75,7 +75,7 @@ execution cache.
 | Feature state transition           | `updateRunState`                              |
 | Step state transition + retries    | `updateStepState` (bumps `last_updated_at`)   |
 | First run-out-of-`blocked`/`ready` | `setStepExecutionOrder`                       |
-| New executor/reviewer/integration  | `registerInternalThread`                      |
+| New executor/integration thread    | `registerInternalThread`                      |
 | Terminal summary + `completedAt`   | `updateRunState`                              |
 | Recovery synthetic log entry       | `appendSyntheticLogEntry` (`runner.recovery`) |
 
@@ -94,7 +94,7 @@ On layer construction:
    - Publish `planRunner.stateChanged`.
    - Re-hydrate the in-memory `PlanRunState` from the persisted snapshot
      (plans, thread refs, model selection from project default).
-   - Validate that every `running`/`reviewing` plan still has a live
+   - Validate that every `running` plan still has a live
      orchestration thread. If any is missing, the run is unrecoverable:
      mark the run failed, persist the failure, publish a terminal
      `planRunner.completed` and drop the recovery gate.

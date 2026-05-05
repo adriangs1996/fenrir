@@ -23,7 +23,6 @@ export const PlanState = Schema.Literals([
   "blocked",
   "ready",
   "running",
-  "reviewing",
   "done",
   "failed",
   "skipped",
@@ -45,12 +44,7 @@ export type FeatureState = typeof FeatureState.Type;
 export const PlanRunnerStepKind = Schema.Literals(["plan", "analyzer", "integration"]);
 export type PlanRunnerStepKind = typeof PlanRunnerStepKind.Type;
 
-export const PlanRunnerThreadRole = Schema.Literals([
-  "executor",
-  "reviewer",
-  "analyzer",
-  "integration",
-]);
+export const PlanRunnerThreadRole = Schema.Literals(["executor", "analyzer", "integration"]);
 export type PlanRunnerThreadRole = typeof PlanRunnerThreadRole.Type;
 
 export const PlanRunnerLogEntryKind = Schema.Literals([
@@ -73,7 +67,6 @@ export const PlanNode = Schema.Struct({
   maxRetries: Schema.Number,
   retriesUsed: Schema.Number,
   executorThreadId: Schema.NullOr(ThreadId),
-  reviewerThreadId: Schema.NullOr(ThreadId),
   error: Schema.NullOr(Schema.String),
   startedAt: Schema.NullOr(IsoDateTime),
   completedAt: Schema.NullOr(IsoDateTime),
@@ -145,6 +138,15 @@ export const PlanRunnerStartResult = Schema.Struct({
   branch: TrimmedNonEmptyString,
 });
 export type PlanRunnerStartResult = typeof PlanRunnerStartResult.Type;
+
+export const PlanRunnerRerunFromFailureInput = Schema.Struct({
+  projectId: ProjectId,
+  featureName: TrimmedNonEmptyString,
+  /** The runId of the failed run to resume from. */
+  failedRunId: PlanRunId,
+  modelSelection: Schema.optional(ModelSelection),
+});
+export type PlanRunnerRerunFromFailureInput = typeof PlanRunnerRerunFromFailureInput.Type;
 
 export const PlanRunnerGetStatusInput = Schema.Struct({ runId: PlanRunId });
 export type PlanRunnerGetStatusInput = typeof PlanRunnerGetStatusInput.Type;

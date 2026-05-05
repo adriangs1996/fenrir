@@ -5,7 +5,6 @@ import {
   Loader2Icon,
   XCircleIcon,
   MinusCircleIcon,
-  EyeIcon,
   CircleDotIcon,
   ZapIcon,
 } from "lucide-react";
@@ -228,7 +227,6 @@ const STATUS_CFG: Record<string, { icon: React.ElementType; cls: string }> = {
   blocked: { icon: CircleIcon, cls: "text-muted-foreground/40" },
   ready: { icon: CircleDotIcon, cls: "text-muted-foreground" },
   running: { icon: Loader2Icon, cls: "animate-spin text-blue-400" },
-  reviewing: { icon: EyeIcon, cls: "text-amber-400" },
   done: { icon: CheckCircle2Icon, cls: "text-emerald-400" },
   failed: { icon: XCircleIcon, cls: "text-red-400" },
   skipped: { icon: MinusCircleIcon, cls: "text-muted-foreground/50" },
@@ -252,7 +250,6 @@ function edgeColorClass(sourceState: string | undefined): string {
     case "skipped":
       return "text-muted-foreground/20";
     case "running":
-    case "reviewing":
       return "text-blue-400/30";
     default:
       return "text-muted-foreground/25";
@@ -401,10 +398,7 @@ export const PlanDagView = memo(function PlanDagView({
   }, [plans]);
 
   // Count running plans for concurrency indicator
-  const runningCount = useMemo(
-    () => plans.filter((p) => p.state === "running" || p.state === "reviewing").length,
-    [plans],
-  );
+  const runningCount = useMemo(() => plans.filter((p) => p.state === "running").length, [plans]);
 
   // Pre-compute node positions from layout
   const { nodePositions, svgWidth, svgHeight } = useMemo(() => {

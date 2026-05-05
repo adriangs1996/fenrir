@@ -22,6 +22,16 @@ export interface PlanRunnerServiceShape {
     readonly modelSelection?: ModelSelection | undefined;
   }) => Effect.Effect<{ runId: PlanRunId; branch: string }, PlanRunnerError>;
 
+  readonly rerunFromFailure: (input: {
+    readonly projectId: ProjectId;
+    readonly featureName: string;
+    readonly failedRunId: PlanRunId;
+    readonly modelSelection?: ModelSelection | undefined;
+  }) => Effect.Effect<
+    { runId: PlanRunId; branch: string },
+    PlanRunnerError | PlanRunnerNotFoundError
+  >;
+
   readonly getStatus: (runId: PlanRunId) => Effect.Effect<PlanRunSnapshot, PlanRunnerNotFoundError>;
 
   readonly cancel: (

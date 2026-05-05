@@ -1,4 +1,10 @@
-import { AlertCircleIcon, ArrowLeftIcon, Loader2Icon, SquareIcon } from "lucide-react";
+import {
+  AlertCircleIcon,
+  ArrowLeftIcon,
+  Loader2Icon,
+  RefreshCwIcon,
+  SquareIcon,
+} from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -170,6 +176,35 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
       setIsStarting(false);
     }
   }, [rpcClient, run, startBlocked, modelSelection, navigate]);
+
+  const hasCompletedPlans = useMemo(
+    () => run?.plans.some((p) => p.state === "done") ?? false,
+    [run],
+  );
+
+  const canRerunFromFailure = run?.state === "failed" && hasCompletedPlans;
+
+  const handleRerunFromFailure = useCallback(async () => {
+    if (!rpcClient || !run || !canRerunFromFailure || startBlocked) return;
+    setIsStarting(true);
+    setStartError(null);
+
+    try {
+      const result = await rpcClient.planRunner.rerunFromFailure({
+        projectId: run.projectId,
+        featureName: run.featureName,
+        failedRunId: brandedRunId,
+        modelSelection,
+      });
+      void navigate({
+        to: "/plan-runner/$runId",
+        params: { runId: result.runId },
+      });
+    } catch (err) {
+      setStartError(err instanceof Error ? err.message : "Failed to re-run from failure");
+      setIsStarting(false);
+    }
+  }, [rpcClient, run, canRerunFromFailure, startBlocked, brandedRunId, modelSelection, navigate]);
 
   const handleBack = useCallback(() => {
     void navigate({ to: "/" });
@@ -366,16 +401,33 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
                 onProviderModelChange={handleProviderModelChange}
               />
             </div>
-            <Button size="sm" onClick={handleStartRun} disabled={isStarting || startBlocked}>
-              {isStarting ? (
-                <>
-                  <Loader2Icon className="mr-1.5 size-3 animate-spin" />
-                  Starting...
-                </>
-              ) : (
-                "Start Run"
+            <div className="flex items-center gap-2">
+              {canRerunFromFailure && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleRerunFromFailure}
+                  disabled={isStarting || startBlocked}
+                >
+                  {isStarting ? (
+                    <Loader2Icon className="mr-1.5 size-3 animate-spin" />
+                  ) : (
+                    <RefreshCwIcon className="mr-1.5 size-3" />
+                  )}
+                  Re-run failed
+                </Button>
               )}
-            </Button>
+              <Button size="sm" onClick={handleStartRun} disabled={isStarting || startBlocked}>
+                {isStarting ? (
+                  <>
+                    <Loader2Icon className="mr-1.5 size-3 animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  "Start Run"
+                )}
+              </Button>
+            </div>
           </div>
           <div className="mt-2 text-xs text-muted-foreground">
             {startBlocked ? blockedReason : null}

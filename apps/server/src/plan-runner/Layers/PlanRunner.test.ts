@@ -98,7 +98,7 @@ describe("computeExecutionDispatch", () => {
       computeExecutionDispatch({
         plans: [
           { planId: "a", state: "running" },
-          { planId: "b", state: "reviewing" },
+          { planId: "b", state: "running" },
           { planId: "c", state: "ready" },
         ],
         maxConcurrency: 2,

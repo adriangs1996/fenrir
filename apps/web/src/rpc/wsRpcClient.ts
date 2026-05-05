@@ -140,6 +140,7 @@ export interface WsRpcClient {
     readonly getFeatureRun: RpcUnaryMethod<typeof WS_METHODS.planRunnerGetFeatureRun>;
     readonly listRuns: RpcUnaryMethod<typeof WS_METHODS.planRunnerListRuns>;
     readonly start: RpcUnaryMethod<typeof WS_METHODS.planRunnerStart>;
+    readonly rerunFromFailure: RpcUnaryMethod<typeof WS_METHODS.planRunnerRerunFromFailure>;
     readonly getStatus: RpcUnaryMethod<typeof WS_METHODS.planRunnerGetStatus>;
     readonly cancel: RpcUnaryMethod<typeof WS_METHODS.planRunnerCancel>;
     readonly getStepLog: RpcUnaryMethod<typeof WS_METHODS.planRunnerGetStepLog>;
@@ -335,6 +336,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       listRuns: (input) =>
         transport.request((client) => client[WS_METHODS.planRunnerListRuns](input)),
       start: (input) => transport.request((client) => client[WS_METHODS.planRunnerStart](input)),
+      rerunFromFailure: (input) =>
+        transport.request((client) => client[WS_METHODS.planRunnerRerunFromFailure](input)),
       getStatus: (input) =>
         transport.request((client) => client[WS_METHODS.planRunnerGetStatus](input)),
       cancel: (input) => transport.request((client) => client[WS_METHODS.planRunnerCancel](input)),

@@ -164,10 +164,7 @@ describe("selectInternalThreadIds / selectRunIdByInternalThreadId", () => {
       steps: [
         {
           stepKey: "plan:a",
-          threadRefs: [
-            { threadId: tid("th-exec"), role: "executor" },
-            { threadId: tid("th-rev"), role: "reviewer" },
-          ],
+          threadRefs: [{ threadId: tid("th-exec"), role: "executor" }],
         },
         {
           stepKey: "analyzer",
@@ -179,9 +176,7 @@ describe("selectInternalThreadIds / selectRunIdByInternalThreadId", () => {
       ],
     });
     const ids = selectInternalThreadIds({ [snapshot.runId]: snapshot });
-    expect([...ids].toSorted()).toEqual(
-      [tid("th-exec"), tid("th-rev"), tid("th-analyzer")].toSorted(),
-    );
+    expect([...ids].toSorted()).toEqual([tid("th-exec"), tid("th-analyzer")].toSorted());
   });
 
   it("returns an empty set when no run has thread refs", () => {
@@ -205,7 +200,7 @@ describe("selectInternalThreadIds / selectRunIdByInternalThreadId", () => {
       steps: [
         {
           stepKey: "plan:b",
-          threadRefs: [{ threadId: tid("th-2"), role: "reviewer" }],
+          threadRefs: [{ threadId: tid("th-2"), role: "executor" }],
         },
       ],
     });
@@ -232,7 +227,7 @@ describe("selectInternalThreadIds / selectRunIdByInternalThreadId", () => {
       steps: [
         {
           stepKey: "plan:b",
-          threadRefs: [{ threadId: tid("dup"), role: "reviewer" }],
+          threadRefs: [{ threadId: tid("dup"), role: "executor" }],
         },
       ],
     });
@@ -284,7 +279,7 @@ describe("selectStartedStepHistory / selectActiveStepTabs", () => {
     expect(history.map((s) => s.stepKey)).toEqual([tn("plan:done"), tn("plan:a"), tn("plan:b")]);
   });
 
-  it("active tabs only include in-flight (ready/running/reviewing) steps", () => {
+  it("active tabs only include in-flight (ready/running) steps", () => {
     const tabs = selectActiveStepTabs(snapshot);
     expect(tabs.map((s) => s.stepKey)).toEqual([tn("plan:a"), tn("plan:b")]);
   });

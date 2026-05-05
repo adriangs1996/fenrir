@@ -1210,6 +1210,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             "rpc.aggregate": "planRunner",
           }),
 
+        [WS_METHODS.planRunnerRerunFromFailure]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planRunnerRerunFromFailure,
+            planRunnerService.rerunFromFailure(input),
+            { "rpc.aggregate": "planRunner" },
+          ),
+
         [WS_METHODS.planRunnerGetStatus]: (input) =>
           observeRpcEffect(
             WS_METHODS.planRunnerGetStatus,

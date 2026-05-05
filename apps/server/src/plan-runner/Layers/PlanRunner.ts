@@ -84,24 +84,6 @@ interface PlanRunState {
   planContent: Map<string, string>;
 }
 
-/**
- * Structured reviewer feedback from a failed REVIEW_FAIL pass.
- * Carried into the next executor attempt so the model knows exactly
- * what to fix instead of re-running blind on a dirty worktree.
- */
-interface ReviewFeedback {
-  /** 1-indexed attempt number this feedback corresponds to. */
-  attempt: number;
-  /** Short root-cause summary parsed from reviewer output. */
-  rootCause: string;
-  /** Verifier checks that failed (e.g. "bun typecheck", "bun test src/foo"). */
-  failedChecks: string[];
-  /** Concrete fixes the reviewer said are required. */
-  requiredFixes: string[];
-  /** Full raw reviewer message (sentinel stripped). Fallback if parsing is partial. */
-  raw: string;
-}
-
 interface MutablePlanNode {
   planId: string;
   filename: string;
@@ -112,14 +94,11 @@ interface MutablePlanNode {
   maxRetries: number;
   retriesUsed: number;
   executorThreadId: string | null;
-  reviewerThreadId: string | null;
   error: string | null;
   startedAt: string | null;
   completedAt: string | null;
   /** Frozen plan body (sans frontmatter). */
   content: string;
-  /** Feedback from prior failed review passes, oldest → newest. */
-  reviewFeedback: ReviewFeedback[];
   /** True once `executionOrder` has been assigned + persisted. */
   executionOrderAssigned: boolean;
 }
@@ -166,14 +145,6 @@ function findDuplicatePlanId(
     seen.set(plan.planId, plan.filename);
   }
   return null;
-}
-
-function parseMarkdownList(s: string | undefined): string[] {
-  if (!s) return [];
-  return s
-    .split("\n")
-    .map((l) => l.replace(/^\s*[-*]\s+/, "").trim())
-    .filter(Boolean);
 }
 
 export function buildWorkspacePromptContext(input: {
@@ -223,38 +194,6 @@ export function findRecentProviderTurnStartFailure(
     return null;
   }
   return activityPayloadDetail(activity.payload) ?? activity.summary;
-}
-
-/**
- * Extract the inner text of an XML-style `<tag>...</tag>` block.
- * Returns `undefined` if the tag is absent. Case-insensitive on the tag name,
- * tolerant of attributes and surrounding whitespace. First match wins.
- */
-function extractTag(source: string, tag: string): string | undefined {
-  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
-  const m = source.match(re);
-  return m?.[1]?.trim();
-}
-
-/**
- * Parse a REVIEW_FAIL reviewer message into structured feedback.
- *
- * Reviewer is prompted to wrap each section in XML tags (`<root_cause>`,
- * `<failed_checks>`, `<required_fixes>`, `<raw_verifier_output>`). Parse is
- * best-effort — missing tags fall back to "" / [] and the full raw text is
- * preserved so the next executor still has signal even on malformed output.
- */
-function parseReviewFeedback(raw: string, attempt: number): ReviewFeedback {
-  // Strip sentinels so they don't bleed into the next prompt.
-  const cleaned = raw.replace(/REVIEW_(PASS|FAIL)/g, "").trim();
-
-  return {
-    attempt,
-    rootCause: extractTag(cleaned, "root_cause") ?? "",
-    failedChecks: parseMarkdownList(extractTag(cleaned, "failed_checks")),
-    requiredFixes: parseMarkdownList(extractTag(cleaned, "required_fixes")),
-    raw: cleaned,
-  };
 }
 
 function detectCycles(nodes: Map<string, string[]>): string[] | null {
@@ -309,7 +248,10 @@ const isTerminalFeatureState = (state: FeatureState): boolean =>
 const ARCHIVE_DIR_NAME = ".archive";
 const ARCHIVE_SUFFIX = "--archived-";
 
-function parseArchivedDirName(dir: string): { displayName: string; archivedAt: Date | null } {
+function parseArchivedDirName(dir: string): {
+  displayName: string;
+  archivedAt: Date | null;
+} {
   const match = dir.match(/^(.+)--archived-(\d+)$/);
   if (match) {
     return { displayName: match[1]!, archivedAt: new Date(Number(match[2])) };
@@ -396,7 +338,7 @@ export function computeExecutionDispatch(input: {
 } {
   const occupiedPlanIds = new Set(input.inFlightPlanIds);
   for (const plan of input.plans) {
-    if (plan.state === "running" || plan.state === "reviewing") {
+    if (plan.state === "running") {
       occupiedPlanIds.add(plan.planId);
     }
   }
@@ -1129,26 +1071,6 @@ export const PlanRunnerLive = Layer.effect(
           .pipe(Effect.ignore);
       });
 
-    /**
-     * Send a follow-up user turn to an existing thread. Used to drive the
-     * reviewer through fix-then-reverify cycles without spawning a new thread.
-     */
-    const sendFollowupTurn = (threadId: string, prompt: string) =>
-      orchestrationEngine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe(`plan-runner:turn:${makeId()}`),
-        threadId: ThreadId.makeUnsafe(threadId),
-        message: {
-          messageId: MessageId.makeUnsafe(makeId()),
-          role: "user",
-          text: prompt,
-          attachments: [],
-        },
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        createdAt: now(),
-      });
-
     /** Remove a worktree we created. Skip if we reused an existing one. */
     const cleanupWorktree = (run: PlanRunState) =>
       Effect.gen(function* () {
@@ -1470,10 +1392,42 @@ ${plan.content}`;
         // Wait for executor
         const execResult = yield* waitForThreadTurnComplete(executorThreadId, run);
         if (!execResult.ok) {
-          // Executor done (failed). Archive — reviewer never spawned here.
+          // Executor failed. Archive thread.
           yield* finalizeThread(executorThreadId);
+          plan.executorThreadId = null;
+
+          const failureReason = execResult.error ?? "Executor thread failed";
+
+          // Retry if budget remains
+          if (plan.retriesUsed < plan.maxRetries) {
+            plan.retriesUsed++;
+            plan.state = "ready";
+            plan.error = `Retry ${plan.retriesUsed}/${plan.maxRetries}: ${failureReason}`;
+            yield* persistStepStateTransition(run, plan);
+            yield* publishPlanStateChanged(run, plan.planId);
+            yield* emitSyntheticLogEntry(run, plan.stepKey, {
+              kind: "runner.retry",
+              title: `Plan "${plan.planId}" retry ${plan.retriesUsed}/${plan.maxRetries}`,
+              bodyMarkdown: `Executor failed; re-enqueuing plan **${plan.planId}** (attempt ${plan.retriesUsed + 1} of ${plan.maxRetries + 1}).\n\n> ${failureReason}`,
+              bodyText: `Retry ${plan.retriesUsed}/${plan.maxRetries} for ${plan.planId}: ${failureReason}`,
+              copyText: `plan-runner: ${plan.planId} retry ${plan.retriesUsed}/${plan.maxRetries}`,
+              payload: {
+                phase: "step.retry",
+                planId: plan.planId,
+                attempt: plan.retriesUsed,
+                maxRetries: plan.maxRetries,
+                error: failureReason,
+              },
+              createdAt: now() as any,
+            });
+            return;
+          }
+
           plan.state = "failed";
-          plan.error = execResult.error ?? "Executor thread failed";
+          plan.error =
+            plan.maxRetries > 0
+              ? `Failed after ${plan.maxRetries + 1} attempts: ${failureReason}`
+              : failureReason;
           plan.completedAt = now();
           yield* persistStepStateTransition(run, plan);
           yield* publishPlanStateChanged(run, plan.planId);
@@ -1488,6 +1442,7 @@ ${plan.content}`;
               outcome: "failed",
               planId: plan.planId,
               error: plan.error,
+              retriesUsed: plan.retriesUsed,
             },
             createdAt: now() as any,
           });
@@ -1495,252 +1450,86 @@ ${plan.content}`;
           return;
         }
 
-        // Mark reviewing
-        plan.state = "reviewing";
+        // Executor succeeded — archive thread and mark done.
+        if (plan.executorThreadId) {
+          yield* finalizeThread(plan.executorThreadId);
+        }
+
+        plan.state = "done";
+        plan.error = null;
+        plan.completedAt = now();
         yield* persistStepStateTransition(run, plan);
         yield* publishPlanStateChanged(run, plan.planId);
         yield* emitSyntheticLogEntry(run, plan.stepKey, {
           kind: "runner.status",
-          title: `Plan "${plan.planId}" entered review`,
-          bodyMarkdown: `Reviewer attached to verify plan **${plan.planId}**.`,
-          bodyText: `Review phase started for ${plan.planId}.`,
-          copyText: `plan-runner: ${plan.planId} entered review`,
+          title: `Plan "${plan.planId}" completed`,
+          bodyMarkdown: `Executor finished plan **${plan.planId}** successfully.`,
+          bodyText: `Plan ${plan.planId} done.`,
+          copyText: `plan-runner: ${plan.planId} done`,
           payload: {
-            phase: "step.review",
+            phase: "step.finished",
+            outcome: "done",
             planId: plan.planId,
           },
           createdAt: now() as any,
         });
 
-        // Bootstrap reviewer thread when missing. The reviewer plays a dual
-        // role:
-        //  1. Verify the executor's work and report findings.
-        //  2. On REVIEW_FAIL, apply the fixes itself in follow-up turns
-        //     (we no longer re-run the executor on failure).
-        // The same thread persists across the fix-and-reverify loop so the
-        // reviewer keeps its full context (prior findings, verifier output).
-        let reviewerThreadId = plan.reviewerThreadId;
-        if (!reviewerThreadId) {
-          const reviewerPrompt = `
-You are a code reviewer AND fixer for plan "${plan.planId}" in feature "${run.featureName}".
-The executor has just implemented this plan. Your job:
-
-${workspacePromptContext}
-
-1. Run verification:
-   - Typechecks if the project allows it
-   - Linters
-   - Tests
-
-2. Verify implementation correctness:
-   - All tasks in plan completed
-   - No placeholder/TODO code left
-   - No dead code, unused imports, half-baked implementations
-   - Code follows existing codebase patterns
-
-3. Report findings.
-
-If ALL checks pass and implementation is correct: end your message with the literal token REVIEW_PASS on its own line.
-
-If ANY check fails or implementation is incomplete, end your message with REVIEW_FAIL and the following XML-tagged sections (use these exact tag names):
-
-<root_cause>
-1-2 sentences explaining why the implementation failed.
-</root_cause>
-
-<failed_checks>
-- <command or check> → <quote the exact failing output, do not paraphrase>
-- ...
-</failed_checks>
-
-<required_fixes>
-- <file:line or area> <concrete action required>
-- ...
-</required_fixes>
-
-<raw_verifier_output>
-Paste full stderr/stdout from any failing command, verbatim. No fences needed.
-</raw_verifier_output>
-
-IMPORTANT: If you reply REVIEW_FAIL, you will be asked in a follow-up turn to APPLY THE FIXES YOURSELF — the executor will not be re-run. Tag the issues precisely so your future self can act on them. You retain full edit access to the worktree.
-
-Plan that was supposed to be implemented:
-# Plan: ${plan.planId}
-${plan.content}
-`;
-
-          const bootstrapped = yield* bootstrapThreadWithPrompt({
-            projectId: run.projectId,
-            title: `[PlanRunner] Review: ${plan.planId}`,
-            prompt: reviewerPrompt,
-            modelSelection: run.modelSelection,
-            branch: run.branch,
-            worktreePath: run.worktreePath,
-          });
-          reviewerThreadId = bootstrapped.threadId;
-          plan.reviewerThreadId = reviewerThreadId;
-          yield* persistInternalThread(run, plan.stepKey, reviewerThreadId, "reviewer");
-        }
-
-        // Reviewer fix-and-reverify loop. Each iteration is one turn on the
-        // SAME reviewer thread:
-        //   - turn 1: initial review (from bootstrap prompt)
-        //   - turn 2..N: "fix what you found, then reverify" follow-ups
-        // Total turns capped at 1 + maxRetries.
-        let reviewResponse: string | null = null;
-        let passed = false;
-        let exhausted = false;
-
-        while (true) {
-          const turnResult = yield* waitForThreadTurnComplete(reviewerThreadId, run);
-          if (!turnResult.ok) {
-            // Treat reviewer thread errors as terminal — no point retrying
-            // on top of a broken session.
-            reviewResponse = null;
-            break;
-          }
-
-          reviewResponse = yield* readLastAssistantMessage(reviewerThreadId);
-
-          if (reviewResponse?.includes("REVIEW_PASS")) {
-            passed = true;
-            break;
-          }
-
-          // FAIL — capture parsed feedback for telemetry/snapshots before
-          // deciding whether to push another fix turn.
-          if (reviewResponse) {
-            plan.reviewFeedback.push(parseReviewFeedback(reviewResponse, plan.retriesUsed + 1));
-          }
-
-          if (plan.retriesUsed >= plan.maxRetries) {
-            exhausted = true;
-            break;
-          }
-
-          plan.retriesUsed++;
-          plan.error = "Review failed, reviewer applying fixes";
-          yield* persistStepStateTransition(run, plan);
-          yield* publishPlanStateChanged(run, plan.planId);
-          yield* emitSyntheticLogEntry(run, plan.stepKey, {
-            kind: "runner.retry",
-            title: `Plan "${plan.planId}" retry ${plan.retriesUsed}/${plan.maxRetries}`,
-            bodyMarkdown: `Reviewer reported failures; starting fix attempt **${plan.retriesUsed} of ${plan.maxRetries}**.`,
-            bodyText: `Retry ${plan.retriesUsed}/${plan.maxRetries} for ${plan.planId}.`,
-            copyText: `plan-runner: ${plan.planId} retry ${plan.retriesUsed}/${plan.maxRetries}`,
-            payload: {
-              phase: "step.retry",
-              planId: plan.planId,
-              attempt: plan.retriesUsed,
-              maxRetries: plan.maxRetries,
-            },
-            createdAt: now() as any,
-          });
-
-          // Drive the reviewer to fix-then-reverify on the same thread.
-          const fixupPrompt = `Your previous review reported issues. Apply the fixes yourself now — do NOT delegate or re-run the executor.
-
-1. Apply every item listed in <required_fixes> from your previous message.
-2. Re-run the same verification suite (typecheck, lint, tests).
-3. End your reply with REVIEW_PASS if everything now passes, or REVIEW_FAIL with updated XML-tagged sections if issues remain.
-
-This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
-
-          yield* sendFollowupTurn(reviewerThreadId, fixupPrompt);
-        }
-
-        if (passed) {
-          // Pass — archive the plan's threads (executor + reviewer are
-          // done with their job) and mark the plan done.
-          if (plan.executorThreadId) {
-            yield* finalizeThread(plan.executorThreadId);
-          }
-          if (plan.reviewerThreadId) {
-            yield* finalizeThread(plan.reviewerThreadId);
-          }
-
-          plan.state = "done";
-          plan.error = null;
-          plan.completedAt = now();
-          yield* persistStepStateTransition(run, plan);
-          yield* publishPlanStateChanged(run, plan.planId);
-          yield* emitSyntheticLogEntry(run, plan.stepKey, {
-            kind: "runner.status",
-            title: `Plan "${plan.planId}" completed`,
-            bodyMarkdown: `Reviewer signalled REVIEW_PASS after ${plan.retriesUsed} fix ${plan.retriesUsed === 1 ? "attempt" : "attempts"}.`,
-            bodyText: `Plan ${plan.planId} done after ${plan.retriesUsed} retries.`,
-            copyText: `plan-runner: ${plan.planId} done`,
-            payload: {
-              phase: "step.finished",
-              outcome: "done",
-              planId: plan.planId,
-              retriesUsed: plan.retriesUsed,
-            },
-            createdAt: now() as any,
-          });
-
-          // Unblock dependents and notify UI
-          for (const node of run.plans.values()) {
-            if (node.state === "blocked" && node.dependsOn.includes(plan.planId)) {
-              const allDepsResolved = node.dependsOn.every((dep) => {
-                const depNode = run.plans.get(dep);
-                return !depNode || depNode.state === "done";
-              });
-              if (allDepsResolved) {
-                node.state = "ready";
-                yield* persistStepStateTransition(run, node);
-                yield* publishPlanStateChanged(run, node.planId);
-              }
+        // Unblock dependents and notify UI
+        for (const node of run.plans.values()) {
+          if (node.state === "blocked" && node.dependsOn.includes(plan.planId)) {
+            const allDepsResolved = node.dependsOn.every((dep) => {
+              const depNode = run.plans.get(dep);
+              return !depNode || depNode.state === "done";
+            });
+            if (allDepsResolved) {
+              node.state = "ready";
+              yield* persistStepStateTransition(run, node);
+              yield* publishPlanStateChanged(run, node.planId);
             }
           }
-        } else {
-          // Fail (exhausted retries OR reviewer thread error). Archive both
-          // executor + reviewer — they're done with their job either way.
-          if (plan.executorThreadId) {
-            yield* finalizeThread(plan.executorThreadId);
-          }
-          if (plan.reviewerThreadId) {
-            yield* finalizeThread(plan.reviewerThreadId);
-          }
-          plan.state = "failed";
-          plan.error = exhausted
-            ? `Review failed after ${plan.maxRetries} fix attempts`
-            : reviewResponse
-              ? "Reviewer thread errored mid-fix"
-              : "Reviewer thread failed to respond";
-          plan.completedAt = now();
-          yield* persistStepStateTransition(run, plan);
-          yield* publishPlanStateChanged(run, plan.planId);
-          yield* emitSyntheticLogEntry(run, plan.stepKey, {
-            kind: "runner.status",
-            title: `Plan "${plan.planId}" failed`,
-            bodyMarkdown: `Plan **${plan.planId}** failed: ${plan.error}.`,
-            bodyText: `Plan ${plan.planId} failed: ${plan.error}.`,
-            copyText: `plan-runner: ${plan.planId} failed — ${plan.error}`,
-            payload: {
-              phase: "step.finished",
-              outcome: "failed",
-              planId: plan.planId,
-              error: plan.error,
-              retriesUsed: plan.retriesUsed,
-            },
-            createdAt: now() as any,
-          });
-          yield* markDependentsSkippedAndPublish(run, plan.planId);
         }
       }).pipe(
         Effect.catch((err) =>
           Effect.gen(function* () {
-            // Archive any spawned threads on unexpected errors
+            // Archive executor thread on unexpected errors
             if (plan.executorThreadId) {
               yield* finalizeThread(plan.executorThreadId);
+              plan.executorThreadId = null;
             }
-            if (plan.reviewerThreadId) {
-              yield* finalizeThread(plan.reviewerThreadId);
+
+            const failureReason =
+              err instanceof Error ? `Executor error: ${err.message}` : "Unexpected executor error";
+
+            // Retry if budget remains
+            if (plan.retriesUsed < plan.maxRetries) {
+              plan.retriesUsed++;
+              plan.state = "ready";
+              plan.error = `Retry ${plan.retriesUsed}/${plan.maxRetries}: ${failureReason}`;
+              yield* persistStepStateTransition(run, plan);
+              yield* publishPlanStateChanged(run, plan.planId);
+              yield* emitSyntheticLogEntry(run, plan.stepKey, {
+                kind: "runner.retry",
+                title: `Plan "${plan.planId}" retry ${plan.retriesUsed}/${plan.maxRetries}`,
+                bodyMarkdown: `Unexpected error; re-enqueuing plan **${plan.planId}** (attempt ${plan.retriesUsed + 1} of ${plan.maxRetries + 1}).\n\n> ${failureReason}`,
+                bodyText: `Retry ${plan.retriesUsed}/${plan.maxRetries} for ${plan.planId}: ${failureReason}`,
+                copyText: `plan-runner: ${plan.planId} retry ${plan.retriesUsed}/${plan.maxRetries}`,
+                payload: {
+                  phase: "step.retry",
+                  planId: plan.planId,
+                  attempt: plan.retriesUsed,
+                  maxRetries: plan.maxRetries,
+                  error: failureReason,
+                },
+                createdAt: now() as any,
+              });
+              return;
             }
+
             plan.state = "failed";
             plan.error =
-              err instanceof Error ? `Executor error: ${err.message}` : "Unexpected executor error";
+              plan.maxRetries > 0
+                ? `Failed after ${plan.maxRetries + 1} attempts: ${failureReason}`
+                : failureReason;
             plan.completedAt = now();
             yield* persistStepStateTransition(run, plan);
             yield* publishPlanStateChanged(run, plan.planId);
@@ -1755,6 +1544,7 @@ This is fix attempt ${plan.retriesUsed} of ${plan.maxRetries}.`;
                 outcome: "errored",
                 planId: plan.planId,
                 error: plan.error,
+                retriesUsed: plan.retriesUsed,
               },
               createdAt: now() as any,
             });
@@ -2116,7 +1906,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           run.summary = `Feature "${run.featureName}" completed. ${donePlans.length} plans done, ${failedPlans.length} failed/skipped.`;
 
           // Run-level success — archive run-scoped helper threads. Per-plan
-          // executor/reviewer threads were already archived at REVIEW_PASS.
+          // executor threads were already archived on completion.
           if (run.analyzerThreadId) {
             yield* finalizeThread(run.analyzerThreadId);
           }
@@ -2203,8 +1993,8 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             });
           }),
         ),
-        // Cleanup worktree on failure. On success, keep it for user inspection.
-        Effect.tap(() => (run.state === "failed" ? cleanupWorktree(run) : Effect.void)),
+        // Keep worktree on failure (for re-run from failure). On success, keep for user inspection.
+        // Worktree is only cleaned up on cancel or archive.
       );
 
     // ── Plan freeze (read .plans/ once at start time) ─────────────────
@@ -2317,7 +2107,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           const stepKey = planStepKey(plan.planId);
           const threadsForStep = threadRows.filter((t) => t.stepKey === stepKey);
           const executor = threadsForStep.find((t) => t.threadRole === "executor");
-          const reviewer = threadsForStep.find((t) => t.threadRole === "reviewer");
 
           // Best-effort markdown rehydrate from disk if the file still
           // matches the frozen filename. The persisted plan_markdown is the
@@ -2348,12 +2137,10 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             maxRetries: plan.maxRetries,
             retriesUsed: plan.retriesUsed,
             executorThreadId: executor?.threadId ?? plan.executorThreadId ?? null,
-            reviewerThreadId: reviewer?.threadId ?? plan.reviewerThreadId ?? null,
             error: plan.error,
             startedAt: plan.startedAt,
             completedAt: plan.completedAt,
             content,
-            reviewFeedback: [],
             executionOrderAssigned: plan.startedAt !== null,
           });
         }
@@ -2414,7 +2201,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
       });
 
     /**
-     * Validate that every running/reviewing step has a live backing thread
+     * Validate that every running step has a live backing thread
      * + session in the orchestration read model. If any are missing the
      * run is unrecoverable: the runtime can't resume an execution whose
      * thread state was lost.
@@ -2427,7 +2214,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
     const validateRecoverableThreads = (run: PlanRunState) =>
       Effect.gen(function* () {
         type Expected = {
-          kind: "executor" | "reviewer" | "integration";
+          kind: "executor" | "integration";
           planId: string | null;
           id: string;
         };
@@ -2438,13 +2225,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               kind: "executor",
               planId: plan.planId,
               id: plan.executorThreadId,
-            });
-          }
-          if (plan.state === "reviewing" && plan.reviewerThreadId) {
-            expectedThreadIds.push({
-              kind: "reviewer",
-              planId: plan.planId,
-              id: plan.reviewerThreadId,
             });
           }
         }
@@ -2484,7 +2264,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           lastDetail =
             missing.kind === "integration"
               ? `Integration thread for run "${run.runId}" was lost.`
-              : `${missing.kind === "executor" ? "Executor" : "Reviewer"} thread for plan "${missing.planId}" was lost.`;
+              : `Executor thread for plan "${missing.planId}" was lost.`;
 
           if (Date.now() - startedAtMs > MAX_POLL_MS) {
             return { ok: false, detail: lastDetail } as const;
@@ -2904,12 +2684,10 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               maxRetries: fp.maxRetries,
               retriesUsed: 0,
               executorThreadId: null,
-              reviewerThreadId: null,
               error: null,
               startedAt: null,
               completedAt: null,
               content: fp.content,
-              reviewFeedback: [],
               executionOrderAssigned: false,
             });
           }
@@ -3035,6 +2813,282 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           return { runId, branch: branchName };
         }),
 
+      rerunFromFailure: (input) =>
+        Effect.gen(function* () {
+          // 1. Look up the failed run
+          const persistedRun = yield* repo.getRunById({ runId: input.failedRunId }).pipe(
+            Effect.mapError(
+              (err) =>
+                new PlanRunnerNotFoundError({
+                  runId: input.failedRunId,
+                  message:
+                    `Failed to read run "${input.failedRunId}": ${(err as { message?: string }).message ?? "unknown"}` as any,
+                }),
+            ),
+          );
+          if (Option.isNone(persistedRun)) {
+            return yield* new PlanRunnerNotFoundError({
+              runId: input.failedRunId,
+              message: `Run "${input.failedRunId}" not found` as any,
+            });
+          }
+          const snapshot = persistedRun.value;
+
+          if (snapshot.state !== "failed") {
+            return yield* new PlanRunnerError({
+              message:
+                `Cannot re-run: run "${input.failedRunId}" is "${snapshot.state}", not "failed"` as any,
+            });
+          }
+
+          // Verify feature name matches
+          if (snapshot.featureName !== input.featureName) {
+            return yield* new PlanRunnerError({
+              message:
+                `Run "${input.failedRunId}" belongs to feature "${snapshot.featureName}", not "${input.featureName}"` as any,
+            });
+          }
+
+          // Must have at least one done plan (otherwise a fresh start is equivalent)
+          const donePlans = snapshot.plans.filter((p) => p.state === "done");
+          if (donePlans.length === 0) {
+            return yield* new PlanRunnerError({
+              message:
+                `No completed plans in run "${input.failedRunId}". Use "Start Run" for a fresh execution instead.` as any,
+            });
+          }
+
+          // 2. Gate: no active run
+          yield* assertNoActiveRun(input.projectId, input.featureName);
+
+          // 3. Verify worktree still exists (if one was used)
+          if (snapshot.worktreePath) {
+            const worktreeExists = yield* fs
+              .exists(snapshot.worktreePath)
+              .pipe(Effect.catch(() => Effect.succeed(false)));
+            if (!worktreeExists) {
+              return yield* new PlanRunnerError({
+                message:
+                  `Worktree for prior run no longer exists at "${snapshot.worktreePath}". Use "Start Run" for a fresh execution.` as any,
+              });
+            }
+          }
+
+          // 4. Resolve model selection
+          let modelSelection: ModelSelection | undefined = input.modelSelection;
+          if (!modelSelection) {
+            const readModel = yield* orchestrationEngine.getReadModel();
+            const project = readModel.projects.find((p) => p.id === input.projectId);
+            if (project?.defaultModelSelection) {
+              modelSelection = project.defaultModelSelection;
+            } else {
+              return yield* new PlanRunnerError({
+                message: "No model selection provided and no project default found" as any,
+              });
+            }
+          }
+
+          // 5. Rehydrate plan content from prior run's persisted steps
+          const threadRows = yield* repo
+            .listInternalThreadRefs({ runId: input.failedRunId })
+            .pipe(
+              Effect.catch(() => Effect.succeed([] as ReadonlyArray<PlanRunnerInternalThreadRow>)),
+            );
+          const oldThreadIds = threadRows.map((r) => r.threadId as string);
+
+          // Read plan content from disk (same as recovery does)
+          const projectCwd = yield* resolveProjectCwd(input.projectId).pipe(
+            Effect.catch(() => Effect.succeed(null as string | null)),
+          );
+
+          // 6. Build new run state — preserve done plans, reset failed/skipped
+          const newRunId = PlanRunIdSchema.makeUnsafe(makeId());
+          const startedAt = now();
+          const MAX_CONCURRENCY = 3;
+
+          const planContentMap = new Map<string, string>();
+          const plans = new Map<string, MutablePlanNode>();
+
+          for (const plan of snapshot.plans) {
+            // Rehydrate plan content from disk
+            let content = "";
+            if (projectCwd) {
+              const planPath = pathService.join(
+                projectCwd,
+                ".plans",
+                snapshot.featureName,
+                plan.filename,
+              );
+              content = yield* fs.readFileString(planPath).pipe(
+                Effect.map((raw) => parsePlanFrontmatter(raw, plan.planId).body),
+                Effect.catch(() => Effect.succeed("")),
+              );
+            }
+            planContentMap.set(plan.planId, content);
+
+            if (plan.state === "done") {
+              // Preserve completed plans exactly
+              plans.set(plan.planId, {
+                planId: plan.planId,
+                filename: plan.filename,
+                stepKey: planStepKey(plan.planId),
+                state: "done",
+                dependsOn: [...plan.dependsOn],
+                maxRetries: plan.maxRetries,
+                retriesUsed: plan.retriesUsed,
+                executorThreadId: null, // Old threads will be deleted
+                error: null,
+                startedAt: plan.startedAt,
+                completedAt: plan.completedAt,
+                content,
+                executionOrderAssigned: true,
+              });
+            } else {
+              // Reset failed/skipped/blocked plans
+              plans.set(plan.planId, {
+                planId: plan.planId,
+                filename: plan.filename,
+                stepKey: planStepKey(plan.planId),
+                state: "blocked",
+                dependsOn: [...plan.dependsOn],
+                maxRetries: plan.maxRetries,
+                retriesUsed: 0,
+                executorThreadId: null,
+                error: null,
+                startedAt: null,
+                completedAt: null,
+                content,
+                executionOrderAssigned: false,
+              });
+            }
+          }
+
+          // Promote blocked plans whose deps are all done
+          for (const node of plans.values()) {
+            if (node.state === "blocked") {
+              const allDepsResolved = node.dependsOn.every((dep) => {
+                const depNode = plans.get(dep);
+                return !depNode || depNode.state === "done";
+              });
+              if (allDepsResolved) {
+                node.state = "ready";
+              }
+            }
+          }
+
+          const resetPlanCount = [...plans.values()].filter((p) => p.state !== "done").length;
+
+          // 7. Build run state — start in "executing" (skip analyzer)
+          const analyzerOrder = 0;
+          const integrationOrder = 1;
+          const planBaseOrder = 2;
+
+          const run: PlanRunState = {
+            runId: newRunId,
+            featureName: input.featureName,
+            projectId: input.projectId,
+            branch: snapshot.branch,
+            worktreePath: snapshot.worktreePath,
+            ownsWorktree: false, // Reusing prior run's worktree
+            state: "executing",
+            plans,
+            nextExecutionOrder: planBaseOrder + plans.size,
+            analyzerThreadId: null,
+            integrationThreadId: null,
+            startedAt,
+            completedAt: null,
+            summary: null,
+            cancelled: false,
+            modelSelection: modelSelection!,
+            maxConcurrency: MAX_CONCURRENCY,
+            planContent: planContentMap,
+          };
+
+          // 8. Build persistence rows
+          const stepRows: PlanRunnerStepRow[] = [
+            // Analyzer already done (DAG was validated in original run)
+            {
+              ...buildSyntheticStepRow(run, ANALYZER_STEP_KEY, "analyzer", analyzerOrder),
+              state: "done" as PlanState,
+              startedAt: startedAt as any,
+              completedAt: startedAt as any,
+            },
+            buildSyntheticStepRow(run, INTEGRATION_STEP_KEY, "integration", integrationOrder),
+          ];
+          let nextOrder = planBaseOrder;
+          for (const plan of run.plans.values()) {
+            stepRows.push(buildPlanStepRow(run, plan, nextOrder));
+            nextOrder += 1;
+          }
+
+          const runRow = buildRunRow(run);
+
+          yield* repo
+            .replaceFeatureRun({
+              projectId: run.projectId,
+              featureName: run.featureName as any,
+              run: runRow,
+              steps: stepRows,
+              internalThreads: [],
+              oldRunId: input.failedRunId,
+            })
+            .pipe(
+              Effect.mapError(
+                (err) =>
+                  new PlanRunnerError({
+                    message:
+                      `Failed to persist re-run for feature "${run.featureName}": ${(err as { message?: string }).message ?? "unknown"}` as any,
+                    cause: err,
+                  }),
+              ),
+            );
+
+          // 9. Delete old internal threads
+          for (const oldThreadId of oldThreadIds) {
+            yield* orchestrationEngine
+              .dispatch({
+                type: "thread.delete",
+                commandId: CommandId.makeUnsafe(`plan-runner:rerun-delete:${makeId()}`),
+                threadId: ThreadId.makeUnsafe(oldThreadId),
+              })
+              .pipe(Effect.exit);
+            // Best-effort — don't abort re-run if thread cleanup fails
+          }
+
+          // 10. Cache and drive execution
+          yield* Ref.update(activeRuns, (m) => {
+            const next = new Map(m);
+            next.set(newRunId, run);
+            return next;
+          });
+
+          yield* publishPersistedSnapshot(run.runId);
+
+          // Emit synthetic log entry explaining re-run context
+          yield* emitSyntheticLogEntry(run, ANALYZER_STEP_KEY, {
+            kind: "runner.status",
+            title: `Re-running from failure for "${run.featureName}"`,
+            bodyMarkdown: `Resuming from prior run \`${input.failedRunId}\`. ${donePlans.length} plan${donePlans.length === 1 ? "" : "s"} preserved as done, ${resetPlanCount} plan${resetPlanCount === 1 ? "" : "s"} reset for re-execution.`,
+            bodyText: `Re-run from failure: ${donePlans.length} done, ${resetPlanCount} reset.`,
+            copyText: `plan-runner: re-run from ${input.failedRunId}`,
+            payload: {
+              phase: "run.rerun",
+              priorRunId: input.failedRunId,
+              donePlanCount: donePlans.length,
+              resetPlanCount,
+            },
+            createdAt: now() as any,
+          });
+
+          yield* driveExecution(run).pipe(
+            Effect.ignoreCause({ log: true }),
+            Effect.forkIn(runtimeScope),
+            Effect.asVoid,
+          );
+
+          return { runId: newRunId, branch: snapshot.branch };
+        }),
+
       getStatus: (runId) =>
         Effect.gen(function* () {
           const persisted = yield* repo.getRunById({ runId }).pipe(
@@ -3072,14 +3126,11 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
           // Stop all active thread sessions and mark non-terminal plans
           // skipped. Persist + publish each transition so the UI doesn't
-          // render stale running/reviewing states after termination.
+          // render stale running states after termination.
           for (const node of run.plans.values()) {
             if (node.state !== "done" && node.state !== "failed" && node.state !== "skipped") {
               if (node.executorThreadId) {
                 yield* stopThreadSession(node.executorThreadId);
-              }
-              if (node.reviewerThreadId) {
-                yield* stopThreadSession(node.reviewerThreadId);
               }
               node.state = "skipped";
               node.error = "Cancelled by user";
