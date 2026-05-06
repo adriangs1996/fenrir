@@ -133,7 +133,6 @@ export const RightPanelTabs = memo(function RightPanelTabs({
             markdownCwd={planProps.markdownCwd}
             workspaceRoot={planProps.workspaceRoot}
             timestampFormat={planProps.timestampFormat}
-            mode="sidebar"
             onClose={planProps.onClose}
           />
         </div>

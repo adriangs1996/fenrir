@@ -13,15 +13,12 @@ import {
 } from "../ui/menu";
 
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
-  activePlan: boolean;
   interactionMode: ProviderInteractionMode;
-  planSidebarLabel: string;
-  planSidebarOpen: boolean;
   skillsPanelOpen: boolean;
+  hasActivePlan: boolean;
   runtimeMode: RuntimeMode;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
-  onTogglePlanSidebar: () => void;
   onToggleSkillsPanel: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
@@ -72,17 +69,19 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         </MenuRadioGroup>
         <MenuDivider />
         <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Panels</div>
-        {props.activePlan ? (
-          <MenuItem onClick={props.onTogglePlanSidebar}>
-            <ListTodoIcon className="size-4 shrink-0" />
-            {props.planSidebarOpen
-              ? `Hide ${props.planSidebarLabel.toLowerCase()} sidebar`
-              : `Show ${props.planSidebarLabel.toLowerCase()} sidebar`}
-          </MenuItem>
-        ) : null}
         <MenuItem onClick={props.onToggleSkillsPanel}>
-          <ZapIcon className="size-4 shrink-0" />
-          {props.skillsPanelOpen ? "Hide skills panel" : "Show skills panel"}
+          {props.hasActivePlan ? (
+            <ListTodoIcon className="size-4 shrink-0" />
+          ) : (
+            <ZapIcon className="size-4 shrink-0" />
+          )}
+          {props.hasActivePlan
+            ? props.skillsPanelOpen
+              ? "Hide tasks panel"
+              : "Show tasks panel"
+            : props.skillsPanelOpen
+              ? "Hide skills panel"
+              : "Show skills panel"}
         </MenuItem>
       </MenuPopup>
     </Menu>

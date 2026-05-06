@@ -2087,25 +2087,24 @@ export default function ChatView(props: ChatViewProps) {
   const toggleInteractionMode = useCallback(() => {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
-  const togglePlanSidebar = useCallback(() => {
-    const isOpen = rightPanel.activeTab === "plan";
-    if (isOpen) {
-      planSidebarDismissedForTurnRef.current =
-        activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
-      rightPanel.close();
-    } else {
-      planSidebarDismissedForTurnRef.current = null;
-      rightPanel.openTab("plan");
-    }
-  }, [activePlan?.turnId, rightPanel, sidebarProposedPlan?.turnId]);
   const closePlanSidebar = useCallback(() => {
     rightPanel.close();
     planSidebarDismissedForTurnRef.current =
       activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
   }, [activePlan?.turnId, rightPanel, sidebarProposedPlan?.turnId]);
   const toggleSkillsPanel = useCallback(() => {
-    rightPanel.toggleTab("skills");
-  }, [rightPanel]);
+    if (rightPanel.activeTab !== null) {
+      rightPanel.close();
+      planSidebarDismissedForTurnRef.current =
+        activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
+      return;
+    }
+    // Smart default: if there are tasks/plan content, open the plan tab so
+    // tasks are visible immediately. Otherwise show the skills tab.
+    const hasPlanContent = Boolean(activePlan || sidebarProposedPlan);
+    planSidebarDismissedForTurnRef.current = null;
+    rightPanel.openTab(hasPlanContent ? "plan" : "skills");
+  }, [activePlan, rightPanel, sidebarProposedPlan]);
 
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -3704,10 +3703,7 @@ export default function ChatView(props: ChatViewProps) {
               respondingRequestIds={respondingRequestIds}
               showPlanFollowUpPrompt={showPlanFollowUpPrompt}
               activeProposedPlan={activeProposedPlan}
-              activePlan={activePlan as { turnId?: TurnId } | null}
-              sidebarProposedPlan={sidebarProposedPlan as { turnId?: TurnId } | null}
-              planSidebarLabel={planSidebarLabel}
-              planSidebarOpen={planSidebarOpen}
+              hasActivePlan={Boolean(activePlan || sidebarProposedPlan)}
               runtimeMode={runtimeMode}
               interactionMode={interactionMode}
               lockedProvider={lockedProvider}
@@ -3737,7 +3733,6 @@ export default function ChatView(props: ChatViewProps) {
               toggleInteractionMode={toggleInteractionMode}
               handleRuntimeModeChange={handleRuntimeModeChange}
               handleInteractionModeChange={handleInteractionModeChange}
-              togglePlanSidebar={togglePlanSidebar}
               skillsPanelOpen={rightPanel.activeTab === "skills"}
               toggleSkillsPanel={toggleSkillsPanel}
               focusComposer={focusComposer}

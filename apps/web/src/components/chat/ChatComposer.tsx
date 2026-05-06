@@ -10,7 +10,6 @@ import type {
   ScopedThreadRef,
   ServerProvider,
   ThreadId,
-  TurnId,
 } from "@fenrir/contracts";
 import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
@@ -161,13 +160,10 @@ const terminalContextIdListsEqual = (
 const ComposerFooterModeControls = memo(function ComposerFooterModeControls(props: {
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
-  showPlanToggle: boolean;
-  planSidebarLabel: string;
-  planSidebarOpen: boolean;
   skillsPanelOpen: boolean;
+  hasActivePlan: boolean;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
-  onTogglePlanSidebar: () => void;
   onToggleSkillsPanel: () => void;
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
@@ -232,32 +228,6 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         </SelectPopup>
       </Select>
 
-      {props.showPlanToggle ? (
-        <>
-          <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-          <Button
-            variant="ghost"
-            className={cn(
-              "shrink-0 whitespace-nowrap px-2 sm:px-3",
-              props.planSidebarOpen
-                ? "text-blue-400 hover:text-blue-300"
-                : "text-muted-foreground/70 hover:text-foreground/80",
-            )}
-            size="sm"
-            type="button"
-            onClick={props.onTogglePlanSidebar}
-            title={
-              props.planSidebarOpen
-                ? `Hide ${props.planSidebarLabel.toLowerCase()} sidebar`
-                : `Show ${props.planSidebarLabel.toLowerCase()} sidebar`
-            }
-          >
-            <ListTodoIcon />
-            <span className="sr-only sm:not-sr-only">{props.planSidebarLabel}</span>
-          </Button>
-        </>
-      ) : null}
-
       <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
       <Button
         variant="ghost"
@@ -270,10 +240,18 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         size="sm"
         type="button"
         onClick={props.onToggleSkillsPanel}
-        title={props.skillsPanelOpen ? "Hide skills panel" : "Show skills panel"}
+        title={
+          props.hasActivePlan
+            ? props.skillsPanelOpen
+              ? "Hide tasks panel"
+              : "Show tasks panel"
+            : props.skillsPanelOpen
+              ? "Hide skills panel"
+              : "Show skills panel"
+        }
       >
-        <ZapIcon />
-        <span className="sr-only sm:not-sr-only">Skills</span>
+        {props.hasActivePlan ? <ListTodoIcon /> : <ZapIcon />}
+        <span className="sr-only sm:not-sr-only">{props.hasActivePlan ? "Tasks" : "Skills"}</span>
       </Button>
     </>
   );
@@ -403,10 +381,7 @@ export interface ChatComposerProps {
   // Plan
   showPlanFollowUpPrompt: boolean;
   activeProposedPlan: Thread["proposedPlans"][number] | null;
-  activePlan: { turnId?: TurnId } | null;
-  sidebarProposedPlan: { turnId?: TurnId } | null;
-  planSidebarLabel: string;
-  planSidebarOpen: boolean;
+  hasActivePlan: boolean;
 
   // Mode
   runtimeMode: RuntimeMode;
@@ -458,7 +433,6 @@ export interface ChatComposerProps {
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
-  togglePlanSidebar: () => void;
   skillsPanelOpen: boolean;
   toggleSkillsPanel: () => void;
 
@@ -500,10 +474,7 @@ export const ChatComposer = memo(
       respondingRequestIds,
       showPlanFollowUpPrompt,
       activeProposedPlan,
-      activePlan,
-      sidebarProposedPlan,
-      planSidebarLabel,
-      planSidebarOpen,
+      hasActivePlan,
       runtimeMode,
       interactionMode,
       lockedProvider,
@@ -531,7 +502,6 @@ export const ChatComposer = memo(
       toggleInteractionMode,
       handleRuntimeModeChange,
       handleInteractionModeChange,
-      togglePlanSidebar,
       skillsPanelOpen,
       toggleSkillsPanel,
       focusComposer,
@@ -836,7 +806,6 @@ export const ChatComposer = memo(
       (showPlanFollowUpPrompt && activeProposedPlan !== null);
 
     const composerFooterHasWideActions = showPlanFollowUpPrompt || activePendingProgress !== null;
-    const showPlanSidebarToggle = Boolean(activePlan || sidebarProposedPlan || planSidebarOpen);
     const composerFooterActionLayoutKey = useMemo(() => {
       if (activePendingProgress) {
         return `pending:${activePendingProgress.questionIndex}:${activePendingProgress.isLastQuestion}:${activePendingIsResponding}`;
@@ -1897,15 +1866,12 @@ export const ChatComposer = memo(
 
                   {isComposerFooterCompact ? (
                     <CompactComposerControlsMenu
-                      activePlan={showPlanSidebarToggle}
                       interactionMode={interactionMode}
-                      planSidebarLabel={planSidebarLabel}
-                      planSidebarOpen={planSidebarOpen}
                       skillsPanelOpen={skillsPanelOpen}
+                      hasActivePlan={hasActivePlan}
                       runtimeMode={runtimeMode}
                       traitsMenuContent={providerTraitsMenuContent}
                       onToggleInteractionMode={toggleInteractionMode}
-                      onTogglePlanSidebar={togglePlanSidebar}
                       onToggleSkillsPanel={toggleSkillsPanel}
                       onRuntimeModeChange={handleRuntimeModeChange}
                     />
@@ -1923,13 +1889,10 @@ export const ChatComposer = memo(
                       <ComposerFooterModeControls
                         interactionMode={interactionMode}
                         runtimeMode={runtimeMode}
-                        showPlanToggle={showPlanSidebarToggle}
-                        planSidebarLabel={planSidebarLabel}
-                        planSidebarOpen={planSidebarOpen}
                         skillsPanelOpen={skillsPanelOpen}
+                        hasActivePlan={hasActivePlan}
                         onToggleInteractionMode={toggleInteractionMode}
                         onRuntimeModeChange={handleRuntimeModeChange}
-                        onTogglePlanSidebar={togglePlanSidebar}
                         onToggleSkillsPanel={toggleSkillsPanel}
                       />
                     </>
