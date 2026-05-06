@@ -205,7 +205,7 @@ let nvimSession: {
 } | null = null;
 
 const renderLoop = new RenderLoop({
-  fps: 120,
+  fps: 60,
   emit: (frame: Frame) => {
     mainWindow?.webContents.send(RENDER_FRAME_CHANNEL, frame);
   },
