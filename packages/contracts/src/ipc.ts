@@ -223,6 +223,7 @@ export interface DesktopBridge {
   renderStart: () => Promise<void>;
   renderStop: () => Promise<void>;
   renderSetFps: (fps: number) => Promise<void>;
+  setEditorFontMetrics: (metrics: EditorFontMetrics) => Promise<void>;
   sendInput: (event: InputEvent) => void;
   onFrame: (listener: (frame: Frame) => void) => () => void;
 }
@@ -232,6 +233,15 @@ export interface CellMetrics {
   height: number;
   ascent: number;
   font: string;
+  ligatures: boolean;
+}
+
+export interface EditorFontMetrics {
+  width: number;
+  height: number;
+  ascent: number;
+  font: string;
+  ligatures: boolean;
 }
 
 export interface HlAttrEntry {

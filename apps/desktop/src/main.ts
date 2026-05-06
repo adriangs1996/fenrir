@@ -137,6 +137,7 @@ const RENDER_STOP_CHANNEL = "desktop:render-stop";
 const RENDER_SET_FPS_CHANNEL = "desktop:render-set-fps";
 const RENDER_INPUT_CHANNEL = "desktop:render-input";
 const RENDER_FRAME_CHANNEL = "desktop:render-frame";
+const RENDER_SET_EDITOR_FONT_METRICS_CHANNEL = "desktop:render-set-editor-font-metrics";
 const BASE_DIR = process.env.FENRIR_HOME?.trim() || Path.join(OS.homedir(), ".fenrir");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
@@ -2011,6 +2012,28 @@ function registerIpcHandlers(): void {
   ipcMain.on(RENDER_INPUT_CHANNEL, (_event, payload: unknown) => {
     const ev = parseInputEvent(payload);
     if (ev) renderLoop.pushInput(ev);
+  });
+
+  ipcMain.removeHandler(RENDER_SET_EDITOR_FONT_METRICS_CHANNEL);
+  ipcMain.handle(RENDER_SET_EDITOR_FONT_METRICS_CHANNEL, async (_event, payload: unknown) => {
+    if (typeof payload !== "object" || payload === null) throw new Error("Invalid metrics");
+    const m = payload as Record<string, unknown>;
+    if (
+      typeof m["width"] !== "number" ||
+      typeof m["height"] !== "number" ||
+      typeof m["ascent"] !== "number" ||
+      typeof m["font"] !== "string" ||
+      typeof m["ligatures"] !== "boolean"
+    ) {
+      throw new Error("Invalid metrics fields");
+    }
+    neovimSource.setEditorFontMetrics({
+      width: m["width"],
+      height: m["height"],
+      ascent: m["ascent"],
+      font: m["font"],
+      ligatures: m["ligatures"],
+    });
   });
 
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);

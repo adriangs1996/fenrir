@@ -66,6 +66,38 @@ export const ClientSettingsSchema = Schema.Struct({
     ),
     Schema.withDecodingDefault(() => 1.2),
   ),
+  editorFontFamily: Schema.String.pipe(Schema.withDecodingDefault(() => "GeistMono Nerd Font")),
+  editorFontSize: Schema.Number.pipe(
+    Schema.decodeTo(
+      Schema.Number,
+      SchemaTransformation.transformOrFail({
+        decode: (n) => Effect.succeed(Math.min(Math.max(n, 8), 32)),
+        encode: (n) => Effect.succeed(n),
+      }),
+    ),
+    Schema.withDecodingDefault(() => 14),
+  ),
+  editorLineHeight: Schema.Number.pipe(
+    Schema.decodeTo(
+      Schema.Number,
+      SchemaTransformation.transformOrFail({
+        decode: (n) => Effect.succeed(Math.min(Math.max(n, 1.0), 2.0)),
+        encode: (n) => Effect.succeed(n),
+      }),
+    ),
+    Schema.withDecodingDefault(() => 1.2),
+  ),
+  editorFontWeight: Schema.Number.pipe(
+    Schema.decodeTo(
+      Schema.Number,
+      SchemaTransformation.transformOrFail({
+        decode: (n) => Effect.succeed(Math.min(Math.max(Math.round(n / 100) * 100, 100), 900)),
+        encode: (n) => Effect.succeed(n),
+      }),
+    ),
+    Schema.withDecodingDefault(() => 400),
+  ),
+  editorLigatures: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 

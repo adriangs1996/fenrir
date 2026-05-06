@@ -1,18 +1,72 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CellMetrics,
   CursorEntry,
   DefaultColorsEntry,
+  EditorFontMetrics,
   Frame,
   HlAttrEntry,
   InputModifiers,
   WindowEntry,
 } from "@fenrir/contracts";
+import { useSettings } from "~/hooks/useSettings";
 
 interface RenderSurfaceProps {
   fps?: number;
   className?: string;
   style?: React.CSSProperties;
+}
+
+const NERD_FONT_FALLBACK = [
+  '"Symbols Nerd Font Mono"',
+  '"Symbols Nerd Font"',
+  '"GeistMono Nerd Font"',
+  "monospace",
+];
+
+interface EditorFontPrefs {
+  family: string;
+  size: number;
+  lineHeight: number;
+  weight: number;
+  ligatures: boolean;
+}
+
+function buildFontCss(prefs: EditorFontPrefs): string {
+  const family = `"${prefs.family.replace(/"/g, "")}"`;
+  const chain = [family, ...NERD_FONT_FALLBACK].join(", ");
+  return `${prefs.weight} ${prefs.size}px ${chain}`;
+}
+
+function measureEditorMetrics(prefs: EditorFontPrefs): EditorFontMetrics {
+  const fontCss = buildFontCss(prefs);
+  const probe = document.createElement("canvas");
+  const ctx = probe.getContext("2d");
+  if (!ctx) {
+    return {
+      width: Math.max(1, Math.round(prefs.size * 0.6)),
+      height: Math.max(1, Math.round(prefs.size * prefs.lineHeight)),
+      ascent: Math.round(prefs.size * 0.8),
+      font: fontCss,
+      ligatures: prefs.ligatures,
+    };
+  }
+  ctx.font = fontCss;
+  ctx.textBaseline = "alphabetic";
+  const probeText = ctx.measureText("M");
+  const advance = ctx.measureText("MMMMMMMMMM");
+  const width = Math.max(1, Math.round(advance.width / 10));
+  const height = Math.max(1, Math.round(prefs.size * prefs.lineHeight));
+  const fAscent = probeText.fontBoundingBoxAscent;
+  const fDescent = probeText.fontBoundingBoxDescent ?? 0;
+  let ascent: number;
+  if (typeof fAscent === "number" && fAscent > 0) {
+    const padding = (height - (fAscent + fDescent)) / 2;
+    ascent = Math.round(padding + fAscent);
+  } else {
+    ascent = Math.round(height * 0.78);
+  }
+  return { width, height, ascent, font: fontCss, ligatures: prefs.ligatures };
 }
 
 interface GridCanvas {
@@ -139,6 +193,28 @@ export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProp
     glyphs: 0,
   });
   const [bridgeMissing, setBridgeMissing] = useState(false);
+
+  const editorPrefs = useSettings(
+    (s): EditorFontPrefs => ({
+      family: s.editorFontFamily,
+      size: s.editorFontSize,
+      lineHeight: s.editorLineHeight,
+      weight: s.editorFontWeight,
+      ligatures: s.editorLigatures,
+    }),
+  );
+  const editorPrefsKey = useMemo(
+    () =>
+      `${editorPrefs.family}|${editorPrefs.size}|${editorPrefs.lineHeight}|${editorPrefs.weight}|${editorPrefs.ligatures}`,
+    [editorPrefs],
+  );
+
+  useEffect(() => {
+    const bridge = window.desktopBridge;
+    if (!bridge) return;
+    const metrics = measureEditorMetrics(editorPrefs);
+    void bridge.setEditorFontMetrics(metrics);
+  }, [editorPrefsKey, editorPrefs]);
 
   useEffect(() => {
     const bridge = window.desktopBridge;
@@ -461,27 +537,44 @@ function paintRow(
       ctx.fillStyle = colorToCss(bgN);
       ctx.fillRect(run.col * m.width, y, run.len * m.width, m.height);
     }
-    let visualCol = run.col;
-    for (const ch of run.text) {
-      if (ch !== " ") {
-        const pos = state.atlas.ensure(ch, run.hlId, hl, state.defaultColors);
-        const dx = visualCol * m.width;
-        if (pos) {
-          state.atlas.blit(ctx, pos, dx, y);
-        } else {
-          const fgN = (hl?.reverse ? hl?.bg : hl?.fg) ?? state.defaultColors.fg;
-          const parts: string[] = [];
-          if (hl?.italic) parts.push("italic");
-          if (hl?.bold) parts.push("bold");
-          parts.push(m.font);
-          ctx.font = parts.join(" ");
-          ctx.fillStyle = colorToCss(fgN);
-          ctx.textBaseline = "alphabetic";
-          ctx.fillText(ch, dx, y + m.ascent);
-        }
-        profile.glyphs += 1;
+    if (m.ligatures) {
+      // Ligatures require multi-char shaping. Atlas can't represent that, so
+      // paint the run as a single fillText and skip the per-glyph blit.
+      if (run.text.trim().length > 0) {
+        const fgN = (hl?.reverse ? hl?.bg : hl?.fg) ?? state.defaultColors.fg;
+        const parts: string[] = [];
+        if (hl?.italic) parts.push("italic");
+        if (hl?.bold) parts.push("bold");
+        parts.push(m.font);
+        ctx.font = parts.join(" ");
+        ctx.fillStyle = colorToCss(fgN);
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText(run.text, run.col * m.width, y + m.ascent);
+        profile.glyphs += run.text.length;
       }
-      visualCol += 1;
+    } else {
+      let visualCol = run.col;
+      for (const ch of run.text) {
+        if (ch !== " ") {
+          const pos = state.atlas.ensure(ch, run.hlId, hl, state.defaultColors);
+          const dx = visualCol * m.width;
+          if (pos) {
+            state.atlas.blit(ctx, pos, dx, y);
+          } else {
+            const fgN = (hl?.reverse ? hl?.bg : hl?.fg) ?? state.defaultColors.fg;
+            const parts: string[] = [];
+            if (hl?.italic) parts.push("italic");
+            if (hl?.bold) parts.push("bold");
+            parts.push(m.font);
+            ctx.font = parts.join(" ");
+            ctx.fillStyle = colorToCss(fgN);
+            ctx.textBaseline = "alphabetic";
+            ctx.fillText(ch, dx, y + m.ascent);
+          }
+          profile.glyphs += 1;
+        }
+        visualCol += 1;
+      }
     }
   }
 }

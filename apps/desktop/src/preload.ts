@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopBridge, Frame, InputEvent } from "@fenrir/contracts";
+import type { DesktopBridge, EditorFontMetrics, Frame, InputEvent } from "@fenrir/contracts";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
@@ -51,6 +51,7 @@ const RENDER_STOP_CHANNEL = "desktop:render-stop";
 const RENDER_SET_FPS_CHANNEL = "desktop:render-set-fps";
 const RENDER_INPUT_CHANNEL = "desktop:render-input";
 const RENDER_FRAME_CHANNEL = "desktop:render-frame";
+const RENDER_SET_EDITOR_FONT_METRICS_CHANNEL = "desktop:render-set-editor-font-metrics";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getLocalEnvironmentBootstrap: () => {
@@ -175,6 +176,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   renderStart: () => ipcRenderer.invoke(RENDER_START_CHANNEL),
   renderStop: () => ipcRenderer.invoke(RENDER_STOP_CHANNEL),
   renderSetFps: (fps: number) => ipcRenderer.invoke(RENDER_SET_FPS_CHANNEL, fps),
+  setEditorFontMetrics: (metrics: EditorFontMetrics) =>
+    ipcRenderer.invoke(RENDER_SET_EDITOR_FONT_METRICS_CHANNEL, metrics),
   sendInput: (event: InputEvent) => {
     ipcRenderer.send(RENDER_INPUT_CHANNEL, event);
   },

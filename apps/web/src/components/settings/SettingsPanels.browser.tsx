@@ -377,6 +377,7 @@ const createDesktopBridgeStub = (overrides?: {
     renderStart: vi.fn().mockResolvedValue(undefined),
     renderStop: vi.fn().mockResolvedValue(undefined),
     renderSetFps: vi.fn().mockResolvedValue(undefined),
+    setEditorFontMetrics: vi.fn().mockResolvedValue(undefined),
     sendInput: vi.fn(),
     onFrame: () => () => {},
   };

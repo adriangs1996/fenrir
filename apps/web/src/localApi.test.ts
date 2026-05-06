@@ -241,6 +241,7 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     renderStart: async () => undefined,
     renderStop: async () => undefined,
     renderSetFps: async () => undefined,
+    setEditorFontMetrics: async () => undefined,
     sendInput: () => undefined,
     onFrame: () => () => undefined,
     ...overrides,
@@ -587,6 +588,11 @@ describe("wsApi", () => {
       terminalFontFamily: "GeistMono Nerd Font",
       terminalFontSize: 12,
       terminalLineHeight: 1.2,
+      editorFontFamily: "GeistMono Nerd Font",
+      editorFontSize: 14,
+      editorLineHeight: 1.2,
+      editorFontWeight: 400,
+      editorLigatures: true,
     });
     await api.persistence.getSavedEnvironmentRegistry();
     await api.persistence.setSavedEnvironmentRegistry([]);
@@ -612,6 +618,11 @@ describe("wsApi", () => {
       terminalFontFamily: "GeistMono Nerd Font",
       terminalFontSize: 12,
       terminalLineHeight: 1.2,
+      editorFontFamily: "GeistMono Nerd Font",
+      editorFontSize: 14,
+      editorLineHeight: 1.2,
+      editorFontWeight: 400,
+      editorLigatures: true,
     });
     expect(getSavedEnvironmentRegistry).toHaveBeenCalledWith();
     expect(setSavedEnvironmentRegistry).toHaveBeenCalledWith([]);
@@ -636,6 +647,11 @@ describe("wsApi", () => {
       terminalFontFamily: "GeistMono Nerd Font",
       terminalFontSize: 12,
       terminalLineHeight: 1.2,
+      editorFontFamily: "GeistMono Nerd Font",
+      editorFontSize: 14,
+      editorLineHeight: 1.2,
+      editorFontWeight: 400,
+      editorLigatures: true,
     });
     await api.persistence.setSavedEnvironmentRegistry([
       {
@@ -664,6 +680,11 @@ describe("wsApi", () => {
       terminalFontFamily: "GeistMono Nerd Font",
       terminalFontSize: 12,
       terminalLineHeight: 1.2,
+      editorFontFamily: "GeistMono Nerd Font",
+      editorFontSize: 14,
+      editorLineHeight: 1.2,
+      editorFontWeight: 400,
+      editorLigatures: true,
     });
     await expect(api.persistence.getSavedEnvironmentRegistry()).resolves.toEqual([
       {

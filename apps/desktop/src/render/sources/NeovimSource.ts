@@ -5,6 +5,7 @@ import * as Path from "node:path";
 import type {
   CellRun,
   CursorEntry,
+  EditorFontMetrics,
   Frame,
   GridDelta,
   HlAttrEntry,
@@ -17,12 +18,10 @@ import type {
 import { FENRIR_INIT_LUA } from "../../neovimLua";
 import type { SceneSource } from "../RenderLoop";
 
-const FONT_SIZE_PX = 14;
-const FONT_FAMILY = "ui-monospace, Menlo, Consolas, monospace";
-const FONT = `${FONT_SIZE_PX}px ${FONT_FAMILY}`;
-const CELL_W = 9;
-const CELL_H = 18;
-const TEXT_ASCENT = 14;
+const DEFAULT_FONT = "14px ui-monospace, Menlo, Consolas, monospace";
+const DEFAULT_CELL_W = 9;
+const DEFAULT_CELL_H = 18;
+const DEFAULT_TEXT_ASCENT = 14;
 
 interface HlAttr {
   fg: number | undefined;
@@ -83,6 +82,12 @@ export class NeovimSource implements SceneSource {
   private modeIdx = 0;
   private seq = 0;
 
+  private cellW = DEFAULT_CELL_W;
+  private cellH = DEFAULT_CELL_H;
+  private cellAscent = DEFAULT_TEXT_ASCENT;
+  private fontCss = DEFAULT_FONT;
+  private ligatures = true;
+
   // Damage tracking
   private flushPending = false;
   private dirtyRows = new Map<number, Set<number>>();
@@ -125,11 +130,35 @@ export class NeovimSource implements SceneSource {
     this.started = false;
   }
 
+  setEditorFontMetrics(m: EditorFontMetrics): void {
+    const sameMetrics =
+      m.width === this.cellW &&
+      m.height === this.cellH &&
+      m.ascent === this.cellAscent &&
+      m.font === this.fontCss &&
+      m.ligatures === this.ligatures;
+    if (sameMetrics) return;
+    this.cellW = Math.max(1, m.width);
+    this.cellH = Math.max(1, m.height);
+    this.cellAscent = m.ascent;
+    this.fontCss = m.font;
+    this.ligatures = m.ligatures;
+    this.metricsSent = false;
+    if (this.client) {
+      const cols = Math.max(1, Math.floor(this.viewport.w / this.cellW));
+      const rows = Math.max(1, Math.floor(this.viewport.h / this.cellH));
+      this.client.request("nvim_ui_try_resize", [cols, rows]).catch((e: unknown) => {
+        console.warn("[neovimSource] try_resize on metrics change failed:", e);
+      });
+    }
+    this.flushPending = true;
+  }
+
   handleInput(event: InputEvent): void {
     if (event.kind === "resize") {
       this.viewport = { w: event.w, h: event.h };
-      const cols = Math.max(1, Math.floor(event.w / CELL_W));
-      const rows = Math.max(1, Math.floor(event.h / CELL_H));
+      const cols = Math.max(1, Math.floor(event.w / this.cellW));
+      const rows = Math.max(1, Math.floor(event.h / this.cellH));
       if (this.client) {
         this.client.request("nvim_ui_try_resize", [cols, rows]).catch((e: unknown) => {
           console.warn("[neovimSource] try_resize failed:", e);
@@ -234,8 +263,8 @@ export class NeovimSource implements SceneSource {
       this.proc = proc;
       this.client = client;
 
-      const cols = Math.max(1, Math.floor(this.viewport.w / CELL_W));
-      const rows = Math.max(1, Math.floor(this.viewport.h / CELL_H));
+      const cols = Math.max(1, Math.floor(this.viewport.w / this.cellW));
+      const rows = Math.max(1, Math.floor(this.viewport.h / this.cellH));
       const attachViewport = { w: this.viewport.w, h: this.viewport.h };
 
       await client.request("nvim_ui_attach", [
@@ -268,8 +297,8 @@ export class NeovimSource implements SceneSource {
       this.started = true;
 
       if (this.viewport.w !== attachViewport.w || this.viewport.h !== attachViewport.h) {
-        const newCols = Math.max(1, Math.floor(this.viewport.w / CELL_W));
-        const newRows = Math.max(1, Math.floor(this.viewport.h / CELL_H));
+        const newCols = Math.max(1, Math.floor(this.viewport.w / this.cellW));
+        const newRows = Math.max(1, Math.floor(this.viewport.h / this.cellH));
         client.request("nvim_ui_try_resize", [newCols, newRows]).catch((e: unknown) => {
           console.warn("[neovimSource] post-attach try_resize failed:", e);
         });
@@ -292,8 +321,8 @@ export class NeovimSource implements SceneSource {
     const win = this.windows.get(grid);
     const baseRow = win?.row ?? 0;
     const baseCol = win?.col ?? 0;
-    const col = Math.max(0, Math.floor(event.x / CELL_W) - baseCol);
-    const row = Math.max(0, Math.floor(event.y / CELL_H) - baseRow);
+    const col = Math.max(0, Math.floor(event.x / this.cellW) - baseCol);
+    const row = Math.max(0, Math.floor(event.y / this.cellH) - baseRow);
     const mod = modString(event.mods);
 
     if (event.type === "wheel") {
@@ -335,10 +364,11 @@ export class NeovimSource implements SceneSource {
 
     if (!this.metricsSent) {
       frame.cellMetrics = {
-        width: CELL_W,
-        height: CELL_H,
-        ascent: TEXT_ASCENT,
-        font: FONT,
+        width: this.cellW,
+        height: this.cellH,
+        ascent: this.cellAscent,
+        font: this.fontCss,
+        ligatures: this.ligatures,
       };
       this.metricsSent = true;
       any = true;
