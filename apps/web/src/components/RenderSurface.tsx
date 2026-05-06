@@ -7,6 +7,12 @@ interface RenderSurfaceProps {
   fps?: number;
   className?: string;
   style?: React.CSSProperties;
+  /**
+   * Working directory for the embedded nvim. When this changes the desktop
+   * bridge respawns nvim against the new cwd. Pass `null`/`undefined` to
+   * keep whatever cwd the desktop process started with.
+   */
+  cwd?: string | null;
 }
 
 const NERD_FONT_FALLBACK = [
@@ -73,7 +79,7 @@ function measureEditorMetrics(prefs: EditorFontPrefs): EditorFontMetrics {
   };
 }
 
-export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProps) {
+export function RenderSurface({ fps = 120, className, style, cwd }: RenderSurfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<GLRenderer | null>(null);
@@ -109,6 +115,8 @@ export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProp
       setGlError(message);
       return;
     }
+    // Autofocus so keystrokes flow straight to neovim without a click.
+    canvas.focus({ preventScroll: true });
     return () => {
       rendererRef.current = null;
     };
@@ -120,6 +128,15 @@ export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProp
     const metrics = measureEditorMetrics(editorPrefs);
     void bridge.setEditorFontMetrics(metrics);
   }, [editorPrefsKey, editorPrefs]);
+
+  // Push the active project's cwd to the desktop bridge whenever it changes.
+  // The desktop side respawns nvim against the new cwd. We deliberately skip
+  // empty / nullish values so an unmounted project state doesn't kill nvim.
+  useEffect(() => {
+    const bridge = window.desktopBridge;
+    if (!bridge || !cwd) return;
+    void bridge.neovimSetCwd(cwd);
+  }, [cwd]);
 
   useEffect(() => {
     const bridge = window.desktopBridge;

@@ -3710,6 +3710,85 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           }),
         ),
 
+      renameFeature: (input) =>
+        Effect.gen(function* () {
+          // Path traversal guards on both names.
+          if (/[/\\]|\.\./.test(input.featureName)) {
+            return yield* new PlanRunnerError({
+              message: `Invalid feature name: must not contain '/', '\\', or '..'` as any,
+            });
+          }
+          if (/[/\\]|\.\./.test(input.newFeatureName)) {
+            return yield* new PlanRunnerError({
+              message: `Invalid new feature name: must not contain '/', '\\', or '..'` as any,
+            });
+          }
+          if (input.newFeatureName.length === 0) {
+            return yield* new PlanRunnerError({
+              message: `New feature name must not be empty` as any,
+            });
+          }
+          if (input.featureName === input.newFeatureName) {
+            // No-op rename — return success.
+            return { featureName: input.newFeatureName };
+          }
+
+          const projectCwd = yield* resolveProjectCwd(input.projectId);
+          const plansDir = pathService.join(projectCwd, ".plans");
+          const src = pathService.join(plansDir, input.featureName);
+          const dst = pathService.join(plansDir, input.newFeatureName);
+
+          // Validate source exists.
+          const srcExists = yield* fs.exists(src);
+          if (!srcExists) {
+            return yield* new PlanRunnerError({
+              message: `Feature folder not found: ${input.featureName}` as any,
+            });
+          }
+
+          // Validate destination does not exist.
+          const dstExists = yield* fs.exists(dst);
+          if (dstExists) {
+            return yield* new PlanRunnerError({
+              message: `Feature "${input.newFeatureName}" already exists in .plans/` as any,
+            });
+          }
+
+          // Gate: no active run for the source feature.
+          yield* assertNoActiveRun(input.projectId, input.featureName);
+
+          yield* fs.rename(src, dst);
+
+          // Invalidate cached plans for the old feature key.
+          yield* Ref.update(featurePlansCache, (m) => {
+            const next = new Map(m);
+            next.delete(featureKey(input.projectId, input.featureName));
+            next.delete(featureKey(input.projectId, input.newFeatureName));
+            return next;
+          });
+
+          // Re-scan and publish updated feature list.
+          const features = yield* scanFeatures(input.projectId, projectCwd);
+          yield* publishEvent({
+            type: "planRunner.featuresChanged",
+            projectId: input.projectId,
+            features,
+          });
+
+          return { featureName: input.newFeatureName };
+        }).pipe(
+          Effect.catch((err) => {
+            if (Schema.is(PlanRunnerError)(err)) return Effect.fail(err);
+            return Effect.fail(
+              new PlanRunnerError({
+                message:
+                  `Failed to rename feature: ${(err as { message?: string }).message ?? "unknown"}` as any,
+                cause: err,
+              }),
+            );
+          }),
+        ),
+
       get streamEvents() {
         return Stream.fromPubSub(eventPubSub);
       },

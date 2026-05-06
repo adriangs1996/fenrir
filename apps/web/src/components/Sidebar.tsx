@@ -58,7 +58,7 @@ import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "~/modules/terminal";
-import { isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
+import { cn, isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import {
   selectProjectByRef,
   selectProjectsAcrossEnvironments,
@@ -139,7 +139,11 @@ import {
 } from "./Sidebar.logic";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { PlanRunnerProjectSection, useInternalPlanRunnerThreadIds } from "~/modules/plan-runner";
+import {
+  PlanRunnerProjectSection,
+  useInternalPlanRunnerThreadIds,
+  usePlanRunnerStore,
+} from "~/modules/plan-runner";
 import { NEW_PLAN_PROMPT } from "~/modules/plan-runner/planPrompts";
 import { readEnvironmentApi } from "../environmentApi";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
@@ -950,6 +954,7 @@ interface SidebarProjectItemProps {
   project: SidebarProjectSnapshot;
   isThreadListExpanded: boolean;
   activeRouteThreadKey: string | null;
+  isActiveProject: boolean;
   newThreadShortcutLabel: string | null;
   handleNewThread: ReturnType<typeof useNewThreadHandler>["handleNewThread"];
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
@@ -1899,9 +1904,31 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
 });
 
+// Shared shell classes used to "box" the currently active project so its
+// header, threads sub-panel, and plan-runner (features) section read as one
+// grouped surface. Transitions are tuned so toggling between projects yields
+// a smooth crossfade rather than an instant swap.
+//
+// Sidebar surface tokens (`--sidebar-accent`, `--sidebar-border`) collapse to
+// near-invisible against the sidebar background in the dark/catppuccin theme,
+// so the active state leans on `--primary` for the tint, ring, and outer
+// glow. The background is kept very low (~6% alpha) so it does not compete
+// with the existing thread-row hover/active treatments inside the box.
+const PROJECT_SHELL_BASE_CLASS =
+  "rounded-lg ring-1 ring-transparent transition-[background-color,box-shadow,color] duration-300 ease-out";
+const PROJECT_SHELL_ACTIVE_CLASS =
+  "bg-primary/10 ring-primary/40 shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary)_25%,transparent),0_10px_30px_-12px_color-mix(in_oklab,var(--primary)_55%,transparent)]";
+
+function projectShellClass(isActive: boolean, extra?: string): string {
+  return cn(PROJECT_SHELL_BASE_CLASS, isActive && PROJECT_SHELL_ACTIVE_CLASS, extra);
+}
+
 const SidebarProjectListRow = memo(function SidebarProjectListRow(props: SidebarProjectItemProps) {
   return (
-    <SidebarMenuItem className="rounded-md">
+    <SidebarMenuItem
+      className={projectShellClass(props.isActiveProject)}
+      data-active-project={props.isActiveProject ? "true" : undefined}
+    >
       <SidebarProjectItem {...props} />
     </SidebarMenuItem>
   );
@@ -2074,10 +2101,12 @@ function ProjectSortMenu({
 function SortableProjectItem({
   projectId,
   disabled = false,
+  isActive = false,
   children,
 }: {
   projectId: string;
   disabled?: boolean;
+  isActive?: boolean;
   children: (handleProps: SortableProjectHandleProps) => React.ReactNode;
 }) {
   const {
@@ -2097,11 +2126,15 @@ function SortableProjectItem({
         transform: CSS.Translate.toString(transform),
         transition,
       }}
-      className={`group/menu-item relative rounded-md ${
-        isDragging ? "z-20 opacity-80" : ""
-      } ${isOver && !isDragging ? "ring-1 ring-primary/40" : ""}`}
+      className={cn(
+        "group/menu-item relative",
+        projectShellClass(isActive),
+        isDragging && "z-20 opacity-80",
+        isOver && !isDragging && "ring-1 ring-primary/40",
+      )}
       data-sidebar="menu-item"
       data-slot="sidebar-menu-item"
+      data-active-project={isActive ? "true" : undefined}
     >
       {children({ attributes, listeners, setActivatorNodeRef })}
     </li>
@@ -2427,7 +2460,11 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 strategy={verticalListSortingStrategy}
               >
                 {sortedProjects.map((project) => (
-                  <SortableProjectItem key={project.projectKey} projectId={project.projectKey}>
+                  <SortableProjectItem
+                    key={project.projectKey}
+                    projectId={project.projectKey}
+                    isActive={activeRouteProjectKey === project.projectKey}
+                  >
                     {(dragHandleProps) => (
                       <SidebarProjectItem
                         project={project}
@@ -2435,6 +2472,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                         activeRouteThreadKey={
                           activeRouteProjectKey === project.projectKey ? routeThreadKey : null
                         }
+                        isActiveProject={activeRouteProjectKey === project.projectKey}
                         newThreadShortcutLabel={newThreadShortcutLabel}
                         handleNewThread={handleNewThread}
                         archiveThread={archiveThread}
@@ -2467,6 +2505,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 activeRouteThreadKey={
                   activeRouteProjectKey === project.projectKey ? routeThreadKey : null
                 }
+                isActiveProject={activeRouteProjectKey === project.projectKey}
                 newThreadShortcutLabel={newThreadShortcutLabel}
                 handleNewThread={handleNewThread}
                 archiveThread={archiveThread}
@@ -2531,6 +2570,38 @@ export default function Sidebar() {
     select: (params) => resolveThreadRouteRef(params),
   });
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+  // Plan-runner routes (`/plan-runner/$featureName/...`,
+  // `/plan-runner/$runId`) carry no thread, so the existing thread-derived
+  // active-project resolution returns null. Pull featureName/runId from the
+  // route directly; the projectId fallback below maps them back to the owning
+  // project so its sidebar shell stays highlighted while the user is viewing
+  // a plan, configure screen, or run view.
+  const planRunnerRouteParams = useParams({
+    strict: false,
+    select: (params: { featureName?: string; runId?: string }) => ({
+      featureName: params.featureName ?? null,
+      runId: params.runId ?? null,
+    }),
+  });
+  const planRunnerProjectIdFromFeature = usePlanRunnerStore((s): string | null => {
+    const featureName = planRunnerRouteParams.featureName;
+    if (!featureName) return null;
+    for (const key of Object.keys(s.plansByFeatureKey)) {
+      if (key.endsWith(`:${featureName}`)) {
+        const pid = key.split(":")[0] ?? null;
+        if (pid) return pid;
+      }
+    }
+    for (const [pid, features] of Object.entries(s.featuresByProjectId)) {
+      if (features.some((f) => f.featureName === featureName)) return pid;
+    }
+    return null;
+  });
+  const planRunnerProjectIdFromRun = usePlanRunnerStore((s): string | null => {
+    const runId = planRunnerRouteParams.runId;
+    if (!runId) return null;
+    return s.runById[runId]?.projectId ?? null;
+  });
   const keybindings = useServerKeybindings();
   const [addingProject, setAddingProject] = useState(false);
   const [newCwd, setNewCwd] = useState("");
@@ -2663,17 +2734,42 @@ export default function Sidebar() {
   );
   // Resolve the active route's project key to a logical key so it matches the
   // sidebar's grouped project entries.
+  //
+  // Resolution order (first match wins):
+  //   1. Thread route → owning project of the active thread.
+  //   2. Plan-runner run route (`$runId`) → projectId from the run snapshot.
+  //   3. Plan-runner feature route (`$featureName`) → projectId from the
+  //      plan-runner feature/plan caches via `useFeatureProjectId` semantics.
+  // For (2) and (3) we have a projectId but not an environmentId, so we
+  // resolve to a logical key by scanning the already-grouped sidebarProjects
+  // list for any member whose `id` matches.
   const activeRouteProjectKey = useMemo(() => {
-    if (!routeThreadKey) {
-      return null;
+    if (routeThreadKey) {
+      const activeThread = sidebarThreadByKey.get(routeThreadKey);
+      if (activeThread) {
+        const physicalKey = scopedProjectKey(
+          scopeProjectRef(activeThread.environmentId, activeThread.projectId),
+        );
+        return physicalToLogicalKey.get(physicalKey) ?? physicalKey;
+      }
     }
-    const activeThread = sidebarThreadByKey.get(routeThreadKey);
-    if (!activeThread) return null;
-    const physicalKey = scopedProjectKey(
-      scopeProjectRef(activeThread.environmentId, activeThread.projectId),
-    );
-    return physicalToLogicalKey.get(physicalKey) ?? physicalKey;
-  }, [routeThreadKey, sidebarThreadByKey, physicalToLogicalKey]);
+    const planRunnerProjectId = planRunnerProjectIdFromRun ?? planRunnerProjectIdFromFeature;
+    if (planRunnerProjectId) {
+      for (const project of sidebarProjects) {
+        if (project.memberProjectRefs.some((ref) => ref.projectId === planRunnerProjectId)) {
+          return project.projectKey;
+        }
+      }
+    }
+    return null;
+  }, [
+    routeThreadKey,
+    sidebarThreadByKey,
+    physicalToLogicalKey,
+    planRunnerProjectIdFromRun,
+    planRunnerProjectIdFromFeature,
+    sidebarProjects,
+  ]);
 
   // Group threads by logical project key so all threads from grouped projects
   // are displayed together.

@@ -121,6 +121,8 @@ import {
   PlanRunnerUnarchiveFeatureResult,
   PlanRunnerListArchivedFeaturesInput,
   PlanRunnerListArchivedFeaturesResult,
+  PlanRunnerRenameFeatureInput,
+  PlanRunnerRenameFeatureResult,
   PlanRunnerRerunFromFailureInput,
 } from "./planRunner";
 import {
@@ -226,6 +228,7 @@ export const WS_METHODS = {
   planRunnerArchiveFeature: "planRunner.archiveFeature",
   planRunnerUnarchiveFeature: "planRunner.unarchiveFeature",
   planRunnerListArchivedFeatures: "planRunner.listArchivedFeatures",
+  planRunnerRenameFeature: "planRunner.renameFeature",
   planRunnerRerunFromFailure: "planRunner.rerunFromFailure",
 
   // Skills
@@ -662,6 +665,12 @@ export const WsPlanRunnerListArchivedFeaturesRpc = Rpc.make(
   },
 );
 
+export const WsPlanRunnerRenameFeatureRpc = Rpc.make(WS_METHODS.planRunnerRenameFeature, {
+  payload: PlanRunnerRenameFeatureInput,
+  success: PlanRunnerRenameFeatureResult,
+  error: PlanRunnerError,
+});
+
 export const WsPlanRunnerRerunFromFailureRpc = Rpc.make(WS_METHODS.planRunnerRerunFromFailure, {
   payload: PlanRunnerRerunFromFailureInput,
   success: PlanRunnerStartResult,
@@ -773,6 +782,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPlanRunnerArchiveFeatureRpc,
   WsPlanRunnerUnarchiveFeatureRpc,
   WsPlanRunnerListArchivedFeaturesRpc,
+  WsPlanRunnerRenameFeatureRpc,
   WsPlanRunnerRerunFromFailureRpc,
   WsServerListSkillsRpc,
   WsServerCreateSkillRpc,

@@ -218,6 +218,11 @@ export interface DesktopBridge {
   neovimInput: (keys: string) => Promise<void>;
   neovimResize: (cols: number, rows: number) => Promise<void>;
   onNeovimRedraw: (listener: (events: unknown[]) => void) => () => void;
+  /**
+   * Update the working directory used by the render-loop NeovimSource.
+   * Triggers a respawn of the embedded nvim if one is already running.
+   */
+  neovimSetCwd: (cwd: string) => Promise<void>;
 
   // Render loop (backend-agnostic frame pipeline)
   renderStart: () => Promise<void>;

@@ -60,6 +60,11 @@ interface PlanRunnerState {
     projectId: ProjectId,
     archivedDirName: string,
   ) => Promise<{ featureName: string }>;
+  renameFeature: (
+    projectId: ProjectId,
+    featureName: string,
+    newFeatureName: string,
+  ) => Promise<{ featureName: string }>;
 }
 
 export function selectFeaturePlans(
@@ -406,6 +411,82 @@ export const usePlanRunnerStore = create<PlanRunnerState>((set, get) => ({
     });
     // Watcher events refresh both lists via archivedFeaturesChanged / featuresChanged.
     return { featureName: result.featureName };
+  },
+
+  renameFeature: async (projectId, featureName, newFeatureName) => {
+    if (featureName === newFeatureName) {
+      return { featureName: newFeatureName };
+    }
+    const oldKey = `${projectId}:${featureName}`;
+    const newKey = `${projectId}:${newFeatureName}`;
+
+    // Snapshot previous state for rollback.
+    const prevFeatures = get().featuresByProjectId[projectId] ?? [];
+    const prevPlansByFeatureKey = get().plansByFeatureKey;
+    const prevRunById = get().runById;
+
+    // Optimistic in-place rename: features list, plans cache, run snapshots.
+    set((state) => {
+      const features = state.featuresByProjectId[projectId];
+      const nextFeaturesByProjectId = features
+        ? {
+            ...state.featuresByProjectId,
+            // oxlint-disable-next-line oxc/no-map-spread -- immutable Zustand state update requires copy-on-write
+            [projectId]: features.map((f) =>
+              f.featureName === featureName
+                ? { ...f, featureName: newFeatureName as FeatureSummary["featureName"] }
+                : f,
+            ),
+          }
+        : state.featuresByProjectId;
+
+      let nextPlansByFeatureKey = state.plansByFeatureKey;
+      if (oldKey in state.plansByFeatureKey) {
+        const { [oldKey]: moved, ...rest } = state.plansByFeatureKey;
+        nextPlansByFeatureKey = moved ? { ...rest, [newKey]: moved } : rest;
+      }
+
+      let nextRunById = state.runById;
+      let runMutated = false;
+      const draftRunById: Record<string, PlanRunSnapshot> = { ...state.runById };
+      for (const [runId, run] of Object.entries(state.runById)) {
+        if (run.projectId === projectId && run.featureName === featureName) {
+          draftRunById[runId] = {
+            ...run,
+            featureName: newFeatureName as PlanRunSnapshot["featureName"],
+          };
+          runMutated = true;
+        }
+      }
+      if (runMutated) nextRunById = draftRunById;
+
+      return {
+        featuresByProjectId: nextFeaturesByProjectId,
+        plansByFeatureKey: nextPlansByFeatureKey,
+        runById: nextRunById,
+      };
+    });
+
+    try {
+      const client = getPrimaryEnvironmentConnection().client;
+      const result = await client.planRunner.renameFeature({
+        projectId,
+        featureName,
+        newFeatureName,
+      });
+      return { featureName: result.featureName };
+    } catch (err) {
+      // Roll back optimistic mutation.
+      set((state) => ({
+        featuresByProjectId: {
+          ...state.featuresByProjectId,
+          [projectId]: prevFeatures,
+        },
+        plansByFeatureKey: prevPlansByFeatureKey,
+        runById: prevRunById,
+      }));
+      throw err;
+    }
   },
 }));
 

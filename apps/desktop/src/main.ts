@@ -132,6 +132,7 @@ const NEOVIM_DETACH_CHANNEL = "desktop:neovim-detach";
 const NEOVIM_INPUT_CHANNEL = "desktop:neovim-input";
 const NEOVIM_RESIZE_CHANNEL = "desktop:neovim-resize";
 const NEOVIM_REDRAW_CHANNEL = "desktop:neovim-redraw";
+const NEOVIM_SET_CWD_CHANNEL = "desktop:neovim-set-cwd";
 const RENDER_START_CHANNEL = "desktop:render-start";
 const RENDER_STOP_CHANNEL = "desktop:render-stop";
 const RENDER_SET_FPS_CHANNEL = "desktop:render-set-fps";
@@ -1990,6 +1991,14 @@ function registerIpcHandlers(): void {
     if (typeof rows !== "number") throw new Error("Invalid rows");
     if (!nvimSession) return;
     await nvimSession.client.uiTryResize(cols, rows);
+  });
+
+  ipcMain.removeHandler(NEOVIM_SET_CWD_CHANNEL);
+  ipcMain.handle(NEOVIM_SET_CWD_CHANNEL, async (_event, cwd: unknown) => {
+    if (typeof cwd !== "string" || cwd.length === 0) {
+      throw new Error("Invalid cwd");
+    }
+    neovimSource.setCwd(cwd);
   });
 
   ipcMain.removeHandler(RENDER_START_CHANNEL);

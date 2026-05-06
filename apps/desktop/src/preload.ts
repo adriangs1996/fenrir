@@ -46,6 +46,7 @@ const NEOVIM_DETACH_CHANNEL = "desktop:neovim-detach";
 const NEOVIM_INPUT_CHANNEL = "desktop:neovim-input";
 const NEOVIM_RESIZE_CHANNEL = "desktop:neovim-resize";
 const NEOVIM_REDRAW_CHANNEL = "desktop:neovim-redraw";
+const NEOVIM_SET_CWD_CHANNEL = "desktop:neovim-set-cwd";
 const RENDER_START_CHANNEL = "desktop:render-start";
 const RENDER_STOP_CHANNEL = "desktop:render-stop";
 const RENDER_SET_FPS_CHANNEL = "desktop:render-set-fps";
@@ -161,6 +162,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   neovimInput: (keys: string) => ipcRenderer.invoke(NEOVIM_INPUT_CHANNEL, keys),
   neovimResize: (cols: number, rows: number) =>
     ipcRenderer.invoke(NEOVIM_RESIZE_CHANNEL, cols, rows),
+  neovimSetCwd: (cwd: string) => ipcRenderer.invoke(NEOVIM_SET_CWD_CHANNEL, cwd),
   onNeovimRedraw: (listener: (events: unknown[]) => void) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, events: unknown) => {
       if (!Array.isArray(events)) return;

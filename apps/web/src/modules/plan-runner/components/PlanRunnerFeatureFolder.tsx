@@ -9,7 +9,7 @@ import {
   SquareIcon,
   XCircleIcon,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { ProjectId } from "@fenrir/contracts";
 import {
@@ -26,6 +26,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { toastManager } from "~/components/ui/toast";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { useUiStateStore } from "~/uiStateStore";
+import { readLocalApi } from "~/localApi";
 
 type FeatureSummary = typeof FeatureSummarySchema.Type;
 type PlanFileSummary = typeof PlanFileSummarySchema.Type;
@@ -53,6 +54,7 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   const plans = usePlanRunnerStore((s) => s.plansByFeatureKey[featureKey] ?? EMPTY_PLANS);
   const setPlans = usePlanRunnerStore((s) => s.setPlans);
   const archiveFeature = usePlanRunnerStore((s) => s.archiveFeature);
+  const renameFeature = usePlanRunnerStore((s) => s.renameFeature);
 
   const rpcClient = useMemo(() => {
     try {
@@ -86,6 +88,7 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   }, [rpcClient, feature.activeRunId]);
 
   const canArchive = !feature.hasActiveRun;
+  const canRename = !feature.hasActiveRun;
 
   const handleArchive = useCallback(() => {
     if (!canArchive) return;
@@ -97,6 +100,78 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
       });
     });
   }, [canArchive, archiveFeature, projectId, feature.featureName]);
+
+  const handleRename = useCallback(() => {
+    if (!canRename) {
+      toastManager.add({
+        type: "warning",
+        title: "Cannot rename feature with active run",
+      });
+      return;
+    }
+    const oldName = feature.featureName;
+    const input = window.prompt(`Rename feature "${oldName}" to:`, oldName);
+    if (input === null) return; // dismissed
+    const newName = input.trim();
+    if (newName.length === 0 || newName === oldName) return;
+    if (/[/\\]|\.\./.test(newName)) {
+      toastManager.add({
+        type: "error",
+        title: "Invalid feature name",
+        description: "Name must not contain '/', '\\\\', or '..'.",
+      });
+      return;
+    }
+    renameFeature(projectId, oldName, newName)
+      .then(({ featureName }) => {
+        // If the user is currently viewing the renamed feature, swap the URL
+        // so route params stay valid.
+        const currentPath = window.location.pathname;
+        const encodedOld = encodeURIComponent(oldName);
+        if (currentPath.includes(`/plan-runner/${encodedOld}`)) {
+          void navigate({
+            to: "/plan-runner/$featureName/run",
+            params: { featureName },
+          });
+        }
+      })
+      .catch((err) => {
+        toastManager.add({
+          type: "error",
+          title: "Failed to rename feature",
+          description: err instanceof Error ? err.message : "An error occurred.",
+        });
+      });
+  }, [canRename, renameFeature, projectId, feature.featureName, navigate]);
+
+  const handleContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void (async () => {
+        const api = readLocalApi();
+        if (!api) return;
+        const clicked = await api.contextMenu.show(
+          [
+            { id: "rename", label: "Rename feature", disabled: !canRename },
+            {
+              id: "archive",
+              label: "Archive feature",
+              disabled: !canArchive,
+              destructive: true,
+            },
+          ],
+          { x: event.clientX, y: event.clientY },
+        );
+        if (clicked === "rename") {
+          handleRename();
+        } else if (clicked === "archive") {
+          handleArchive();
+        }
+      })();
+    },
+    [canArchive, canRename, handleArchive, handleRename],
+  );
 
   // Status-icon click target: prefer the active run, fall back to last stored run.
   const statusRunId = feature.activeRunId ?? feature.lastRunId ?? null;
@@ -124,7 +199,7 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
         open={expanded}
         onOpenChange={(open) => setPlanRunnerFolderExpanded(expansionKey, open)}
       >
-        <div className="flex items-center">
+        <div className="flex items-center" onContextMenu={handleContextMenu}>
           <CollapsibleTrigger
             aria-label={expanded ? "Collapse plans" : "Expand plans"}
             className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"

@@ -287,6 +287,23 @@ export const PlanRunnerUnarchiveFeatureResult = Schema.Struct({
 });
 export type PlanRunnerUnarchiveFeatureResult = typeof PlanRunnerUnarchiveFeatureResult.Type;
 
+// ─── Rename Feature ───────────────────────────────────────────────────────
+
+export const PlanRunnerRenameFeatureInput = Schema.Struct({
+  projectId: ProjectId,
+  /** Existing feature folder name in `.plans/`. */
+  featureName: TrimmedNonEmptyString,
+  /** Desired new feature folder name. Must not collide with an existing one. */
+  newFeatureName: TrimmedNonEmptyString,
+});
+export type PlanRunnerRenameFeatureInput = typeof PlanRunnerRenameFeatureInput.Type;
+
+export const PlanRunnerRenameFeatureResult = Schema.Struct({
+  /** Final renamed feature name in `.plans/`. */
+  featureName: TrimmedNonEmptyString,
+});
+export type PlanRunnerRenameFeatureResult = typeof PlanRunnerRenameFeatureResult.Type;
+
 // ─── List Archived Features ───────────────────────────────────────────────
 
 export const PlanRunnerListArchivedFeaturesInput = Schema.Struct({

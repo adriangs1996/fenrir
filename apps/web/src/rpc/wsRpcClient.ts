@@ -164,6 +164,7 @@ export interface WsRpcClient {
     readonly archiveFeature: RpcUnaryMethod<typeof WS_METHODS.planRunnerArchiveFeature>;
     readonly unarchiveFeature: RpcUnaryMethod<typeof WS_METHODS.planRunnerUnarchiveFeature>;
     readonly listArchivedFeatures: RpcUnaryMethod<typeof WS_METHODS.planRunnerListArchivedFeatures>;
+    readonly renameFeature: RpcUnaryMethod<typeof WS_METHODS.planRunnerRenameFeature>;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribePlanRunnerEvents>;
   };
   readonly orchestration: {
@@ -377,6 +378,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.planRunnerUnarchiveFeature](input)),
       listArchivedFeatures: (input) =>
         transport.request((client) => client[WS_METHODS.planRunnerListArchivedFeatures](input)),
+      renameFeature: (input) =>
+        transport.request((client) => client[WS_METHODS.planRunnerRenameFeature](input)),
       onEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribePlanRunnerEvents]({}),

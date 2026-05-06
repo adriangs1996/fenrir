@@ -10,6 +10,7 @@ import type {
   PlanRunnerArchiveFeatureResult,
   PlanRunnerUnarchiveFeatureResult,
   PlanRunnerListArchivedFeaturesResult,
+  PlanRunnerRenameFeatureResult,
   PlanRunnerNotFoundError,
   ProjectId,
   ModelSelection,
@@ -104,6 +105,12 @@ export interface PlanRunnerServiceShape {
   readonly listArchivedFeatures: (input: {
     readonly projectId?: ProjectId | undefined;
   }) => Effect.Effect<PlanRunnerListArchivedFeaturesResult, PlanRunnerError>;
+
+  readonly renameFeature: (input: {
+    readonly projectId: ProjectId;
+    readonly featureName: string;
+    readonly newFeatureName: string;
+  }) => Effect.Effect<PlanRunnerRenameFeatureResult, PlanRunnerError>;
 
   readonly streamEvents: Stream.Stream<PlanRunnerEvent>;
 }

@@ -1302,6 +1302,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             planRunnerService.listArchivedFeatures(input),
             { "rpc.aggregate": "planRunner" },
           ),
+
+        [WS_METHODS.planRunnerRenameFeature]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.planRunnerRenameFeature,
+            planRunnerService.renameFeature(input),
+            { "rpc.aggregate": "planRunner" },
+          ),
         [WS_METHODS.serverListSkills]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverListSkills,

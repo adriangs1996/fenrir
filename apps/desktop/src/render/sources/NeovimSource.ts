@@ -121,6 +121,46 @@ export class NeovimSource implements SceneSource {
     this.started = false;
   }
 
+  /**
+   * Update the working directory used when spawning the embedded nvim.
+   * If nvim is already running (or starting), kill it and respawn with the
+   * new cwd on the next render tick. All grid/window state is reset so the
+   * fresh nvim paints from scratch — unsaved buffers in the previous nvim
+   * are lost, which is acceptable on project switch.
+   */
+  setCwd(cwd: string): void {
+    if (cwd === this.cwd) return;
+    this.cwd = cwd;
+    if (!this.started && !this.starting) return;
+
+    if (this.proc) {
+      try {
+        this.proc.kill("SIGTERM");
+      } catch (e) {
+        console.warn("[neovimSource] kill on setCwd failed:", e);
+      }
+    }
+    this.proc = null;
+    this.client = null;
+    this.started = false;
+    this.starting = false;
+
+    // Reset rendering state so the next ensureStarted gets a clean slate and
+    // emits a full repaint to the renderer.
+    this.grids.clear();
+    this.windows.clear();
+    this.hl.clear();
+    this.dirtyRows.clear();
+    this.hlPending = [];
+    this.resizedGrids = [];
+    this.closedGrids.clear();
+    this.windowsChanged = false;
+    this.cursorChanged = false;
+    this.defaultColorsChanged = true;
+    this.metricsSent = false;
+    this.flushPending = true;
+  }
+
   setEditorFontMetrics(m: EditorFontMetrics): void {
     const sameMetrics =
       m.width === this.cellW &&
