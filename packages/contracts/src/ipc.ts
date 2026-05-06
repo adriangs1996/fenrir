@@ -227,26 +227,88 @@ export interface DesktopBridge {
   onFrame: (listener: (frame: Frame) => void) => () => void;
 }
 
-export type DrawOp =
-  | { op: "clear"; color: string }
-  | { op: "fillRect"; x: number; y: number; w: number; h: number; color: string }
-  | {
-      op: "text";
-      x: number;
-      y: number;
-      text: string;
-      color: string;
-      font?: string;
-      baseline?: "alphabetic" | "top" | "hanging" | "middle" | "ideographic" | "bottom";
-    };
+export interface CellMetrics {
+  width: number;
+  height: number;
+  ascent: number;
+  font: string;
+}
 
-export interface Frame {
-  seq: number;
-  kind: string;
+export interface HlAttrEntry {
+  id: number;
+  fg?: number;
+  bg?: number;
+  sp?: number;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  reverse?: boolean;
+}
+
+export interface DefaultColorsEntry {
+  fg: number;
+  bg: number;
+  sp: number;
+}
+
+export interface CellRun {
+  col: number;
+  len: number;
+  text: string;
+  hlId: number;
+}
+
+export interface RowDelta {
+  row: number;
+  runs: CellRun[];
+}
+
+export interface GridDelta {
+  gridId: number;
+  rows: RowDelta[];
+}
+
+export interface ResizedGrid {
+  id: number;
   w: number;
   h: number;
-  ops: DrawOp[];
 }
+
+export type WindowKind = "default" | "float" | "external" | "msg";
+
+export interface WindowEntry {
+  gridId: number;
+  kind: WindowKind;
+  row: number;
+  col: number;
+  zIndex: number;
+  hidden: boolean;
+}
+
+export type CursorShape = "block" | "horizontal" | "vertical";
+
+export interface CursorEntry {
+  gridId: number;
+  row: number;
+  col: number;
+  shape: CursorShape;
+  text?: string;
+}
+
+export interface NeovimFrame {
+  kind: "neovim";
+  seq: number;
+  cellMetrics?: CellMetrics;
+  hl?: HlAttrEntry[];
+  defaultColors?: DefaultColorsEntry;
+  resizedGrids?: ResizedGrid[];
+  closedGrids?: number[];
+  gridDeltas?: GridDelta[];
+  windows?: WindowEntry[];
+  cursor?: CursorEntry;
+}
+
+export type Frame = NeovimFrame;
 
 export interface InputModifiers {
   ctrl: boolean;

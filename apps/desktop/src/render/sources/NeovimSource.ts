@@ -2,7 +2,17 @@ import * as ChildProcess from "node:child_process";
 import * as FS from "node:fs";
 import * as Path from "node:path";
 
-import type { DrawOp, InputEvent } from "@fenrir/contracts";
+import type {
+  CellRun,
+  CursorEntry,
+  Frame,
+  GridDelta,
+  HlAttrEntry,
+  InputEvent,
+  ResizedGrid,
+  RowDelta,
+  WindowEntry,
+} from "@fenrir/contracts";
 
 import { FENRIR_INIT_LUA } from "../../neovimLua";
 import type { SceneSource } from "../RenderLoop";
@@ -52,8 +62,6 @@ interface Mods {
   meta: boolean;
 }
 
-const EMPTY_OPS: DrawOp[] = [];
-
 export class NeovimSource implements SceneSource {
   readonly kind = "neovim";
 
@@ -73,7 +81,19 @@ export class NeovimSource implements SceneSource {
   private cursor = { gridId: 1, row: 0, col: 0 };
   private modeInfo: Array<Record<string, unknown>> = [];
   private modeIdx = 0;
-  private dirty = true;
+  private seq = 0;
+
+  // Damage tracking
+  private flushPending = false;
+  private dirtyRows = new Map<number, Set<number>>();
+  private hlPending: HlAttrEntry[] = [];
+  private defaultColorsChanged = false;
+  private resizedGrids: ResizedGrid[] = [];
+  private closedGrids = new Set<number>();
+  private windowsChanged = false;
+  private cursorChanged = false;
+  private metricsSent = false;
+
   private readonly textBuffer: string[] = [];
 
   private profile = {
@@ -83,7 +103,8 @@ export class NeovimSource implements SceneSource {
     framesEmitted: 0,
     framesSkipped: 0,
     events: 0,
-    ops: 0,
+    rows: 0,
+    runs: 0,
   };
 
   constructor(cwd: string) {
@@ -107,7 +128,6 @@ export class NeovimSource implements SceneSource {
   handleInput(event: InputEvent): void {
     if (event.kind === "resize") {
       this.viewport = { w: event.w, h: event.h };
-      this.dirty = true;
       const cols = Math.max(1, Math.floor(event.w / CELL_W));
       const rows = Math.max(1, Math.floor(event.h / CELL_H));
       if (this.client) {
@@ -138,23 +158,26 @@ export class NeovimSource implements SceneSource {
     }
   }
 
-  render(_seq: number, _dt: number): DrawOp[] {
+  render(_dtMs: number): Frame | null {
     if (!this.started && !this.starting && !this.shutdownRequested) {
       void this.ensureStarted();
     }
-    if (!this.dirty) {
+    if (!this.flushPending && this.metricsSent) {
       this.profile.framesSkipped++;
       this.maybeFlushProfile();
-      return EMPTY_OPS;
+      return null;
     }
-    this.dirty = false;
+    this.flushPending = false;
     const t0 = performance.now();
-    const ops = this.buildOps();
+    const frame = this.buildFrame();
     this.profile.buildMs += performance.now() - t0;
-    this.profile.framesEmitted++;
-    this.profile.ops += ops.length;
+    if (frame) {
+      this.profile.framesEmitted++;
+    } else {
+      this.profile.framesSkipped++;
+    }
     this.maybeFlushProfile();
-    return ops;
+    return frame;
   }
 
   private maybeFlushProfile(): void {
@@ -165,7 +188,7 @@ export class NeovimSource implements SceneSource {
     console.log(
       `[neovimSource] ${elapsed.toFixed(0)}ms` +
         ` emit=${p.framesEmitted} skip=${p.framesSkipped}` +
-        ` events=${p.events} ops=${p.ops}` +
+        ` events=${p.events} rows=${p.rows} runs=${p.runs}` +
         ` redraw=${p.redrawMs.toFixed(2)}ms build=${p.buildMs.toFixed(2)}ms`,
     );
     p.start = now;
@@ -174,7 +197,8 @@ export class NeovimSource implements SceneSource {
     p.framesEmitted = 0;
     p.framesSkipped = 0;
     p.events = 0;
-    p.ops = 0;
+    p.rows = 0;
+    p.runs = 0;
   }
 
   private async ensureStarted(): Promise<void> {
@@ -243,7 +267,6 @@ export class NeovimSource implements SceneSource {
 
       this.started = true;
 
-      // viewport may have changed during async attach — re-sync once
       if (this.viewport.w !== attachViewport.w || this.viewport.h !== attachViewport.h) {
         const newCols = Math.max(1, Math.floor(this.viewport.w / CELL_W));
         const newRows = Math.max(1, Math.floor(this.viewport.h / CELL_H));
@@ -295,7 +318,7 @@ export class NeovimSource implements SceneSource {
     if (event.type === "down") action = "press";
     else if (event.type === "up") action = "release";
     else if (event.type === "move") {
-      if (event.button === undefined) return; // hover-only
+      if (event.button === undefined) return;
       action = "drag";
     }
     if (!action) return;
@@ -306,99 +329,150 @@ export class NeovimSource implements SceneSource {
       .catch((e: unknown) => console.warn("[neovimSource] mouse failed:", e));
   }
 
-  private buildOps(): DrawOp[] {
-    const ops: DrawOp[] = [{ op: "clear", color: colorToHex(this.defaultColors.bg) }];
-    const visible = [...this.windows.values()].filter((w) => !w.hidden);
-    visible.sort((a, b) => a.zIndex - b.zIndex);
-    for (const win of visible) {
-      const grid = this.grids.get(win.gridId);
-      if (!grid) continue;
-      this.paintGrid(ops, grid, win);
-    }
-    this.paintCursor(ops);
-    return ops;
-  }
+  private buildFrame(): Frame | null {
+    const frame: Frame = { kind: "neovim", seq: this.seq };
+    let any = false;
 
-  private paintGrid(ops: DrawOp[], grid: Grid, win: Win): void {
-    const baseX = win.col * CELL_W;
-    const baseY = win.row * CELL_H;
-    for (let r = 0; r < grid.h; r++) {
-      const row = grid.cells[r];
-      if (!row) continue;
-      let c = 0;
-      while (c < grid.w) {
-        const cell = row[c];
-        if (!cell) {
-          c++;
-          continue;
-        }
-        const hlId = cell.hl;
-        let runEnd = c;
-        const buf = this.textBuffer;
-        buf.length = 0;
-        let nonEmpty = false;
-        while (runEnd < grid.w) {
-          const ce = row[runEnd];
-          if (!ce || ce.hl !== hlId) break;
-          const ch = ce.ch.length > 0 ? ce.ch : " ";
-          buf.push(ch);
-          if (!nonEmpty && ch !== " ") nonEmpty = true;
-          runEnd++;
-        }
-        const text = buf.join("");
-        const attr = this.hl.get(hlId);
-        const fgColor = attr?.reverse ? attr?.bg : attr?.fg;
-        const bgColor = attr?.reverse ? attr?.fg : attr?.bg;
-        const fg = colorToHex(fgColor ?? this.defaultColors.fg);
-        const bg = colorToHex(bgColor ?? this.defaultColors.bg);
-        const x = baseX + c * CELL_W;
-        const y = baseY + r * CELL_H;
-        const w = (runEnd - c) * CELL_W;
-        ops.push({ op: "fillRect", x, y, w, h: CELL_H, color: bg });
-        if (nonEmpty) {
-          ops.push({
-            op: "text",
-            x,
-            y: y + TEXT_ASCENT,
-            text,
-            color: fg,
-            font: fontFor(attr),
-            baseline: "alphabetic",
-          });
-        }
-        c = runEnd;
+    if (!this.metricsSent) {
+      frame.cellMetrics = {
+        width: CELL_W,
+        height: CELL_H,
+        ascent: TEXT_ASCENT,
+        font: FONT,
+      };
+      this.metricsSent = true;
+      any = true;
+    }
+    if (this.defaultColorsChanged) {
+      frame.defaultColors = { ...this.defaultColors };
+      this.defaultColorsChanged = false;
+      any = true;
+    }
+    if (this.hlPending.length > 0) {
+      frame.hl = this.hlPending;
+      this.hlPending = [];
+      any = true;
+    }
+    if (this.resizedGrids.length > 0) {
+      frame.resizedGrids = this.resizedGrids;
+      this.resizedGrids = [];
+      any = true;
+    }
+    if (this.closedGrids.size > 0) {
+      frame.closedGrids = [...this.closedGrids];
+      this.closedGrids.clear();
+      any = true;
+    }
+
+    const gridDeltas: GridDelta[] = [];
+    for (const [gridId, rows] of this.dirtyRows) {
+      if (rows.size === 0) continue;
+      const grid = this.grids.get(gridId);
+      if (!grid) {
+        rows.clear();
+        continue;
+      }
+      const rowDeltas: RowDelta[] = [];
+      for (const r of rows) {
+        if (r >= grid.h) continue;
+        const runs = this.buildRowRuns(grid, r);
+        rowDeltas.push({ row: r, runs });
+        this.profile.runs += runs.length;
+      }
+      this.profile.rows += rowDeltas.length;
+      rows.clear();
+      if (rowDeltas.length > 0) {
+        gridDeltas.push({ gridId, rows: rowDeltas });
       }
     }
+    if (gridDeltas.length > 0) {
+      frame.gridDeltas = gridDeltas;
+      any = true;
+    }
+
+    if (this.windowsChanged) {
+      frame.windows = [...this.windows.values()].map((w) => ({
+        gridId: w.gridId,
+        kind: w.kind,
+        row: w.row,
+        col: w.col,
+        zIndex: w.zIndex,
+        hidden: w.hidden,
+      })) satisfies WindowEntry[];
+      this.windowsChanged = false;
+      any = true;
+    }
+
+    if (this.cursorChanged) {
+      const mode = this.modeInfo[this.modeIdx];
+      const rawShape = (mode?.["cursor_shape"] as string | undefined) ?? "block";
+      const shape = rawShape === "vertical" || rawShape === "horizontal" ? rawShape : "block";
+      const cursorEntry: CursorEntry = {
+        gridId: this.cursor.gridId,
+        row: this.cursor.row,
+        col: this.cursor.col,
+        shape,
+      };
+      if (shape === "block") {
+        const grid = this.grids.get(this.cursor.gridId);
+        const cell = grid?.cells[this.cursor.row]?.[this.cursor.col];
+        if (cell?.ch && cell.ch.length > 0) cursorEntry.text = cell.ch;
+      }
+      frame.cursor = cursorEntry;
+      this.cursorChanged = false;
+      any = true;
+    }
+
+    if (!any) return null;
+    this.seq++;
+    return frame;
   }
 
-  private paintCursor(ops: DrawOp[]): void {
-    const grid = this.grids.get(this.cursor.gridId);
-    const win = this.windows.get(this.cursor.gridId);
-    if (!grid || !win) return;
-    const x = (win.col + this.cursor.col) * CELL_W;
-    const y = (win.row + this.cursor.row) * CELL_H;
-    const mode = this.modeInfo[this.modeIdx];
-    const shape = (mode?.["cursor_shape"] as string | undefined) ?? "block";
-    const cellW = shape === "vertical" ? 2 : CELL_W;
-    const cellH = shape === "horizontal" ? 2 : CELL_H;
-    const drawY = shape === "horizontal" ? y + CELL_H - 2 : y;
-    const cursorColor = colorToHex(this.defaultColors.fg);
-    ops.push({ op: "fillRect", x, y: drawY, w: cellW, h: cellH, color: cursorColor });
-    if (shape === "block") {
-      const cell = grid.cells[this.cursor.row]?.[this.cursor.col];
-      const ch = cell?.ch && cell.ch.trim().length > 0 ? cell.ch : null;
-      if (ch) {
-        ops.push({
-          op: "text",
-          x,
-          y: y + TEXT_ASCENT,
-          text: ch,
-          color: colorToHex(this.defaultColors.bg),
-          font: FONT,
-          baseline: "alphabetic",
-        });
+  private buildRowRuns(grid: Grid, r: number): CellRun[] {
+    const row = grid.cells[r];
+    if (!row) return [];
+    const runs: CellRun[] = [];
+    let c = 0;
+    while (c < grid.w) {
+      const cell = row[c]!;
+      const hlId = cell.hl;
+      let runEnd = c;
+      const buf = this.textBuffer;
+      buf.length = 0;
+      while (runEnd < grid.w) {
+        const ce = row[runEnd]!;
+        if (ce.hl !== hlId) break;
+        buf.push(ce.ch.length > 0 ? ce.ch : " ");
+        runEnd++;
       }
+      runs.push({ col: c, len: runEnd - c, text: buf.join(""), hlId });
+      c = runEnd;
     }
+    return runs;
+  }
+
+  private markRowDirty(gridId: number, row: number): void {
+    let set = this.dirtyRows.get(gridId);
+    if (!set) {
+      set = new Set();
+      this.dirtyRows.set(gridId, set);
+    }
+    set.add(row);
+  }
+
+  private markAllRowsDirty(gridId: number): void {
+    const grid = this.grids.get(gridId);
+    if (!grid) return;
+    let set = this.dirtyRows.get(gridId);
+    if (!set) {
+      set = new Set();
+      this.dirtyRows.set(gridId, set);
+    }
+    for (let r = 0; r < grid.h; r++) set.add(r);
+  }
+
+  private markEverythingDirty(): void {
+    for (const id of this.grids.keys()) this.markAllRowsDirty(id);
   }
 
   private applyRedraw(batches: unknown[][]): void {
@@ -429,12 +503,14 @@ export class NeovimSource implements SceneSource {
         if (typeof fg === "number" && fg >= 0) this.defaultColors.fg = fg;
         if (typeof bg === "number" && bg >= 0) this.defaultColors.bg = bg;
         if (typeof sp === "number" && sp >= 0) this.defaultColors.sp = sp;
+        this.defaultColorsChanged = true;
+        this.markEverythingDirty();
         return;
       }
       case "hl_attr_define": {
         const id = args[0] as number;
         const a = (args[1] ?? {}) as Record<string, unknown>;
-        this.hl.set(id, {
+        const attr: HlAttr = {
           fg: typeof a["foreground"] === "number" ? (a["foreground"] as number) : undefined,
           bg: typeof a["background"] === "number" ? (a["background"] as number) : undefined,
           sp: typeof a["special"] === "number" ? (a["special"] as number) : undefined,
@@ -442,17 +518,29 @@ export class NeovimSource implements SceneSource {
           italic: !!a["italic"],
           underline: !!a["underline"],
           reverse: !!a["reverse"],
-        });
+        };
+        this.hl.set(id, attr);
+        const entry: HlAttrEntry = { id };
+        if (attr.fg !== undefined) entry.fg = attr.fg;
+        if (attr.bg !== undefined) entry.bg = attr.bg;
+        if (attr.sp !== undefined) entry.sp = attr.sp;
+        if (attr.bold) entry.bold = true;
+        if (attr.italic) entry.italic = true;
+        if (attr.underline) entry.underline = true;
+        if (attr.reverse) entry.reverse = true;
+        this.hlPending.push(entry);
         return;
       }
       case "mode_info_set": {
         const list = args[1];
         this.modeInfo = Array.isArray(list) ? (list as Array<Record<string, unknown>>) : [];
+        this.cursorChanged = true;
         return;
       }
       case "mode_change": {
         const idx = args[1];
         if (typeof idx === "number") this.modeIdx = idx;
+        this.cursorChanged = true;
         return;
       }
       case "grid_resize": {
@@ -470,6 +558,7 @@ export class NeovimSource implements SceneSource {
           cells.push(row);
         }
         this.grids.set(id, { id, w, h, cells });
+        this.resizedGrids.push({ id, w, h });
         if (id === 1 && !this.windows.has(1)) {
           this.windows.set(1, {
             gridId: 1,
@@ -479,7 +568,9 @@ export class NeovimSource implements SceneSource {
             zIndex: 0,
             hidden: false,
           });
+          this.windowsChanged = true;
         }
+        this.markAllRowsDirty(id);
         return;
       }
       case "grid_clear": {
@@ -494,12 +585,16 @@ export class NeovimSource implements SceneSource {
             cell.hl = 0;
           }
         }
+        this.markAllRowsDirty(id);
         return;
       }
       case "grid_destroy": {
         const id = args[0] as number;
         this.grids.delete(id);
         this.windows.delete(id);
+        this.dirtyRows.delete(id);
+        this.closedGrids.add(id);
+        this.windowsChanged = true;
         return;
       }
       case "grid_line": {
@@ -529,6 +624,7 @@ export class NeovimSource implements SceneSource {
             col++;
           }
         }
+        this.markRowDirty(id, row);
         return;
       }
       case "grid_scroll": {
@@ -538,9 +634,6 @@ export class NeovimSource implements SceneSource {
         const rows = args[5] as number;
         const grid = this.grids.get(id);
         if (!grid || rows === 0) return;
-        // Cell objects are mutated in place elsewhere; rows must NOT alias the
-        // same Cell instances after a scroll. Copy field values cell-by-cell
-        // instead of slicing row arrays.
         if (rows > 0) {
           for (let r = top; r < bot - rows; r++) {
             const src = grid.cells[r + rows];
@@ -566,6 +659,7 @@ export class NeovimSource implements SceneSource {
             }
           }
         }
+        for (let r = top; r < bot; r++) this.markRowDirty(id, r);
         return;
       }
       case "grid_cursor_goto": {
@@ -573,6 +667,7 @@ export class NeovimSource implements SceneSource {
         const row = args[1] as number;
         const col = args[2] as number;
         this.cursor = { gridId: id, row, col };
+        this.cursorChanged = true;
         return;
       }
       case "win_pos": {
@@ -594,6 +689,7 @@ export class NeovimSource implements SceneSource {
           zIndex: 1,
           hidden: false,
         });
+        this.windowsChanged = true;
         return;
       }
       case "win_float_pos": {
@@ -619,6 +715,7 @@ export class NeovimSource implements SceneSource {
           zIndex: 50 + zindex,
           hidden: false,
         });
+        this.windowsChanged = true;
         return;
       }
       case "win_external_pos": {
@@ -631,17 +728,23 @@ export class NeovimSource implements SceneSource {
           zIndex: 25,
           hidden: false,
         });
+        this.windowsChanged = true;
         return;
       }
       case "win_hide": {
         const gridId = args[0] as number;
         const win = this.windows.get(gridId);
-        if (win) win.hidden = true;
+        if (win) {
+          win.hidden = true;
+          this.windowsChanged = true;
+        }
         return;
       }
       case "win_close": {
         const gridId = args[0] as number;
-        this.windows.delete(gridId);
+        if (this.windows.delete(gridId)) {
+          this.windowsChanged = true;
+        }
         return;
       }
       case "msg_set_pos": {
@@ -655,30 +758,16 @@ export class NeovimSource implements SceneSource {
           zIndex: 100,
           hidden: false,
         });
+        this.windowsChanged = true;
         return;
       }
       case "flush":
-        this.dirty = true;
+        this.flushPending = true;
         return;
       default:
         return;
     }
   }
-}
-
-function colorToHex(n: number): string {
-  if (typeof n !== "number" || n < 0) return "#000000";
-  return "#" + (n & 0xffffff).toString(16).padStart(6, "0");
-}
-
-function fontFor(attr: HlAttr | undefined): string {
-  if (!attr) return FONT;
-  const parts: string[] = [];
-  if (attr.italic) parts.push("italic");
-  if (attr.bold) parts.push("bold");
-  parts.push(`${FONT_SIZE_PX}px`);
-  parts.push(FONT_FAMILY);
-  return parts.join(" ");
 }
 
 function modString(mods: Mods): string {
@@ -723,7 +812,6 @@ function domKeyToVimNotation(key: string, mods: Mods): string | null {
   const named = NAMED_KEYS[key];
   const isPrintable = !named && key.length === 1;
 
-  // Ignore modifier-only keys.
   if (!named && (key === "Shift" || key === "Control" || key === "Alt" || key === "Meta")) {
     return null;
   }

@@ -1,9 +1,9 @@
-import type { DrawOp, Frame, InputEvent } from "@fenrir/contracts";
+import type { Frame, InputEvent } from "@fenrir/contracts";
 
 export interface SceneSource {
   readonly kind: string;
   handleInput(event: InputEvent): void;
-  render(seq: number, dtMs: number): DrawOp[];
+  render(dtMs: number): Frame | null;
 }
 
 export interface RenderLoopOptions {
@@ -22,7 +22,6 @@ export class RenderLoop {
 
   private source: SceneSource | null = null;
   private running = false;
-  private seq = 0;
   private last = 0;
   private timer: NodeJS.Timeout | null = null;
 
@@ -78,24 +77,17 @@ export class RenderLoop {
     const dt = tickStart - this.last;
     this.last = tickStart;
 
-    let ops: DrawOp[] = [];
+    let frame: Frame | null = null;
     if (this.source) {
       try {
-        ops = this.source.render(this.seq, dt);
+        frame = this.source.render(dt);
       } catch (err) {
         console.error("[render] source.render threw:", err);
-        ops = [];
+        frame = null;
       }
     }
 
-    if (ops.length > 0 && this.source) {
-      const frame: Frame = {
-        seq: this.seq++,
-        kind: this.source.kind,
-        w: this.viewport.w,
-        h: this.viewport.h,
-        ops,
-      };
+    if (frame) {
       try {
         this.emit(frame);
       } catch (err) {

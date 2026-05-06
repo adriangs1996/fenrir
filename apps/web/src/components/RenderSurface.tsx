@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import type { DrawOp, Frame, InputModifiers } from "@fenrir/contracts";
+import type {
+  CellMetrics,
+  CursorEntry,
+  DefaultColorsEntry,
+  Frame,
+  HlAttrEntry,
+  InputModifiers,
+  WindowEntry,
+} from "@fenrir/contracts";
 
 interface RenderSurfaceProps {
   fps?: number;
@@ -7,20 +15,128 @@ interface RenderSurfaceProps {
   style?: React.CSSProperties;
 }
 
-export function RenderSurface({
-  fps = 120,
-  className,
-  style,
-}: RenderSurfaceProps) {
+interface GridCanvas {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  cols: number;
+  rows: number;
+}
+
+interface SurfaceState {
+  metrics: CellMetrics | null;
+  hl: Map<number, HlAttrEntry>;
+  defaultColors: DefaultColorsEntry;
+  grids: Map<number, GridCanvas>;
+  windows: WindowEntry[];
+  cursor: CursorEntry | null;
+  atlas: GlyphAtlas | null;
+  dpr: number;
+}
+
+const ATLAS_COLS = 64;
+const ATLAS_ROWS = 64;
+
+class GlyphAtlas {
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private map = new Map<string, { ax: number; ay: number }>();
+  private nextAx = 0;
+  private nextAy = 0;
+  private overflow = false;
+
+  constructor(
+    private readonly metrics: CellMetrics,
+    private readonly dpr: number,
+  ) {
+    this.canvas = document.createElement("canvas");
+    this.canvas.width = ATLAS_COLS * metrics.width * dpr;
+    this.canvas.height = ATLAS_ROWS * metrics.height * dpr;
+    const ctx = this.canvas.getContext("2d");
+    if (!ctx) throw new Error("atlas context failed");
+    this.ctx = ctx;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.textBaseline = "alphabetic";
+  }
+
+  ensure(
+    ch: string,
+    hlId: number,
+    hl: HlAttrEntry | undefined,
+    defaultColors: DefaultColorsEntry,
+  ): { ax: number; ay: number } | null {
+    if (this.overflow) return null;
+    const key = `${hlId}|${ch}`;
+    const cached = this.map.get(key);
+    if (cached) return cached;
+    if (this.nextAy >= ATLAS_ROWS) {
+      console.warn("[glyphAtlas] full, falling back to fillText");
+      this.overflow = true;
+      return null;
+    }
+    const ax = this.nextAx;
+    const ay = this.nextAy;
+    this.nextAx += 1;
+    if (this.nextAx >= ATLAS_COLS) {
+      this.nextAx = 0;
+      this.nextAy += 1;
+    }
+
+    const fgN = (hl?.reverse ? hl?.bg : hl?.fg) ?? defaultColors.fg;
+    const fontParts: string[] = [];
+    if (hl?.italic) fontParts.push("italic");
+    if (hl?.bold) fontParts.push("bold");
+    fontParts.push(this.metrics.font);
+
+    const m = this.metrics;
+    this.ctx.save();
+    this.ctx.clearRect(ax * m.width, ay * m.height, m.width, m.height);
+    this.ctx.font = fontParts.join(" ");
+    this.ctx.fillStyle = colorToCss(fgN);
+    this.ctx.fillText(ch, ax * m.width, ay * m.height + m.ascent);
+    this.ctx.restore();
+
+    const pos = { ax, ay };
+    this.map.set(key, pos);
+    return pos;
+  }
+
+  blit(
+    dst: CanvasRenderingContext2D,
+    pos: { ax: number; ay: number },
+    dx: number,
+    dy: number,
+  ): void {
+    const m = this.metrics;
+    const sx = pos.ax * m.width * this.dpr;
+    const sy = pos.ay * m.height * this.dpr;
+    const sw = m.width * this.dpr;
+    const sh = m.height * this.dpr;
+    dst.drawImage(this.canvas, sx, sy, sw, sh, dx, dy, m.width, m.height);
+  }
+}
+
+export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const lastFrameRef = useRef<Frame | null>(null);
+  const stateRef = useRef<SurfaceState>({
+    metrics: null,
+    hl: new Map(),
+    defaultColors: { fg: 0xe8e8ea, bg: 0x0e0f13, sp: 0xff453a },
+    grids: new Map(),
+    windows: [],
+    cursor: null,
+    atlas: null,
+    dpr: typeof window === "undefined" ? 1 : window.devicePixelRatio || 1,
+  });
   const rafRef = useRef<number | null>(null);
+  const compositeNeededRef = useRef(false);
   const profileRef = useRef({
     start: performance.now(),
     frames: 0,
-    ops: 0,
     paintMs: 0,
+    rows: 0,
+    runs: 0,
+    glyphs: 0,
   });
   const [bridgeMissing, setBridgeMissing] = useState(false);
 
@@ -32,9 +148,10 @@ export function RenderSurface({
     }
 
     const off = bridge.onFrame((frame) => {
-      lastFrameRef.current = frame;
+      applyFrame(stateRef.current, frame, profileRef.current);
+      compositeNeededRef.current = true;
       if (rafRef.current === null) {
-        rafRef.current = requestAnimationFrame(paint);
+        rafRef.current = requestAnimationFrame(composite);
       }
     });
 
@@ -61,6 +178,7 @@ export function RenderSurface({
       if (!entry) return;
       const { width, height } = entry.contentRect;
       const dpr = window.devicePixelRatio || 1;
+      stateRef.current.dpr = dpr;
       const w = Math.max(1, Math.floor(width));
       const h = Math.max(1, Math.floor(height));
       const canvas = canvasRef.current;
@@ -71,9 +189,9 @@ export function RenderSurface({
         canvas.style.height = `${h}px`;
       }
       bridge.sendInput({ kind: "resize", w, h });
-      // force a repaint of the last frame at the new size
-      if (lastFrameRef.current && rafRef.current === null) {
-        rafRef.current = requestAnimationFrame(paint);
+      compositeNeededRef.current = true;
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(composite);
       }
     });
     observer.observe(container);
@@ -85,9 +203,7 @@ export function RenderSurface({
     const bridge = window.desktopBridge;
     if (!canvas || !bridge) return;
 
-    const mods = (
-      e: KeyboardEvent | MouseEvent | WheelEvent,
-    ): InputModifiers => ({
+    const mods = (e: KeyboardEvent | MouseEvent | WheelEvent): InputModifiers => ({
       ctrl: e.ctrlKey,
       alt: e.altKey,
       shift: e.shiftKey,
@@ -177,39 +293,65 @@ export function RenderSurface({
     };
   }, []);
 
-  const paint = () => {
+  const composite = () => {
     rafRef.current = null;
+    if (!compositeNeededRef.current) return;
+    compositeNeededRef.current = false;
     const canvas = canvasRef.current;
-    const frame = lastFrameRef.current;
-    if (!canvas || !frame) return;
+    const state = stateRef.current;
+    if (!canvas || !state.metrics) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const t0 = performance.now();
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = state.dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const cssW = canvas.width / dpr;
     const cssH = canvas.height / dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // scale source frame coords to canvas css size
-    const sx = frame.w > 0 ? cssW / frame.w : 1;
-    const sy = frame.h > 0 ? cssH / frame.h : 1;
-    for (const op of frame.ops) {
-      applyOp(ctx, op, sx, sy, cssW, cssH);
+
+    ctx.fillStyle = colorToCss(state.defaultColors.bg);
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    const m = state.metrics;
+    const visible = state.windows.filter((w) => !w.hidden);
+    visible.sort((a, b) => a.zIndex - b.zIndex);
+    for (const win of visible) {
+      const grid = state.grids.get(win.gridId);
+      if (!grid) continue;
+      const dx = win.col * m.width;
+      const dy = win.row * m.height;
+      ctx.drawImage(
+        grid.canvas,
+        0,
+        0,
+        grid.canvas.width,
+        grid.canvas.height,
+        dx,
+        dy,
+        grid.cols * m.width,
+        grid.rows * m.height,
+      );
     }
+
+    if (state.cursor) {
+      paintCursor(ctx, state, state.cursor);
+    }
+
     const t1 = performance.now();
     const p = profileRef.current;
     p.frames += 1;
-    p.ops += frame.ops.length;
     p.paintMs += t1 - t0;
     if (t1 - p.start >= 1000) {
       console.log(
-        `[renderSurface] ${(t1 - p.start).toFixed(0)}ms` +
-          ` frames=${p.frames} ops=${p.ops}` +
+        `[renderSurface] ${(t1 - p.start).toFixed(0)}ms frames=${p.frames}` +
+          ` rows=${p.rows} runs=${p.runs} glyphs=${p.glyphs}` +
           ` paint=${p.paintMs.toFixed(2)}ms`,
       );
       p.start = t1;
       p.frames = 0;
-      p.ops = 0;
       p.paintMs = 0;
+      p.rows = 0;
+      p.runs = 0;
+      p.glyphs = 0;
     }
   };
 
@@ -236,28 +378,142 @@ export function RenderSurface({
   );
 }
 
-function applyOp(
-  ctx: CanvasRenderingContext2D,
-  op: DrawOp,
-  sx: number,
-  sy: number,
-  cssW: number,
-  cssH: number,
+function applyFrame(
+  state: SurfaceState,
+  frame: Frame,
+  profile: { rows: number; runs: number; glyphs: number },
 ): void {
-  switch (op.op) {
-    case "clear":
-      ctx.fillStyle = op.color;
-      ctx.fillRect(0, 0, cssW, cssH);
-      return;
-    case "fillRect":
-      ctx.fillStyle = op.color;
-      ctx.fillRect(op.x * sx, op.y * sy, op.w * sx, op.h * sy);
-      return;
-    case "text":
-      ctx.fillStyle = op.color;
-      if (op.font) ctx.font = op.font;
-      if (op.baseline) ctx.textBaseline = op.baseline;
-      ctx.fillText(op.text, op.x * sx, op.y * sy);
-      return;
+  if (frame.cellMetrics) {
+    state.metrics = frame.cellMetrics;
+    state.atlas = new GlyphAtlas(frame.cellMetrics, state.dpr);
+    state.grids.clear();
   }
+  if (frame.hl) {
+    for (const entry of frame.hl) {
+      state.hl.set(entry.id, entry);
+    }
+  }
+  if (frame.defaultColors) {
+    state.defaultColors = frame.defaultColors;
+  }
+  if (frame.resizedGrids) {
+    for (const r of frame.resizedGrids) {
+      ensureGrid(state, r.id, r.w, r.h);
+    }
+  }
+  if (frame.closedGrids) {
+    for (const id of frame.closedGrids) state.grids.delete(id);
+  }
+  if (frame.gridDeltas && state.metrics && state.atlas) {
+    for (const delta of frame.gridDeltas) {
+      const grid = state.grids.get(delta.gridId);
+      if (!grid) continue;
+      profile.rows += delta.rows.length;
+      for (const row of delta.rows) {
+        paintRow(state, grid, row.row, row.runs, profile);
+      }
+    }
+  }
+  if (frame.windows) {
+    state.windows = frame.windows;
+  }
+  if (frame.cursor) {
+    state.cursor = frame.cursor;
+  }
+}
+
+function ensureGrid(state: SurfaceState, id: number, cols: number, rows: number): void {
+  if (!state.metrics) return;
+  const m = state.metrics;
+  const dpr = state.dpr;
+  const existing = state.grids.get(id);
+  if (existing && existing.cols === cols && existing.rows === rows) return;
+  const canvas = document.createElement("canvas");
+  canvas.width = cols * m.width * dpr;
+  canvas.height = rows * m.height * dpr;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = colorToCss(state.defaultColors.bg);
+  ctx.fillRect(0, 0, cols * m.width, rows * m.height);
+  state.grids.set(id, { canvas, ctx, cols, rows });
+}
+
+function paintRow(
+  state: SurfaceState,
+  grid: GridCanvas,
+  rowIdx: number,
+  runs: { col: number; len: number; text: string; hlId: number }[],
+  profile: { runs: number; glyphs: number },
+): void {
+  if (!state.metrics || !state.atlas) return;
+  const m = state.metrics;
+  const ctx = grid.ctx;
+  const y = rowIdx * m.height;
+  ctx.fillStyle = colorToCss(state.defaultColors.bg);
+  ctx.fillRect(0, y, grid.cols * m.width, m.height);
+
+  for (const run of runs) {
+    profile.runs += 1;
+    const hl = state.hl.get(run.hlId);
+    const bgN = (hl?.reverse ? hl?.fg : hl?.bg) ?? state.defaultColors.bg;
+    if (bgN !== state.defaultColors.bg) {
+      ctx.fillStyle = colorToCss(bgN);
+      ctx.fillRect(run.col * m.width, y, run.len * m.width, m.height);
+    }
+    let visualCol = run.col;
+    for (const ch of run.text) {
+      if (ch !== " ") {
+        const pos = state.atlas.ensure(ch, run.hlId, hl, state.defaultColors);
+        const dx = visualCol * m.width;
+        if (pos) {
+          state.atlas.blit(ctx, pos, dx, y);
+        } else {
+          const fgN = (hl?.reverse ? hl?.bg : hl?.fg) ?? state.defaultColors.fg;
+          const parts: string[] = [];
+          if (hl?.italic) parts.push("italic");
+          if (hl?.bold) parts.push("bold");
+          parts.push(m.font);
+          ctx.font = parts.join(" ");
+          ctx.fillStyle = colorToCss(fgN);
+          ctx.textBaseline = "alphabetic";
+          ctx.fillText(ch, dx, y + m.ascent);
+        }
+        profile.glyphs += 1;
+      }
+      visualCol += 1;
+    }
+  }
+}
+
+function paintCursor(
+  ctx: CanvasRenderingContext2D,
+  state: SurfaceState,
+  cursor: CursorEntry,
+): void {
+  if (!state.metrics) return;
+  const m = state.metrics;
+  const win = state.windows.find((w) => w.gridId === cursor.gridId);
+  if (!win) return;
+  const baseX = (win.col + cursor.col) * m.width;
+  const baseY = (win.row + cursor.row) * m.height;
+  ctx.fillStyle = colorToCss(state.defaultColors.fg);
+  if (cursor.shape === "vertical") {
+    ctx.fillRect(baseX, baseY, 2, m.height);
+  } else if (cursor.shape === "horizontal") {
+    ctx.fillRect(baseX, baseY + m.height - 2, m.width, 2);
+  } else {
+    ctx.fillRect(baseX, baseY, m.width, m.height);
+    if (cursor.text) {
+      ctx.fillStyle = colorToCss(state.defaultColors.bg);
+      ctx.font = m.font;
+      ctx.textBaseline = "alphabetic";
+      ctx.fillText(cursor.text, baseX, baseY + m.ascent);
+    }
+  }
+}
+
+function colorToCss(n: number): string {
+  if (typeof n !== "number" || n < 0) return "#000000";
+  return "#" + (n & 0xffffff).toString(16).padStart(6, "0");
 }
