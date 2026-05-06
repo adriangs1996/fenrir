@@ -110,6 +110,7 @@ class GlyphAtlas {
     this.ctx = ctx;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.textBaseline = "alphabetic";
+    applyTextHints(ctx);
   }
 
   ensure(
@@ -372,6 +373,8 @@ export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProp
     if (!ctx) return;
     const dpr = state.dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    applyTextHints(ctx);
     const cssW = canvas.width / dpr;
     const cssH = canvas.height / dpr;
 
@@ -478,6 +481,8 @@ function ensureGrid(state: SurfaceState, id: number, cols: number, rows: number)
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  applyTextHints(ctx);
   ctx.fillStyle = colorToCss(state.defaultColors.bg);
   ctx.fillRect(0, 0, cols * m.width, rows * m.height);
   state.grids.set(id, { canvas, ctx, cols, rows });
@@ -573,4 +578,13 @@ function paintCursor(
 function colorToCss(n: number): string {
   if (typeof n !== "number" || n < 0) return "#000000";
   return "#" + (n & 0xffffff).toString(16).padStart(6, "0");
+}
+
+function applyTextHints(ctx: CanvasRenderingContext2D): void {
+  const c = ctx as CanvasRenderingContext2D & {
+    textRendering?: "auto" | "geometricPrecision" | "optimizeLegibility" | "optimizeSpeed";
+    fontKerning?: "auto" | "normal" | "none";
+  };
+  c.textRendering = "geometricPrecision";
+  c.fontKerning = "normal";
 }
