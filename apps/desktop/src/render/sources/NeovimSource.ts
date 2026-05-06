@@ -22,6 +22,7 @@ const DEFAULT_FONT = "14px ui-monospace, Menlo, Consolas, monospace";
 const DEFAULT_CELL_W = 9;
 const DEFAULT_CELL_H = 18;
 const DEFAULT_TEXT_ASCENT = 14;
+const DEFAULT_FONT_WEIGHT = 400;
 
 interface HlAttr {
   fg: number | undefined;
@@ -86,6 +87,7 @@ export class NeovimSource implements SceneSource {
   private cellH = DEFAULT_CELL_H;
   private cellAscent = DEFAULT_TEXT_ASCENT;
   private fontCss = DEFAULT_FONT;
+  private fontWeight = DEFAULT_FONT_WEIGHT;
   private ligatures = true;
 
   // Damage tracking
@@ -125,12 +127,14 @@ export class NeovimSource implements SceneSource {
       m.height === this.cellH &&
       m.ascent === this.cellAscent &&
       m.font === this.fontCss &&
+      m.fontWeight === this.fontWeight &&
       m.ligatures === this.ligatures;
     if (sameMetrics) return;
     this.cellW = Math.max(1, m.width);
     this.cellH = Math.max(1, m.height);
     this.cellAscent = m.ascent;
     this.fontCss = m.font;
+    this.fontWeight = m.fontWeight;
     this.ligatures = m.ligatures;
     this.metricsSent = false;
     if (this.client) {
@@ -323,6 +327,7 @@ export class NeovimSource implements SceneSource {
         height: this.cellH,
         ascent: this.cellAscent,
         font: this.fontCss,
+        fontWeight: this.fontWeight,
         ligatures: this.ligatures,
       };
       this.metricsSent = true;

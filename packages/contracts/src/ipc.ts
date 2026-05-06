@@ -232,7 +232,14 @@ export interface CellMetrics {
   width: number;
   height: number;
   ascent: number;
+  /**
+   * CSS font shorthand WITHOUT a weight or style component, e.g.
+   * `14px "JetBrains Mono", monospace`. Consumers prepend their own
+   * `italic` / weight tokens (used by the glyph atlas to render bold/italic
+   * variants without colliding with the user-chosen base weight).
+   */
   font: string;
+  fontWeight: number;
   ligatures: boolean;
 }
 
@@ -241,6 +248,7 @@ export interface EditorFontMetrics {
   height: number;
   ascent: number;
   font: string;
+  fontWeight: number;
   ligatures: boolean;
 }
 

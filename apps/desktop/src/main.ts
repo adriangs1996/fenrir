@@ -2023,6 +2023,7 @@ function registerIpcHandlers(): void {
       typeof m["height"] !== "number" ||
       typeof m["ascent"] !== "number" ||
       typeof m["font"] !== "string" ||
+      typeof m["fontWeight"] !== "number" ||
       typeof m["ligatures"] !== "boolean"
     ) {
       throw new Error("Invalid metrics fields");
@@ -2032,6 +2033,7 @@ function registerIpcHandlers(): void {
       height: m["height"],
       ascent: m["ascent"],
       font: m["font"],
+      fontWeight: m["fontWeight"],
       ligatures: m["ligatures"],
     });
   });

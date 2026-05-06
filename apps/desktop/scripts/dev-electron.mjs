@@ -38,10 +38,14 @@ await waitForResources({
 
 const childEnv = { ...process.env };
 delete childEnv.ELECTRON_RUN_AS_NODE;
-// `neovim` npm package monkey-patches console.* into a silent winston logger
-// at import time unless ALLOW_CONSOLE is set, which silently drops every
-// console.log from the main process the moment we attach to nvim.
+// `neovim` npm package monkey-patches console.* into a winston logger at
+// import time. ALLOW_CONSOLE adds a Console transport so logs reach the
+// terminal; without it, every console.log from the main process is dropped
+// once we attach to nvim. NVIM_NODE_LOG_LEVEL caps the level so the package's
+// own INF/DBG chatter (handleNotification, request/response per RPC) doesn't
+// flood stdout on every keystroke. Warnings and errors still surface.
 childEnv.ALLOW_CONSOLE ??= "1";
+childEnv.NVIM_NODE_LOG_LEVEL ??= "warn";
 
 let shuttingDown = false;
 let restartTimer = null;
