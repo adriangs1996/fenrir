@@ -184,14 +184,6 @@ export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProp
   });
   const rafRef = useRef<number | null>(null);
   const compositeNeededRef = useRef(false);
-  const profileRef = useRef({
-    start: performance.now(),
-    frames: 0,
-    paintMs: 0,
-    rows: 0,
-    runs: 0,
-    glyphs: 0,
-  });
   const [bridgeMissing, setBridgeMissing] = useState(false);
 
   const editorPrefs = useSettings(
@@ -224,7 +216,7 @@ export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProp
     }
 
     const off = bridge.onFrame((frame) => {
-      applyFrame(stateRef.current, frame, profileRef.current);
+      applyFrame(stateRef.current, frame);
       compositeNeededRef.current = true;
       if (rafRef.current === null) {
         rafRef.current = requestAnimationFrame(composite);
@@ -378,7 +370,6 @@ export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProp
     if (!canvas || !state.metrics) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const t0 = performance.now();
     const dpr = state.dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const cssW = canvas.width / dpr;
@@ -411,24 +402,6 @@ export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProp
     if (state.cursor) {
       paintCursor(ctx, state, state.cursor);
     }
-
-    const t1 = performance.now();
-    const p = profileRef.current;
-    p.frames += 1;
-    p.paintMs += t1 - t0;
-    if (t1 - p.start >= 1000) {
-      console.log(
-        `[renderSurface] ${(t1 - p.start).toFixed(0)}ms frames=${p.frames}` +
-          ` rows=${p.rows} runs=${p.runs} glyphs=${p.glyphs}` +
-          ` paint=${p.paintMs.toFixed(2)}ms`,
-      );
-      p.start = t1;
-      p.frames = 0;
-      p.paintMs = 0;
-      p.rows = 0;
-      p.runs = 0;
-      p.glyphs = 0;
-    }
   };
 
   if (bridgeMissing) {
@@ -454,11 +427,7 @@ export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProp
   );
 }
 
-function applyFrame(
-  state: SurfaceState,
-  frame: Frame,
-  profile: { rows: number; runs: number; glyphs: number },
-): void {
+function applyFrame(state: SurfaceState, frame: Frame): void {
   if (frame.cellMetrics) {
     state.metrics = frame.cellMetrics;
     state.atlas = new GlyphAtlas(frame.cellMetrics, state.dpr);
@@ -484,9 +453,8 @@ function applyFrame(
     for (const delta of frame.gridDeltas) {
       const grid = state.grids.get(delta.gridId);
       if (!grid) continue;
-      profile.rows += delta.rows.length;
       for (const row of delta.rows) {
-        paintRow(state, grid, row.row, row.runs, profile);
+        paintRow(state, grid, row.row, row.runs);
       }
     }
   }
@@ -520,7 +488,6 @@ function paintRow(
   grid: GridCanvas,
   rowIdx: number,
   runs: { col: number; len: number; text: string; hlId: number }[],
-  profile: { runs: number; glyphs: number },
 ): void {
   if (!state.metrics || !state.atlas) return;
   const m = state.metrics;
@@ -530,7 +497,6 @@ function paintRow(
   ctx.fillRect(0, y, grid.cols * m.width, m.height);
 
   for (const run of runs) {
-    profile.runs += 1;
     const hl = state.hl.get(run.hlId);
     const bgN = (hl?.reverse ? hl?.fg : hl?.bg) ?? state.defaultColors.bg;
     if (bgN !== state.defaultColors.bg) {
@@ -550,7 +516,6 @@ function paintRow(
         ctx.fillStyle = colorToCss(fgN);
         ctx.textBaseline = "alphabetic";
         ctx.fillText(run.text, run.col * m.width, y + m.ascent);
-        profile.glyphs += run.text.length;
       }
     } else {
       let visualCol = run.col;
@@ -571,7 +536,6 @@ function paintRow(
             ctx.textBaseline = "alphabetic";
             ctx.fillText(ch, dx, y + m.ascent);
           }
-          profile.glyphs += 1;
         }
         visualCol += 1;
       }

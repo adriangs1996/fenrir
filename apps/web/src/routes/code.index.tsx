@@ -15,7 +15,7 @@ function CodeIndexRoute() {
         flexDirection: "column",
       }}
     >
-      <RenderSurface fps={60} style={{ flex: 1 }} />
+      <RenderSurface fps={120} style={{ flex: 1 }} />
     </div>
   );
 }

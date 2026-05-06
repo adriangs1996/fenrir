@@ -101,17 +101,6 @@ export class NeovimSource implements SceneSource {
 
   private readonly textBuffer: string[] = [];
 
-  private profile = {
-    start: performance.now(),
-    redrawMs: 0,
-    buildMs: 0,
-    framesEmitted: 0,
-    framesSkipped: 0,
-    events: 0,
-    rows: 0,
-    runs: 0,
-  };
-
   constructor(cwd: string) {
     this.cwd = cwd;
   }
@@ -191,43 +180,9 @@ export class NeovimSource implements SceneSource {
     if (!this.started && !this.starting && !this.shutdownRequested) {
       void this.ensureStarted();
     }
-    if (!this.flushPending && this.metricsSent) {
-      this.profile.framesSkipped++;
-      this.maybeFlushProfile();
-      return null;
-    }
+    if (!this.flushPending && this.metricsSent) return null;
     this.flushPending = false;
-    const t0 = performance.now();
-    const frame = this.buildFrame();
-    this.profile.buildMs += performance.now() - t0;
-    if (frame) {
-      this.profile.framesEmitted++;
-    } else {
-      this.profile.framesSkipped++;
-    }
-    this.maybeFlushProfile();
-    return frame;
-  }
-
-  private maybeFlushProfile(): void {
-    const now = performance.now();
-    const elapsed = now - this.profile.start;
-    if (elapsed < 1000) return;
-    const p = this.profile;
-    console.log(
-      `[neovimSource] ${elapsed.toFixed(0)}ms` +
-        ` emit=${p.framesEmitted} skip=${p.framesSkipped}` +
-        ` events=${p.events} rows=${p.rows} runs=${p.runs}` +
-        ` redraw=${p.redrawMs.toFixed(2)}ms build=${p.buildMs.toFixed(2)}ms`,
-    );
-    p.start = now;
-    p.redrawMs = 0;
-    p.buildMs = 0;
-    p.framesEmitted = 0;
-    p.framesSkipped = 0;
-    p.events = 0;
-    p.rows = 0;
-    p.runs = 0;
+    return this.buildFrame();
   }
 
   private async ensureStarted(): Promise<void> {
@@ -405,11 +360,8 @@ export class NeovimSource implements SceneSource {
       const rowDeltas: RowDelta[] = [];
       for (const r of rows) {
         if (r >= grid.h) continue;
-        const runs = this.buildRowRuns(grid, r);
-        rowDeltas.push({ row: r, runs });
-        this.profile.runs += runs.length;
+        rowDeltas.push({ row: r, runs: this.buildRowRuns(grid, r) });
       }
-      this.profile.rows += rowDeltas.length;
       rows.clear();
       if (rowDeltas.length > 0) {
         gridDeltas.push({ gridId, rows: rowDeltas });
@@ -506,22 +458,15 @@ export class NeovimSource implements SceneSource {
   }
 
   private applyRedraw(batches: unknown[][]): void {
-    const t0 = performance.now();
-    let events = 0;
     for (const batch of batches) {
       if (!Array.isArray(batch) || batch.length === 0) continue;
       const name = batch[0];
       if (typeof name !== "string") continue;
       for (let i = 1; i < batch.length; i++) {
         const args = batch[i];
-        if (Array.isArray(args)) {
-          this.applyEvent(name, args);
-          events++;
-        }
+        if (Array.isArray(args)) this.applyEvent(name, args);
       }
     }
-    this.profile.redrawMs += performance.now() - t0;
-    this.profile.events += events;
   }
 
   private applyEvent(name: string, args: unknown[]): void {
