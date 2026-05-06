@@ -238,6 +238,11 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     neovimInput: async () => undefined,
     neovimResize: async () => undefined,
     onNeovimRedraw: () => () => undefined,
+    renderStart: async () => undefined,
+    renderStop: async () => undefined,
+    renderSetFps: async () => undefined,
+    sendInput: () => undefined,
+    onFrame: () => () => undefined,
     ...overrides,
   };
 }

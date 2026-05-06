@@ -218,7 +218,62 @@ export interface DesktopBridge {
   neovimInput: (keys: string) => Promise<void>;
   neovimResize: (cols: number, rows: number) => Promise<void>;
   onNeovimRedraw: (listener: (events: unknown[]) => void) => () => void;
+
+  // Render loop (backend-agnostic frame pipeline)
+  renderStart: () => Promise<void>;
+  renderStop: () => Promise<void>;
+  renderSetFps: (fps: number) => Promise<void>;
+  sendInput: (event: InputEvent) => void;
+  onFrame: (listener: (frame: Frame) => void) => () => void;
 }
+
+export type DrawOp =
+  | { op: "clear"; color: string }
+  | { op: "fillRect"; x: number; y: number; w: number; h: number; color: string }
+  | {
+      op: "text";
+      x: number;
+      y: number;
+      text: string;
+      color: string;
+      font?: string;
+      baseline?: "alphabetic" | "top" | "hanging" | "middle" | "ideographic" | "bottom";
+    };
+
+export interface Frame {
+  seq: number;
+  kind: string;
+  w: number;
+  h: number;
+  ops: DrawOp[];
+}
+
+export interface InputModifiers {
+  ctrl: boolean;
+  alt: boolean;
+  shift: boolean;
+  meta: boolean;
+}
+
+export type InputEvent =
+  | {
+      kind: "key";
+      type: "down" | "up";
+      key: string;
+      code: string;
+      mods: InputModifiers;
+    }
+  | {
+      kind: "mouse";
+      type: "down" | "up" | "move" | "wheel";
+      x: number;
+      y: number;
+      button?: 0 | 1 | 2;
+      deltaX?: number;
+      deltaY?: number;
+      mods: InputModifiers;
+    }
+  | { kind: "resize"; w: number; h: number };
 
 /**
  * APIs bound to the local app shell, not to any particular backend environment.
@@ -283,6 +338,7 @@ export interface LocalApi {
     updateSkill: (input: UpdateSkillInput) => Promise<ServerProviderSkill>;
     deleteSkill: (name: string) => Promise<void>;
     resolveSkillConflict: (input: ResolveSkillConflictInput) => Promise<ServerProviderSkill>;
+    setActiveSkillProject: (input: { cwd: string }) => Promise<void>;
   };
 }
 

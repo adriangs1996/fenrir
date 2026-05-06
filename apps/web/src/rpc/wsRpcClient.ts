@@ -139,6 +139,7 @@ export interface WsRpcClient {
     readonly resolveSkillConflict: (
       input: ResolveSkillConflictInput,
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverResolveSkillConflict>>;
+    readonly setActiveSkillProject: RpcUnaryMethod<typeof WS_METHODS.serverSetActiveSkillProject>;
     readonly subscribeConfig: RpcStreamMethod<typeof WS_METHODS.subscribeServerConfig>;
     readonly subscribeLifecycle: RpcStreamMethod<typeof WS_METHODS.subscribeServerLifecycle>;
     readonly subscribeAuthAccess: RpcStreamMethod<typeof WS_METHODS.subscribeAuthAccess>;
@@ -316,6 +317,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.serverDeleteSkill]({ name })),
       resolveSkillConflict: (input) =>
         transport.request((client) => client[WS_METHODS.serverResolveSkillConflict](input)),
+      setActiveSkillProject: (input) =>
+        transport.request((client) => client[WS_METHODS.serverSetActiveSkillProject](input)),
       subscribeConfig: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeServerConfig]({}),

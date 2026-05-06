@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopBridge } from "@fenrir/contracts";
+import type { DesktopBridge, Frame, InputEvent } from "@fenrir/contracts";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
@@ -46,6 +46,11 @@ const NEOVIM_DETACH_CHANNEL = "desktop:neovim-detach";
 const NEOVIM_INPUT_CHANNEL = "desktop:neovim-input";
 const NEOVIM_RESIZE_CHANNEL = "desktop:neovim-resize";
 const NEOVIM_REDRAW_CHANNEL = "desktop:neovim-redraw";
+const RENDER_START_CHANNEL = "desktop:render-start";
+const RENDER_STOP_CHANNEL = "desktop:render-stop";
+const RENDER_SET_FPS_CHANNEL = "desktop:render-set-fps";
+const RENDER_INPUT_CHANNEL = "desktop:render-input";
+const RENDER_FRAME_CHANNEL = "desktop:render-frame";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getLocalEnvironmentBootstrap: () => {
@@ -163,6 +168,24 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(NEOVIM_REDRAW_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(NEOVIM_REDRAW_CHANNEL, wrappedListener);
+    };
+  },
+
+  // Render loop
+  renderStart: () => ipcRenderer.invoke(RENDER_START_CHANNEL),
+  renderStop: () => ipcRenderer.invoke(RENDER_STOP_CHANNEL),
+  renderSetFps: (fps: number) => ipcRenderer.invoke(RENDER_SET_FPS_CHANNEL, fps),
+  sendInput: (event: InputEvent) => {
+    ipcRenderer.send(RENDER_INPUT_CHANNEL, event);
+  },
+  onFrame: (listener: (frame: Frame) => void) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, frame: unknown) => {
+      if (typeof frame !== "object" || frame === null) return;
+      listener(frame as Frame);
+    };
+    ipcRenderer.on(RENDER_FRAME_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(RENDER_FRAME_CHANNEL, wrappedListener);
     };
   },
 } satisfies DesktopBridge);

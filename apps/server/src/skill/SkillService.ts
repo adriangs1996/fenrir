@@ -68,6 +68,17 @@ export interface SkillServiceShape {
   /** Await runtime readiness. */
   readonly ready: Effect.Effect<void, SkillServiceError>;
 
+  /**
+   * Switch the active project root used for skill discovery and sync.
+   *
+   * Re-initializes the Claude adapter for the new project, runs initial
+   * import if needed, invalidates the cache, restarts file watchers, and
+   * pushes updated skills to all connected clients.
+   *
+   * No-op when the new root matches the current one.
+   */
+  readonly setActiveProjectRoot: (projectRoot: string) => Effect.Effect<void, SkillServiceError>;
+
   /** Read the current skills list. */
   readonly getAll: Effect.Effect<readonly ServerProviderSkill[], SkillServiceError>;
 
@@ -119,6 +130,15 @@ const codexAdapterStub: ProviderSkillAdapter = {
   watchPath: () => null,
 };
 
+// ─── Project context ──────────────────────────────────────────
+
+/** Mutable context that tracks the active project's skill paths and adapters. */
+interface SkillProjectContext {
+  readonly projectRoot: string;
+  readonly fenrirSkillsPath: string;
+  readonly adapters: readonly ProviderSkillAdapter[];
+}
+
 // ─── Helpers ───────────────────────────────────────────────────
 
 /** Normalize body for comparison — trim + collapse whitespace. */
@@ -131,18 +151,19 @@ export const makeSkillService = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
 
-  const claudeAdapter = yield* makeClaudeSkillAdapter(config.cwd);
-  const adapters: readonly ProviderSkillAdapter[] = [claudeAdapter, codexAdapterStub];
+  const initialClaudeAdapter = yield* makeClaudeSkillAdapter(config.cwd);
+  const projectCtxRef = yield* Ref.make<SkillProjectContext>({
+    projectRoot: config.cwd,
+    fenrirSkillsPath: pathService.join(config.cwd, ".fenrir", "skills"),
+    adapters: [initialClaudeAdapter, codexAdapterStub],
+  });
 
-  const fenrirSkillsPath = pathService.join(config.cwd, ".fenrir", "skills");
   const cacheKey = "skills" as const;
 
   const changesPubSub = yield* PubSub.unbounded<readonly ServerProviderSkill[]>();
   const writeSemaphore = yield* Semaphore.make(1);
   const startedRef = yield* Ref.make(false);
   const startedDeferred = yield* Deferred.make<void, SkillServiceError>();
-  const watcherScope = yield* Scope.make("sequential");
-  yield* Effect.addFinalizer(() => Scope.close(watcherScope, Exit.void));
 
   const emitChange = (skills: readonly ServerProviderSkill[]) =>
     PubSub.publish(changesPubSub, skills).pipe(Effect.asVoid);
@@ -151,9 +172,10 @@ export const makeSkillService = Effect.gen(function* () {
 
   const computeSyncStatus = (
     skill: ServerProviderSkill,
+    currentAdapters: readonly ProviderSkillAdapter[],
     providerSkillsByAdapter: Map<ProviderSkillAdapter, Map<string, RawSkillFile>>,
   ): readonly SkillProviderSync[] =>
-    adapters.map((adapter): SkillProviderSync => {
+    currentAdapters.map((adapter): SkillProviderSync => {
       if (adapter.watchPath() === null) {
         return { provider: adapter.provider, state: "unsupported", lastSyncedAt: null };
       }
@@ -171,9 +193,11 @@ export const makeSkillService = Effect.gen(function* () {
 
   const loadFromDisk: Effect.Effect<readonly ServerProviderSkill[], SkillServiceError> = Effect.gen(
     function* () {
+      const ctx = yield* Ref.get(projectCtxRef);
+
       // Pre-load all provider skills for sync status computation
       const providerSkillsByAdapter = new Map<ProviderSkillAdapter, Map<string, RawSkillFile>>();
-      for (const adapter of adapters) {
+      for (const adapter of ctx.adapters) {
         const raw = yield* adapter
           .readProviderSkills()
           .pipe(Effect.catch(() => Effect.succeed([] as RawSkillFile[])));
@@ -182,7 +206,7 @@ export const makeSkillService = Effect.gen(function* () {
       }
 
       // Scan Fenrir source-of-truth directory
-      const rawSkills = yield* scanSkillDirectory(fenrirSkillsPath).pipe(
+      const rawSkills = yield* scanSkillDirectory(ctx.fenrirSkillsPath).pipe(
         Effect.provideService(FileSystem.FileSystem, fs),
         Effect.provideService(Path.Path, pathService),
         Effect.mapError(
@@ -201,7 +225,7 @@ export const makeSkillService = Effect.gen(function* () {
         if (Option.isNone(validated)) continue;
 
         const skill = validated.value;
-        const syncStatus = computeSyncStatus(skill, providerSkillsByAdapter);
+        const syncStatus = computeSyncStatus(skill, ctx.adapters, providerSkillsByAdapter);
         skills.push({ ...skill, syncStatus });
       }
 
@@ -224,6 +248,7 @@ export const makeSkillService = Effect.gen(function* () {
 
   const updateSkillInternal = (input: UpdateSkillInput) =>
     Effect.gen(function* () {
+      const ctx = yield* Ref.get(projectCtxRef);
       const current = yield* getAllFromCache;
       const existing = current.find((s) => s.name === input.name);
       if (!existing) {
@@ -241,7 +266,7 @@ export const makeSkillService = Effect.gen(function* () {
         updatedAt: new Date().toISOString(),
       };
 
-      yield* writeSkillFile(fenrirSkillsPath, {
+      yield* writeSkillFile(ctx.fenrirSkillsPath, {
         name: merged.name,
         displayName: merged.displayName,
         description: merged.description,
@@ -257,7 +282,7 @@ export const makeSkillService = Effect.gen(function* () {
         ),
       );
 
-      for (const adapter of adapters) {
+      for (const adapter of ctx.adapters) {
         yield* adapter.writeSkillToProvider(merged).pipe(
           Effect.tapError((e) =>
             Effect.logWarning(
@@ -290,12 +315,13 @@ export const makeSkillService = Effect.gen(function* () {
   const create = (input: CreateSkillInput) =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
+        const ctx = yield* Ref.get(projectCtxRef);
         const current = yield* getAllFromCache;
         if (current.some((s) => s.name === input.name)) {
           return yield* Effect.fail(new SkillServiceError(`Skill already exists: ${input.name}`));
         }
 
-        yield* writeSkillFile(fenrirSkillsPath, input).pipe(
+        yield* writeSkillFile(ctx.fenrirSkillsPath, input).pipe(
           Effect.provideService(FileSystem.FileSystem, fs),
           Effect.provideService(Path.Path, pathService),
           Effect.mapError((cause) => new SkillServiceError("failed to write skill file", cause)),
@@ -309,7 +335,7 @@ export const makeSkillService = Effect.gen(function* () {
           updatedAt: now,
         };
 
-        for (const adapter of adapters) {
+        for (const adapter of ctx.adapters) {
           yield* adapter.writeSkillToProvider(skill).pipe(
             Effect.tapError((e) =>
               Effect.logWarning(
@@ -334,12 +360,13 @@ export const makeSkillService = Effect.gen(function* () {
   const deleteSkill = (name: string) =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
+        const ctx = yield* Ref.get(projectCtxRef);
         const current = yield* getAllFromCache;
         if (!current.some((s) => s.name === name)) {
           return yield* Effect.fail(new SkillServiceError(`Skill not found: ${name}`));
         }
 
-        const skillDir = pathService.join(fenrirSkillsPath, name);
+        const skillDir = pathService.join(ctx.fenrirSkillsPath, name);
         yield* fs
           .remove(skillDir, { recursive: true })
           .pipe(
@@ -348,7 +375,7 @@ export const makeSkillService = Effect.gen(function* () {
             ),
           );
 
-        for (const adapter of adapters) {
+        for (const adapter of ctx.adapters) {
           yield* adapter.deleteSkillFromProvider(name).pipe(
             Effect.tapError((e) =>
               Effect.logWarning(
@@ -380,13 +407,14 @@ export const makeSkillService = Effect.gen(function* () {
   const resolveConflict = (input: ResolveSkillConflictInput) =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
+        const ctx = yield* Ref.get(projectCtxRef);
         const current = yield* getAllFromCache;
         const existing = current.find((s) => s.name === input.name);
         if (!existing) {
           return yield* Effect.fail(new SkillServiceError(`Skill not found: ${input.name}`));
         }
 
-        const adapter = adapters.find((a) => a.provider === input.provider);
+        const adapter = ctx.adapters.find((a) => a.provider === input.provider);
         if (!adapter) {
           return yield* Effect.fail(
             new SkillServiceError(`Provider adapter not found: ${input.provider}`),
@@ -445,7 +473,7 @@ export const makeSkillService = Effect.gen(function* () {
             updatedAt: new Date().toISOString(),
           };
 
-          yield* writeSkillFile(fenrirSkillsPath, {
+          yield* writeSkillFile(ctx.fenrirSkillsPath, {
             name: merged.name,
             displayName: merged.displayName,
             description: merged.description,
@@ -487,6 +515,7 @@ export const makeSkillService = Effect.gen(function* () {
     writeSemaphore
       .withPermits(1)(
         Effect.gen(function* () {
+          const ctx = yield* Ref.get(projectCtxRef);
           const current = yield* getAllFromCache;
           const fenrirByName = new Map(current.map((s) => [s.name, s]));
 
@@ -503,7 +532,7 @@ export const makeSkillService = Effect.gen(function* () {
             if (Option.isNone(validated)) continue;
 
             const v = validated.value;
-            yield* writeSkillFile(fenrirSkillsPath, {
+            yield* writeSkillFile(ctx.fenrirSkillsPath, {
               name: v.name,
               displayName: v.displayName,
               description: v.description,
@@ -533,50 +562,140 @@ export const makeSkillService = Effect.gen(function* () {
 
   // ── File watchers ───────────────────────────────────────────────
 
-  const startWatcher = Effect.gen(function* () {
-    yield* fs
-      .makeDirectory(fenrirSkillsPath, { recursive: true })
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new SkillServiceError("failed to create .fenrir/skills directory for watching", cause),
-        ),
-      );
-
-    const revalidateSafely = revalidateAndPublish.pipe(Effect.ignoreCause({ log: true }));
-
-    // Watch Fenrir source-of-truth directory
-    yield* fs.watch(fenrirSkillsPath).pipe(
-      Stream.debounce(Duration.millis(100)),
-      Stream.runForEach(() => revalidateSafely),
-      Effect.ignoreCause({ log: true }),
-      Effect.forkIn(watcherScope),
-      Effect.asVoid,
-    );
-
-    // Watch each provider directory (when supported)
-    for (const adapter of adapters) {
-      const watchRelPath = adapter.watchPath();
-      if (!watchRelPath) continue;
-
-      const watchAbsPath = pathService.isAbsolute(watchRelPath)
-        ? watchRelPath
-        : pathService.join(config.cwd, watchRelPath);
-
-      // Ensure provider dir exists before watching
+  /**
+   * Start file watchers for the given project context and scope.
+   * Watches both the Fenrir skills directory and provider directories.
+   */
+  const startWatchersForContext = (
+    ctx: SkillProjectContext,
+    scope: Scope.Closeable,
+  ): Effect.Effect<void, SkillServiceError> =>
+    Effect.gen(function* () {
       yield* fs
-        .makeDirectory(watchAbsPath, { recursive: true })
-        .pipe(Effect.catch(() => Effect.void));
+        .makeDirectory(ctx.fenrirSkillsPath, { recursive: true })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new SkillServiceError(
+                "failed to create .fenrir/skills directory for watching",
+                cause,
+              ),
+          ),
+        );
 
-      yield* fs.watch(watchAbsPath).pipe(
+      const revalidateSafely = revalidateAndPublish.pipe(Effect.ignoreCause({ log: true }));
+
+      // Watch Fenrir source-of-truth directory
+      yield* fs.watch(ctx.fenrirSkillsPath).pipe(
         Stream.debounce(Duration.millis(100)),
-        Stream.runForEach(() => detectExternalChanges(adapter)),
+        Stream.runForEach(() => revalidateSafely),
         Effect.ignoreCause({ log: true }),
-        Effect.forkIn(watcherScope),
+        Effect.forkIn(scope),
         Effect.asVoid,
       );
-    }
-  });
+
+      // Watch each provider directory (when supported)
+      for (const adapter of ctx.adapters) {
+        const watchRelPath = adapter.watchPath();
+        if (!watchRelPath) continue;
+
+        const watchAbsPath = pathService.isAbsolute(watchRelPath)
+          ? watchRelPath
+          : pathService.join(ctx.projectRoot, watchRelPath);
+
+        // Ensure provider dir exists before watching
+        yield* fs
+          .makeDirectory(watchAbsPath, { recursive: true })
+          .pipe(Effect.catch(() => Effect.void));
+
+        yield* fs.watch(watchAbsPath).pipe(
+          Stream.debounce(Duration.millis(100)),
+          Stream.runForEach(() => detectExternalChanges(adapter)),
+          Effect.ignoreCause({ log: true }),
+          Effect.forkIn(scope),
+          Effect.asVoid,
+        );
+      }
+    });
+
+  // ── Watcher scope management ────────────────────────────────────
+
+  const watcherScopeRef = yield* Ref.make<Scope.Closeable | null>(null);
+
+  // Clean up active watcher scope on service teardown
+  yield* Effect.addFinalizer(() =>
+    Ref.get(watcherScopeRef).pipe(
+      Effect.flatMap((scope) => (scope ? Scope.close(scope, Exit.void) : Effect.void)),
+    ),
+  );
+
+  /**
+   * Run the initial import + start watchers for the given context.
+   * Closes any previous watcher scope first.
+   */
+  const bootstrapContext = (ctx: SkillProjectContext): Effect.Effect<void, SkillServiceError> =>
+    Effect.gen(function* () {
+      // Close previous watcher scope if any
+      const prevScope = yield* Ref.get(watcherScopeRef);
+      if (prevScope) {
+        yield* Scope.close(prevScope, Exit.void);
+      }
+
+      // Run initial import for this project if needed
+      yield* Effect.gen(function* () {
+        const shouldImport = yield* needsInitialImport(ctx.fenrirSkillsPath, [
+          ...ctx.adapters,
+        ]).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, pathService),
+        );
+        if (shouldImport) {
+          yield* importProviderSkills(ctx.fenrirSkillsPath, [...ctx.adapters]).pipe(
+            Effect.provideService(FileSystem.FileSystem, fs),
+            Effect.provideService(Path.Path, pathService),
+          );
+        }
+      }).pipe(Effect.ignoreCause({ log: true }));
+
+      // Start watchers in a new scope
+      const newScope = yield* Scope.make("sequential");
+      yield* Ref.set(watcherScopeRef, newScope);
+      yield* startWatchersForContext(ctx, newScope);
+    });
+
+  // ── setActiveProjectRoot ──────────────────────────────────────
+
+  const setActiveProjectRoot = (newProjectRoot: string) =>
+    writeSemaphore.withPermits(1)(
+      Effect.gen(function* () {
+        const currentCtx = yield* Ref.get(projectCtxRef);
+        if (currentCtx.projectRoot === newProjectRoot) return;
+
+        yield* Effect.logInfo(
+          `Skill service switching project root: ${currentCtx.projectRoot} → ${newProjectRoot}`,
+        );
+
+        // Build new context (provide FS/Path so adapter requirements are satisfied)
+        const newClaudeAdapter = yield* makeClaudeSkillAdapter(newProjectRoot).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, pathService),
+        );
+        const newCtx: SkillProjectContext = {
+          projectRoot: newProjectRoot,
+          fenrirSkillsPath: pathService.join(newProjectRoot, ".fenrir", "skills"),
+          adapters: [newClaudeAdapter, codexAdapterStub],
+        };
+        yield* Ref.set(projectCtxRef, newCtx);
+
+        // Bootstrap: import + watchers
+        yield* bootstrapContext(newCtx);
+
+        // Invalidate cache and push updated skills to clients
+        yield* Cache.invalidate(skillsCache, cacheKey);
+        const skills = yield* getAllFromCache;
+        yield* emitChange(skills);
+      }),
+    );
 
   // ── Service return ─────────────────────────────────────────────
 
@@ -588,29 +707,16 @@ export const makeSkillService = Effect.gen(function* () {
         return;
       }
 
-      // Initial import: on first run, bring existing provider skills into
-      // .fenrir/skills/ before starting watchers. Failures are logged and
-      // tolerated — import never blocks startup.
-      yield* Effect.gen(function* () {
-        const shouldImport = yield* needsInitialImport(fenrirSkillsPath, adapters).pipe(
-          Effect.provideService(FileSystem.FileSystem, fs),
-          Effect.provideService(Path.Path, pathService),
-        );
-        if (shouldImport) {
-          yield* importProviderSkills(fenrirSkillsPath, adapters).pipe(
-            Effect.provideService(FileSystem.FileSystem, fs),
-            Effect.provideService(Path.Path, pathService),
-          );
-        }
-      }).pipe(Effect.ignoreCause({ log: true }));
-
-      yield* startWatcher.pipe(
+      const ctx = yield* Ref.get(projectCtxRef);
+      yield* bootstrapContext(ctx).pipe(
         Effect.tap(() => Deferred.succeed(startedDeferred, void 0 as void)),
         Effect.onError((cause) => Deferred.failCause(startedDeferred, cause)),
       );
     }),
 
     ready: Deferred.await(startedDeferred),
+
+    setActiveProjectRoot,
 
     getAll: getAllFromCache,
 

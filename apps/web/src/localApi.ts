@@ -124,6 +124,7 @@ export function createLocalApi(rpcClient: WsRpcClient): LocalApi {
       updateSkill: rpcClient.server.updateSkill,
       deleteSkill: rpcClient.server.deleteSkill,
       resolveSkillConflict: rpcClient.server.resolveSkillConflict,
+      setActiveSkillProject: rpcClient.server.setActiveSkillProject,
     },
   };
 }

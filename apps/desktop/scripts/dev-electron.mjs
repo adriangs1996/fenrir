@@ -38,6 +38,10 @@ await waitForResources({
 
 const childEnv = { ...process.env };
 delete childEnv.ELECTRON_RUN_AS_NODE;
+// `neovim` npm package monkey-patches console.* into a silent winston logger
+// at import time unless ALLOW_CONSOLE is set, which silently drops every
+// console.log from the main process the moment we attach to nvim.
+childEnv.ALLOW_CONSOLE ??= "1";
 
 let shuttingDown = false;
 let restartTimer = null;

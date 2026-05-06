@@ -1350,6 +1350,16 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               ),
             { "rpc.aggregate": "server" },
           ),
+        [WS_METHODS.serverSetActiveSkillProject]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverSetActiveSkillProject,
+            skillService
+              .setActiveProjectRoot(input.cwd)
+              .pipe(
+                Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
+              ),
+            { "rpc.aggregate": "server" },
+          ),
       });
     }),
   );

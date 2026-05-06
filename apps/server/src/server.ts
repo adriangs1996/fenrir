@@ -54,6 +54,7 @@ import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRun
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor";
+import { SkillProjectReactorLive } from "./orchestration/Layers/SkillProjectReactor";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { GlobalActionsLive } from "./globalActions";
 import { ServerSettingsLive } from "./serverSettings";
@@ -135,6 +136,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderCommandReactorLive),
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(ThreadDeletionReactorLive),
+  Layer.provideMerge(SkillProjectReactorLive),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
 

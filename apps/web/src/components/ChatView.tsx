@@ -875,6 +875,16 @@ export default function ChatView(props: ChatViewProps) {
     useMemo(() => createProjectSelectorByRef(activeProjectRef), [activeProjectRef]),
   );
 
+  // Notify the server when the active project changes so the skill panel
+  // reflects this project's .claude/skills/ directory.
+  const activeSkillProjectCwd = activeProject?.cwd;
+  useEffect(() => {
+    if (!activeSkillProjectCwd) return;
+    const api = readLocalApi();
+    if (!api) return;
+    void api.server.setActiveSkillProject({ cwd: activeSkillProjectCwd });
+  }, [activeSkillProjectCwd]);
+
   // Compute the list of environments this logical project spans, used to
   // drive the environment picker in BranchToolbar.
   const allProjects = useStore(useShallow(selectProjectsAcrossEnvironments));
