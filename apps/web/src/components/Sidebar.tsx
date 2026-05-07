@@ -80,7 +80,7 @@ import {
 } from "../keybindings";
 import { useGitStatus } from "../lib/gitStatusState";
 import { readLocalApi } from "../localApi";
-import { useComposerDraftStore } from "../composerDraftStore";
+import { DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 
 import { useThreadActions } from "../hooks/useThreadActions";
@@ -2602,6 +2602,20 @@ export default function Sidebar() {
     if (!runId) return null;
     return s.runById[runId]?.projectId ?? null;
   });
+  // Draft routes (`/draft/$draftId`) carry no thread or project params, so the
+  // existing thread-derived active-project resolution returns null. Pull the
+  // draftId from the route, look up the draft session, and surface its
+  // `logicalProjectKey` so the owning project's sidebar shell stays
+  // highlighted while drafting a new thread.
+  const routeDraftId = useParams({
+    strict: false,
+    select: (params: { draftId?: string }) => params.draftId ?? null,
+  });
+  const draftRouteLogicalProjectKey = useComposerDraftStore((store) => {
+    if (!routeDraftId) return null;
+    const session = store.getDraftSession(DraftId.makeUnsafe(routeDraftId));
+    return session?.logicalProjectKey ?? null;
+  });
   const keybindings = useServerKeybindings();
   const [addingProject, setAddingProject] = useState(false);
   const [newCwd, setNewCwd] = useState("");
@@ -2761,6 +2775,9 @@ export default function Sidebar() {
         }
       }
     }
+    if (draftRouteLogicalProjectKey && sidebarProjectByKey.has(draftRouteLogicalProjectKey)) {
+      return draftRouteLogicalProjectKey;
+    }
     return null;
   }, [
     routeThreadKey,
@@ -2769,6 +2786,8 @@ export default function Sidebar() {
     planRunnerProjectIdFromRun,
     planRunnerProjectIdFromFeature,
     sidebarProjects,
+    draftRouteLogicalProjectKey,
+    sidebarProjectByKey,
   ]);
 
   // Group threads by logical project key so all threads from grouped projects
