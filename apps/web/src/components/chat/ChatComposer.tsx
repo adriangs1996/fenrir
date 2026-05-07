@@ -53,6 +53,7 @@ import {
   insertInlineTerminalContextPlaceholder,
   removeInlineTerminalContextPlaceholder,
 } from "~/modules/terminal";
+import { useEditorStore, ComposerPendingEditorContexts } from "~/modules/neovim-editor";
 import {
   resolveComposerFooterContentWidth,
   shouldForceCompactComposerFooterForFit,
@@ -523,6 +524,9 @@ export const ChatComposer = memo(
     const composerImages = composerDraft.images;
     const composerTerminalContexts = composerDraft.terminalContexts;
     const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
+
+    const pendingEditorContexts = useEditorStore((s) => s.pendingContexts);
+    const removePendingEditorContext = useEditorStore((s) => s.removePendingContext);
 
     const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
     const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
@@ -1784,6 +1788,16 @@ export const ChatComposer = memo(
                       </div>
                     ))}
                   </div>
+                )}
+
+              {!isComposerApprovalState &&
+                pendingUserInputs.length === 0 &&
+                pendingEditorContexts.length > 0 && (
+                  <ComposerPendingEditorContexts
+                    contexts={pendingEditorContexts}
+                    onRemove={removePendingEditorContext}
+                    className="mb-2"
+                  />
                 )}
 
               <ComposerPromptEditor

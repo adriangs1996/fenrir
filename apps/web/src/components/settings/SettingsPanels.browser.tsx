@@ -381,6 +381,21 @@ const createDesktopBridgeStub = (overrides?: {
     setEditorFontMetrics: vi.fn().mockResolvedValue(undefined),
     sendInput: vi.fn(),
     onFrame: () => () => {},
+    isMainWindow: () => true,
+    nvimAvailable: vi.fn().mockResolvedValue(true),
+    nvimProbeDetail: vi.fn().mockResolvedValue({
+      available: true,
+      version: "NVIM v0.10.0",
+      binary: "nvim",
+      error: null,
+    }),
+    editor: {
+      openFile: vi.fn().mockResolvedValue(undefined),
+      onEvent: () => () => {},
+      onSendToComposer: () => () => {},
+      onCmd: () => () => {},
+      invokeBridge: vi.fn().mockResolvedValue(undefined),
+    },
   };
 };
 

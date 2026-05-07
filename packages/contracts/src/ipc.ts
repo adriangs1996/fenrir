@@ -1,3 +1,5 @@
+import { Schema } from "effect";
+
 import type {
   GitCheckoutInput,
   GitCheckoutResult,
@@ -79,6 +81,52 @@ import type {
   ResolveSkillConflictInput,
 } from "./skill";
 
+// ── Editor IPC channels ──────────────────────────────────────
+export const EDITOR_OPEN_FILE_CHANNEL = "fenrir:editor:openFile";
+export const EDITOR_EVENT_CHANNEL = "fenrir:editor:event";
+export const EDITOR_SEND_TO_COMPOSER_CHANNEL = "fenrir:editor:sendToComposer";
+export const EDITOR_CMD_CHANNEL = "fenrir:editor:cmd";
+export const EDITOR_INVOKE_BRIDGE_CHANNEL = "fenrir:editor:invokeBridge";
+
+// ── Editor IPC payloads ──────────────────────────────────────
+export const EditorOpenFileInput = Schema.Struct({
+  path: Schema.NonEmptyString,
+  line: Schema.optional(Schema.Number),
+  col: Schema.optional(Schema.Number),
+});
+export type EditorOpenFileInput = typeof EditorOpenFileInput.Type;
+
+export const EditorEvent = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("buf_enter"),
+    file: Schema.String,
+    ft: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("buf_write_post"),
+    file: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("buf_modified_set"),
+    file: Schema.String,
+    modified: Schema.Boolean,
+  }),
+]);
+export type EditorEvent = typeof EditorEvent.Type;
+
+export const EditorSendToComposer = Schema.Struct({
+  file: Schema.String,
+  lineStart: Schema.Number,
+  lineEnd: Schema.Number,
+  text: Schema.String,
+});
+export type EditorSendToComposer = typeof EditorSendToComposer.Type;
+
+export const EditorCmd = Schema.Struct({
+  subcommand: Schema.Literals(["focus-chat", "new-thread", "submit"]),
+});
+export type EditorCmd = typeof EditorCmd.Type;
+
 export interface ContextMenuItem<T extends string = string> {
   id: T;
   label: string;
@@ -156,6 +204,13 @@ export interface DesktopServerExposureState {
   advertisedHost: string | null;
 }
 
+export interface NvimProbeResult {
+  available: boolean;
+  version: string | null;
+  binary: string | null;
+  error: string | null;
+}
+
 export interface DesktopBridge {
   getLocalEnvironmentBootstrap: () => DesktopEnvironmentBootstrap | null;
   getClientSettings: () => Promise<ClientSettings | null>;
@@ -224,6 +279,14 @@ export interface DesktopBridge {
    */
   neovimSetCwd: (cwd: string) => Promise<void>;
 
+  // Bridge availability detection
+  /** True when this BrowserWindow is the main (first) window. */
+  isMainWindow: () => boolean;
+  /** Resolves to true when nvim binary is found on PATH. Cached after first probe. */
+  nvimAvailable: () => Promise<boolean>;
+  /** Full probe result with version, binary path, and error detail. */
+  nvimProbeDetail: () => Promise<NvimProbeResult>;
+
   // Render loop (backend-agnostic frame pipeline)
   renderStart: () => Promise<void>;
   renderStop: () => Promise<void>;
@@ -231,6 +294,16 @@ export interface DesktopBridge {
   setEditorFontMetrics: (metrics: EditorFontMetrics) => Promise<void>;
   sendInput: (event: InputEvent) => void;
   onFrame: (listener: (frame: Frame) => void) => () => void;
+
+  // Editor IPC (nvim ↔ renderer)
+  editor: {
+    openFile: (input: EditorOpenFileInput) => Promise<void>;
+    onEvent: (cb: (ev: EditorEvent) => void) => () => void;
+    onSendToComposer: (cb: (ev: EditorSendToComposer) => void) => () => void;
+    onCmd: (cb: (ev: EditorCmd) => void) => () => void;
+    /** Invoke a whitelisted Lua bridge function on the embedded nvim. */
+    invokeBridge: (fn: string) => Promise<void>;
+  };
 }
 
 export interface CellMetrics {

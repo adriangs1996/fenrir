@@ -1,6 +1,9 @@
 import * as ChildProcess from "node:child_process";
+import * as Crypto from "node:crypto";
 import * as FS from "node:fs";
 import * as Path from "node:path";
+
+import { app } from "electron";
 
 import type {
   CellRun,
@@ -15,8 +18,14 @@ import type {
   WindowEntry,
 } from "@fenrir/contracts";
 
-import { FENRIR_INIT_LUA } from "../../neovimLua";
-import type { SceneSource } from "../RenderLoop";
+import {
+  FENRIR_BRIDGE_LUA,
+  FENRIR_CMD_LUA,
+  FENRIR_EVENTS_LUA,
+  FENRIR_INIT_LUA,
+  FENRIR_SESSION_LUA,
+} from "./neovimLua";
+import type { SceneSource } from "../render/RenderLoop";
 
 const DEFAULT_FONT = "14px ui-monospace, Menlo, Consolas, monospace";
 const DEFAULT_CELL_W = 9;
@@ -62,6 +71,18 @@ interface Mods {
   meta: boolean;
 }
 
+function sessionDir(): string {
+  return Path.join(app.getPath("userData"), "neovim", "sessions");
+}
+
+function sessionHash(cwd: string): string {
+  return Crypto.createHash("sha256").update(cwd).digest("hex");
+}
+
+function ensureSessionDir(): void {
+  FS.mkdirSync(sessionDir(), { recursive: true });
+}
+
 export class NeovimSource implements SceneSource {
   readonly kind = "neovim";
 
@@ -103,12 +124,19 @@ export class NeovimSource implements SceneSource {
 
   private readonly textBuffer: string[] = [];
 
+  // Fenrir event subscription (buf_enter, buf_write_post, buf_modified_set,
+  // fenrir_send_to_composer, fenrir_cmd)
+  private fenrirEventListeners: Array<
+    (ev: { __source: string; payload: Record<string, unknown> }) => void
+  > = [];
+
   constructor(cwd: string) {
     this.cwd = cwd;
   }
 
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     this.shutdownRequested = true;
+    await this.saveSessionBeforeKill();
     if (this.proc) {
       try {
         this.proc.kill("SIGTERM");
@@ -121,17 +149,62 @@ export class NeovimSource implements SceneSource {
     this.started = false;
   }
 
+  onFenrirEvent(
+    listener: (ev: { __source: string; payload: Record<string, unknown> }) => void,
+  ): () => void {
+    this.fenrirEventListeners.push(listener);
+    return () => {
+      this.fenrirEventListeners = this.fenrirEventListeners.filter((l) => l !== listener);
+    };
+  }
+
+  private emitFenrirEvent(ev: { __source: string; payload: Record<string, unknown> }): void {
+    for (const l of this.fenrirEventListeners) {
+      try {
+        l(ev);
+      } catch (err) {
+        console.warn("[neovimSource] fenrir event listener threw:", err);
+      }
+    }
+  }
+
+  async openFile(path: string, line?: number, col?: number): Promise<void> {
+    if (!this.client || !this.started) {
+      await this.ensureStarted();
+    }
+    if (!this.client) throw new Error("nvim not available");
+    await this.client.request("nvim_exec_lua", [
+      "return _G.fenrir.private.bridge.open_file(...)",
+      [path, line ?? null, col ?? null],
+    ]);
+  }
+
+  /**
+   * Invoke a whitelisted Lua bridge function on the embedded nvim.
+   * Only `send_selection` is currently allowed to prevent arbitrary Lua injection.
+   */
+  private static readonly ALLOWED_BRIDGE_FUNCTIONS = new Set(["send_selection"]);
+
+  async invokeBridge(fn: string): Promise<void> {
+    if (!NeovimSource.ALLOWED_BRIDGE_FUNCTIONS.has(fn)) {
+      throw new Error(`invokeBridge: unknown bridge function "${fn}"`);
+    }
+    if (!this.client || !this.started) return;
+    await this.client.request("nvim_exec_lua", [`return _G.fenrir.private.bridge.${fn}()`, []]);
+  }
+
   /**
    * Update the working directory used when spawning the embedded nvim.
-   * If nvim is already running (or starting), kill it and respawn with the
-   * new cwd on the next render tick. All grid/window state is reset so the
-   * fresh nvim paints from scratch — unsaved buffers in the previous nvim
-   * are lost, which is acceptable on project switch.
+   * If nvim is already running (or starting), save session then kill and
+   * respawn with the new cwd on the next render tick. All grid/window state
+   * is reset so the fresh nvim paints from scratch.
    */
-  setCwd(cwd: string): void {
+  async setCwd(cwd: string): Promise<void> {
     if (cwd === this.cwd) return;
     this.cwd = cwd;
     if (!this.started && !this.starting) return;
+
+    await this.saveSessionBeforeKill();
 
     if (this.proc) {
       try {
@@ -229,6 +302,23 @@ export class NeovimSource implements SceneSource {
     return this.buildFrame();
   }
 
+  /**
+   * Ask the embedded nvim to persist its session before we kill the process.
+   * Bounded to 500ms so a hung nvim never blocks shutdown.
+   */
+  private async saveSessionBeforeKill(): Promise<void> {
+    const client = this.client;
+    if (!client || !this.started) return;
+    try {
+      await Promise.race([
+        client.request("nvim_exec_lua", ["return _G.fenrir.private.session.save()", []]),
+        new Promise((resolve) => setTimeout(() => resolve(false), 500)),
+      ]);
+    } catch (err) {
+      console.warn("[neovimSource] session save before kill failed:", err);
+    }
+  }
+
   private async ensureStarted(): Promise<void> {
     if (this.started || this.starting || this.shutdownRequested) return;
     this.starting = true;
@@ -256,6 +346,20 @@ export class NeovimSource implements SceneSource {
       client.on("notification", (method: string, args: unknown) => {
         if (method === "redraw" && Array.isArray(args)) {
           this.applyRedraw(args as unknown[][]);
+          return;
+        }
+        if (
+          (method === "fenrir_event" ||
+            method === "fenrir_send_to_composer" ||
+            method === "fenrir_cmd") &&
+          Array.isArray(args) &&
+          args[0] &&
+          typeof args[0] === "object"
+        ) {
+          this.emitFenrirEvent({
+            __source: method,
+            payload: args[0] as Record<string, unknown>,
+          });
         }
       });
 
@@ -277,6 +381,13 @@ export class NeovimSource implements SceneSource {
         console.warn("[neovimSource] set_var failed:", e);
       }
       try {
+        ensureSessionDir();
+        await client.request("nvim_set_var", ["fenrir_session_dir", sessionDir()]);
+        await client.request("nvim_set_var", ["fenrir_session_hash", sessionHash(this.cwd)]);
+      } catch (e) {
+        console.warn("[neovimSource] session vars failed:", e);
+      }
+      try {
         await client.request("nvim_set_client_info", [
           "fenrir",
           { major: 0, minor: 1, patch: 0 },
@@ -291,6 +402,26 @@ export class NeovimSource implements SceneSource {
         await client.request("nvim_exec_lua", [FENRIR_INIT_LUA, []]);
       } catch (e) {
         console.warn("[neovimSource] init lua failed:", e);
+      }
+      try {
+        await client.request("nvim_exec_lua", [FENRIR_BRIDGE_LUA, []]);
+      } catch (e) {
+        console.warn("[neovimSource] bridge lua failed:", e);
+      }
+      try {
+        await client.request("nvim_exec_lua", [FENRIR_SESSION_LUA, []]);
+      } catch (e) {
+        console.warn("[neovimSource] session lua failed:", e);
+      }
+      try {
+        await client.request("nvim_exec_lua", [FENRIR_CMD_LUA, []]);
+      } catch (e) {
+        console.warn("[neovimSource] cmd lua failed:", e);
+      }
+      try {
+        await client.request("nvim_exec_lua", [FENRIR_EVENTS_LUA, []]);
+      } catch (e) {
+        console.warn("[neovimSource] events lua failed:", e);
       }
 
       this.started = true;

@@ -13,6 +13,7 @@ import {
   useTerminalStateStore,
 } from "~/modules/terminal";
 import { usePlanRunnerLifecycle } from "~/modules/plan-runner";
+import { useEditorStore } from "~/modules/neovim-editor";
 import { resolveShortcutCommand } from "../keybindings";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
@@ -76,6 +77,15 @@ function ChatRouteGlobalShortcuts() {
           envMode:
             activeDraftThread?.envMode ?? (activeThread?.worktreePath ? "worktree" : "local"),
         });
+        return;
+      }
+
+      if (command === "editor.sendSelection") {
+        const activeTab = useEditorStore.getState().activeChatTab;
+        if (activeTab !== "editor") return;
+        event.preventDefault();
+        event.stopPropagation();
+        void window.desktopBridge?.editor.invokeBridge("send_selection");
         return;
       }
     };

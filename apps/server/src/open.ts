@@ -218,6 +218,13 @@ export function resolveAvailableEditors(
   const available: EditorId[] = [];
 
   for (const editor of EDITORS) {
+    // fenrir-embedded is handled entirely client-side via desktopBridge;
+    // renderer post-filters based on bridge availability.
+    if (editor.id === "fenrir-embedded") {
+      available.push(editor.id);
+      continue;
+    }
+
     if (editor.commands === null) {
       const command = fileManagerCommandForPlatform(platform);
       if (isCommandAvailable(command, { platform, env })) {
@@ -274,6 +281,12 @@ export const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
   const editorDef = EDITORS.find((editor) => editor.id === input.editor);
   if (!editorDef) {
     return yield* new OpenError({ message: `Unknown editor: ${input.editor}` });
+  }
+
+  if (editorDef.id === "fenrir-embedded") {
+    return yield* new OpenError({
+      message: "fenrir-embedded is handled client-side via desktopBridge",
+    });
   }
 
   if (editorDef.commands) {

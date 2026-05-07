@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopBridge, EditorFontMetrics, Frame, InputEvent } from "@fenrir/contracts";
+import type {
+  DesktopBridge,
+  EditorCmd,
+  EditorEvent,
+  EditorFontMetrics,
+  EditorOpenFileInput,
+  EditorSendToComposer,
+  Frame,
+  InputEvent,
+} from "@fenrir/contracts";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
@@ -53,6 +62,16 @@ const RENDER_SET_FPS_CHANNEL = "desktop:render-set-fps";
 const RENDER_INPUT_CHANNEL = "desktop:render-input";
 const RENDER_FRAME_CHANNEL = "desktop:render-frame";
 const RENDER_SET_EDITOR_FONT_METRICS_CHANNEL = "desktop:render-set-editor-font-metrics";
+const NVIM_AVAILABLE_CHANNEL = "desktop:nvim-available";
+const NVIM_PROBE_DETAIL_CHANNEL = "desktop:nvim-probe-detail";
+const EDITOR_OPEN_FILE_CHANNEL = "fenrir:editor:openFile";
+const EDITOR_EVENT_CHANNEL = "fenrir:editor:event";
+const EDITOR_SEND_TO_COMPOSER_CHANNEL = "fenrir:editor:sendToComposer";
+const EDITOR_CMD_CHANNEL = "fenrir:editor:cmd";
+const EDITOR_INVOKE_BRIDGE_CHANNEL = "fenrir:editor:invokeBridge";
+
+const mainWindowFlag = process.argv.find((a) => a.startsWith("--fenrir-main-window="));
+const isMainWindow = mainWindowFlag === "--fenrir-main-window=1";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getLocalEnvironmentBootstrap: () => {
@@ -192,5 +211,48 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return () => {
       ipcRenderer.removeListener(RENDER_FRAME_CHANNEL, wrappedListener);
     };
+  },
+
+  // Bridge availability detection
+  isMainWindow: () => isMainWindow,
+  nvimAvailable: () => ipcRenderer.invoke(NVIM_AVAILABLE_CHANNEL) as Promise<boolean>,
+  nvimProbeDetail: () => ipcRenderer.invoke(NVIM_PROBE_DETAIL_CHANNEL),
+
+  // Editor IPC (nvim ↔ renderer)
+  editor: {
+    openFile: (input: EditorOpenFileInput) =>
+      ipcRenderer.invoke(EDITOR_OPEN_FILE_CHANNEL, input) as Promise<void>,
+    onEvent: (cb: (ev: EditorEvent) => void) => {
+      const wrap = (_e: Electron.IpcRendererEvent, payload: unknown) => {
+        if (typeof payload !== "object" || payload === null) return;
+        cb(payload as EditorEvent);
+      };
+      ipcRenderer.on(EDITOR_EVENT_CHANNEL, wrap);
+      return () => {
+        ipcRenderer.removeListener(EDITOR_EVENT_CHANNEL, wrap);
+      };
+    },
+    onSendToComposer: (cb: (ev: EditorSendToComposer) => void) => {
+      const wrap = (_e: Electron.IpcRendererEvent, payload: unknown) => {
+        if (typeof payload !== "object" || payload === null) return;
+        cb(payload as EditorSendToComposer);
+      };
+      ipcRenderer.on(EDITOR_SEND_TO_COMPOSER_CHANNEL, wrap);
+      return () => {
+        ipcRenderer.removeListener(EDITOR_SEND_TO_COMPOSER_CHANNEL, wrap);
+      };
+    },
+    onCmd: (cb: (ev: EditorCmd) => void) => {
+      const wrap = (_e: Electron.IpcRendererEvent, payload: unknown) => {
+        if (typeof payload !== "object" || payload === null) return;
+        cb(payload as EditorCmd);
+      };
+      ipcRenderer.on(EDITOR_CMD_CHANNEL, wrap);
+      return () => {
+        ipcRenderer.removeListener(EDITOR_CMD_CHANNEL, wrap);
+      };
+    },
+    invokeBridge: (fn: string) =>
+      ipcRenderer.invoke(EDITOR_INVOKE_BRIDGE_CHANNEL, fn) as Promise<void>,
   },
 } satisfies DesktopBridge);

@@ -382,7 +382,14 @@ it.layer(NodeServices.layer)("resolveAvailableEditors", (it) => {
         PATH: dir,
         PATHEXT: ".COM;.EXE;.BAT;.CMD",
       });
-      assert.deepEqual(editors, ["trae", "kiro", "vscode-insiders", "vscodium", "file-manager"]);
+      assert.deepEqual(editors, [
+        "trae",
+        "kiro",
+        "vscode-insiders",
+        "vscodium",
+        "file-manager",
+        "fenrir-embedded",
+      ]);
     }),
   );
 
@@ -400,7 +407,7 @@ it.layer(NodeServices.layer)("resolveAvailableEditors", (it) => {
       const editors = resolveAvailableEditors("linux", {
         PATH: dir,
       });
-      assert.deepEqual(editors, ["zed", "file-manager"]);
+      assert.deepEqual(editors, ["zed", "file-manager", "fenrir-embedded"]);
     }),
   );
 
@@ -408,6 +415,6 @@ it.layer(NodeServices.layer)("resolveAvailableEditors", (it) => {
     const editors = resolveAvailableEditors("linux", {
       PATH: "",
     });
-    assert.deepEqual(editors, []);
+    assert.deepEqual(editors, ["fenrir-embedded"]);
   });
 });

@@ -245,6 +245,21 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     setEditorFontMetrics: async () => undefined,
     sendInput: () => undefined,
     onFrame: () => () => undefined,
+    isMainWindow: () => true,
+    nvimAvailable: async () => true,
+    nvimProbeDetail: async () => ({
+      available: true,
+      version: "NVIM v0.10.0",
+      binary: "nvim",
+      error: null,
+    }),
+    editor: {
+      openFile: async () => undefined,
+      onEvent: () => () => undefined,
+      onSendToComposer: () => () => undefined,
+      onCmd: () => () => undefined,
+      invokeBridge: async () => undefined,
+    },
     ...overrides,
   };
 }

@@ -1,18 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EditorFontMetrics, Frame, InputModifiers } from "@fenrir/contracts";
+import { isMacPlatform } from "~/lib/utils";
 import { useSettings } from "~/hooks/useSettings";
 import { GLRenderer } from "./render/glRenderer";
+
+const IS_MAC = typeof navigator !== "undefined" && isMacPlatform(navigator.platform);
+
+/**
+ * Identify keyboard chords that belong to the app's keybinding layer, not nvim.
+ * These events must bubble past the canvas so the document-level handler in
+ * `keybindings.ts` can pick them up.
+ *
+ * Exported for testing — call-sites use the default `mac` parameter.
+ */
+export function isAppShortcut(
+  e: Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "shiftKey">,
+  mac = IS_MAC,
+): boolean {
+  // macOS: Cmd is the app convention. Vim has no Cmd modifier.
+  if (mac && e.metaKey) return true;
+  // Linux/Windows: bare Ctrl+letter goes to nvim (Ctrl-C, Ctrl-D, etc.).
+  // App shortcuts use Ctrl+Shift or Ctrl+Meta combos.
+  if (!mac && e.ctrlKey && (e.shiftKey || e.metaKey)) return true;
+  return false;
+}
 
 interface RenderSurfaceProps {
   fps?: number;
   className?: string;
   style?: React.CSSProperties;
-  /**
-   * Working directory for the embedded nvim. When this changes the desktop
-   * bridge respawns nvim against the new cwd. Pass `null`/`undefined` to
-   * keep whatever cwd the desktop process started with.
-   */
-  cwd?: string | null;
 }
 
 const NERD_FONT_FALLBACK = [
@@ -79,7 +95,7 @@ function measureEditorMetrics(prefs: EditorFontPrefs): EditorFontMetrics {
   };
 }
 
-export function RenderSurface({ fps = 120, className, style, cwd }: RenderSurfaceProps) {
+export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<GLRenderer | null>(null);
@@ -128,15 +144,6 @@ export function RenderSurface({ fps = 120, className, style, cwd }: RenderSurfac
     const metrics = measureEditorMetrics(editorPrefs);
     void bridge.setEditorFontMetrics(metrics);
   }, [editorPrefsKey, editorPrefs]);
-
-  // Push the active project's cwd to the desktop bridge whenever it changes.
-  // The desktop side respawns nvim against the new cwd. We deliberately skip
-  // empty / nullish values so an unmounted project state doesn't kill nvim.
-  useEffect(() => {
-    const bridge = window.desktopBridge;
-    if (!bridge || !cwd) return;
-    void bridge.neovimSetCwd(cwd);
-  }, [cwd]);
 
   useEffect(() => {
     const bridge = window.desktopBridge;
@@ -204,6 +211,7 @@ export function RenderSurface({ fps = 120, className, style, cwd }: RenderSurfac
     });
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isAppShortcut(e)) return; // bubble to app keybinding layer
       bridge.sendInput({
         kind: "key",
         type: "down",
@@ -214,6 +222,7 @@ export function RenderSurface({ fps = 120, className, style, cwd }: RenderSurfac
       e.preventDefault();
     };
     const onKeyUp = (e: KeyboardEvent) => {
+      if (isAppShortcut(e)) return;
       bridge.sendInput({
         kind: "key",
         type: "up",

@@ -39,6 +39,11 @@ import {
   startEnvironmentConnectionService,
 } from "../environments/runtime";
 import { configureClientTracing } from "../observability/clientTracing";
+import {
+  useEditorCwdSync,
+  useEditorEventListener,
+  useEditorSendToComposerListener,
+} from "../modules/neovim-editor";
 import { persistCurrentRoute } from "../routePersistence";
 import {
   ensurePrimaryEnvironmentReady,
@@ -125,6 +130,7 @@ function RootRouteView() {
         <FontSettingsSync />
         <ServerStateBootstrap />
         <EnvironmentConnectionManagerBootstrap />
+        <EditorCwdSync />
         <EventRouter />
         <WebSocketConnectionCoordinator />
         <SlowRpcAckToastCoordinator />
@@ -207,6 +213,13 @@ function errorDetails(error: unknown): string {
   } catch {
     return "No additional error details are available.";
   }
+}
+
+function EditorCwdSync() {
+  useEditorCwdSync();
+  useEditorEventListener();
+  useEditorSendToComposerListener();
+  return null;
 }
 
 function ServerStateBootstrap() {

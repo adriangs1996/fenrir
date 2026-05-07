@@ -137,6 +137,11 @@ import {
   type TerminalContextDraft,
   type TerminalContextSelection,
 } from "~/modules/terminal";
+import {
+  appendEditorContextsToPrompt,
+  formatEditorContextLabel,
+  useEditorStore,
+} from "~/modules/neovim-editor";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
@@ -2809,9 +2814,14 @@ export default function ChatView(props: ChatViewProps) {
 
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
-    const messageTextForSend = appendTerminalContextsToPrompt(
+    const composerEditorContextsSnapshot = [...useEditorStore.getState().pendingContexts];
+    const messageTextWithTerminal = appendTerminalContextsToPrompt(
       promptForSend,
       composerTerminalContextsSnapshot,
+    );
+    const messageTextForSend = appendEditorContextsToPrompt(
+      messageTextWithTerminal,
+      composerEditorContextsSnapshot,
     );
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
@@ -2868,6 +2878,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     promptRef.current = "";
     clearComposerDraftContent(composerDraftTarget);
+    useEditorStore.getState().clearPendingContexts();
     composerRef.current?.resetCursorState();
 
     let turnStartSucceeded = false;
@@ -2885,6 +2896,8 @@ export default function ChatView(props: ChatViewProps) {
           titleSeed = `Image: ${firstComposerImageName}`;
         } else if (composerTerminalContextsSnapshot.length > 0) {
           titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
+        } else if (composerEditorContextsSnapshot.length > 0) {
+          titleSeed = formatEditorContextLabel(composerEditorContextsSnapshot[0]!);
         } else {
           titleSeed = "New thread";
         }

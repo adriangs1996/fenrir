@@ -54,6 +54,12 @@ import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
 } from "~/modules/terminal";
+import {
+  extractTrailingEditorContexts,
+  formatEditorContextLabel,
+  type ParsedEditorContextEntry,
+  EditorContextInlineChip,
+} from "~/modules/neovim-editor";
 import { cn } from "~/lib/utils";
 import { type TimestampFormat } from "@fenrir/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
@@ -367,8 +373,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         row.message.role === "user" &&
         (() => {
           const userImages = row.message.attachments ?? [];
-          const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
+          // Strip editor context blocks first (they sit after terminal blocks),
+          // then derive terminal context state from the remainder.
+          const editorExtracted = extractTrailingEditorContexts(row.message.text);
+          const displayedUserMessage = deriveDisplayedUserMessageState(editorExtracted.promptText);
           const terminalContexts = displayedUserMessage.contexts;
+          const editorContexts = editorExtracted.contexts;
           const canRevertAgentWork = revertTurnCountByUserMessageId.has(row.message.id);
           return (
             <div className="flex justify-end">
@@ -411,10 +421,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   </div>
                 )}
                 {(displayedUserMessage.visibleText.trim().length > 0 ||
-                  terminalContexts.length > 0) && (
+                  terminalContexts.length > 0 ||
+                  editorContexts.length > 0) && (
                   <UserMessageBody
                     text={displayedUserMessage.visibleText}
                     terminalContexts={terminalContexts}
+                    editorContexts={editorContexts}
                   />
                 )}
                 <div className="mt-1.5 flex items-center justify-end gap-2">
@@ -686,15 +698,29 @@ const UserMessageTerminalContextInlineLabel = memo(
   },
 );
 
+const UserMessageEditorContextInlineLabel = memo(
+  function UserMessageEditorContextInlineLabel(props: { context: ParsedEditorContextEntry }) {
+    const label = formatEditorContextLabel(props.context);
+    const tooltipText =
+      props.context.body.length > 0
+        ? `${props.context.file}:${props.context.lineStart}-${props.context.lineEnd}\n${props.context.body}`
+        : label;
+
+    return <EditorContextInlineChip label={label} tooltipText={tooltipText} />;
+  },
+);
+
 const UserMessageBody = memo(function UserMessageBody(props: {
   text: string;
   terminalContexts: ParsedTerminalContextEntry[];
+  editorContexts: ParsedEditorContextEntry[];
 }) {
-  if (props.terminalContexts.length > 0) {
-    const hasEmbeddedInlineLabels = textContainsInlineTerminalContextLabels(
-      props.text,
-      props.terminalContexts,
-    );
+  const hasContexts = props.terminalContexts.length > 0 || props.editorContexts.length > 0;
+
+  if (hasContexts) {
+    const hasEmbeddedInlineLabels =
+      props.terminalContexts.length > 0 &&
+      textContainsInlineTerminalContextLabels(props.text, props.terminalContexts);
     const inlinePrefix = buildInlineTerminalContextText(props.terminalContexts);
     const inlineNodes: ReactNode[] = [];
 
@@ -733,6 +759,24 @@ const UserMessageBody = memo(function UserMessageBody(props: {
           );
         }
 
+        // Append editor context chips after terminal inline labels
+        for (const context of props.editorContexts) {
+          inlineNodes.push(
+            <span
+              key={`user-editor-context-inline-space:${context.file}:${context.lineStart}`}
+              aria-hidden="true"
+            >
+              {" "}
+            </span>,
+          );
+          inlineNodes.push(
+            <UserMessageEditorContextInlineLabel
+              key={`user-editor-context-inline:${context.file}:${context.lineStart}`}
+              context={context}
+            />,
+          );
+        }
+
         return (
           <div className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground">
             {inlineNodes}
@@ -755,9 +799,26 @@ const UserMessageBody = memo(function UserMessageBody(props: {
       );
     }
 
+    for (const context of props.editorContexts) {
+      inlineNodes.push(
+        <UserMessageEditorContextInlineLabel
+          key={`user-editor-context-inline:${context.file}:${context.lineStart}`}
+          context={context}
+        />,
+      );
+      inlineNodes.push(
+        <span
+          key={`user-editor-context-inline-space:${context.file}:${context.lineStart}`}
+          aria-hidden="true"
+        >
+          {" "}
+        </span>,
+      );
+    }
+
     if (props.text.length > 0) {
       inlineNodes.push(<span key="user-message-terminal-context-inline-text">{props.text}</span>);
-    } else if (inlinePrefix.length === 0) {
+    } else if (inlinePrefix.length === 0 && props.editorContexts.length === 0) {
       return null;
     }
 

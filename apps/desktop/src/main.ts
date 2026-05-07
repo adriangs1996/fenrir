@@ -34,6 +34,13 @@ import type {
 import { autoUpdater } from "electron-updater";
 
 import type { ContextMenuItem } from "@fenrir/contracts";
+import {
+  EDITOR_CMD_CHANNEL,
+  EDITOR_EVENT_CHANNEL,
+  EDITOR_INVOKE_BRIDGE_CHANNEL,
+  EDITOR_OPEN_FILE_CHANNEL,
+  EDITOR_SEND_TO_COMPOSER_CHANNEL,
+} from "@fenrir/contracts";
 import { RotatingFileSink } from "@fenrir/shared/logging";
 import { parsePersistedServerObservabilitySettings } from "@fenrir/shared/serverSettings";
 import { DEFAULT_DESKTOP_BACKEND_PORT, resolveDesktopBackendPort } from "./backendPort";
@@ -81,9 +88,9 @@ import {
   stopVpn,
 } from "./vpnManager";
 import { createTrafficLensManager, type TrafficLensManager } from "./trafficLensManager";
-import { FENRIR_EXIT_LUA, FENRIR_INIT_LUA } from "./neovimLua";
 import { RenderLoop } from "./render/RenderLoop";
-import { NeovimSource } from "./render/sources/NeovimSource";
+import { FENRIR_EXIT_LUA, FENRIR_INIT_LUA, NeovimSource } from "./neovim";
+import { probeNvim } from "./neovim/probe";
 
 syncShellEnvironment();
 
@@ -139,6 +146,7 @@ const RENDER_SET_FPS_CHANNEL = "desktop:render-set-fps";
 const RENDER_INPUT_CHANNEL = "desktop:render-input";
 const RENDER_FRAME_CHANNEL = "desktop:render-frame";
 const RENDER_SET_EDITOR_FONT_METRICS_CHANNEL = "desktop:render-set-editor-font-metrics";
+const NVIM_AVAILABLE_CHANNEL = "desktop:nvim-available";
 const BASE_DIR = process.env.FENRIR_HOME?.trim() || Path.join(OS.homedir(), ".fenrir");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
@@ -218,6 +226,8 @@ let desktopSettings = readDesktopSettings(DESKTOP_SETTINGS_PATH);
 let desktopServerExposureMode: DesktopServerExposureMode = desktopSettings.serverExposureMode;
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
+const NVIM_PROBE_DETAIL_CHANNEL = "desktop:nvim-probe-detail";
+
 const expectedBackendExitChildren = new WeakSet<ChildProcess.ChildProcess>();
 const desktopRuntimeInfo = resolveDesktopRuntimeInfo({
   platform: process.platform,
@@ -1998,7 +2008,42 @@ function registerIpcHandlers(): void {
     if (typeof cwd !== "string" || cwd.length === 0) {
       throw new Error("Invalid cwd");
     }
-    neovimSource.setCwd(cwd);
+    await neovimSource.setCwd(cwd);
+  });
+
+  ipcMain.removeHandler(NVIM_AVAILABLE_CHANNEL);
+  ipcMain.handle(NVIM_AVAILABLE_CHANNEL, async () => {
+    const result = await probeNvim();
+    return result.available;
+  });
+
+  ipcMain.removeHandler(NVIM_PROBE_DETAIL_CHANNEL);
+  ipcMain.handle(NVIM_PROBE_DETAIL_CHANNEL, async () => probeNvim());
+
+  // ---- Editor IPC (nvim ↔ renderer) ----
+
+  ipcMain.removeHandler(EDITOR_OPEN_FILE_CHANNEL);
+  ipcMain.handle(EDITOR_OPEN_FILE_CHANNEL, async (_event, payload: unknown) => {
+    const input = payload as { path?: string; line?: number; col?: number };
+    if (!input?.path) throw new Error("EDITOR_OPEN_FILE: path required");
+    await neovimSource.openFile(input.path, input.line, input.col);
+  });
+
+  // Forward NeovimSource fenrir events to renderer, tagged by __source.
+  neovimSource.onFenrirEvent((ev) => {
+    if (ev.__source === "fenrir_event") {
+      mainWindow?.webContents.send(EDITOR_EVENT_CHANNEL, ev.payload);
+    } else if (ev.__source === "fenrir_send_to_composer") {
+      mainWindow?.webContents.send(EDITOR_SEND_TO_COMPOSER_CHANNEL, ev.payload);
+    } else if (ev.__source === "fenrir_cmd") {
+      mainWindow?.webContents.send(EDITOR_CMD_CHANNEL, ev.payload);
+    }
+  });
+
+  ipcMain.removeHandler(EDITOR_INVOKE_BRIDGE_CHANNEL);
+  ipcMain.handle(EDITOR_INVOKE_BRIDGE_CHANNEL, async (_event, fn: unknown) => {
+    if (typeof fn !== "string") throw new Error("EDITOR_INVOKE_BRIDGE: fn must be string");
+    await neovimSource.invokeBridge(fn);
   });
 
   ipcMain.removeHandler(RENDER_START_CHANNEL);
@@ -2257,6 +2302,7 @@ function syncAllWindowAppearance(): void {
 nativeTheme.on("updated", syncAllWindowAppearance);
 
 function createWindow(): BrowserWindow {
+  const isMain = mainWindow === null;
   const window = new BrowserWindow({
     width: 1100,
     height: 780,
@@ -2273,6 +2319,7 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      additionalArguments: [`--fenrir-main-window=${isMain ? "1" : "0"}`],
     },
   });
 
@@ -2463,7 +2510,7 @@ app.on("before-quit", () => {
   // ladder asynchronously. Worst case the OS reaps the orphan when we exit.
   void shutdownNvim("before-quit");
   renderLoop.stop();
-  neovimSource.shutdown();
+  void neovimSource.shutdown();
   restoreStdIoCapture?.();
 });
 
@@ -2475,6 +2522,8 @@ app
     configureApplicationMenu();
     registerDesktopProtocol();
     configureAutoUpdater();
+    // Kick off nvim probe early so result is cached before renderer mounts.
+    void probeNvim().catch(() => undefined);
     void bootstrap().catch((error) => {
       if (isBackendReadinessAborted(error) && isQuitting) {
         return;

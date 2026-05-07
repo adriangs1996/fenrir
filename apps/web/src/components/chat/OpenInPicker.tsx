@@ -1,8 +1,8 @@
 import { EditorId, type ResolvedKeybindingsConfig } from "@fenrir/contracts";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { isOpenFavoriteEditorShortcut, shortcutLabelForCommand } from "../../keybindings";
-import { usePreferredEditor } from "../../editorPreferences";
-import { ChevronDownIcon, FolderClosedIcon } from "lucide-react";
+import { openInEmbeddedEditor, usePreferredEditor } from "../../editorPreferences";
+import { ChevronDownIcon, FolderClosedIcon, SquareTerminalIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { Group, GroupSeparator } from "../ui/group";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
@@ -20,8 +20,14 @@ import {
 } from "../Icons";
 import { isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
+import { useDesktopBridgeAvailable, useIsMainWindow } from "~/hooks/useDesktopBridge";
 
-const resolveOptions = (platform: string, availableEditors: ReadonlyArray<EditorId>) => {
+const resolveOptions = (
+  platform: string,
+  availableEditors: ReadonlyArray<EditorId>,
+  bridgeAvailable: boolean,
+  isMainWindow: boolean,
+) => {
   const baseOptions: ReadonlyArray<{ label: string; Icon: Icon; value: EditorId }> = [
     {
       label: "Cursor",
@@ -77,8 +83,17 @@ const resolveOptions = (platform: string, availableEditors: ReadonlyArray<Editor
       Icon: FolderClosedIcon,
       value: "file-manager",
     },
+    {
+      label: "Embedded Editor",
+      Icon: SquareTerminalIcon,
+      value: "fenrir-embedded",
+    },
   ];
-  return baseOptions.filter((option) => availableEditors.includes(option.value));
+  return baseOptions.filter(
+    (option) =>
+      availableEditors.includes(option.value) &&
+      (option.value !== "fenrir-embedded" || (bridgeAvailable && isMainWindow)),
+  );
 };
 
 export const OpenInPicker = memo(function OpenInPicker({
@@ -90,20 +105,27 @@ export const OpenInPicker = memo(function OpenInPicker({
   availableEditors: ReadonlyArray<EditorId>;
   openInCwd: string | null;
 }) {
+  const bridgeAvailable = useDesktopBridgeAvailable();
+  const isMain = useIsMainWindow();
   const [preferredEditor, setPreferredEditor] = usePreferredEditor(availableEditors);
   const options = useMemo(
-    () => resolveOptions(navigator.platform, availableEditors),
-    [availableEditors],
+    () => resolveOptions(navigator.platform, availableEditors, bridgeAvailable, isMain),
+    [availableEditors, bridgeAvailable, isMain],
   );
   const primaryOption = options.find(({ value }) => value === preferredEditor) ?? null;
 
   const openInEditor = useCallback(
     (editorId: EditorId | null) => {
-      const api = readLocalApi();
-      if (!api || !openInCwd) return;
       const editor = editorId ?? preferredEditor;
-      if (!editor) return;
-      void api.shell.openInEditor(openInCwd, editor);
+      if (!editor || !openInCwd) return;
+
+      if (editor === "fenrir-embedded") {
+        void openInEmbeddedEditor(openInCwd);
+      } else {
+        const api = readLocalApi();
+        if (!api) return;
+        void api.shell.openInEditor(openInCwd, editor);
+      }
       setPreferredEditor(editor);
     },
     [preferredEditor, openInCwd, setPreferredEditor],
@@ -116,12 +138,18 @@ export const OpenInPicker = memo(function OpenInPicker({
 
   useEffect(() => {
     const handler = (e: globalThis.KeyboardEvent) => {
-      const api = readLocalApi();
       if (!isOpenFavoriteEditorShortcut(e, keybindings)) return;
-      if (!api || !openInCwd) return;
-      if (!preferredEditor) return;
+      if (!openInCwd || !preferredEditor) return;
 
       e.preventDefault();
+
+      if (preferredEditor === "fenrir-embedded") {
+        void openInEmbeddedEditor(openInCwd);
+        return;
+      }
+
+      const api = readLocalApi();
+      if (!api) return;
       void api.shell.openInEditor(openInCwd, preferredEditor);
     };
     window.addEventListener("keydown", handler);
