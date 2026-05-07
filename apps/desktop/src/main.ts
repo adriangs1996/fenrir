@@ -2048,6 +2048,11 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(RENDER_START_CHANNEL);
   ipcMain.handle(RENDER_START_CHANNEL, async () => {
+    // After a renderer reload (Cmd+R) the GL canvas is reset and has no
+    // grid contents, but the embedded nvim still holds full state. Force
+    // a full-snapshot frame so the renderer can repaint without waiting
+    // for nvim to push deltas for unchanged regions.
+    neovimSource.requestFullRepaint();
     renderLoop.start();
   });
 

@@ -134,6 +134,47 @@ export class NeovimSource implements SceneSource {
     this.cwd = cwd;
   }
 
+  /**
+   * Force the next `render()` to emit a full snapshot of every piece of
+   * derived state — cell metrics, default colors, every known highlight
+   * attribute, every grid's geometry, every row's contents, the window
+   * stack and the cursor.
+   *
+   * Called when the renderer (GL canvas) is reset — e.g. on Cmd+R reload —
+   * so it can repaint from scratch without waiting for nvim to push deltas
+   * for areas that haven't changed since last attach.
+   */
+  requestFullRepaint(): void {
+    this.metricsSent = false;
+    this.defaultColorsChanged = true;
+
+    // Re-emit every known highlight attr.
+    this.hlPending = [];
+    for (const [id, attr] of this.hl) {
+      const entry: HlAttrEntry = { id };
+      if (attr.fg !== undefined) entry.fg = attr.fg;
+      if (attr.bg !== undefined) entry.bg = attr.bg;
+      if (attr.sp !== undefined) entry.sp = attr.sp;
+      if (attr.bold) entry.bold = true;
+      if (attr.italic) entry.italic = true;
+      if (attr.underline) entry.underline = true;
+      if (attr.reverse) entry.reverse = true;
+      this.hlPending.push(entry);
+    }
+
+    // Re-announce every grid's geometry and mark all rows dirty.
+    this.resizedGrids = [];
+    this.closedGrids.clear();
+    for (const grid of this.grids.values()) {
+      this.resizedGrids.push({ id: grid.id, w: grid.w, h: grid.h });
+    }
+    this.markEverythingDirty();
+
+    this.windowsChanged = true;
+    this.cursorChanged = true;
+    this.flushPending = true;
+  }
+
   async shutdown(): Promise<void> {
     this.shutdownRequested = true;
     await this.saveSessionBeforeKill();
