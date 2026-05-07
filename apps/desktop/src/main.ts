@@ -2031,7 +2031,7 @@ function registerIpcHandlers(): void {
 
   // Forward NeovimSource fenrir events to renderer, tagged by __source.
   neovimSource.onFenrirEvent((ev) => {
-    if (ev.__source === "fenrir_event") {
+    if (ev.__source === "fenrir_autocmd") {
       mainWindow?.webContents.send(EDITOR_EVENT_CHANNEL, ev.payload);
     } else if (ev.__source === "fenrir_send_to_composer") {
       mainWindow?.webContents.send(EDITOR_SEND_TO_COMPOSER_CHANNEL, ev.payload);

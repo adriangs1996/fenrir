@@ -349,7 +349,7 @@ export class NeovimSource implements SceneSource {
           return;
         }
         if (
-          (method === "fenrir_event" ||
+          (method === "fenrir_autocmd" ||
             method === "fenrir_send_to_composer" ||
             method === "fenrir_cmd") &&
           Array.isArray(args) &&

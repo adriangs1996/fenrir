@@ -139,9 +139,16 @@ import {
 } from "~/modules/terminal";
 import {
   appendEditorContextsToPrompt,
+  ChatTabBar,
+  EditorPane,
   formatEditorContextLabel,
   useEditorStore,
 } from "~/modules/neovim-editor";
+import {
+  useDesktopBridgeAvailable,
+  useIsMainWindow,
+  useNvimAvailable,
+} from "~/hooks/useDesktopBridge";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
@@ -753,6 +760,36 @@ export default function ChatView(props: ChatViewProps) {
     messagesScrollRef.current = element;
     setMessagesScrollElement(element);
   }, []);
+
+  // Editor tab visibility — gated by desktop bridge presence, main window,
+  // and successful nvim probe. When false, the chat tab bar collapses to a
+  // single "Thread" tab and Cmd+E is a no-op.
+  const desktopBridgeAvailable = useDesktopBridgeAvailable();
+  const isMainWindow = useIsMainWindow();
+  const nvimReady = useNvimAvailable();
+  const editorAvailable = desktopBridgeAvailable && isMainWindow && nvimReady;
+  const activeChatTab = useEditorStore((s) => s.activeChatTab);
+
+  // Force the active tab back to "thread" if the editor becomes unavailable
+  // (e.g. nvim binary uninstalled mid-session, secondary window).
+  useEffect(() => {
+    if (!editorAvailable && activeChatTab === "editor") {
+      useEditorStore.getState().setActiveChatTab("thread");
+    }
+  }, [editorAvailable, activeChatTab]);
+
+  // Subscribe to nvim's `:Fenrir focus-chat` so the renderer can flip back to
+  // the thread tab when the user invokes the command from inside the editor.
+  useEffect(() => {
+    if (!desktopBridgeAvailable) return;
+    const editor = window.desktopBridge?.editor;
+    if (!editor?.onCmd) return;
+    return editor.onCmd((ev) => {
+      if (ev.subcommand === "focus-chat") {
+        useEditorStore.getState().setActiveChatTab("thread");
+      }
+    });
+  }, [desktopBridgeAvailable]);
 
   const terminalState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadKey, routeThreadRef),
@@ -2630,6 +2667,14 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "editor.toggleChatTab") {
+        if (!editorAvailable) return;
+        event.preventDefault();
+        event.stopPropagation();
+        useEditorStore.getState().toggleChatTab();
+        return;
+      }
+
       // Project scripts checked first (project wins on conflict)
       const scriptId = projectScriptIdFromCommand(command);
       if (scriptId && activeProject) {
@@ -2671,6 +2716,7 @@ export default function ChatView(props: ChatViewProps) {
     keybindings,
     onToggleDiff,
     toggleTerminalVisibility,
+    editorAvailable,
   ]);
 
   const onRevertToTurnCount = useCallback(
@@ -3625,171 +3671,182 @@ export default function ChatView(props: ChatViewProps) {
       <div className="flex min-h-0 min-w-0 flex-1">
         {/* Chat column */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* Messages Wrapper */}
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            {/* Messages */}
-            <div
-              ref={setMessagesScrollContainerRef}
-              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-3 sm:px-5 sm:py-4"
-              onScroll={onMessagesScroll}
-              onClickCapture={onMessagesClickCapture}
-              onWheel={onMessagesWheel}
-              onPointerDown={onMessagesPointerDown}
-              onPointerUp={onMessagesPointerUp}
-              onPointerCancel={onMessagesPointerCancel}
-              onTouchStart={onMessagesTouchStart}
-              onTouchMove={onMessagesTouchMove}
-              onTouchEnd={onMessagesTouchEnd}
-              onTouchCancel={onMessagesTouchEnd}
-            >
-              <MessagesTimeline
-                key={activeThread.id}
-                hasMessages={timelineEntries.length > 0}
-                isWorking={isWorking}
-                activeTurnInProgress={isWorking || !latestTurnSettled}
-                activeTurnId={activeLatestTurn?.turnId ?? null}
-                activeTurnStartedAt={activeWorkStartedAt}
-                scrollContainer={messagesScrollElement}
-                timelineEntries={timelineEntries}
-                completionDividerBeforeEntryId={completionDividerBeforeEntryId}
-                completionSummary={completionSummary}
-                turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-                nowIso={nowIso}
-                activeThreadEnvironmentId={activeThread.environmentId}
-                expandedWorkGroups={expandedWorkGroups}
-                onToggleWorkGroup={onToggleWorkGroup}
-                changedFilesExpandedByTurnId={changedFilesExpandedByTurnId}
-                onSetChangedFilesExpanded={handleSetChangedFilesExpanded}
-                onOpenTurnDiff={onOpenTurnDiff}
-                revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                onRevertUserMessage={onRevertUserMessage}
-                isRevertingCheckpoint={isRevertingCheckpoint}
-                onImageExpand={onExpandTimelineImage}
-                markdownCwd={gitCwd ?? undefined}
+          <ChatTabBar editorAvailable={editorAvailable} />
+          {/* Thread tab — composer hides "for free" when this branch is
+              hidden via display:none. EditorPane mounts unconditionally
+              alongside so its canvas/GL state stays warm across toggles. */}
+          <div
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+            style={{ display: activeChatTab === "thread" ? "flex" : "none" }}
+          >
+            {/* Messages Wrapper */}
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              {/* Messages */}
+              <div
+                ref={setMessagesScrollContainerRef}
+                className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-3 sm:px-5 sm:py-4"
+                onScroll={onMessagesScroll}
+                onClickCapture={onMessagesClickCapture}
+                onWheel={onMessagesWheel}
+                onPointerDown={onMessagesPointerDown}
+                onPointerUp={onMessagesPointerUp}
+                onPointerCancel={onMessagesPointerCancel}
+                onTouchStart={onMessagesTouchStart}
+                onTouchMove={onMessagesTouchMove}
+                onTouchEnd={onMessagesTouchEnd}
+                onTouchCancel={onMessagesTouchEnd}
+              >
+                <MessagesTimeline
+                  key={activeThread.id}
+                  hasMessages={timelineEntries.length > 0}
+                  isWorking={isWorking}
+                  activeTurnInProgress={isWorking || !latestTurnSettled}
+                  activeTurnId={activeLatestTurn?.turnId ?? null}
+                  activeTurnStartedAt={activeWorkStartedAt}
+                  scrollContainer={messagesScrollElement}
+                  timelineEntries={timelineEntries}
+                  completionDividerBeforeEntryId={completionDividerBeforeEntryId}
+                  completionSummary={completionSummary}
+                  turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                  nowIso={nowIso}
+                  activeThreadEnvironmentId={activeThread.environmentId}
+                  expandedWorkGroups={expandedWorkGroups}
+                  onToggleWorkGroup={onToggleWorkGroup}
+                  changedFilesExpandedByTurnId={changedFilesExpandedByTurnId}
+                  onSetChangedFilesExpanded={handleSetChangedFilesExpanded}
+                  onOpenTurnDiff={onOpenTurnDiff}
+                  revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
+                  onRevertUserMessage={onRevertUserMessage}
+                  isRevertingCheckpoint={isRevertingCheckpoint}
+                  onImageExpand={onExpandTimelineImage}
+                  markdownCwd={gitCwd ?? undefined}
+                  resolvedTheme={resolvedTheme}
+                  timestampFormat={timestampFormat}
+                  workspaceRoot={activeWorkspaceRoot}
+                />
+              </div>
+
+              {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}
+              {showScrollToBottom && (
+                <div className="pointer-events-none absolute bottom-1 left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => scrollMessagesToBottom("smooth")}
+                    className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
+                  >
+                    <ChevronDownIcon className="size-3.5" />
+                    Scroll to bottom
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Input bar */}
+            <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
+              <ChatComposer
+                ref={composerRef}
+                composerDraftTarget={composerDraftTarget}
+                environmentId={environmentId}
+                routeKind={routeKind}
+                routeThreadRef={routeThreadRef}
+                draftId={draftId}
+                activeThreadId={activeThreadId}
+                activeThreadEnvironmentId={activeThread?.environmentId}
+                activeThread={activeThread}
+                isServerThread={isServerThread}
+                isLocalDraftThread={isLocalDraftThread}
+                phase={phase}
+                isConnecting={isConnecting}
+                isSendBusy={isSendBusy}
+                isPreparingWorktree={isPreparingWorktree}
+                activePendingApproval={activePendingApproval}
+                pendingApprovals={pendingApprovals}
+                pendingUserInputs={pendingUserInputs}
+                activePendingProgress={activePendingProgress}
+                activePendingResolvedAnswers={activePendingResolvedAnswers}
+                activePendingIsResponding={activePendingIsResponding}
+                activePendingDraftAnswers={activePendingDraftAnswers}
+                activePendingQuestionIndex={activePendingQuestionIndex}
+                respondingRequestIds={respondingRequestIds}
+                showPlanFollowUpPrompt={showPlanFollowUpPrompt}
+                activeProposedPlan={activeProposedPlan}
+                hasActivePlan={Boolean(activePlan || sidebarProposedPlan)}
+                runtimeMode={runtimeMode}
+                interactionMode={interactionMode}
+                lockedProvider={lockedProvider}
+                providerStatuses={providerStatuses as ServerProvider[]}
+                activeProjectDefaultModelSelection={activeProject?.defaultModelSelection}
+                activeThreadModelSelection={activeThread?.modelSelection}
+                activeThreadActivities={activeThread?.activities}
                 resolvedTheme={resolvedTheme}
-                timestampFormat={timestampFormat}
-                workspaceRoot={activeWorkspaceRoot}
+                settings={settings}
+                gitCwd={gitCwd}
+                promptRef={promptRef}
+                composerImagesRef={composerImagesRef}
+                composerTerminalContextsRef={composerTerminalContextsRef}
+                shouldAutoScrollRef={shouldAutoScrollRef}
+                scheduleStickToBottom={scheduleStickToBottom}
+                onSend={onSend}
+                onInterrupt={onInterrupt}
+                onImplementPlanInNewThread={onImplementPlanInNewThread}
+                onRespondToApproval={onRespondToApproval}
+                onSelectActivePendingUserInputOption={onSelectActivePendingUserInputOption}
+                onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
+                onPreviousActivePendingUserInputQuestion={onPreviousActivePendingUserInputQuestion}
+                onChangeActivePendingUserInputCustomAnswer={
+                  onChangeActivePendingUserInputCustomAnswer
+                }
+                onProviderModelSelect={onProviderModelSelect}
+                toggleInteractionMode={toggleInteractionMode}
+                handleRuntimeModeChange={handleRuntimeModeChange}
+                handleInteractionModeChange={handleInteractionModeChange}
+                skillsPanelOpen={rightPanel.activeTab === "skills"}
+                toggleSkillsPanel={toggleSkillsPanel}
+                focusComposer={focusComposer}
+                scheduleComposerFocus={scheduleComposerFocus}
+                setThreadError={setThreadError}
+                onExpandImage={onExpandTimelineImage}
               />
             </div>
 
-            {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}
-            {showScrollToBottom && (
-              <div className="pointer-events-none absolute bottom-1 left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5">
-                <button
-                  type="button"
-                  onClick={() => scrollMessagesToBottom("smooth")}
-                  className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
-                >
-                  <ChevronDownIcon className="size-3.5" />
-                  Scroll to bottom
-                </button>
-              </div>
+            {isGitRepo && (
+              <BranchToolbar
+                environmentId={activeThread.environmentId}
+                threadId={activeThread.id}
+                {...(routeKind === "draft" && draftId ? { draftId } : {})}
+                onEnvModeChange={onEnvModeChange}
+                envLocked={envLocked}
+                onComposerFocusRequest={scheduleComposerFocus}
+                {...(canCheckoutPullRequestIntoThread
+                  ? { onCheckoutPullRequestRequest: openPullRequestDialog }
+                  : {})}
+                {...(hasMultipleEnvironments
+                  ? {
+                      availableEnvironments: logicalProjectEnvironments,
+                      onEnvironmentChange,
+                    }
+                  : {})}
+              />
             )}
-          </div>
-
-          {/* Input bar */}
-          <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
-            <ChatComposer
-              ref={composerRef}
-              composerDraftTarget={composerDraftTarget}
-              environmentId={environmentId}
-              routeKind={routeKind}
-              routeThreadRef={routeThreadRef}
-              draftId={draftId}
-              activeThreadId={activeThreadId}
-              activeThreadEnvironmentId={activeThread?.environmentId}
-              activeThread={activeThread}
-              isServerThread={isServerThread}
-              isLocalDraftThread={isLocalDraftThread}
-              phase={phase}
-              isConnecting={isConnecting}
-              isSendBusy={isSendBusy}
-              isPreparingWorktree={isPreparingWorktree}
-              activePendingApproval={activePendingApproval}
-              pendingApprovals={pendingApprovals}
-              pendingUserInputs={pendingUserInputs}
-              activePendingProgress={activePendingProgress}
-              activePendingResolvedAnswers={activePendingResolvedAnswers}
-              activePendingIsResponding={activePendingIsResponding}
-              activePendingDraftAnswers={activePendingDraftAnswers}
-              activePendingQuestionIndex={activePendingQuestionIndex}
-              respondingRequestIds={respondingRequestIds}
-              showPlanFollowUpPrompt={showPlanFollowUpPrompt}
-              activeProposedPlan={activeProposedPlan}
-              hasActivePlan={Boolean(activePlan || sidebarProposedPlan)}
-              runtimeMode={runtimeMode}
-              interactionMode={interactionMode}
-              lockedProvider={lockedProvider}
-              providerStatuses={providerStatuses as ServerProvider[]}
-              activeProjectDefaultModelSelection={activeProject?.defaultModelSelection}
-              activeThreadModelSelection={activeThread?.modelSelection}
-              activeThreadActivities={activeThread?.activities}
-              resolvedTheme={resolvedTheme}
-              settings={settings}
-              gitCwd={gitCwd}
-              promptRef={promptRef}
-              composerImagesRef={composerImagesRef}
-              composerTerminalContextsRef={composerTerminalContextsRef}
-              shouldAutoScrollRef={shouldAutoScrollRef}
-              scheduleStickToBottom={scheduleStickToBottom}
-              onSend={onSend}
-              onInterrupt={onInterrupt}
-              onImplementPlanInNewThread={onImplementPlanInNewThread}
-              onRespondToApproval={onRespondToApproval}
-              onSelectActivePendingUserInputOption={onSelectActivePendingUserInputOption}
-              onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
-              onPreviousActivePendingUserInputQuestion={onPreviousActivePendingUserInputQuestion}
-              onChangeActivePendingUserInputCustomAnswer={
-                onChangeActivePendingUserInputCustomAnswer
-              }
-              onProviderModelSelect={onProviderModelSelect}
-              toggleInteractionMode={toggleInteractionMode}
-              handleRuntimeModeChange={handleRuntimeModeChange}
-              handleInteractionModeChange={handleInteractionModeChange}
-              skillsPanelOpen={rightPanel.activeTab === "skills"}
-              toggleSkillsPanel={toggleSkillsPanel}
-              focusComposer={focusComposer}
-              scheduleComposerFocus={scheduleComposerFocus}
-              setThreadError={setThreadError}
-              onExpandImage={onExpandTimelineImage}
-            />
-          </div>
-
-          {isGitRepo && (
-            <BranchToolbar
-              environmentId={activeThread.environmentId}
-              threadId={activeThread.id}
-              {...(routeKind === "draft" && draftId ? { draftId } : {})}
-              onEnvModeChange={onEnvModeChange}
-              envLocked={envLocked}
-              onComposerFocusRequest={scheduleComposerFocus}
-              {...(canCheckoutPullRequestIntoThread
-                ? { onCheckoutPullRequestRequest: openPullRequestDialog }
-                : {})}
-              {...(hasMultipleEnvironments
-                ? {
-                    availableEnvironments: logicalProjectEnvironments,
-                    onEnvironmentChange,
+            {pullRequestDialogState ? (
+              <PullRequestThreadDialog
+                key={pullRequestDialogState.key}
+                open
+                environmentId={activeThread.environmentId}
+                threadId={activeThread.id}
+                cwd={activeProject?.cwd ?? null}
+                initialReference={pullRequestDialogState.initialReference}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    closePullRequestDialog();
                   }
-                : {})}
-            />
-          )}
-          {pullRequestDialogState ? (
-            <PullRequestThreadDialog
-              key={pullRequestDialogState.key}
-              open
-              environmentId={activeThread.environmentId}
-              threadId={activeThread.id}
-              cwd={activeProject?.cwd ?? null}
-              initialReference={pullRequestDialogState.initialReference}
-              onOpenChange={(open) => {
-                if (!open) {
-                  closePullRequestDialog();
-                }
-              }}
-              onPrepared={handlePreparedPullRequestThread}
-            />
-          ) : null}
+                }}
+                onPrepared={handlePreparedPullRequestThread}
+              />
+            ) : null}
+          </div>
+          {/* end thread tab */}
+          {editorAvailable && <EditorPane visible={activeChatTab === "editor"} />}
         </div>
         {/* end chat column */}
 

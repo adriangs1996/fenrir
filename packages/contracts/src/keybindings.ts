@@ -37,6 +37,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "chat.newLocal",
   "editor.openFavorite",
   "editor.sendSelection",
+  "editor.toggleChatTab",
   ...THREAD_KEYBINDING_COMMANDS,
 ] as const;
 

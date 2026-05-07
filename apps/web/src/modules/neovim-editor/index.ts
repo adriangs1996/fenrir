@@ -37,3 +37,5 @@ export {
   ComposerPendingEditorContexts,
 } from "./components/ComposerPendingEditorContexts";
 export { EditorContextInlineChip } from "./components/EditorContextInlineChip";
+export { EditorPane } from "./components/EditorPane";
+export { ChatTabBar } from "./components/ChatTabBar";

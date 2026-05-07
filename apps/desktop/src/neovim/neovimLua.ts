@@ -100,7 +100,7 @@ function M.send_selection()
 end
 
 _G.fenrir.private.bridge = M
-return M
+return true
 `.trim();
 
 // ─────────────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ vim.api.nvim_create_autocmd("VimEnter", {
   callback = function() M.restore() end,
 })
 
-return M
+return true
 `.trim();
 
 // ─────────────────────────────────────────────────────────────
@@ -249,13 +249,15 @@ end, {
 `.trim();
 
 // ─────────────────────────────────────────────────────────────
-// events.lua — autocmds → rpcnotify "fenrir_event"
+// events.lua — autocmds → rpcnotify "fenrir_autocmd"
+// (NB: the neovim Node client swallows any notification whose name ends in
+// "_event" unless it starts with "nvim_buf_", so we avoid that suffix.)
 // ─────────────────────────────────────────────────────────────
 export const FENRIR_EVENTS_LUA = `
 local group = vim.api.nvim_create_augroup("FenrirEvents", { clear = true })
 
 local function notify(payload)
-  vim.rpcnotify(0, "fenrir_event", payload)
+  vim.rpcnotify(0, "fenrir_autocmd", payload)
 end
 
 vim.api.nvim_create_autocmd("BufEnter", {
