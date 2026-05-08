@@ -63,6 +63,10 @@
     "./providerActivityLog": {
       "types": "./src/providerActivityLog.ts",
       "import": "./src/providerActivityLog.ts"
+    },
+    "./commandFormat": {
+      "types": "./src/commandFormat.ts",
+      "import": "./src/commandFormat.ts"
     }
   },
   "scripts": {

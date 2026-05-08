@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { EditorFontMetrics, Frame, InputModifiers } from "@fenrir/contracts";
+import {
+  type EditorFontMetrics,
+  type Frame,
+  type InputModifiers,
+  NERD_FONT_FALLBACK_FAMILIES,
+} from "@fenrir/contracts";
 import { isMacPlatform } from "~/lib/utils";
 import { useSettings } from "~/hooks/useSettings";
 import { GLRenderer } from "./render/glRenderer";
@@ -29,14 +34,15 @@ interface RenderSurfaceProps {
   fps?: number;
   className?: string;
   style?: React.CSSProperties;
+  /**
+   * When true, canvas auto-focuses so keystrokes flow straight to nvim. The
+   * surface stays mounted across tab toggles via `display:none`, so we focus
+   * on every false→true transition rather than only on mount.
+   */
+  visible?: boolean;
 }
 
-const NERD_FONT_FALLBACK = [
-  '"Symbols Nerd Font Mono"',
-  '"Symbols Nerd Font"',
-  '"GeistMono Nerd Font"',
-  "monospace",
-];
+const NERD_FONT_FALLBACK = [...NERD_FONT_FALLBACK_FAMILIES, "monospace"];
 
 interface EditorFontPrefs {
   family: string;
@@ -95,7 +101,7 @@ function measureEditorMetrics(prefs: EditorFontPrefs): EditorFontMetrics {
   };
 }
 
-export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProps) {
+export function RenderSurface({ fps = 120, className, style, visible = true }: RenderSurfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<GLRenderer | null>(null);
@@ -131,12 +137,18 @@ export function RenderSurface({ fps = 120, className, style }: RenderSurfaceProp
       setGlError(message);
       return;
     }
-    // Autofocus so keystrokes flow straight to neovim without a click.
-    canvas.focus({ preventScroll: true });
     return () => {
       rendererRef.current = null;
     };
   }, []);
+
+  // Focus canvas whenever the surface becomes visible so keystrokes flow to
+  // nvim without a click — covers initial mount with visible=true and every
+  // tab switch back to the editor while the canvas stays mounted.
+  useEffect(() => {
+    if (!visible) return;
+    canvasRef.current?.focus({ preventScroll: true });
+  }, [visible]);
 
   useEffect(() => {
     const bridge = window.desktopBridge;

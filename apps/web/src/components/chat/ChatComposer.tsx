@@ -64,6 +64,7 @@ import { type ComposerPromptEditorHandle, ComposerPromptEditor } from "../Compos
 import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./ProviderModelPicker";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
+import { ComposerPendingApprovalCommand } from "./ComposerPendingApprovalCommand";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
@@ -804,6 +805,43 @@ export const ChatComposer = memo(
 
     const isComposerApprovalState = activePendingApproval !== null;
     const activePendingUserInput = pendingUserInputs[0] ?? null;
+
+    // Keyboard shortcuts for command approvals so power users do not have to
+    // mouse over to the Approve/Decline buttons. Only active while a command
+    // approval is pending and no other input element has focus.
+    useEffect(() => {
+      if (!activePendingApproval) return undefined;
+      if (activePendingApproval.requestKind !== "command") return undefined;
+
+      const requestId = activePendingApproval.requestId;
+      const isResponding = respondingRequestIds.includes(requestId);
+      if (isResponding) return undefined;
+
+      const handler = (event: KeyboardEvent): void => {
+        if (event.defaultPrevented) return;
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+        const target = event.target as HTMLElement | null;
+        if (target) {
+          const tag = target.tagName;
+          if (tag === "INPUT" || tag === "TEXTAREA") return;
+          if (target.isContentEditable) return;
+        }
+
+        let decision: ProviderApprovalDecision | null = null;
+        if (event.key === "y" || event.key === "Y") decision = "accept";
+        else if (event.key === "n" || event.key === "N") decision = "decline";
+        else if (event.key === "Escape") decision = "cancel";
+        if (!decision) return;
+
+        event.preventDefault();
+        void onRespondToApproval(requestId, decision);
+      };
+
+      window.addEventListener("keydown", handler);
+      return () => window.removeEventListener("keydown", handler);
+    }, [activePendingApproval, respondingRequestIds, onRespondToApproval]);
+
     const hasComposerHeader =
       isComposerApprovalState ||
       pendingUserInputs.length > 0 ||
@@ -1682,6 +1720,11 @@ export const ChatComposer = memo(
                   approval={activePendingApproval}
                   pendingCount={pendingApprovals.length}
                 />
+                {activePendingApproval.requestKind === "command" && activePendingApproval.detail ? (
+                  <div className="px-4 pb-3 sm:px-5 sm:pb-4">
+                    <ComposerPendingApprovalCommand detail={activePendingApproval.detail} />
+                  </div>
+                ) : null}
               </div>
             ) : pendingUserInputs.length > 0 ? (
               <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
@@ -1821,7 +1864,11 @@ export const ChatComposer = memo(
                 onPaste={onComposerPaste}
                 placeholder={
                   isComposerApprovalState
-                    ? (activePendingApproval?.detail ?? "Resolve this approval request to continue")
+                    ? activePendingApproval?.requestKind === "command" &&
+                      activePendingApproval.detail
+                      ? "Review the command above and approve, decline, or cancel"
+                      : (activePendingApproval?.detail ??
+                        "Resolve this approval request to continue")
                     : activePendingProgress
                       ? "Type your own answer, or leave this blank to use the selected option"
                       : showPlanFollowUpPrompt && activeProposedPlan
@@ -1840,6 +1887,7 @@ export const ChatComposer = memo(
                 <ComposerPendingApprovalActions
                   requestId={activePendingApproval.requestId}
                   isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
+                  showShortcuts={activePendingApproval.requestKind === "command"}
                   onRespondToApproval={onRespondToApproval}
                 />
               </div>

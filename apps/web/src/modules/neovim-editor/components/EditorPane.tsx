@@ -68,7 +68,7 @@ export function EditorPane({ visible }: Props) {
       style={{ display: visible ? "block" : "none" }}
       data-testid="editor-pane"
     >
-      <RenderSurface fps={120} style={{ width: "100%", height: "100%" }} />
+      <RenderSurface fps={120} visible={visible} style={{ width: "100%", height: "100%" }} />
     </div>
   );
 }

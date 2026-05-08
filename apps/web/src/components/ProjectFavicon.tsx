@@ -2,6 +2,7 @@ import type { EnvironmentId } from "@fenrir/contracts";
 import { FolderIcon } from "lucide-react";
 import { useState } from "react";
 import { resolveEnvironmentHttpUrl } from "../environments/runtime";
+import { cn } from "../lib/utils";
 
 const loadedProjectFaviconSrcs = new Set<string>();
 
@@ -22,14 +23,16 @@ export function ProjectFavicon(input: {
   return (
     <>
       {status !== "loaded" ? (
-        <FolderIcon
-          className={`size-3.5 shrink-0 text-muted-foreground/50 ${input.className ?? ""}`}
-        />
+        <FolderIcon className={cn("size-3.5 shrink-0 text-muted-foreground/50", input.className)} />
       ) : null}
       <img
         src={src}
         alt=""
-        className={`size-3.5 shrink-0 rounded-sm object-contain ${status === "loaded" ? "" : "hidden"} ${input.className ?? ""}`}
+        className={cn(
+          "size-3.5 shrink-0 rounded-sm object-contain",
+          status === "loaded" ? "" : "hidden",
+          input.className,
+        )}
         onLoad={() => {
           loadedProjectFaviconSrcs.add(src);
           setStatus("loaded");

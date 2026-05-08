@@ -975,6 +975,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     project,
     isThreadListExpanded,
     activeRouteThreadKey,
+    isActiveProject,
     newThreadShortcutLabel,
     handleNewThread,
     archiveThread,
@@ -1769,8 +1770,19 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
               }`}
             />
           )}
-          <ProjectFavicon environmentId={project.environmentId} cwd={project.cwd} />
-          <span className="flex-1 truncate text-xs font-medium text-foreground/90">
+          {isActiveProject ? (
+            <FolderIcon className="size-3.5 shrink-0 text-primary" />
+          ) : (
+            <ProjectFavicon environmentId={project.environmentId} cwd={project.cwd} />
+          )}
+          <span
+            className={cn(
+              "flex-1 truncate transition-[color,font-size,font-weight] duration-150",
+              isActiveProject
+                ? "text-sm font-bold text-primary"
+                : "text-xs font-medium text-foreground/90",
+            )}
+          >
             {project.name}
           </span>
         </SidebarMenuButton>
@@ -1904,23 +1916,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
 });
 
-// Shared shell classes used to "box" the currently active project so its
-// header, threads sub-panel, and plan-runner (features) section read as one
-// grouped surface. Transitions are tuned so toggling between projects yields
-// a smooth crossfade rather than an instant swap.
-//
-// Sidebar surface tokens (`--sidebar-accent`, `--sidebar-border`) collapse to
-// near-invisible against the sidebar background in the dark/catppuccin theme,
-// so the active state leans on `--primary` for the tint, ring, and outer
-// glow. The background is kept very low (~6% alpha) so it does not compete
-// with the existing thread-row hover/active treatments inside the box.
-const PROJECT_SHELL_BASE_CLASS =
-  "rounded-lg ring-1 ring-transparent transition-[background-color,box-shadow,color] duration-300 ease-out";
-const PROJECT_SHELL_ACTIVE_CLASS =
-  "bg-primary/10 ring-primary/40 shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary)_25%,transparent),0_10px_30px_-12px_color-mix(in_oklab,var(--primary)_55%,transparent)]";
-
-function projectShellClass(isActive: boolean, extra?: string): string {
-  return cn(PROJECT_SHELL_BASE_CLASS, isActive && PROJECT_SHELL_ACTIVE_CLASS, extra);
+// Active-project highlight is now expressed inline on the project header
+// (icon + name colored with `--primary`, name bumped to `text-sm font-bold`)
+// instead of boxing the whole shell. The wrapper class helper is kept as a
+// no-op so existing call sites and the `data-active-project` hook continue to
+// work without churn at the call sites.
+function projectShellClass(_isActive: boolean, extra?: string): string {
+  return cn(extra);
 }
 
 const SidebarProjectListRow = memo(function SidebarProjectListRow(props: SidebarProjectItemProps) {

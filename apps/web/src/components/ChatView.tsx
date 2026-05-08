@@ -2379,9 +2379,11 @@ export default function ChatView(props: ChatViewProps) {
 
   // Auto-open the plan sidebar when plan/todo steps arrive for the current turn.
   // Don't auto-open for plans carried over from a previous turn (the user can open manually).
+  // Only fires when the right panel is fully closed — if the user has switched to
+  // another tab (diff/skills), respect that choice instead of bouncing back to plan.
   useEffect(() => {
     if (!activePlan) return;
-    if (planSidebarOpen) return;
+    if (rightPanel.activeTab !== null) return;
     const latestTurnId = activeLatestTurn?.turnId ?? null;
     if (latestTurnId && activePlan.turnId !== latestTurnId) return;
     const turnKey = activePlan.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
@@ -2389,7 +2391,7 @@ export default function ChatView(props: ChatViewProps) {
     rightPanel.openTab("plan");
     // rightPanel intentionally omitted from deps: store is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePlan, activeLatestTurn?.turnId, planSidebarOpen, sidebarProposedPlan?.turnId]);
+  }, [activePlan, activeLatestTurn?.turnId, rightPanel.activeTab, sidebarProposedPlan?.turnId]);
 
   // Sync URL diff param → store: when the URL has ?diff=1, open the diff tab.
   // Runs on page load and when navigating to/from ?diff=1.
@@ -2445,6 +2447,19 @@ export default function ChatView(props: ChatViewProps) {
       window.cancelAnimationFrame(frame);
     };
   }, [activeThread?.id, focusComposer, terminalState.terminalOpen]);
+
+  // Focus composer whenever the thread tab becomes active so cmd+e hands
+  // keystrokes back to chat without a click — mirrors the editor canvas
+  // autofocus on the editor tab.
+  useEffect(() => {
+    if (activeChatTab !== "thread") return;
+    const frame = window.requestAnimationFrame(() => {
+      focusComposer();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [activeChatTab, focusComposer]);
 
   useEffect(() => {
     if (!activeThread?.id) return;
@@ -3800,7 +3815,7 @@ export default function ChatView(props: ChatViewProps) {
                 toggleInteractionMode={toggleInteractionMode}
                 handleRuntimeModeChange={handleRuntimeModeChange}
                 handleInteractionModeChange={handleInteractionModeChange}
-                skillsPanelOpen={rightPanel.activeTab === "skills"}
+                skillsPanelOpen={rightPanel.activeTab !== null}
                 toggleSkillsPanel={toggleSkillsPanel}
                 focusComposer={focusComposer}
                 scheduleComposerFocus={scheduleComposerFocus}

@@ -502,7 +502,10 @@ function summarizeToolRequest(toolName: string, input: Record<string, unknown>):
   const commandValue = input.command ?? input.cmd;
   const command = typeof commandValue === "string" ? commandValue : undefined;
   if (command && command.trim().length > 0) {
-    return `${toolName}: ${command.trim().slice(0, 400)}`;
+    // Do not truncate the command — approval UI must render the full text so
+    // users can audit every flag/redirect before consenting. Non-command tool
+    // input (serialized below) is still capped because it can be unbounded JSON.
+    return `${toolName}: ${command.trim()}`;
   }
 
   // For agent/subagent tools, prefer human-readable description or prompt over raw JSON
