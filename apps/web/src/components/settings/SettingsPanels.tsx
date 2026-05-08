@@ -73,6 +73,7 @@ import {
   SettingsSection,
   useRelativeTimeTick,
 } from "./settingsLayout";
+import { ManagedProcessSettingsEditor } from "../managedProcess/ManagedProcessSettingsEditor";
 import { ProjectFavicon } from "../ProjectFavicon";
 import {
   useServerAvailableEditors,
@@ -447,6 +448,15 @@ export function useSettingsRestore(onRestored?: () => void) {
     changedSettingLabels,
     restoreDefaults,
   };
+}
+
+function ManagedProcessSettingsSection() {
+  const projects = useStore(useShallow(selectProjectsAcrossEnvironments));
+  const project = projects[0] ?? null;
+  if (!project) return null;
+  return (
+    <ManagedProcessSettingsEditor projectId={project.id} environmentId={project.environmentId} />
+  );
 }
 
 export function GeneralSettingsPanel() {
@@ -1669,6 +1679,8 @@ export function GeneralSettingsPanel() {
           );
         })}
       </SettingsSection>
+
+      <ManagedProcessSettingsSection />
 
       <SettingsSection title="Advanced">
         <SettingsRow

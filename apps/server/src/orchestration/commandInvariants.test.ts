@@ -34,6 +34,7 @@ const readModel: OrchestrationReadModel = {
       },
       scripts: [],
       globalScriptDefaults: [],
+      managedProcesses: [],
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
@@ -48,6 +49,7 @@ const readModel: OrchestrationReadModel = {
       },
       scripts: [],
       globalScriptDefaults: [],
+      managedProcesses: [],
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
@@ -101,6 +103,7 @@ const readModel: OrchestrationReadModel = {
       deletedAt: null,
     },
   ],
+  managedProcessInstances: [],
 };
 
 const messageSendCommand: OrchestrationCommand = {

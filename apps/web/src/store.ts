@@ -1,5 +1,7 @@
 import type {
   EnvironmentId,
+  ManagedProcess,
+  ManagedProcessInstance,
   MessageId,
   OrchestrationCheckpointSummary,
   OrchestrationEvent,
@@ -57,6 +59,8 @@ export interface EnvironmentState {
   turnDiffIdsByThreadId: Record<ThreadId, TurnId[]>;
   turnDiffSummaryByThreadId: Record<ThreadId, Record<TurnId, TurnDiffSummary>>;
   sidebarThreadSummaryById: Record<ThreadId, SidebarThreadSummary>;
+  managedProcessInstanceById: Record<string, ManagedProcessInstance>;
+  managedProcessInstanceIdsByProjectId: Record<ProjectId, string[]>;
   bootstrapComplete: boolean;
 }
 
@@ -82,6 +86,8 @@ const initialEnvironmentState: EnvironmentState = {
   turnDiffIdsByThreadId: {},
   turnDiffSummaryByThreadId: {},
   sidebarThreadSummaryById: {},
+  managedProcessInstanceById: {},
+  managedProcessInstanceIdsByProjectId: {},
   bootstrapComplete: false,
 };
 
@@ -190,6 +196,7 @@ function mapProject(
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     scripts: mapProjectScripts(project.scripts),
+    managedProcesses: [...(project.managedProcesses ?? [])],
     globalScriptDefaults: [...(project.globalScriptDefaults ?? [])],
   };
 }
@@ -911,6 +918,69 @@ function buildThreadState(
   };
 }
 
+function buildManagedProcessInstanceState(
+  instances: ReadonlyArray<ManagedProcessInstance>,
+): Pick<EnvironmentState, "managedProcessInstanceById" | "managedProcessInstanceIdsByProjectId"> {
+  const managedProcessInstanceById: Record<string, ManagedProcessInstance> = {};
+  const managedProcessInstanceIdsByProjectId: Record<ProjectId, string[]> = {};
+
+  for (const instance of instances) {
+    managedProcessInstanceById[instance.instanceId] = instance;
+    const projectInstances = managedProcessInstanceIdsByProjectId[instance.projectId] ?? [];
+    if (!projectInstances.includes(instance.instanceId)) {
+      managedProcessInstanceIdsByProjectId[instance.projectId] = [
+        ...projectInstances,
+        instance.instanceId,
+      ];
+    }
+  }
+
+  return { managedProcessInstanceById, managedProcessInstanceIdsByProjectId };
+}
+
+function upsertManagedProcessInstance(
+  state: EnvironmentState,
+  instance: ManagedProcessInstance,
+): EnvironmentState {
+  const projectInstanceIds = state.managedProcessInstanceIdsByProjectId[instance.projectId] ?? [];
+  const nextProjectInstanceIds = projectInstanceIds.includes(instance.instanceId)
+    ? projectInstanceIds
+    : [...projectInstanceIds, instance.instanceId];
+
+  return {
+    ...state,
+    managedProcessInstanceById: {
+      ...state.managedProcessInstanceById,
+      [instance.instanceId]: instance,
+    },
+    managedProcessInstanceIdsByProjectId:
+      nextProjectInstanceIds === projectInstanceIds
+        ? state.managedProcessInstanceIdsByProjectId
+        : {
+            ...state.managedProcessInstanceIdsByProjectId,
+            [instance.projectId]: nextProjectInstanceIds,
+          },
+  };
+}
+
+function updateManagedProcessInstance(
+  state: EnvironmentState,
+  instanceId: string,
+  updater: (instance: ManagedProcessInstance) => ManagedProcessInstance,
+): EnvironmentState {
+  const existing = state.managedProcessInstanceById[instanceId];
+  if (!existing) return state;
+  const next = updater(existing);
+  if (next === existing) return state;
+  return {
+    ...state,
+    managedProcessInstanceById: {
+      ...state.managedProcessInstanceById,
+      [instanceId]: next,
+    },
+  };
+}
+
 function getStoredEnvironmentState(
   state: AppState,
   environmentId: EnvironmentId,
@@ -957,6 +1027,7 @@ function syncEnvironmentReadModel(
     ...state,
     ...buildProjectState(projects),
     ...buildThreadState(threads),
+    ...buildManagedProcessInstanceState(readModel.managedProcessInstances ?? []),
     bootstrapComplete: true,
   };
 }
@@ -992,6 +1063,7 @@ function applyEnvironmentOrchestrationEvent(
           repositoryIdentity: event.payload.repositoryIdentity ?? null,
           defaultModelSelection: event.payload.defaultModelSelection,
           scripts: event.payload.scripts,
+          managedProcesses: [],
           globalScriptDefaults: [...(event.payload.globalScriptDefaults ?? [])],
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
@@ -1466,6 +1538,76 @@ function applyEnvironmentOrchestrationEvent(
     case "thread.approval-response-requested":
     case "thread.user-input-response-requested":
       return state;
+
+    // ---- Managed process events ----
+
+    case "managed-process.definition-upserted": {
+      const defProject = state.projectById[event.payload.projectId];
+      if (!defProject) return state;
+      return {
+        ...state,
+        projectById: {
+          ...state.projectById,
+          [defProject.id]: {
+            ...defProject,
+            managedProcesses: [
+              ...defProject.managedProcesses.filter((d) => d.id !== event.payload.definition.id),
+              event.payload.definition,
+            ],
+            updatedAt: event.payload.updatedAt,
+          },
+        },
+      };
+    }
+
+    case "managed-process.definition-deleted": {
+      const delProject = state.projectById[event.payload.projectId];
+      if (!delProject) return state;
+      return {
+        ...state,
+        projectById: {
+          ...state.projectById,
+          [delProject.id]: {
+            ...delProject,
+            managedProcesses: delProject.managedProcesses.filter(
+              (d) => d.id !== event.payload.processDefId,
+            ),
+            updatedAt: event.payload.updatedAt,
+          },
+        },
+      };
+    }
+
+    case "managed-process.instance-started":
+      return upsertManagedProcessInstance(state, event.payload.instance);
+
+    case "managed-process.instance-state-changed":
+      return updateManagedProcessInstance(state, event.payload.instanceId, (instance) => ({
+        ...instance,
+        status: event.payload.next,
+        exitCode: event.payload.exitCode,
+        exitSignal: event.payload.exitSignal,
+        lastError: event.payload.lastError,
+        updatedAt: event.payload.occurredAt,
+      }));
+
+    case "managed-process.instance-ready-changed":
+      return updateManagedProcessInstance(state, event.payload.instanceId, (instance) => ({
+        ...instance,
+        ready: event.payload.ready,
+        url: event.payload.url,
+        updatedAt: event.payload.occurredAt,
+      }));
+
+    case "managed-process.instance-exited":
+      return updateManagedProcessInstance(state, event.payload.instanceId, (instance) => ({
+        ...instance,
+        status: "stopped",
+        exitCode: event.payload.exitCode,
+        exitSignal: event.payload.exitSignal,
+        stoppedAt: event.payload.occurredAt,
+        updatedAt: event.payload.occurredAt,
+      }));
   }
 
   return state;
@@ -1620,6 +1762,54 @@ export function selectThreadIdsByProjectRef(
     ? (selectEnvironmentState(state, ref.environmentId).threadIdsByProjectId[ref.projectId] ??
         EMPTY_THREAD_IDS)
     : EMPTY_THREAD_IDS;
+}
+
+// ---------- Managed process selectors ----------
+
+const EMPTY_INSTANCE_IDS: string[] = [];
+
+export function selectManagedProcessInstancesForProject(
+  state: AppState,
+  environmentId: EnvironmentId | null | undefined,
+  projectId: ProjectId,
+): ManagedProcessInstance[] {
+  const envState = selectEnvironmentState(state, environmentId);
+  const ids = envState.managedProcessInstanceIdsByProjectId[projectId] ?? EMPTY_INSTANCE_IDS;
+  return ids.flatMap((id) => {
+    const instance = envState.managedProcessInstanceById[id];
+    return instance ? [instance] : [];
+  });
+}
+
+export function selectManagedProcessInstanceById(
+  state: AppState,
+  environmentId: EnvironmentId | null | undefined,
+  instanceId: string,
+): ManagedProcessInstance | undefined {
+  return selectEnvironmentState(state, environmentId).managedProcessInstanceById[instanceId];
+}
+
+export function selectInstanceForDefinition(
+  state: AppState,
+  environmentId: EnvironmentId | null | undefined,
+  projectId: ProjectId,
+  processDefId: string,
+  worktreePath: string | null,
+): ManagedProcessInstance | undefined {
+  return selectManagedProcessInstancesForProject(state, environmentId, projectId).find(
+    (inst) => inst.processDefId === processDefId && (inst.worktreePath ?? null) === worktreePath,
+  );
+}
+
+const EMPTY_DEFINITIONS: ManagedProcess[] = [];
+
+export function selectManagedProcessDefinitions(
+  state: AppState,
+  environmentId: EnvironmentId | null | undefined,
+  projectId: ProjectId,
+): ManagedProcess[] {
+  const envState = selectEnvironmentState(state, environmentId);
+  return envState.projectById[projectId]?.managedProcesses ?? EMPTY_DEFINITIONS;
 }
 
 export function setError(state: AppState, threadId: ThreadId, error: string | null): AppState {

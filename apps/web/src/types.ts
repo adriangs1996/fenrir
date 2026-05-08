@@ -1,6 +1,7 @@
 import type {
   EnvironmentId,
   GlobalScriptProjectDefaults,
+  ManagedProcess,
   ModelSelection,
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
@@ -96,6 +97,7 @@ export interface Project {
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
   scripts: ProjectScript[];
+  managedProcesses: ManagedProcess[];
   globalScriptDefaults: GlobalScriptProjectDefaults[]; // empty array when not set
 }
 

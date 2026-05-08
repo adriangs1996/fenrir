@@ -109,6 +109,11 @@ import { GlobalActionsService, type GlobalActionsShape } from "./globalActions.t
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner.ts";
 import { RawTcpListenerService } from "./raw-tcp/Services/RawTcpListenerService.ts";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService.ts";
+import { ManagedProcessManager } from "./managedProcess/Services/Manager.ts";
+import {
+  ImportResolver,
+  type ImportResolverShape,
+} from "./managedProcess/Services/ImportResolver.ts";
 import { SkillService, type SkillServiceShape } from "./skill/SkillService.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
@@ -143,6 +148,7 @@ const makeDefaultOrchestrationReadModel = () => {
         defaultModelSelection,
         scripts: [],
         globalScriptDefaults: [],
+        managedProcesses: [],
         createdAt: now,
         updatedAt: now,
         deletedAt: null,
@@ -170,6 +176,7 @@ const makeDefaultOrchestrationReadModel = () => {
         deletedAt: null,
       },
     ],
+    managedProcessInstances: [],
   };
 };
 
@@ -317,6 +324,7 @@ const buildAppUnderTest = (options?: {
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
     globalActions?: Partial<GlobalActionsShape>;
     skillService?: Partial<SkillServiceShape>;
+    importResolver?: Partial<ImportResolverShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -470,7 +478,27 @@ const buildAppUnderTest = (options?: {
           readEvents: () => Stream.empty,
           dispatch: () => Effect.succeed({ sequence: 0 }),
           streamDomainEvents: Stream.empty,
+          injectExternalEvent: () => Effect.void,
           ...options?.layers?.orchestrationEngine,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ManagedProcessManager)({
+          executorKind: "direct",
+          start: () => Effect.die(new Error("not available in test")),
+          stop: () => Effect.die(new Error("not available in test")),
+          forceKill: () => Effect.die(new Error("not available in test")),
+          restart: () => Effect.die(new Error("not available in test")),
+          writeStdin: () => Effect.die(new Error("not available in test")),
+          list: () => Effect.succeed([]),
+          events: Stream.empty,
+          subscribeLog: () => Effect.die(new Error("not available in test")),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ImportResolver)({
+          propose: () => Effect.succeed([]),
+          ...options?.layers?.importResolver,
         }),
       ),
       Layer.provide(
@@ -2839,6 +2867,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             defaultModelSelection,
             scripts: [],
             globalScriptDefaults: [],
+            managedProcesses: [],
             createdAt: now,
             updatedAt: now,
             deletedAt: null,
@@ -2866,6 +2895,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             deletedAt: null,
           },
         ],
+        managedProcessInstances: [],
       };
 
       yield* buildAppUnderTest({

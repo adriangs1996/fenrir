@@ -44,6 +44,18 @@ type RpcStreamMethod<TTag extends RpcTag> =
     ? (listener: (event: TEvent) => void, options?: StreamSubscriptionOptions) => () => void
     : never;
 
+type RpcStreamMethodWithInput<TTag extends RpcTag> =
+  RpcMethod<TTag> extends (
+    input: infer TInput,
+    options?: any,
+  ) => Stream.Stream<infer TEvent, any, any>
+    ? (
+        input: TInput,
+        listener: (event: TEvent) => void,
+        options?: StreamSubscriptionOptions,
+      ) => () => void
+    : never;
+
 interface GitRunStackedActionOptions {
   readonly onProgress?: (event: GitActionProgressEvent) => void;
 }
@@ -166,6 +178,18 @@ export interface WsRpcClient {
     readonly listArchivedFeatures: RpcUnaryMethod<typeof WS_METHODS.planRunnerListArchivedFeatures>;
     readonly renameFeature: RpcUnaryMethod<typeof WS_METHODS.planRunnerRenameFeature>;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribePlanRunnerEvents>;
+  };
+  readonly managedProcess: {
+    readonly list: RpcUnaryMethod<typeof WS_METHODS.managedProcessList>;
+    readonly start: RpcUnaryMethod<typeof WS_METHODS.managedProcessStart>;
+    readonly stop: RpcUnaryMethod<typeof WS_METHODS.managedProcessStop>;
+    readonly forceKill: RpcUnaryMethod<typeof WS_METHODS.managedProcessForceKill>;
+    readonly restart: RpcUnaryMethod<typeof WS_METHODS.managedProcessRestart>;
+    readonly writeStdin: RpcUnaryMethod<typeof WS_METHODS.managedProcessWriteStdin>;
+    readonly upsertDefinition: RpcUnaryMethod<typeof WS_METHODS.managedProcessUpsertDefinition>;
+    readonly deleteDefinition: RpcUnaryMethod<typeof WS_METHODS.managedProcessDeleteDefinition>;
+    readonly proposedImports: RpcUnaryMethod<typeof WS_METHODS.managedProcessProposedImports>;
+    readonly subscribeLog: RpcStreamMethodWithInput<typeof WS_METHODS.managedProcessSubscribeLog>;
   };
   readonly orchestration: {
     readonly getSnapshot: RpcUnaryNoArgMethod<typeof ORCHESTRATION_WS_METHODS.getSnapshot>;
@@ -383,6 +407,30 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       onEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribePlanRunnerEvents]({}),
+          listener,
+          options,
+        ),
+    },
+    managedProcess: {
+      list: (input) => transport.request((client) => client[WS_METHODS.managedProcessList](input)),
+      start: (input) =>
+        transport.request((client) => client[WS_METHODS.managedProcessStart](input)),
+      stop: (input) => transport.request((client) => client[WS_METHODS.managedProcessStop](input)),
+      forceKill: (input) =>
+        transport.request((client) => client[WS_METHODS.managedProcessForceKill](input)),
+      restart: (input) =>
+        transport.request((client) => client[WS_METHODS.managedProcessRestart](input)),
+      writeStdin: (input) =>
+        transport.request((client) => client[WS_METHODS.managedProcessWriteStdin](input)),
+      upsertDefinition: (input) =>
+        transport.request((client) => client[WS_METHODS.managedProcessUpsertDefinition](input)),
+      deleteDefinition: (input) =>
+        transport.request((client) => client[WS_METHODS.managedProcessDeleteDefinition](input)),
+      proposedImports: (input) =>
+        transport.request((client) => client[WS_METHODS.managedProcessProposedImports](input)),
+      subscribeLog: (input, listener, options) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.managedProcessSubscribeLog](input),
           listener,
           options,
         ),

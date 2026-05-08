@@ -58,6 +58,7 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../src/orchestration/Services/OrchestrationEngine.ts";
+import { ManagedProcessReactor } from "../src/orchestration/Services/ManagedProcessReactor.ts";
 import { SkillProjectReactor } from "../src/orchestration/Services/SkillProjectReactor.ts";
 import { ThreadDeletionReactor } from "../src/orchestration/Services/ThreadDeletionReactor.ts";
 import { OrchestrationReactor } from "../src/orchestration/Services/OrchestrationReactor.ts";
@@ -364,6 +365,11 @@ export const makeOrchestrationIntegrationHarness = (
           start: () => Effect.void,
           drain: Effect.void,
         } as typeof SkillProjectReactor.Service),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(ManagedProcessReactor, {
+          start: () => Effect.void,
+        } as typeof ManagedProcessReactor.Service),
       ),
     );
     const layer = Layer.empty.pipe(

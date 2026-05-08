@@ -150,6 +150,7 @@ import {
   useNvimAvailable,
 } from "~/hooks/useDesktopBridge";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { ManagedProcessStatusBar } from "./managedProcess/ManagedProcessStatusBar";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
@@ -3755,6 +3756,15 @@ export default function ChatView(props: ChatViewProps) {
                 </div>
               )}
             </div>
+
+            {/* Managed process status bar */}
+            {activeProject && (
+              <ManagedProcessStatusBar
+                projectId={activeProject.id}
+                environmentId={environmentId}
+                currentWorktreePath={activeThreadWorktreePath}
+              />
+            )}
 
             {/* Input bar */}
             <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>

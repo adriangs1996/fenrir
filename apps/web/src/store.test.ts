@@ -101,6 +101,7 @@ function makeState(thread: Thread): AppState {
     createdAt: "2026-02-13T00:00:00.000Z",
     updatedAt: "2026-02-13T00:00:00.000Z",
     scripts: [],
+    managedProcesses: [],
     globalScriptDefaults: [],
   };
   const threadIdsByProjectId: EnvironmentState["threadIdsByProjectId"] = {
@@ -175,6 +176,8 @@ function makeState(thread: Thread): AppState {
       ) as EnvironmentState["turnDiffSummaryByThreadId"][ThreadId],
     },
     sidebarThreadSummaryById: {},
+    managedProcessInstanceById: {},
+    managedProcessInstanceIdsByProjectId: {},
     bootstrapComplete: true,
   };
   return withActiveEnvironmentState(environmentState, {
@@ -200,6 +203,8 @@ function makeEmptyState(overrides: Partial<AppState & EnvironmentState> = {}): A
     turnDiffIdsByThreadId: {},
     turnDiffSummaryByThreadId: {},
     sidebarThreadSummaryById: {},
+    managedProcessInstanceById: {},
+    managedProcessInstanceIdsByProjectId: {},
     bootstrapComplete: true,
   };
   return withActiveEnvironmentState(environmentState, overrides);
@@ -414,10 +419,12 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
         updatedAt: "2026-02-27T00:00:00.000Z",
         deletedAt: null,
         scripts: [],
+        managedProcesses: [],
         globalScriptDefaults: [],
       },
     ],
     threads: [thread],
+    managedProcessInstances: [],
   };
 }
 
@@ -436,6 +443,7 @@ function makeReadModelProject(
     updatedAt: "2026-02-27T00:00:00.000Z",
     deletedAt: null,
     scripts: [],
+    managedProcesses: [],
     globalScriptDefaults: [],
     ...overrides,
   };
@@ -589,6 +597,7 @@ describe("store read model sync", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
           scripts: [],
+          managedProcesses: [],
           globalScriptDefaults: [],
         },
         [project1]: {
@@ -603,6 +612,7 @@ describe("store read model sync", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
           scripts: [],
+          managedProcesses: [],
           globalScriptDefaults: [],
         },
       },
@@ -628,6 +638,7 @@ describe("store read model sync", () => {
         }),
       ],
       threads: [],
+      managedProcessInstances: [],
     };
 
     const next = syncServerReadModel(initialState, readModel, localEnvironmentId);
@@ -698,6 +709,7 @@ describe("incremental orchestration updates", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
           scripts: [],
+          managedProcesses: [],
           globalScriptDefaults: [],
         },
       },
@@ -755,6 +767,7 @@ describe("incremental orchestration updates", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
           scripts: [],
+          managedProcesses: [],
           globalScriptDefaults: [],
         },
         [recreatedProjectId]: {
@@ -769,6 +782,7 @@ describe("incremental orchestration updates", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
           scripts: [],
+          managedProcesses: [],
           globalScriptDefaults: [],
         },
       },

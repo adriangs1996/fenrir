@@ -117,6 +117,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
           model: "gpt-5",
         },
         scripts: [],
+        managedProcesses: [],
         globalScriptDefaults: [],
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -166,6 +167,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         },
       },
     ],
+    managedProcessInstances: [],
     updatedAt: NOW_ISO,
   };
 }

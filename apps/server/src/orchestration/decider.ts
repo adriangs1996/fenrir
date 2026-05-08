@@ -745,6 +745,61 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "project.managedProcess.upsert": {
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "project",
+          aggregateId: command.projectId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "managed-process.definition-upserted" as const,
+        payload: {
+          projectId: command.projectId,
+          definition: command.definition,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "project.managedProcess.delete": {
+      const project = yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      const exists = (project.managedProcesses ?? []).some(
+        (def) => def.id === command.processDefId,
+      );
+      if (!exists) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Managed process definition '${command.processDefId}' does not exist on project '${command.projectId}'.`,
+        });
+      }
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "project",
+          aggregateId: command.projectId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "managed-process.definition-deleted" as const,
+        payload: {
+          projectId: command.projectId,
+          processDefId: command.processDefId,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
     default: {
       command satisfies never;
       const fallback = command as never as { type: string };

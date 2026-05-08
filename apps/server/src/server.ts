@@ -81,6 +81,14 @@ import {
 } from "./auth/http";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth";
+import { ImportResolverLive } from "./managedProcess/Layers/ImportResolver";
+import { ManagedProcessManagerLive } from "./managedProcess/Layers/Manager";
+import { DirectPtyExecutorLive } from "./managedProcess/Layers/DirectPtyExecutor";
+import { TmuxExecutorLive } from "./managedProcess/Layers/TmuxExecutor";
+import { InstanceStoreLive } from "./managedProcess/Layers/InstanceStore";
+import { LogBufferLive } from "./managedProcess/Layers/LogBuffer";
+import { ManagedProcessReactorLive } from "./orchestration/Layers/ManagedProcessReactor";
+import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -137,6 +145,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(ThreadDeletionReactorLive),
   Layer.provideMerge(SkillProjectReactorLive),
+  Layer.provideMerge(ManagedProcessReactorLive),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
 
@@ -235,7 +244,34 @@ const AuthLayerLive = ServerAuthLive.pipe(
   Layer.provide(ServerSecretStoreLive),
 );
 
+/**
+ * ManagedProcessLayerLive — selects executor (direct vs tmux) at boot,
+ * composes InstanceStore + LogBuffer + Manager + the reactor that bridges
+ * lifecycle events into the orchestration domain.
+ */
+const ManagedProcessExecutorLive = Layer.unwrap(
+  Effect.gen(function* () {
+    const tmuxSessionManager = yield* TmuxSessionManager;
+    const tmuxAvailable = yield* tmuxSessionManager.isTmuxAvailable;
+    if (tmuxAvailable) {
+      return TmuxExecutorLive;
+    }
+    return DirectPtyExecutorLive.pipe(
+      Layer.provide(PtyAdapterLive),
+      Layer.provide(TerminalShellResolverLive),
+    ) as Layer.Layer<import("./managedProcess/Services/Executor").Executor>;
+  }),
+);
+
+const ManagedProcessLayerLive = ManagedProcessManagerLive.pipe(
+  Layer.provideMerge(ImportResolverLive),
+  Layer.provide(ManagedProcessExecutorLive),
+  Layer.provide(InstanceStoreLive),
+  Layer.provide(LogBufferLive),
+);
+
 const CoreDependenciesLive = ReactorLayerLive.pipe(
+  Layer.provideMerge(ManagedProcessLayerLive),
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(OrchestrationLayerLive),

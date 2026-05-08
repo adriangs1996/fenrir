@@ -1,5 +1,11 @@
 import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@fenrir/contracts";
 import {
+  ManagedProcessDefinitionUpsertedPayload,
+  ManagedProcessDefinitionDeletedPayload,
+  ManagedProcessInstanceStartedPayload,
+  ManagedProcessInstanceStateChangedPayload,
+  ManagedProcessInstanceReadyChangedPayload,
+  ManagedProcessInstanceExitedPayload,
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
   OrchestrationSession,
@@ -160,6 +166,7 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     snapshotSequence: 0,
     projects: [],
     threads: [],
+    managedProcessInstances: [],
     updatedAt: nowIso,
   };
 }
@@ -186,6 +193,7 @@ export function projectEvent(
             defaultModelSelection: payload.defaultModelSelection,
             scripts: payload.scripts,
             globalScriptDefaults: payload.globalScriptDefaults ?? [],
+            managedProcesses: [],
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
             deletedAt: null,
@@ -650,6 +658,149 @@ export function projectEvent(
             }),
           };
         }),
+      );
+
+    // ─── Managed Process Definition Events ───────────────────────────
+
+    case "managed-process.definition-upserted":
+      return decodeForEvent(
+        ManagedProcessDefinitionUpsertedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          projects: nextBase.projects.map((project) =>
+            project.id === payload.projectId
+              ? {
+                  ...project,
+                  managedProcesses: [
+                    ...(project.managedProcesses ?? []).filter(
+                      (def) => def.id !== payload.definition.id,
+                    ),
+                    payload.definition,
+                  ],
+                  updatedAt: payload.updatedAt,
+                }
+              : project,
+          ),
+        })),
+      );
+
+    case "managed-process.definition-deleted":
+      return decodeForEvent(
+        ManagedProcessDefinitionDeletedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          projects: nextBase.projects.map((project) =>
+            project.id === payload.projectId
+              ? {
+                  ...project,
+                  managedProcesses: (project.managedProcesses ?? []).filter(
+                    (def) => def.id !== payload.processDefId,
+                  ),
+                  updatedAt: payload.updatedAt,
+                }
+              : project,
+          ),
+        })),
+      );
+
+    // ─── Managed Process Instance Events ─────────────────────────────
+
+    case "managed-process.instance-started":
+      return decodeForEvent(
+        ManagedProcessInstanceStartedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          managedProcessInstances: [
+            ...nextBase.managedProcessInstances.filter(
+              (inst) => inst.instanceId !== payload.instance.instanceId,
+            ),
+            payload.instance,
+          ],
+        })),
+      );
+
+    case "managed-process.instance-state-changed":
+      return decodeForEvent(
+        ManagedProcessInstanceStateChangedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          managedProcessInstances: nextBase.managedProcessInstances.map((inst) =>
+            inst.instanceId === payload.instanceId
+              ? {
+                  ...inst,
+                  status: payload.next,
+                  exitCode: payload.exitCode ?? inst.exitCode,
+                  exitSignal: payload.exitSignal ?? inst.exitSignal,
+                  lastError: payload.lastError,
+                  updatedAt: payload.occurredAt,
+                }
+              : inst,
+          ),
+        })),
+      );
+
+    case "managed-process.instance-ready-changed":
+      return decodeForEvent(
+        ManagedProcessInstanceReadyChangedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          managedProcessInstances: nextBase.managedProcessInstances.map((inst) =>
+            inst.instanceId === payload.instanceId
+              ? {
+                  ...inst,
+                  ready: payload.ready,
+                  url: payload.url,
+                  updatedAt: payload.occurredAt,
+                }
+              : inst,
+          ),
+        })),
+      );
+
+    case "managed-process.instance-exited":
+      return decodeForEvent(
+        ManagedProcessInstanceExitedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          managedProcessInstances: nextBase.managedProcessInstances.map((inst) =>
+            inst.instanceId === payload.instanceId
+              ? {
+                  ...inst,
+                  status: (payload.exitCode === 0 || payload.userInitiated
+                    ? "stopped"
+                    : "crashed") as typeof inst.status,
+                  stoppedAt: payload.occurredAt,
+                  exitCode: payload.exitCode ?? inst.exitCode,
+                  exitSignal: payload.exitSignal ?? inst.exitSignal,
+                  updatedAt: payload.occurredAt,
+                }
+              : inst,
+          ),
+        })),
       );
 
     default:

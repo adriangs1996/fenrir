@@ -43,6 +43,7 @@ function makeProject(
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     scripts: [],
+    managedProcesses: [],
     globalScriptDefaults: [],
     ...overrides,
   };
@@ -87,6 +88,8 @@ function makeEmptyEnvironmentState(): EnvironmentState {
     turnDiffIdsByThreadId: {},
     turnDiffSummaryByThreadId: {},
     sidebarThreadSummaryById: {},
+    managedProcessInstanceById: {},
+    managedProcessInstanceIdsByProjectId: {},
     bootstrapComplete: true,
   };
 }

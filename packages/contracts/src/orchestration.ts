@@ -164,6 +164,48 @@ export class GlobalActionsRpcError extends Schema.TaggedErrorClass<GlobalActions
   },
 ) {}
 
+// ---------- Managed process definition ----------
+
+export const ManagedProcessScope = Schema.Literals(["worktree", "project"]);
+export type ManagedProcessScope = typeof ManagedProcessScope.Type;
+
+export const ManagedProcessProxy = Schema.Struct({
+  kind: Schema.Literal("portless"),
+  appName: Schema.optional(TrimmedNonEmptyString),
+});
+export type ManagedProcessProxy = typeof ManagedProcessProxy.Type;
+
+export const ManagedProcessReadiness = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({ kind: Schema.Literal("portless-http") }),
+  Schema.Struct({
+    kind: Schema.Literal("log-pattern"),
+    pattern: TrimmedNonEmptyString.check(Schema.isMaxLength(500)),
+  }),
+]);
+export type ManagedProcessReadiness = typeof ManagedProcessReadiness.Type;
+
+export const ManagedProcessAutoRestart = Schema.Struct({
+  onCrash: Schema.Boolean,
+  maxAttempts: NonNegativeInt.check(Schema.isLessThanOrEqualTo(20)),
+  backoffMs: NonNegativeInt.check(Schema.isLessThanOrEqualTo(60_000)),
+});
+export type ManagedProcessAutoRestart = typeof ManagedProcessAutoRestart.Type;
+
+export const ManagedProcess = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  command: TrimmedNonEmptyString,
+  icon: ProjectScriptIcon,
+  scope: ManagedProcessScope,
+  cwd: Schema.NullOr(TrimmedNonEmptyString),
+  env: Schema.Record(Schema.String, Schema.String),
+  proxy: Schema.NullOr(ManagedProcessProxy),
+  readiness: ManagedProcessReadiness,
+  autoRestart: Schema.NullOr(ManagedProcessAutoRestart),
+});
+export type ManagedProcess = typeof ManagedProcess.Type;
+
 export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
@@ -171,6 +213,7 @@ export const OrchestrationProject = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  managedProcesses: Schema.Array(ManagedProcess).pipe(Schema.withDecodingDefault(() => [])),
   globalScriptDefaults: Schema.Array(GlobalScriptProjectDefaults),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -319,10 +362,54 @@ export const OrchestrationThread = Schema.Struct({
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
 
+// ---------- Managed process instance (runtime read-model) ----------
+
+export const ManagedProcessInstanceStatus = Schema.Literals([
+  "idle",
+  "starting",
+  "running",
+  "stopping",
+  "stopped",
+  "crashed",
+]);
+export type ManagedProcessInstanceStatus = typeof ManagedProcessInstanceStatus.Type;
+
+export const ManagedProcessExecutorKind = Schema.Literals(["tmux", "direct"]);
+export type ManagedProcessExecutorKind = typeof ManagedProcessExecutorKind.Type;
+
+export const ManagedProcessUrl = Schema.Struct({
+  estimate: Schema.NullOr(TrimmedNonEmptyString),
+  confirmed: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type ManagedProcessUrl = typeof ManagedProcessUrl.Type;
+
+export const ManagedProcessInstance = Schema.Struct({
+  instanceId: TrimmedNonEmptyString,
+  projectId: ProjectId,
+  processDefId: TrimmedNonEmptyString,
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  scope: ManagedProcessScope,
+  status: ManagedProcessInstanceStatus,
+  ready: Schema.Boolean,
+  executor: ManagedProcessExecutorKind,
+  url: ManagedProcessUrl,
+  startedAt: Schema.NullOr(IsoDateTime),
+  stoppedAt: Schema.NullOr(IsoDateTime),
+  exitCode: Schema.NullOr(Schema.Number),
+  exitSignal: Schema.NullOr(TrimmedNonEmptyString),
+  restartAttempt: NonNegativeInt,
+  lastError: Schema.NullOr(TrimmedNonEmptyString),
+  updatedAt: IsoDateTime,
+});
+export type ManagedProcessInstance = typeof ManagedProcessInstance.Type;
+
 export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
   threads: Schema.Array(OrchestrationThread),
+  managedProcessInstances: Schema.Array(ManagedProcessInstance).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
@@ -353,6 +440,20 @@ const ProjectDeleteCommand = Schema.Struct({
   commandId: CommandId,
   projectId: ProjectId,
   force: Schema.optional(Schema.Boolean),
+});
+
+const ProjectManagedProcessUpsertCommand = Schema.Struct({
+  type: Schema.Literal("project.managedProcess.upsert"),
+  commandId: CommandId,
+  projectId: ProjectId,
+  definition: ManagedProcess,
+});
+
+const ProjectManagedProcessDeleteCommand = Schema.Struct({
+  type: Schema.Literal("project.managedProcess.delete"),
+  commandId: CommandId,
+  projectId: ProjectId,
+  processDefId: TrimmedNonEmptyString,
 });
 
 const ThreadCreateCommand = Schema.Struct({
@@ -525,6 +626,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
   ProjectDeleteCommand,
+  ProjectManagedProcessUpsertCommand,
+  ProjectManagedProcessDeleteCommand,
   ThreadCreateCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
@@ -546,6 +649,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
   ProjectDeleteCommand,
+  ProjectManagedProcessUpsertCommand,
+  ProjectManagedProcessDeleteCommand,
   ThreadCreateCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
@@ -667,6 +772,12 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "managed-process.definition-upserted",
+  "managed-process.definition-deleted",
+  "managed-process.instance-started",
+  "managed-process.instance-state-changed",
+  "managed-process.instance-ready-changed",
+  "managed-process.instance-exited",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -843,6 +954,49 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   activity: OrchestrationThreadActivity,
 });
 
+// ---------- Managed process event payloads ----------
+
+export const ManagedProcessDefinitionUpsertedPayload = Schema.Struct({
+  projectId: ProjectId,
+  definition: ManagedProcess,
+  updatedAt: IsoDateTime,
+});
+
+export const ManagedProcessDefinitionDeletedPayload = Schema.Struct({
+  projectId: ProjectId,
+  processDefId: TrimmedNonEmptyString,
+  updatedAt: IsoDateTime,
+});
+
+export const ManagedProcessInstanceStartedPayload = Schema.Struct({
+  instance: ManagedProcessInstance,
+});
+
+export const ManagedProcessInstanceStateChangedPayload = Schema.Struct({
+  instanceId: TrimmedNonEmptyString,
+  prev: ManagedProcessInstanceStatus,
+  next: ManagedProcessInstanceStatus,
+  exitCode: Schema.NullOr(Schema.Number),
+  exitSignal: Schema.NullOr(TrimmedNonEmptyString),
+  lastError: Schema.NullOr(TrimmedNonEmptyString),
+  occurredAt: IsoDateTime,
+});
+
+export const ManagedProcessInstanceReadyChangedPayload = Schema.Struct({
+  instanceId: TrimmedNonEmptyString,
+  ready: Schema.Boolean,
+  url: ManagedProcessUrl,
+  occurredAt: IsoDateTime,
+});
+
+export const ManagedProcessInstanceExitedPayload = Schema.Struct({
+  instanceId: TrimmedNonEmptyString,
+  exitCode: Schema.NullOr(Schema.Number),
+  exitSignal: Schema.NullOr(TrimmedNonEmptyString),
+  userInitiated: Schema.Boolean,
+  occurredAt: IsoDateTime,
+});
+
 export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
@@ -974,6 +1128,36 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("managed-process.definition-upserted"),
+    payload: ManagedProcessDefinitionUpsertedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("managed-process.definition-deleted"),
+    payload: ManagedProcessDefinitionDeletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("managed-process.instance-started"),
+    payload: ManagedProcessInstanceStartedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("managed-process.instance-state-changed"),
+    payload: ManagedProcessInstanceStateChangedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("managed-process.instance-ready-changed"),
+    payload: ManagedProcessInstanceReadyChangedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("managed-process.instance-exited"),
+    payload: ManagedProcessInstanceExitedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
@@ -1132,6 +1316,22 @@ export class OrchestrationReplayEventsError extends Schema.TaggedErrorClass<Orch
   "OrchestrationReplayEventsError",
   {
     message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export class ManagedProcessRpcError extends Schema.TaggedErrorClass<ManagedProcessRpcError>()(
+  "ManagedProcessRpcError",
+  {
+    code: Schema.Literals([
+      "not-found",
+      "invalid-state",
+      "spawn-failed",
+      "portless-not-found",
+      "executor-unavailable",
+      "io-error",
+    ]),
+    message: Schema.String,
     cause: Schema.optional(Schema.Defect),
   },
 ) {}
