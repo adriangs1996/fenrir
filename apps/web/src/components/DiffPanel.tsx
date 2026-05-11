@@ -37,6 +37,7 @@ import { createThreadSelectorByRef } from "../storeSelectors";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { useSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
+import { useRightPanelStore } from "../rightPanelStore";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { Button } from "./ui/button";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
@@ -47,6 +48,7 @@ type DiffThemeType = "light" | "dark";
 /** Close button rendered only in sidebar mode. Navigates to strip diff URL params. */
 function DiffPanelSidebarCloseButton() {
   const navigate = useNavigate();
+  const closeRightPanel = useRightPanelStore((state) => state.close);
   const routeThreadRef = useParams({
     strict: false,
     select: (params) => resolveThreadRouteRef(params),
@@ -57,6 +59,7 @@ function DiffPanelSidebarCloseButton() {
       size="icon-xs"
       variant="ghost"
       onClick={() => {
+        closeRightPanel();
         if (!routeThreadRef) return;
         void navigate({
           to: "/$environmentId/$threadId",

@@ -1,5 +1,29 @@
 @import "tailwindcss";
 
+/*
+ * Bundled nerd-font for icon glyphs (git branch, language logos, powerline,
+ * etc.). Browser walks `font-family` chains per-codepoint, so this only
+ * supplies PUA icon glyphs the user's chosen base font lacks — base font
+ * still wins for ASCII and other normal codepoints.
+ *
+ * Family name must match `NERD_FONT_FALLBACK_FAMILIES` in
+ * `packages/contracts/src/fonts.ts`. `font-display: swap` avoids blocking
+ * paint while the font loads.
+ *
+ * The font lives under `src/assets/fonts/` (not `public/`) so Vite runs it
+ * through the asset pipeline — the URL gets fingerprinted and emitted next
+ * to the CSS bundle. A relative `url()` then resolves correctly regardless
+ * of how the renderer is loaded (Vite dev server, packaged `t3://` custom
+ * protocol, or the embedded HTTP server in the installed desktop app).
+ */
+@font-face {
+  font-family: "Symbols Nerd Font Mono";
+  src: url("./assets/fonts/SymbolsNerdFontMono-Regular.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant catppuccin-mocha (&:is(.catppuccin-mocha, .catppuccin-mocha *));
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */
@@ -17,6 +41,7 @@
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-destructive: var(--destructive);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
@@ -95,6 +120,7 @@
   --accent-foreground: var(--color-neutral-800);
   --destructive: var(--color-red-500);
   --border: --alpha(var(--color-black) / 8%);
+  --border-strong: --alpha(var(--color-black) / 14%);
   --input: --alpha(var(--color-black) / 10%);
   --ring: oklch(0.488 0.217 264);
   --destructive-foreground: var(--color-red-700);
@@ -124,6 +150,7 @@
     --accent-foreground: var(--color-neutral-100);
     --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
     --border: --alpha(var(--color-white) / 6%);
+    --border-strong: var(--color-black);
     --input: --alpha(var(--color-white) / 8%);
     --ring: oklch(0.588 0.217 264);
     --destructive-foreground: var(--color-red-400);
@@ -180,6 +207,7 @@
 
     /* === Borders & Inputs === */
     --border: #181825; /* Surface0 — borders, dividers */
+    --border-strong: #11111b; /* Mantle — darker than Crust bg */
     --input: #313244; /* Surface1 — form inputs */
     /* --ring: #a6e3a1; */
     --ring: #58ffc7;

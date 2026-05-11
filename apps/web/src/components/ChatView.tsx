@@ -657,16 +657,6 @@ export default function ChatView(props: ChatViewProps) {
     (store) => store.getComposerDraft(composerDraftTarget)?.activeProvider ?? null,
   );
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
-  const handleSkillInsert = useCallback(
-    (skillName: string) => {
-      const draft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
-      const current = draft?.prompt ?? "";
-      const insertion = `/${skillName}`;
-      const next = current.length > 0 ? `${current} ${insertion}` : insertion;
-      setComposerDraftPrompt(composerDraftTarget, next);
-    },
-    [composerDraftTarget, setComposerDraftPrompt],
-  );
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
     (store) => store.setTerminalContexts,
@@ -696,6 +686,27 @@ export default function ChatView(props: ChatViewProps) {
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerRef = useRef<ChatComposerHandle>(null);
+  const handleSkillInsert = useCallback(
+    (skillName: string) => {
+      const snapshot = composerRef.current?.readSnapshot();
+      const draft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
+      const current = snapshot?.value ?? draft?.prompt ?? "";
+      const insertion = `/${skillName}`;
+      const next = current.length > 0 ? `${current} ${insertion}` : insertion;
+      const nextCursor = collapseExpandedComposerCursor(next, next.length);
+
+      setComposerDraftPrompt(composerDraftTarget, next);
+      composerRef.current?.resetCursorState({
+        cursor: nextCursor,
+        prompt: next,
+        detectTrigger: true,
+      });
+      window.requestAnimationFrame(() => {
+        composerRef.current?.focusAt(nextCursor);
+      });
+    },
+    [composerDraftTarget, setComposerDraftPrompt],
+  );
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
@@ -870,6 +881,7 @@ export default function ChatView(props: ChatViewProps) {
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const diffOpen = rawSearch.diff === "1";
+  const diffPanelOpen = rightPanel.activeTab === "diff";
   const activeThreadId = activeThread?.id ?? null;
   const activeThreadRef = useMemo(
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
@@ -1556,12 +1568,9 @@ export default function ChatView(props: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "diff.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
-  const onToggleDiff = useCallback(() => {
-    if (!isServerThread) {
+  const clearDiffRouteState = useCallback(() => {
+    if (!isServerThread || !diffOpen) {
       return;
-    }
-    if (!diffOpen) {
-      onDiffPanelOpen?.();
     }
     void navigate({
       to: "/$environmentId/$threadId",
@@ -1570,12 +1579,24 @@ export default function ChatView(props: ChatViewProps) {
         threadId,
       },
       replace: true,
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
-      },
+      search: (previous) => stripDiffSearchParams(previous),
     });
-  }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
+  }, [diffOpen, environmentId, isServerThread, navigate, threadId]);
+  const closeRightPanel = useCallback(() => {
+    rightPanel.close();
+    clearDiffRouteState();
+  }, [clearDiffRouteState, rightPanel]);
+  const onToggleDiff = useCallback(() => {
+    if (!isServerThread) {
+      return;
+    }
+    if (rightPanel.activeTab === "diff") {
+      closeRightPanel();
+      return;
+    }
+    onDiffPanelOpen?.();
+    rightPanel.openTab("diff");
+  }, [closeRightPanel, isServerThread, onDiffPanelOpen, rightPanel]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -2130,13 +2151,13 @@ export default function ChatView(props: ChatViewProps) {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
   const closePlanSidebar = useCallback(() => {
-    rightPanel.close();
+    closeRightPanel();
     planSidebarDismissedForTurnRef.current =
       activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
-  }, [activePlan?.turnId, rightPanel, sidebarProposedPlan?.turnId]);
+  }, [activePlan?.turnId, closeRightPanel, sidebarProposedPlan?.turnId]);
   const toggleSkillsPanel = useCallback(() => {
     if (rightPanel.activeTab !== null) {
-      rightPanel.close();
+      closeRightPanel();
       planSidebarDismissedForTurnRef.current =
         activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
       return;
@@ -2146,7 +2167,7 @@ export default function ChatView(props: ChatViewProps) {
     const hasPlanContent = Boolean(activePlan || sidebarProposedPlan);
     planSidebarDismissedForTurnRef.current = null;
     rightPanel.openTab(hasPlanContent ? "plan" : "skills");
-  }, [activePlan, rightPanel, sidebarProposedPlan]);
+  }, [activePlan, closeRightPanel, rightPanel, sidebarProposedPlan]);
 
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -2393,46 +2414,16 @@ export default function ChatView(props: ChatViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePlan, activeLatestTurn?.turnId, rightPanel.activeTab, sidebarProposedPlan?.turnId]);
 
-  // Sync URL diff param → store: when the URL has ?diff=1, open the diff tab.
-  // Runs on page load and when navigating to/from ?diff=1.
+  // Open the shared right panel on the Diff tab when the route explicitly
+  // targets a diff. Do not auto-close or bounce the user back to Diff once
+  // they switch tabs manually.
   useEffect(() => {
-    if (diffOpen && rightPanel.activeTab !== "diff") {
-      rightPanel.openTab("diff");
-    } else if (!diffOpen && rightPanel.activeTab === "diff") {
-      rightPanel.close();
-    }
+    if (!diffOpen) return;
+    if (rightPanel.activeTab === "diff") return;
+    rightPanel.openTab("diff");
     // rightPanel intentionally omitted: stable store reference.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [diffOpen]);
-
-  // Sync store → URL: when the diff tab is opened/closed in the store,
-  // update the URL so deep links and the DiffPanel (which reads from URL) stay correct.
-  const prevActiveTabRef = useRef<string | null>(null);
-  useEffect(() => {
-    const prev = prevActiveTabRef.current;
-    prevActiveTabRef.current = rightPanel.activeTab;
-    if (!isServerThread) return;
-
-    if (rightPanel.activeTab === "diff" && prev !== "diff" && !diffOpen) {
-      // Diff tab opened via store (e.g. tab click) → write ?diff=1 to URL
-      onDiffPanelOpen?.();
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: { environmentId, threadId },
-        search: (s) => ({ ...stripDiffSearchParams(s), diff: "1" }),
-      });
-    } else if (rightPanel.activeTab !== "diff" && prev === "diff" && diffOpen) {
-      // Diff tab closed via store → clear ?diff=1 from URL
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: { environmentId, threadId },
-        search: (s) => stripDiffSearchParams(s),
-      });
-    }
-    // diffOpen, navigate, etc. intentionally omitted to prevent loops;
-    // we only want this to fire when activeTab changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rightPanel.activeTab]);
+  }, [activeThread?.id, diffOpen]);
 
   useEffect(() => {
     setIsRevertingCheckpoint(false);
@@ -3660,7 +3651,7 @@ export default function ChatView(props: ChatViewProps) {
           terminalToggleShortcutLabel={terminalToggleShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
-          diffOpen={diffOpen}
+          diffOpen={diffPanelOpen}
           globalScripts={[...(serverConfig?.globalActions ?? [])]}
           globalScriptDefaults={activeProject?.globalScriptDefaults ?? []}
           onRunProjectScript={runProjectScript}
@@ -3903,7 +3894,7 @@ export default function ChatView(props: ChatViewProps) {
       ))}
       {/* Right panel tabs — mobile sheet */}
       {shouldUsePlanSidebarSheet ? (
-        <RightPanelSheet open={rightPanel.activeTab !== null} onClose={rightPanel.close}>
+        <RightPanelSheet open={rightPanel.activeTab !== null} onClose={closeRightPanel}>
           <RightPanelTabs
             planProps={{
               activePlan,

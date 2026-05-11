@@ -519,9 +519,10 @@ describe("resolveThreadStatusPill", () => {
 });
 
 describe("resolveThreadRowClassName", () => {
-  it("uses the darker selected palette when a thread is both selected and active", () => {
+  it("keeps the selected fill and adds the blue active outline when a thread is both selected and active", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: true });
     expect(className).toContain("bg-primary/22");
+    expect(className).toContain("ring-info/35");
     expect(className).toContain("hover:bg-primary/26");
     expect(className).toContain("dark:bg-primary/30");
     expect(className).not.toContain("bg-accent/85");
@@ -535,10 +536,12 @@ describe("resolveThreadRowClassName", () => {
     expect(className).not.toContain("hover:bg-accent");
   });
 
-  it("keeps the accent palette for active-only threads", () => {
+  it("uses the blue info palette for active-only threads", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: false });
-    expect(className).toContain("bg-accent/85");
-    expect(className).toContain("hover:bg-accent");
+    expect(className).toContain("bg-info/10");
+    expect(className).toContain("ring-info/35");
+    expect(className).toContain("hover:bg-info/14");
+    expect(className).not.toContain("bg-accent/85");
   });
 });
 

@@ -191,7 +191,11 @@ function runtimeEventToActivities(
             requestId: toApprovalRequestId(event.requestId),
             ...(requestKind ? { requestKind } : {}),
             requestType: event.payload.requestType,
-            ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            // Approval detail is rendered to the user for consent — must NOT be
+            // truncated here. The composer UI scrolls/wraps long commands so it
+            // can handle arbitrary length, and silently chopping a command at
+            // 180 chars is a security hazard (user can't audit hidden flags).
+            ...(event.payload.detail ? { detail: event.payload.detail } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

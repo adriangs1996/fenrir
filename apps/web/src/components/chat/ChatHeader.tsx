@@ -171,7 +171,7 @@ export const ChatHeader = memo(function ChatHeader({
                 className="shrink-0"
                 pressed={diffOpen}
                 onPressedChange={onToggleDiff}
-                aria-label="Toggle diff panel"
+                aria-label="Toggle right panel to Diff tab"
                 variant="outline"
                 size="xs"
                 disabled={!isGitRepo}
@@ -184,8 +184,8 @@ export const ChatHeader = memo(function ChatHeader({
             {!isGitRepo
               ? "Diff panel is unavailable because this project is not a git repository."
               : diffToggleShortcutLabel
-                ? `Toggle diff panel (${diffToggleShortcutLabel})`
-                : "Toggle diff panel"}
+                ? `Toggle right panel to Diff tab (${diffToggleShortcutLabel})`
+                : "Toggle right panel to Diff tab"}
           </TooltipPopup>
         </Tooltip>
       </div>

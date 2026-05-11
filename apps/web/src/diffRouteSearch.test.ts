@@ -39,10 +39,22 @@ describe("parseDiffRouteSearch", () => {
     });
   });
 
-  it("drops turn and file values when diff is closed", () => {
+  it("preserves a selected turn even when diff is implied by turn context", () => {
+    const parsed = parseDiffRouteSearch({
+      diffTurnId: "turn-1",
+      diffFilePath: "src/app.ts",
+    });
+
+    expect(parsed).toEqual({
+      diff: "1",
+      diffTurnId: "turn-1",
+      diffFilePath: "src/app.ts",
+    });
+  });
+
+  it("drops file value when diff is closed and no turn is selected", () => {
     const parsed = parseDiffRouteSearch({
       diff: "0",
-      diffTurnId: "turn-1",
       diffFilePath: "src/app.ts",
     });
 

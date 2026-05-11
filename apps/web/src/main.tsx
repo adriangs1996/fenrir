@@ -10,9 +10,14 @@ import { isElectron } from "./env";
 import { getRouter } from "./router";
 import { APP_DISPLAY_NAME } from "./branding";
 import { syncDocumentWindowControlsOverlayClass } from "./lib/windowControlsOverlay";
+import { ensureNerdFontLoaded } from "./lib/nerdFont";
 import { restorePersistedRouteOnLoad } from "./routePersistence";
 
 restorePersistedRouteOnLoad();
+
+// Kick off the bundled nerd-font fetch as early as possible so terminal and
+// editor renderers can await a warm cache when they mount.
+void ensureNerdFontLoaded();
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();

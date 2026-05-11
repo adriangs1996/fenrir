@@ -32,6 +32,7 @@ import {
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { type TerminalContextSelection } from "../terminalContext";
 import { openInPreferredEditor } from "~/editorPreferences";
+import { ensureNerdFontLoaded } from "~/lib/nerdFont";
 import { terminalThemeFromApp } from "../xtermTheme";
 import {
   collectWrappedTerminalLinkLine,
@@ -308,6 +309,20 @@ export function TerminalViewport({
     fitAddonRef.current = fitAddon;
     serializeAddonRef.current = serializeAddon;
     onTerminalMount?.(terminal);
+
+    // xterm measures cell width at open() time using whatever fonts are
+    // currently decoded. The bundled `Symbols Nerd Font Mono` fetch may not
+    // be ready yet, so re-fit once it lands to refresh metrics and force a
+    // glyph re-rasterize for previously-rendered icon codepoints.
+    void ensureNerdFontLoaded().then(() => {
+      if (disposed) return;
+      try {
+        terminal.clearTextureAtlas?.();
+        fitAddon.fit();
+      } catch {
+        // fit may throw during transitions
+      }
+    });
 
     const clearSelectionAction = () => {
       selectionActionRequestIdRef.current += 1;
@@ -1193,7 +1208,7 @@ export default function ThreadTerminalDrawer({
 
   return (
     <aside
-      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/80 bg-background"
+      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border-strong bg-background"
       style={{ height: `${drawerHeight}px` }}
     >
       <div

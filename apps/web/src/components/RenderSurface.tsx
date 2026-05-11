@@ -7,6 +7,7 @@ import {
 } from "@fenrir/contracts";
 import { isMacPlatform } from "~/lib/utils";
 import { useSettings } from "~/hooks/useSettings";
+import { ensureNerdFontLoaded } from "~/lib/nerdFont";
 import { GLRenderer } from "./render/glRenderer";
 
 const IS_MAC = typeof navigator !== "undefined" && isMacPlatform(navigator.platform);
@@ -80,7 +81,10 @@ function measureEditorMetrics(prefs: EditorFontPrefs): EditorFontMetrics {
   ctx.textBaseline = "alphabetic";
   const probeText = ctx.measureText("M");
   const advance = ctx.measureText("MMMMMMMMMM");
-  const width = Math.max(1, Math.round(advance.width / 10));
+  // Never round the cell width down. Even a subpixel underestimate becomes
+  // visible because the GL glyph atlas clips every glyph to one cell; Nerd
+  // Font icons are the first ones to show right-edge shaving.
+  const width = Math.max(1, Math.ceil(advance.width / 10));
   const height = Math.max(1, Math.round(prefs.size * prefs.lineHeight));
   const fAscent = probeText.fontBoundingBoxAscent;
   const fDescent = probeText.fontBoundingBoxDescent ?? 0;
@@ -153,8 +157,22 @@ export function RenderSurface({ fps = 120, className, style, visible = true }: R
   useEffect(() => {
     const bridge = window.desktopBridge;
     if (!bridge) return;
-    const metrics = measureEditorMetrics(editorPrefs);
-    void bridge.setEditorFontMetrics(metrics);
+    let cancelled = false;
+    const push = () => {
+      if (cancelled) return;
+      const metrics = measureEditorMetrics(editorPrefs);
+      void bridge.setEditorFontMetrics(metrics);
+    };
+    // Push synchronous metrics first so the editor has *something* to render
+    // with, then re-measure once the bundled nerd-font lands. Canvas
+    // `measureText` returns slightly different metrics once icon glyphs from
+    // the fallback face are available, so a second pass keeps cell sizing
+    // consistent with the rendered glyphs.
+    push();
+    void ensureNerdFontLoaded().then(push);
+    return () => {
+      cancelled = true;
+    };
   }, [editorPrefsKey, editorPrefs]);
 
   useEffect(() => {

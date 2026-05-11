@@ -801,6 +801,9 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   if (tag === WS_METHODS.shellOpenInEditor) {
     return null;
   }
+  if (tag === WS_METHODS.serverSetActiveSkillProject) {
+    return null;
+  }
   if (tag === WS_METHODS.terminalOpen) {
     return {
       threadId: typeof body.threadId === "string" ? body.threadId : THREAD_ID,
@@ -3972,6 +3975,51 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the composer cursor at the inserted skill trigger", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-skill-insert-target" as MessageId,
+        targetText: "skill insert thread",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          skills: [
+            {
+              name: "review",
+              displayName: "Review",
+              description: "Review the current change.",
+              body: "Review the current change.",
+              tags: ["code"],
+              enabled: true,
+              syncStatus: [],
+              createdAt: NOW_ISO,
+              updatedAt: NOW_ISO,
+            },
+          ],
+        };
+      },
+    });
+
+    try {
+      const composerEditor = await waitForComposerEditor();
+      await page.getByRole("button", { name: "Skills" }).click();
+      await page.getByTitle("Insert /review").click();
+
+      await vi.waitFor(
+        () => {
+          expect(composerEditor.textContent).toBe("/review");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await waitForComposerMenuItem("skill:review");
     } finally {
       await mounted.cleanup();
     }
