@@ -6,6 +6,7 @@ import type {
   RowDelta,
   WindowEntry,
 } from "@fenrir/contracts";
+import { rasterizeSpecialGlyph } from "./specialGlyphs";
 
 const ATLAS_COLS = 64;
 const ATLAS_ROWS = 64;
@@ -234,7 +235,9 @@ class GlyphAtlas {
     // Iterate by codepoint, not UTF-16 unit. fillText accepts strings, so
     // we materialize the glyph string only here (cold path: once per new
     // glyph), keeping the hot row-build loop string-free.
-    this.ctx.fillText(String.fromCodePoint(cp), slotX, slotY + m.ascent);
+    if (!rasterizeSpecialGlyph(this.ctx, cp, slotX, slotY, m.width, m.height)) {
+      this.ctx.fillText(String.fromCodePoint(cp), slotX, slotY + m.ascent);
+    }
     this.ctx.restore();
     this.map.set(key, slot);
     this.markPending(slot.ax, slot.ay);

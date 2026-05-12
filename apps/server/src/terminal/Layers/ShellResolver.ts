@@ -6,6 +6,7 @@
  *
  * @module TerminalShellResolverLayer
  */
+import os from "node:os";
 import path from "node:path";
 
 import { Layer } from "effect";
@@ -19,11 +20,23 @@ import {
 
 const TERMINAL_ENV_BLOCKLIST = new Set(["PORT", "ELECTRON_RENDERER_PORT", "ELECTRON_RUN_AS_NODE"]);
 
+function readUserLoginShell(): string | undefined {
+  try {
+    const shell = os.userInfo().shell?.trim();
+    if (!shell) {
+      return undefined;
+    }
+    return shell.length > 0 ? shell : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function defaultShellResolver(): string {
   if (process.platform === "win32") {
     return process.env.ComSpec ?? "cmd.exe";
   }
-  return process.env.SHELL ?? "bash";
+  return process.env.SHELL ?? readUserLoginShell() ?? "bash";
 }
 
 function normalizeShellCommand(value: string | undefined): string | null {
@@ -127,10 +140,12 @@ function isRetryableShellSpawnError(error: PtySpawnError): boolean {
 
 export interface ShellResolverOptions {
   shellResolver?: () => string;
+  userShell?: string;
 }
 
 export function makeShellResolver(options?: ShellResolverOptions): TerminalShellResolverShape {
   const shellResolver = options?.shellResolver ?? defaultShellResolver;
+  const userShell = options?.userShell ?? readUserLoginShell();
 
   return {
     resolve: () => {
@@ -148,6 +163,7 @@ export function makeShellResolver(options?: ShellResolverOptions): TerminalShell
       return uniqueShellCandidates([
         requested,
         shellCandidateFromCommand(normalizeShellCommand(process.env.SHELL)),
+        shellCandidateFromCommand(normalizeShellCommand(userShell)),
         shellCandidateFromCommand("/bin/zsh"),
         shellCandidateFromCommand("/bin/bash"),
         shellCandidateFromCommand("/bin/sh"),

@@ -19,19 +19,44 @@ const NERD_FONT_FAMILY = '"Symbols Nerd Font Mono"';
 // Probe character: U+E0A0 is the Powerline branch glyph — present in any
 // Symbols Nerd Font release. Loading at a representative size primes the
 // browser's font cache for terminal/editor use.
+const PROBE_TEXT = "\uE0A0";
 const PROBE_SPEC = `16px ${NERD_FONT_FAMILY}`;
 
-let cachedPromise: Promise<void> | null = null;
+let cachedPromise: Promise<boolean> | null = null;
 
-export function ensureNerdFontLoaded(): Promise<void> {
+export function isNerdFontLoaded(): boolean {
+  if (typeof document === "undefined" || !document.fonts?.check) {
+    return true;
+  }
+  return document.fonts.check(PROBE_SPEC, PROBE_TEXT);
+}
+
+export function ensureNerdFontLoaded(): Promise<boolean> {
   if (cachedPromise) return cachedPromise;
   if (typeof document === "undefined" || !document.fonts?.load) {
-    cachedPromise = Promise.resolve();
+    cachedPromise = Promise.resolve(true);
     return cachedPromise;
   }
   cachedPromise = document.fonts
-    .load(PROBE_SPEC)
-    .then(() => undefined)
-    .catch(() => undefined);
+    .load(PROBE_SPEC, PROBE_TEXT)
+    .then(() => isNerdFontLoaded())
+    .catch(() => false);
   return cachedPromise;
+}
+
+export function waitForNerdFontLoad(timeoutMs = 1500): Promise<boolean> {
+  if (isNerdFontLoaded()) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      resolve(isNerdFontLoaded());
+    }, timeoutMs);
+
+    void ensureNerdFontLoaded().then((loaded) => {
+      window.clearTimeout(timer);
+      resolve(loaded);
+    });
+  });
 }

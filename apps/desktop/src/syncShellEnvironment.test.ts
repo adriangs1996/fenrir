@@ -12,6 +12,8 @@ describe("syncShellEnvironment", () => {
       PATH: "/opt/homebrew/bin:/usr/bin",
       SSH_AUTH_SOCK: "/tmp/secretive.sock",
       HOMEBREW_PREFIX: "/opt/homebrew",
+      ZDOTDIR: "/Users/test/.config/zsh",
+      STARSHIP_CONFIG: "/Users/test/.config/starship.toml",
     }));
 
     syncShellEnvironment(env, {
@@ -21,16 +23,21 @@ describe("syncShellEnvironment", () => {
 
     expect(readEnvironment).toHaveBeenCalledWith("/bin/zsh", [
       "PATH",
+      "SHELL",
       "SSH_AUTH_SOCK",
       "HOMEBREW_PREFIX",
       "HOMEBREW_CELLAR",
       "HOMEBREW_REPOSITORY",
+      "ZDOTDIR",
       "XDG_CONFIG_HOME",
       "XDG_DATA_HOME",
+      "STARSHIP_CONFIG",
     ]);
     expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin:/Users/test/.local/bin");
     expect(env.SSH_AUTH_SOCK).toBe("/tmp/secretive.sock");
     expect(env.HOMEBREW_PREFIX).toBe("/opt/homebrew");
+    expect(env.ZDOTDIR).toBe("/Users/test/.config/zsh");
+    expect(env.STARSHIP_CONFIG).toBe("/Users/test/.config/starship.toml");
   });
 
   it("preserves an inherited SSH_AUTH_SOCK value", () => {
@@ -42,6 +49,8 @@ describe("syncShellEnvironment", () => {
     const readEnvironment = vi.fn(() => ({
       PATH: "/opt/homebrew/bin:/usr/bin",
       SSH_AUTH_SOCK: "/tmp/login-shell.sock",
+      SHELL: "/bin/zsh",
+      STARSHIP_CONFIG: "/tmp/login-shell-starship.toml",
     }));
 
     syncShellEnvironment(env, {
@@ -89,12 +98,15 @@ describe("syncShellEnvironment", () => {
 
     expect(readEnvironment).toHaveBeenCalledWith("/bin/zsh", [
       "PATH",
+      "SHELL",
       "SSH_AUTH_SOCK",
       "HOMEBREW_PREFIX",
       "HOMEBREW_CELLAR",
       "HOMEBREW_REPOSITORY",
+      "ZDOTDIR",
       "XDG_CONFIG_HOME",
       "XDG_DATA_HOME",
+      "STARSHIP_CONFIG",
     ]);
     expect(env.PATH).toBe("/home/linuxbrew/.linuxbrew/bin:/usr/bin");
     expect(env.SSH_AUTH_SOCK).toBe("/tmp/secretive.sock");
@@ -124,21 +136,27 @@ describe("syncShellEnvironment", () => {
 
     expect(readEnvironment).toHaveBeenNthCalledWith(1, "/opt/homebrew/bin/nu", [
       "PATH",
+      "SHELL",
       "SSH_AUTH_SOCK",
       "HOMEBREW_PREFIX",
       "HOMEBREW_CELLAR",
       "HOMEBREW_REPOSITORY",
+      "ZDOTDIR",
       "XDG_CONFIG_HOME",
       "XDG_DATA_HOME",
+      "STARSHIP_CONFIG",
     ]);
     expect(readEnvironment).toHaveBeenNthCalledWith(2, "/bin/zsh", [
       "PATH",
+      "SHELL",
       "SSH_AUTH_SOCK",
       "HOMEBREW_PREFIX",
       "HOMEBREW_CELLAR",
       "HOMEBREW_REPOSITORY",
+      "ZDOTDIR",
       "XDG_CONFIG_HOME",
       "XDG_DATA_HOME",
+      "STARSHIP_CONFIG",
     ]);
     expect(readLaunchctlPath).toHaveBeenCalledTimes(1);
     expect(logWarning).toHaveBeenCalledWith(
@@ -167,5 +185,45 @@ describe("syncShellEnvironment", () => {
     expect(readEnvironment).not.toHaveBeenCalled();
     expect(env.PATH).toBe("C:\\Windows\\System32");
     expect(env.SSH_AUTH_SOCK).toBe("/tmp/inherited.sock");
+  });
+
+  it("hydrates the missing SHELL value for packaged GUI launches", () => {
+    const env: NodeJS.ProcessEnv = {
+      PATH: "/usr/bin",
+    };
+    const readEnvironment = vi.fn(() => ({
+      PATH: "/opt/homebrew/bin:/usr/bin",
+      SHELL: "/bin/zsh",
+    }));
+
+    syncShellEnvironment(env, {
+      platform: "darwin",
+      readEnvironment,
+      userShell: "/bin/zsh",
+    });
+
+    expect(env.SHELL).toBe("/bin/zsh");
+  });
+
+  it("preserves inherited shell-specific environment variables", () => {
+    const env: NodeJS.ProcessEnv = {
+      SHELL: "/bin/zsh",
+      PATH: "/usr/bin",
+      ZDOTDIR: "/tmp/inherited-zdotdir",
+      STARSHIP_CONFIG: "/tmp/inherited-starship.toml",
+    };
+    const readEnvironment = vi.fn(() => ({
+      PATH: "/opt/homebrew/bin:/usr/bin",
+      ZDOTDIR: "/tmp/login-shell-zdotdir",
+      STARSHIP_CONFIG: "/tmp/login-shell-starship.toml",
+    }));
+
+    syncShellEnvironment(env, {
+      platform: "darwin",
+      readEnvironment,
+    });
+
+    expect(env.ZDOTDIR).toBe("/tmp/inherited-zdotdir");
+    expect(env.STARSHIP_CONFIG).toBe("/tmp/inherited-starship.toml");
   });
 });

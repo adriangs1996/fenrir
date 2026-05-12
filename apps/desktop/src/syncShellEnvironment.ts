@@ -8,12 +8,15 @@ import {
 
 const LOGIN_SHELL_ENV_NAMES = [
   "PATH",
+  "SHELL",
   "SSH_AUTH_SOCK",
   "HOMEBREW_PREFIX",
   "HOMEBREW_CELLAR",
   "HOMEBREW_REPOSITORY",
+  "ZDOTDIR",
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
+  "STARSHIP_CONFIG",
 ] as const;
 
 function logShellEnvironmentWarning(message: string, error?: unknown): void {
@@ -58,16 +61,16 @@ export function syncShellEnvironment(
       env.PATH = mergedPath;
     }
 
-    if (!env.SSH_AUTH_SOCK && shellEnvironment.SSH_AUTH_SOCK) {
-      env.SSH_AUTH_SOCK = shellEnvironment.SSH_AUTH_SOCK;
-    }
-
     for (const name of [
+      "SHELL",
+      "SSH_AUTH_SOCK",
       "HOMEBREW_PREFIX",
       "HOMEBREW_CELLAR",
       "HOMEBREW_REPOSITORY",
+      "ZDOTDIR",
       "XDG_CONFIG_HOME",
       "XDG_DATA_HOME",
+      "STARSHIP_CONFIG",
     ] as const) {
       if (!env[name] && shellEnvironment[name]) {
         env[name] = shellEnvironment[name];

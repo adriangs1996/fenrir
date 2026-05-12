@@ -10,6 +10,7 @@ const {
   terminalDisposeSpy,
   fitAddonFitSpy,
   fitAddonLoadSpy,
+  waitForNerdFontLoadMock,
   environmentApiById,
   readEnvironmentApiMock,
   readLocalApiMock,
@@ -18,6 +19,7 @@ const {
   terminalDisposeSpy: vi.fn(),
   fitAddonFitSpy: vi.fn(),
   fitAddonLoadSpy: vi.fn(),
+  waitForNerdFontLoadMock: vi.fn(() => Promise.resolve(true)),
   environmentApiById: new Map<string, { terminal: { open: ReturnType<typeof vi.fn> } }>(),
   readEnvironmentApiMock: vi.fn((environmentId: string) => environmentApiById.get(environmentId)),
   readLocalApiMock: vi.fn<
@@ -130,6 +132,11 @@ vi.mock("~/localApi", () => ({
   readLocalApi: readLocalApiMock,
 }));
 
+vi.mock("~/lib/nerdFont", () => ({
+  ensureNerdFontLoaded: vi.fn(() => Promise.resolve(true)),
+  waitForNerdFontLoad: waitForNerdFontLoadMock,
+}));
+
 import { TerminalViewport } from "./ThreadTerminalDrawer";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-terminal-browser");
@@ -230,6 +237,8 @@ describe("TerminalViewport", () => {
     terminalDisposeSpy.mockClear();
     fitAddonFitSpy.mockClear();
     fitAddonLoadSpy.mockClear();
+    waitForNerdFontLoadMock.mockReset();
+    waitForNerdFontLoadMock.mockResolvedValue(true);
   });
 
   it("does not create a terminal when APIs are unavailable", async () => {
@@ -243,6 +252,38 @@ describe("TerminalViewport", () => {
     try {
       await vi.waitFor(() => {
         expect(terminalConstructorSpy).not.toHaveBeenCalled();
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("waits for the nerd font before constructing the terminal", async () => {
+    let resolveFont: (() => void) | undefined;
+    waitForNerdFontLoadMock.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveFont = () => resolve(true);
+        }),
+    );
+
+    const environment = createEnvironmentApi();
+    environmentApiById.set("environment-a", environment);
+
+    const mounted = await mountTerminalViewport({
+      threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(waitForNerdFontLoadMock).toHaveBeenCalledTimes(1);
+      });
+      expect(terminalConstructorSpy).not.toHaveBeenCalled();
+
+      resolveFont?.();
+
+      await vi.waitFor(() => {
+        expect(terminalConstructorSpy).toHaveBeenCalledTimes(1);
       });
     } finally {
       await mounted.cleanup();

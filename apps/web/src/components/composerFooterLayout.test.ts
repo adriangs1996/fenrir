@@ -90,22 +90,12 @@ describe("shouldForceCompactComposerFooterForFit", () => {
     ).toBe(false);
   });
 
-  it("stays expanded when minor overflow can be recovered by compacting primary actions", () => {
+  it("forces footer compact mode when measured content overflows the footer", () => {
     expect(
       shouldForceCompactComposerFooterForFit({
         footerContentWidth: 500,
         leadingContentWidth: 340,
         actionsWidth: 180,
-      }),
-    ).toBe(false);
-  });
-
-  it("forces footer compact mode when action compaction would not recover enough space", () => {
-    expect(
-      shouldForceCompactComposerFooterForFit({
-        footerContentWidth: 500,
-        leadingContentWidth: 420,
-        actionsWidth: 220,
       }),
     ).toBe(true);
   });

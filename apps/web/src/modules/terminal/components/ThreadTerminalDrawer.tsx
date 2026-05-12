@@ -32,7 +32,7 @@ import {
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { type TerminalContextSelection } from "../terminalContext";
 import { openInPreferredEditor } from "~/editorPreferences";
-import { ensureNerdFontLoaded } from "~/lib/nerdFont";
+import { ensureNerdFontLoaded, waitForNerdFontLoad } from "~/lib/nerdFont";
 import { terminalThemeFromApp } from "../xtermTheme";
 import {
   collectWrappedTerminalLinkLine,
@@ -244,9 +244,22 @@ export function TerminalViewport({
     terminalFontSize: s.terminalFontSize,
     terminalLineHeight: s.terminalLineHeight,
   }));
+  const [nerdFontReady, setNerdFontReady] = useState(false);
   const thread = useStore(useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]));
   const projectId = projectIdProp ?? thread?.projectId;
   const prevProjectIdRef = useRef(projectId);
+
+  useEffect(() => {
+    let cancelled = false;
+    void waitForNerdFontLoad().then(() => {
+      if (!cancelled) {
+        setNerdFontReady(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Reactively update terminal font when settings change
   useEffect(() => {
@@ -269,7 +282,7 @@ export function TerminalViewport({
 
   useEffect(() => {
     const mount = containerRef.current;
-    if (!mount) return;
+    if (!mount || !nerdFontReady) return;
 
     let disposed = false;
     const api = readEnvironmentApi(environmentId);
@@ -319,6 +332,7 @@ export function TerminalViewport({
       try {
         terminal.clearTextureAtlas?.();
         fitAddon.fit();
+        terminal.refresh(0, Math.max(terminal.rows - 1, 0));
       } catch {
         // fit may throw during transitions
       }
@@ -815,7 +829,7 @@ export function TerminalViewport({
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, environmentId, runtimeEnv, terminalId, threadId, mode, projectId]);
+  }, [cwd, environmentId, runtimeEnv, terminalId, threadId, mode, projectId, nerdFontReady]);
 
   useEffect(() => {
     if (prevProjectIdRef.current === projectId) return;
