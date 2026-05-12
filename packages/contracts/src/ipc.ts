@@ -77,8 +77,10 @@ import type {
 import type {
   ServerProviderSkill,
   CreateSkillInput,
+  GetSkillDetailsInput,
   UpdateSkillInput,
   ResolveSkillConflictInput,
+  ServerSkillDetails,
 } from "./skill";
 
 // ── Editor IPC channels ──────────────────────────────────────
@@ -492,6 +494,7 @@ export interface LocalApi {
     updateGlobalAction: (id: string, input: UpdateGlobalActionInput) => Promise<GlobalScript>;
     deleteGlobalAction: (id: string) => Promise<void>;
     listSkills: () => Promise<ServerProviderSkill[]>;
+    getSkillDetails: (input: GetSkillDetailsInput) => Promise<ServerSkillDetails>;
     createSkill: (input: CreateSkillInput) => Promise<ServerProviderSkill>;
     updateSkill: (input: UpdateSkillInput) => Promise<ServerProviderSkill>;
     deleteSkill: (name: string) => Promise<void>;

@@ -1,44 +1,18 @@
-/**
- * ClaudeSkillAdapter - Claude implementation of the ProviderSkillAdapter interface.
- *
- * Syncs skills to/from .claude/skills/{name}/SKILL.md in the project root.
- * Claude's native format only stores name + description in YAML frontmatter;
- * Fenrir-only fields (displayName, icon, tags, enabled) are filled in as
- * defaults on read and stripped on write.
- *
- * Conversion rules (Claude → Fenrir):
- *   name        → name
- *   description → description
- *   name (dashes → title case) → displayName  (e.g. "grill-me" → "Grill Me")
- *   (absent)    → tags: []
- *   (absent)    → icon: omitted (optional field)
- *   (absent)    → enabled: true
- *
- * Conversion rules (Fenrir → Claude):
- *   name        → name
- *   description → description
- *   body        → markdown body (unchanged)
- *   all other fields → dropped
- *
- * @module ClaudeSkillAdapter
- */
-import { Effect, FileSystem, Layer, Option, Path, ServiceMap } from "effect";
+import { Effect, FileSystem, Layer, Path, ServiceMap } from "effect";
 import { stringify as yamlStringify } from "yaml";
 
 import type { ServerProviderSkill } from "@fenrir/contracts";
 
-import { writeFileStringAtomically } from "../atomicWrite.ts";
+import type { ProviderSkillFolder } from "./ProviderSkillAdapter.ts";
+import {
+  SkillAdapterError,
+  type ProviderSkillAdapter,
+  type ProviderSkillProjection,
+} from "./ProviderSkillAdapter.ts";
+import { readSkillFolderFiles, writeSkillFolderProjection } from "./providerSkillFolderIO.ts";
+import { makeProviderPathClassifier } from "./providerSkillPathClassifier.ts";
 import { parseSkillFile, type RawSkillFile } from "./skillFileFormat.ts";
-import { SkillAdapterError, type ProviderSkillAdapter } from "./ProviderSkillAdapter.ts";
 
-// ─── Internal helpers ──────────────────────────────────────────
-
-/**
- * Convert a dash-separated name to title case.
- * "grill-me" → "Grill Me"
- * "code-review" → "Code Review"
- * "simpleskill" → "Simpleskill"
- */
 function toTitleCase(name: string): string {
   return name
     .split("-")
@@ -46,11 +20,7 @@ function toTitleCase(name: string): string {
     .join(" ");
 }
 
-/**
- * Serialize a skill to Claude's native SKILL.md format.
- * Only name + description go in frontmatter; body is the markdown section.
- */
-function serializeClaudeSkillFile(skill: ServerProviderSkill): string {
+function serializeProviderEntry(skill: ServerProviderSkill): string {
   const frontmatterYaml = yamlStringify(
     { name: skill.name, description: skill.description },
     { lineWidth: 0 },
@@ -58,141 +28,149 @@ function serializeClaudeSkillFile(skill: ServerProviderSkill): string {
   return `---\n${frontmatterYaml}\n---\n\n${skill.body}\n`;
 }
 
-// ─── Service Tag ───────────────────────────────────────────────
+const enrichRawSkillFile = (entry: RawSkillFile, fallbackName: string): RawSkillFile => {
+  const name = String(entry.frontmatter.name ?? fallbackName);
 
-/**
- * ClaudeSkillAdapter - Service tag for the Claude skill adapter.
- */
+  return {
+    ...entry,
+    frontmatter: {
+      name,
+      description: entry.frontmatter.description ?? "",
+      displayName: toTitleCase(name),
+      tags: [],
+      enabled: true,
+    },
+  };
+};
+
+const readProviderSkillFolders = (
+  skillsDir: string,
+): Effect.Effect<
+  readonly ProviderSkillFolder[],
+  SkillAdapterError,
+  FileSystem.FileSystem | Path.Path
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const pathService = yield* Path.Path;
+    const classifyRelativePath = makeProviderPathClassifier("claudeAgent", []);
+
+    const entries = yield* fs
+      .readDirectory(skillsDir)
+      .pipe(Effect.catch(() => Effect.succeed([] as string[])));
+
+    const folders: ProviderSkillFolder[] = [];
+
+    for (const entry of entries.toSorted()) {
+      if (entry.startsWith(".")) continue;
+
+      const absolutePath = pathService.join(skillsDir, entry);
+      const stat = yield* fs.stat(absolutePath).pipe(Effect.option);
+      if (stat._tag !== "Some") continue;
+      if (stat.value.type === "SymbolicLink") {
+        yield* Effect.logWarning(`Ignoring symlink in Claude skill sync: ${absolutePath}`);
+        continue;
+      }
+      if (stat.value.type !== "Directory") continue;
+
+      const files = yield* readSkillFolderFiles(absolutePath, classifyRelativePath);
+      const entryFile = files.find((file) => file.relativePath === "SKILL.md");
+      if (!entryFile) continue;
+
+      const parsed = yield* parseSkillFile(entryFile.absolutePath).pipe(
+        Effect.mapError(
+          (error) =>
+            new SkillAdapterError({
+              provider: "claudeAgent",
+              reason: error.reason,
+              filePath: error.filePath,
+            }),
+        ),
+        Effect.option,
+      );
+      if (parsed._tag !== "Some") {
+        yield* Effect.logWarning(
+          `Skipping unparseable Claude skill file: ${entryFile.absolutePath}`,
+        );
+        continue;
+      }
+
+      folders.push({
+        skillName: String(parsed.value.frontmatter.name ?? entry),
+        absolutePath,
+        entry: enrichRawSkillFile(parsed.value, entry),
+        entryFile,
+        files: files.filter((file) => file.relativePath !== "SKILL.md"),
+      });
+    }
+
+    return folders;
+  });
+
 export class ClaudeSkillAdapter extends ServiceMap.Service<
   ClaudeSkillAdapter,
   ProviderSkillAdapter
 >()("t3/skill/ClaudeSkillAdapter") {}
 
-// ─── Implementation ────────────────────────────────────────────
-
-/**
- * Build a Claude skill adapter for the given project root.
- * Skills are stored at {projectRoot}/.claude/skills/{name}/SKILL.md.
- *
- * Exported for direct use in tests — use ClaudeSkillAdapterLive in production.
- */
 export const makeClaudeSkillAdapter = Effect.fn("makeClaudeSkillAdapter")(function* (
   projectRoot: string,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
   const skillsDir = pathService.join(projectRoot, ".claude", "skills");
+  const classifyRelativePath = makeProviderPathClassifier("claudeAgent", []);
 
-  // ── readProviderSkills ────────────────────────────────────────
+  const mapError = (reason: string, filePath?: string) =>
+    new SkillAdapterError({ provider: "claudeAgent", reason, ...(filePath ? { filePath } : {}) });
 
-  const readProviderSkills = (): Effect.Effect<RawSkillFile[], SkillAdapterError> =>
-    Effect.gen(function* () {
-      const entries = yield* fs
-        .readDirectory(skillsDir)
-        .pipe(Effect.catch(() => Effect.succeed([] as string[])));
-
-      if (entries.length === 0) return [];
-
-      const results: RawSkillFile[] = [];
-
-      for (const entry of entries) {
-        const entryPath = pathService.join(skillsDir, entry);
-
-        // Skip non-directories
-        const statOption = yield* fs.stat(entryPath).pipe(Effect.option);
-        if (!Option.isSome(statOption) || statOption.value.type !== "Directory") continue;
-
-        // Claude uses uppercase SKILL.md
-        const skillFilePath = pathService.join(entryPath, "SKILL.md");
-        const exists = yield* fs
-          .exists(skillFilePath)
-          .pipe(Effect.catch(() => Effect.succeed(false)));
-        if (!exists) continue;
-
-        // Parse the SKILL.md file; inject captured fs into the Effect's R channel
-        const parsed = yield* parseSkillFile(skillFilePath).pipe(
-          Effect.provideService(FileSystem.FileSystem, fs),
-          Effect.catch((error) =>
-            Effect.andThen(
-              Effect.logWarning(`Skipping unparseable Claude skill file: ${error.message}`),
-              Effect.succeed(null as RawSkillFile | null),
-            ),
-          ),
-        );
-
-        if (parsed === null) continue;
-
-        // Enrich frontmatter with Fenrir defaults so validateSkillFile can decode it
-        const name = String(parsed.frontmatter.name ?? entry);
-        const enrichedRaw: RawSkillFile = {
-          ...parsed,
-          frontmatter: {
-            name,
-            description: parsed.frontmatter.description ?? "",
-            displayName: toTitleCase(name),
-            tags: [],
-            enabled: true,
-          },
-        };
-
-        results.push(enrichedRaw);
-      }
-
-      return results;
-    });
-
-  // ── writeSkillToProvider ──────────────────────────────────────
-
-  const writeSkillToProvider = (
-    skill: ServerProviderSkill,
+  const writeSkillProjection = (
+    projection: ProviderSkillProjection,
   ): Effect.Effect<void, SkillAdapterError> =>
     Effect.gen(function* () {
-      const filePath = pathService.join(skillsDir, skill.name, "SKILL.md");
-      const contents = serializeClaudeSkillFile(skill);
+      const files = projection.files.some((file) => file.relativePath === "SKILL.md")
+        ? projection.files
+        : [
+            {
+              relativePath: "SKILL.md",
+              bytes: serializeProviderEntry(projection.skill),
+              executable: false,
+              scope: { kind: "general" as const },
+            },
+            ...projection.files,
+          ];
 
-      yield* writeFileStringAtomically({ filePath, contents }).pipe(
+      yield* writeSkillFolderProjection({
+        skillDir: pathService.join(skillsDir, projection.skill.name),
+        files,
+      }).pipe(
         Effect.provideService(FileSystem.FileSystem, fs),
         Effect.provideService(Path.Path, pathService),
-        Effect.mapError(
-          (cause) =>
-            new SkillAdapterError({
-              provider: "claudeAgent",
-              reason: String(cause),
-              filePath,
-            }),
-        ),
+        Effect.mapError((cause) => mapError(String(cause))),
       );
     });
 
-  // ── deleteSkillFromProvider ───────────────────────────────────
-
   const deleteSkillFromProvider = (skillName: string): Effect.Effect<void, SkillAdapterError> =>
-    Effect.gen(function* () {
-      const skillDir = pathService.join(skillsDir, skillName);
-      yield* fs.remove(skillDir, { recursive: true }).pipe(Effect.catch(() => Effect.void));
-    });
-
-  // ── watchPath ─────────────────────────────────────────────────
-
-  const watchPath = (): string | null => ".claude/skills";
+    fs
+      .remove(pathService.join(skillsDir, skillName), { recursive: true, force: true })
+      .pipe(Effect.mapError((cause) => mapError(String(cause))));
 
   return {
     provider: "claudeAgent" as const,
-    readProviderSkills,
-    writeSkillToProvider,
+    priority: 100,
+    entryFileName: "SKILL.md",
+    serializeEntry: serializeProviderEntry,
+    watchPath: () => ".claude/skills",
+    classifyRelativePath,
+    readProviderSkillFolders: () =>
+      readProviderSkillFolders(skillsDir).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs),
+        Effect.provideService(Path.Path, pathService),
+      ),
+    writeSkillProjection,
     deleteSkillFromProvider,
-    watchPath,
   } satisfies ProviderSkillAdapter;
 });
 
-// ─── Live Layer ────────────────────────────────────────────────
-
-/**
- * ClaudeSkillAdapterLive - Layer that provides ClaudeSkillAdapter for the given project root.
- *
- * @param projectRoot - Absolute path to the project root directory.
- *   Skills are stored at {projectRoot}/.claude/skills/{name}/SKILL.md.
- */
 export const ClaudeSkillAdapterLive = (
   projectRoot: string,
 ): Layer.Layer<ClaudeSkillAdapter, never, FileSystem.FileSystem | Path.Path> =>

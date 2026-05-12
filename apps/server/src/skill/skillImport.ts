@@ -1,22 +1,15 @@
-/**
- * skillImport - Initial import of existing provider skills.
- *
- * On first run (when .fenrir/skills/ doesn't exist or is empty),
- * detects existing skills in provider directories and imports them
- * into Fenrir's canonical format.
- *
- * Import runs once: it only triggers when .fenrir/skills/ is absent
- * or contains no skill.md files AND at least one provider adapter
- * has skills available.
- *
- * @module skillImport
- */
 import { Effect, FileSystem, Option, Path } from "effect";
 
-import type { ProviderSkillAdapter } from "./ProviderSkillAdapter.ts";
-import { validateSkillFile, writeSkillFile } from "./skillFileFormat.ts";
+import type { CreateSkillInput, ProviderKind, ServerProviderSkill } from "@fenrir/contracts";
 
-// ─── Error ─────────────────────────────────────────────────────
+import type { ProviderSkillAdapter, ProviderSkillFolder } from "./ProviderSkillAdapter.ts";
+import type { ProjectSkillStatePaths } from "./projectSkillStatePaths.ts";
+import { validateSkillFile } from "./skillFileFormat.ts";
+import {
+  hasInternalProjectSkillState,
+  rebuildSkillIndexFromStorage,
+  writeGeneralSkillToStorage,
+} from "./skillStorage.ts";
 
 export class SkillImportError {
   readonly _tag = "SkillImportError";
@@ -26,95 +19,104 @@ export class SkillImportError {
   ) {}
 }
 
-// ─── needsInitialImport ─────────────────────────────────────────
+export interface ImportedFile {
+  readonly relativePath: string;
+  readonly bytes: Uint8Array;
+  readonly executable: boolean;
+}
 
-/**
- * Check whether an initial import should run.
- *
- * Returns true when ALL of the following hold:
- *   1. .fenrir/skills/ does not exist, OR it exists but contains no
- *      subdirectory with a skill.md file.
- *   2. At least one provider adapter exposes one or more skills.
- *
- * All I/O errors are swallowed; the function always succeeds.
- */
-export const needsInitialImport = (
-  fenrirSkillsPath: string,
-  adapters: readonly ProviderSkillAdapter[],
-): Effect.Effect<boolean, never, FileSystem.FileSystem | Path.Path> =>
+export interface ImportedSkillState {
+  readonly skillName: string;
+  readonly generalFiles: readonly ImportedFile[];
+  readonly providerFiles: Record<ProviderKind, readonly ImportedFile[]>;
+  readonly entry: {
+    readonly name: string;
+    readonly description: string;
+    readonly body: string;
+  };
+}
+
+interface ProviderSkillContribution {
+  readonly adapter: ProviderSkillAdapter;
+  readonly folder: ProviderSkillFolder;
+}
+
+const PROVIDER_ORDER: readonly ProviderKind[] = ["codex", "claudeAgent"];
+
+const sortAdapters = (adapters: readonly ProviderSkillAdapter[]): readonly ProviderSkillAdapter[] =>
+  adapters.toSorted((left, right) => right.priority - left.priority);
+
+const sortImportedFiles = (files: readonly ImportedFile[]): readonly ImportedFile[] =>
+  files.toSorted((left, right) => left.relativePath.localeCompare(right.relativePath));
+
+const getGeneralSkillDir = (
+  paths: ProjectSkillStatePaths,
+  skillName: string,
+  path: Path.Path,
+): string => path.join(paths.generalSkillsDir, skillName);
+
+const getProviderSkillDir = (
+  paths: ProjectSkillStatePaths,
+  provider: ProviderKind,
+  skillName: string,
+  path: Path.Path,
+): string => path.join(paths.providerSkillsDir, provider, skillName);
+
+const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
+  if (left.byteLength !== right.byteLength) {
+    return false;
+  }
+
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const writeImportedFile = (input: {
+  readonly absolutePath: string;
+  readonly file: ImportedFile;
+}): Effect.Effect<void, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const pathService = yield* Path.Path;
+    const path = yield* Path.Path;
 
-    // ── 1. Check Fenrir skills directory ──────────────────────────
-
-    const dirExists = yield* fs
-      .exists(fenrirSkillsPath)
-      .pipe(Effect.catch(() => Effect.succeed(false)));
-
-    if (dirExists) {
-      const entries = yield* fs
-        .readDirectory(fenrirSkillsPath)
-        .pipe(Effect.catch(() => Effect.succeed([] as string[])));
-
-      for (const entry of entries) {
-        const entryPath = pathService.join(fenrirSkillsPath, entry);
-        const statOption = yield* fs.stat(entryPath).pipe(Effect.option);
-        if (!Option.isSome(statOption) || statOption.value.type !== "Directory") continue;
-
-        const skillFilePath = pathService.join(entryPath, "skill.md");
-        const skillExists = yield* fs
-          .exists(skillFilePath)
-          .pipe(Effect.catch(() => Effect.succeed(false)));
-
-        if (skillExists) {
-          // Fenrir directory already has at least one skill — skip import.
-          return false;
-        }
-      }
+    yield* fs.makeDirectory(path.dirname(input.absolutePath), { recursive: true }).pipe(
+      Effect.tapError((cause) =>
+        Effect.logWarning(
+          `Initial import: failed to create parent directory ${input.absolutePath}: ${String(cause)}`,
+        ),
+      ),
+      Effect.catch(() => Effect.void),
+    );
+    yield* fs.writeFile(input.absolutePath, input.file.bytes).pipe(
+      Effect.tapError((cause) =>
+        Effect.logWarning(
+          `Initial import: failed to write support file ${input.absolutePath}: ${String(cause)}`,
+        ),
+      ),
+      Effect.catch(() => Effect.void),
+    );
+    if (input.file.executable) {
+      yield* fs.chmod(input.absolutePath, 0o755).pipe(Effect.catch(() => Effect.void));
     }
-
-    // ── 2. Check if any provider has skills ───────────────────────
-
-    for (const adapter of adapters) {
-      const providerSkills = yield* adapter
-        .readProviderSkills()
-        .pipe(Effect.catch(() => Effect.succeed([])));
-      if (providerSkills.length > 0) return true;
-    }
-
-    return false;
   });
 
-// ─── importProviderSkills ───────────────────────────────────────
-
-/**
- * Import all provider skills into .fenrir/skills/.
- *
- * For each adapter in order:
- *   1. Read skills from the provider directory.
- *   2. Validate the enriched RawSkillFile (adapter is responsible for
- *      injecting Fenrir defaults such as displayName, tags, enabled).
- *   3. Write to .fenrir/skills/{name}/skill.md.
- *   4. Skip skills whose name was already imported from a prior adapter
- *      (first adapter wins; collision is logged as a warning).
- *
- * Individual failures (parse errors, write errors, adapter read errors)
- * are logged as warnings and skipped — import always continues for
- * remaining skills and never fails.
- *
- * Returns the list of successfully imported skill names.
- */
-export const importProviderSkills = (
-  fenrirSkillsPath: string,
+const readProviderSkillContributions = (
   adapters: readonly ProviderSkillAdapter[],
-): Effect.Effect<string[], never, FileSystem.FileSystem | Path.Path> =>
+): Effect.Effect<
+  ReadonlyMap<string, readonly ProviderSkillContribution[]>,
+  never,
+  FileSystem.FileSystem | Path.Path
+> =>
   Effect.gen(function* () {
-    const imported: string[] = [];
-    const seen = new Set<string>();
+    const contributions = new Map<string, ProviderSkillContribution[]>();
 
-    for (const adapter of adapters) {
-      const providerSkills = yield* adapter.readProviderSkills().pipe(
+    for (const adapter of sortAdapters(adapters)) {
+      const providerSkills = yield* adapter.readProviderSkillFolders().pipe(
         Effect.tapError((e) =>
           Effect.logWarning(
             `Initial import: failed to read skills from ${adapter.provider}: ${e.message}`,
@@ -123,56 +125,286 @@ export const importProviderSkills = (
         Effect.catch(() => Effect.succeed([])),
       );
 
-      for (const raw of providerSkills) {
-        const name = String(raw.frontmatter.name ?? "");
-        if (!name) continue;
-
-        // Name collision: first adapter wins.
-        if (seen.has(name)) {
-          yield* Effect.logWarning(
-            `Initial import: skill "${name}" from ${adapter.provider} skipped — already imported from a prior adapter`,
-          );
+      for (const folder of providerSkills) {
+        const skillName = String(folder.entry.frontmatter.name ?? folder.skillName).trim();
+        if (!skillName) {
           continue;
         }
-        seen.add(name);
 
-        // Validate enriched raw (adapter injects displayName, tags, enabled, etc.)
-        const validated = yield* validateSkillFile(raw).pipe(
-          Effect.tapError((e) =>
-            Effect.logWarning(
-              `Initial import: skipping invalid skill "${name}" from ${adapter.provider}: ${e.message}`,
-            ),
+        const existing = contributions.get(skillName) ?? [];
+        existing.push({ adapter, folder });
+        contributions.set(skillName, existing);
+      }
+    }
+
+    return contributions;
+  });
+
+const buildImportedSkillState = (input: {
+  readonly skillName: string;
+  readonly contributions: readonly ProviderSkillContribution[];
+}): Effect.Effect<
+  {
+    readonly canonicalSkill: CreateSkillInput;
+    readonly importedState: ImportedSkillState;
+  } | null,
+  never
+> =>
+  Effect.gen(function* () {
+    const validatedContributions: Array<{
+      readonly adapter: ProviderSkillAdapter;
+      readonly folder: ProviderSkillFolder;
+      readonly skill: ServerProviderSkill;
+    }> = [];
+
+    for (const contribution of input.contributions) {
+      const validated = yield* validateSkillFile(contribution.folder.entry).pipe(
+        Effect.tapError((e) =>
+          Effect.logWarning(
+            `Initial import: skipping invalid skill "${input.skillName}" from ${contribution.adapter.provider}: ${e.message}`,
           ),
-          Effect.option,
-        );
-        if (Option.isNone(validated)) continue;
+        ),
+        Effect.option,
+      );
+      if (Option.isNone(validated)) {
+        continue;
+      }
 
-        const skill = validated.value;
+      validatedContributions.push({
+        adapter: contribution.adapter,
+        folder: contribution.folder,
+        skill: validated.value,
+      });
+    }
 
-        // Write to Fenrir canonical directory; track success.
-        const writeOk = yield* writeSkillFile(fenrirSkillsPath, {
-          name: skill.name,
-          displayName: skill.displayName,
-          description: skill.description,
-          body: skill.body,
-          ...(skill.icon !== undefined ? { icon: skill.icon } : {}),
-          tags: Array.from(skill.tags),
-          enabled: skill.enabled,
-        }).pipe(
-          Effect.tapError((e) =>
-            Effect.logWarning(
-              `Initial import: failed to write skill "${name}" to Fenrir directory: ${e.message}`,
-            ),
-          ),
-          Effect.match({
-            onSuccess: () => true,
-            onFailure: () => false,
-          }),
-        );
+    if (validatedContributions.length === 0) {
+      return null;
+    }
 
-        if (writeOk) {
-          imported.push(name);
+    const canonical = validatedContributions[0]!;
+    const generalFilesByPath = new Map<string, ImportedFile>();
+    const providerFiles = {
+      codex: [] as ImportedFile[],
+      claudeAgent: [] as ImportedFile[],
+    } satisfies Record<ProviderKind, ImportedFile[]>;
+    const filesByRelativePath = new Map<
+      string,
+      Array<{
+        readonly provider: ProviderKind;
+        readonly file: ImportedFile;
+        readonly classifiedAsProviderSpecific: boolean;
+      }>
+    >();
+
+    for (const contribution of validatedContributions) {
+      for (const file of contribution.folder.files) {
+        const classification = contribution.adapter.classifyRelativePath(file.relativePath);
+        const filesAtPath = filesByRelativePath.get(file.relativePath) ?? [];
+        filesAtPath.push({
+          provider: contribution.adapter.provider,
+          file: {
+            relativePath: file.relativePath,
+            bytes: file.bytes,
+            executable: file.executable,
+          },
+          classifiedAsProviderSpecific: classification.kind === "providerSpecific",
+        });
+        filesByRelativePath.set(file.relativePath, filesAtPath);
+      }
+    }
+
+    for (const relativePath of [...filesByRelativePath.keys()].toSorted()) {
+      const candidates = filesByRelativePath.get(relativePath) ?? [];
+      if (candidates.length === 0) {
+        continue;
+      }
+
+      if (candidates.length === 1) {
+        const candidate = candidates[0]!;
+        if (candidate.classifiedAsProviderSpecific) {
+          providerFiles[candidate.provider].push(candidate.file);
+          yield* Effect.logInfo(
+            `Initial import: "${input.skillName}" kept provider overlay ${relativePath} for ${candidate.provider}`,
+          );
+        } else {
+          generalFilesByPath.set(relativePath, candidate.file);
+          yield* Effect.logInfo(
+            `Initial import: "${input.skillName}" imported shared file ${relativePath} from ${candidate.provider}`,
+          );
         }
+        continue;
+      }
+
+      const firstCandidate = candidates[0]!;
+      const identical = candidates.every(
+        (candidate) =>
+          bytesEqual(candidate.file.bytes, firstCandidate.file.bytes) &&
+          candidate.file.executable === firstCandidate.file.executable,
+      );
+
+      if (identical) {
+        generalFilesByPath.set(relativePath, firstCandidate.file);
+        yield* Effect.logInfo(
+          `Initial import: "${input.skillName}" deduplicated ${relativePath} to general storage across ${candidates
+            .map((candidate) => candidate.provider)
+            .join(", ")}`,
+        );
+        continue;
+      }
+
+      for (const candidate of candidates) {
+        providerFiles[candidate.provider].push(candidate.file);
+      }
+
+      yield* Effect.logInfo(
+        `Initial import: "${input.skillName}" preserved divergent overlays for ${relativePath} across ${candidates
+          .map((candidate) => candidate.provider)
+          .join(", ")}`,
+      );
+    }
+
+    yield* Effect.logInfo(
+      `Initial import: "${input.skillName}" chose ${canonical.adapter.provider} as canonical entry source`,
+    );
+
+    return {
+      canonicalSkill: {
+        name: canonical.skill.name,
+        displayName: canonical.skill.displayName,
+        description: canonical.skill.description,
+        body: canonical.skill.body,
+        ...(canonical.skill.icon !== undefined ? { icon: canonical.skill.icon } : {}),
+        tags: Array.from(canonical.skill.tags),
+        enabled: canonical.skill.enabled,
+      },
+      importedState: {
+        skillName: canonical.skill.name,
+        generalFiles: sortImportedFiles([...generalFilesByPath.values()]),
+        providerFiles: {
+          codex: sortImportedFiles(providerFiles.codex),
+          claudeAgent: sortImportedFiles(providerFiles.claudeAgent),
+        },
+        entry: {
+          name: canonical.skill.name,
+          description: canonical.skill.description,
+          body: canonical.skill.body,
+        },
+      },
+    };
+  });
+
+const writeImportedSkillState = (input: {
+  readonly paths: ProjectSkillStatePaths;
+  readonly canonicalSkill: CreateSkillInput;
+  readonly importedState: ImportedSkillState;
+}): Effect.Effect<boolean, never, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const generalSkillDir = getGeneralSkillDir(input.paths, input.importedState.skillName, path);
+
+    yield* fs
+      .remove(generalSkillDir, { recursive: true, force: true })
+      .pipe(Effect.catch(() => Effect.void));
+    for (const provider of PROVIDER_ORDER) {
+      yield* fs
+        .remove(getProviderSkillDir(input.paths, provider, input.importedState.skillName, path), {
+          recursive: true,
+          force: true,
+        })
+        .pipe(Effect.catch(() => Effect.void));
+    }
+
+    const writeOk = yield* writeGeneralSkillToStorage(input.paths, input.canonicalSkill).pipe(
+      Effect.tapError((e) =>
+        Effect.logWarning(
+          `Initial import: failed to write skill "${input.importedState.skillName}" to Fenrir storage: ${e.message}`,
+        ),
+      ),
+      Effect.match({
+        onSuccess: () => true,
+        onFailure: () => false,
+      }),
+    );
+    if (!writeOk) {
+      return false;
+    }
+
+    for (const file of input.importedState.generalFiles) {
+      yield* writeImportedFile({
+        absolutePath: path.join(generalSkillDir, file.relativePath),
+        file,
+      });
+    }
+
+    for (const provider of PROVIDER_ORDER) {
+      const providerDir = getProviderSkillDir(
+        input.paths,
+        provider,
+        input.importedState.skillName,
+        path,
+      );
+      for (const file of input.importedState.providerFiles[provider]) {
+        yield* writeImportedFile({
+          absolutePath: path.join(providerDir, file.relativePath),
+          file,
+        });
+      }
+    }
+
+    yield* rebuildSkillIndexFromStorage(input.paths, input.importedState.skillName).pipe(
+      Effect.tapError((cause) =>
+        Effect.logWarning(
+          `Initial import: failed to rebuild skill index for "${input.importedState.skillName}": ${cause.message}`,
+        ),
+      ),
+      Effect.catch(() => Effect.void),
+    );
+
+    return true;
+  });
+
+export const needsInitialImport = (
+  statePaths: ProjectSkillStatePaths,
+  adapters: readonly ProviderSkillAdapter[],
+): Effect.Effect<boolean, never, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const hasInternalState = yield* hasInternalProjectSkillState(statePaths).pipe(
+      Effect.catch(() => Effect.succeed(false)),
+    );
+    if (hasInternalState) {
+      return false;
+    }
+
+    const contributions = yield* readProviderSkillContributions(adapters);
+    return contributions.size > 0;
+  });
+
+export const importProviderSkills = (
+  statePaths: ProjectSkillStatePaths,
+  adapters: readonly ProviderSkillAdapter[],
+): Effect.Effect<string[], never, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const imported: string[] = [];
+    const contributionsBySkill = yield* readProviderSkillContributions(adapters);
+
+    for (const skillName of [...contributionsBySkill.keys()].toSorted()) {
+      const contributions = contributionsBySkill.get(skillName) ?? [];
+      const importedState = yield* buildImportedSkillState({
+        skillName,
+        contributions,
+      });
+      if (importedState === null) {
+        continue;
+      }
+
+      const written = yield* writeImportedSkillState({
+        paths: statePaths,
+        canonicalSkill: importedState.canonicalSkill,
+        importedState: importedState.importedState,
+      });
+      if (written) {
+        imported.push(skillName);
       }
     }
 

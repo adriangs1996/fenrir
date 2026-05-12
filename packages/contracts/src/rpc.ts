@@ -136,8 +136,10 @@ import {
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
 import {
   CreateSkillInput,
+  GetSkillDetailsInput,
   ResolveSkillConflictInput,
   ServerProviderSkill,
+  ServerSkillDetails,
   SkillRpcError,
   UpdateSkillInput,
 } from "./skill";
@@ -233,6 +235,7 @@ export const WS_METHODS = {
 
   // Skills
   serverListSkills: "serverListSkills",
+  serverGetSkillDetails: "serverGetSkillDetails",
   serverCreateSkill: "serverCreateSkill",
   serverUpdateSkill: "serverUpdateSkill",
   serverDeleteSkill: "serverDeleteSkill",
@@ -684,6 +687,12 @@ export const WsServerListSkillsRpc = Rpc.make(WS_METHODS.serverListSkills, {
   error: SkillRpcError,
 });
 
+export const WsServerGetSkillDetailsRpc = Rpc.make(WS_METHODS.serverGetSkillDetails, {
+  payload: GetSkillDetailsInput,
+  success: ServerSkillDetails,
+  error: SkillRpcError,
+});
+
 export const WsServerCreateSkillRpc = Rpc.make(WS_METHODS.serverCreateSkill, {
   payload: CreateSkillInput,
   success: ServerProviderSkill,
@@ -785,6 +794,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsPlanRunnerRenameFeatureRpc,
   WsPlanRunnerRerunFromFailureRpc,
   WsServerListSkillsRpc,
+  WsServerGetSkillDetailsRpc,
   WsServerCreateSkillRpc,
   WsServerUpdateSkillRpc,
   WsServerDeleteSkillRpc,

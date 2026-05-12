@@ -5,7 +5,9 @@ import { Effect, Fiber, FileSystem, Path, Stream } from "effect";
 import type { CreateSkillInput } from "@fenrir/contracts";
 
 import { ServerConfig } from "../config.ts";
+import { getProjectSkillStatePaths } from "./projectSkillStatePaths.ts";
 import { makeSkillService } from "./SkillService.ts";
+import { writeProviderOverlayFileToStorage } from "./skillStorage.ts";
 
 // ─── Fixtures ──────────────────────────────────────────────────
 
@@ -37,21 +39,60 @@ const CODE_REVIEW: CreateSkillInput = {
 const makeTestService = (cwd: string) =>
   makeSkillService.pipe(Effect.provide(ServerConfig.layerTest(cwd, cwd)));
 
+const getFenrirSkillPaths = (cwd: string, baseDir: string, path: Path.Path) =>
+  getProjectSkillStatePaths({
+    stateDir: path.join(baseDir, "userdata"),
+    workspaceRoot: cwd,
+    path,
+  });
+
+const writeProviderSkill = (input: {
+  readonly cwd: string;
+  readonly providerDir: ".agents/skills" | ".claude/skills";
+  readonly name: string;
+  readonly entryContent: string;
+  readonly files?: Record<string, string>;
+}) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const skillDir = path.join(input.cwd, input.providerDir, input.name);
+    yield* fs.makeDirectory(skillDir, { recursive: true });
+    yield* fs.writeFileString(path.join(skillDir, "SKILL.md"), input.entryContent);
+    for (const [relativePath, content] of Object.entries(input.files ?? {})) {
+      const targetPath = path.join(skillDir, relativePath);
+      yield* fs.makeDirectory(path.dirname(targetPath), { recursive: true });
+      yield* fs.writeFileString(targetPath, content);
+    }
+  });
+
+const scanSkillNames = (skillsDir: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const entries = yield* fs.readDirectory(skillsDir);
+    return entries.toSorted();
+  });
+
 // ─── Tests ─────────────────────────────────────────────────────
 
 it.layer(NodeServices.layer)("SkillService", (it) => {
   // ── getAll ──────────────────────────────────────────────────────
 
   describe("getAll", () => {
-    it.effect("returns empty array when .fenrir/skills/ does not exist", () =>
+    it.effect("returns empty array and initializes per-project state outside the workspace", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
         const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-" });
 
         const svc = yield* makeTestService(cwd);
         const skills = yield* svc.getAll;
+        const paths = getFenrirSkillPaths(cwd, cwd, path);
 
         expect(skills).toEqual([]);
+        expect(yield* fs.exists(paths.generalSkillsDir)).toBe(true);
+        expect(yield* scanSkillNames(paths.generalSkillsDir)).toEqual([]);
+        expect(yield* fs.exists(path.join(cwd, ".fenrir", "skills"))).toBe(false);
       }),
     );
 
@@ -70,12 +111,71 @@ it.layer(NodeServices.layer)("SkillService", (it) => {
         expect(first).toBe(second);
       }),
     );
+
+    it.effect(
+      "bootstraps from provider mirrors and immediately converges the lower-precedence mirror",
+      () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const path = yield* Path.Path;
+            const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-" });
+
+            yield* writeProviderSkill({
+              cwd,
+              providerDir: ".agents/skills",
+              name: "grill-me",
+              entryContent:
+                "---\nname: grill-me\ndescription: Codex canonical\n---\n\nCodex body wins.\n",
+              files: {
+                "agents/openai.yaml": "model: gpt-5\n",
+              },
+            });
+            yield* writeProviderSkill({
+              cwd,
+              providerDir: ".claude/skills",
+              name: "grill-me",
+              entryContent:
+                "---\nname: grill-me\ndescription: Claude lower priority\n---\n\nClaude body loses.\n",
+            });
+
+            const svc = yield* makeTestService(cwd);
+            yield* svc.start;
+            const skills = yield* svc.getAll;
+            const statePaths = getFenrirSkillPaths(cwd, cwd, path);
+
+            expect(skills).toHaveLength(1);
+            expect(skills[0]?.body).toBe("Codex body wins.");
+            expect(
+              yield* fs.readFileString(
+                path.join(statePaths.generalSkillsDir, "grill-me", "skill.md"),
+              ),
+            ).toContain("Codex body wins.");
+            expect(
+              yield* fs.readFileString(path.join(cwd, ".claude", "skills", "grill-me", "SKILL.md")),
+            ).toContain("Codex body wins.");
+            expect(
+              yield* fs.readFileString(path.join(cwd, ".agents", "skills", "grill-me", "SKILL.md")),
+            ).toContain("Codex body wins.");
+            expect(
+              yield* fs.exists(
+                path.join(cwd, ".agents", "skills", "grill-me", "agents", "openai.yaml"),
+              ),
+            ).toBe(true);
+            expect(
+              yield* fs.exists(
+                path.join(cwd, ".claude", "skills", "grill-me", "agents", "openai.yaml"),
+              ),
+            ).toBe(false);
+          }),
+        ),
+    );
   });
 
   // ── create ─────────────────────────────────────────────────────
 
   describe("create", () => {
-    it.effect("writes skill.md to .fenrir/skills/", () =>
+    it.effect("writes skill.md to Fenrir project state under FENRIR_HOME", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
@@ -84,13 +184,44 @@ it.layer(NodeServices.layer)("SkillService", (it) => {
         const svc = yield* makeTestService(cwd);
         yield* svc.create(GRILL_ME);
 
-        const skillPath = path.join(cwd, ".fenrir", "skills", "grill-me", "skill.md");
+        const statePaths = getFenrirSkillPaths(cwd, cwd, path);
+        const skillPath = path.join(statePaths.generalSkillsDir, "grill-me", "skill.md");
         const exists = yield* fs.exists(skillPath);
         expect(exists).toBe(true);
+        expect(yield* fs.exists(path.join(cwd, ".fenrir", "skills", "grill-me", "skill.md"))).toBe(
+          false,
+        );
 
         const content = yield* fs.readFileString(skillPath);
         expect(content).toContain("name: grill-me");
         expect(content).toContain("Interview me relentlessly");
+      }),
+    );
+
+    it.effect("persists project metadata next to the per-project skill state", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-" });
+
+        const svc = yield* makeTestService(cwd);
+        yield* svc.create(GRILL_ME);
+
+        const statePaths = getFenrirSkillPaths(cwd, cwd, path);
+        const rawMetadata = yield* fs.readFileString(statePaths.projectMetadataPath);
+        const metadata = JSON.parse(rawMetadata) as {
+          readonly version: number;
+          readonly projectKey: string;
+          readonly workspaceRoot: string;
+          readonly repositoryIdentity: null;
+        };
+
+        expect(metadata).toEqual({
+          version: 1,
+          projectKey: statePaths.projectKey,
+          workspaceRoot: statePaths.workspaceRoot,
+          repositoryIdentity: null,
+        });
       }),
     );
 
@@ -231,7 +362,7 @@ it.layer(NodeServices.layer)("SkillService", (it) => {
   // ── update ─────────────────────────────────────────────────────
 
   describe("update", () => {
-    it.effect("updates skill.md in .fenrir/skills/", () =>
+    it.effect("updates skill.md in Fenrir project state", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
@@ -241,7 +372,8 @@ it.layer(NodeServices.layer)("SkillService", (it) => {
         yield* svc.create(GRILL_ME);
         yield* svc.update({ name: "grill-me", body: "Updated body content." });
 
-        const skillPath = path.join(cwd, ".fenrir", "skills", "grill-me", "skill.md");
+        const statePaths = getFenrirSkillPaths(cwd, cwd, path);
+        const skillPath = path.join(statePaths.generalSkillsDir, "grill-me", "skill.md");
         const content = yield* fs.readFileString(skillPath);
         expect(content).toContain("Updated body content.");
       }),
@@ -328,7 +460,7 @@ it.layer(NodeServices.layer)("SkillService", (it) => {
   // ── delete ─────────────────────────────────────────────────────
 
   describe("delete", () => {
-    it.effect("removes skill from .fenrir/skills/", () =>
+    it.effect("removes skill from Fenrir project state", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
@@ -337,7 +469,8 @@ it.layer(NodeServices.layer)("SkillService", (it) => {
         const svc = yield* makeTestService(cwd);
         yield* svc.create(GRILL_ME);
 
-        const skillDir = path.join(cwd, ".fenrir", "skills", "grill-me");
+        const statePaths = getFenrirSkillPaths(cwd, cwd, path);
+        const skillDir = path.join(statePaths.generalSkillsDir, "grill-me");
         expect(yield* fs.exists(skillDir)).toBe(true);
 
         yield* svc.delete("grill-me");
@@ -511,9 +644,57 @@ it.layer(NodeServices.layer)("SkillService", (it) => {
         expect(resolved.body).toBe("Externally edited body.");
 
         // Fenrir file should also contain the external body
-        const fenrirPath = path.join(cwd, ".fenrir", "skills", "grill-me", "skill.md");
+        const statePaths = getFenrirSkillPaths(cwd, cwd, path);
+        const fenrirPath = path.join(statePaths.generalSkillsDir, "grill-me", "skill.md");
         const fenrirContent = yield* fs.readFileString(fenrirPath);
         expect(fenrirContent).toContain("Externally edited body.");
+      }),
+    );
+
+    it.effect("accept-external: does not mutate codex-only overlay files", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-" });
+
+        const svc = yield* makeTestService(cwd);
+        yield* svc.create(GRILL_ME);
+
+        const statePaths = getFenrirSkillPaths(cwd, cwd, path);
+        yield* writeProviderOverlayFileToStorage({
+          paths: statePaths,
+          skillName: "grill-me",
+          provider: "codex",
+          relativePath: "agents/openai.yaml",
+          contents: "model: gpt-5\n",
+        });
+        yield* svc.update({ name: "grill-me", body: GRILL_ME.body });
+
+        const codexOverlayPath = path.join(
+          cwd,
+          ".agents",
+          "skills",
+          "grill-me",
+          "agents",
+          "openai.yaml",
+        );
+        expect(yield* fs.readFileString(codexOverlayPath)).toBe("model: gpt-5\n");
+
+        const claudePath = path.join(cwd, ".claude", "skills", "grill-me", "SKILL.md");
+        yield* fs.writeFileString(
+          claudePath,
+          `---\nname: grill-me\ndescription: External description\n---\n\nExternally edited body.\n`,
+        );
+
+        const resolved = yield* svc.resolveConflict({
+          name: "grill-me",
+          provider: "claudeAgent",
+          resolution: "accept-external",
+        });
+
+        expect(resolved.description).toBe("External description");
+        expect(resolved.body).toBe("Externally edited body.");
+        expect(yield* fs.readFileString(codexOverlayPath)).toBe("model: gpt-5\n");
       }),
     );
 
@@ -566,7 +747,7 @@ it.layer(NodeServices.layer)("SkillService", (it) => {
   // ── Sync status ────────────────────────────────────────────────
 
   describe("sync status", () => {
-    it.effect("codex sync status is unsupported (stub adapter has null watchPath)", () =>
+    it.effect("codex sync status is synced when the projected folder matches", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-" });
@@ -578,7 +759,7 @@ it.layer(NodeServices.layer)("SkillService", (it) => {
         const skill = skills[0]!;
         const codexSync = skill.syncStatus.find((s) => s.provider === "codex");
 
-        expect(codexSync?.state).toBe("unsupported");
+        expect(codexSync?.state).toBe("synced");
       }),
     );
 
@@ -642,8 +823,108 @@ it.layer(NodeServices.layer)("SkillService", (it) => {
         const skills = yield* svc2.getAll;
         const skill = skills[0]!;
         const claudeSync = skill.syncStatus.find((s) => s.provider === "claudeAgent");
+        const codexSync = skill.syncStatus.find((s) => s.provider === "codex");
 
         expect(claudeSync?.state).toBe("conflict");
+        expect(codexSync?.state).toBe("synced");
+      }),
+    );
+
+    it.effect("provider-specific external drift only flips the affected provider badge", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-" });
+
+        const svc = yield* makeTestService(cwd);
+        yield* svc.create(GRILL_ME);
+
+        const statePaths = getFenrirSkillPaths(cwd, cwd, path);
+        yield* writeProviderOverlayFileToStorage({
+          paths: statePaths,
+          skillName: "grill-me",
+          provider: "codex",
+          relativePath: "agents/openai.yaml",
+          contents: "model: gpt-5\n",
+        });
+        yield* svc.update({ name: "grill-me", body: GRILL_ME.body });
+
+        const codexPath = path.join(cwd, ".agents", "skills", "grill-me", "agents", "openai.yaml");
+        yield* fs.writeFileString(codexPath, "model: gpt-6\n");
+
+        const svc2 = yield* makeTestService(cwd);
+        const skill = (yield* svc2.getAll)[0]!;
+        const codexSync = skill.syncStatus.find((s) => s.provider === "codex");
+        const claudeSync = skill.syncStatus.find((s) => s.provider === "claudeAgent");
+
+        expect(codexSync?.state).toBe("conflict");
+        expect(claudeSync?.state).toBe("synced");
+      }),
+    );
+  });
+
+  describe("internal sync", () => {
+    it.effect("general-file edits in internal state resync both providers", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-" });
+
+        const svc = yield* makeTestService(cwd);
+        yield* svc.create(GRILL_ME);
+
+        const statePaths = getFenrirSkillPaths(cwd, cwd, path);
+        const generalFile = path.join(
+          statePaths.generalSkillsDir,
+          "grill-me",
+          "references",
+          "guide.md",
+        );
+        yield* fs.makeDirectory(path.dirname(generalFile), { recursive: true });
+        yield* fs.writeFileString(generalFile, "shared reference\n");
+        yield* svc.update({ name: "grill-me", body: GRILL_ME.body });
+
+        const claudeFile = path.join(
+          cwd,
+          ".claude",
+          "skills",
+          "grill-me",
+          "references",
+          "guide.md",
+        );
+        const codexFile = path.join(cwd, ".agents", "skills", "grill-me", "references", "guide.md");
+
+        expect(yield* fs.readFileString(claudeFile)).toBe("shared reference\n");
+        expect(yield* fs.readFileString(codexFile)).toBe("shared reference\n");
+      }),
+    );
+
+    it.effect("provider overlay edits only resync the relevant provider", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-" });
+
+        const svc = yield* makeTestService(cwd);
+        yield* svc.create(GRILL_ME);
+
+        const statePaths = getFenrirSkillPaths(cwd, cwd, path);
+        const overlayFile = path.join(
+          statePaths.providerSkillsDir,
+          "codex",
+          "grill-me",
+          "agents",
+          "openai.yaml",
+        );
+        yield* fs.makeDirectory(path.dirname(overlayFile), { recursive: true });
+        yield* fs.writeFileString(overlayFile, "model: gpt-5\n");
+        yield* svc.update({ name: "grill-me", body: GRILL_ME.body });
+
+        const codexFile = path.join(cwd, ".agents", "skills", "grill-me", "agents", "openai.yaml");
+        const claudeFile = path.join(cwd, ".claude", "skills", "grill-me", "agents", "openai.yaml");
+
+        expect(yield* fs.readFileString(codexFile)).toBe("model: gpt-5\n");
+        expect(yield* fs.exists(claudeFile)).toBe(false);
       }),
     );
   });
@@ -681,6 +962,227 @@ it.layer(NodeServices.layer)("SkillService", (it) => {
         expect(skills).toHaveLength(1);
         expect(skills[0]?.name).toBe("code-review");
       }),
+    );
+  });
+
+  describe("getDetails", () => {
+    it.effect("reads file inventory from internal storage indexes and preserves mixed scopes", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-" });
+
+        const svc = yield* makeTestService(cwd);
+        yield* svc.create(GRILL_ME);
+
+        const statePaths = getFenrirSkillPaths(cwd, cwd, path);
+        yield* writeProviderOverlayFileToStorage({
+          paths: statePaths,
+          skillName: "grill-me",
+          provider: "codex",
+          relativePath: "agents/openai.yaml",
+          contents: "model: gpt-5\n",
+        });
+
+        const details = yield* svc.getDetails("grill-me");
+        expect(details.files).toContainEqual({
+          relativePath: "skill.md",
+          absolutePath: path.join(statePaths.generalSkillsDir, "grill-me", "skill.md"),
+          executable: false,
+          scope: { kind: "general" },
+        });
+        expect(details.files).toContainEqual({
+          relativePath: "agents/openai.yaml",
+          absolutePath: path.join(
+            statePaths.providerSkillsDir,
+            "codex",
+            "grill-me",
+            "agents",
+            "openai.yaml",
+          ),
+          executable: false,
+          scope: { kind: "providerSpecific", provider: "codex" },
+        });
+      }),
+    );
+  });
+
+  describe("legacy migration", () => {
+    it.effect("prefers legacy workspace skills over codex and claude bootstrap copies", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-" });
+        const legacySkillDir = path.join(cwd, ".fenrir", "skills", "grill-me");
+
+        yield* fs.makeDirectory(legacySkillDir, { recursive: true });
+        yield* fs.writeFileString(
+          path.join(legacySkillDir, "skill.md"),
+          `---
+name: grill-me
+displayName: Grill Me
+description: Legacy copy
+enabled: true
+tags: []
+---
+
+Legacy body.
+`,
+        );
+        yield* writeProviderSkill({
+          cwd,
+          providerDir: ".agents/skills",
+          name: "grill-me",
+          entryContent: "---\nname: grill-me\ndescription: Codex copy\n---\n\nCodex body.\n",
+        });
+        yield* writeProviderSkill({
+          cwd,
+          providerDir: ".claude/skills",
+          name: "grill-me",
+          entryContent: "---\nname: grill-me\ndescription: Claude copy\n---\n\nClaude body.\n",
+        });
+
+        const svc = yield* makeTestService(cwd);
+        const skill = yield* svc.getByName("grill-me");
+
+        expect(skill.description).toBe("Legacy copy");
+        expect(skill.body).toBe("Legacy body.");
+      }),
+    );
+
+    it.effect(
+      "imports workspace-local .fenrir/skills exactly once and then reads only internal state",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-" });
+          const legacySkillDir = path.join(cwd, ".fenrir", "skills", "grill-me");
+          yield* fs.makeDirectory(path.join(legacySkillDir, "references"), { recursive: true });
+          yield* fs.writeFileString(
+            path.join(legacySkillDir, "skill.md"),
+            `---
+name: grill-me
+displayName: Grill Me
+description: Legacy copy
+enabled: true
+tags: []
+---
+
+Legacy body.
+`,
+          );
+          yield* fs.writeFileString(
+            path.join(legacySkillDir, "references", "notes.md"),
+            "legacy reference\n",
+          );
+
+          const svc = yield* makeTestService(cwd);
+          const skills = yield* svc.getAll;
+          const statePaths = getFenrirSkillPaths(cwd, cwd, path);
+
+          expect(skills.map((skill) => skill.name)).toEqual(["grill-me"]);
+          expect(
+            yield* fs.exists(path.join(statePaths.generalSkillsDir, "grill-me", "skill.md")),
+          ).toBe(true);
+          expect(
+            yield* fs.exists(
+              path.join(statePaths.generalSkillsDir, "grill-me", "references", "notes.md"),
+            ),
+          ).toBe(true);
+
+          yield* fs.writeFileString(
+            path.join(cwd, ".fenrir", "skills", "grill-me", "skill.md"),
+            `---
+name: grill-me
+displayName: Grill Me
+description: Mutated legacy copy
+enabled: true
+tags: []
+---
+
+Mutated legacy body.
+`,
+          );
+
+          const svc2 = yield* makeTestService(cwd);
+          const migrated = yield* svc2.getByName("grill-me");
+          expect(migrated.body).toBe("Legacy body.");
+        }),
+    );
+  });
+
+  describe("setActiveProjectRoot", () => {
+    it.effect("switches projects without touching workspace .fenrir/skills", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const projectA = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-project-a-" });
+        const projectB = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-project-b-" });
+
+        const svc = yield* makeTestService(projectA);
+        yield* svc.create(GRILL_ME);
+
+        const projectAPaths = getFenrirSkillPaths(projectA, projectA, path);
+        expect(
+          yield* fs.exists(path.join(projectAPaths.generalSkillsDir, "grill-me", "skill.md")),
+        ).toBe(true);
+        expect(
+          yield* fs.exists(path.join(projectA, ".fenrir", "skills", "grill-me", "skill.md")),
+        ).toBe(false);
+
+        yield* svc.setActiveProjectRoot(projectB);
+        yield* svc.create(CODE_REVIEW);
+
+        const projectBPaths = getFenrirSkillPaths(projectB, projectA, path);
+        expect(
+          yield* fs.exists(path.join(projectBPaths.generalSkillsDir, "code-review", "skill.md")),
+        ).toBe(true);
+        expect(
+          yield* fs.exists(path.join(projectB, ".fenrir", "skills", "code-review", "skill.md")),
+        ).toBe(false);
+
+        const activeSkills = yield* svc.getAll;
+        expect(activeSkills.map((skill) => skill.name)).toEqual(["code-review"]);
+
+        const storedProjectASkills = yield* scanSkillNames(projectAPaths.generalSkillsDir);
+        const storedProjectBSkills = yield* scanSkillNames(projectBPaths.generalSkillsDir);
+        expect(storedProjectASkills).toEqual(["grill-me"]);
+        expect(storedProjectBSkills).toEqual(["code-review"]);
+      }),
+    );
+
+    it.effect("switches a started service to the new project state before subsequent writes", () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const projectA = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-project-a-" });
+          const projectB = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-project-b-" });
+
+          const svc = yield* makeTestService(projectA);
+          yield* svc.start;
+          yield* svc.create(GRILL_ME);
+          yield* svc.setActiveProjectRoot(projectB);
+          yield* svc.create(CODE_REVIEW);
+
+          const projectAPaths = getFenrirSkillPaths(projectA, projectA, path);
+          const projectBPaths = getFenrirSkillPaths(projectB, projectA, path);
+
+          expect(
+            yield* fs.exists(path.join(projectAPaths.generalSkillsDir, "grill-me", "skill.md")),
+          ).toBe(true);
+          expect(
+            yield* fs.exists(path.join(projectAPaths.generalSkillsDir, "code-review", "skill.md")),
+          ).toBe(false);
+          expect(
+            yield* fs.exists(path.join(projectBPaths.generalSkillsDir, "code-review", "skill.md")),
+          ).toBe(true);
+
+          const activeSkills = yield* svc.getAll;
+          expect(activeSkills.map((skill) => skill.name)).toEqual(["code-review"]);
+        }),
+      ),
     );
   });
 });

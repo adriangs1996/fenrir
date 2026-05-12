@@ -3,345 +3,352 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Path } from "effect";
 
 import { makeClaudeSkillAdapter } from "./ClaudeSkillAdapter.ts";
-import { parseSkillFile, validateSkillFile } from "./skillFileFormat.ts";
+import { makeCodexSkillAdapter } from "./CodexSkillAdapter.ts";
+import { getProjectSkillStatePaths } from "./projectSkillStatePaths.ts";
 import { importProviderSkills, needsInitialImport } from "./skillImport.ts";
-
-// ─── Fixtures ──────────────────────────────────────────────────
 
 const GRILL_ME_CONTENT = `---\nname: grill-me\ndescription: Interview relentlessly\n---\n\nInterview me relentlessly.\n`;
 const CODE_REVIEW_CONTENT = `---\nname: code-review\ndescription: Review code for quality\n---\n\nReview the code carefully.\n`;
 const BROKEN_CONTENT = `---\nname: [broken\n---\nbody`;
 
-// ─── Test helpers ──────────────────────────────────────────────
+const getStatePaths = (workspaceRoot: string, path: Path.Path) =>
+  getProjectSkillStatePaths({
+    stateDir: path.join(workspaceRoot, "userdata"),
+    workspaceRoot,
+    path,
+  });
 
-/**
- * Write a Claude-format SKILL.md into {tempDir}/.claude/skills/{name}/SKILL.md.
- */
-const writeClaudeSkill = (tempDir: string, name: string, content: string) =>
+const readIndex = (indexPath: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    return JSON.parse(yield* fs.readFileString(indexPath)) as {
+      readonly files: ReadonlyArray<{
+        readonly relativePath: string;
+        readonly scope: { readonly kind: string; readonly provider?: string };
+      }>;
+    };
+  });
+
+const writeClaudeSkill = (workspaceRoot: string, name: string, content: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const skillDir = path.join(tempDir, ".claude", "skills", name);
+    const skillDir = path.join(workspaceRoot, ".claude", "skills", name);
     yield* fs.makeDirectory(skillDir, { recursive: true });
     yield* fs.writeFileString(path.join(skillDir, "SKILL.md"), content);
   });
 
-/**
- * Write a Fenrir-format skill.md into {tempDir}/.fenrir/skills/{name}/skill.md.
- */
-const writeFenrirSkill = (tempDir: string, name: string, content: string) =>
+const writeCodexSkill = (input: {
+  readonly workspaceRoot: string;
+  readonly name: string;
+  readonly entryContent: string;
+  readonly overlayFiles?: Record<string, string>;
+}) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const skillDir = path.join(tempDir, ".fenrir", "skills", name);
+    const skillDir = path.join(input.workspaceRoot, ".agents", "skills", input.name);
     yield* fs.makeDirectory(skillDir, { recursive: true });
-    yield* fs.writeFileString(path.join(skillDir, "skill.md"), content);
+    yield* fs.writeFileString(path.join(skillDir, "SKILL.md"), input.entryContent);
+    for (const [relativePath, content] of Object.entries(input.overlayFiles ?? {})) {
+      const targetPath = path.join(skillDir, relativePath);
+      yield* fs.makeDirectory(path.dirname(targetPath), { recursive: true });
+      yield* fs.writeFileString(targetPath, content);
+    }
   });
-
-// ─── Tests ─────────────────────────────────────────────────────
 
 it.layer(NodeServices.layer)("skillImport", (it) => {
-  // ── needsInitialImport ─────────────────────────────────────────
-
   describe("needsInitialImport", () => {
-    it.effect("returns true when fenrir dir is missing and provider has skills", () =>
+    it.effect("returns true when any provider exposes skills", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const statePaths = getStatePaths(workspaceRoot, yield* Path.Path);
+        yield* writeClaudeSkill(workspaceRoot, "grill-me", GRILL_ME_CONTENT);
 
-        yield* writeClaudeSkill(tempDir, "grill-me", GRILL_ME_CONTENT);
-
-        const adapter = yield* makeClaudeSkillAdapter(tempDir);
-        const fenrirSkillsPath = path.join(tempDir, ".fenrir", "skills");
-
-        const result = yield* needsInitialImport(fenrirSkillsPath, [adapter]);
-        expect(result).toBe(true);
+        const adapter = yield* makeClaudeSkillAdapter(workspaceRoot);
+        expect(yield* needsInitialImport(statePaths, [adapter])).toBe(true);
       }),
     );
 
-    it.effect("returns true when fenrir dir is empty and provider has skills", () =>
+    it.effect("returns false when providers expose no skills", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const statePaths = getStatePaths(workspaceRoot, yield* Path.Path);
 
-        yield* writeClaudeSkill(tempDir, "grill-me", GRILL_ME_CONTENT);
-
-        const adapter = yield* makeClaudeSkillAdapter(tempDir);
-        const fenrirSkillsPath = path.join(tempDir, ".fenrir", "skills");
-
-        // Create empty fenrir dir
-        yield* fs.makeDirectory(fenrirSkillsPath, { recursive: true });
-
-        const result = yield* needsInitialImport(fenrirSkillsPath, [adapter]);
-        expect(result).toBe(true);
+        const adapter = yield* makeClaudeSkillAdapter(workspaceRoot);
+        expect(yield* needsInitialImport(statePaths, [adapter])).toBe(false);
       }),
     );
 
-    it.effect("returns false when fenrir dir already has a skill", () =>
+    it.effect("returns false when internal state already exists", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const statePaths = getStatePaths(workspaceRoot, path);
 
-        // Fenrir dir has a skill already
-        yield* writeFenrirSkill(
-          tempDir,
-          "existing-skill",
-          `---\nname: existing-skill\ndisplayName: Existing Skill\ndescription: Already here\nenabled: true\ntags: []\n---\n\nAlready imported.\n`,
+        yield* fs.makeDirectory(path.join(statePaths.generalSkillsDir, "grill-me"), {
+          recursive: true,
+        });
+        yield* fs.writeFileString(
+          path.join(statePaths.generalSkillsDir, "grill-me", "skill.md"),
+          GRILL_ME_CONTENT,
         );
 
-        // Claude also has skills — should not matter
-        yield* writeClaudeSkill(tempDir, "grill-me", GRILL_ME_CONTENT);
-
-        const adapter = yield* makeClaudeSkillAdapter(tempDir);
-        const fenrirSkillsPath = path.join(tempDir, ".fenrir", "skills");
-
-        const result = yield* needsInitialImport(fenrirSkillsPath, [adapter]);
-        expect(result).toBe(false);
-      }),
-    );
-
-    it.effect("returns false when both fenrir and provider dirs are empty", () =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
-
-        const adapter = yield* makeClaudeSkillAdapter(tempDir);
-        const fenrirSkillsPath = path.join(tempDir, ".fenrir", "skills");
-
-        const result = yield* needsInitialImport(fenrirSkillsPath, [adapter]);
-        expect(result).toBe(false);
-      }),
-    );
-
-    it.effect("returns false when fenrir dir has non-skill files but no skill subdirs", () =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
-
-        // Fenrir dir exists but only has a loose file, no skill subdirs
-        const fenrirSkillsPath = path.join(tempDir, ".fenrir", "skills");
-        yield* fs.makeDirectory(fenrirSkillsPath, { recursive: true });
-        yield* fs.writeFileString(path.join(fenrirSkillsPath, "README.md"), "not a skill");
-
-        yield* writeClaudeSkill(tempDir, "grill-me", GRILL_ME_CONTENT);
-
-        const adapter = yield* makeClaudeSkillAdapter(tempDir);
-
-        // Loose file is not a directory — should be treated as empty
-        const result = yield* needsInitialImport(fenrirSkillsPath, [adapter]);
-        expect(result).toBe(true);
+        const adapter = yield* makeClaudeSkillAdapter(workspaceRoot);
+        expect(yield* needsInitialImport(statePaths, [adapter])).toBe(false);
       }),
     );
   });
-
-  // ── importProviderSkills ───────────────────────────────────────
 
   describe("importProviderSkills", () => {
-    it.effect("imports 2 Claude skills into .fenrir/skills/", () =>
+    it.effect("imports provider entry files into internal general storage and writes indexes", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const statePaths = getStatePaths(workspaceRoot, path);
 
-        yield* writeClaudeSkill(tempDir, "grill-me", GRILL_ME_CONTENT);
-        yield* writeClaudeSkill(tempDir, "code-review", CODE_REVIEW_CONTENT);
+        yield* writeClaudeSkill(workspaceRoot, "grill-me", GRILL_ME_CONTENT);
+        yield* writeClaudeSkill(workspaceRoot, "code-review", CODE_REVIEW_CONTENT);
 
-        const adapter = yield* makeClaudeSkillAdapter(tempDir);
-        const fenrirSkillsPath = path.join(tempDir, ".fenrir", "skills");
-
-        const imported = yield* importProviderSkills(fenrirSkillsPath, [adapter]);
+        const adapter = yield* makeClaudeSkillAdapter(workspaceRoot);
+        const imported = yield* importProviderSkills(statePaths, [adapter]);
 
         expect(imported.toSorted()).toEqual(["code-review", "grill-me"]);
-
-        // Both skill.md files must exist in Fenrir dir
-        const grillPath = path.join(fenrirSkillsPath, "grill-me", "skill.md");
-        const reviewPath = path.join(fenrirSkillsPath, "code-review", "skill.md");
-        expect(yield* fs.exists(grillPath)).toBe(true);
-        expect(yield* fs.exists(reviewPath)).toBe(true);
+        expect(
+          yield* fs.exists(path.join(statePaths.generalSkillsDir, "grill-me", "skill.md")),
+        ).toBe(true);
+        expect(yield* fs.exists(path.join(statePaths.skillIndexDir, "grill-me.json"))).toBe(true);
       }),
     );
 
-    it.effect("fills default values: displayName (title-case), tags, enabled", () =>
+    it.effect("fills Fenrir defaults when importing provider entry files", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const statePaths = getStatePaths(workspaceRoot, path);
 
-        yield* writeClaudeSkill(tempDir, "grill-me", GRILL_ME_CONTENT);
+        yield* writeClaudeSkill(workspaceRoot, "grill-me", GRILL_ME_CONTENT);
 
-        const adapter = yield* makeClaudeSkillAdapter(tempDir);
-        const fenrirSkillsPath = path.join(tempDir, ".fenrir", "skills");
+        const adapter = yield* makeClaudeSkillAdapter(workspaceRoot);
+        yield* importProviderSkills(statePaths, [adapter]);
 
-        yield* importProviderSkills(fenrirSkillsPath, [adapter]);
-
-        const skillPath = path.join(fenrirSkillsPath, "grill-me", "skill.md");
-        const content = yield* fs.readFileString(skillPath);
-
-        // displayName derived from name: "grill-me" → "Grill Me"
+        const content = yield* fs.readFileString(
+          path.join(statePaths.generalSkillsDir, "grill-me", "skill.md"),
+        );
         expect(content).toContain("displayName: Grill Me");
-        // enabled defaults to true
         expect(content).toContain("enabled: true");
-        // tags defaults to []
         expect(content).toContain("tags: []");
-        // body preserved
-        expect(content).toContain("Interview me relentlessly.");
       }),
     );
 
-    it.effect("malformed Claude skill is skipped; valid skills are imported", () =>
+    it.effect("skips malformed provider entries while importing valid skills", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const statePaths = getStatePaths(workspaceRoot, path);
 
-        yield* writeClaudeSkill(tempDir, "grill-me", GRILL_ME_CONTENT);
-        // Broken YAML frontmatter
-        yield* writeClaudeSkill(tempDir, "broken-skill", BROKEN_CONTENT);
+        yield* writeClaudeSkill(workspaceRoot, "grill-me", GRILL_ME_CONTENT);
+        yield* writeClaudeSkill(workspaceRoot, "broken-skill", BROKEN_CONTENT);
 
-        const adapter = yield* makeClaudeSkillAdapter(tempDir);
-        const fenrirSkillsPath = path.join(tempDir, ".fenrir", "skills");
+        const adapter = yield* makeClaudeSkillAdapter(workspaceRoot);
+        const imported = yield* importProviderSkills(statePaths, [adapter]);
 
-        const imported = yield* importProviderSkills(fenrirSkillsPath, [adapter]);
-
-        // Only the valid skill is imported
         expect(imported).toEqual(["grill-me"]);
-
-        const grillPath = path.join(fenrirSkillsPath, "grill-me", "skill.md");
-        expect(yield* fs.exists(grillPath)).toBe(true);
-
-        // Broken skill directory should not exist in Fenrir
-        const brokenPath = path.join(fenrirSkillsPath, "broken-skill", "skill.md");
-        expect(yield* fs.exists(brokenPath)).toBe(false);
+        expect(
+          yield* fs.exists(path.join(statePaths.generalSkillsDir, "broken-skill", "skill.md")),
+        ).toBe(false);
       }),
     );
 
-    it.effect("name collision: first adapter wins, second is logged and skipped", () =>
+    it.effect("preserves provider-specific overlay files in internal provider storage", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const tempDir1 = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-a-" });
-        const tempDir2 = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-b-" });
-        const fenrirRoot = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-fenrir-" });
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const statePaths = getStatePaths(workspaceRoot, path);
 
-        // Both adapters expose a skill named "grill-me" with different bodies
-        yield* writeClaudeSkill(tempDir1, "grill-me", GRILL_ME_CONTENT);
+        yield* writeCodexSkill({
+          workspaceRoot,
+          name: "grill-me",
+          entryContent: GRILL_ME_CONTENT,
+          overlayFiles: {
+            "agents/openai.yaml": "model: gpt-5\n",
+          },
+        });
+
+        const adapter = yield* makeCodexSkillAdapter(workspaceRoot);
+        const imported = yield* importProviderSkills(statePaths, [adapter]);
+
+        expect(imported).toEqual(["grill-me"]);
+        expect(
+          yield* fs.exists(
+            path.join(statePaths.providerSkillsDir, "codex", "grill-me", "agents", "openai.yaml"),
+          ),
+        ).toBe(true);
+        const index = yield* readIndex(path.join(statePaths.skillIndexDir, "grill-me.json"));
+        expect(index.files).toContainEqual({
+          relativePath: "agents/openai.yaml",
+          scope: { kind: "providerSpecific", provider: "codex" },
+        });
+      }),
+    );
+
+    it.effect("uses adapter priority when the same skill exists in multiple providers", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const statePaths = getStatePaths(workspaceRoot, path);
+
         yield* writeClaudeSkill(
-          tempDir2,
+          workspaceRoot,
           "grill-me",
-          `---\nname: grill-me\ndescription: Different adapter\n---\n\nDifferent body from adapter 2.\n`,
+          `---\nname: grill-me\ndescription: Lower priority copy\n---\n\nReview the code carefully.\n`,
+        );
+        yield* writeCodexSkill({
+          workspaceRoot,
+          name: "grill-me",
+          entryContent: GRILL_ME_CONTENT,
+        });
+
+        const claudeAdapter = yield* makeClaudeSkillAdapter(workspaceRoot);
+        const codexAdapter = yield* makeCodexSkillAdapter(workspaceRoot);
+        const imported = yield* importProviderSkills(statePaths, [claudeAdapter, codexAdapter]);
+
+        expect(imported).toEqual(["grill-me"]);
+        const content = yield* fs.readFileString(
+          path.join(statePaths.generalSkillsDir, "grill-me", "skill.md"),
+        );
+        expect(content).toContain("Interview me relentlessly.");
+        expect(content).not.toContain("Review the code carefully.");
+      }),
+    );
+
+    it.effect("deduplicates identical files from multiple providers into general storage", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const statePaths = getStatePaths(workspaceRoot, path);
+
+        yield* writeCodexSkill({
+          workspaceRoot,
+          name: "grill-me",
+          entryContent: GRILL_ME_CONTENT,
+          overlayFiles: {
+            "agents/shared.md": "same bytes\n",
+          },
+        });
+        yield* writeClaudeSkill(workspaceRoot, "grill-me", GRILL_ME_CONTENT);
+        yield* fs.makeDirectory(
+          path.join(workspaceRoot, ".claude", "skills", "grill-me", "agents"),
+          { recursive: true },
+        );
+        yield* fs.writeFileString(
+          path.join(workspaceRoot, ".claude", "skills", "grill-me", "agents", "shared.md"),
+          "same bytes\n",
         );
 
-        const adapter1 = yield* makeClaudeSkillAdapter(tempDir1);
-        const adapter2 = yield* makeClaudeSkillAdapter(tempDir2);
-        const fenrirSkillsPath = path.join(fenrirRoot, ".fenrir", "skills");
+        const codexAdapter = yield* makeCodexSkillAdapter(workspaceRoot);
+        const claudeAdapter = yield* makeClaudeSkillAdapter(workspaceRoot);
+        yield* importProviderSkills(statePaths, [claudeAdapter, codexAdapter]);
 
-        const imported = yield* importProviderSkills(fenrirSkillsPath, [adapter1, adapter2]);
+        expect(
+          yield* fs.exists(
+            path.join(statePaths.generalSkillsDir, "grill-me", "agents", "shared.md"),
+          ),
+        ).toBe(true);
+        expect(
+          yield* fs.exists(
+            path.join(statePaths.providerSkillsDir, "codex", "grill-me", "agents", "shared.md"),
+          ),
+        ).toBe(false);
+        expect(
+          yield* fs.exists(
+            path.join(
+              statePaths.providerSkillsDir,
+              "claudeAgent",
+              "grill-me",
+              "agents",
+              "shared.md",
+            ),
+          ),
+        ).toBe(false);
 
-        // Only one copy should be imported
-        expect(imported).toEqual(["grill-me"]);
-
-        // The first adapter's body should win
-        const skillPath = path.join(fenrirSkillsPath, "grill-me", "skill.md");
-        const content = yield* fs.readFileString(skillPath);
-        expect(content).toContain("Interview me relentlessly.");
-        expect(content).not.toContain("Different body from adapter 2.");
+        const index = yield* readIndex(path.join(statePaths.skillIndexDir, "grill-me.json"));
+        expect(index.files).toContainEqual({
+          relativePath: "agents/shared.md",
+          scope: { kind: "general" },
+        });
       }),
     );
 
-    it.effect("returns empty array when no provider has skills", () =>
+    it.effect("preserves divergent files from multiple providers as provider overlays", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
+        const statePaths = getStatePaths(workspaceRoot, path);
 
-        const adapter = yield* makeClaudeSkillAdapter(tempDir);
-        const fenrirSkillsPath = path.join(tempDir, ".fenrir", "skills");
-
-        const imported = yield* importProviderSkills(fenrirSkillsPath, [adapter]);
-        expect(imported).toEqual([]);
-      }),
-    );
-
-    it.effect("preserves description and name from provider", () =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
-
-        yield* writeClaudeSkill(tempDir, "code-review", CODE_REVIEW_CONTENT);
-
-        const adapter = yield* makeClaudeSkillAdapter(tempDir);
-        const fenrirSkillsPath = path.join(tempDir, ".fenrir", "skills");
-
-        yield* importProviderSkills(fenrirSkillsPath, [adapter]);
-
-        const skillPath = path.join(fenrirSkillsPath, "code-review", "skill.md");
-        const content = yield* fs.readFileString(skillPath);
-
-        expect(content).toContain("name: code-review");
-        expect(content).toContain("displayName: Code Review");
-        expect(content).toContain("description: Review code for quality");
-        expect(content).toContain("Review the code carefully.");
-      }),
-    );
-  });
-
-  // ── Round-trip ─────────────────────────────────────────────────
-
-  describe("round-trip", () => {
-    it.effect("imported skill body is preserved; re-sync to provider dir is unchanged", () =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "skill-import-" });
-
-        // Step 1: write a skill to the Claude provider dir
-        const originalBody = "Interview me relentlessly about every detail.";
-        yield* writeClaudeSkill(
-          tempDir,
-          "grill-me",
-          `---\nname: grill-me\ndescription: Interview relentlessly\n---\n\n${originalBody}\n`,
+        yield* writeCodexSkill({
+          workspaceRoot,
+          name: "grill-me",
+          entryContent: GRILL_ME_CONTENT,
+          overlayFiles: {
+            "agents/shared.md": "codex bytes\n",
+          },
+        });
+        yield* writeClaudeSkill(workspaceRoot, "grill-me", GRILL_ME_CONTENT);
+        yield* fs.makeDirectory(
+          path.join(workspaceRoot, ".claude", "skills", "grill-me", "agents"),
+          { recursive: true },
+        );
+        yield* fs.writeFileString(
+          path.join(workspaceRoot, ".claude", "skills", "grill-me", "agents", "shared.md"),
+          "claude bytes\n",
         );
 
-        // Step 2: import into Fenrir
-        const adapter = yield* makeClaudeSkillAdapter(tempDir);
-        const fenrirSkillsPath = path.join(tempDir, ".fenrir", "skills");
+        const codexAdapter = yield* makeCodexSkillAdapter(workspaceRoot);
+        const claudeAdapter = yield* makeClaudeSkillAdapter(workspaceRoot);
+        yield* importProviderSkills(statePaths, [claudeAdapter, codexAdapter]);
 
-        const imported = yield* importProviderSkills(fenrirSkillsPath, [adapter]);
-        expect(imported).toEqual(["grill-me"]);
+        expect(
+          yield* fs.exists(
+            path.join(statePaths.generalSkillsDir, "grill-me", "agents", "shared.md"),
+          ),
+        ).toBe(false);
+        expect(
+          yield* fs.exists(
+            path.join(statePaths.providerSkillsDir, "codex", "grill-me", "agents", "shared.md"),
+          ),
+        ).toBe(true);
+        expect(
+          yield* fs.exists(
+            path.join(
+              statePaths.providerSkillsDir,
+              "claudeAgent",
+              "grill-me",
+              "agents",
+              "shared.md",
+            ),
+          ),
+        ).toBe(true);
 
-        // Step 3: verify Fenrir skill.md preserves the original body
-        const fenrirSkillPath = path.join(fenrirSkillsPath, "grill-me", "skill.md");
-        const fenrirContent = yield* fs.readFileString(fenrirSkillPath);
-        expect(fenrirContent).toContain(originalBody);
-
-        // Step 4: parse and validate the Fenrir skill
-        const rawFenrir = yield* parseSkillFile(fenrirSkillPath);
-        const validated = yield* validateSkillFile(rawFenrir);
-
-        expect(validated.name).toBe("grill-me");
-        expect(validated.body.trim()).toBe(originalBody);
-        expect(validated.displayName).toBe("Grill Me");
-        expect(validated.enabled).toBe(true);
-        expect(Array.from(validated.tags)).toEqual([]);
-
-        // Step 5: re-sync the imported skill back to the provider dir
-        yield* adapter.writeSkillToProvider({ ...validated, syncStatus: [] });
-
-        // Claude SKILL.md must still contain the original body (round-trip unchanged)
-        const claudeSkillPath = path.join(tempDir, ".claude", "skills", "grill-me", "SKILL.md");
-        const claudeContent = yield* fs.readFileString(claudeSkillPath);
-        expect(claudeContent).toContain(originalBody);
-
-        // Claude SKILL.md must NOT contain Fenrir-only fields
-        expect(claudeContent).not.toContain("displayName:");
-        expect(claudeContent).not.toContain("tags:");
-        expect(claudeContent).not.toContain("enabled:");
+        const index = yield* readIndex(path.join(statePaths.skillIndexDir, "grill-me.json"));
+        expect(index.files).toContainEqual({
+          relativePath: "agents/shared.md",
+          scope: { kind: "providerSpecific", provider: "codex" },
+        });
+        expect(index.files).toContainEqual({
+          relativePath: "agents/shared.md",
+          scope: { kind: "providerSpecific", provider: "claudeAgent" },
+        });
       }),
     );
   });
