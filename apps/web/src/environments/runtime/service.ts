@@ -643,6 +643,57 @@ function stopActiveService() {
   activeService = null;
 }
 
+function reconnectEnvironmentConnectionsAfterBrowserResume(reason: string): void {
+  const now = Date.now();
+  if (now - lastBrowserResumeReconnectAt < BROWSER_RESUME_RECONNECT_COOLDOWN_MS) {
+    return;
+  }
+
+  for (const connection of environmentConnections.values()) {
+    if (connection.client.isHeartbeatFresh()) {
+      continue;
+    }
+    lastBrowserResumeReconnectAt = now;
+    void connection.reconnect().catch((error) => {
+      console.warn("Environment reconnect after browser resume failed", {
+        environmentId: connection.environmentId,
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+}
+
+function subscribeBrowserResumeReconnects(): () => void {
+  if (typeof document === "undefined" || typeof window === "undefined") {
+    return NOOP;
+  }
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "hidden") {
+      lastBrowserHiddenAt = Date.now();
+      return;
+    }
+    if (document.visibilityState === "visible" && lastBrowserHiddenAt !== null) {
+      lastBrowserHiddenAt = null;
+      reconnectEnvironmentConnectionsAfterBrowserResume("visibilitychange");
+    }
+  };
+
+  const handlePageShow = (event: PageTransitionEvent) => {
+    if (event.persisted || lastBrowserHiddenAt !== null) {
+      lastBrowserHiddenAt = null;
+      reconnectEnvironmentConnectionsAfterBrowserResume("pageshow");
+    }
+  };
+
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("pageshow", handlePageShow);
+  return () => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.removeEventListener("pageshow", handlePageShow);
+  };
+}
 export function subscribeEnvironmentConnections(listener: () => void): () => void {
   environmentConnectionListeners.add(listener);
   return () => {
