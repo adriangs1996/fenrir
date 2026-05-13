@@ -8,18 +8,27 @@ import type { FeatureSummary } from "@fenrir/contracts";
  *  - `notRun`     — no stored run yet (`lastRunId === null`)
  *  - `running`    — a run is active (`hasActiveRun`) and not in `recovering`
  *  - `recovering` — a run is active and `lastRunState === "recovering"`
+ *  - `stopped`    — a run is paused and resumable
  *  - `passed`     — terminal: `lastRunState === "completed"`
  *  - `failed`     — terminal: `lastRunState === "failed"`
  *
  * Defaults to `notRun` when the summary lacks enough information.
  */
-export type FeatureRunStatus = "notRun" | "running" | "recovering" | "passed" | "failed";
+export type FeatureRunStatus =
+  | "notRun"
+  | "running"
+  | "recovering"
+  | "stopped"
+  | "passed"
+  | "failed";
 
 export function getFeatureRunStatus(feature: FeatureSummary): FeatureRunStatus {
   if (feature.hasActiveRun) {
+    if (feature.lastRunState === "stopped") return "stopped";
     return feature.lastRunState === "recovering" ? "recovering" : "running";
   }
   if (!feature.lastRunId) return "notRun";
+  if (feature.lastRunState === "stopped") return "stopped";
   if (feature.lastRunState === "completed") return "passed";
   if (feature.lastRunState === "failed") return "failed";
   // Active run flag flipped off but a non-terminal lastRunState is recorded —

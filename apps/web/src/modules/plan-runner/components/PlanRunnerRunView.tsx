@@ -2,6 +2,7 @@ import {
   AlertCircleIcon,
   ArrowLeftIcon,
   Loader2Icon,
+  PlayIcon,
   RefreshCwIcon,
   SquareIcon,
 } from "lucide-react";
@@ -54,6 +55,7 @@ const PHASE_BADGE_VARIANT: Record<
   analyzing: "info",
   executing: "warning",
   integrating: "warning",
+  stopped: "warning",
   completed: "success",
   failed: "destructive",
 };
@@ -142,6 +144,33 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
     void rpcClient.planRunner.cancel({ runId: brandedRunId });
   }, [rpcClient, brandedRunId]);
 
+  const [runAction, setRunAction] = useState<"stop" | "resume" | null>(null);
+  const [runActionError, setRunActionError] = useState<string | null>(null);
+
+  const handleStop = useCallback(async () => {
+    if (!rpcClient) return;
+    setRunAction("stop");
+    setRunActionError(null);
+    try {
+      await rpcClient.planRunner.stop({ runId: brandedRunId });
+    } catch (err) {
+      setRunActionError(err instanceof Error ? err.message : "Failed to stop run");
+      setRunAction(null);
+    }
+  }, [rpcClient, brandedRunId]);
+
+  const handleResume = useCallback(async () => {
+    if (!rpcClient) return;
+    setRunAction("resume");
+    setRunActionError(null);
+    try {
+      await rpcClient.planRunner.resume({ runId: brandedRunId });
+    } catch (err) {
+      setRunActionError(err instanceof Error ? err.message : "Failed to resume run");
+      setRunAction(null);
+    }
+  }, [rpcClient, brandedRunId]);
+
   const featureSummary = usePlanRunnerStore((s): FeatureSummary | null => {
     if (!run) return null;
     const features = s.featuresByProjectId[run.projectId];
@@ -151,7 +180,11 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
   const featureStatus = featureSummary ? getFeatureRunStatus(featureSummary) : "notRun";
   const startBlocked = featureSummary ? isFeatureStartBlocked(featureSummary) : false;
   const blockedReason =
-    featureStatus === "recovering" ? "Recovery in progress" : "Run already in progress";
+    featureStatus === "recovering"
+      ? "Recovery in progress"
+      : featureStatus === "stopped"
+        ? "Run is stopped. Resume it to continue."
+        : "Run already in progress";
 
   const [isStarting, setIsStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
@@ -226,7 +259,20 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
   useEffect(() => {
     setStartError(null);
     setIsStarting(false);
+    setRunAction(null);
+    setRunActionError(null);
   }, [runId]);
+
+  useEffect(() => {
+    if (
+      run?.state === "stopped" ||
+      run?.state === "executing" ||
+      run?.state === "analyzing" ||
+      run?.state === "integrating"
+    ) {
+      setRunAction(null);
+    }
+  }, [run?.state]);
 
   // Live-tab stickiness:
   //   • When the panel transitions from absent → present, auto-select the
@@ -351,7 +397,7 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
   }
 
   const isTerminal = run.state === "completed" || run.state === "failed";
-  const showLivePanel = activeSteps.length > 0;
+  const showLivePanel = run.state !== "stopped" && activeSteps.length > 0;
   const cwd = run.worktreePath ?? undefined;
 
   return (
@@ -375,13 +421,47 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
           </div>
         </div>
 
-        {!isTerminal && (
-          <Button variant="destructive" size="sm" onClick={handleCancel}>
-            <SquareIcon className="mr-1.5 size-3" />
-            Cancel
+        {!isTerminal && run.state !== "stopped" && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleStop}
+              disabled={runAction === "stop"}
+            >
+              {runAction === "stop" ? (
+                <Loader2Icon className="mr-1.5 size-3 animate-spin" />
+              ) : (
+                <SquareIcon className="mr-1.5 size-3" />
+              )}
+              Stop
+            </Button>
+            <Button variant="destructive" size="sm" onClick={handleCancel}>
+              <SquareIcon className="mr-1.5 size-3" />
+              Cancel
+            </Button>
+          </div>
+        )}
+        {run.state === "stopped" && (
+          <Button size="sm" onClick={handleResume} disabled={runAction === "resume"}>
+            {runAction === "resume" ? (
+              <Loader2Icon className="mr-1.5 size-3 animate-spin" />
+            ) : (
+              <PlayIcon className="mr-1.5 size-3 fill-current" />
+            )}
+            Resume
           </Button>
         )}
       </div>
+
+      {runActionError && (
+        <div className="border-b px-4 py-3">
+          <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <AlertCircleIcon className="size-4 shrink-0" />
+            {runActionError}
+          </div>
+        </div>
+      )}
 
       {isTerminal && (
         <div className="border-b px-4 py-4">
@@ -439,10 +519,11 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
       <div className="flex items-center gap-1 border-b px-4 py-2">
         {(() => {
           const isFailed = run.state === "failed";
-          const currentIdx = isFailed ? -1 : PROGRESSION_PHASES.indexOf(run.state);
+          const isStopped = run.state === "stopped";
+          const currentIdx = isFailed || isStopped ? -1 : PROGRESSION_PHASES.indexOf(run.state);
           return PROGRESSION_PHASES.map((phase, i) => {
-            const isActive = !isFailed && i === currentIdx;
-            const isPast = !isFailed && i < currentIdx;
+            const isActive = !isFailed && !isStopped && i === currentIdx;
+            const isPast = !isFailed && !isStopped && i < currentIdx;
             return (
               <div key={phase} className="flex items-center gap-1">
                 {i > 0 && (
@@ -469,6 +550,14 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
             <div className="h-px w-4 bg-destructive" />
             <Badge variant="destructive" size="sm">
               failed
+            </Badge>
+          </>
+        )}
+        {run.state === "stopped" && (
+          <>
+            <div className="h-px w-4 bg-warning" />
+            <Badge variant="warning" size="sm">
+              stopped
             </Badge>
           </>
         )}

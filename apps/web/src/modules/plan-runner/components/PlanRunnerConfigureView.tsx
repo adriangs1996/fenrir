@@ -100,7 +100,11 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
   );
   const startBlocked = featureSummary ? isFeatureStartBlocked(featureSummary) : false;
   const blockedReason =
-    featureStatus === "recovering" ? "Recovery in progress" : "Run already in progress";
+    featureStatus === "recovering"
+      ? "Recovery in progress"
+      : featureStatus === "stopped"
+        ? "Run is stopped. Resume it from the run view."
+        : "Run already in progress";
 
   const handleViewCurrentRun = useCallback(() => {
     if (!featureSummary?.activeRunId) return;

@@ -144,6 +144,7 @@ import {
   formatEditorContextLabel,
   useEditorStore,
 } from "~/modules/neovim-editor";
+import { resolveTerminalCloseFocusTarget } from "~/modules/neovim-editor/focus";
 import {
   useDesktopBridgeAvailable,
   useIsMainWindow,
@@ -737,6 +738,7 @@ export default function ChatView(props: ChatViewProps) {
   const planSidebarOpenOnNextThreadRef = useRef(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
+  const [editorFocusRequestId, setEditorFocusRequestId] = useState(0);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
   const [terminalLaunchContext, setTerminalLaunchContext] = useState<TerminalLaunchContext | null>(
@@ -1660,6 +1662,9 @@ export default function ChatView(props: ChatViewProps) {
 
   const focusComposer = useCallback(() => {
     composerRef.current?.focusAtEnd();
+  }, []);
+  const requestEditorFocus = useCallback(() => {
+    setEditorFocusRequestId((value) => value + 1);
   }, []);
   const scheduleComposerFocus = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -2608,6 +2613,14 @@ export default function ChatView(props: ChatViewProps) {
     } else if (previous && !current) {
       terminalOpenByThreadRef.current[activeThreadKey] = current;
       const frame = window.requestAnimationFrame(() => {
+        const focusTarget = resolveTerminalCloseFocusTarget({
+          activeChatTab,
+          editorAvailable,
+        });
+        if (focusTarget === "editor") {
+          requestEditorFocus();
+          return;
+        }
         focusComposer();
       });
       return () => {
@@ -2616,7 +2629,14 @@ export default function ChatView(props: ChatViewProps) {
     }
 
     terminalOpenByThreadRef.current[activeThreadKey] = current;
-  }, [activeThreadKey, focusComposer, terminalState.terminalOpen]);
+  }, [
+    activeChatTab,
+    activeThreadKey,
+    editorAvailable,
+    focusComposer,
+    requestEditorFocus,
+    terminalState.terminalOpen,
+  ]);
 
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
@@ -3852,7 +3872,12 @@ export default function ChatView(props: ChatViewProps) {
             ) : null}
           </div>
           {/* end thread tab */}
-          {editorAvailable && <EditorPane visible={activeChatTab === "editor"} />}
+          {editorAvailable && (
+            <EditorPane
+              visible={activeChatTab === "editor"}
+              focusRequestId={editorFocusRequestId}
+            />
+          )}
         </div>
         {/* end chat column */}
 

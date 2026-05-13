@@ -33,6 +33,7 @@ export const FeatureState = Schema.Literals([
   "analyzing",
   "executing",
   "integrating",
+  "stopped",
   "completed",
   "failed",
   "recovering",
@@ -153,6 +154,12 @@ export type PlanRunnerGetStatusInput = typeof PlanRunnerGetStatusInput.Type;
 
 export const PlanRunnerCancelInput = Schema.Struct({ runId: PlanRunId });
 export type PlanRunnerCancelInput = typeof PlanRunnerCancelInput.Type;
+
+export const PlanRunnerStopInput = Schema.Struct({ runId: PlanRunId });
+export type PlanRunnerStopInput = typeof PlanRunnerStopInput.Type;
+
+export const PlanRunnerResumeInput = Schema.Struct({ runId: PlanRunId });
+export type PlanRunnerResumeInput = typeof PlanRunnerResumeInput.Type;
 
 // ─── List Features ───────────────────────────────────────────
 

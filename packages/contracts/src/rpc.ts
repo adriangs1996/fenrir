@@ -102,6 +102,8 @@ import {
   PlanRunnerGetStatusInput,
   PlanRunSnapshot,
   PlanRunnerCancelInput,
+  PlanRunnerStopInput,
+  PlanRunnerResumeInput,
   PlanRunnerError,
   PlanRunnerNotFoundError,
   PlanRunnerEvent,
@@ -219,6 +221,8 @@ export const WS_METHODS = {
   planRunnerStart: "planRunner.start",
   planRunnerGetStatus: "planRunner.getStatus",
   planRunnerCancel: "planRunner.cancel",
+  planRunnerStop: "planRunner.stop",
+  planRunnerResume: "planRunner.resume",
   subscribePlanRunnerEvents: "subscribePlanRunnerEvents",
   planRunnerListFeatures: "planRunner.listFeatures",
   planRunnerGetFeaturePlans: "planRunner.getFeaturePlans",
@@ -608,6 +612,16 @@ export const WsPlanRunnerCancelRpc = Rpc.make(WS_METHODS.planRunnerCancel, {
   error: Schema.Union([PlanRunnerError, PlanRunnerNotFoundError]),
 });
 
+export const WsPlanRunnerStopRpc = Rpc.make(WS_METHODS.planRunnerStop, {
+  payload: PlanRunnerStopInput,
+  error: Schema.Union([PlanRunnerError, PlanRunnerNotFoundError]),
+});
+
+export const WsPlanRunnerResumeRpc = Rpc.make(WS_METHODS.planRunnerResume, {
+  payload: PlanRunnerResumeInput,
+  error: Schema.Union([PlanRunnerError, PlanRunnerNotFoundError]),
+});
+
 export const WsSubscribePlanRunnerEventsRpc = Rpc.make(WS_METHODS.subscribePlanRunnerEvents, {
   payload: Schema.Struct({}),
   success: PlanRunnerEvent,
@@ -773,6 +787,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsPlanRunnerStartRpc,
   WsPlanRunnerGetStatusRpc,
   WsPlanRunnerCancelRpc,
+  WsPlanRunnerStopRpc,
+  WsPlanRunnerResumeRpc,
   WsSubscribePlanRunnerEventsRpc,
   WsPlanRunnerListFeaturesRpc,
   WsPlanRunnerGetFeaturePlansRpc,

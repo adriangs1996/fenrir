@@ -39,6 +39,14 @@ export interface PlanRunnerServiceShape {
     runId: PlanRunId,
   ) => Effect.Effect<void, PlanRunnerNotFoundError | PlanRunnerError>;
 
+  readonly stop: (
+    runId: PlanRunId,
+  ) => Effect.Effect<void, PlanRunnerNotFoundError | PlanRunnerError>;
+
+  readonly resume: (
+    runId: PlanRunId,
+  ) => Effect.Effect<void, PlanRunnerNotFoundError | PlanRunnerError>;
+
   readonly listFeatures: (input: { readonly projectId: ProjectId }) => Effect.Effect<
     {
       features: Array<{
@@ -51,6 +59,7 @@ export interface PlanRunnerServiceShape {
           | "analyzing"
           | "executing"
           | "integrating"
+          | "stopped"
           | "completed"
           | "failed"
           | "recovering"

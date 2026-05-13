@@ -59,6 +59,20 @@ describe("getFeatureRunStatus", () => {
     ).toBe("recovering");
   });
 
+  it("returns 'stopped' when an active run is paused", () => {
+    expect(
+      getFeatureRunStatus(
+        makeFeature({
+          hasActiveRun: true,
+          activeRunId: rid("run-1"),
+          lastRunId: rid("run-1"),
+          lastRunState: "stopped",
+          lastRunUpdatedAt: ts("2026-04-01T00:00:00.000Z"),
+        }),
+      ),
+    ).toBe("stopped");
+  });
+
   it("returns 'passed' on a completed terminal run", () => {
     expect(
       getFeatureRunStatus(
@@ -94,6 +108,18 @@ describe("getFeatureRunStatus", () => {
       ),
     ).toBe("recovering");
   });
+
+  it("returns 'stopped' when a paused run is the latest stored run", () => {
+    expect(
+      getFeatureRunStatus(
+        makeFeature({
+          lastRunId: rid("run-1"),
+          lastRunState: "stopped",
+          lastRunUpdatedAt: ts("2026-04-01T00:00:00.000Z"),
+        }),
+      ),
+    ).toBe("stopped");
+  });
 });
 
 describe("isFeatureStartBlocked", () => {
@@ -118,6 +144,19 @@ describe("isFeatureStartBlocked", () => {
           activeRunId: rid("run-1"),
           lastRunId: rid("run-1"),
           lastRunState: "recovering",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks Start while a run is stopped and waiting to resume", () => {
+    expect(
+      isFeatureStartBlocked(
+        makeFeature({
+          hasActiveRun: true,
+          activeRunId: rid("run-1"),
+          lastRunId: rid("run-1"),
+          lastRunState: "stopped",
         }),
       ),
     ).toBe(true);

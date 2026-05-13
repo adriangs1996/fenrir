@@ -13,6 +13,7 @@ interface Props {
    * but stays mounted so canvas state, GL renderer and frame stream stay warm.
    */
   visible: boolean;
+  focusRequestId?: number;
 }
 
 /**
@@ -23,7 +24,7 @@ interface Props {
  * cwd push is handled at the app shell via `useEditorCwdSync` — this pane
  * only renders the surface.
  */
-export function EditorPane({ visible }: Props) {
+export function EditorPane({ visible, focusRequestId = 0 }: Props) {
   const bridge = useDesktopBridgeAvailable();
   const main = useIsMainWindow();
   const nvimReady = useNvimAvailable();
@@ -68,7 +69,12 @@ export function EditorPane({ visible }: Props) {
       style={{ display: visible ? "block" : "none" }}
       data-testid="editor-pane"
     >
-      <RenderSurface fps={120} visible={visible} style={{ width: "100%", height: "100%" }} />
+      <RenderSurface
+        fps={120}
+        visible={visible}
+        focusRequestId={focusRequestId}
+        style={{ width: "100%", height: "100%" }}
+      />
     </div>
   );
 }

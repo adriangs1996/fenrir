@@ -41,6 +41,7 @@ interface RenderSurfaceProps {
    * on every false→true transition rather than only on mount.
    */
   visible?: boolean;
+  focusRequestId?: number;
 }
 
 const NERD_FONT_FALLBACK = [...NERD_FONT_FALLBACK_FAMILIES, "monospace"];
@@ -105,7 +106,13 @@ function measureEditorMetrics(prefs: EditorFontPrefs): EditorFontMetrics {
   };
 }
 
-export function RenderSurface({ fps = 120, className, style, visible = true }: RenderSurfaceProps) {
+export function RenderSurface({
+  fps = 120,
+  className,
+  style,
+  visible = true,
+  focusRequestId = 0,
+}: RenderSurfaceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<GLRenderer | null>(null);
@@ -152,7 +159,7 @@ export function RenderSurface({ fps = 120, className, style, visible = true }: R
   useEffect(() => {
     if (!visible) return;
     canvasRef.current?.focus({ preventScroll: true });
-  }, [visible]);
+  }, [visible, focusRequestId]);
 
   useEffect(() => {
     const bridge = window.desktopBridge;

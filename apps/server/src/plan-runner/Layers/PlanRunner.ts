@@ -73,7 +73,7 @@ interface PlanRunState {
   startedAt: string;
   completedAt: string | null;
   summary: string | null;
-  cancelled: boolean;
+  haltReason: "none" | "stop" | "cancel";
   modelSelection: ModelSelection;
   maxConcurrency: number;
   /**
@@ -241,9 +241,19 @@ const featureKey = (projectId: ProjectId, featureName: string) => `${projectId}:
 const stepLogKey = (runId: PlanRunId, stepKey: string) => `${runId}:${stepKey}`;
 
 const TERMINAL_FEATURE_STATES: ReadonlyArray<FeatureState> = ["completed", "failed"] as const;
+const ACTIVE_FEATURE_STATES: ReadonlyArray<FeatureState> = [
+  "analyzing",
+  "executing",
+  "integrating",
+  "stopped",
+  "recovering",
+] as const;
 
 const isTerminalFeatureState = (state: FeatureState): boolean =>
   TERMINAL_FEATURE_STATES.includes(state);
+
+const isActiveFeatureState = (state: FeatureState): boolean =>
+  ACTIVE_FEATURE_STATES.includes(state);
 
 const ARCHIVE_DIR_NAME = ".archive";
 const ARCHIVE_SUFFIX = "--archived-";
@@ -845,6 +855,7 @@ export const PlanRunnerLive = Layer.effect(
             | "analyzing"
             | "executing"
             | "integrating"
+            | "stopped"
             | "completed"
             | "failed"
             | "recovering"
@@ -873,7 +884,7 @@ export const PlanRunnerLive = Layer.effect(
           // dispatches lags the in-memory mutation by at most one tick.
           for (const run of memoryRuns.values()) {
             if (run.projectId !== projectId || run.featureName !== featureName) continue;
-            const runActive = !isTerminalFeatureState(run.state);
+            const runActive = isActiveFeatureState(run.state);
             if (runActive) {
               hasActiveRun = true;
               activeRunId = run.runId;
@@ -957,7 +968,7 @@ export const PlanRunnerLive = Layer.effect(
           if (
             existing.featureName === featureName &&
             existing.projectId === projectId &&
-            !isTerminalFeatureState(existing.state)
+            isActiveFeatureState(existing.state)
           ) {
             return yield* new PlanRunnerError({
               message: `Run already active for feature "${featureName}"` as any,
@@ -980,7 +991,7 @@ export const PlanRunnerLive = Layer.effect(
                 }),
             ),
           );
-        if (Option.isSome(persistedRun) && !isTerminalFeatureState(persistedRun.value.state)) {
+        if (Option.isSome(persistedRun) && isActiveFeatureState(persistedRun.value.state)) {
           return yield* new PlanRunnerError({
             message:
               `Persisted run for feature "${featureName}" is still ${persistedRun.value.state}; cannot start a new run.` as any,
@@ -1159,6 +1170,39 @@ export const PlanRunnerLive = Layer.effect(
         return { threadId };
       });
 
+    const startThreadTurnWithPrompt = (input: {
+      threadId: string;
+      prompt: string;
+      modelSelection: ModelSelection;
+      createdAt?: string;
+    }) =>
+      Effect.gen(function* () {
+        const readModel = yield* orchestrationEngine.getReadModel();
+        const thread = readModel.threads.find((entry) => entry.id === input.threadId);
+        if (thread?.session?.activeTurnId != null) {
+          return;
+        }
+
+        const turnCommandId = CommandId.makeUnsafe(`plan-runner:turn:${makeId()}`);
+        const messageId = MessageId.makeUnsafe(makeId());
+
+        yield* orchestrationEngine.dispatch({
+          type: "thread.turn.start",
+          commandId: turnCommandId,
+          threadId: ThreadId.makeUnsafe(input.threadId),
+          message: {
+            messageId,
+            role: "user",
+            text: input.prompt,
+            attachments: [],
+          },
+          modelSelection: input.modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: input.createdAt ?? now(),
+        });
+      });
+
     // ── Wait for thread turn completion ───────────────────────────────
 
     const POLL_INTERVAL_MS = 3_000;
@@ -1169,7 +1213,12 @@ export const PlanRunnerLive = Layer.effect(
     const waitForThreadTurnComplete = (
       targetThreadId: string,
       run?: PlanRunState,
-    ): Effect.Effect<{ ok: boolean; error: string | null }, never, never> => {
+    ): Effect.Effect<
+      | { status: "completed"; error: null }
+      | { status: "cancelled" | "stopped" | "error"; error: string },
+      never,
+      never
+    > => {
       const startedAtMs = Date.now();
       const waitStartedAtIso = new Date(startedAtMs).toISOString();
       // Track whether we've ever observed activeTurnId !== null.
@@ -1177,88 +1226,94 @@ export const PlanRunnerLive = Layer.effect(
       // from "turn ran and completed (activeTurnId back to null)".
       let turnWasActive = false;
 
-      const poll: Effect.Effect<{ ok: boolean; error: string | null }, never, never> = Effect.gen(
-        function* () {
-          // Check cancellation if run context is provided
-          if (run?.cancelled) {
-            return { ok: false, error: "Run cancelled" };
-          }
+      const poll: Effect.Effect<
+        | { status: "completed"; error: null }
+        | { status: "cancelled" | "stopped" | "error"; error: string },
+        never,
+        never
+      > = Effect.gen(function* () {
+        if (run?.haltReason === "cancel") {
+          return { status: "cancelled", error: "Run cancelled" };
+        }
+        if (run?.haltReason === "stop") {
+          return { status: "stopped", error: "Run stopped" };
+        }
 
-          const elapsedMs = Date.now() - startedAtMs;
+        const elapsedMs = Date.now() - startedAtMs;
 
-          // Absolute timeout — prevent infinite hangs
-          if (elapsedMs > MAX_POLL_WAIT_MS) {
+        // Absolute timeout — prevent infinite hangs
+        if (elapsedMs > MAX_POLL_WAIT_MS) {
+          return {
+            status: "error",
+            error: `Turn did not complete within ${MAX_POLL_WAIT_MS / 1000}s timeout`,
+          };
+        }
+
+        const readModel = yield* orchestrationEngine.getReadModel();
+        const thread = readModel.threads.find((t) => t.id === targetThreadId);
+
+        if (!thread) {
+          return { status: "error", error: `Thread ${targetThreadId} not found` };
+        }
+
+        const providerTurnStartFailure = findRecentProviderTurnStartFailure(
+          thread,
+          waitStartedAtIso,
+        );
+        if (providerTurnStartFailure) {
+          return { status: "error", error: providerTurnStartFailure };
+        }
+
+        if (!thread.session) {
+          // Session not yet established — ProviderCommandReactor hasn't
+          // processed the turn-start-requested event yet. Expected
+          // immediately after thread creation.
+          if (elapsedMs > MAX_SESSION_WAIT_MS) {
             return {
-              ok: false,
-              error: `Turn did not complete within ${MAX_POLL_WAIT_MS / 1000}s timeout`,
+              status: "error",
+              error: `Provider session was not established within ${MAX_SESSION_WAIT_MS / 1000}s. This usually means the serialized provider command queue is still draining earlier work, such as prior thread cleanup, session teardown, or provider bootstrap.`,
             };
           }
 
-          const readModel = yield* orchestrationEngine.getReadModel();
-          const thread = readModel.threads.find((t) => t.id === targetThreadId);
+          yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
+          return yield* poll;
+        }
 
-          if (!thread) {
-            return { ok: false, error: `Thread ${targetThreadId} not found` };
-          }
+        const session = thread.session;
 
-          const providerTurnStartFailure = findRecentProviderTurnStartFailure(
-            thread,
-            waitStartedAtIso,
-          );
-          if (providerTurnStartFailure) {
-            return { ok: false, error: providerTurnStartFailure };
-          }
+        if (session.activeTurnId !== null) {
+          // Turn is running — remember we saw it active
+          turnWasActive = true;
+          yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
+          return yield* poll;
+        }
 
-          if (!thread.session) {
-            // Session not yet established — ProviderCommandReactor hasn't
-            // processed the turn-start-requested event yet. Expected
-            // immediately after thread creation.
-            if (elapsedMs > MAX_SESSION_WAIT_MS) {
-              return {
-                ok: false,
-                error: `Provider session was not established within ${MAX_SESSION_WAIT_MS / 1000}s. This usually means the serialized provider command queue is still draining earlier work, such as prior thread cleanup, session teardown, or provider bootstrap.`,
-              };
-            }
-            yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
-            return yield* poll;
-          }
+        // activeTurnId === null from here
+        if (session.status === "error" || (session.status === "stopped" && turnWasActive)) {
+          return {
+            status: "error",
+            error: session.lastError ?? "Thread session error",
+          };
+        }
 
-          const session = thread.session;
-
-          if (session.activeTurnId !== null) {
-            // Turn is running — remember we saw it active
-            turnWasActive = true;
-            yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
-            return yield* poll;
-          }
-
-          // activeTurnId === null from here
-          if (session.status === "error" || session.status === "stopped") {
+        if (!turnWasActive) {
+          // Session exists but we never saw the turn become active.
+          // The turn hasn't started yet — ProviderCommandReactor may still
+          // be sending the turn to the provider. Keep waiting.
+          if (elapsedMs > MAX_SESSION_WAIT_MS) {
             return {
-              ok: false,
-              error: session.lastError ?? "Thread session error",
+              status: "error",
+              error:
+                "Turn was never started by provider within timeout. The provider command queue may still be draining earlier work or waiting for session bootstrap to finish.",
             };
           }
+          yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
+          return yield* poll;
+        }
 
-          if (!turnWasActive) {
-            // Session exists but we never saw the turn become active.
-            // The turn hasn't started yet — ProviderCommandReactor may still
-            // be sending the turn to the provider. Keep waiting.
-            if (elapsedMs > MAX_SESSION_WAIT_MS) {
-              return {
-                ok: false,
-                error:
-                  "Turn was never started by provider within timeout. The provider command queue may still be draining earlier work or waiting for session bootstrap to finish.",
-              };
-            }
-            yield* Effect.sleep(`${POLL_INTERVAL_MS} millis`);
-            return yield* poll;
-          }
-
-          // Turn was active and now completed — success
-          return { ok: true, error: null };
-        },
-      );
+        // Turn was active and now completed — success
+        return { status: "completed", error: null };
+      });
 
       return poll;
     };
@@ -1279,6 +1334,15 @@ export const PlanRunnerLive = Layer.effect(
 
         return assistantMsg.text || null;
       });
+
+    const deriveResumeState = (snapshot: PlanRunSnapshot): FeatureState => {
+      const analyzerStep = snapshot.steps.find((step) => step.stepKey === ANALYZER_STEP_KEY);
+      if (analyzerStep && (analyzerStep.state === "ready" || analyzerStep.state === "running")) {
+        return "analyzing";
+      }
+
+      return "executing";
+    };
 
     // ── Mark dependents skipped (recursive) ───────────────────────────
 
@@ -1342,6 +1406,15 @@ export const PlanRunnerLive = Layer.effect(
           projectCwd,
           worktreePath: run.worktreePath,
         });
+        const executorPrompt = `
+You are implementing a plan as part of a larger feature. Implement completely. No TODOs. No placeholders.
+
+${workspacePromptContext}
+
+# Plan: ${plan.planId}
+# Feature: ${run.featureName}
+
+${plan.content}`;
 
         // Mark running
         plan.state = "running";
@@ -1367,15 +1440,6 @@ export const PlanRunnerLive = Layer.effect(
         // that case we resume polling instead of re-spawning.
         let executorThreadId = plan.executorThreadId;
         if (!executorThreadId) {
-          const executorPrompt = `
-You are implementing a plan as part of a larger feature. Implement completely. No TODOs. No placeholders.
-
-${workspacePromptContext}
-
-# Plan: ${plan.planId}
-# Feature: ${run.featureName}
-
-${plan.content}`;
           const bootstrapped = yield* bootstrapThreadWithPrompt({
             projectId: run.projectId,
             title: `[PlanRunner] Execute: ${plan.planId}`,
@@ -1387,16 +1451,26 @@ ${plan.content}`;
           executorThreadId = bootstrapped.threadId;
           plan.executorThreadId = executorThreadId;
           yield* persistInternalThread(run, plan.stepKey, executorThreadId, "executor");
+        } else {
+          yield* startThreadTurnWithPrompt({
+            threadId: executorThreadId,
+            prompt: executorPrompt,
+            modelSelection: run.modelSelection,
+          }).pipe(Effect.catch(() => Effect.void));
         }
 
         // Wait for executor
         const execResult = yield* waitForThreadTurnComplete(executorThreadId, run);
-        if (!execResult.ok) {
+        if (execResult.status !== "completed") {
+          if (execResult.status === "stopped" || execResult.status === "cancelled") {
+            return;
+          }
+
           // Executor failed. Archive thread.
           yield* finalizeThread(executorThreadId);
           plan.executorThreadId = null;
 
-          const failureReason = execResult.error ?? "Executor thread failed";
+          const failureReason = execResult.error;
 
           // Retry if budget remains
           if (plan.retriesUsed < plan.maxRetries) {
@@ -1726,6 +1800,10 @@ ${plan.content}`;
           });
         }
 
+        if (run.haltReason !== "none") {
+          return;
+        }
+
         if (run.state === "executing") {
           const inFlightPlanIds = new Set<string>();
           const dispatchPlan = (plan: MutablePlanNode) =>
@@ -1743,7 +1821,7 @@ ${plan.content}`;
 
           let continueLoop = true;
           while (continueLoop) {
-            if (run.cancelled) return;
+            if (run.haltReason !== "none") return;
 
             const plans = [...run.plans.values()];
             const { occupiedSlots, readyPlanIds } = computeExecutionDispatch({
@@ -1771,6 +1849,10 @@ ${plan.content}`;
               { discard: true },
             );
           }
+        }
+
+        if (run.haltReason !== "none") {
+          return;
         }
 
         // Phase 4: Integration — state = "integrating"
@@ -1896,10 +1978,23 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             threadId = bootstrapped.threadId;
             run.integrationThreadId = threadId;
             yield* persistInternalThread(run, INTEGRATION_STEP_KEY, threadId, "integration");
+          } else {
+            yield* startThreadTurnWithPrompt({
+              threadId,
+              prompt: integrationPrompt,
+              modelSelection: run.modelSelection,
+            }).pipe(Effect.catch(() => Effect.void));
           }
-          yield* waitForThreadTurnComplete(threadId, run);
+          const integrationTurn = yield* waitForThreadTurnComplete(threadId, run);
+          if (integrationTurn.status !== "completed") {
+            return null;
+          }
           return yield* readLastAssistantMessage(threadId);
         }).pipe(Effect.catch(() => Effect.succeed(null)));
+
+        if (run.haltReason !== "none") {
+          return;
+        }
 
         if (integrationResponse?.includes("INTEGRATION_PASS")) {
           run.state = "completed";
@@ -2169,7 +2264,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           startedAt: snapshot.startedAt,
           completedAt: snapshot.completedAt,
           summary: snapshot.summary,
-          cancelled: false,
+          haltReason: "none",
           modelSelection: { provider: "codex", model: "" } as ModelSelection,
           maxConcurrency: snapshot.maxConcurrency,
           planContent,
@@ -2714,7 +2809,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             startedAt,
             completedAt: null,
             summary: null,
-            cancelled: false,
+            haltReason: "none",
             modelSelection,
             maxConcurrency: MAX_CONCURRENCY,
             planContent: planContentMap,
@@ -2998,7 +3093,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             startedAt,
             completedAt: null,
             summary: null,
-            cancelled: false,
+            haltReason: "none",
             modelSelection: modelSelection!,
             maxConcurrency: MAX_CONCURRENCY,
             planContent: planContentMap,
@@ -3122,7 +3217,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           }
 
           // Signal cancellation
-          run.cancelled = true;
+          run.haltReason = "cancel";
 
           // Stop all active thread sessions and mark non-terminal plans
           // skipped. Persist + publish each transition so the UI doesn't
@@ -3182,6 +3277,170 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
           // Cleanup worktree on cancel
           yield* cleanupWorktree(run);
+        }),
+
+      stop: (runId) =>
+        Effect.gen(function* () {
+          const runs = yield* Ref.get(activeRuns);
+          const run = runs.get(runId);
+          if (!run) {
+            return yield* new PlanRunnerNotFoundError({
+              runId,
+              message: `Plan run "${runId}" not found` as any,
+            });
+          }
+          if (run.state === "stopped") {
+            return;
+          }
+          if (isTerminalFeatureState(run.state)) {
+            return yield* new PlanRunnerError({
+              message: `Plan run "${runId}" is already ${run.state} and cannot be stopped` as any,
+            });
+          }
+
+          const previousState = run.state;
+          run.haltReason = "stop";
+
+          for (const node of run.plans.values()) {
+            if (node.state !== "running") continue;
+            if (node.executorThreadId) {
+              yield* stopThreadSession(node.executorThreadId);
+            }
+            node.state = "ready";
+            node.error = null;
+            node.completedAt = null;
+            yield* persistStepStateTransition(run, node);
+            yield* publishPlanStateChanged(run, node.planId);
+          }
+
+          if (run.state === "analyzing") {
+            yield* persistSyntheticStepStateTransition(run, {
+              stepKey: ANALYZER_STEP_KEY,
+              state: "ready",
+              completedAt: null,
+              error: null,
+              failureSummary: null,
+            });
+          }
+
+          if (run.integrationThreadId && run.state === "integrating") {
+            yield* stopThreadSession(run.integrationThreadId);
+            yield* persistSyntheticStepStateTransition(run, {
+              stepKey: INTEGRATION_STEP_KEY,
+              state: "ready",
+              completedAt: null,
+              error: null,
+              failureSummary: null,
+            });
+          }
+
+          run.state = "stopped";
+          run.summary = "Stopped by user";
+          run.completedAt = null;
+          yield* persistRunStateTransition(run);
+
+          const stopStepKey =
+            previousState === "integrating" ? INTEGRATION_STEP_KEY : ANALYZER_STEP_KEY;
+          yield* emitSyntheticLogEntry(run, stopStepKey, {
+            kind: "runner.status",
+            title: `Run stopped for "${run.featureName}"`,
+            bodyMarkdown: `User stopped run \`${run.runId}\` for **${run.featureName}**. Resume to continue from the current workflow state.`,
+            bodyText: `Run stopped for ${run.featureName}.`,
+            copyText: `plan-runner: stopped ${run.runId}`,
+            payload: {
+              phase: "run.stopped",
+              runId: run.runId,
+            },
+            createdAt: now() as any,
+          });
+        }),
+
+      resume: (runId) =>
+        Effect.gen(function* () {
+          const persisted = yield* repo.getRunById({ runId }).pipe(
+            Effect.mapError(
+              (err) =>
+                new PlanRunnerNotFoundError({
+                  runId,
+                  message:
+                    `Failed to read persisted run "${runId}": ${(err as { message?: string }).message ?? "unknown"}` as any,
+                }),
+            ),
+          );
+          if (Option.isNone(persisted)) {
+            return yield* new PlanRunnerNotFoundError({
+              runId,
+              message: `Plan run "${runId}" not found` as any,
+            });
+          }
+          if (persisted.value.state !== "stopped") {
+            return yield* new PlanRunnerError({
+              message: `Plan run "${runId}" is "${persisted.value.state}", not "stopped"` as any,
+            });
+          }
+
+          const runs = yield* Ref.get(activeRuns);
+          let run = runs.get(runId);
+          if (!run) {
+            run = yield* rehydrateRun(persisted.value);
+          }
+
+          const fkey = featureKey(run.projectId, run.featureName);
+          const recovering = yield* Ref.get(recoveringFeatures);
+          if (recovering.has(fkey)) {
+            return yield* new PlanRunnerError({
+              message:
+                `Run for feature "${run.featureName}" is being recovered after a server restart. Wait for recovery to finish before resuming.` as any,
+            });
+          }
+
+          for (const existing of runs.values()) {
+            if (
+              existing.runId !== run.runId &&
+              existing.projectId === run.projectId &&
+              existing.featureName === run.featureName &&
+              isActiveFeatureState(existing.state)
+            ) {
+              return yield* new PlanRunnerError({
+                message: `Another run is already active for feature "${run.featureName}"` as any,
+              });
+            }
+          }
+
+          run.haltReason = "none";
+          run.state = deriveResumeState(persisted.value);
+          run.summary = null;
+          run.completedAt = null;
+
+          yield* Ref.update(activeRuns, (m) => {
+            const next = new Map(m);
+            next.set(runId, run);
+            return next;
+          });
+
+          yield* persistRunStateTransition(run);
+
+          const resumeStepKey =
+            run.state === "integrating" ? INTEGRATION_STEP_KEY : ANALYZER_STEP_KEY;
+          yield* emitSyntheticLogEntry(run, resumeStepKey, {
+            kind: "runner.status",
+            title: `Run resumed for "${run.featureName}"`,
+            bodyMarkdown: `Resuming stopped run \`${run.runId}\` from **${run.state}**.`,
+            bodyText: `Run resumed for ${run.featureName}.`,
+            copyText: `plan-runner: resumed ${run.runId}`,
+            payload: {
+              phase: "run.resumed",
+              runId: run.runId,
+              resumedState: run.state,
+            },
+            createdAt: now() as any,
+          });
+
+          yield* driveExecution(run).pipe(
+            Effect.ignoreCause({ log: true }),
+            Effect.forkIn(runtimeScope),
+            Effect.asVoid,
+          );
         }),
 
       listFeatures: (input) =>

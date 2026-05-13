@@ -435,6 +435,41 @@ describe("usePlanRunnerStore reducer", () => {
     expect(feat?.lastRunState).toBe("completed");
   });
 
+  it("planRunner.stateChanged keeps a stopped run active and resumable", () => {
+    const projectId = "proj";
+    const featureName = "f";
+    const features: ReadonlyArray<FeatureSummary> = [
+      {
+        featureName: tn(featureName),
+        planCount: 1,
+        hasActiveRun: true,
+        activeRunId: rid("run-1"),
+        lastRunId: rid("run-1"),
+        lastRunState: "executing",
+        lastRunUpdatedAt: ts("2026-04-01T00:00:00.000Z"),
+      },
+    ];
+
+    act(() => {
+      usePlanRunnerStore.getState().setFeatures(projectId, features);
+    });
+
+    act(() => {
+      usePlanRunnerStore.getState().applyEvent({
+        type: "planRunner.stateChanged",
+        runId: rid("run-1"),
+        snapshot: makeSnapshot({ runId: "run-1", projectId, featureName, state: "stopped" }),
+      });
+    });
+
+    const state = usePlanRunnerStore.getState();
+    expect(state.runById["run-1"]?.state).toBe("stopped");
+    const feat = state.featuresByProjectId[projectId]?.[0];
+    expect(feat?.hasActiveRun).toBe(true);
+    expect(feat?.activeRunId).toBe(rid("run-1"));
+    expect(feat?.lastRunState).toBe("stopped");
+  });
+
   it("planRunner.featuresChanged rewrites the project feature list and invalidates plan cache", () => {
     const projectId = "proj";
     act(() => {

@@ -1246,6 +1246,16 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             "rpc.aggregate": "planRunner",
           }),
 
+        [WS_METHODS.planRunnerStop]: (input) =>
+          observeRpcEffect(WS_METHODS.planRunnerStop, planRunnerService.stop(input.runId), {
+            "rpc.aggregate": "planRunner",
+          }),
+
+        [WS_METHODS.planRunnerResume]: (input) =>
+          observeRpcEffect(WS_METHODS.planRunnerResume, planRunnerService.resume(input.runId), {
+            "rpc.aggregate": "planRunner",
+          }),
+
         [WS_METHODS.subscribePlanRunnerEvents]: (_input) =>
           observeRpcStream(WS_METHODS.subscribePlanRunnerEvents, planRunnerService.streamEvents, {
             "rpc.aggregate": "planRunner",

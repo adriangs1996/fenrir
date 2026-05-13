@@ -5,6 +5,7 @@ import {
   CheckCircle2Icon,
   FileTextIcon,
   Loader2Icon,
+  PlayIcon,
   RotateCwIcon,
   SquareIcon,
   XCircleIcon,
@@ -82,9 +83,14 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
     });
   }, [navigate, feature.featureName]);
 
-  const handleCancel = useCallback(() => {
+  const handleStop = useCallback(() => {
     if (!rpcClient || !feature.activeRunId) return;
-    void rpcClient.planRunner.cancel({ runId: feature.activeRunId });
+    void rpcClient.planRunner.stop({ runId: feature.activeRunId });
+  }, [rpcClient, feature.activeRunId]);
+
+  const handleResume = useCallback(() => {
+    if (!rpcClient || !feature.activeRunId) return;
+    void rpcClient.planRunner.resume({ runId: feature.activeRunId });
   }, [rpcClient, feature.activeRunId]);
 
   const canArchive = !feature.hasActiveRun;
@@ -222,15 +228,26 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
             hasRun={statusRunId !== null}
             onClick={handleStatusClick}
           />
-          {feature.hasActiveRun && (
+          {feature.hasActiveRun && status !== "stopped" && (
             <Button
               variant="ghost"
               size="icon"
-              className="size-5 shrink-0 text-destructive"
-              onClick={handleCancel}
-              title="Cancel run"
+              className="size-5 shrink-0 text-warning"
+              onClick={handleStop}
+              title="Stop run"
             >
               <SquareIcon className="size-3" />
+            </Button>
+          )}
+          {status === "stopped" && feature.activeRunId && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-5 shrink-0 text-success"
+              onClick={handleResume}
+              title="Resume run"
+            >
+              <PlayIcon className="size-3 fill-current" />
             </Button>
           )}
           <button
@@ -308,6 +325,13 @@ const STATUS_ICON_CONFIG: Record<FeatureRunStatus, FeatureStatusIconConfig> = {
     animateClass: "animate-pulse",
     label: "Recovering",
     description: "The runner is recovering from a failure.",
+  },
+  stopped: {
+    Icon: SquareIcon,
+    colorClass: "text-warning",
+    animateClass: "",
+    label: "Stopped",
+    description: "Run is paused and can be resumed.",
   },
   passed: {
     Icon: CheckCircle2Icon,
