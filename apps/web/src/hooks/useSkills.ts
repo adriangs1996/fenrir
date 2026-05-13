@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type {
   ServerProviderSkill,
+  ServerSkillDetails,
   CreateSkillInput,
   UpdateSkillInput,
   ResolveSkillConflictInput,
@@ -24,6 +25,9 @@ export function useSkills(): readonly ServerProviderSkill[] {
 export function useSkillActions() {
   return useMemo(
     () => ({
+      getDetails: (name: string): Promise<ServerSkillDetails> =>
+        ensureLocalApi().server.getSkillDetails({ name }),
+
       create: (input: CreateSkillInput): Promise<ServerProviderSkill> =>
         ensureLocalApi().server.createSkill(input),
 

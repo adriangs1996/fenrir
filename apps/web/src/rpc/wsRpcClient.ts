@@ -139,6 +139,7 @@ export interface WsRpcClient {
       id: string,
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverDeleteGlobalAction>>;
     readonly listSkills: RpcUnaryNoArgMethod<typeof WS_METHODS.serverListSkills>;
+    readonly getSkillDetails: RpcUnaryMethod<typeof WS_METHODS.serverGetSkillDetails>;
     readonly createSkill: (
       input: CreateSkillInput,
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverCreateSkill>>;
@@ -336,6 +337,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       deleteGlobalAction: (id) =>
         transport.request((client) => client[WS_METHODS.serverDeleteGlobalAction]({ id })),
       listSkills: () => transport.request((client) => client[WS_METHODS.serverListSkills]({})),
+      getSkillDetails: (input) =>
+        transport.request((client) => client[WS_METHODS.serverGetSkillDetails](input)),
       createSkill: (input) =>
         transport.request((client) => client[WS_METHODS.serverCreateSkill](input)),
       updateSkill: (input) =>

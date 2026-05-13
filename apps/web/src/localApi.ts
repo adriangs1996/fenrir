@@ -120,6 +120,7 @@ export function createLocalApi(rpcClient: WsRpcClient): LocalApi {
       updateGlobalAction: rpcClient.server.updateGlobalAction,
       deleteGlobalAction: rpcClient.server.deleteGlobalAction,
       listSkills: async () => [...(await rpcClient.server.listSkills())],
+      getSkillDetails: rpcClient.server.getSkillDetails,
       createSkill: rpcClient.server.createSkill,
       updateSkill: rpcClient.server.updateSkill,
       deleteSkill: rpcClient.server.deleteSkill,

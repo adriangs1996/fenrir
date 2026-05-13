@@ -1509,6 +1509,16 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "server" },
           ),
+        [WS_METHODS.serverGetSkillDetails]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGetSkillDetails,
+            skillService
+              .getDetails(input.name)
+              .pipe(
+                Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
+              ),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.serverCreateSkill]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverCreateSkill,

@@ -6,7 +6,7 @@ interface SkillSyncBadgeProps {
   syncStatus: readonly SkillProviderSync[];
 }
 
-function providerLabel(provider: SkillProviderSync["provider"]): string {
+export function providerLabel(provider: SkillProviderSync["provider"]): string {
   switch (provider) {
     case "claudeAgent":
       return "Claude";

@@ -44,6 +44,35 @@ export const ServerProviderSkill = Schema.Struct({
 });
 export type ServerProviderSkill = typeof ServerProviderSkill.Type;
 
+// ─── Skill Detail / File Inventory ────────────────────────────
+export const SkillFileScope = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("general") }),
+  Schema.Struct({
+    kind: Schema.Literal("providerSpecific"),
+    provider: Schema.Literals(["codex", "claudeAgent"]),
+  }),
+]);
+export type SkillFileScope = typeof SkillFileScope.Type;
+
+export const ServerSkillFileEntry = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+  absolutePath: TrimmedNonEmptyString,
+  executable: Schema.Boolean,
+  scope: SkillFileScope,
+});
+export type ServerSkillFileEntry = typeof ServerSkillFileEntry.Type;
+
+export const ServerSkillDetails = Schema.Struct({
+  skill: ServerProviderSkill,
+  files: Schema.Array(ServerSkillFileEntry),
+});
+export type ServerSkillDetails = typeof ServerSkillDetails.Type;
+
+export const GetSkillDetailsInput = Schema.Struct({
+  name: TrimmedNonEmptyString,
+});
+export type GetSkillDetailsInput = typeof GetSkillDetailsInput.Type;
+
 // ─── Skill Create/Update Inputs ────────────────────────────────
 export const CreateSkillInput = Schema.Struct({
   name: TrimmedNonEmptyString,

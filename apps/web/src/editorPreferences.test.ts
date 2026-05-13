@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseTargetPath, openInEmbeddedEditor } from "./editorPreferences";
+import { openInEmbeddedEditor, openInPreferredEditor, parseTargetPath } from "./editorPreferences";
 import { useEditorStore } from "~/modules/neovim-editor";
 
 describe("parseTargetPath", () => {
@@ -109,5 +109,45 @@ describe("openInEmbeddedEditor", () => {
     await expect(openInEmbeddedEditor("/src/index.ts")).rejects.toThrow(
       "desktop bridge unavailable",
     );
+  });
+});
+
+describe("openInPreferredEditor", () => {
+  const openFileMock = vi.fn(async () => undefined);
+  const shellOpenInEditorMock = vi.fn(async () => undefined);
+
+  afterEach(() => {
+    openFileMock.mockClear();
+    shellOpenInEditorMock.mockClear();
+    vi.unstubAllGlobals();
+    useEditorStore.getState().setActiveChatTab("thread");
+  });
+
+  it("routes embedded-editor preference through the editor tab switch", async () => {
+    vi.stubGlobal("window", {
+      desktopBridge: { editor: { openFile: openFileMock } },
+      localStorage: {
+        getItem: vi.fn(() => "fenrir-embedded"),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      },
+    });
+
+    const api = {
+      server: { getConfig: vi.fn(async () => ({ availableEditors: ["fenrir-embedded"] })) },
+      shell: { openInEditor: shellOpenInEditorMock },
+    } as const;
+
+    expect(useEditorStore.getState().activeChatTab).toBe("thread");
+    await expect(openInPreferredEditor(api as never, "/src/index.ts:12")).resolves.toBe(
+      "fenrir-embedded",
+    );
+
+    expect(openFileMock).toHaveBeenCalledWith({
+      path: "/src/index.ts",
+      line: 12,
+    });
+    expect(shellOpenInEditorMock).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().activeChatTab).toBe("editor");
   });
 });
