@@ -2717,6 +2717,7 @@ export default function Sidebar() {
         createdAt: representative.createdAt,
         updatedAt: representative.updatedAt,
         scripts: representative.scripts,
+        managedProcesses: representative.managedProcesses,
         globalScriptDefaults: representative.globalScriptDefaults,
         projectKey: logicalKey,
         environmentPresence:

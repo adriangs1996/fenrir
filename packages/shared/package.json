@@ -67,6 +67,10 @@
     "./commandFormat": {
       "types": "./src/commandFormat.ts",
       "import": "./src/commandFormat.ts"
+    },
+    "./managedProcess": {
+      "types": "./src/managedProcess.ts",
+      "import": "./src/managedProcess.ts"
     }
   },
   "scripts": {

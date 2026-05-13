@@ -171,12 +171,14 @@ function buildArchiveRuntime(projectCwd: string) {
         defaultModelSelection: { provider: "codex" as const, model: "gpt-5" },
         scripts: [],
         globalScriptDefaults: [],
+        managedProcesses: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         deletedAt: null,
       },
     ],
     threads: [],
+    managedProcessInstances: [],
   };
 
   const testLayer = PlanRunnerLive.pipe(
@@ -189,6 +191,7 @@ function buildArchiveRuntime(projectCwd: string) {
         readEvents: () => Stream.empty,
         dispatch: () => Effect.succeed({ sequence: 0 }),
         streamDomainEvents: Stream.empty,
+        injectExternalEvent: () => Effect.void,
       }),
     ),
     Layer.provide(Layer.mock(GitCore)({})),
@@ -596,6 +599,7 @@ describe("listArchivedFeatures", () => {
           defaultModelSelection: { provider: "codex" as const, model: "gpt-5" },
           scripts: [],
           globalScriptDefaults: [],
+          managedProcesses: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           deletedAt: null,
@@ -607,12 +611,14 @@ describe("listArchivedFeatures", () => {
           defaultModelSelection: { provider: "codex" as const, model: "gpt-5" },
           scripts: [],
           globalScriptDefaults: [],
+          managedProcesses: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           deletedAt: null,
         },
       ],
       threads: [],
+      managedProcessInstances: [],
     };
 
     const testLayer = PlanRunnerLive.pipe(
@@ -625,6 +631,7 @@ describe("listArchivedFeatures", () => {
           readEvents: () => Stream.empty,
           dispatch: () => Effect.succeed({ sequence: 0 }),
           streamDomainEvents: Stream.empty,
+          injectExternalEvent: () => Effect.void,
         }),
       ),
       Layer.provide(Layer.mock(GitCore)({})),

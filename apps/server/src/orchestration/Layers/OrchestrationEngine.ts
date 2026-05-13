@@ -58,6 +58,8 @@ function commandToAggregateRef(command: OrchestrationCommand): {
     case "project.create":
     case "project.meta.update":
     case "project.delete":
+    case "project.managedProcess.upsert":
+    case "project.managedProcess.delete":
       return {
         aggregateKind: "project",
         aggregateId: command.projectId,
@@ -291,10 +293,25 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       return yield* Deferred.await(result);
     });
 
+  const injectExternalEvent: OrchestrationEngineShape["injectExternalEvent"] = (eventBase) =>
+    Effect.gen(function* () {
+      // External events get a virtual sequence beyond the persisted range.
+      // They're ephemeral — not stored — so the sequence only matters for
+      // ordering within the in-memory read model and PubSub fan-out.
+      const nextSequence = readModel.snapshotSequence + 1;
+      const event: OrchestrationEvent = {
+        ...eventBase,
+        sequence: nextSequence,
+      } as OrchestrationEvent;
+      readModel = yield* projectEvent(readModel, event).pipe(Effect.orDie);
+      yield* PubSub.publish(eventPubSub, event);
+    });
+
   return {
     getReadModel,
     readEvents,
     dispatch,
+    injectExternalEvent,
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (wsServer, ProviderRuntimeIngestion, CheckpointReactor, etc.)
     // each independently receive all domain events.

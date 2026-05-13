@@ -61,6 +61,16 @@ export interface OrchestrationEngineShape {
    * This is a hot runtime stream (new events only), not a historical replay.
    */
   readonly streamDomainEvents: Stream.Stream<OrchestrationEvent>;
+
+  /**
+   * Inject an external (non-command-originated) event into the read model and
+   * event fan-out. The event is NOT persisted to the event store — it is
+   * ephemeral and must be reconstructed on restart (e.g. managed process
+   * lifecycle events rebuilt from manager reconciliation).
+   */
+  readonly injectExternalEvent: (
+    event: Omit<OrchestrationEvent, "sequence">,
+  ) => Effect.Effect<void>;
 }
 
 /**

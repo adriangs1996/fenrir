@@ -20,3 +20,4 @@ export * from "./trafficLens";
 export * from "./planRunner";
 export * from "./fonts";
 export * from "./skill";
+export * from "./managedProcessLog";

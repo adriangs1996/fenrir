@@ -97,3 +97,28 @@ export function nextGlobalScriptId(name: string, existingIds: Iterable<string>):
 
   return `${baseId}-${Date.now()}`.slice(0, MAX_SCRIPT_ID_LENGTH);
 }
+
+// ---------------------------------------------------------------------------
+// Managed process helpers
+// ---------------------------------------------------------------------------
+
+export function nextManagedProcessId(name: string, existingIds: Iterable<string>): string {
+  const taken = new Set(Array.from(existingIds));
+  const baseId = normalizeScriptId(name);
+  if (!taken.has(baseId)) return baseId;
+
+  let suffix = 2;
+  while (suffix < 10_000) {
+    const candidate = `${baseId}-${suffix}`;
+    const safeCandidate =
+      candidate.length <= MAX_SCRIPT_ID_LENGTH
+        ? candidate
+        : `${baseId.slice(0, Math.max(1, MAX_SCRIPT_ID_LENGTH - String(suffix).length - 1))}-${suffix}`;
+    if (!taken.has(safeCandidate)) {
+      return safeCandidate;
+    }
+    suffix += 1;
+  }
+
+  return `${baseId}-${Date.now()}`.slice(0, MAX_SCRIPT_ID_LENGTH);
+}

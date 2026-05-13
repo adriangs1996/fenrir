@@ -7,6 +7,7 @@ import {
   type OrchestrationCommand,
   type GitActionProgressEvent,
   type GitManagerServiceError,
+  ManagedProcessRpcError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   OrchestrationGetFullThreadDiffError,
@@ -25,6 +26,7 @@ import {
   WsRpcGroup,
   TmuxError,
   type ServerProviderSkill,
+  type ManagedProcessLogServerMessage,
 } from "@fenrir/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
@@ -67,11 +69,14 @@ import {
   type SessionCredentialChange,
 } from "./auth/Services/SessionCredentialService";
 import { respondToAuthError } from "./auth/http";
+import { ImportResolver } from "./managedProcess/Services/ImportResolver";
+import { ManagedProcessManager } from "./managedProcess/Services/Manager";
 import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager";
 import { RawTcpListenerService } from "./raw-tcp/Services/RawTcpListenerService";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService";
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner";
 import type { TrafficLensEvent } from "@fenrir/contracts";
+import { resolveManagedProcessCwd } from "@fenrir/shared/projectScripts";
 import { SkillService } from "./skill/SkillService";
 
 function toAuthAccessStreamEvent(
@@ -145,10 +150,20 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const trafficLensService = yield* TrafficLensService;
       const planRunnerService = yield* PlanRunnerService;
       const skillService = yield* SkillService;
+      const managedProcessManager = yield* ManagedProcessManager;
+      const importResolver = yield* ImportResolver;
       const activeTmuxProcesses = new Map<string, { pid: number }>();
 
       const serverCommandId = (tag: string) =>
         CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
+
+      const toManagedProcessRpcError = (err: unknown): ManagedProcessRpcError => {
+        if (Schema.is(ManagedProcessRpcError)(err)) return err;
+        return new ManagedProcessRpcError({
+          code: "io-error",
+          message: err instanceof Error ? err.message : "Managed process operation failed",
+        });
+      };
 
       const loadAuthAccessSnapshot = () =>
         Effect.all({
@@ -1319,6 +1334,173 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             planRunnerService.renameFeature(input),
             { "rpc.aggregate": "planRunner" },
           ),
+        // ─── Managed Process RPCs ────────────────────────────────────────
+
+        [WS_METHODS.managedProcessList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.managedProcessList,
+            managedProcessManager
+              .list(input.projectId)
+              .pipe(Effect.mapError(toManagedProcessRpcError)),
+            { "rpc.aggregate": "managedProcess" },
+          ),
+
+        [WS_METHODS.managedProcessStart]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.managedProcessStart,
+            managedProcessManager.start(input).pipe(Effect.mapError(toManagedProcessRpcError)),
+            { "rpc.aggregate": "managedProcess" },
+          ),
+
+        [WS_METHODS.managedProcessStop]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.managedProcessStop,
+            managedProcessManager
+              .stop(input.instanceId)
+              .pipe(Effect.mapError(toManagedProcessRpcError)),
+            { "rpc.aggregate": "managedProcess" },
+          ),
+
+        [WS_METHODS.managedProcessForceKill]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.managedProcessForceKill,
+            managedProcessManager
+              .forceKill(input.instanceId)
+              .pipe(Effect.mapError(toManagedProcessRpcError)),
+            { "rpc.aggregate": "managedProcess" },
+          ),
+
+        [WS_METHODS.managedProcessRestart]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.managedProcessRestart,
+            managedProcessManager
+              .restart(input.instanceId)
+              .pipe(Effect.mapError(toManagedProcessRpcError)),
+            { "rpc.aggregate": "managedProcess" },
+          ),
+
+        [WS_METHODS.managedProcessWriteStdin]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.managedProcessWriteStdin,
+            managedProcessManager.writeStdin(input).pipe(Effect.mapError(toManagedProcessRpcError)),
+            { "rpc.aggregate": "managedProcess" },
+          ),
+
+        [WS_METHODS.managedProcessUpsertDefinition]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.managedProcessUpsertDefinition,
+            Effect.gen(function* () {
+              // Server-side validation of the definition before dispatching
+              const project = (yield* orchestrationEngine.getReadModel()).projects.find(
+                (p) => p.id === input.projectId,
+              );
+              if (!project) {
+                return yield* new ManagedProcessRpcError({
+                  code: "not-found",
+                  message: `Project '${input.projectId}' does not exist.`,
+                });
+              }
+
+              // Validate cwd resolves cleanly against the scope root
+              const scopeRoot = project.workspaceRoot;
+              const cwdResult = resolveManagedProcessCwd({
+                scopeRoot,
+                cwd: input.definition.cwd,
+              });
+              if (!cwdResult.ok) {
+                return yield* new ManagedProcessRpcError({
+                  code: "invalid-state",
+                  message: `Invalid cwd: ${cwdResult.reason}`,
+                });
+              }
+
+              // Validate readiness log-pattern regex compiles
+              if (input.definition.readiness.kind === "log-pattern") {
+                try {
+                  new RegExp(input.definition.readiness.pattern);
+                } catch {
+                  return yield* new ManagedProcessRpcError({
+                    code: "invalid-state",
+                    message: `Invalid readiness log-pattern regex: "${input.definition.readiness.pattern}"`,
+                  });
+                }
+              }
+
+              yield* orchestrationEngine.dispatch({
+                type: "project.managedProcess.upsert",
+                commandId: serverCommandId("managed-process-upsert"),
+                projectId: input.projectId,
+                definition: input.definition,
+              });
+            }).pipe(Effect.mapError(toManagedProcessRpcError)),
+            { "rpc.aggregate": "managedProcess" },
+          ),
+
+        [WS_METHODS.managedProcessDeleteDefinition]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.managedProcessDeleteDefinition,
+            orchestrationEngine
+              .dispatch({
+                type: "project.managedProcess.delete",
+                commandId: serverCommandId("managed-process-delete"),
+                projectId: input.projectId,
+                processDefId: input.processDefId,
+              })
+              .pipe(Effect.mapError(toManagedProcessRpcError)),
+            { "rpc.aggregate": "managedProcess" },
+          ),
+
+        [WS_METHODS.managedProcessProposedImports]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.managedProcessProposedImports,
+            Effect.gen(function* () {
+              const readModel = yield* orchestrationEngine.getReadModel();
+              const project = readModel.projects.find((p) => p.id === input.projectId);
+              if (!project) {
+                return yield* new ManagedProcessRpcError({
+                  code: "not-found",
+                  message: `Project '${input.projectId}' does not exist.`,
+                });
+              }
+              return yield* importResolver.propose({
+                projectId: input.projectId,
+                workspaceRoot: project.workspaceRoot,
+                existingDefinitions: [...(project.managedProcesses ?? [])],
+              });
+            }).pipe(Effect.mapError(toManagedProcessRpcError)),
+            { "rpc.aggregate": "managedProcess" },
+          ),
+
+        [WS_METHODS.managedProcessSubscribeLog]: (input) =>
+          observeRpcStreamEffect(
+            WS_METHODS.managedProcessSubscribeLog,
+            managedProcessManager.subscribeLog(input.instanceId).pipe(
+              Effect.map(({ backfill, stream }) => {
+                const backfillMsg: ManagedProcessLogServerMessage = {
+                  type: "backfill",
+                  instanceId: input.instanceId,
+                  bytes: backfill.bytes,
+                  ringBufferBytes: backfill.ringBufferBytes,
+                  truncated: backfill.truncated,
+                  sequenceNumber: backfill.sequenceNumber,
+                };
+                const liveStream = stream.pipe(
+                  Stream.map(
+                    (chunk): ManagedProcessLogServerMessage => ({
+                      type: "chunk",
+                      instanceId: input.instanceId,
+                      bytes: chunk.bytes,
+                      sequenceNumber: chunk.sequenceNumber,
+                    }),
+                  ),
+                );
+                return Stream.concat(Stream.make(backfillMsg), liveStream);
+              }),
+              Effect.mapError(toManagedProcessRpcError),
+            ),
+            { "rpc.aggregate": "managedProcess" },
+          ),
+
         [WS_METHODS.serverListSkills]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverListSkills,

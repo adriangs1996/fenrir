@@ -1,5 +1,16 @@
-import { type ScopedProjectRef, type ScopedThreadRef, type ThreadId } from "@fenrir/contracts";
-import { selectEnvironmentState, type AppState, type EnvironmentState } from "./store";
+import {
+  type ManagedProcess,
+  type ManagedProcessInstance,
+  type ScopedProjectRef,
+  type ScopedThreadRef,
+  type ThreadId,
+} from "@fenrir/contracts";
+import {
+  selectEnvironmentState,
+  selectManagedProcessInstancesForProject,
+  type AppState,
+  type EnvironmentState,
+} from "./store";
 import { type Project, type SidebarThreadSummary, type Thread } from "./types";
 import { getThreadFromEnvironmentState } from "./threadDerivation";
 
@@ -74,4 +85,39 @@ export function createThreadSelectorAcrossEnvironments(
     }
     return undefined;
   });
+}
+
+// ---------- Managed process selectors ----------
+
+const EMPTY_DEFINITIONS: ManagedProcess[] = [];
+
+export function createManagedProcessDefinitionsSelector(
+  ref: ScopedProjectRef | null | undefined,
+): (state: AppState) => ManagedProcess[] {
+  return (state) => {
+    if (!ref) return EMPTY_DEFINITIONS;
+    const project = selectEnvironmentState(state, ref.environmentId).projectById[ref.projectId];
+    return project?.managedProcesses ?? EMPTY_DEFINITIONS;
+  };
+}
+
+export function createManagedProcessInstancesSelector(
+  ref: ScopedProjectRef | null | undefined,
+): (state: AppState) => ManagedProcessInstance[] {
+  const empty: ManagedProcessInstance[] = [];
+  return (state) =>
+    ref ? selectManagedProcessInstancesForProject(state, ref.environmentId, ref.projectId) : empty;
+}
+
+export function createInstanceForDefinitionSelector(
+  ref: ScopedProjectRef | null | undefined,
+  processDefId: string,
+  worktreePath: string | null,
+): (state: AppState) => ManagedProcessInstance | undefined {
+  return (state) => {
+    if (!ref) return undefined;
+    return selectManagedProcessInstancesForProject(state, ref.environmentId, ref.projectId).find(
+      (inst) => inst.processDefId === processDefId && (inst.worktreePath ?? null) === worktreePath,
+    );
+  };
 }
