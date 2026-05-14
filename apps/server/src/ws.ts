@@ -36,7 +36,6 @@ import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuer
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
 import { GitManager } from "./git/Services/GitManager";
-import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
@@ -57,7 +56,8 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner";
-import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver";
+import { SourceControl } from "./sourceControl/Services/SourceControl";
+import { SourceControlStatus } from "./sourceControl/Services/SourceControlStatus";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ServerAuth } from "./auth/Services/ServerAuth";
 import {
@@ -129,7 +129,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const open = yield* Open;
       const gitManager = yield* GitManager;
       const git = yield* GitCore;
-      const gitStatusBroadcaster = yield* GitStatusBroadcaster;
+      const sourceControlStatus = yield* SourceControlStatus;
       const terminalManager = yield* TerminalManager;
       const providerRegistry = yield* ProviderRegistry;
       const config = yield* ServerConfig;
@@ -140,7 +140,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
-      const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
+      const sourceControl = yield* SourceControl;
       const serverEnvironment = yield* ServerEnvironment;
       const serverAuth = yield* ServerAuth;
       const bootstrapCredentials = yield* BootstrapCredentialService;
@@ -219,7 +219,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       ): Effect.Effect<OrchestrationEvent, never, never> => {
         switch (event.type) {
           case "project.created":
-            return repositoryIdentityResolver.resolve(event.payload.workspaceRoot).pipe(
+            return sourceControl.resolveRepositoryIdentity(event.payload.workspaceRoot).pipe(
               Effect.map((repositoryIdentity) => ({
                 ...event,
                 payload: {
@@ -240,7 +240,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 return event;
               }
 
-              const repositoryIdentity = yield* repositoryIdentityResolver.resolve(workspaceRoot);
+              const repositoryIdentity =
+                yield* sourceControl.resolveRepositoryIdentity(workspaceRoot);
               return {
                 ...event,
                 payload: {
@@ -508,7 +509,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       });
 
       const refreshGitStatus = (cwd: string) =>
-        gitStatusBroadcaster
+        sourceControlStatus
           .refreshStatus(cwd)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
@@ -887,17 +888,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             "rpc.aggregate": "workspace",
           }),
         [WS_METHODS.subscribeGitStatus]: (input) =>
-          observeRpcStream(
-            WS_METHODS.subscribeGitStatus,
-            gitStatusBroadcaster.streamStatus(input),
-            {
-              "rpc.aggregate": "git",
-            },
-          ),
+          observeRpcStream(WS_METHODS.subscribeGitStatus, sourceControlStatus.streamStatus(input), {
+            "rpc.aggregate": "git",
+          }),
         [WS_METHODS.gitRefreshStatus]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitRefreshStatus,
-            gitStatusBroadcaster.refreshStatus(input.cwd),
+            sourceControlStatus.refreshStatus(input.cwd),
             {
               "rpc.aggregate": "git",
             },

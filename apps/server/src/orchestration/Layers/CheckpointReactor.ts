@@ -23,9 +23,9 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { RuntimeReceiptBus } from "../Services/RuntimeReceiptBus.ts";
 import { CheckpointStoreError } from "../../checkpointing/Errors.ts";
 import { OrchestrationDispatchError } from "../Errors.ts";
-import { GitStatusBroadcaster } from "../../git/Services/GitStatusBroadcaster.ts";
 import { SourceControlLive } from "../../sourceControl/Layers/SourceControl.ts";
 import { SourceControl } from "../../sourceControl/Services/SourceControl.ts";
+import { SourceControlStatus } from "../../sourceControl/Services/SourceControlStatus.ts";
 import { WorkspaceEntries } from "../../workspace/Services/WorkspaceEntries.ts";
 
 type ReactorInput =
@@ -71,8 +71,8 @@ const make = Effect.gen(function* () {
   const checkpointStore = yield* CheckpointStore;
   const receiptBus = yield* RuntimeReceiptBus;
   const workspaceEntries = yield* WorkspaceEntries;
-  const gitStatusBroadcaster = yield* GitStatusBroadcaster;
   const sourceControl = yield* SourceControl;
+  const sourceControlStatus = yield* SourceControlStatus;
 
   const appendRevertFailureActivity = (input: {
     readonly threadId: ThreadId;
@@ -510,7 +510,7 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    yield* gitStatusBroadcaster.refreshLocalStatus(sessionRuntime.value.cwd).pipe(
+    yield* sourceControlStatus.refreshLocalStatus(sessionRuntime.value.cwd).pipe(
       Effect.catch((error) =>
         Effect.logWarning("failed to refresh local git status after turn completion", {
           threadId: event.threadId,

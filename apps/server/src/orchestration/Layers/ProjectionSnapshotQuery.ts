@@ -40,7 +40,8 @@ import { ProjectionThreadMessage } from "../../persistence/Services/ProjectionTh
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
-import { RepositoryIdentityResolver } from "../../project/Services/RepositoryIdentityResolver.ts";
+import { SourceControlLive } from "../../sourceControl/Layers/SourceControl.ts";
+import { SourceControl } from "../../sourceControl/Services/SourceControl.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   ProjectionSnapshotQuery,
@@ -168,7 +169,7 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
 
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
+  const sourceControl = yield* SourceControl;
   const repositoryIdentityResolutionConcurrency = 4;
 
   const listProjectRows = SqlSchema.findAll({
@@ -670,8 +671,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 yield* Effect.forEach(
                   projectRows,
                   (row) =>
-                    repositoryIdentityResolver
-                      .resolve(row.workspaceRoot)
+                    sourceControl
+                      .resolveRepositoryIdentity(row.workspaceRoot)
                       .pipe(Effect.map((identity) => [row.projectId, identity] as const)),
                   { concurrency: repositoryIdentityResolutionConcurrency },
                 ),
@@ -762,7 +763,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         Effect.flatMap((option) =>
           Option.isNone(option)
             ? Effect.succeed(Option.none<OrchestrationProject>())
-            : repositoryIdentityResolver.resolve(option.value.workspaceRoot).pipe(
+            : sourceControl.resolveRepositoryIdentity(option.value.workspaceRoot).pipe(
                 Effect.map((repositoryIdentity) =>
                   Option.some({
                     id: option.value.projectId,
@@ -850,4 +851,4 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 export const OrchestrationProjectionSnapshotQueryLive = Layer.effect(
   ProjectionSnapshotQuery,
   makeProjectionSnapshotQuery,
-);
+).pipe(Layer.provide(SourceControlLive));

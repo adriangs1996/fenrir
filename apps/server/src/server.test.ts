@@ -56,11 +56,6 @@ import {
 } from "./checkpointing/Services/CheckpointDiffQuery.ts";
 import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
-import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster.ts";
-import {
-  GitStatusBroadcaster,
-  type GitStatusBroadcasterShape,
-} from "./git/Services/GitStatusBroadcaster.ts";
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
 import { Open, type OpenShape } from "./open.ts";
 import {
@@ -96,6 +91,11 @@ import {
   RepositoryIdentityResolver,
   type RepositoryIdentityResolverShape,
 } from "./project/Services/RepositoryIdentityResolver.ts";
+import { SourceControl } from "./sourceControl/Services/SourceControl.ts";
+import {
+  SourceControlStatus,
+  type SourceControlStatusShape,
+} from "./sourceControl/Services/SourceControlStatus.ts";
 import {
   ServerEnvironment,
   type ServerEnvironmentShape,
@@ -311,7 +311,7 @@ const buildAppUnderTest = (options?: {
     open?: Partial<OpenShape>;
     gitCore?: Partial<GitCoreShape>;
     gitManager?: Partial<GitManagerShape>;
-    gitStatusBroadcaster?: Partial<GitStatusBroadcasterShape>;
+    sourceControlStatus?: Partial<SourceControlStatusShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
@@ -364,11 +364,31 @@ const buildAppUnderTest = (options?: {
     const gitManagerLayer = Layer.mock(GitManager)({
       ...options?.layers?.gitManager,
     });
-    const gitStatusBroadcasterLayer = options?.layers?.gitStatusBroadcaster
-      ? Layer.mock(GitStatusBroadcaster)({
-          ...options.layers.gitStatusBroadcaster,
-        })
-      : GitStatusBroadcasterLive.pipe(Layer.provide(gitManagerLayer));
+    const sourceControlStatusLayer = Layer.mock(SourceControlStatus)({
+      getStatus: () => Effect.die("getStatus should not be called in this test"),
+      refreshLocalStatus: () => Effect.die("refreshLocalStatus should not be called in this test"),
+      refreshStatus: () => Effect.die("refreshStatus should not be called in this test"),
+      streamStatus: () => Stream.empty,
+      ...options?.layers?.sourceControlStatus,
+    });
+    const sourceControlLayer = Layer.effect(
+      SourceControl,
+      Effect.gen(function* () {
+        const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
+        return SourceControl.of({
+          resolveWorkspace: () => Effect.succeed(null),
+          isSupportedWorkspace: () => Effect.succeed(false),
+          resolveRepositoryIdentity: (cwd) => repositoryIdentityResolver.resolve(cwd),
+        });
+      }),
+    ).pipe(
+      Layer.provide(
+        Layer.mock(RepositoryIdentityResolver)({
+          resolve: () => Effect.succeed(null),
+          ...options?.layers?.repositoryIdentityResolver,
+        }),
+      ),
+    );
 
     const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
@@ -413,7 +433,7 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(gitManagerLayer),
-      Layer.provideMerge(gitStatusBroadcasterLayer),
+      Layer.provideMerge(sourceControlStatusLayer),
       Layer.provide(
         Layer.mock(ProjectSetupScriptRunner)({
           runForThread: () => Effect.succeed({ status: "no-script" as const }),
@@ -566,6 +586,7 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.repositoryIdentityResolver,
         }),
       ),
+      Layer.provideMerge(sourceControlLayer),
       Layer.provide(
         Layer.mock(GlobalActionsService)({
           start: Effect.void,
@@ -3128,7 +3149,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             gitCore: {
               createWorktree,
             },
-            gitStatusBroadcaster: {
+            sourceControlStatus: {
               refreshStatus,
             },
             orchestrationEngine: {

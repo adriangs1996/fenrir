@@ -20,8 +20,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CheckpointStoreLive } from "../../checkpointing/Layers/CheckpointStore.ts";
 import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
 import { GitCoreLive } from "../../git/Layers/GitCore.ts";
-import { GitStatusBroadcaster } from "../../git/Services/GitStatusBroadcaster.ts";
 import { RepositoryIdentityResolverLive } from "../../project/Layers/RepositoryIdentityResolver.ts";
+import {
+  SourceControlStatus,
+  type SourceControlStatusShape,
+} from "../../sourceControl/Services/SourceControlStatus.ts";
 import { CheckpointReactorLive } from "./CheckpointReactor.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
@@ -266,7 +269,7 @@ describe("CheckpointReactor", () => {
     const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
       prefix: "fenrir-checkpoint-reactor-test-",
     });
-    const gitStatusBroadcasterLayer = Layer.succeed(GitStatusBroadcaster, {
+    const sourceControlStatusLayer = Layer.succeed(SourceControlStatus, {
       getStatus: () => Effect.die("getStatus should not be called in this test"),
       refreshLocalStatus: (cwd: string) =>
         Effect.sync(() => {
@@ -283,13 +286,13 @@ describe("CheckpointReactor", () => {
         ),
       refreshStatus: () => Effect.die("refreshStatus should not be called in this test"),
       streamStatus: () => Stream.empty,
-    });
+    } satisfies SourceControlStatusShape);
 
     const layer = CheckpointReactorLive.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(RuntimeReceiptBusLive),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
-      Layer.provideMerge(gitStatusBroadcasterLayer),
+      Layer.provideMerge(sourceControlStatusLayer),
       Layer.provideMerge(CheckpointStoreLive),
       Layer.provideMerge(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
       Layer.provideMerge(WorkspacePathsLive),

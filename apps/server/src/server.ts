@@ -35,7 +35,6 @@ import { OrchestrationProjectionSnapshotQueryLive } from "./orchestration/Layers
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore";
 import { GitCoreLive } from "./git/Layers/GitCore";
 import { GitHubCliLive } from "./git/Layers/GitHubCli";
-import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster";
 import { RoutingTextGenerationLive } from "./git/Layers/RoutingTextGeneration";
 import { TerminalManagerLive } from "./terminal/Layers/Manager";
 import { TerminalHistoryManagerLive } from "./terminal/Layers/HistoryManager";
@@ -60,7 +59,8 @@ import { GlobalActionsLive } from "./globalActions";
 import { ServerSettingsLive } from "./serverSettings";
 import { SkillServiceLive } from "./skill/SkillService";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
-import { RepositoryIdentityResolverLive } from "./project/Layers/RepositoryIdentityResolver";
+import { SourceControlLive } from "./sourceControl/Layers/SourceControl";
+import { SourceControlStatusLive } from "./sourceControl/Layers/SourceControlStatus";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
@@ -217,8 +217,11 @@ const GitManagerLayerLive = GitManagerLive.pipe(
 
 const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitManagerLayerLive),
-  Layer.provideMerge(GitStatusBroadcasterLive.pipe(Layer.provide(GitManagerLayerLive))),
   Layer.provideMerge(GitCoreLive),
+);
+
+const SourceControlStatusLayerLive = SourceControlStatusLive.pipe(
+  Layer.provide(GitManagerLayerLive),
 );
 
 const TerminalLayerLive = Layer.mergeAll(
@@ -270,7 +273,7 @@ const ManagedProcessLayerLive = ManagedProcessManagerLive.pipe(
   Layer.provide(LogBufferLive),
 );
 
-const CoreDependenciesLive = ReactorLayerLive.pipe(
+const CoreInfrastructureLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ManagedProcessLayerLive),
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(GitLayerLive),
@@ -290,13 +293,17 @@ const CoreDependenciesLive = ReactorLayerLive.pipe(
   ),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(KeybindingsLive),
+);
+
+const CoreDependenciesLive = CoreInfrastructureLive.pipe(
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(ServerSettingsLive),
   Layer.provideMerge(GlobalActionsLive),
   Layer.provideMerge(SkillServiceLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
-  Layer.provideMerge(RepositoryIdentityResolverLive),
+  Layer.provideMerge(SourceControlLive),
+  Layer.provideMerge(SourceControlStatusLayerLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),
 );
@@ -309,6 +316,10 @@ const RuntimeDependenciesLive = CoreDependenciesLive.pipe(
 
 const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
   Layer.provideMerge(RuntimeDependenciesLive),
+  Layer.provideMerge(OrchestrationLayerLive),
+  Layer.provideMerge(ServerSettingsLive),
+  Layer.provideMerge(TerminalLayerLive),
+  Layer.provideMerge(PersistenceLayerLive),
 );
 
 export const makeRoutesLayer = Layer.mergeAll(
@@ -354,8 +365,8 @@ export const makeServerLayer = Layer.unwrap(
     );
 
     return serverApplicationLayer.pipe(
-      Layer.provideMerge(RuntimeServicesLive),
-      Layer.provideMerge(HttpServerLive),
+      Layer.provide(RuntimeServicesLive),
+      Layer.provide(HttpServerLive),
       Layer.provide(ObservabilityLive),
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provideMerge(PlatformServicesLive),

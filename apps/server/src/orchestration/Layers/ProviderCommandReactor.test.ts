@@ -28,9 +28,9 @@ import {
 } from "../../provider/Services/ProviderService.ts";
 import { GitCore, type GitCoreShape } from "../../git/Services/GitCore.ts";
 import {
-  GitStatusBroadcaster,
-  type GitStatusBroadcasterShape,
-} from "../../git/Services/GitStatusBroadcaster.ts";
+  SourceControlStatus,
+  type SourceControlStatusShape,
+} from "../../sourceControl/Services/SourceControlStatus.ts";
 import { TextGeneration, type TextGenerationShape } from "../../git/Services/TextGeneration.ts";
 import { RepositoryIdentityResolverLive } from "../../project/Layers/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
@@ -255,13 +255,13 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
       Layer.provideMerge(Layer.succeed(GitCore, { renameBranch } as unknown as GitCoreShape)),
       Layer.provideMerge(
-        Layer.succeed(GitStatusBroadcaster, {
+        Layer.succeed(SourceControlStatus, {
           getStatus: () => Effect.die("getStatus should not be called in this test"),
           refreshLocalStatus: () =>
             Effect.die("refreshLocalStatus should not be called in this test"),
           refreshStatus,
           streamStatus: () => Stream.die("streamStatus should not be called in this test"),
-        } satisfies GitStatusBroadcasterShape),
+        } satisfies SourceControlStatusShape),
       ),
       Layer.provideMerge(
         Layer.mock(TextGeneration, {
