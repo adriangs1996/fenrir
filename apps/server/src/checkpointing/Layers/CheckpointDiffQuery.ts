@@ -24,6 +24,7 @@ const make = Effect.gen(function* () {
   const getTurnDiff: CheckpointDiffQueryShape["getTurnDiff"] = Effect.fn("getTurnDiff")(
     function* (input) {
       const operation = "CheckpointDiffQuery.getTurnDiff";
+      const ignoreWhitespace = input.ignoreWhitespace ?? true;
 
       if (input.fromTurnCount === input.toTurnCount) {
         const emptyDiff: OrchestrationGetTurnDiffResultType = {
@@ -96,41 +97,12 @@ const make = Effect.gen(function* () {
         });
       }
 
-      const [fromExists, toExists] = yield* Effect.all(
-        [
-          checkpointStore.hasCheckpointRef({
-            cwd: workspaceCwd,
-            checkpointRef: fromCheckpointRef,
-          }),
-          checkpointStore.hasCheckpointRef({
-            cwd: workspaceCwd,
-            checkpointRef: toCheckpointRef,
-          }),
-        ],
-        { concurrency: "unbounded" },
-      );
-
-      if (!fromExists) {
-        return yield* new CheckpointUnavailableError({
-          threadId: input.threadId,
-          turnCount: input.fromTurnCount,
-          detail: `Filesystem checkpoint is unavailable for turn ${input.fromTurnCount}.`,
-        });
-      }
-
-      if (!toExists) {
-        return yield* new CheckpointUnavailableError({
-          threadId: input.threadId,
-          turnCount: input.toTurnCount,
-          detail: `Filesystem checkpoint is unavailable for turn ${input.toTurnCount}.`,
-        });
-      }
-
       const diff = yield* checkpointStore.diffCheckpoints({
         cwd: workspaceCwd,
         fromCheckpointRef,
         toCheckpointRef,
         fallbackFromToHead: false,
+        ignoreWhitespace,
       });
 
       const turnDiff: OrchestrationGetTurnDiffResultType = {
@@ -157,6 +129,7 @@ const make = Effect.gen(function* () {
       threadId: input.threadId,
       fromTurnCount: 0,
       toTurnCount: input.toTurnCount,
+      ignoreWhitespace: input.ignoreWhitespace,
     }).pipe(Effect.map((result): OrchestrationGetFullThreadDiffResult => result));
 
   return {

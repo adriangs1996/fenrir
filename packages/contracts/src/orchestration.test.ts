@@ -44,9 +44,11 @@ it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
       threadId: "thread-1",
       fromTurnCount: 1,
       toTurnCount: 2,
+      ignoreWhitespace: false,
     });
     assert.strictEqual(parsed.fromTurnCount, 1);
     assert.strictEqual(parsed.toTurnCount, 2);
+    assert.strictEqual(parsed.ignoreWhitespace, false);
   }),
 );
 

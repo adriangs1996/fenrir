@@ -180,7 +180,6 @@ function createBaseTimelineProps(input: {
     completionDividerBeforeEntryId: input.completionDividerBeforeEntryId ?? null,
     completionSummary: null,
     turnDiffSummaryByAssistantMessageId: input.turnDiffSummaryByAssistantMessageId ?? new Map(),
-    nowIso: isoAt(10_000),
     expandedWorkGroups: input.expandedWorkGroups ?? {},
     onToggleWorkGroup: () => {},
     changedFilesExpandedByTurnId: {},
@@ -558,8 +557,13 @@ async function measureTimelineRow(input: {
   const rows = deriveMessagesTimelineRows({
     timelineEntries: input.props.timelineEntries,
     completionDividerBeforeEntryId: input.props.completionDividerBeforeEntryId,
+    completionSummary: input.props.completionSummary,
     isWorking: input.props.isWorking,
+    activeTurnInProgress: input.props.activeTurnInProgress,
+    activeTurnId: input.props.activeTurnId ?? null,
     activeTurnStartedAt: input.props.activeTurnStartedAt,
+    turnDiffSummaryByAssistantMessageId: input.props.turnDiffSummaryByAssistantMessageId,
+    revertTurnCountByUserMessageId: input.props.revertTurnCountByUserMessageId,
   });
   const targetRow = rows.find((row) => row.id === input.targetRowId);
   expect(targetRow, `Unable to derive target row ${input.targetRowId}.`).toBeTruthy();

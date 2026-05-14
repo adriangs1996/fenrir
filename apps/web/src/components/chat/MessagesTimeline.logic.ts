@@ -1,4 +1,5 @@
-import { type MessageId } from "@fenrir/contracts";
+import { type MessageId, type TurnId } from "@fenrir/contracts";
+import * as Equal from "effect/Equal";
 import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
 import { buildTurnDiffTree, type TurnDiffTreeNode } from "../../lib/turnDiffTree";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
@@ -27,7 +28,11 @@ export type MessagesTimelineRow =
       message: ChatMessage;
       durationStart: string;
       showCompletionDivider: boolean;
+      completionSummary: string | null;
       showAssistantCopyButton: boolean;
+      assistantCopyStreaming: boolean;
+      assistantTurnDiffSummary?: TurnDiffSummary | undefined;
+      revertTurnCount?: number | undefined;
     }
   | {
       kind: "proposed-plan";
@@ -105,8 +110,13 @@ function deriveTerminalAssistantMessageIds(timelineEntries: ReadonlyArray<Timeli
 export function deriveMessagesTimelineRows(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   completionDividerBeforeEntryId: string | null;
+  completionSummary?: string | null;
   isWorking: boolean;
+  activeTurnInProgress?: boolean;
+  activeTurnId?: TurnId | null;
   activeTurnStartedAt: string | null;
+  turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
+  revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
   const durationStartByMessageId = computeMessageDurationStart(
@@ -149,6 +159,16 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    const assistantTurnStillInProgress =
+      timelineEntry.message.role === "assistant" &&
+      input.activeTurnInProgress === true &&
+      input.activeTurnId != null &&
+      timelineEntry.message.turnId === input.activeTurnId;
+
+    const showCompletionDivider =
+      timelineEntry.message.role === "assistant" &&
+      input.completionDividerBeforeEntryId === timelineEntry.id;
+
     nextRows.push({
       kind: "message",
       id: timelineEntry.id,
@@ -156,12 +176,20 @@ export function deriveMessagesTimelineRows(input: {
       message: timelineEntry.message,
       durationStart:
         durationStartByMessageId.get(timelineEntry.message.id) ?? timelineEntry.message.createdAt,
-      showCompletionDivider:
-        timelineEntry.message.role === "assistant" &&
-        input.completionDividerBeforeEntryId === timelineEntry.id,
+      showCompletionDivider,
+      completionSummary: showCompletionDivider ? (input.completionSummary ?? null) : null,
       showAssistantCopyButton:
         timelineEntry.message.role === "assistant" &&
         terminalAssistantMessageIds.has(timelineEntry.message.id),
+      assistantCopyStreaming: timelineEntry.message.streaming || assistantTurnStillInProgress,
+      assistantTurnDiffSummary:
+        timelineEntry.message.role === "assistant"
+          ? input.turnDiffSummaryByAssistantMessageId.get(timelineEntry.message.id)
+          : undefined,
+      revertTurnCount:
+        timelineEntry.message.role === "user"
+          ? input.revertTurnCountByUserMessageId.get(timelineEntry.message.id)
+          : undefined,
     });
   }
 
@@ -174,6 +202,59 @@ export function deriveMessagesTimelineRows(input: {
   }
 
   return nextRows;
+}
+
+export interface StableMessagesTimelineRowsState {
+  readonly byId: ReadonlyMap<string, MessagesTimelineRow>;
+  readonly result: ReadonlyArray<MessagesTimelineRow>;
+}
+
+export function computeStableMessagesTimelineRows(
+  rows: MessagesTimelineRow[],
+  previous: StableMessagesTimelineRowsState,
+): StableMessagesTimelineRowsState {
+  const next = new Map<string, MessagesTimelineRow>();
+  let anyChanged = rows.length !== previous.byId.size;
+
+  const result = rows.map((row, index) => {
+    const prevRow = previous.byId.get(row.id);
+    const nextRow = prevRow && isRowUnchanged(prevRow, row) ? prevRow : row;
+    next.set(row.id, nextRow);
+    if (!anyChanged && previous.result[index] !== nextRow) {
+      anyChanged = true;
+    }
+    return nextRow;
+  });
+
+  return anyChanged ? { byId: next, result } : previous;
+}
+
+function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean {
+  if (a.kind !== b.kind || a.id !== b.id) {
+    return false;
+  }
+
+  switch (a.kind) {
+    case "working":
+      return a.createdAt === (b as typeof a).createdAt;
+    case "proposed-plan":
+      return a.proposedPlan === (b as typeof a).proposedPlan;
+    case "work":
+      return Equal.equals(a.groupedEntries, (b as typeof a).groupedEntries);
+    case "message": {
+      const nextMessageRow = b as typeof a;
+      return (
+        a.message === nextMessageRow.message &&
+        a.durationStart === nextMessageRow.durationStart &&
+        a.showCompletionDivider === nextMessageRow.showCompletionDivider &&
+        a.completionSummary === nextMessageRow.completionSummary &&
+        a.showAssistantCopyButton === nextMessageRow.showAssistantCopyButton &&
+        a.assistantCopyStreaming === nextMessageRow.assistantCopyStreaming &&
+        a.assistantTurnDiffSummary === nextMessageRow.assistantTurnDiffSummary &&
+        a.revertTurnCount === nextMessageRow.revertTurnCount
+      );
+    }
+  }
 }
 
 export function estimateMessagesTimelineRowHeight(

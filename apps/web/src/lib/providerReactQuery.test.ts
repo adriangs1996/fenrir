@@ -30,6 +30,7 @@ describe("providerQueryKeys.checkpointDiff", () => {
       threadId,
       fromTurnCount: 1,
       toTurnCount: 2,
+      ignoreWhitespace: true,
     } as const;
 
     expect(
@@ -41,6 +42,28 @@ describe("providerQueryKeys.checkpointDiff", () => {
       providerQueryKeys.checkpointDiff({
         ...baseInput,
         cacheScope: "turn:new-turn",
+      }),
+    );
+  });
+
+  it("includes whitespace mode so distinct diff variants do not collide", () => {
+    const baseInput = {
+      environmentId,
+      threadId,
+      fromTurnCount: 1,
+      toTurnCount: 2,
+      cacheScope: "turn:abc",
+    } as const;
+
+    expect(
+      providerQueryKeys.checkpointDiff({
+        ...baseInput,
+        ignoreWhitespace: true,
+      }),
+    ).not.toEqual(
+      providerQueryKeys.checkpointDiff({
+        ...baseInput,
+        ignoreWhitespace: false,
       }),
     );
   });
@@ -57,6 +80,7 @@ describe("checkpointDiffQueryOptions", () => {
       threadId,
       fromTurnCount: 3,
       toTurnCount: 4,
+      ignoreWhitespace: true,
       cacheScope: "turn:abc",
     });
 
@@ -67,6 +91,7 @@ describe("checkpointDiffQueryOptions", () => {
       threadId,
       fromTurnCount: 3,
       toTurnCount: 4,
+      ignoreWhitespace: true,
     });
     expect(getFullThreadDiff).not.toHaveBeenCalled();
   });
@@ -81,6 +106,7 @@ describe("checkpointDiffQueryOptions", () => {
       threadId,
       fromTurnCount: 0,
       toTurnCount: 2,
+      ignoreWhitespace: false,
       cacheScope: "thread:all",
     });
 
@@ -90,6 +116,7 @@ describe("checkpointDiffQueryOptions", () => {
     expect(getFullThreadDiff).toHaveBeenCalledWith({
       threadId,
       toTurnCount: 2,
+      ignoreWhitespace: false,
     });
     expect(getTurnDiff).not.toHaveBeenCalled();
   });
@@ -104,6 +131,7 @@ describe("checkpointDiffQueryOptions", () => {
       threadId,
       fromTurnCount: 4,
       toTurnCount: 3,
+      ignoreWhitespace: true,
       cacheScope: "turn:invalid",
     });
 
@@ -122,6 +150,7 @@ describe("checkpointDiffQueryOptions", () => {
       threadId,
       fromTurnCount: 1,
       toTurnCount: 2,
+      ignoreWhitespace: true,
       cacheScope: "turn:abc",
     });
     const retry = options.retry;
@@ -147,6 +176,7 @@ describe("checkpointDiffQueryOptions", () => {
       threadId,
       fromTurnCount: 1,
       toTurnCount: 2,
+      ignoreWhitespace: true,
       cacheScope: "turn:abc",
     });
     const retryDelay = options.retryDelay;

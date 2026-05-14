@@ -567,6 +567,7 @@ describe("wsApi", () => {
     const getClientSettings = vi.fn().mockResolvedValue({
       confirmThreadArchive: true,
       confirmThreadDelete: false,
+      diffIgnoreWhitespace: true,
       diffWordWrap: true,
       sidebarProjectSortOrder: "manual",
       sidebarThreadSortOrder: "created_at",
@@ -595,6 +596,7 @@ describe("wsApi", () => {
     await api.persistence.setClientSettings({
       confirmThreadArchive: true,
       confirmThreadDelete: false,
+      diffIgnoreWhitespace: true,
       diffWordWrap: true,
       sidebarProjectSortOrder: "manual",
       sidebarThreadSortOrder: "created_at",
@@ -625,6 +627,7 @@ describe("wsApi", () => {
     expect(setClientSettings).toHaveBeenCalledWith({
       confirmThreadArchive: true,
       confirmThreadDelete: false,
+      diffIgnoreWhitespace: true,
       diffWordWrap: true,
       sidebarProjectSortOrder: "manual",
       sidebarThreadSortOrder: "created_at",
@@ -654,6 +657,7 @@ describe("wsApi", () => {
     await api.persistence.setClientSettings({
       confirmThreadArchive: true,
       confirmThreadDelete: false,
+      diffIgnoreWhitespace: true,
       diffWordWrap: true,
       sidebarProjectSortOrder: "manual",
       sidebarThreadSortOrder: "created_at",

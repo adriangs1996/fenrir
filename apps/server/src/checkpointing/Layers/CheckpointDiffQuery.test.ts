@@ -43,11 +43,11 @@ describe("CheckpointDiffQueryLive", () => {
     const projectId = ProjectId.makeUnsafe("project-1");
     const threadId = ThreadId.makeUnsafe("thread-1");
     const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
-    const hasCheckpointRefCalls: Array<CheckpointRef> = [];
     const diffCheckpointsCalls: Array<{
       readonly fromCheckpointRef: CheckpointRef;
       readonly toCheckpointRef: CheckpointRef;
       readonly cwd: string;
+      readonly ignoreWhitespace?: boolean;
     }> = [];
 
     const threadCheckpointContext = makeThreadCheckpointContext({
@@ -62,15 +62,16 @@ describe("CheckpointDiffQueryLive", () => {
     const checkpointStore: CheckpointStoreShape = {
       isGitRepository: () => Effect.succeed(true),
       captureCheckpoint: () => Effect.void,
-      hasCheckpointRef: ({ checkpointRef }) =>
-        Effect.sync(() => {
-          hasCheckpointRefCalls.push(checkpointRef);
-          return true;
-        }),
+      hasCheckpointRef: () => Effect.succeed(true),
       restoreCheckpoint: () => Effect.succeed(true),
-      diffCheckpoints: ({ fromCheckpointRef, toCheckpointRef, cwd }) =>
+      diffCheckpoints: ({ fromCheckpointRef, toCheckpointRef, cwd, ignoreWhitespace }) =>
         Effect.sync(() => {
-          diffCheckpointsCalls.push({ fromCheckpointRef, toCheckpointRef, cwd });
+          diffCheckpointsCalls.push({
+            fromCheckpointRef,
+            toCheckpointRef,
+            cwd,
+            ...(ignoreWhitespace !== undefined ? { ignoreWhitespace } : {}),
+          });
           return "diff patch";
         }),
       deleteCheckpointRefs: () => Effect.void,
@@ -102,11 +103,11 @@ describe("CheckpointDiffQueryLive", () => {
     );
 
     const expectedFromRef = checkpointRefForThreadTurn(threadId, 0);
-    expect(hasCheckpointRefCalls).toEqual([expectedFromRef, toCheckpointRef]);
     expect(diffCheckpointsCalls).toEqual([
       {
         cwd: "/tmp/workspace",
         fromCheckpointRef: expectedFromRef,
+        ignoreWhitespace: true,
         toCheckpointRef,
       },
     ]);
