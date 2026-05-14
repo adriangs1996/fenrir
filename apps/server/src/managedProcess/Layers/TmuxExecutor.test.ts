@@ -120,13 +120,13 @@ interface ExitEvent {
 let instanceCounter = 0;
 
 /** Build spawn input. instanceId uses `{projectId}/{unique}` convention. */
-function makeInput(command: string) {
+function makeInput(command: string, options?: { env?: Record<string, string> }) {
   instanceCounter++;
   return {
     instanceId: `${TEST_PROJECT}/inst-${instanceCounter}`,
     command,
     cwd: process.cwd(),
-    env: {},
+    env: options?.env ?? {},
     cols: 120,
     rows: 40,
   };
@@ -177,6 +177,40 @@ describe.skipIf(!hasTmux)("TmuxExecutor", () => {
 
             const exit = yield* Deferred.await(exitDone);
             expect(exit.userInitiated).toBe(false);
+
+            sub.unsubscribe();
+            exitSub.unsubscribe();
+          }),
+        { timeout: 15_000 },
+      );
+
+      it.effect(
+        "passes environment variables before execing the command",
+        () =>
+          Effect.gen(function* () {
+            const executor = yield* Executor;
+            const handle = yield* executor.spawn(
+              makeInput(`printf '%s\n' "$FENRIR_PROJECT_ROOT"`, {
+                env: {
+                  FENRIR_PROJECT_ROOT: "/tmp/fenrir env test",
+                },
+              }),
+            );
+
+            let buffer = "";
+
+            const sub = handle.onData((chunk) => {
+              buffer += chunk;
+            });
+
+            const exitDone = yield* Deferred.make<ExitEvent>();
+            const exitSub = handle.onExit((event) => {
+              Deferred.doneUnsafe(exitDone, Exit.succeed(event));
+            });
+
+            const exit = yield* Deferred.await(exitDone);
+            expect(exit.userInitiated).toBe(false);
+            expect(buffer).toContain("/tmp/fenrir env test");
 
             sub.unsubscribe();
             exitSub.unsubscribe();

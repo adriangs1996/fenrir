@@ -17,6 +17,7 @@ import {
   buildWorkspacePromptContext,
   computeExecutionDispatch,
   findRecentProviderTurnStartFailure,
+  isExecutablePlanFile,
 } from "./PlanRunner";
 
 describe("findRecentProviderTurnStartFailure", () => {
@@ -150,6 +151,20 @@ describe("buildWorkspacePromptContext", () => {
   });
 });
 
+describe("isExecutablePlanFile", () => {
+  it("accepts normal markdown plan files", () => {
+    expect(isExecutablePlanFile("01-step.md")).toBe(true);
+  });
+
+  it("rejects underscore-prefixed markdown reference files", () => {
+    expect(isExecutablePlanFile("_reference.md")).toBe(false);
+  });
+
+  it("rejects non-markdown files", () => {
+    expect(isExecutablePlanFile("notes.txt")).toBe(false);
+  });
+});
+
 // ─── Archive lifecycle integration tests ────────────────────────────────────
 
 const testProjectId = ProjectId.makeUnsafe("test-project");
@@ -225,6 +240,67 @@ const seedFeature = (projectCwd: string, name: string, mdCount: number) =>
       );
     }
   });
+
+describe("listFeatures", () => {
+  it("ignores underscore-prefixed markdown files in planCount", async () => {
+    const tempDir = makeTempProject();
+    const rt = buildArchiveRuntime(tempDir);
+    try {
+      const result = await rt.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const featureDir = path.join(tempDir, ".plans", "feature-a");
+          yield* fs.makeDirectory(featureDir, { recursive: true });
+          yield* fs.writeFileString(path.join(featureDir, "01-step.md"), "# Step 1");
+          yield* fs.writeFileString(path.join(featureDir, "_reference.md"), "# Reference");
+          yield* fs.writeFileString(path.join(featureDir, "notes.txt"), "reference");
+
+          const service = yield* PlanRunnerService;
+          return yield* service.listFeatures({ projectId: testProjectId });
+        }),
+      );
+
+      expect(result.features).toHaveLength(1);
+      expect(result.features[0]?.featureName).toBe("feature-a");
+      expect(result.features[0]?.planCount).toBe(1);
+    } finally {
+      await rt.dispose();
+    }
+  });
+});
+
+describe("getFeaturePlans", () => {
+  it("ignores underscore-prefixed markdown files", async () => {
+    const tempDir = makeTempProject();
+    const rt = buildArchiveRuntime(tempDir);
+    try {
+      const result = await rt.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const featureDir = path.join(tempDir, ".plans", "feature-a");
+          yield* fs.makeDirectory(featureDir, { recursive: true });
+          yield* fs.writeFileString(path.join(featureDir, "01-step.md"), "# Step 1");
+          yield* fs.writeFileString(path.join(featureDir, "_reference.md"), "# Reference");
+          yield* fs.writeFileString(path.join(featureDir, "notes.txt"), "reference");
+
+          const service = yield* PlanRunnerService;
+          return yield* service.getFeaturePlans({
+            projectId: testProjectId,
+            featureName: "feature-a",
+          });
+        }),
+      );
+
+      expect(result.featureName).toBe("feature-a");
+      expect(result.plans).toHaveLength(1);
+      expect(result.plans[0]?.filename).toBe("01-step.md");
+    } finally {
+      await rt.dispose();
+    }
+  });
+});
 
 describe("archiveFeature", () => {
   it("happy path: moves .plans/foo/ → .plans/.archive/foo/ and returns archivedDirName", async () => {
@@ -695,6 +771,34 @@ describe("listArchivedFeatures", () => {
       // The suffixed one has a parsed archivedAt, the plain one uses mtime
       const suffixed = result.features.find((f) => f.archivedDirName.includes("--archived-"));
       expect(suffixed).toBeDefined();
+    } finally {
+      await rt.dispose();
+    }
+  });
+
+  it("ignores underscore-prefixed markdown files in archived planCount", async () => {
+    const tempDir = makeTempProject();
+    const rt = buildArchiveRuntime(tempDir);
+    try {
+      const result = await rt.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const service = yield* PlanRunnerService;
+
+          const archDir = path.join(tempDir, ".plans", ".archive");
+          const featureDir = path.join(archDir, "alpha--archived-2000000000000");
+          yield* fs.makeDirectory(featureDir, { recursive: true });
+          yield* fs.writeFileString(path.join(featureDir, "01.md"), "# Step 1");
+          yield* fs.writeFileString(path.join(featureDir, "_reference.md"), "# Reference");
+          yield* fs.writeFileString(path.join(featureDir, "notes.txt"), "reference");
+
+          return yield* service.listArchivedFeatures({ projectId: testProjectId });
+        }),
+      );
+
+      expect(result.features).toHaveLength(1);
+      expect(result.features[0]?.planCount).toBe(1);
     } finally {
       await rt.dispose();
     }

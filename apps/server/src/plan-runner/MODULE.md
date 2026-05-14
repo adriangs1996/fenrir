@@ -47,6 +47,8 @@ runs that have already terminated and been evicted.
 2. Read `.plans/<feature>/` once and **freeze** the plan graph: parse
    frontmatter, strip self/unknown deps, capture markdown bodies. Subsequent
    edits to `.plans/` are intentionally ignored for the run's lifetime.
+   Markdown files whose names start with `_` are treated as reference-only
+   and excluded from the frozen execution graph.
 3. Resolve or create the `feature/<featureName>` branch + worktree.
 4. Build a fresh `PlanRunnerRunRow` plus seed `PlanRunnerStepRow` rows
    (`analyzer`, `integration`, one per plan in `blocked`/`ready`).

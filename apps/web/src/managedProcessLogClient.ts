@@ -1,7 +1,4 @@
-import {
-  MANAGED_PROCESS_LOG_CHANNEL,
-  type ManagedProcessLogServerMessage,
-} from "@fenrir/contracts";
+import { type ManagedProcessLogServerMessage } from "@fenrir/contracts";
 import type { WsRpcClient } from "./rpc/wsRpcClient";
 
 export interface LogStreamHandle {

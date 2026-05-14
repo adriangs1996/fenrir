@@ -34,6 +34,8 @@ import {
 } from "../Services/Manager.ts";
 import { projectScriptRuntimeEnv, resolveManagedProcessCwd } from "@fenrir/shared/projectScripts";
 
+const STOP_FORCE_KILL_GRACE_MS = 1_500;
+
 // ---------------------------------------------------------------------------
 // Internal state
 // ---------------------------------------------------------------------------
@@ -65,8 +67,12 @@ interface RuntimeInstance {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function instanceKey(processDefId: string, worktreePath: string | null): string {
-  return `${processDefId}::${worktreePath ?? "__project__"}`;
+function instanceKey(
+  projectId: ProjectId,
+  processDefId: string,
+  worktreePath: string | null,
+): string {
+  return `${projectId}::${processDefId}::${worktreePath ?? "__project__"}`;
 }
 
 function rpcError(code: ManagedProcessRpcError["code"], message: string): ManagedProcessRpcError {
@@ -181,6 +187,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
     inst.unsubscribeExit?.();
     inst.unsubscribeData = null;
     inst.unsubscribeExit = null;
+    inst.handle = null;
 
     const nextStatus: ManagedProcessInstanceStatus =
       event.userInitiated || event.exitCode === 0 ? "stopped" : "crashed";
@@ -280,7 +287,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
       }
 
       // 2. Compute instance key.
-      const key = instanceKey(input.processDefId, input.worktreePath);
+      const key = instanceKey(input.projectId, input.processDefId, input.worktreePath);
 
       // 3. Idempotency: running / starting / stopping → return existing.
       const existingId = byKey.get(key);
@@ -515,6 +522,11 @@ const makeManagedProcessManager = Effect.gen(function* () {
       yield* inst.handle
         .stop()
         .pipe(Effect.catch((err) => Effect.fail(rpcError("io-error", err.message))));
+
+      setTimeout(() => {
+        if (inst.status !== "stopping" || !inst.handle) return;
+        runFork(inst.handle.forceKill().pipe(Effect.catchCause(() => Effect.void)));
+      }, STOP_FORCE_KILL_GRACE_MS);
 
       return toPublicInstance(inst, executorKind);
     });
@@ -762,7 +774,10 @@ const makeManagedProcessManager = Effect.gen(function* () {
           });
 
           byId.set(record.instanceId, inst);
-          byKey.set(instanceKey(record.processDefId, record.worktreePath), record.instanceId);
+          byKey.set(
+            instanceKey(record.projectId, record.processDefId, record.worktreePath),
+            record.instanceId,
+          );
 
           emitEvent({
             type: "started",

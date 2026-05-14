@@ -23,6 +23,7 @@ import { ManagedProcessManagerLive } from "./Manager.ts";
 // ── Constants ──
 
 const DUMMY_PROJECT_ID = "test-project" as ProjectId;
+const SECOND_PROJECT_ID = "test-project-2" as ProjectId;
 
 const DUMMY_DEFINITION: ManagedProcess = {
   id: "dev-server",
@@ -43,6 +44,8 @@ class MockHandle implements ExecutorHandle {
   readonly executor: ManagedProcessExecutorKind;
   readonly pid = 1234;
   readonly nativeKey: string;
+  stopCallCount = 0;
+  forceKillCallCount = 0;
 
   private _userInitiated = false;
   private readonly _dataHandlers = new Set<(chunk: string) => void>();
@@ -65,12 +68,14 @@ class MockHandle implements ExecutorHandle {
 
   stop(): Effect.Effect<void, ExecutorError> {
     return Effect.sync(() => {
+      this.stopCallCount++;
       this._userInitiated = true;
     });
   }
 
   forceKill(): Effect.Effect<void, ExecutorError> {
     return Effect.sync(() => {
+      this.forceKillCallCount++;
       this._userInitiated = true;
     });
   }
@@ -232,6 +237,22 @@ function makeProject(overrides: Record<string, unknown> = {}): Record<string, un
   };
 }
 
+function makeSecondProject(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: SECOND_PROJECT_ID,
+    title: "Test Project 2",
+    workspaceRoot: `${process.cwd()}-project-2`,
+    repositoryIdentity: null,
+    defaultModelSelection: null,
+    scripts: [],
+    managedProcesses: [DUMMY_DEFINITION],
+    globalScriptDefaults: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
 function createMockOrchestrationEngine(
   initialProjects: Record<string, unknown>[] = [makeProject()],
 ): {
@@ -369,6 +390,34 @@ describe("ManagedProcessManager", () => {
         }).pipe(Effect.scoped, Effect.provide(ctx.layer)),
       );
     });
+
+    it("allows the same processDefId to run in different projects", async () => {
+      const ctx = buildTestLayer({
+        projects: [makeProject(), makeSecondProject()],
+      });
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const manager = yield* ManagedProcessManager;
+
+          const first = yield* manager.start({
+            projectId: DUMMY_PROJECT_ID,
+            processDefId: "dev-server",
+            worktreePath: null,
+          });
+          const second = yield* manager.start({
+            projectId: SECOND_PROJECT_ID,
+            processDefId: "dev-server",
+            worktreePath: null,
+          });
+
+          expect(first.instanceId).not.toBe(second.instanceId);
+          expect(first.projectId).toBe(DUMMY_PROJECT_ID);
+          expect(second.projectId).toBe(SECOND_PROJECT_ID);
+          expect(ctx.executor.state.spawnCalls).toHaveLength(2);
+        }).pipe(Effect.scoped, Effect.provide(ctx.layer)),
+      );
+    });
   });
 
   describe("stop", () => {
@@ -414,6 +463,30 @@ describe("ManagedProcessManager", () => {
           expect(ctx.log.state.closeCalls).toContain(instance.instanceId);
 
           yield* Fiber.interrupt(eventFiber);
+        }).pipe(Effect.scoped, Effect.provide(ctx.layer)),
+      );
+    });
+
+    it("force-kills instances that stay stuck in stopping", async () => {
+      const ctx = buildTestLayer({});
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const manager = yield* ManagedProcessManager;
+
+          const instance = yield* manager.start({
+            projectId: DUMMY_PROJECT_ID,
+            processDefId: "dev-server",
+            worktreePath: null,
+          });
+
+          const handle = ctx.executor.state.handles.get(instance.instanceId)!;
+
+          yield* manager.stop(instance.instanceId);
+          yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 1_700)));
+
+          expect(handle.stopCallCount).toBe(1);
+          expect(handle.forceKillCallCount).toBe(1);
         }).pipe(Effect.scoped, Effect.provide(ctx.layer)),
       );
     });

@@ -202,6 +202,11 @@ it.layer(TestLayer)("LogBuffer", (it) => {
         const previousContent = nodeFs.readFileSync(logPrevious, "utf8");
         expect(previousContent).toBe("session-1-data\n");
 
+        // Closed instances should still expose their last backfill to the UI.
+        const closedResult = yield* buf.read(id);
+        expect(closedResult.bytes).toBe("session-1-data\n");
+        expect(closedResult.sequenceNumber).toBe(1);
+
         // Re-open: in-memory ring buffer is fresh
         yield* buf.open({
           instanceId: id,

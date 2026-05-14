@@ -118,6 +118,10 @@ const ANALYZER_STEP_KEY = "analyzer";
 const INTEGRATION_STEP_KEY = "integration";
 const planStepKey = (planId: string) => `plan:${planId}`;
 
+export function isExecutablePlanFile(filename: string): boolean {
+  return filename.endsWith(".md") && !filename.match(/README/i) && !filename.startsWith("_");
+}
+
 function parseFrontmatterOrThrow(content: string, fallbackId: string, filename: string) {
   try {
     return parsePlanFrontmatter(content, fallbackId);
@@ -866,7 +870,7 @@ export const PlanRunnerLive = Layer.effect(
         for (const featureName of entries) {
           const featureDir = pathService.join(plansDir, featureName);
           const planCount = yield* fs.readDirectory(featureDir).pipe(
-            Effect.map((files) => files.filter((f) => f.endsWith(".md")).length),
+            Effect.map((files) => files.filter(isExecutablePlanFile).length),
             Effect.catch(() => Effect.succeed(0)),
           );
 
@@ -928,7 +932,7 @@ export const PlanRunnerLive = Layer.effect(
           if (stat?.type !== "Directory") continue;
 
           const planCount = yield* fs.readDirectory(entryPath).pipe(
-            Effect.map((files) => files.filter((f) => f.endsWith(".md")).length),
+            Effect.map((files) => files.filter(isExecutablePlanFile).length),
             Effect.catch(() => Effect.succeed(0)),
           );
 
@@ -1253,7 +1257,10 @@ export const PlanRunnerLive = Layer.effect(
         const thread = readModel.threads.find((t) => t.id === targetThreadId);
 
         if (!thread) {
-          return { status: "error", error: `Thread ${targetThreadId} not found` };
+          return {
+            status: "error",
+            error: `Thread ${targetThreadId} not found`,
+          };
         }
 
         const providerTurnStartFailure = findRecentProviderTurnStartFailure(
@@ -2105,7 +2112,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               }),
           ),
         );
-        const mdFiles = entries.filter((f) => f.endsWith(".md")).toSorted();
+        const mdFiles = entries.filter(isExecutablePlanFile).toSorted();
         if (mdFiles.length === 0) {
           return yield* new PlanRunnerError({
             message: `No .md plan files found in .plans/${featureName}/` as any,
@@ -3488,7 +3495,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
                 }),
             ),
           );
-          const files = dirEntries.filter((f: string) => f.endsWith(".md"));
+          const files = dirEntries.filter(isExecutablePlanFile);
 
           const plans: Array<{
             planId: string;

@@ -7,6 +7,7 @@ import {
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
   GlobalScriptProjectDefaults,
+  ManagedProcess,
   ProjectScript,
   TurnId,
   type OrchestrationCheckpointSummary,
@@ -54,6 +55,7 @@ const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
     globalScriptDefaults: Schema.fromJsonString(Schema.Array(GlobalScriptProjectDefaults)),
+    managedProcesses: Schema.fromJsonString(Schema.Array(ManagedProcess)),
   }),
 );
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
@@ -181,6 +183,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           COALESCE(global_script_defaults_json, '[]') AS "globalScriptDefaults",
+          COALESCE(managed_processes_json, '[]') AS "managedProcesses",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -374,6 +377,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           COALESCE(global_script_defaults_json, '[]') AS "globalScriptDefaults",
+          COALESCE(managed_processes_json, '[]') AS "managedProcesses",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -681,7 +685,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 defaultModelSelection: row.defaultModelSelection,
                 scripts: row.scripts,
                 globalScriptDefaults: row.globalScriptDefaults,
-                managedProcesses: [],
+                managedProcesses: row.managedProcesses,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
                 deletedAt: row.deletedAt,
@@ -768,7 +772,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                     defaultModelSelection: option.value.defaultModelSelection,
                     scripts: option.value.scripts,
                     globalScriptDefaults: option.value.globalScriptDefaults,
-                    managedProcesses: [],
+                    managedProcesses: option.value.managedProcesses,
                     createdAt: option.value.createdAt,
                     updatedAt: option.value.updatedAt,
                     deletedAt: option.value.deletedAt,

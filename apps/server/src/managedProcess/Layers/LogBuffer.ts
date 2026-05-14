@@ -65,6 +65,11 @@ interface InstanceBuffer {
   previousLogPath: string;
 }
 
+interface ClosedBufferSnapshot extends LogBufferReadResult {
+  readonly logPath: string;
+  readonly previousLogPath: string;
+}
+
 function countLines(s: string): number {
   let count = 0;
   for (let i = 0; i < s.length; i++) {
@@ -91,6 +96,7 @@ const makeLogBuffer = Effect.gen(function* () {
   const { stateDir } = yield* ServerConfig;
 
   const buffers = new Map<string, InstanceBuffer>();
+  const closedSnapshots = new Map<string, ClosedBufferSnapshot>();
 
   function logDir(
     projectId: ProjectId,
@@ -158,6 +164,7 @@ const makeLogBuffer = Effect.gen(function* () {
           existing.subscribers.delete(sub);
         }
       }
+      closedSnapshots.delete(input.instanceId);
 
       const paths = logDir(input.projectId, input.worktreePath, input.processDefId);
       const fd = openFdSafe(paths.dir, paths.logPath);
@@ -211,7 +218,14 @@ const makeLogBuffer = Effect.gen(function* () {
     Effect.sync((): LogBufferReadResult => {
       const buf = buffers.get(instanceId);
       if (!buf) {
-        return { bytes: "", ringBufferBytes: 0, truncated: false, sequenceNumber: 0 };
+        return (
+          closedSnapshots.get(instanceId) ?? {
+            bytes: "",
+            ringBufferBytes: 0,
+            truncated: false,
+            sequenceNumber: 0,
+          }
+        );
       }
 
       const concatenated = buf.chunks.map((c) => c.bytes).join("");
@@ -243,6 +257,15 @@ const makeLogBuffer = Effect.gen(function* () {
       const buf = buffers.get(instanceId);
       if (!buf) return;
 
+      const snapshot: ClosedBufferSnapshot = {
+        bytes: buf.chunks.map((chunk) => chunk.bytes).join(""),
+        ringBufferBytes: buf.totalBytes,
+        truncated: buf.truncated,
+        sequenceNumber: buf.sequenceCounter,
+        logPath: buf.logPath,
+        previousLogPath: buf.previousLogPath,
+      };
+
       // Flush + fsync + close fd
       closeFdSafe(buf.fd);
       buf.fd = null;
@@ -252,6 +275,8 @@ const makeLogBuffer = Effect.gen(function* () {
 
       // Clear subscribers
       buf.subscribers.clear();
+
+      closedSnapshots.set(instanceId, snapshot);
 
       // Remove from map
       buffers.delete(instanceId);

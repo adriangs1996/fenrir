@@ -40,6 +40,7 @@ import Migration0024 from "./Migrations/024_BrowserTraffic.ts";
 import Migration0025 from "./Migrations/025_RenameTrafficLens.ts";
 import Migration0026 from "./Migrations/026_CleanupInvalidProjectionPendingApprovals.ts";
 import Migration0027 from "./Migrations/027_PlanRunnerPersistence.ts";
+import Migration0028 from "./Migrations/028_ManagedProcessDefinitions.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -79,6 +80,7 @@ export const migrationEntries = [
   [25, "RenameTrafficLens", Migration0025],
   [26, "CleanupInvalidProjectionPendingApprovals", Migration0026],
   [27, "PlanRunnerPersistence", Migration0027],
+  [28, "ManagedProcessDefinitions", Migration0028],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

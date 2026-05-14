@@ -9,6 +9,7 @@
 import {
   GlobalScriptProjectDefaults,
   IsoDateTime,
+  ManagedProcess,
   ModelSelection,
   ProjectId,
   ProjectScript,
@@ -25,6 +26,7 @@ export const ProjectionProject = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   globalScriptDefaults: Schema.Array(GlobalScriptProjectDefaults),
+  managedProcesses: Schema.Array(ManagedProcess),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),

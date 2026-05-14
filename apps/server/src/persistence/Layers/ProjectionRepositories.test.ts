@@ -33,6 +33,20 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         },
         scripts: [],
         globalScriptDefaults: [],
+        managedProcesses: [
+          {
+            id: "dev-server",
+            name: "Dev Server",
+            command: "make dev",
+            icon: "play",
+            scope: "project",
+            cwd: null,
+            env: { PORT: "3000" },
+            proxy: null,
+            readiness: { kind: "none" },
+            autoRestart: null,
+          },
+        ],
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-24T00:00:00.000Z",
         deletedAt: null,
@@ -40,8 +54,11 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
 
       const rows = yield* sql<{
         readonly defaultModelSelection: string | null;
+        readonly managedProcesses: string | null;
       }>`
-        SELECT default_model_selection_json AS "defaultModelSelection"
+        SELECT
+          default_model_selection_json AS "defaultModelSelection",
+          managed_processes_json AS "managedProcesses"
         FROM projection_projects
         WHERE project_id = 'project-null-options'
       `;
@@ -57,6 +74,23 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
           model: "gpt-5.4",
         }),
       );
+      assert.strictEqual(
+        row.managedProcesses,
+        JSON.stringify([
+          {
+            id: "dev-server",
+            name: "Dev Server",
+            command: "make dev",
+            icon: "play",
+            scope: "project",
+            cwd: null,
+            env: { PORT: "3000" },
+            proxy: null,
+            readiness: { kind: "none" },
+            autoRestart: null,
+          },
+        ]),
+      );
 
       const persisted = yield* projects.getById({
         projectId: ProjectId.makeUnsafe("project-null-options"),
@@ -65,6 +99,20 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         provider: "codex",
         model: "gpt-5.4",
       });
+      assert.deepStrictEqual(Option.getOrNull(persisted)?.managedProcesses, [
+        {
+          id: "dev-server",
+          name: "Dev Server",
+          command: "make dev",
+          icon: "play",
+          scope: "project",
+          cwd: null,
+          env: { PORT: "3000" },
+          proxy: null,
+          readiness: { kind: "none" },
+          autoRestart: null,
+        },
+      ]);
     }),
   );
 

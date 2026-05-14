@@ -3,6 +3,7 @@ import {
   type EditorId,
   type GlobalScript,
   type GlobalScriptProjectDefaults,
+  type ProjectId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
@@ -22,13 +23,17 @@ import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
 import { VpnToolbarButton } from "../VpnToolbarButton";
+import { ManagedProcessProjectControl } from "../managedProcess/ManagedProcessProjectControl";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
   draftId?: DraftId;
   activeThreadTitle: string;
+  activeProjectId: ProjectId | null;
+  activeProjectEnvironmentId: EnvironmentId | null;
   activeProjectName: string | undefined;
+  activeProjectManagedProcessCount: number;
   isGitRepo: boolean;
   openInCwd: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
@@ -60,7 +65,10 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   draftId,
   activeThreadTitle,
+  activeProjectId,
+  activeProjectEnvironmentId,
   activeProjectName,
+  activeProjectManagedProcessCount,
   isGitRepo,
   openInCwd,
   activeProjectScripts,
@@ -124,6 +132,14 @@ export const ChatHeader = memo(function ChatHeader({
             onAddGlobalScript={onAddGlobalScript}
             onUpdateGlobalScript={onUpdateGlobalScript}
             onDeleteGlobalScript={onDeleteGlobalScript}
+          />
+        )}
+        {activeProjectId && activeProjectEnvironmentId && activeProjectName && (
+          <ManagedProcessProjectControl
+            projectId={activeProjectId}
+            environmentId={activeProjectEnvironmentId}
+            projectName={activeProjectName}
+            definitionCount={activeProjectManagedProcessCount}
           />
         )}
         {activeProjectName && (

@@ -381,6 +381,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             defaultModelSelection: event.payload.defaultModelSelection,
             scripts: event.payload.scripts,
             globalScriptDefaults: event.payload.globalScriptDefaults,
+            managedProcesses: [],
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
             deletedAt: null,
@@ -407,6 +408,43 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(event.payload.globalScriptDefaults !== undefined
               ? { globalScriptDefaults: event.payload.globalScriptDefaults }
               : {}),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "managed-process.definition-upserted": {
+          const existingRow = yield* projectionProjectRepository.getById({
+            projectId: event.payload.projectId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionProjectRepository.upsert({
+            ...existingRow.value,
+            managedProcesses: [
+              ...existingRow.value.managedProcesses.filter(
+                (definition) => definition.id !== event.payload.definition.id,
+              ),
+              event.payload.definition,
+            ],
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "managed-process.definition-deleted": {
+          const existingRow = yield* projectionProjectRepository.getById({
+            projectId: event.payload.projectId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionProjectRepository.upsert({
+            ...existingRow.value,
+            managedProcesses: existingRow.value.managedProcesses.filter(
+              (definition) => definition.id !== event.payload.processDefId,
+            ),
             updatedAt: event.payload.updatedAt,
           });
           return;

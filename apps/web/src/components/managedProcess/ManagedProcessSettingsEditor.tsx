@@ -14,6 +14,7 @@ import { useCallback, useState } from "react";
 import type { ProjectScriptIcon } from "@fenrir/contracts";
 import { useShallow } from "zustand/react/shallow";
 import { selectManagedProcessDefinitions, useStore } from "~/store";
+import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { ImportFromPortlessButton } from "./ImportFromPortlessButton";
 import { ManagedProcessForm } from "./ManagedProcessForm";
@@ -82,9 +83,11 @@ function DefinitionRow({ definition, onEdit }: { definition: ManagedProcess; onE
 export function ManagedProcessSettingsEditor({
   projectId,
   environmentId,
+  hideHeading = false,
 }: {
   projectId: ProjectId;
   environmentId: EnvironmentId;
+  hideHeading?: boolean;
 }) {
   const definitions = useStore(
     useShallow((s) => selectManagedProcessDefinitions(s, environmentId, projectId)),
@@ -97,11 +100,15 @@ export function ManagedProcessSettingsEditor({
 
   return (
     <section className="space-y-2.5">
-      <div className="flex items-center justify-between px-1">
-        <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground/50">
-          <span className="inline-block h-px w-3 bg-border" aria-hidden />
-          Managed Processes
-        </h2>
+      <div
+        className={cn("flex items-center px-1", hideHeading ? "justify-end" : "justify-between")}
+      >
+        {!hideHeading && (
+          <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-foreground/50">
+            <span className="inline-block h-px w-3 bg-border" aria-hidden />
+            Managed Processes
+          </h2>
+        )}
         <div className="flex items-center gap-2">
           <ImportFromPortlessButton environmentId={environmentId} projectId={projectId} />
           <Button size="xs" variant="outline" onClick={() => setCreating(true)}>

@@ -11,6 +11,8 @@ export default Effect.gen(function* () {
       workspace_root TEXT NOT NULL,
       default_model TEXT,
       scripts_json TEXT NOT NULL,
+      global_script_defaults_json TEXT,
+      managed_processes_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deleted_at TEXT

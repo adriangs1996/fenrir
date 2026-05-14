@@ -416,11 +416,12 @@ export const TmuxExecutorLive = Layer.effect(
             // 1. Ensure session exists with correct options
             ensureSession(sessionName, input.cwd);
 
-            // 2. Build env-prefixed command
-            const envPrefix = Object.entries(input.env)
-              .map(([k, v]) => `${k}=${shellEscape(v)}`)
-              .join(" ");
-            const fullCommand = envPrefix ? `${envPrefix} ${input.command}` : input.command;
+            // 2. Build command and pass environment through tmux directly.
+            const fullCommand = `exec ${input.command}`;
+            const envArgs = Object.entries(input.env).flatMap(([key, value]) => [
+              "-e",
+              `${key}=${value}`,
+            ]);
 
             // 3. Create window with a placeholder that blocks until we set up
             //    pipe-pane. Uses 2147483647 instead of `infinity` for macOS
@@ -443,7 +444,16 @@ export const TmuxExecutorLive = Layer.effect(
             tmuxExec(["pipe-pane", "-o", "-t", target, `cat > ${shellEscape(fifoPath)}`]);
 
             // 5. Replace placeholder with the real command via respawn-pane
-            tmuxExec(["respawn-pane", "-k", "-t", target, "-c", input.cwd, `exec ${fullCommand}`]);
+            tmuxExec([
+              "respawn-pane",
+              "-k",
+              "-t",
+              target,
+              "-c",
+              input.cwd,
+              ...envArgs,
+              fullCommand,
+            ]);
 
             // 6. Build handle
             return buildHandle({
