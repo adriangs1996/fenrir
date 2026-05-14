@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 import type {
   OrchestrationReadModel,
@@ -198,7 +199,11 @@ describe("ProviderRuntimeIngestion", () => {
 
   async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
     const workspaceRoot = makeTempDir("fenrir-provider-project-");
-    fs.mkdirSync(path.join(workspaceRoot, ".git"));
+    execFileSync("git", ["init"], {
+      cwd: workspaceRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf8",
+    });
     const provider = createProviderServiceHarness();
     const orchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),

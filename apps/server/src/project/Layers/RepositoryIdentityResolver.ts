@@ -2,7 +2,11 @@ import type { RepositoryIdentity } from "@fenrir/contracts";
 import { Cache, Duration, Effect, Exit, Layer } from "effect";
 import { detectGitHostingProviderFromRemoteUrl, normalizeGitRemoteUrl } from "@fenrir/shared/git";
 
-import { runProcess } from "../../processRunner.ts";
+import {
+  VcsDriverRegistry,
+  VcsDriverRegistryLive,
+  type VcsDriverHandle,
+} from "../../vcs/VcsDriverRegistry.ts";
 import {
   RepositoryIdentityResolver,
   type RepositoryIdentityResolverShape,
@@ -74,51 +78,46 @@ interface RepositoryIdentityResolverOptions {
   readonly negativeCacheTtl?: Duration.Input;
 }
 
-async function resolveRepositoryIdentityCacheKey(cwd: string): Promise<string> {
-  let cacheKey = cwd;
-
-  try {
-    const topLevelResult = await runProcess("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
-      allowNonZeroExit: true,
-    });
-    if (topLevelResult.code !== 0) {
-      return cacheKey;
-    }
-
-    const candidate = topLevelResult.stdout.trim();
-    if (candidate.length > 0) {
-      cacheKey = candidate;
-    }
-  } catch {
-    return cacheKey;
-  }
-
-  return cacheKey;
-}
-
-async function resolveRepositoryIdentityFromCacheKey(
-  cacheKey: string,
-): Promise<RepositoryIdentity | null> {
-  try {
-    const remoteResult = await runProcess("git", ["-C", cacheKey, "remote", "-v"], {
-      allowNonZeroExit: true,
-    });
-    if (remoteResult.code !== 0) {
-      return null;
-    }
-
-    const remote = pickPrimaryRemote(parseRemoteFetchUrls(remoteResult.stdout));
-    return remote ? buildRepositoryIdentity(remote) : null;
-  } catch {
-    return null;
-  }
-}
-
 export const makeRepositoryIdentityResolver = Effect.fn("makeRepositoryIdentityResolver")(
   function* (options: RepositoryIdentityResolverOptions = {}) {
+    const vcsRegistry = yield* VcsDriverRegistry;
+
+    const detectRepository = (cwd: string): Effect.Effect<VcsDriverHandle | null> =>
+      vcsRegistry.detect({ cwd }).pipe(Effect.catch(() => Effect.succeed(null)));
+
+    const resolveRepositoryIdentityCacheKey = (cwd: string): Effect.Effect<string> =>
+      detectRepository(cwd).pipe(Effect.map((handle) => handle?.repository.rootPath ?? cwd));
+
+    const resolveRepositoryIdentityFromCacheKey = (
+      cacheKey: string,
+    ): Effect.Effect<RepositoryIdentity | null> =>
+      Effect.gen(function* () {
+        const handle = yield* detectRepository(cacheKey);
+        if (!handle || handle.kind !== "git") {
+          return null;
+        }
+
+        const remoteResult = yield* handle.driver
+          .execute({
+            operation: "RepositoryIdentityResolver.listRemotes",
+            cwd: handle.repository.rootPath,
+            args: ["remote", "-v"],
+            allowNonZeroExit: true,
+            timeoutMs: 5_000,
+            maxOutputBytes: 64 * 1024,
+          })
+          .pipe(Effect.catch(() => Effect.succeed(null)));
+        if (!remoteResult || remoteResult.exitCode !== 0) {
+          return null;
+        }
+
+        const remote = pickPrimaryRemote(parseRemoteFetchUrls(remoteResult.stdout));
+        return remote ? buildRepositoryIdentity(remote) : null;
+      });
+
     const repositoryIdentityCache = yield* Cache.makeWith<string, RepositoryIdentity | null>({
       capacity: options.cacheCapacity ?? DEFAULT_REPOSITORY_IDENTITY_CACHE_CAPACITY,
-      lookup: (cacheKey) => Effect.promise(() => resolveRepositoryIdentityFromCacheKey(cacheKey)),
+      lookup: resolveRepositoryIdentityFromCacheKey,
       timeToLive: Exit.match({
         onSuccess: (value) =>
           value === null
@@ -131,7 +130,7 @@ export const makeRepositoryIdentityResolver = Effect.fn("makeRepositoryIdentityR
     const resolve: RepositoryIdentityResolverShape["resolve"] = Effect.fn(
       "RepositoryIdentityResolver.resolve",
     )(function* (cwd) {
-      const cacheKey = yield* Effect.promise(() => resolveRepositoryIdentityCacheKey(cwd));
+      const cacheKey = yield* resolveRepositoryIdentityCacheKey(cwd);
       return yield* Cache.get(repositoryIdentityCache, cacheKey);
     });
 
@@ -144,4 +143,4 @@ export const makeRepositoryIdentityResolver = Effect.fn("makeRepositoryIdentityR
 export const RepositoryIdentityResolverLive = Layer.effect(
   RepositoryIdentityResolver,
   makeRepositoryIdentityResolver(),
-);
+).pipe(Layer.provide(VcsDriverRegistryLive));

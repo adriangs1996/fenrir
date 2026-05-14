@@ -21,10 +21,7 @@ const GitCoreTestLayer = GitCoreLive.pipe(
   Layer.provide(ServerConfigLayer),
   Layer.provide(NodeServices.layer),
 );
-const CheckpointStoreTestLayer = CheckpointStoreLive.pipe(
-  Layer.provide(GitCoreTestLayer),
-  Layer.provide(NodeServices.layer),
-);
+const CheckpointStoreTestLayer = CheckpointStoreLive;
 const TestLayer = Layer.mergeAll(NodeServices.layer, GitCoreTestLayer, CheckpointStoreTestLayer);
 
 function makeTmpDir(

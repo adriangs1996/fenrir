@@ -20,7 +20,8 @@ import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
-import { isGitRepository } from "../../git/Utils.ts";
+import { SourceControlLive } from "../../sourceControl/Layers/SourceControl.ts";
+import { SourceControl } from "../../sourceControl/Services/SourceControl.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
   ProviderRuntimeIngestionService,
@@ -510,6 +511,7 @@ const make = Effect.fn("make")(function* () {
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
+  const sourceControl = yield* SourceControl;
 
   const turnMessageIdsByTurnKey = yield* Cache.make<string, Set<MessageId>>({
     capacity: TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
@@ -542,7 +544,7 @@ const make = Effect.fn("make")(function* () {
     if (!workspaceCwd) {
       return false;
     }
-    return isGitRepository(workspaceCwd);
+    return yield* sourceControl.isSupportedWorkspace(workspaceCwd);
   });
 
   const rememberAssistantMessageId = (threadId: ThreadId, turnId: TurnId, messageId: MessageId) =>
@@ -1274,4 +1276,4 @@ const make = Effect.fn("make")(function* () {
 export const ProviderRuntimeIngestionLive = Layer.effect(
   ProviderRuntimeIngestionService,
   make(),
-).pipe(Layer.provide(ProjectionTurnRepositoryLive));
+).pipe(Layer.provide(ProjectionTurnRepositoryLive), Layer.provide(SourceControlLive));

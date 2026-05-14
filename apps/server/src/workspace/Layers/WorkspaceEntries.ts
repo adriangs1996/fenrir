@@ -1,11 +1,15 @@
 import fsPromises from "node:fs/promises";
 import type { Dirent } from "node:fs";
 
-import { Cache, Duration, Effect, Exit, Layer, Option, Path } from "effect";
+import { Cache, Duration, Effect, Exit, Layer, Path } from "effect";
 
 import { type ProjectEntry } from "@fenrir/contracts";
 
-import { GitCore } from "../../git/Services/GitCore.ts";
+import {
+  VcsDriverRegistry,
+  VcsDriverRegistryLive,
+  type VcsDriverHandle,
+} from "../../vcs/VcsDriverRegistry.ts";
 import {
   WorkspaceEntries,
   WorkspaceEntriesError,
@@ -219,38 +223,31 @@ const processErrorDetail = (cause: unknown): string =>
 
 export const makeWorkspaceEntries = Effect.gen(function* () {
   const path = yield* Path.Path;
-  const gitOption = yield* Effect.serviceOption(GitCore);
+  const vcsRegistry = yield* VcsDriverRegistry;
   const workspacePaths = yield* WorkspacePaths;
 
-  const isInsideGitWorkTree = (cwd: string): Effect.Effect<boolean> =>
-    Option.match(gitOption, {
-      onSome: (git) => git.isInsideWorkTree(cwd).pipe(Effect.catch(() => Effect.succeed(false))),
-      onNone: () => Effect.succeed(false),
-    });
+  const resolveWorkspaceVcs = (cwd: string): Effect.Effect<VcsDriverHandle | null> =>
+    vcsRegistry.detect({ cwd }).pipe(Effect.catch(() => Effect.succeed(null)));
 
-  const filterGitIgnoredPaths = (
+  const filterIgnoredPaths = (
+    handle: VcsDriverHandle | null,
     cwd: string,
     relativePaths: string[],
   ): Effect.Effect<string[], never> =>
-    Option.match(gitOption, {
-      onSome: (git) =>
-        git.filterIgnoredPaths(cwd, relativePaths).pipe(
+    handle
+      ? handle.driver.filterIgnoredPaths(cwd, relativePaths).pipe(
           Effect.map((paths) => [...paths]),
           Effect.catch(() => Effect.succeed(relativePaths)),
-        ),
-      onNone: () => Effect.succeed(relativePaths),
-    });
+        )
+      : Effect.succeed(relativePaths);
 
-  const buildWorkspaceIndexFromGit = Effect.fn("WorkspaceEntries.buildWorkspaceIndexFromGit")(
-    function* (cwd: string) {
-      if (Option.isNone(gitOption)) {
-        return null;
-      }
-      if (!(yield* isInsideGitWorkTree(cwd))) {
+  const buildWorkspaceIndexFromVcs = Effect.fn("WorkspaceEntries.buildWorkspaceIndexFromVcs")(
+    function* (cwd: string, handle: VcsDriverHandle | null) {
+      if (!handle) {
         return null;
       }
 
-      const listedFiles = yield* gitOption.value
+      const listedFiles = yield* handle.driver
         .listWorkspaceFiles(cwd)
         .pipe(Effect.catch(() => Effect.succeed(null)));
 
@@ -261,7 +258,7 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
       const listedPaths = [...listedFiles.paths]
         .map((entry) => toPosixPath(entry))
         .filter((entry) => entry.length > 0 && !isPathInIgnoredDirectory(entry));
-      const filePaths = yield* filterGitIgnoredPaths(cwd, listedPaths);
+      const filePaths = yield* filterIgnoredPaths(handle, cwd, listedPaths);
 
       const directorySet = new Set<string>();
       for (const filePath of filePaths) {
@@ -332,8 +329,11 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
 
   const buildWorkspaceIndexFromFilesystem = Effect.fn(
     "WorkspaceEntries.buildWorkspaceIndexFromFilesystem",
-  )(function* (cwd: string): Effect.fn.Return<WorkspaceIndex, WorkspaceEntriesError> {
-    const shouldFilterWithGitIgnore = yield* isInsideGitWorkTree(cwd);
+  )(function* (
+    cwd: string,
+    handle: VcsDriverHandle | null,
+  ): Effect.fn.Return<WorkspaceIndex, WorkspaceEntriesError> {
+    const shouldFilterWithVcsIgnore = handle !== null;
 
     let pendingDirectories: string[] = [""];
     const entries: SearchableWorkspaceEntry[] = [];
@@ -380,8 +380,8 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
       const candidatePaths = candidateEntriesByDirectory.flatMap((candidateEntries) =>
         candidateEntries.map((entry) => entry.relativePath),
       );
-      const allowedPathSet = shouldFilterWithGitIgnore
-        ? new Set(yield* filterGitIgnoredPaths(cwd, candidatePaths))
+      const allowedPathSet = shouldFilterWithVcsIgnore
+        ? new Set(yield* filterIgnoredPaths(handle, cwd, candidatePaths))
         : null;
 
       for (const candidateEntries of candidateEntriesByDirectory) {
@@ -423,11 +423,12 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
   const buildWorkspaceIndex = Effect.fn("WorkspaceEntries.buildWorkspaceIndex")(function* (
     cwd: string,
   ): Effect.fn.Return<WorkspaceIndex, WorkspaceEntriesError> {
-    const gitIndexed = yield* buildWorkspaceIndexFromGit(cwd);
-    if (gitIndexed) {
-      return gitIndexed;
+    const vcsHandle = yield* resolveWorkspaceVcs(cwd);
+    const vcsIndexed = yield* buildWorkspaceIndexFromVcs(cwd, vcsHandle);
+    if (vcsIndexed) {
+      return vcsIndexed;
     }
-    return yield* buildWorkspaceIndexFromFilesystem(cwd);
+    return yield* buildWorkspaceIndexFromFilesystem(cwd, vcsHandle);
   });
 
   const workspaceIndexCache = yield* Cache.makeWith<string, WorkspaceIndex, WorkspaceEntriesError>({
@@ -500,4 +501,6 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
   } satisfies WorkspaceEntriesShape;
 });
 
-export const WorkspaceEntriesLive = Layer.effect(WorkspaceEntries, makeWorkspaceEntries);
+export const WorkspaceEntriesLive = Layer.effect(WorkspaceEntries, makeWorkspaceEntries).pipe(
+  Layer.provide(VcsDriverRegistryLive),
+);

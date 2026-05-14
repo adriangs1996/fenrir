@@ -4,6 +4,7 @@ import { Duration, Effect, FileSystem, Layer } from "effect";
 import { TestClock } from "effect/testing";
 
 import { runProcess } from "../../processRunner.ts";
+import { VcsDriverRegistryLive } from "../../vcs/VcsDriverRegistry.ts";
 import { RepositoryIdentityResolver } from "../Services/RepositoryIdentityResolver.ts";
 import {
   makeRepositoryIdentityResolver,
@@ -23,7 +24,7 @@ const makeRepositoryIdentityResolverTestLayer = (options: {
       cacheCapacity: 16,
       ...options,
     }),
-  );
+  ).pipe(Layer.provide(VcsDriverRegistryLive));
 
 it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
   it.effect("normalizes equivalent GitHub remotes into a stable repository identity", () =>
