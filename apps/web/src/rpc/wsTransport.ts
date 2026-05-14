@@ -202,6 +202,10 @@ export class WsTransport {
     await reconnectOperation;
   }
 
+  isHeartbeatFresh(_maxAgeMs = 15_000): boolean {
+    return false;
+  }
+
   async dispose() {
     if (this.disposed) {
       return;

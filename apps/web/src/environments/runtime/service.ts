@@ -80,6 +80,10 @@ const lastAppliedProjectionVersionByEnvironment = new Map<
 
 let activeService: EnvironmentServiceState | null = null;
 let needsProviderInvalidation = false;
+let lastBrowserHiddenAt: number | null = null;
+let lastBrowserResumeReconnectAt = Number.NEGATIVE_INFINITY;
+const BROWSER_RESUME_RECONNECT_COOLDOWN_MS = 2_000;
+const NOOP = () => undefined;
 
 function compareAppliedProjectionVersion(
   left: { readonly sequence: number; readonly updatedAt: string | null },
@@ -870,6 +874,7 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
   void waitForSavedEnvironmentRegistryHydration()
     .then(() => syncSavedEnvironmentConnections(listSavedEnvironmentRecords()))
     .catch(() => undefined);
+  const unsubscribeBrowserResumeReconnects = subscribeBrowserResumeReconnects();
 
   activeService = {
     queryClient,
@@ -877,6 +882,7 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
     refCount: 1,
     stop: () => {
       unsubscribeSavedEnvironments();
+      unsubscribeBrowserResumeReconnects();
       queryInvalidationThrottler.cancel();
     },
   };
@@ -894,6 +900,8 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
 
 export async function resetEnvironmentServiceForTests(): Promise<void> {
   stopActiveService();
+  lastBrowserHiddenAt = null;
+  lastBrowserResumeReconnectAt = Number.NEGATIVE_INFINITY;
   lastAppliedProjectionVersionByEnvironment.clear();
   await Promise.all(
     [...environmentConnections.keys()].map((environmentId) => removeConnection(environmentId)),
