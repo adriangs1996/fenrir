@@ -8,6 +8,7 @@ import {
   Layer,
   PubSub,
   Ref,
+  Schedule,
   Scope,
   Stream,
   SynchronizedRef,
@@ -27,6 +28,8 @@ import {
 import { GitManager } from "../Services/GitManager.ts";
 
 const GIT_STATUS_REFRESH_INTERVAL = Duration.seconds(30);
+const GIT_STATUS_REFRESH_FAILURE_BASE_DELAY = Duration.seconds(30);
+const GIT_STATUS_REFRESH_FAILURE_MAX_DELAY = Duration.minutes(15);
 
 interface GitStatusChange {
   readonly cwd: string;
@@ -58,6 +61,20 @@ function normalizeCwd(cwd: string): string {
 
 function fingerprintStatusPart(status: unknown): string {
   return JSON.stringify(status);
+}
+
+export function remoteRefreshFailureDelay(
+  consecutiveFailures: number,
+  configuredInterval: Duration.Duration,
+) {
+  const exponent = Math.max(0, consecutiveFailures - 1);
+  const backoffMs =
+    Duration.toMillis(GIT_STATUS_REFRESH_FAILURE_BASE_DELAY) * Math.pow(2, exponent);
+  const cappedBackoff = Duration.min(
+    Duration.millis(backoffMs),
+    GIT_STATUS_REFRESH_FAILURE_MAX_DELAY,
+  );
+  return Duration.max(configuredInterval, cappedBackoff);
 }
 
 export const GitStatusBroadcasterLive = Layer.effect(
@@ -205,24 +222,42 @@ export const GitStatusBroadcasterLive = Layer.effect(
       },
     );
 
-    const makeRemoteRefreshLoop = (cwd: string) => {
-      const logRefreshFailure = (error: Error) =>
-        Effect.logWarning("git remote status refresh failed", {
-          cwd,
-          detail: error.message,
+    const makeRemoteRefreshLoop = (cwd: string) =>
+      Effect.gen(function* () {
+        const consecutiveFailuresRef = yield* Ref.make(0);
+        const refreshWithBackoff = Effect.gen(function* () {
+          const exit = yield* refreshRemoteStatus(cwd).pipe(Effect.exit);
+          if (Exit.isSuccess(exit)) {
+            yield* Ref.set(consecutiveFailuresRef, 0);
+            return GIT_STATUS_REFRESH_INTERVAL;
+          }
+
+          const consecutiveFailures = yield* Ref.updateAndGet(
+            consecutiveFailuresRef,
+            (count) => count + 1,
+          );
+          const nextDelay = remoteRefreshFailureDelay(
+            consecutiveFailures,
+            GIT_STATUS_REFRESH_INTERVAL,
+          );
+          yield* Effect.logWarning("git remote status refresh failed", {
+            cwd,
+            detail: exit.cause.toString(),
+            consecutiveFailures,
+            nextDelayMs: Duration.toMillis(nextDelay),
+          });
+          return nextDelay;
         });
 
-      return refreshRemoteStatus(cwd).pipe(
-        Effect.catch(logRefreshFailure),
-        Effect.andThen(
-          Effect.forever(
-            Effect.sleep(GIT_STATUS_REFRESH_INTERVAL).pipe(
-              Effect.andThen(refreshRemoteStatus(cwd).pipe(Effect.catch(logRefreshFailure))),
+        return yield* refreshWithBackoff.pipe(
+          Effect.repeat(
+            Schedule.identity<Duration.Duration>().pipe(
+              Schedule.addDelay((delay) => Effect.succeed(delay)),
             ),
           ),
-        ),
-      );
-    };
+          Effect.asVoid,
+        );
+      });
 
     const retainRemotePoller = Effect.fn("retainRemotePoller")(function* (cwd: string) {
       yield* SynchronizedRef.modifyEffect(pollersRef, (activePollers) => {

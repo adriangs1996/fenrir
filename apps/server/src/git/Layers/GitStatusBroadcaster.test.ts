@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import { Deferred, Effect, Exit, Layer, Option, Scope, Stream } from "effect";
+import { Deferred, Duration, Effect, Exit, Layer, Option, Scope, Stream } from "effect";
 import type {
   GitStatusLocalResult,
   GitStatusRemoteResult,
@@ -9,7 +9,7 @@ import type {
 import { describe } from "vitest";
 
 import { GitStatusBroadcaster } from "../Services/GitStatusBroadcaster.ts";
-import { GitStatusBroadcasterLive } from "./GitStatusBroadcaster.ts";
+import { GitStatusBroadcasterLive, remoteRefreshFailureDelay } from "./GitStatusBroadcaster.ts";
 import { type GitManagerShape, GitManager } from "../Services/GitManager.ts";
 
 const baseLocalStatus: GitStatusLocalResult = {
@@ -77,6 +77,22 @@ function makeTestLayer(state: {
 }
 
 describe("GitStatusBroadcasterLive", () => {
+  it.effect("backs off remote refresh failures without going below the configured interval", () => {
+    assert.deepStrictEqual(
+      Duration.toMillis(remoteRefreshFailureDelay(1, Duration.seconds(5))),
+      30_000,
+    );
+    assert.deepStrictEqual(
+      Duration.toMillis(remoteRefreshFailureDelay(2, Duration.seconds(45))),
+      60_000,
+    );
+    assert.deepStrictEqual(
+      Duration.toMillis(remoteRefreshFailureDelay(8, Duration.seconds(30))),
+      Duration.toMillis(Duration.minutes(15)),
+    );
+    return Effect.void;
+  });
+
   it.effect("reuses the cached git status across repeated reads", () => {
     const state = {
       currentLocalStatus: baseLocalStatus,
