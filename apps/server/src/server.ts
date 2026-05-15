@@ -59,8 +59,10 @@ import { GlobalActionsLive } from "./globalActions";
 import { ServerSettingsLive } from "./serverSettings";
 import { SkillServiceLive } from "./skill/SkillService";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
+import { SourceControlQueryLive } from "./sourceControl/Layers/SourceControlQuery";
 import { SourceControlLive } from "./sourceControl/Layers/SourceControl";
 import { SourceControlStatusLive } from "./sourceControl/Layers/SourceControlStatus";
+import { SourceControlWorkflowsLive } from "./sourceControl/Layers/SourceControlWorkflows";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
@@ -224,6 +226,13 @@ const SourceControlStatusLayerLive = SourceControlStatusLive.pipe(
   Layer.provide(GitManagerLayerLive),
 );
 
+const SourceControlQueryLayerLive = SourceControlQueryLive.pipe(Layer.provideMerge(GitCoreLive));
+
+const SourceControlWorkflowsLayerLive = SourceControlWorkflowsLive.pipe(
+  Layer.provideMerge(GitManagerLayerLive),
+  Layer.provideMerge(GitCoreLive),
+);
+
 const TerminalLayerLive = Layer.mergeAll(
   TerminalManagerLive.pipe(
     Layer.provide(TerminalHistoryManagerLive),
@@ -284,7 +293,8 @@ const CoreInfrastructureLive = ReactorLayerLive.pipe(
   Layer.provideMerge(TrafficLensServiceLive),
   Layer.provideMerge(
     PlanRunnerLive.pipe(
-      Layer.provide(GitCoreLive),
+      Layer.provideMerge(SourceControlQueryLayerLive),
+      Layer.provideMerge(SourceControlWorkflowsLayerLive),
       Layer.provide(OrchestrationLayerLive),
       Layer.provide(ServerSettingsLive),
       Layer.provide(RoutingTextGenerationLive),
@@ -303,7 +313,9 @@ const CoreDependenciesLive = CoreInfrastructureLive.pipe(
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
   Layer.provideMerge(SourceControlLive),
+  Layer.provideMerge(SourceControlQueryLayerLive),
   Layer.provideMerge(SourceControlStatusLayerLive),
+  Layer.provideMerge(SourceControlWorkflowsLayerLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),
 );

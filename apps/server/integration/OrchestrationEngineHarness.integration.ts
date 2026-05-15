@@ -45,7 +45,6 @@ import { CodexAdapter } from "../src/provider/Services/CodexAdapter.ts";
 import { ProviderService } from "../src/provider/Services/ProviderService.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { CheckpointReactorLive } from "../src/orchestration/Layers/CheckpointReactor.ts";
-import { RepositoryIdentityResolverLive } from "../src/project/Layers/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "../src/orchestration/Layers/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "../src/orchestration/Layers/ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "../src/orchestration/Layers/ProjectionSnapshotQuery.ts";
@@ -76,6 +75,10 @@ import {
   SourceControlStatus,
   type SourceControlStatusShape,
 } from "../src/sourceControl/Services/SourceControlStatus.ts";
+import {
+  SourceControlWorkflows,
+  type SourceControlWorkflowsShape,
+} from "../src/sourceControl/Services/SourceControlWorkflows.ts";
 import { WorkspaceEntriesLive } from "../src/workspace/Layers/WorkspaceEntries.ts";
 import { WorkspacePathsLive } from "../src/workspace/Layers/WorkspacePaths.ts";
 
@@ -316,6 +319,10 @@ export const makeOrchestrationIntegrationHarness = (
       renameBranch: (input: Parameters<GitCoreShape["renameBranch"]>[0]) =>
         Effect.succeed({ branch: input.newBranch }),
     } as unknown as GitCoreShape);
+    const sourceControlWorkflowsLayer = Layer.succeed(SourceControlWorkflows, {
+      renameBranch: (input: Parameters<SourceControlWorkflowsShape["renameBranch"]>[0]) =>
+        Effect.succeed({ branch: input.newBranch }),
+    } as unknown as SourceControlWorkflowsShape);
     const textGenerationLayer = Layer.succeed(TextGeneration, {
       generateBranchName: () => Effect.succeed({ branch: "update" }),
       generateThreadTitle: () => Effect.succeed({ title: "New thread" }),
@@ -336,6 +343,7 @@ export const makeOrchestrationIntegrationHarness = (
     } satisfies SourceControlStatusShape);
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
+      Layer.provideMerge(sourceControlWorkflowsLayer),
       Layer.provideMerge(gitCoreLayer),
       Layer.provideMerge(textGenerationLayer),
       Layer.provideMerge(sourceControlStatusLayer),
@@ -379,7 +387,6 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(orchestrationReactorLayer),
       Layer.provide(persistenceLayer),
-      Layer.provideMerge(RepositoryIdentityResolverLive),
       Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),

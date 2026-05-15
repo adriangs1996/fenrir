@@ -26,6 +26,8 @@
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant catppuccin-mocha (&:is(.catppuccin-mocha, .catppuccin-mocha *));
+@custom-variant rose-pine (&:is(.rose-pine, .rose-pine *));
+@custom-variant nord (&:is(.nord, .nord *));
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */
 @custom-variant wco (&:is(.wco, .wco *));
 
@@ -59,11 +61,11 @@
   --color-background: var(--background);
 
   /* Fenrir extended palette — usable as bg-fenrir-mauve, text-fenrir-peach, etc. */
-  --color-fenrir-mauve: var(--catppuccin-mauve, #cba6f7);
-  --color-fenrir-peach: var(--catppuccin-peach, #fab387);
-  --color-fenrir-teal: var(--catppuccin-teal, #94e2d5);
-  --color-fenrir-pink: var(--catppuccin-pink, #f5c2e7);
-  --color-fenrir-sky: var(--catppuccin-sky, #89dcfe);
+  --color-fenrir-mauve: var(--fenrir-mauve, #cba6f7);
+  --color-fenrir-peach: var(--fenrir-peach, #fab387);
+  --color-fenrir-teal: var(--fenrir-teal, #94e2d5);
+  --color-fenrir-pink: var(--fenrir-pink, #f5c2e7);
+  --color-fenrir-sky: var(--fenrir-sky, #89dcfe);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -130,6 +132,11 @@
   --success-foreground: var(--color-emerald-700);
   --warning: var(--color-amber-500);
   --warning-foreground: var(--color-amber-700);
+  --fenrir-mauve: #cba6f7;
+  --fenrir-peach: #fab387;
+  --fenrir-teal: #94e2d5;
+  --fenrir-pink: #f5c2e7;
+  --fenrir-sky: #89dcfe;
 
   @variant dark {
     color-scheme: dark;
@@ -213,11 +220,109 @@
     --ring: #58ffc7;
 
     /* === Extended Fenrir Palette === */
-    --catppuccin-mauve: #cba6f7; /* Mauve — AI reasoning blocks */
-    --catppuccin-peach: #fab387; /* Peach — tool calls, file ops */
-    --catppuccin-teal: #94e2d5; /* Teal — tertiary accent */
-    --catppuccin-pink: #f5c2e7; /* Pink — notifications */
-    --catppuccin-sky: #89dcfe; /* Sky — link hover */
+    --fenrir-mauve: #cba6f7; /* Mauve — AI reasoning blocks */
+    --fenrir-peach: #fab387; /* Peach — tool calls, file ops */
+    --fenrir-teal: #94e2d5; /* Teal — tertiary accent */
+    --fenrir-pink: #f5c2e7; /* Pink — notifications */
+    --fenrir-sky: #89dcfe; /* Sky — link hover */
+  }
+
+  @variant rose-pine {
+    color-scheme: dark;
+
+    /* === Official Rosé Pine Main Palette === */
+    --background: #191724;
+    --app-chrome-background: #191724;
+    --foreground: #e0def4;
+
+    --card: #1f1d2e;
+    --card-foreground: #e0def4;
+    --popover: #26233a;
+    --popover-foreground: #e0def4;
+
+    --color-sidebar: #191724;
+    --color-sidebar-foreground: #e0def4;
+    --color-sidebar-border: #26233a;
+    --color-sidebar-accent: #1f1d2e;
+    --color-sidebar-accent-foreground: #e0def4;
+
+    --primary: #ebbcba;
+    --primary-foreground: #191724;
+    --secondary: #1f1d2e;
+    --secondary-foreground: #e0def4;
+    --muted: #1f1d2e;
+    --muted-foreground: #908caa;
+    --accent: #26233a;
+    --accent-foreground: #e0def4;
+
+    --destructive: #eb6f92;
+    --destructive-foreground: #eb6f92;
+    --info: #9ccfd8;
+    --info-foreground: #9ccfd8;
+    --success: #31748f;
+    --success-foreground: #9ccfd8;
+    --warning: #f6c177;
+    --warning-foreground: #f6c177;
+
+    --border: #26233a;
+    --border-strong: #524f67;
+    --input: #403d52;
+    --ring: #c4a7e7;
+
+    --fenrir-mauve: #c4a7e7;
+    --fenrir-peach: #f6c177;
+    --fenrir-teal: #31748f;
+    --fenrir-pink: #ebbcba;
+    --fenrir-sky: #9ccfd8;
+  }
+
+  @variant nord {
+    color-scheme: dark;
+
+    --background: #191c22; /* darker base override */
+    --app-chrome-background: #191c22;
+    --foreground: #eceff4; /* nord6 */
+    --nord-surface: #1e2127;
+
+    --card: var(--nord-surface);
+    --card-foreground: #eceff4;
+    --popover: var(--nord-surface);
+    --popover-foreground: #eceff4;
+
+    --color-sidebar: #191c22;
+    --color-sidebar-foreground: #eceff4;
+    --color-sidebar-border: #3b4252;
+    --color-sidebar-accent: var(--nord-surface);
+    --color-sidebar-accent-foreground: #eceff4;
+
+    --primary: #88c0d0; /* nord8 */
+    --primary-foreground: #191c22;
+    --secondary: var(--nord-surface);
+    --secondary-foreground: #e5e9f0; /* nord5 */
+    --muted: var(--nord-surface);
+    --muted-foreground: #d8dee9; /* nord4 */
+    --accent: var(--nord-surface);
+    --accent-foreground: #eceff4;
+
+    --destructive: #bf616a; /* nord11 */
+    --destructive-foreground: #bf616a;
+    --info: #81a1c1; /* nord9 */
+    --info-foreground: #88c0d0; /* nord8 */
+    --success: #a3be8c; /* nord14 */
+    --success-foreground: #a3be8c;
+    --warning: #ebcb8b; /* nord13 */
+    --warning-foreground: #ebcb8b;
+
+    --border: #3b4252; /* nord1 */
+    --border-strong: #434c5e; /* nord2 */
+    --input: var(--nord-surface);
+    --ring: #5e81ac; /* nord10 */
+
+    --fenrir-mauve: #b48ead; /* nord15 */
+    --fenrir-peach: #d08770; /* nord12 */
+    --fenrir-teal: #8fbcbb; /* nord7 */
+    --fenrir-pink: #bf616a; /* nord11 */
+    --fenrir-sky: #88c0d0; /* nord8 */
   }
 }
 
@@ -311,6 +416,22 @@ code {
 
 .catppuccin-mocha ::-webkit-scrollbar-thumb:hover {
   background: rgba(69, 71, 90, 0.7);
+}
+
+.rose-pine ::-webkit-scrollbar-thumb {
+  background: rgba(82, 79, 103, 0.55);
+}
+
+.rose-pine ::-webkit-scrollbar-thumb:hover {
+  background: rgba(110, 106, 134, 0.72);
+}
+
+.nord ::-webkit-scrollbar-thumb {
+  background: rgba(76, 86, 106, 0.65);
+}
+
+.nord ::-webkit-scrollbar-thumb:hover {
+  background: rgba(94, 129, 172, 0.72);
 }
 
 .turn-chip-strip {

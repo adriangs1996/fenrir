@@ -14,6 +14,8 @@
         const LIGHT_BACKGROUND = "#ffffff";
         const DARK_BACKGROUND = "#161616";
         const CATPPUCCIN_BACKGROUND = "#181825";
+        const ROSE_PINE_BACKGROUND = "#191724";
+        const NORD_BACKGROUND = "#191c22";
         const themeColorMeta = document.querySelector('meta[name="theme-color"]');
         try {
           const storedTheme = window.localStorage.getItem("fenrir:theme");
@@ -21,19 +23,34 @@
             storedTheme === "light" ||
             storedTheme === "dark" ||
             storedTheme === "system" ||
-            storedTheme === "catppuccin-mocha"
+            storedTheme === "catppuccin-mocha" ||
+            storedTheme === "rose-pine" ||
+            storedTheme === "nord"
               ? storedTheme
               : "system";
           const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           const isCatppuccin = theme === "catppuccin-mocha";
-          const isDark = isCatppuccin || theme === "dark" || (theme === "system" && prefersDark);
+          const isRosePine = theme === "rose-pine";
+          const isNord = theme === "nord";
+          const isDark =
+            isCatppuccin ||
+            isRosePine ||
+            isNord ||
+            theme === "dark" ||
+            (theme === "system" && prefersDark);
           document.documentElement.classList.toggle("dark", isDark);
           document.documentElement.classList.toggle("catppuccin-mocha", isCatppuccin);
+          document.documentElement.classList.toggle("rose-pine", isRosePine);
+          document.documentElement.classList.toggle("nord", isNord);
           const chromeColor = isCatppuccin
             ? CATPPUCCIN_BACKGROUND
-            : isDark
-              ? DARK_BACKGROUND
-              : LIGHT_BACKGROUND;
+            : isRosePine
+              ? ROSE_PINE_BACKGROUND
+              : isNord
+                ? NORD_BACKGROUND
+                : isDark
+                  ? DARK_BACKGROUND
+                  : LIGHT_BACKGROUND;
           document.documentElement.style.backgroundColor = chromeColor;
           themeColorMeta?.setAttribute("content", chromeColor);
         } catch {
@@ -72,6 +89,16 @@
       html.catppuccin-mocha body {
         background: #181825;
         color: #cdd6f4;
+      }
+
+      html.rose-pine body {
+        background: #191724;
+        color: #e0def4;
+      }
+
+      html.nord body {
+        background: #191c22;
+        color: #eceff4;
       }
 
       #boot-shell {

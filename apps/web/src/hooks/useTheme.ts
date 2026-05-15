@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import {
+  CUSTOM_THEME_CLASS_NAMES,
+  isTheme,
+  resolveDesktopTheme,
+  resolveThemeState,
+  type Theme,
+} from "../lib/theme";
 
-type Theme = "light" | "dark" | "system" | "catppuccin-mocha";
 type ThemeSnapshot = {
   theme: Theme;
   systemDark: boolean;
@@ -34,8 +40,7 @@ function getSystemDark() {
 function getStored(): Theme {
   if (!hasThemeStorage()) return DEFAULT_THEME_SNAPSHOT.theme;
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw === "light" || raw === "dark" || raw === "system" || raw === "catppuccin-mocha")
-    return raw;
+  if (isTheme(raw)) return raw;
   return DEFAULT_THEME_SNAPSHOT.theme;
 }
 
@@ -93,10 +98,12 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
   if (suppressTransitions) {
     document.documentElement.classList.add("no-transitions");
   }
-  const isCatppuccin = theme === "catppuccin-mocha";
-  const isDark = isCatppuccin || theme === "dark" || (theme === "system" && getSystemDark());
+  const { customThemeClassName, resolvedTheme } = resolveThemeState(theme, getSystemDark());
+  const isDark = resolvedTheme === "dark";
   document.documentElement.classList.toggle("dark", isDark);
-  document.documentElement.classList.toggle("catppuccin-mocha", isCatppuccin);
+  for (const className of CUSTOM_THEME_CLASS_NAMES) {
+    document.documentElement.classList.toggle(className, className === customThemeClassName);
+  }
   syncBrowserChromeTheme();
   syncDesktopTheme(theme);
   if (suppressTransitions) {
@@ -117,7 +124,7 @@ function syncDesktopTheme(theme: Theme) {
   }
 
   lastDesktopTheme = theme;
-  const bridgeTheme = theme === "catppuccin-mocha" ? "dark" : theme;
+  const bridgeTheme = resolveDesktopTheme(theme);
   void bridge.setTheme(bridgeTheme).catch(() => {
     if (lastDesktopTheme === theme) {
       lastDesktopTheme = null;
@@ -178,15 +185,7 @@ function subscribe(listener: () => void): () => void {
 export function useTheme() {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const theme = snapshot.theme;
-
-  const resolvedTheme: "light" | "dark" =
-    theme === "catppuccin-mocha"
-      ? "dark"
-      : theme === "system"
-        ? snapshot.systemDark
-          ? "dark"
-          : "light"
-        : theme;
+  const { resolvedTheme, syntaxTheme } = resolveThemeState(theme, snapshot.systemDark);
 
   const setTheme = useCallback((next: Theme) => {
     if (!hasThemeStorage()) return;
@@ -199,9 +198,6 @@ export function useTheme() {
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
-
-  const syntaxTheme: "light" | "dark" | "catppuccin-mocha" =
-    theme === "catppuccin-mocha" ? "catppuccin-mocha" : resolvedTheme;
 
   return { theme, setTheme, resolvedTheme, syntaxTheme } as const;
 }

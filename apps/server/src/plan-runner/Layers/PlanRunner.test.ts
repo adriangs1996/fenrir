@@ -7,10 +7,11 @@ import { describe, expect, it } from "vitest";
 
 import { PlanRunId, ProjectId, TrimmedNonEmptyString } from "@fenrir/contracts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
-import { GitCore } from "../../git/Services/GitCore.ts";
 import { PlanRunnerRepository } from "../../persistence/Services/PlanRunnerRepository.ts";
 import { PlanRunnerRepositoryLive } from "../../persistence/Layers/PlanRunnerRepository.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { SourceControlQuery } from "../../sourceControl/Services/SourceControlQuery.ts";
+import { SourceControlWorkflows } from "../../sourceControl/Services/SourceControlWorkflows.ts";
 import { PlanRunnerService } from "../Services/PlanRunner.ts";
 import {
   PlanRunnerLive,
@@ -209,7 +210,8 @@ function buildArchiveRuntime(projectCwd: string) {
         injectExternalEvent: () => Effect.void,
       }),
     ),
-    Layer.provide(Layer.mock(GitCore)({})),
+    Layer.provide(Layer.mock(SourceControlQuery)({})),
+    Layer.provide(Layer.mock(SourceControlWorkflows)({})),
   );
 
   return ManagedRuntime.make(testLayer);
@@ -710,7 +712,8 @@ describe("listArchivedFeatures", () => {
           injectExternalEvent: () => Effect.void,
         }),
       ),
-      Layer.provide(Layer.mock(GitCore)({})),
+      Layer.provide(Layer.mock(SourceControlQuery)({})),
+      Layer.provide(Layer.mock(SourceControlWorkflows)({})),
     );
 
     const rt = ManagedRuntime.make(testLayer);

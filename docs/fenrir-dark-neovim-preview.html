@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fenrir Dark to Neovim Preview</title>
+    <style>
+      :root {
+        color-scheme: dark;
+
+        /* Tailwind primitives used by Fenrir dark mode */
+        --tw-neutral-950: #0a0a0a;
+        --tw-neutral-500: #737373;
+        --tw-neutral-100: #f5f5f5;
+        --tw-white: #ffffff;
+        --tw-black: #000000;
+        --tw-red-500: #ef4444;
+        --tw-red-400: #f87171;
+        --tw-blue-500: #3b82f6;
+        --tw-blue-400: #60a5fa;
+        --tw-emerald-500: #10b981;
+        --tw-emerald-400: #34d399;
+        --tw-amber-500: #f59e0b;
+        --tw-amber-400: #fbbf24;
+
+        /* Fenrir default dark tokens from apps/web/src/index.css */
+        --radius: 0.625rem;
+        --background: color-mix(in srgb, var(--tw-neutral-950) 95%, var(--tw-white));
+        --app-chrome-background: var(--background);
+        --foreground: var(--tw-neutral-100);
+        --card: color-mix(in srgb, var(--background) 98%, var(--tw-white));
+        --card-foreground: var(--tw-neutral-100);
+        --popover: color-mix(in srgb, var(--background) 98%, var(--tw-white));
+        --popover-foreground: var(--tw-neutral-100);
+        --primary: oklch(0.588 0.217 264);
+        --primary-foreground: var(--tw-white);
+        --secondary: rgb(255 255 255 / 4%);
+        --secondary-foreground: var(--tw-neutral-100);
+        --muted: rgb(255 255 255 / 4%);
+        --muted-foreground: color-mix(in srgb, var(--tw-neutral-500) 90%, var(--tw-white));
+        --accent: rgb(255 255 255 / 4%);
+        --accent-foreground: var(--tw-neutral-100);
+        --destructive: color-mix(in srgb, var(--tw-red-500) 90%, var(--tw-white));
+        --destructive-foreground: var(--tw-red-400);
+        --border: rgb(255 255 255 / 6%);
+        --border-strong: var(--tw-black);
+        --input: rgb(255 255 255 / 8%);
+        --ring: oklch(0.588 0.217 264);
+        --info: var(--tw-blue-500);
+        --info-foreground: var(--tw-blue-400);
+        --success: var(--tw-emerald-500);
+        --success-foreground: var(--tw-emerald-400);
+        --warning: var(--tw-amber-500);
+        --warning-foreground: var(--tw-amber-400);
+
+        /* Neovim port */
+        --nvim-editor: var(--background);
+        --nvim-editor-alt: color-mix(in srgb, var(--background) 90%, var(--foreground));
+        --nvim-panel: var(--card);
+        --nvim-float: var(--popover);
+        --nvim-gutter: color-mix(in srgb, var(--background) 92%, var(--foreground));
+        --nvim-cursor-line: color-mix(in srgb, var(--muted) 72%, var(--background));
+        --nvim-visual: color-mix(in srgb, var(--primary) 28%, var(--background));
+        --nvim-search: color-mix(in srgb, var(--warning) 24%, var(--background));
+        --nvim-match: color-mix(in srgb, var(--info) 24%, var(--background));
+        --nvim-statusline: color-mix(in srgb, var(--card) 82%, var(--border-strong));
+        --nvim-statusline-inactive: color-mix(in srgb, var(--background) 96%, var(--foreground));
+        --nvim-tabline: color-mix(in srgb, var(--background) 94%, var(--card));
+        --nvim-split: var(--border);
+        --nvim-cursor: var(--info-foreground);
+        --nvim-line-number: color-mix(in srgb, var(--muted-foreground) 75%, transparent);
+        --nvim-line-number-active: color-mix(in srgb, var(--foreground) 82%, var(--primary));
+        --nvim-comment: var(--muted-foreground);
+        --nvim-keyword: var(--primary);
+        --nvim-string: var(--success-foreground);
+        --nvim-number: var(--warning-foreground);
+        --nvim-func: var(--info-foreground);
+        --nvim-type: color-mix(in srgb, var(--foreground) 80%, var(--info));
+        --nvim-constant: color-mix(in srgb, var(--foreground) 76%, var(--warning));
+        --nvim-operator: color-mix(in srgb, var(--foreground) 88%, var(--primary));
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Berkeley Mono", "Geist Mono", "SF Mono", Consolas, monospace;
+        background:
+          radial-gradient(circle at top, rgb(59 130 246 / 0.12), transparent 30%),
+          linear-gradient(180deg, #050608 0%, #090b0f 100%);
+        color: var(--foreground);
+      }
+
+      .page {
+        width: min(1380px, calc(100vw - 48px));
+        margin: 24px auto;
+        display: grid;
+        gap: 18px;
+      }
+
+      .hero,
+      .notes,
+      .palette,
+      .nvim {
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        background: color-mix(in srgb, var(--card) 90%, transparent);
+        box-shadow:
+          0 24px 80px rgb(0 0 0 / 0.45),
+          inset 0 1px 0 rgb(255 255 255 / 0.03);
+        backdrop-filter: blur(20px);
+      }
+
+      .hero,
+      .notes,
+      .palette {
+        padding: 18px 20px;
+      }
+
+      .hero {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        align-items: end;
+      }
+
+      .hero h1,
+      .hero p,
+      .notes p,
+      .section-title,
+      .token-label,
+      .statusline,
+      .tab,
+      .line {
+        margin: 0;
+      }
+
+      .hero h1 {
+        font-size: 28px;
+        line-height: 1.05;
+        letter-spacing: -0.04em;
+      }
+
+      .hero p,
+      .notes p {
+        color: var(--muted-foreground);
+        max-width: 70ch;
+      }
+
+      .hero-badge {
+        padding: 7px 10px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--primary) 18%, transparent);
+        color: var(--primary);
+        border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+        font-size: 12px;
+      }
+
+      .section-title {
+        font-size: 12px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted-foreground);
+        margin-bottom: 12px;
+      }
+
+      .palette-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 12px;
+      }
+
+      .token {
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--background) 86%, var(--card));
+      }
+
+      .token-swatch {
+        height: 54px;
+        border-radius: 10px;
+        border: 1px solid rgb(255 255 255 / 0.08);
+        margin-bottom: 10px;
+      }
+
+      .token-label {
+        font-size: 12px;
+        color: var(--muted-foreground);
+      }
+
+      .token-value {
+        margin-top: 4px;
+        font-size: 13px;
+      }
+
+      .nvim {
+        overflow: hidden;
+      }
+
+      .chrome {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        background: color-mix(in srgb, var(--app-chrome-background) 92%, var(--border-strong));
+      }
+
+      .chrome-dots {
+        display: flex;
+        gap: 8px;
+      }
+
+      .chrome-dots span {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        display: block;
+        background: color-mix(in srgb, var(--foreground) 25%, transparent);
+      }
+
+      .chrome-path {
+        color: var(--muted-foreground);
+        font-size: 12px;
+      }
+
+      .tabline {
+        display: flex;
+        gap: 1px;
+        padding: 8px 10px 0;
+        background: var(--nvim-tabline);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .tab {
+        padding: 10px 14px;
+        border-top-left-radius: 12px;
+        border-top-right-radius: 12px;
+        background: transparent;
+        color: var(--muted-foreground);
+        font-size: 12px;
+      }
+
+      .tab.active {
+        background: var(--nvim-editor);
+        color: var(--foreground);
+        border: 1px solid var(--border);
+        border-bottom-color: var(--nvim-editor);
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr) 320px;
+        min-height: 760px;
+      }
+
+      .sidebar,
+      .rightbar {
+        background: var(--nvim-panel);
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--nvim-split);
+        padding: 14px 12px;
+      }
+
+      .rightbar {
+        border-left: 1px solid var(--nvim-split);
+        padding: 14px 12px;
+      }
+
+      .tree-group + .tree-group,
+      .panel-block + .panel-block {
+        margin-top: 16px;
+      }
+
+      .tree-item,
+      .panel-item {
+        padding: 7px 10px;
+        border-radius: 10px;
+        color: var(--muted-foreground);
+        font-size: 13px;
+      }
+
+      .tree-item.active,
+      .panel-item.active {
+        background: color-mix(in srgb, var(--primary) 16%, transparent);
+        color: var(--foreground);
+      }
+
+      .editor-wrap {
+        min-width: 0;
+        background: var(--nvim-editor);
+        display: grid;
+        grid-template-rows: 1fr auto;
+      }
+
+      .editor {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .editor-grid {
+        display: grid;
+        grid-template-columns: 64px minmax(0, 1fr);
+        min-height: 100%;
+      }
+
+      .gutter {
+        padding: 18px 12px;
+        background: var(--nvim-gutter);
+        border-right: 1px solid var(--nvim-split);
+        color: var(--nvim-line-number);
+        text-align: right;
+        user-select: none;
+      }
+
+      .gutter .active {
+        color: var(--nvim-line-number-active);
+      }
+
+      .code {
+        padding: 18px 0;
+      }
+
+      .line {
+        display: grid;
+        grid-template-columns: 1fr;
+        padding: 0 18px;
+        min-height: 26px;
+        align-items: center;
+        white-space: pre;
+      }
+
+      .line.current {
+        background: var(--nvim-cursor-line);
+      }
+
+      .cursor {
+        background: color-mix(in srgb, var(--nvim-cursor) 92%, transparent);
+        color: #061017;
+        border-radius: 3px;
+        padding: 0 1px;
+      }
+
+      .comment {
+        color: var(--nvim-comment);
+      }
+
+      .keyword {
+        color: var(--nvim-keyword);
+      }
+
+      .func {
+        color: var(--nvim-func);
+      }
+
+      .string {
+        color: var(--nvim-string);
+      }
+
+      .number {
+        color: var(--nvim-number);
+      }
+
+      .type {
+        color: var(--nvim-type);
+      }
+
+      .operator {
+        color: var(--nvim-operator);
+      }
+
+      .constant {
+        color: var(--nvim-constant);
+      }
+
+      .diagnostic-error {
+        color: var(--destructive-foreground);
+      }
+
+      .diagnostic-warn {
+        color: var(--warning-foreground);
+      }
+
+      .diagnostic-info {
+        color: var(--info-foreground);
+      }
+
+      .diagnostic-ok {
+        color: var(--success-foreground);
+      }
+
+      .float {
+        position: absolute;
+        top: 88px;
+        right: 28px;
+        width: 320px;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--nvim-float) 94%, var(--tw-black));
+        box-shadow: 0 20px 60px rgb(0 0 0 / 0.48);
+        overflow: hidden;
+      }
+
+      .float-header,
+      .statusline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .float-header {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        color: var(--foreground);
+        background: color-mix(in srgb, var(--nvim-float) 72%, var(--border-strong));
+      }
+
+      .float-body {
+        padding: 12px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .float-item {
+        padding: 9px 10px;
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--muted) 72%, transparent);
+        color: var(--muted-foreground);
+      }
+
+      .float-item.active {
+        background: var(--nvim-visual);
+        color: var(--foreground);
+        border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
+      }
+
+      .statusline {
+        padding: 10px 14px;
+        font-size: 12px;
+        color: var(--foreground);
+        background: var(--nvim-statusline);
+        border-top: 1px solid var(--border);
+      }
+
+      .statusline strong {
+        color: var(--primary);
+      }
+
+      .pill-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .pill {
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--muted) 65%, transparent);
+      }
+
+      @media (max-width: 1120px) {
+        .workspace {
+          grid-template-columns: 220px minmax(0, 1fr);
+        }
+
+        .rightbar {
+          display: none;
+        }
+      }
+
+      @media (max-width: 840px) {
+        .page {
+          width: min(100vw - 24px, 1380px);
+          margin: 12px auto;
+        }
+
+        .hero {
+          flex-direction: column;
+          align-items: start;
+        }
+
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div>
+          <p class="section-title">Port Study</p>
+          <h1>Fenrir default dark mode, translated into a Neovim shell</h1>
+          <p>
+            This keeps Fenrir's near-black surfaces, cool blue-violet accent, low-contrast borders,
+            and semantic status colors, then maps them onto editor UI primitives instead of chat UI.
+          </p>
+        </div>
+        <div class="hero-badge">source: <code>apps/web/src/index.css</code></div>
+      </section>
+
+      <section class="notes">
+        <p>
+          The dominant read is: black-first chrome, slightly lifted panels, translucent muted fills,
+          bright neutral text, blue-primary interaction, and diagnostics that stay saturated without
+          making the whole theme colorful.
+        </p>
+      </section>
+
+      <section class="palette">
+        <p class="section-title">Core Tokens</p>
+        <div class="palette-grid">
+          <div class="token">
+            <div class="token-swatch" style="background: var(--background)"></div>
+            <p class="token-label">background</p>
+            <div class="token-value">main editor base</div>
+          </div>
+          <div class="token">
+            <div class="token-swatch" style="background: var(--card)"></div>
+            <p class="token-label">card</p>
+            <div class="token-value">panel and elevated surface</div>
+          </div>
+          <div class="token">
+            <div class="token-swatch" style="background: var(--primary)"></div>
+            <p class="token-label">primary</p>
+            <div class="token-value">mode, selection, active UI</div>
+          </div>
+          <div class="token">
+            <div class="token-swatch" style="background: var(--muted)"></div>
+            <p class="token-label">muted</p>
+            <div class="token-value">cursor line and passive fill</div>
+          </div>
+          <div class="token">
+            <div class="token-swatch" style="background: var(--info)"></div>
+            <p class="token-label">info</p>
+            <div class="token-value">functions, cursor, informational state</div>
+          </div>
+          <div class="token">
+            <div class="token-swatch" style="background: var(--success)"></div>
+            <p class="token-label">success</p>
+            <div class="token-value">strings, git add, healthy state</div>
+          </div>
+          <div class="token">
+            <div class="token-swatch" style="background: var(--warning)"></div>
+            <p class="token-label">warning</p>
+            <div class="token-value">search, numbers, pending state</div>
+          </div>
+          <div class="token">
+            <div class="token-swatch" style="background: var(--destructive)"></div>
+            <p class="token-label">destructive</p>
+            <div class="token-value">errors and deletions</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="nvim">
+        <div class="chrome">
+          <div class="chrome-dots"><span></span><span></span><span></span></div>
+          <div class="chrome-path">~/sandbox/t3code/docs/fenrir-dark-neovim-theme.ts</div>
+          <div class="pill-row">
+            <div class="pill">Fenrir Dark</div>
+            <div class="pill">120 FPS</div>
+          </div>
+        </div>
+
+        <div class="tabline">
+          <div class="tab">README.md</div>
+          <div class="tab active">fenrir-dark-neovim-theme.ts</div>
+          <div class="tab">useTheme.ts</div>
+          <div class="tab">index.css</div>
+        </div>
+
+        <div class="workspace">
+          <aside class="sidebar">
+            <div class="tree-group">
+              <p class="section-title">Explorer</p>
+              <div class="tree-item">apps/</div>
+              <div class="tree-item active">web/</div>
+              <div class="tree-item">server/</div>
+              <div class="tree-item">packages/</div>
+              <div class="tree-item">docs/</div>
+            </div>
+            <div class="tree-group">
+              <p class="section-title">Buffers</p>
+              <div class="tree-item active">fenrir-dark-neovim-theme.ts</div>
+              <div class="tree-item">useTheme.ts</div>
+              <div class="tree-item">index.css</div>
+              <div class="tree-item">terminalTheme.ts</div>
+            </div>
+          </aside>
+
+          <section class="editor-wrap">
+            <div class="editor">
+              <div class="editor-grid">
+                <div class="gutter">
+                  <div>12</div>
+                  <div>13</div>
+                  <div>14</div>
+                  <div>15</div>
+                  <div>16</div>
+                  <div>17</div>
+                  <div>18</div>
+                  <div>19</div>
+                  <div class="active">20</div>
+                  <div>21</div>
+                  <div>22</div>
+                  <div>23</div>
+                  <div>24</div>
+                  <div>25</div>
+                  <div>26</div>
+                </div>
+
+                <div class="code">
+                  <div class="line">
+                    <span class="comment"
+                      >// Port Fenrir dark tokens into Neovim highlight roles.</span
+                    >
+                  </div>
+                  <div class="line">
+                    <span class="keyword">type</span> <span class="type">HighlightGroup</span>
+                    <span class="operator">=</span> <span class="type">Record</span>&lt;<span
+                      class="type"
+                      >string</span
+                    >, <span class="type">string</span>&gt;;
+                  </div>
+                  <div class="line"></div>
+                  <div class="line">
+                    <span class="keyword">export function</span>
+                    <span class="func">createFenrirDarkNvimTheme</span>() {
+                  </div>
+                  <div class="line">
+                    &nbsp;&nbsp;<span class="keyword">const</span>
+                    <span class="constant">palette</span> <span class="operator">=</span> {
+                  </div>
+                  <div class="line">
+                    &nbsp;&nbsp;&nbsp;&nbsp;editor<span class="operator">:</span>
+                    <span class="string">"color-mix(in srgb, #0a0a0a 95%, #ffffff)"</span>,
+                  </div>
+                  <div class="line">
+                    &nbsp;&nbsp;&nbsp;&nbsp;lineNumber<span class="operator">:</span>
+                    <span class="string">"color-mix(in srgb, #737373 90%, #ffffff)"</span>,
+                  </div>
+                  <div class="line">
+                    &nbsp;&nbsp;&nbsp;&nbsp;cursorLine<span class="operator">:</span>
+                    <span class="string"
+                      >"color-mix(in srgb, rgb(255 255 255 / 4%) 72%, #0b0b0b)"</span
+                    >,
+                  </div>
+                  <div class="line current">
+                    &nbsp;&nbsp;&nbsp;&nbsp;keyword<span class="operator">:</span>
+                    <span class="string cursor">"oklch(0.588 0.217 264)"</span>,
+                  </div>
+                  <div class="line">
+                    &nbsp;&nbsp;&nbsp;&nbsp;string<span class="operator">:</span>
+                    <span class="string">"#34d399"</span>,
+                  </div>
+                  <div class="line">
+                    &nbsp;&nbsp;&nbsp;&nbsp;diagnosticError<span class="operator">:</span>
+                    <span class="string">"#f87171"</span>,
+                  </div>
+                  <div class="line">&nbsp;&nbsp;} <span class="keyword">as const</span>;</div>
+                  <div class="line"></div>
+                  <div class="line">
+                    &nbsp;&nbsp;<span class="keyword">const</span>
+                    <span class="constant">highlights</span><span class="operator">:</span>
+                    <span class="type">Record</span>&lt;<span class="type">string</span>,
+                    <span class="type">HighlightGroup</span>&gt; <span class="operator">=</span> {
+                  </div>
+                  <div class="line">
+                    &nbsp;&nbsp;&nbsp;&nbsp;Normal<span class="operator">:</span> { fg<span
+                      class="operator"
+                      >:</span
+                    >
+                    <span class="string">"#f5f5f5"</span>, bg<span class="operator">:</span>
+                    palette.editor },
+                  </div>
+                  <div class="line">
+                    &nbsp;&nbsp;&nbsp;&nbsp;CursorLine<span class="operator">:</span> { bg<span
+                      class="operator"
+                      >:</span
+                    >
+                    palette.cursorLine },
+                  </div>
+                  <div class="line">
+                    &nbsp;&nbsp;&nbsp;&nbsp;Keyword<span class="operator">:</span> { fg<span
+                      class="operator"
+                      >:</span
+                    >
+                    palette.keyword },
+                  </div>
+                  <div class="line">
+                    &nbsp;&nbsp;&nbsp;&nbsp;String<span class="operator">:</span> { fg<span
+                      class="operator"
+                      >:</span
+                    >
+                    palette.string },
+                  </div>
+                  <div class="line">
+                    &nbsp;&nbsp;&nbsp;&nbsp;DiagnosticError<span class="operator">:</span> { fg<span
+                      class="operator"
+                      >:</span
+                    >
+                    palette.diagnosticError },
+                  </div>
+                  <div class="line">&nbsp;&nbsp;};</div>
+                  <div class="line"></div>
+                  <div class="line">
+                    &nbsp;&nbsp;<span class="keyword">return</span> { palette, highlights };
+                  </div>
+                  <div class="line">}</div>
+                </div>
+              </div>
+
+              <div class="float">
+                <div class="float-header">
+                  <span>Hover: `createFenrirDarkNvimTheme`</span>
+                  <span class="diagnostic-info">typescript</span>
+                </div>
+                <div class="float-body">
+                  <div class="float-item active">
+                    <span class="func">createFenrirDarkNvimTheme</span>() => { palette:
+                    <span class="type">readonly</span>; highlights:
+                    <span class="type">Record</span>&lt;<span class="type">string</span>,
+                    <span class="type">HighlightGroup</span>&gt;; }
+                  </div>
+                  <div class="float-item">
+                    Returns a Neovim-ready palette plus semantic highlight groups derived from
+                    Fenrir dark mode.
+                  </div>
+                  <div class="float-item">
+                    <span class="diagnostic-ok">Hint:</span> keep semantic colors tied to Fenrir
+                    tokens, not raw syntax hex.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="statusline">
+              <div><strong>Normal</strong> fenrir main 15:23</div>
+              <div>
+                <span class="diagnostic-error">E 1</span>
+                <span class="diagnostic-warn"> W 2</span>
+                <span class="diagnostic-info"> I 4</span>
+                <span class="diagnostic-ok"> Git +18 ~3 -1</span>
+              </div>
+            </div>
+          </section>
+
+          <aside class="rightbar">
+            <div class="panel-block">
+              <p class="section-title">Highlights</p>
+              <div class="panel-item active">
+                Normal: <span style="color: var(--foreground)">foreground on background</span>
+              </div>
+              <div class="panel-item">Comment: <span class="comment">muted foreground</span></div>
+              <div class="panel-item">Keyword: <span class="keyword">primary accent</span></div>
+              <div class="panel-item">
+                String: <span class="diagnostic-ok">success foreground</span>
+              </div>
+              <div class="panel-item">
+                Number: <span class="diagnostic-warn">warning foreground</span>
+              </div>
+            </div>
+
+            <div class="panel-block">
+              <p class="section-title">UI Roles</p>
+              <div class="panel-item">
+                Cursor line uses muted glass rather than a flat solid band.
+              </div>
+              <div class="panel-item">
+                Splits stay low-contrast, consistent with Fenrir panel borders.
+              </div>
+              <div class="panel-item">
+                Floats inherit card/popover behavior instead of inventing a new surface.
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

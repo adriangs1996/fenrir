@@ -26,13 +26,15 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
-import { GitCore, type GitCoreShape } from "../../git/Services/GitCore.ts";
 import {
   SourceControlStatus,
   type SourceControlStatusShape,
 } from "../../sourceControl/Services/SourceControlStatus.ts";
+import {
+  SourceControlWorkflows,
+  type SourceControlWorkflowsShape,
+} from "../../sourceControl/Services/SourceControlWorkflows.ts";
 import { TextGeneration, type TextGenerationShape } from "../../git/Services/TextGeneration.ts";
-import { RepositoryIdentityResolverLive } from "../../project/Layers/RepositoryIdentityResolver.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -247,13 +249,16 @@ describe("ProviderCommandReactor", () => {
       Layer.provide(OrchestrationProjectionPipelineLive),
       Layer.provide(OrchestrationEventStoreLive),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-      Layer.provide(RepositoryIdentityResolverLive),
       Layer.provide(SqlitePersistenceMemory),
     );
     const layer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
-      Layer.provideMerge(Layer.succeed(GitCore, { renameBranch } as unknown as GitCoreShape)),
+      Layer.provideMerge(
+        Layer.succeed(SourceControlWorkflows, {
+          renameBranch,
+        } as unknown as SourceControlWorkflowsShape),
+      ),
       Layer.provideMerge(
         Layer.succeed(SourceControlStatus, {
           getStatus: () => Effect.die("getStatus should not be called in this test"),

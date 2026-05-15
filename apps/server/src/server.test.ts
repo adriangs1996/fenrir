@@ -88,14 +88,18 @@ import {
   type ProjectSetupScriptRunnerShape,
 } from "./project/Services/ProjectSetupScriptRunner.ts";
 import {
-  RepositoryIdentityResolver,
-  type RepositoryIdentityResolverShape,
-} from "./project/Services/RepositoryIdentityResolver.ts";
-import { SourceControl } from "./sourceControl/Services/SourceControl.ts";
+  SourceControlQuery,
+  type SourceControlQueryShape,
+} from "./sourceControl/Services/SourceControlQuery.ts";
+import { SourceControl, type SourceControlShape } from "./sourceControl/Services/SourceControl.ts";
 import {
   SourceControlStatus,
   type SourceControlStatusShape,
 } from "./sourceControl/Services/SourceControlStatus.ts";
+import {
+  SourceControlWorkflows,
+  type SourceControlWorkflowsShape,
+} from "./sourceControl/Services/SourceControlWorkflows.ts";
 import {
   ServerEnvironment,
   type ServerEnvironmentShape,
@@ -311,7 +315,9 @@ const buildAppUnderTest = (options?: {
     open?: Partial<OpenShape>;
     gitCore?: Partial<GitCoreShape>;
     gitManager?: Partial<GitManagerShape>;
+    sourceControlQuery?: Partial<SourceControlQueryShape>;
     sourceControlStatus?: Partial<SourceControlStatusShape>;
+    sourceControlWorkflows?: Partial<SourceControlWorkflowsShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
@@ -321,7 +327,7 @@ const buildAppUnderTest = (options?: {
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
     serverEnvironment?: Partial<ServerEnvironmentShape>;
-    repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
+    sourceControl?: Partial<SourceControlShape>;
     globalActions?: Partial<GlobalActionsShape>;
     skillService?: Partial<SkillServiceShape>;
     importResolver?: Partial<ImportResolverShape>;
@@ -361,6 +367,9 @@ const buildAppUnderTest = (options?: {
       ...options?.config,
     };
     const layerConfig = Layer.succeed(ServerConfig, config);
+    const gitCoreLayer = Layer.mock(GitCore)({
+      ...options?.layers?.gitCore,
+    });
     const gitManagerLayer = Layer.mock(GitManager)({
       ...options?.layers?.gitManager,
     });
@@ -371,24 +380,43 @@ const buildAppUnderTest = (options?: {
       streamStatus: () => Stream.empty,
       ...options?.layers?.sourceControlStatus,
     });
-    const sourceControlLayer = Layer.effect(
-      SourceControl,
+    const sourceControlLayer = Layer.mock(SourceControl)({
+      resolveWorkspace: () => Effect.succeed(null),
+      isSupportedWorkspace: () => Effect.succeed(false),
+      resolveRepositoryIdentity: () => Effect.succeed(null),
+      ...options?.layers?.sourceControl,
+    });
+    const sourceControlQueryLayer = Layer.effect(
+      SourceControlQuery,
       Effect.gen(function* () {
-        const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
-        return SourceControl.of({
-          resolveWorkspace: () => Effect.succeed(null),
-          isSupportedWorkspace: () => Effect.succeed(false),
-          resolveRepositoryIdentity: (cwd) => repositoryIdentityResolver.resolve(cwd),
+        const gitCore = yield* GitCore;
+        return SourceControlQuery.of({
+          listBranches: (input) => gitCore.listBranches(input),
+          listLocalBranchNames: (cwd) => gitCore.listLocalBranchNames(cwd),
+          ...options?.layers?.sourceControlQuery,
         });
       }),
-    ).pipe(
-      Layer.provide(
-        Layer.mock(RepositoryIdentityResolver)({
-          resolve: () => Effect.succeed(null),
-          ...options?.layers?.repositoryIdentityResolver,
-        }),
-      ),
-    );
+    ).pipe(Layer.provide(gitCoreLayer));
+    const sourceControlWorkflowsLayer = Layer.effect(
+      SourceControlWorkflows,
+      Effect.gen(function* () {
+        const gitManager = yield* GitManager;
+        const gitCore = yield* GitCore;
+        return SourceControlWorkflows.of({
+          pullCurrentBranch: (cwd) => gitCore.pullCurrentBranch(cwd),
+          createWorktree: (input) => gitCore.createWorktree(input),
+          removeWorktree: (input) => gitCore.removeWorktree(input),
+          renameBranch: (input) => gitCore.renameBranch(input),
+          createBranch: (input) => gitCore.createBranch(input),
+          checkoutBranch: (input) => gitCore.checkoutBranch(input),
+          initRepo: (input) => gitCore.initRepo(input),
+          runStackedAction: (input, options) => gitManager.runStackedAction(input, options),
+          resolvePullRequest: (input) => gitManager.resolvePullRequest(input),
+          preparePullRequestThread: (input) => gitManager.preparePullRequestThread(input),
+          ...options?.layers?.sourceControlWorkflows,
+        });
+      }),
+    ).pipe(Layer.provide(gitManagerLayer), Layer.provideMerge(gitCoreLayer));
 
     const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
@@ -427,13 +455,11 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.open,
         }),
       ),
-      Layer.provide(
-        Layer.mock(GitCore)({
-          ...options?.layers?.gitCore,
-        }),
-      ),
+      Layer.provide(gitCoreLayer),
       Layer.provide(gitManagerLayer),
+      Layer.provideMerge(sourceControlQueryLayer),
       Layer.provideMerge(sourceControlStatusLayer),
+      Layer.provideMerge(sourceControlWorkflowsLayer),
       Layer.provide(
         Layer.mock(ProjectSetupScriptRunner)({
           runForThread: () => Effect.succeed({ status: "no-script" as const }),
@@ -578,12 +604,6 @@ const buildAppUnderTest = (options?: {
           getEnvironmentId: Effect.succeed(testEnvironmentDescriptor.environmentId),
           getDescriptor: Effect.succeed(testEnvironmentDescriptor),
           ...options?.layers?.serverEnvironment,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(RepositoryIdentityResolver)({
-          resolve: () => Effect.succeed(null),
-          ...options?.layers?.repositoryIdentityResolver,
         }),
       ),
       Layer.provideMerge(sourceControlLayer),
@@ -3041,8 +3061,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 },
               } satisfies Extract<OrchestrationEvent, { type: "project.created" }>),
           },
-          repositoryIdentityResolver: {
-            resolve: () => Effect.succeed(repositoryIdentity),
+          sourceControl: {
+            resolveRepositoryIdentity: () => Effect.succeed(repositoryIdentity),
           },
         },
       });
@@ -3635,8 +3655,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               } satisfies Extract<OrchestrationEvent, { type: "project.meta-updated" }>),
             streamDomainEvents: Stream.empty,
           },
-          repositoryIdentityResolver: {
-            resolve: () => {
+          sourceControl: {
+            resolveRepositoryIdentity: () => {
               resolveCalls += 1;
               return Effect.succeed(repositoryIdentity);
             },
@@ -3705,8 +3725,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               },
             } satisfies Extract<OrchestrationEvent, { type: "project.meta-updated" }>),
           },
-          repositoryIdentityResolver: {
-            resolve: () => Effect.succeed(repositoryIdentity),
+          sourceControl: {
+            resolveRepositoryIdentity: () => Effect.succeed(repositoryIdentity),
           },
         },
       });

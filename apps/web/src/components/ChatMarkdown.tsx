@@ -125,6 +125,8 @@ function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
       resolveDiffThemeName("dark"),
       resolveDiffThemeName("light"),
       resolveDiffThemeName("catppuccin-mocha"),
+      resolveDiffThemeName("rose-pine"),
+      resolveDiffThemeName("nord"),
     ],
     langs: [language as SupportedLanguages],
     preferredHighlighter: "shiki-js",

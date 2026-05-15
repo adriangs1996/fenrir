@@ -38,7 +38,6 @@ import {
 } from "@fenrir/contracts";
 import { formatProviderActivityLogDisplay } from "@fenrir/shared/providerActivityLog";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine";
-import { GitCore } from "../../git/Services/GitCore";
 import { PlanRunnerRepository } from "../../persistence/Services/PlanRunnerRepository";
 import type {
   PlanRunnerInternalThreadRow,
@@ -47,6 +46,8 @@ import type {
   PlanRunnerSyntheticLogEntryAppend,
   PlanRunnerSyntheticLogEntryRow,
 } from "../../persistence/Services/PlanRunnerRepository";
+import { SourceControlQuery } from "../../sourceControl/Services/SourceControlQuery";
+import { SourceControlWorkflows } from "../../sourceControl/Services/SourceControlWorkflows";
 import { PlanRunnerService, type PlanRunnerServiceShape } from "../Services/PlanRunner";
 import { parsePlanFrontmatter } from "../frontmatter";
 
@@ -383,7 +384,8 @@ export const PlanRunnerLive = Layer.effect(
   PlanRunnerService,
   Effect.gen(function* () {
     const orchestrationEngine = yield* OrchestrationEngineService;
-    const gitCore = yield* GitCore;
+    const sourceControlQuery = yield* SourceControlQuery;
+    const sourceControlWorkflows = yield* SourceControlWorkflows;
     const fs = yield* FileSystem.FileSystem;
     const pathService = yield* Path.Path;
     const repo = yield* PlanRunnerRepository;
@@ -1091,7 +1093,7 @@ export const PlanRunnerLive = Layer.effect(
       Effect.gen(function* () {
         if (!run.worktreePath || !run.ownsWorktree) return;
         const projectCwd = yield* resolveProjectCwd(run.projectId);
-        yield* gitCore.removeWorktree({
+        yield* sourceControlWorkflows.removeWorktree({
           cwd: projectCwd,
           path: run.worktreePath,
           force: true,
@@ -2702,7 +2704,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
           // Resolve or create worktree — isolated filesystem for this plan run.
           // The branch may already exist if the user did manual setup first.
-          const existingBranches = yield* gitCore
+          const existingBranches = yield* sourceControlQuery
             .listLocalBranchNames(projectCwd)
             .pipe(Effect.catch(() => Effect.succeed([] as string[])));
           const branchExists = existingBranches.includes(branchName);
@@ -2712,7 +2714,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
           if (branchExists) {
             // Branch already exists — check if it already has a worktree
-            const branchInfo = yield* gitCore
+            const branchInfo = yield* sourceControlQuery
               .listBranches({
                 cwd: projectCwd as any,
                 query: branchName as any,
@@ -2728,7 +2730,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               ownsWorktree = false;
             } else {
               // Branch exists but no worktree — create worktree from it
-              const worktreeResult = yield* gitCore
+              const worktreeResult = yield* sourceControlWorkflows
                 .createWorktree({
                   cwd: projectCwd,
                   branch: branchName as any,
@@ -2748,7 +2750,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             }
           } else {
             // Branch doesn't exist — create worktree with new branch from HEAD
-            const worktreeResult = yield* gitCore
+            const worktreeResult = yield* sourceControlWorkflows
               .createWorktree({
                 cwd: projectCwd,
                 branch: "HEAD",

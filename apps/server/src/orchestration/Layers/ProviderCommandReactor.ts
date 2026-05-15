@@ -15,12 +15,12 @@ import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } 
 import { makeDrainableWorker } from "@fenrir/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
-import { GitCore } from "../../git/Services/GitCore.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { SourceControlStatus } from "../../sourceControl/Services/SourceControlStatus.ts";
+import { SourceControlWorkflows } from "../../sourceControl/Services/SourceControlWorkflows.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
   ProviderCommandReactor,
@@ -172,8 +172,8 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
-  const git = yield* GitCore;
   const sourceControlStatus = yield* SourceControlStatus;
+  const sourceControlWorkflows = yield* SourceControlWorkflows;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
   const handledTurnStartKeys = yield* Cache.make<string, true>({
@@ -520,7 +520,11 @@ const make = Effect.gen(function* () {
       const targetBranch = buildGeneratedWorktreeBranchName(generated.branch);
       if (targetBranch === oldBranch) return;
 
-      const renamed = yield* git.renameBranch({ cwd, oldBranch, newBranch: targetBranch });
+      const renamed = yield* sourceControlWorkflows.renameBranch({
+        cwd,
+        oldBranch,
+        newBranch: targetBranch,
+      });
       yield* orchestrationEngine.dispatch({
         type: "thread.meta.update",
         commandId: serverCommandId("worktree-branch-rename"),

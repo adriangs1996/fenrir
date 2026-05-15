@@ -50,6 +50,7 @@ import {
   resolveAppModelSelectionState,
 } from "../../modelSelection";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
+import { THEME_OPTIONS, isTheme } from "../../lib/theme";
 import { useShallow } from "zustand/react/shallow";
 import {
   selectProjectsAcrossEnvironments,
@@ -85,25 +86,6 @@ import {
   usePlanRunnerStore,
   type ArchivedFeatureSummary,
 } from "~/modules/plan-runner";
-
-const THEME_OPTIONS = [
-  {
-    value: "system",
-    label: "System",
-  },
-  {
-    value: "light",
-    label: "Light",
-  },
-  {
-    value: "dark",
-    label: "Dark",
-  },
-  {
-    value: "catppuccin-mocha",
-    label: "Catppuccin Mocha",
-  },
-] as const;
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
@@ -731,12 +713,7 @@ export function GeneralSettingsPanel() {
             <Select
               value={theme}
               onValueChange={(value) => {
-                if (
-                  value === "system" ||
-                  value === "light" ||
-                  value === "dark" ||
-                  value === "catppuccin-mocha"
-                ) {
+                if (isTheme(value)) {
                   setTheme(value);
                 }
               }}

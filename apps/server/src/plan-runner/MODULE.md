@@ -158,7 +158,8 @@ are untouched.
 | Service                      | Purpose                                                |
 | ---------------------------- | ------------------------------------------------------ |
 | `OrchestrationEngineService` | Thread creation, turn dispatch, read model             |
-| `GitCore`                    | Branch + worktree lifecycle                            |
+| `SourceControlQuery`         | Branch discovery and branch metadata reads             |
+| `SourceControlWorkflows`     | Branch + worktree lifecycle mutations                  |
 | `FileSystem`                 | Read plan files                                        |
 | `Path`                       | Path resolution                                        |
 | `PlanRunnerRepository`       | Durable run/step/internal-thread/synthetic-log storage |
@@ -185,8 +186,9 @@ apps/server/src/plan-runner/
 ## Integration Points
 
 - **Upstream**: `ws.ts` RPC layer (11 handlers + event subscription)
-- **Downstream**: `OrchestrationEngine` (thread lifecycle), `GitCore`
-  (branching), `PlanRunnerRepository` (persistence)
+- **Downstream**: `OrchestrationEngine` (thread lifecycle),
+  `SourceControlQuery` / `SourceControlWorkflows` (branching),
+  `PlanRunnerRepository` (persistence)
 - **Layer composition**: Wired into `RuntimeDependenciesLive` in
   `server.ts` with `PersistenceLayerLive` provided so boot recovery can run
   during layer construction.
