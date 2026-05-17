@@ -49,7 +49,6 @@ describe("MessagesTimeline", () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
-        hasMessages
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
@@ -105,7 +104,6 @@ describe("MessagesTimeline", () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
-        hasMessages
         isWorking={false}
         activeTurnInProgress={false}
         activeTurnStartedAt={null}

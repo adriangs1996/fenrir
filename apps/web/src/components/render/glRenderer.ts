@@ -297,6 +297,12 @@ interface GridState {
   uploaded: boolean;
 }
 
+export interface ResolvedCursorGlyph {
+  cp: number;
+  bold: boolean;
+  italic: boolean;
+}
+
 export class GLRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly gl: WebGL2RenderingContext;
@@ -646,9 +652,12 @@ export class GLRenderer {
     }
 
     // Cursor's text glyph (if any) must be in the atlas before flushing.
-    if (this.cursor?.shape === "block" && this.cursor.text && this.cursor.text !== " ") {
-      const cp = this.cursor.text.codePointAt(0)!;
-      atlas.ensureCp(cp, false, false);
+    if (this.cursor?.shape === "block") {
+      const cursorGrid = this.grids.get(this.cursor.gridId);
+      const glyph = resolveBlockCursorGlyph(this.cursor, cursorGrid, this.hlPacked);
+      if (glyph) {
+        atlas.ensureCp(glyph.cp, glyph.bold, glyph.italic);
+      }
     }
 
     // Atlas flush: single texSubImage2D over the bbox of all newly-rasterized
@@ -762,10 +771,9 @@ export class GLRenderer {
       sizeY = 2 / m.height;
       posY = cursor.row + 1 - sizeY;
     } else {
-      atlasPos =
-        cursor.text && cursor.text !== " "
-          ? atlas.ensureCp(cursor.text.codePointAt(0)!, false, false)
-          : EMPTY_SLOT;
+      const cursorGrid = this.grids.get(cursor.gridId);
+      const glyph = resolveBlockCursorGlyph(cursor, cursorGrid, this.hlPacked);
+      atlasPos = glyph ? atlas.ensureCp(glyph.cp, glyph.bold, glyph.italic) : EMPTY_SLOT;
       fgN = this.defaultColors.bg;
       bgN = this.defaultColors.fg;
     }
@@ -883,6 +891,51 @@ function copySlice(
   for (let i = 0; i < len; i++) {
     dst[dstBase + i] = src[srcBase + i]!;
   }
+}
+
+export function resolveBlockCursorGlyph(
+  cursor: CursorEntry | null,
+  grid:
+    | {
+        cols: number;
+        rows: number;
+        cellChars: Uint32Array;
+        cellHl: Uint32Array;
+      }
+    | undefined,
+  hlPacked: ReadonlyArray<
+    | {
+        bold: boolean;
+        italic: boolean;
+      }
+    | undefined
+  >,
+): ResolvedCursorGlyph | null {
+  if (!cursor || cursor.shape !== "block") return null;
+  if (
+    grid &&
+    cursor.row >= 0 &&
+    cursor.row < grid.rows &&
+    cursor.col >= 0 &&
+    cursor.col < grid.cols
+  ) {
+    const idx = cursor.row * grid.cols + cursor.col;
+    const cp = grid.cellChars[idx]!;
+    if (cp !== 0 && cp !== SPACE_CP) {
+      const hl = hlPacked[grid.cellHl[idx]!];
+      return {
+        cp,
+        bold: hl?.bold ?? false,
+        italic: hl?.italic ?? false,
+      };
+    }
+  }
+  if (!cursor.text || cursor.text === " ") return null;
+  return {
+    cp: cursor.text.codePointAt(0)!,
+    bold: false,
+    italic: false,
+  };
 }
 
 // Pack a 0xRRGGBB color into a u32 with byte0 = R, matching what

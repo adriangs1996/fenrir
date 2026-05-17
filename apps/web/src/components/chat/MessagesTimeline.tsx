@@ -102,7 +102,6 @@ const TimelineRowCtx = createContext<TimelineRowSharedState | null>(null);
 const TimelineRowActivityCtx = createContext<TimelineRowActivityState | null>(null);
 
 interface MessagesTimelineProps {
-  hasMessages: boolean;
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnId?: TurnId | null;
@@ -140,7 +139,6 @@ interface MessagesTimelineProps {
 }
 
 export const MessagesTimeline = memo(function MessagesTimeline({
-  hasMessages,
   isWorking,
   activeTurnInProgress,
   activeTurnId,
@@ -192,7 +190,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     return () => {
       observer.disconnect();
     };
-  }, [hasMessages, isWorking]);
+  }, [isWorking, timelineEntries.length]);
 
   const rawRows = useMemo(
     () =>
@@ -393,7 +391,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const virtualRows = rowVirtualizer.getVirtualItems();
   const nonVirtualizedRows = rows.slice(virtualizedRowCount);
 
-  if (!hasMessages && !isWorking) {
+  if (rows.length === 0 && !isWorking) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-muted-foreground/30">

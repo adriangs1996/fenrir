@@ -2232,6 +2232,7 @@ export default function ChatView(props: ChatViewProps) {
 
   // Auto-scroll on new messages
   const messageCount = timelineMessages.length;
+  const timelineRowCount = timelineEntries.length;
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
@@ -2384,6 +2385,22 @@ export default function ChatView(props: ChatViewProps) {
     if (!shouldAutoScrollRef.current) return;
     scheduleStickToBottom();
   }, [messageCount, scheduleStickToBottom]);
+  const previousTimelineRowCountRef = useRef(timelineRowCount);
+  useEffect(() => {
+    const previousTimelineRowCount = previousTimelineRowCountRef.current;
+    previousTimelineRowCountRef.current = timelineRowCount;
+
+    if (!shouldAutoScrollRef.current || previousTimelineRowCount > 0 || timelineRowCount === 0) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      scrollMessagesToBottom();
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [scrollMessagesToBottom, timelineRowCount]);
   useEffect(() => {
     if (phase !== "running") return;
     if (!shouldAutoScrollRef.current) return;
@@ -3754,7 +3771,6 @@ export default function ChatView(props: ChatViewProps) {
               >
                 <MessagesTimeline
                   key={activeThread.id}
-                  hasMessages={timelineEntries.length > 0}
                   isWorking={isWorking}
                   activeTurnInProgress={isWorking || !latestTurnSettled}
                   activeTurnId={activeLatestTurn?.turnId ?? null}

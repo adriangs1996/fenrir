@@ -120,4 +120,48 @@ describe("NeovimSource", () => {
       },
     ]);
   });
+
+  it("keeps cursor text correct after split-style win_pos updates", () => {
+    const source = createSource();
+
+    applyEvent(source, "grid_resize", [1, 4, 2]);
+    applyEvent(source, "grid_line", [
+      1,
+      0,
+      0,
+      [
+        ["r", 1],
+        ["e", 1],
+        ["s", 1],
+        ["p", 1],
+      ],
+    ]);
+    applyEvent(source, "grid_line", [
+      1,
+      1,
+      0,
+      [
+        ["P", 2],
+        ["O", 2],
+        ["S", 2],
+        ["T", 2],
+      ],
+    ]);
+    buildFrame(source);
+
+    // Simulate the default editor window being moved into a narrower split
+    // before nvim sends any backing-grid resize.
+    applyEvent(source, "win_pos", [1, null, 0, 0, 2, 2]);
+    applyEvent(source, "grid_cursor_goto", [1, 1, 2]);
+
+    const frame = buildFrame(source);
+
+    expect(frame?.cursor).toEqual({
+      gridId: 1,
+      row: 1,
+      col: 2,
+      shape: "block",
+      text: "S",
+    });
+  });
 });
