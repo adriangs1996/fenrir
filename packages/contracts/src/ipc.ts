@@ -349,21 +349,12 @@ export interface DefaultColorsEntry {
   sp: number;
 }
 
-export interface CellRun {
-  col: number;
-  len: number;
-  text: string;
-  hlId: number;
-}
-
-export interface RowDelta {
-  row: number;
-  runs: CellRun[];
-}
-
 export interface GridDelta {
   gridId: number;
-  rows: RowDelta[];
+  cols: number;
+  rowIndexes: Uint32Array;
+  cellChars: Uint32Array;
+  cellHl: Uint32Array;
 }
 
 export interface ResizedGrid {

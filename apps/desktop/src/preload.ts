@@ -61,6 +61,7 @@ const RENDER_STOP_CHANNEL = "desktop:render-stop";
 const RENDER_SET_FPS_CHANNEL = "desktop:render-set-fps";
 const RENDER_INPUT_CHANNEL = "desktop:render-input";
 const RENDER_FRAME_CHANNEL = "desktop:render-frame";
+const RENDER_FRAME_PORT_CHANNEL = "desktop:render-frame-port";
 const RENDER_SET_EDITOR_FONT_METRICS_CHANNEL = "desktop:render-set-editor-font-metrics";
 const NVIM_AVAILABLE_CHANNEL = "desktop:nvim-available";
 const NVIM_PROBE_DETAIL_CHANNEL = "desktop:nvim-probe-detail";
@@ -72,6 +73,35 @@ const EDITOR_INVOKE_BRIDGE_CHANNEL = "fenrir:editor:invokeBridge";
 
 const mainWindowFlag = process.argv.find((a) => a.startsWith("--fenrir-main-window="));
 const isMainWindow = mainWindowFlag === "--fenrir-main-window=1";
+const frameListeners = new Set<(frame: Frame) => void>();
+let renderFramePort: MessagePort | null = null;
+let renderFramePortListener: ((event: MessageEvent) => void) | null = null;
+
+function dispatchFrame(frame: unknown): void {
+  if (typeof frame !== "object" || frame === null) return;
+  for (const listener of frameListeners) {
+    listener(frame as Frame);
+  }
+}
+
+ipcRenderer.on(RENDER_FRAME_PORT_CHANNEL, (event) => {
+  const [port] = event.ports;
+  if (!(port instanceof MessagePort)) return;
+  if (renderFramePort) {
+    if (renderFramePortListener) {
+      renderFramePort.removeEventListener("message", renderFramePortListener);
+    }
+    renderFramePort.close();
+  }
+  renderFramePort = port;
+  renderFramePortListener = (messageEvent) => dispatchFrame(messageEvent.data);
+  renderFramePort.addEventListener("message", renderFramePortListener);
+  renderFramePort.start();
+});
+
+ipcRenderer.on(RENDER_FRAME_CHANNEL, (_event, frame: unknown) => {
+  dispatchFrame(frame);
+});
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getLocalEnvironmentBootstrap: () => {
@@ -203,13 +233,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.send(RENDER_INPUT_CHANNEL, event);
   },
   onFrame: (listener: (frame: Frame) => void) => {
-    const wrappedListener = (_event: Electron.IpcRendererEvent, frame: unknown) => {
-      if (typeof frame !== "object" || frame === null) return;
-      listener(frame as Frame);
-    };
-    ipcRenderer.on(RENDER_FRAME_CHANNEL, wrappedListener);
+    frameListeners.add(listener);
     return () => {
-      ipcRenderer.removeListener(RENDER_FRAME_CHANNEL, wrappedListener);
+      frameListeners.delete(listener);
     };
   },
 

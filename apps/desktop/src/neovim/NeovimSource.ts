@@ -6,7 +6,6 @@ import * as Path from "node:path";
 import { app } from "electron";
 
 import type {
-  CellRun,
   CursorEntry,
   EditorFontMetrics,
   Frame,
@@ -14,7 +13,6 @@ import type {
   HlAttrEntry,
   InputEvent,
   ResizedGrid,
-  RowDelta,
   WindowEntry,
 } from "@fenrir/contracts";
 
@@ -32,6 +30,7 @@ const DEFAULT_CELL_W = 9;
 const DEFAULT_CELL_H = 18;
 const DEFAULT_TEXT_ASCENT = 14;
 const DEFAULT_FONT_WEIGHT = 400;
+const SPACE_CP = 0x20;
 
 interface HlAttr {
   fg: number | undefined;
@@ -43,16 +42,12 @@ interface HlAttr {
   reverse: boolean;
 }
 
-interface Cell {
-  ch: string;
-  hl: number;
-}
-
 interface Grid {
   id: number;
   w: number;
   h: number;
-  cells: Cell[][];
+  cellChars: Uint32Array;
+  cellHl: Uint32Array;
 }
 
 interface Win {
@@ -121,8 +116,6 @@ export class NeovimSource implements SceneSource {
   private windowsChanged = false;
   private cursorChanged = false;
   private metricsSent = false;
-
-  private readonly textBuffer: string[] = [];
 
   // Fenrir event subscription (buf_enter, buf_write_post, buf_modified_set,
   // fenrir_send_to_composer, fenrir_cmd)
@@ -579,15 +572,9 @@ export class NeovimSource implements SceneSource {
         rows.clear();
         continue;
       }
-      const rowDeltas: RowDelta[] = [];
-      for (const r of rows) {
-        if (r >= grid.h) continue;
-        rowDeltas.push({ row: r, runs: this.buildRowRuns(grid, r) });
-      }
+      const gridDelta = this.buildGridDelta(gridId, grid, rows);
       rows.clear();
-      if (rowDeltas.length > 0) {
-        gridDeltas.push({ gridId, rows: rowDeltas });
-      }
+      if (gridDelta) gridDeltas.push(gridDelta);
     }
     if (gridDeltas.length > 0) {
       frame.gridDeltas = gridDeltas;
@@ -619,8 +606,16 @@ export class NeovimSource implements SceneSource {
       };
       if (shape === "block") {
         const grid = this.grids.get(this.cursor.gridId);
-        const cell = grid?.cells[this.cursor.row]?.[this.cursor.col];
-        if (cell?.ch && cell.ch.length > 0) cursorEntry.text = cell.ch;
+        if (
+          grid &&
+          this.cursor.row >= 0 &&
+          this.cursor.row < grid.h &&
+          this.cursor.col >= 0 &&
+          this.cursor.col < grid.w
+        ) {
+          const cp = grid.cellChars[this.cursor.row * grid.w + this.cursor.col]!;
+          if (cp !== SPACE_CP) cursorEntry.text = String.fromCodePoint(cp);
+        }
       }
       frame.cursor = cursorEntry;
       this.cursorChanged = false;
@@ -632,27 +627,35 @@ export class NeovimSource implements SceneSource {
     return frame;
   }
 
-  private buildRowRuns(grid: Grid, r: number): CellRun[] {
-    const row = grid.cells[r];
-    if (!row) return [];
-    const runs: CellRun[] = [];
-    let c = 0;
-    while (c < grid.w) {
-      const cell = row[c]!;
-      const hlId = cell.hl;
-      let runEnd = c;
-      const buf = this.textBuffer;
-      buf.length = 0;
-      while (runEnd < grid.w) {
-        const ce = row[runEnd]!;
-        if (ce.hl !== hlId) break;
-        buf.push(ce.ch.length > 0 ? ce.ch : " ");
-        runEnd++;
-      }
-      runs.push({ col: c, len: runEnd - c, text: buf.join(""), hlId });
-      c = runEnd;
+  private buildGridDelta(gridId: number, grid: Grid, rows: Set<number>): GridDelta | null {
+    const rowIndexes = new Uint32Array(rows.size);
+    let rowCount = 0;
+    for (const row of rows) {
+      if (row < 0 || row >= grid.h) continue;
+      rowIndexes[rowCount] = row;
+      rowCount += 1;
     }
-    return runs;
+    if (rowCount === 0) return null;
+
+    const usedRowIndexes =
+      rowCount === rowIndexes.length ? rowIndexes : rowIndexes.slice(0, rowCount);
+    const cellChars = new Uint32Array(rowCount * grid.w);
+    const cellHl = new Uint32Array(rowCount * grid.w);
+    for (let i = 0; i < rowCount; i++) {
+      const row = usedRowIndexes[i]!;
+      const srcBase = row * grid.w;
+      const dstBase = i * grid.w;
+      cellChars.set(grid.cellChars.subarray(srcBase, srcBase + grid.w), dstBase);
+      cellHl.set(grid.cellHl.subarray(srcBase, srcBase + grid.w), dstBase);
+    }
+
+    return {
+      gridId,
+      cols: grid.w,
+      rowIndexes: usedRowIndexes,
+      cellChars,
+      cellHl,
+    };
   }
 
   private markRowDirty(gridId: number, row: number): void {
@@ -745,16 +748,20 @@ export class NeovimSource implements SceneSource {
         const w = args[1] as number;
         const h = args[2] as number;
         const existing = this.grids.get(id);
-        const cells: Cell[][] = [];
-        for (let r = 0; r < h; r++) {
-          const row: Cell[] = [];
-          for (let c = 0; c < w; c++) {
-            const prev = existing?.cells[r]?.[c];
-            row.push(prev ?? { ch: " ", hl: 0 });
+        const cellChars = new Uint32Array(w * h);
+        cellChars.fill(SPACE_CP);
+        const cellHl = new Uint32Array(w * h);
+        if (existing) {
+          const copyW = Math.min(existing.w, w);
+          const copyH = Math.min(existing.h, h);
+          for (let r = 0; r < copyH; r++) {
+            const prevBase = r * existing.w;
+            const nextBase = r * w;
+            cellChars.set(existing.cellChars.subarray(prevBase, prevBase + copyW), nextBase);
+            cellHl.set(existing.cellHl.subarray(prevBase, prevBase + copyW), nextBase);
           }
-          cells.push(row);
         }
-        this.grids.set(id, { id, w, h, cells });
+        this.grids.set(id, { id, w, h, cellChars, cellHl });
         this.resizedGrids.push({ id, w, h });
         if (id === 1 && !this.windows.has(1)) {
           this.windows.set(1, {
@@ -774,14 +781,8 @@ export class NeovimSource implements SceneSource {
         const id = args[0] as number;
         const grid = this.grids.get(id);
         if (!grid) return;
-        for (let r = 0; r < grid.h; r++) {
-          const row = grid.cells[r]!;
-          for (let c = 0; c < grid.w; c++) {
-            const cell = row[c]!;
-            cell.ch = " ";
-            cell.hl = 0;
-          }
-        }
+        grid.cellChars.fill(SPACE_CP);
+        grid.cellHl.fill(0);
         this.markAllRowsDirty(id);
         return;
       }
@@ -801,22 +802,22 @@ export class NeovimSource implements SceneSource {
         const cells = args[3] as Array<[string, number?, number?]>;
         const grid = this.grids.get(id);
         if (!grid || !Array.isArray(cells)) return;
-        const targetRow = grid.cells[row];
-        if (!targetRow) return;
+        if (row < 0 || row >= grid.h) return;
+        const rowBase = row * grid.w;
         let col = colStart;
         let lastHl = 0;
         for (let t = 0; t < cells.length; t++) {
           const triplet = cells[t];
           if (!Array.isArray(triplet)) continue;
-          const ch = triplet[0] ?? " ";
+          const cp = cellTextToCodePoint(triplet[0]);
           const hl = typeof triplet[1] === "number" ? triplet[1] : lastHl;
           lastHl = hl;
           const reps = typeof triplet[2] === "number" ? triplet[2] : 1;
           for (let i = 0; i < reps; i++) {
             if (col < grid.w) {
-              const cell = targetRow[col]!;
-              cell.ch = ch;
-              cell.hl = hl;
+              const idx = rowBase + col;
+              grid.cellChars[idx] = cp;
+              grid.cellHl[idx] = hl;
             }
             col++;
           }
@@ -831,30 +832,20 @@ export class NeovimSource implements SceneSource {
         const rows = args[5] as number;
         const grid = this.grids.get(id);
         if (!grid || rows === 0) return;
+        const rowWidth = grid.w;
         if (rows > 0) {
-          for (let r = top; r < bot - rows; r++) {
-            const src = grid.cells[r + rows];
-            const dst = grid.cells[r];
-            if (!src || !dst) continue;
-            for (let c = 0; c < grid.w; c++) {
-              const s = src[c]!;
-              const d = dst[c]!;
-              d.ch = s.ch;
-              d.hl = s.hl;
-            }
-          }
+          const target = top * rowWidth;
+          const start = (top + rows) * rowWidth;
+          const end = bot * rowWidth;
+          grid.cellChars.copyWithin(target, start, end);
+          grid.cellHl.copyWithin(target, start, end);
         } else {
-          for (let r = bot - 1; r >= top - rows; r--) {
-            const src = grid.cells[r + rows];
-            const dst = grid.cells[r];
-            if (!src || !dst) continue;
-            for (let c = 0; c < grid.w; c++) {
-              const s = src[c]!;
-              const d = dst[c]!;
-              d.ch = s.ch;
-              d.hl = s.hl;
-            }
-          }
+          const shift = -rows;
+          const target = (top + shift) * rowWidth;
+          const start = top * rowWidth;
+          const end = (bot - shift) * rowWidth;
+          grid.cellChars.copyWithin(target, start, end);
+          grid.cellHl.copyWithin(target, start, end);
         }
         for (let r = top; r < bot; r++) this.markRowDirty(id, r);
         return;
@@ -871,13 +862,6 @@ export class NeovimSource implements SceneSource {
         const gridId = args[0] as number;
         const row = args[2] as number;
         const col = args[3] as number;
-        const w = args[4] as number;
-        const h = args[5] as number;
-        const grid = this.grids.get(gridId);
-        if (grid) {
-          grid.w = w;
-          grid.h = h;
-        }
         this.windows.set(gridId, {
           gridId,
           kind: "default",
@@ -974,6 +958,11 @@ function modString(mods: Mods): string {
   if (mods.alt) s += "A";
   if (mods.meta) s += "M";
   return s;
+}
+
+function cellTextToCodePoint(text: unknown): number {
+  if (typeof text !== "string" || text.length === 0) return SPACE_CP;
+  return text.codePointAt(0) ?? SPACE_CP;
 }
 
 const NAMED_KEYS: Record<string, string> = {

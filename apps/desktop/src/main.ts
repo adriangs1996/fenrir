@@ -11,6 +11,8 @@ import {
   clipboard,
   dialog,
   ipcMain,
+  MessageChannelMain,
+  type MessagePortMain,
   Menu,
   nativeImage,
   nativeTheme,
@@ -144,7 +146,7 @@ const RENDER_START_CHANNEL = "desktop:render-start";
 const RENDER_STOP_CHANNEL = "desktop:render-stop";
 const RENDER_SET_FPS_CHANNEL = "desktop:render-set-fps";
 const RENDER_INPUT_CHANNEL = "desktop:render-input";
-const RENDER_FRAME_CHANNEL = "desktop:render-frame";
+const RENDER_FRAME_PORT_CHANNEL = "desktop:render-frame-port";
 const RENDER_SET_EDITOR_FONT_METRICS_CHANNEL = "desktop:render-set-editor-font-metrics";
 const NVIM_AVAILABLE_CHANNEL = "desktop:nvim-available";
 const BASE_DIR = process.env.FENRIR_HOME?.trim() || Path.join(OS.homedir(), ".fenrir");
@@ -212,11 +214,12 @@ let nvimSession: {
   client: any;
   proc: ChildProcess.ChildProcessWithoutNullStreams;
 } | null = null;
+let renderFramePort: MessagePortMain | null = null;
 
 const renderLoop = new RenderLoop({
   fps: 60,
   emit: (frame: Frame) => {
-    mainWindow?.webContents.send(RENDER_FRAME_CHANNEL, frame);
+    renderFramePort?.postMessage(frame);
   },
 });
 const neovimSource = new NeovimSource(process.env.HOME ?? process.cwd());
@@ -1591,6 +1594,16 @@ function sanitizeForIpc(val: unknown): unknown {
   return val;
 }
 
+function replaceRenderFramePort(next: MessagePortMain | null): void {
+  try {
+    renderFramePort?.close();
+  } catch (error) {
+    console.warn("[render] closing previous frame port failed:", error);
+  }
+  renderFramePort = next;
+  renderFramePort?.start();
+}
+
 function registerIpcHandlers(): void {
   ipcMain.removeAllListeners(GET_LOCAL_ENVIRONMENT_BOOTSTRAP_CHANNEL);
   ipcMain.on(GET_LOCAL_ENVIRONMENT_BOOTSTRAP_CHANNEL, (event) => {
@@ -2047,7 +2060,10 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(RENDER_START_CHANNEL);
-  ipcMain.handle(RENDER_START_CHANNEL, async () => {
+  ipcMain.handle(RENDER_START_CHANNEL, async (event) => {
+    const { port1, port2 } = new MessageChannelMain();
+    replaceRenderFramePort(port1);
+    event.sender.postMessage(RENDER_FRAME_PORT_CHANNEL, null, [port2]);
     // After a renderer reload (Cmd+R) the GL canvas is reset and has no
     // grid contents, but the embedded nvim still holds full state. Force
     // a full-snapshot frame so the renderer can repaint without waiting
@@ -2059,6 +2075,7 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(RENDER_STOP_CHANNEL);
   ipcMain.handle(RENDER_STOP_CHANNEL, async () => {
     renderLoop.stop();
+    replaceRenderFramePort(null);
   });
 
   ipcMain.removeHandler(RENDER_SET_FPS_CHANNEL);

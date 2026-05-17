@@ -3,7 +3,6 @@ import type {
   CursorEntry,
   DefaultColorsEntry,
   HlAttrEntry,
-  RowDelta,
   WindowEntry,
 } from "@fenrir/contracts";
 import { rasterizeSpecialGlyph } from "./specialGlyphs";
@@ -285,7 +284,7 @@ interface GridState {
   // Codepoints as u32 (covers full Unicode). Replaces string[] — no V8 heap
   // string per cell, no double indirection in the hot loop.
   cellChars: Uint32Array;
-  cellHl: Uint16Array;
+  cellHl: Uint32Array;
   // Single backing buffer with two views. `instanceBytes` writes atlas slot
   // indices (u8); `instanceU32` writes packed RGBA colors (u32). One VBO,
   // one bufferSubData per dirty range.
@@ -539,7 +538,7 @@ export class GLRenderer {
     const instanceU32 = new Uint32Array(ab);
     const cellChars = new Uint32Array(cellCount);
     cellChars.fill(SPACE_CP);
-    const cellHl = new Uint16Array(cellCount);
+    const cellHl = new Uint32Array(cellCount);
     const vbo = gl.createBuffer();
     if (!vbo) throw new Error("createBuffer failed");
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
@@ -570,30 +569,29 @@ export class GLRenderer {
     this.grids.delete(id);
   }
 
-  updateRow(gridId: number, row: number, runs: RowDelta["runs"]): void {
+  updateRows(
+    gridId: number,
+    rowIndexes: Uint32Array,
+    cols: number,
+    cellChars: Uint32Array,
+    cellHl: Uint32Array,
+  ): void {
     const grid = this.grids.get(gridId);
-    if (!grid || row >= grid.rows) return;
-    const base = row * grid.cols;
-    const cellChars = grid.cellChars;
-    const cellHl = grid.cellHl;
-    // Reset row to spaces / hl 0. Typed-array fills are ~memset speed.
-    cellChars.fill(SPACE_CP, base, base + grid.cols);
-    cellHl.fill(0, base, base + grid.cols);
-    for (const run of runs) {
-      // Iterate by codepoints, not UTF-16 units. Nerd Font glyphs in the
-      // supplementary planes (U+10000+) are surrogate pairs in JS strings;
-      // splitting them produces tofu. `for...of` on a string yields
-      // codepoint-sized substrings.
-      let c = run.col;
-      const end = Math.min(grid.cols, run.col + run.len);
-      for (const ch of run.text) {
-        if (c >= end) break;
-        cellChars[base + c] = ch.codePointAt(0)!;
-        cellHl[base + c] = run.hlId;
-        c += 1;
+    if (!grid) return;
+    const copyCols = Math.min(grid.cols, cols);
+    for (let i = 0; i < rowIndexes.length; i++) {
+      const row = rowIndexes[i]!;
+      if (row >= grid.rows) continue;
+      const dstBase = row * grid.cols;
+      const srcBase = i * cols;
+      if (copyCols < grid.cols) {
+        grid.cellChars.fill(SPACE_CP, dstBase, dstBase + grid.cols);
+        grid.cellHl.fill(0, dstBase, dstBase + grid.cols);
       }
+      copySlice(grid.cellChars, dstBase, cellChars, srcBase, copyCols);
+      copySlice(grid.cellHl, dstBase, cellHl, srcBase, copyCols);
+      grid.dirtyRows.add(row);
     }
-    grid.dirtyRows.add(row);
   }
 
   setWindows(windows: WindowEntry[]): void {
@@ -873,6 +871,18 @@ function compileShader(gl: WebGL2RenderingContext, type: number, src: string): W
     throw new Error(`shader compile: ${info}`);
   }
   return s;
+}
+
+function copySlice(
+  dst: Uint32Array,
+  dstBase: number,
+  src: Uint32Array,
+  srcBase: number,
+  len: number,
+): void {
+  for (let i = 0; i < len; i++) {
+    dst[dstBase + i] = src[srcBase + i]!;
+  }
 }
 
 // Pack a 0xRRGGBB color into a u32 with byte0 = R, matching what

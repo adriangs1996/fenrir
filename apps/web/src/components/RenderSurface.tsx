@@ -370,7 +370,7 @@ export function RenderSurface({
   );
 }
 
-function applyFrame(renderer: GLRenderer, frame: Frame): void {
+export function applyFrame(renderer: GLRenderer, frame: Frame): void {
   if (frame.cellMetrics) renderer.setCellMetrics(frame.cellMetrics);
   if (frame.hl) renderer.upsertHl(frame.hl);
   if (frame.defaultColors) renderer.setDefaultColors(frame.defaultColors);
@@ -382,9 +382,13 @@ function applyFrame(renderer: GLRenderer, frame: Frame): void {
   }
   if (frame.gridDeltas) {
     for (const delta of frame.gridDeltas) {
-      for (const row of delta.rows) {
-        renderer.updateRow(delta.gridId, row.row, row.runs);
-      }
+      renderer.updateRows(
+        delta.gridId,
+        delta.rowIndexes,
+        delta.cols,
+        delta.cellChars,
+        delta.cellHl,
+      );
     }
   }
   if (frame.windows) renderer.setWindows(frame.windows);
