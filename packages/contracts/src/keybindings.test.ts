@@ -35,6 +35,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedClose.command, "terminal.close");
 
+    const parsedPaletteToggle = yield* decode(KeybindingRule, {
+      key: "mod+k",
+      command: "commandPalette.toggle",
+    });
+    assert.strictEqual(parsedPaletteToggle.command, "commandPalette.toggle");
+
     const parsedDiffToggle = yield* decode(KeybindingRule, {
       key: "mod+d",
       command: "diff.toggle",

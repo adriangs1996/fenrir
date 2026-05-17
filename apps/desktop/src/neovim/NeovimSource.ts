@@ -313,7 +313,7 @@ export class NeovimSource implements SceneSource {
     }
 
     if (event.kind === "key" && event.type === "down") {
-      const keys = domKeyToVimNotation(event.key, event.mods);
+      const keys = domKeyToVimNotation(event.key, event.code, event.mods);
       if (keys && this.client) {
         this.client.input(keys).catch((e: unknown) => {
           console.warn("[neovimSource] input failed:", e);
@@ -994,14 +994,40 @@ const NAMED_KEYS: Record<string, string> = {
   F12: "F12",
 };
 
-function domKeyToVimNotation(key: string, mods: Mods): string | null {
+const PRINTABLE_CODE_KEYS: Readonly<Record<string, string>> = {
+  Backquote: "`",
+  Minus: "-",
+  Equal: "=",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Backslash: "\\",
+  Semicolon: ";",
+  Quote: "'",
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Space: " ",
+};
+
+function printableKeyFromCode(code: string): string | null {
+  if (code.startsWith("Key") && code.length === 4) {
+    return code.slice(3).toLowerCase();
+  }
+  if (code.startsWith("Digit") && code.length === 6) {
+    return code.slice(5);
+  }
+  return PRINTABLE_CODE_KEYS[code] ?? null;
+}
+
+export function domKeyToVimNotation(key: string, code: string, mods: Mods): string | null {
   const named = NAMED_KEYS[key];
+  const codePrintable = printableKeyFromCode(code);
   const isPrintable = !named && key.length === 1;
 
   if (!named && (key === "Shift" || key === "Control" || key === "Alt" || key === "Meta")) {
     return null;
   }
-  if (!named && !isPrintable) return null;
+  if (!named && !isPrintable && codePrintable === null) return null;
 
   const hasNonShiftMod = mods.ctrl || mods.alt || mods.meta;
 
@@ -1017,6 +1043,8 @@ function domKeyToVimNotation(key: string, mods: Mods): string | null {
   if (mods.meta) prefix += "D-";
   if (mods.shift && named) prefix += "S-";
 
-  const keyPart = named ?? (key === " " ? "Space" : key);
+  const keyPart =
+    named ??
+    (mods.alt ? (codePrintable ?? (key === " " ? "Space" : key)) : key === " " ? "Space" : key);
   return `<${prefix}${keyPart}>`;
 }

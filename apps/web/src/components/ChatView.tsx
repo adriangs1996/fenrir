@@ -191,6 +191,8 @@ import {
 } from "~/rpc/serverState";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
+import { useComposerHandleContext } from "../composerHandleContext";
+import { useCommandPaletteStore } from "../commandPaletteStore";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -687,7 +689,18 @@ export default function ChatView(props: ChatViewProps) {
   const promptRef = useRef("");
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
+  const composerHandleContext = useComposerHandleContext();
   const composerRef = useRef<ChatComposerHandle>(null);
+  const commandPaletteOpen = useCommandPaletteStore((state) => state.open);
+  const setComposerHandle = useCallback(
+    (handle: ChatComposerHandle | null) => {
+      composerRef.current = handle;
+      if (composerHandleContext) {
+        composerHandleContext.current = handle;
+      }
+    },
+    [composerHandleContext],
+  );
   const handleSkillInsert = useCallback(
     (skillName: string) => {
       const snapshot = composerRef.current?.readSnapshot();
@@ -2677,6 +2690,7 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
       if (!activeThreadId || event.defaultPrevented) return;
+      if (commandPaletteOpen) return;
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
         terminalOpen: Boolean(terminalState.terminalOpen),
@@ -2769,6 +2783,7 @@ export default function ChatView(props: ChatViewProps) {
     terminalState.terminalOpen,
     terminalState.activeTerminalId,
     activeThreadId,
+    commandPaletteOpen,
     closeTerminal,
     createNewTerminal,
     setTerminalOpen,
@@ -3824,7 +3839,7 @@ export default function ChatView(props: ChatViewProps) {
             {/* Input bar */}
             <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
               <ChatComposer
-                ref={composerRef}
+                ref={setComposerHandle}
                 composerDraftTarget={composerDraftTarget}
                 environmentId={environmentId}
                 routeKind={routeKind}
@@ -3937,6 +3952,8 @@ export default function ChatView(props: ChatViewProps) {
             <EditorPane
               visible={activeChatTab === "editor"}
               focusRequestId={editorFocusRequestId}
+              keybindings={keybindings}
+              terminalOpen={Boolean(terminalState.terminalOpen)}
             />
           )}
         </div>

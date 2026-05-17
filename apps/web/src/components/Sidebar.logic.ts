@@ -2,6 +2,7 @@ import * as React from "react";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@fenrir/contracts/settings";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
+import { getThreadSortTimestamp, sortThreads, toSortableTimestamp } from "../lib/threadSort";
 import { isLatestTurnSettled } from "../session-logic";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
@@ -447,57 +448,10 @@ export function getVisibleThreadsForProject<T extends Pick<Thread, "id">>(input:
   };
 }
 
-function toSortableTimestamp(iso: string | undefined): number | null {
-  if (!iso) return null;
-  const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function getLatestUserMessageTimestamp(thread: SidebarThreadSortInput): number {
-  if (thread.latestUserMessageAt) {
-    return toSortableTimestamp(thread.latestUserMessageAt) ?? Number.NEGATIVE_INFINITY;
-  }
-
-  let latestUserMessageTimestamp: number | null = null;
-
-  for (const message of thread.messages ?? []) {
-    if (message.role !== "user") continue;
-    const messageTimestamp = toSortableTimestamp(message.createdAt);
-    if (messageTimestamp === null) continue;
-    latestUserMessageTimestamp =
-      latestUserMessageTimestamp === null
-        ? messageTimestamp
-        : Math.max(latestUserMessageTimestamp, messageTimestamp);
-  }
-
-  if (latestUserMessageTimestamp !== null) {
-    return latestUserMessageTimestamp;
-  }
-
-  return toSortableTimestamp(thread.updatedAt ?? thread.createdAt) ?? Number.NEGATIVE_INFINITY;
-}
-
-function getThreadSortTimestamp(
-  thread: SidebarThreadSortInput,
-  sortOrder: SidebarThreadSortOrder | Exclude<SidebarProjectSortOrder, "manual">,
-): number {
-  if (sortOrder === "created_at") {
-    return toSortableTimestamp(thread.createdAt) ?? Number.NEGATIVE_INFINITY;
-  }
-  return getLatestUserMessageTimestamp(thread);
-}
-
 export function sortThreadsForSidebar<
   T extends Pick<Thread, "id" | "createdAt" | "updatedAt"> & SidebarThreadSortInput,
 >(threads: readonly T[], sortOrder: SidebarThreadSortOrder): T[] {
-  return threads.toSorted((left, right) => {
-    const rightTimestamp = getThreadSortTimestamp(right, sortOrder);
-    const leftTimestamp = getThreadSortTimestamp(left, sortOrder);
-    const byTimestamp =
-      rightTimestamp === leftTimestamp ? 0 : rightTimestamp > leftTimestamp ? 1 : -1;
-    if (byTimestamp !== 0) return byTimestamp;
-    return right.id.localeCompare(left.id);
-  });
+  return sortThreads(threads, sortOrder);
 }
 
 export function getFallbackThreadIdAfterDelete<

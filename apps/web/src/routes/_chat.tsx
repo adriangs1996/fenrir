@@ -1,4 +1,3 @@
-import { scopeProjectRef } from "@fenrir/client-runtime";
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect } from "react";
 
@@ -17,7 +16,9 @@ import { useEditorStore } from "~/modules/neovim-editor";
 import { resolveShortcutCommand } from "../keybindings";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
+import { useCommandPaletteStore } from "~/commandPaletteStore";
 import { useSettings } from "~/hooks/useSettings";
+import { startNewLocalThreadFromContext, startNewThreadFromContext } from "~/lib/chatThreadActions";
 import { useServerKeybindings } from "~/rpc/serverState";
 
 function ChatRouteGlobalShortcuts() {
@@ -25,6 +26,7 @@ function ChatRouteGlobalShortcuts() {
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
+  const commandPaletteOpen = useCommandPaletteStore((state) => state.open);
   const keybindings = useServerKeybindings();
   const terminalOpen = useTerminalStateStore((state) =>
     routeThreadRef
@@ -43,12 +45,9 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
 
-      const projectRef = activeThread
-        ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
-        : activeDraftThread && routeThreadRef
-          ? scopeProjectRef(routeThreadRef.environmentId, activeDraftThread.projectId)
-          : defaultProjectRef;
-      if (!projectRef) return;
+      if (commandPaletteOpen) {
+        return;
+      }
 
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
@@ -60,10 +59,14 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.newLocal") {
         event.preventDefault();
         event.stopPropagation();
-        void handleNewThread(projectRef, {
-          envMode: resolveSidebarNewThreadEnvMode({
+        void startNewLocalThreadFromContext({
+          activeDraftThread,
+          activeThread,
+          defaultProjectRef,
+          defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
             defaultEnvMode: appSettings.defaultThreadEnvMode,
           }),
+          handleNewThread,
         });
         return;
       }
@@ -71,11 +74,12 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.new") {
         event.preventDefault();
         event.stopPropagation();
-        void handleNewThread(projectRef, {
-          branch: activeThread?.branch ?? activeDraftThread?.branch ?? null,
-          worktreePath: activeThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null,
-          envMode:
-            activeDraftThread?.envMode ?? (activeThread?.worktreePath ? "worktree" : "local"),
+        void startNewThreadFromContext({
+          activeDraftThread,
+          activeThread,
+          defaultProjectRef,
+          defaultThreadEnvMode: appSettings.defaultThreadEnvMode,
+          handleNewThread,
         });
         return;
       }
@@ -98,6 +102,7 @@ function ChatRouteGlobalShortcuts() {
     activeDraftThread,
     activeThread,
     clearSelection,
+    commandPaletteOpen,
     handleNewThread,
     keybindings,
     defaultProjectRef,

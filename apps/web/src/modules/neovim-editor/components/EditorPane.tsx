@@ -1,3 +1,4 @@
+import type { ResolvedKeybindingsConfig } from "@fenrir/contracts";
 import { useEffect, useState } from "react";
 import { RenderSurface } from "~/components/RenderSurface";
 import {
@@ -14,6 +15,8 @@ interface Props {
    */
   visible: boolean;
   focusRequestId?: number;
+  keybindings: ResolvedKeybindingsConfig;
+  terminalOpen?: boolean;
 }
 
 /**
@@ -24,7 +27,12 @@ interface Props {
  * cwd push is handled at the app shell via `useEditorCwdSync` — this pane
  * only renders the surface.
  */
-export function EditorPane({ visible, focusRequestId = 0 }: Props) {
+export function EditorPane({
+  visible,
+  focusRequestId = 0,
+  keybindings,
+  terminalOpen = false,
+}: Props) {
   const bridge = useDesktopBridgeAvailable();
   const main = useIsMainWindow();
   const nvimReady = useNvimAvailable();
@@ -71,6 +79,8 @@ export function EditorPane({ visible, focusRequestId = 0 }: Props) {
     >
       <RenderSurface
         fps={120}
+        keybindings={keybindings}
+        terminalOpen={terminalOpen}
         visible={visible}
         focusRequestId={focusRequestId}
         style={{ width: "100%", height: "100%" }}

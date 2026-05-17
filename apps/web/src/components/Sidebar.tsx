@@ -149,6 +149,7 @@ import { readEnvironmentApi } from "../environmentApi";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import { deriveLogicalProjectKey } from "../logicalProject";
+import { useCommandPaletteStore } from "../commandPaletteStore";
 import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
@@ -2619,6 +2620,7 @@ export default function Sidebar() {
     return session?.logicalProjectKey ?? null;
   });
   const keybindings = useServerKeybindings();
+  const commandPaletteOpen = useCommandPaletteStore((state) => state.open);
   const [addingProject, setAddingProject] = useState(false);
   const [newCwd, setNewCwd] = useState("");
   const [isPickingFolder, setIsPickingFolder] = useState(false);
@@ -3205,6 +3207,10 @@ export default function Sidebar() {
       if (event.defaultPrevented || event.repeat) {
         return;
       }
+      if (commandPaletteOpen) {
+        clearThreadJumpHints();
+        return;
+      }
 
       const command = resolveShortcutCommand(event, keybindings, {
         platform,
@@ -3299,6 +3305,7 @@ export default function Sidebar() {
     threadJumpCommandByKey,
     threadJumpThreadKeys,
     updateThreadJumpHintsVisibility,
+    commandPaletteOpen,
   ]);
 
   useEffect(() => {

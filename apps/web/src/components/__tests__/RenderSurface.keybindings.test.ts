@@ -1,77 +1,94 @@
 import { describe, expect, it } from "vitest";
+import type {
+  KeybindingCommand,
+  KeybindingShortcut,
+  ResolvedKeybindingsConfig,
+} from "@fenrir/contracts";
 import { isAppShortcut } from "../RenderSurface";
 
 /** Helper to build a minimal keyboard-event-like object. */
 function kbd(mods: {
+  key?: string;
   metaKey?: boolean;
   ctrlKey?: boolean;
   shiftKey?: boolean;
-}): Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "shiftKey"> {
+  altKey?: boolean;
+}): Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey"> {
   return {
+    key: mods.key ?? "j",
     metaKey: mods.metaKey ?? false,
     ctrlKey: mods.ctrlKey ?? false,
     shiftKey: mods.shiftKey ?? false,
+    altKey: mods.altKey ?? false,
   };
 }
 
+function modShortcut(
+  key: string,
+  overrides: Partial<Omit<KeybindingShortcut, "key">> = {},
+): KeybindingShortcut {
+  return {
+    key,
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    modKey: true,
+    ...overrides,
+  };
+}
+
+function compile(
+  bindings: Array<{ command: KeybindingCommand; shortcut: KeybindingShortcut; whenAst?: unknown }>,
+): ResolvedKeybindingsConfig {
+  return bindings as ResolvedKeybindingsConfig;
+}
+
+const DEFAULT_BINDINGS = compile([
+  { shortcut: modShortcut("j"), command: "terminal.toggle" },
+  { shortcut: modShortcut("d"), command: "diff.toggle" },
+  { shortcut: modShortcut("n"), command: "chat.new" },
+  { shortcut: modShortcut("e"), command: "editor.toggleChatTab" },
+  { shortcut: modShortcut("1"), command: "thread.jump.1" },
+  { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
+]);
+
 describe("isAppShortcut", () => {
-  // ── macOS (mac = true) ──────────────────────────────────────────────
-
-  describe("macOS", () => {
-    const mac = true;
-
-    it("treats Cmd+E as app shortcut", () => {
-      expect(isAppShortcut(kbd({ metaKey: true }), mac)).toBe(true);
+  describe("editor app shortcuts", () => {
+    it("treats Cmd+E as app shortcut on macOS when bound", () => {
+      expect(isAppShortcut(kbd({ key: "e", metaKey: true }), DEFAULT_BINDINGS)).toBe(true);
     });
 
-    it("treats Cmd+Shift+P as app shortcut", () => {
-      expect(isAppShortcut(kbd({ metaKey: true, shiftKey: true }), mac)).toBe(true);
+    it("treats Cmd+Shift+O as app shortcut on macOS when bound", () => {
+      expect(
+        isAppShortcut(kbd({ key: "O", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS),
+      ).toBe(true);
     });
 
-    it("forwards plain key to nvim", () => {
-      expect(isAppShortcut(kbd({}), mac)).toBe(false);
-    });
-
-    it("forwards Ctrl+C to nvim (Ctrl is vim's, not app's on mac)", () => {
-      expect(isAppShortcut(kbd({ ctrlKey: true }), mac)).toBe(false);
-    });
-
-    it("forwards Shift-only to nvim", () => {
-      expect(isAppShortcut(kbd({ shiftKey: true }), mac)).toBe(false);
+    it("treats Ctrl+D as app shortcut on non-mac platforms when bound", () => {
+      expect(isAppShortcut(kbd({ key: "d", ctrlKey: true }), DEFAULT_BINDINGS)).toBe(true);
     });
   });
 
-  // ── Linux / Windows (mac = false) ───────────────────────────────────
-
-  describe("Linux/Windows", () => {
-    const mac = false;
-
-    it("treats Ctrl+Shift+P as app shortcut", () => {
-      expect(isAppShortcut(kbd({ ctrlKey: true, shiftKey: true }), mac)).toBe(true);
+  describe("editor passthrough", () => {
+    it("forwards Cmd+V to nvim", () => {
+      expect(isAppShortcut(kbd({ key: "v", metaKey: true }), DEFAULT_BINDINGS)).toBe(false);
     });
 
-    it("treats Ctrl+Meta as app shortcut", () => {
-      expect(isAppShortcut(kbd({ ctrlKey: true, metaKey: true }), mac)).toBe(true);
-    });
-
-    it("forwards Ctrl+C (bare) to nvim", () => {
-      expect(isAppShortcut(kbd({ ctrlKey: true }), mac)).toBe(false);
-    });
-
-    it("forwards Ctrl+D (bare) to nvim", () => {
-      expect(isAppShortcut(kbd({ ctrlKey: true }), mac)).toBe(false);
+    it("forwards Alt+key to nvim", () => {
+      expect(isAppShortcut(kbd({ key: "v", altKey: true }), DEFAULT_BINDINGS)).toBe(false);
     });
 
     it("forwards plain key to nvim", () => {
-      expect(isAppShortcut(kbd({}), mac)).toBe(false);
+      expect(isAppShortcut(kbd({}), DEFAULT_BINDINGS)).toBe(false);
     });
 
-    it("forwards Shift-only to nvim", () => {
-      expect(isAppShortcut(kbd({ shiftKey: true }), mac)).toBe(false);
+    it("forwards unbound Cmd+letter to nvim", () => {
+      expect(isAppShortcut(kbd({ key: "v", metaKey: true }), compile([]))).toBe(false);
     });
 
-    it("forwards Meta-only (no Ctrl) to nvim", () => {
-      expect(isAppShortcut(kbd({ metaKey: true }), mac)).toBe(false);
+    it("forwards Ctrl+C to nvim when it is not bound", () => {
+      expect(isAppShortcut(kbd({ key: "c", ctrlKey: true }), DEFAULT_BINDINGS)).toBe(false);
     });
   });
 });

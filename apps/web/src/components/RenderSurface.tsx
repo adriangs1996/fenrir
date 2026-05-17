@@ -3,38 +3,53 @@ import {
   type EditorFontMetrics,
   type Frame,
   type InputModifiers,
+  type ResolvedKeybindingsConfig,
   NERD_FONT_FALLBACK_FAMILIES,
 } from "@fenrir/contracts";
-import { isMacPlatform } from "~/lib/utils";
 import { useSettings } from "~/hooks/useSettings";
 import { ensureNerdFontLoaded } from "~/lib/nerdFont";
+import { resolveShortcutCommand } from "~/keybindings";
 import { GLRenderer } from "./render/glRenderer";
-
-const IS_MAC = typeof navigator !== "undefined" && isMacPlatform(navigator.platform);
 
 /**
  * Identify keyboard chords that belong to the app's keybinding layer, not nvim.
  * These events must bubble past the canvas so the document-level handler in
  * `keybindings.ts` can pick them up.
  *
- * Exported for testing — call-sites use the default `mac` parameter.
+ * Exported for testing.
  */
 export function isAppShortcut(
-  e: Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "shiftKey">,
-  mac = IS_MAC,
+  e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: {
+    terminalOpen?: boolean;
+  },
 ): boolean {
-  // macOS: Cmd is the app convention. Vim has no Cmd modifier.
-  if (mac && e.metaKey) return true;
-  // Linux/Windows: bare Ctrl+letter goes to nvim (Ctrl-C, Ctrl-D, etc.).
-  // App shortcuts use Ctrl+Shift or Ctrl+Meta combos.
-  if (!mac && e.ctrlKey && (e.shiftKey || e.metaKey)) return true;
-  return false;
+  // Alt is reserved for nvim. On macOS especially, Option modifies `event.key`
+  // into dead keys / symbols; the editor translator handles that via `event.code`.
+  if (e.altKey) return false;
+
+  // Let Cmd+V reach nvim for user-configured paste mappings.
+  if (e.metaKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "v") {
+    return false;
+  }
+
+  return (
+    resolveShortcutCommand(e, keybindings, {
+      context: {
+        terminalFocus: false,
+        terminalOpen: options?.terminalOpen ?? false,
+      },
+    }) !== null
+  );
 }
 
 interface RenderSurfaceProps {
   fps?: number;
   className?: string;
   style?: React.CSSProperties;
+  keybindings: ResolvedKeybindingsConfig;
+  terminalOpen?: boolean;
   /**
    * When true, canvas auto-focuses so keystrokes flow straight to nvim. The
    * surface stays mounted across tab toggles via `display:none`, so we focus
@@ -110,6 +125,8 @@ export function RenderSurface({
   fps = 120,
   className,
   style,
+  keybindings,
+  terminalOpen = false,
   visible = true,
   focusRequestId = 0,
 }: RenderSurfaceProps) {
@@ -118,6 +135,8 @@ export function RenderSurface({
   const rendererRef = useRef<GLRenderer | null>(null);
   const rafRef = useRef<number | null>(null);
   const compositeNeededRef = useRef(false);
+  const keybindingsRef = useRef(keybindings);
+  const terminalOpenRef = useRef(terminalOpen);
   const [bridgeMissing, setBridgeMissing] = useState(false);
   const [glError, setGlError] = useState<string | null>(null);
 
@@ -135,6 +154,11 @@ export function RenderSurface({
       `${editorPrefs.family}|${editorPrefs.size}|${editorPrefs.lineHeight}|${editorPrefs.weight}|${editorPrefs.ligatures}`,
     [editorPrefs],
   );
+
+  useEffect(() => {
+    keybindingsRef.current = keybindings;
+    terminalOpenRef.current = terminalOpen;
+  }, [keybindings, terminalOpen]);
 
   // Initialise GL renderer once the canvas mounts.
   useEffect(() => {
@@ -248,7 +272,9 @@ export function RenderSurface({
     });
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (isAppShortcut(e)) return; // bubble to app keybinding layer
+      if (isAppShortcut(e, keybindingsRef.current, { terminalOpen: terminalOpenRef.current })) {
+        return; // bubble to app keybinding layer
+      }
       bridge.sendInput({
         kind: "key",
         type: "down",
@@ -259,7 +285,9 @@ export function RenderSurface({
       e.preventDefault();
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (isAppShortcut(e)) return;
+      if (isAppShortcut(e, keybindingsRef.current, { terminalOpen: terminalOpenRef.current })) {
+        return;
+      }
       bridge.sendInput({
         kind: "key",
         type: "up",

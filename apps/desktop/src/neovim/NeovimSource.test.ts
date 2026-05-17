@@ -6,7 +6,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-import { NeovimSource } from "./NeovimSource";
+import { domKeyToVimNotation, NeovimSource } from "./NeovimSource";
 
 function createSource(): NeovimSource {
   return new NeovimSource("/tmp/project");
@@ -163,5 +163,29 @@ describe("NeovimSource", () => {
       shape: "block",
       text: "S",
     });
+  });
+});
+
+describe("domKeyToVimNotation", () => {
+  it("maps Cmd+V to a nvim meta chord", () => {
+    expect(
+      domKeyToVimNotation("v", "KeyV", {
+        ctrl: false,
+        alt: false,
+        shift: false,
+        meta: true,
+      }),
+    ).toBe("<D-v>");
+  });
+
+  it("uses event.code for Alt dead-key chords", () => {
+    expect(
+      domKeyToVimNotation("Dead", "KeyE", {
+        ctrl: false,
+        alt: true,
+        shift: false,
+        meta: false,
+      }),
+    ).toBe("<A-e>");
   });
 });
