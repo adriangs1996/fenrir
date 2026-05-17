@@ -106,6 +106,8 @@ return true
 // ─────────────────────────────────────────────────────────────
 // session.lua — per-cwd :mksession save/restore.
 // Reads vim.g.fenrir_session_dir + vim.g.fenrir_session_hash set by host.
+// Restore is invoked explicitly by the host after bootstrap so it is
+// deterministic during embedded respawns.
 // ─────────────────────────────────────────────────────────────
 export const FENRIR_SESSION_LUA = `
 local M = {}
@@ -167,12 +169,6 @@ function M.restore()
 end
 
 _G.fenrir.private.session = M
-
--- Auto-restore on VimEnter when a session file exists.
-vim.api.nvim_create_autocmd("VimEnter", {
-  group = vim.api.nvim_create_augroup("FenrirSession", { clear = true }),
-  callback = function() M.restore() end,
-})
 
 return true
 `.trim();

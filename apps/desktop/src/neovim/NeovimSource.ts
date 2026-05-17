@@ -464,6 +464,11 @@ export class NeovimSource implements SceneSource {
       } catch (e) {
         console.warn("[neovimSource] events lua failed:", e);
       }
+      try {
+        await client.request("nvim_exec_lua", ["return _G.fenrir.private.session.restore()", []]);
+      } catch (e) {
+        console.warn("[neovimSource] session restore failed:", e);
+      }
 
       this.started = true;
 

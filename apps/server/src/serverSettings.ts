@@ -72,9 +72,14 @@ export class ServerSettingsService extends ServiceMap.Service<
     Layer.effect(
       ServerSettingsService,
       Effect.gen(function* () {
-        const currentSettingsRef = yield* Ref.make<ServerSettings>(
-          deepMerge(DEFAULT_SERVER_SETTINGS, overrides),
-        );
+        const { automaticGitFetchInterval, ...overridesForMerge } = overrides;
+        const initialSettings = yield* normalizeServerSettings({
+          ...deepMerge(DEFAULT_SERVER_SETTINGS, overridesForMerge),
+          ...(automaticGitFetchInterval !== undefined
+            ? { automaticGitFetchInterval: automaticGitFetchInterval as Duration.Duration }
+            : {}),
+        });
+        const currentSettingsRef = yield* Ref.make<ServerSettings>(initialSettings);
 
         return {
           start: Effect.void,
@@ -83,18 +88,7 @@ export class ServerSettingsService extends ServiceMap.Service<
           updateSettings: (patch) =>
             Ref.get(currentSettingsRef).pipe(
               Effect.flatMap((currentSettings) =>
-                Schema.decodeEffect(ServerSettings)(
-                  applyServerSettingsPatch(currentSettings, patch),
-                ).pipe(
-                  Effect.mapError(
-                    (cause) =>
-                      new ServerSettingsError({
-                        settingsPath: "<memory>",
-                        detail: `failed to normalize server settings: ${SchemaIssue.makeFormatterDefault()(cause.issue)}`,
-                        cause,
-                      }),
-                  ),
-                ),
+                normalizeServerSettings(applyServerSettingsPatch(currentSettings, patch)),
               ),
               Effect.tap((nextSettings) => Ref.set(currentSettingsRef, nextSettings)),
             ),
@@ -105,8 +99,40 @@ export class ServerSettingsService extends ServiceMap.Service<
 }
 
 const ServerSettingsJson = fromLenientJson(ServerSettings);
+const encodeServerSettings = Schema.encodeUnknownEffect(ServerSettings);
+const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
 
 const PROVIDER_ORDER: readonly ProviderKind[] = ["codex", "claudeAgent"];
+
+const normalizeServerSettings = (
+  settings: ServerSettings,
+): Effect.Effect<ServerSettings, ServerSettingsError> =>
+  encodeServerSettings(settings).pipe(
+    Effect.flatMap(decodeServerSettings),
+    Effect.mapError(
+      (cause) =>
+        new ServerSettingsError({
+          settingsPath: "<memory>",
+          detail: `failed to normalize server settings: ${SchemaIssue.makeFormatterDefault()(cause.issue)}`,
+          cause,
+        }),
+    ),
+  );
+
+const encodeServerSettingsForPersistence = (
+  settingsPath: string,
+  settings: ServerSettings,
+): Effect.Effect<unknown, ServerSettingsError> =>
+  encodeServerSettings(settings).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ServerSettingsError({
+          settingsPath,
+          detail: `failed to encode server settings: ${SchemaIssue.makeFormatterDefault()(cause.issue)}`,
+          cause,
+        }),
+    ),
+  );
 
 /**
  * Ensure the `textGenerationModelSelection` points to an enabled provider.
@@ -136,7 +162,10 @@ function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings
 }
 
 // Values under these keys are compared as a whole — never stripped field-by-field.
-const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set(["textGenerationModelSelection"]);
+const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
+  "automaticGitFetchInterval",
+  "textGenerationModelSelection",
+]);
 
 function stripDefaultServerSettings(current: unknown, defaults: unknown): unknown | undefined {
   if (Array.isArray(current) || Array.isArray(defaults)) {
@@ -233,25 +262,31 @@ const makeServerSettings = Effect.gen(function* () {
 
   const getSettingsFromCache = Cache.get(settingsCache, cacheKey);
 
-  const writeSettingsAtomically = (settings: ServerSettings) => {
-    const sparseSettings = stripDefaultServerSettings(settings, DEFAULT_SERVER_SETTINGS) ?? {};
+  const writeSettingsAtomically = (settings: ServerSettings) =>
+    Effect.gen(function* () {
+      const encodedSettings = yield* encodeServerSettingsForPersistence(settingsPath, settings);
+      const encodedDefaults = yield* encodeServerSettingsForPersistence(
+        settingsPath,
+        DEFAULT_SERVER_SETTINGS,
+      );
+      const sparseSettings = stripDefaultServerSettings(encodedSettings, encodedDefaults) ?? {};
 
-    return writeFileStringAtomically({
-      filePath: settingsPath,
-      contents: `${JSON.stringify(sparseSettings, null, 2)}\n`,
-    }).pipe(
-      Effect.provideService(FileSystem.FileSystem, fs),
-      Effect.provideService(Path.Path, pathService),
-      Effect.mapError(
-        (cause) =>
-          new ServerSettingsError({
-            settingsPath,
-            detail: "failed to write settings file",
-            cause,
-          }),
-      ),
-    );
-  };
+      yield* writeFileStringAtomically({
+        filePath: settingsPath,
+        contents: `${JSON.stringify(sparseSettings, null, 2)}\n`,
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs),
+        Effect.provideService(Path.Path, pathService),
+        Effect.mapError(
+          (cause) =>
+            new ServerSettingsError({
+              settingsPath,
+              detail: "failed to write settings file",
+              cause,
+            }),
+        ),
+      );
+    });
 
   const revalidateAndEmit = writeSemaphore.withPermits(1)(
     Effect.gen(function* () {
@@ -329,18 +364,7 @@ const makeServerSettings = Effect.gen(function* () {
       writeSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const current = yield* getSettingsFromCache;
-          const next = yield* Schema.decodeEffect(ServerSettings)(
-            applyServerSettingsPatch(current, patch),
-          ).pipe(
-            Effect.mapError(
-              (cause) =>
-                new ServerSettingsError({
-                  settingsPath: "<memory>",
-                  detail: `failed to normalize server settings: ${SchemaIssue.makeFormatterDefault()(cause.issue)}`,
-                  cause,
-                }),
-            ),
-          );
+          const next = yield* normalizeServerSettings(applyServerSettingsPatch(current, patch));
           yield* writeSettingsAtomically(next);
           yield* Cache.set(settingsCache, cacheKey, next);
           yield* emitChange(next);

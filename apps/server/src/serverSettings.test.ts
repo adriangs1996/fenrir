@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { DEFAULT_SERVER_SETTINGS, ServerSettingsPatch } from "@fenrir/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Schema } from "effect";
+import { Duration, Effect, FileSystem, Layer, Schema } from "effect";
 import { ServerConfig } from "./config";
 import { ServerSettingsLive, ServerSettingsService } from "./serverSettings";
 
@@ -27,6 +27,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
       assert.deepEqual(
         decodePatch({
+          automaticGitFetchInterval: 60_000,
           textGenerationModelSelection: {
             options: {
               fastMode: false,
@@ -34,6 +35,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         }),
         {
+          automaticGitFetchInterval: Duration.minutes(1),
           textGenerationModelSelection: {
             options: {
               fastMode: false,
@@ -268,6 +270,25 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             binaryPath: "/opt/homebrew/bin/codex",
           },
         },
+      });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("writes automatic git fetch interval as milliseconds", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+      const serverConfig = yield* ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+
+      const next = yield* serverSettings.updateSettings({
+        automaticGitFetchInterval: Duration.minutes(2),
+      });
+
+      assert.equal(Duration.toMillis(next.automaticGitFetchInterval), 120_000);
+
+      const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      assert.deepEqual(JSON.parse(raw), {
+        automaticGitFetchInterval: 120_000,
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );

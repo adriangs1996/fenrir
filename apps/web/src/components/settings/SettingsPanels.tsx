@@ -23,7 +23,7 @@ import {
 import { scopeThreadRef } from "@fenrir/client-runtime";
 import { DEFAULT_UNIFIED_SETTINGS } from "@fenrir/contracts/settings";
 import { normalizeModelSlug } from "@fenrir/shared/model";
-import { Equal } from "effect";
+import { Duration, Equal } from "effect";
 import { APP_VERSION } from "../../branding";
 import {
   canCheckForUpdate,
@@ -92,6 +92,22 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
+const AUTOMATIC_GIT_FETCH_INTERVAL_OPTIONS = [
+  { duration: Duration.seconds(15), label: "15 seconds" },
+  { duration: Duration.seconds(30), label: "30 seconds" },
+  { duration: Duration.minutes(1), label: "1 minute" },
+  { duration: Duration.minutes(5), label: "5 minutes" },
+] as const;
+
+function getAutomaticGitFetchIntervalLabel(duration: Duration.Duration) {
+  const millis = Duration.toMillis(duration);
+  return (
+    AUTOMATIC_GIT_FETCH_INTERVAL_OPTIONS.find(
+      (option) => Duration.toMillis(option.duration) === millis,
+    )?.label ?? `${Math.max(1, Math.round(millis / 1000))} seconds`
+  );
+}
 
 type InstallProviderSettings = {
   provider: ProviderKind;
@@ -372,6 +388,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
+      ...(Duration.toMillis(settings.automaticGitFetchInterval) !==
+      Duration.toMillis(DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval)
+        ? ["Automatic Git fetch interval"]
+        : []),
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
@@ -404,6 +424,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffIgnoreWhitespace,
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
+      settings.automaticGitFetchInterval,
       settings.timestampFormat,
       settings.uiFontFamily,
       settings.uiFontSize,
@@ -850,6 +871,54 @@ export function GeneralSettingsPanel() {
               }
               aria-label="Stream assistant messages"
             />
+          }
+        />
+
+        <SettingsRow
+          title="Automatic Git fetch interval"
+          description="Choose how often Fenrir refreshes remote Git status for open repositories."
+          resetAction={
+            Duration.toMillis(settings.automaticGitFetchInterval) !==
+            Duration.toMillis(DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval) ? (
+              <SettingResetButton
+                label="automatic Git fetch interval"
+                onClick={() =>
+                  updateSettings({
+                    automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={String(Duration.toMillis(settings.automaticGitFetchInterval))}
+              onValueChange={(value) => {
+                const nextOption = AUTOMATIC_GIT_FETCH_INTERVAL_OPTIONS.find(
+                  (option) => String(Duration.toMillis(option.duration)) === value,
+                );
+                if (nextOption) {
+                  updateSettings({ automaticGitFetchInterval: nextOption.duration });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Automatic Git fetch interval">
+                <SelectValue>
+                  {getAutomaticGitFetchIntervalLabel(settings.automaticGitFetchInterval)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {AUTOMATIC_GIT_FETCH_INTERVAL_OPTIONS.map((option) => (
+                  <SelectItem
+                    key={Duration.toMillis(option.duration)}
+                    hideIndicator
+                    value={String(Duration.toMillis(option.duration))}
+                  >
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           }
         />
 

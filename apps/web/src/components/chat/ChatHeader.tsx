@@ -190,14 +190,14 @@ export const ChatHeader = memo(function ChatHeader({
                 aria-label="Toggle right panel to Diff tab"
                 variant="outline"
                 size="xs"
-                disabled={!isGitRepo}
+                disabled={!isGitRepo && !diffOpen}
               >
                 <DiffIcon className="size-3" />
               </Toggle>
             }
           />
           <TooltipPopup side="bottom">
-            {!isGitRepo
+            {!isGitRepo && !diffOpen
               ? "Diff panel is unavailable because this project is not a git repository."
               : diffToggleShortcutLabel
                 ? `Toggle right panel to Diff tab (${diffToggleShortcutLabel})`

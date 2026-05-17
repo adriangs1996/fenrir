@@ -11,6 +11,7 @@ import { describe } from "vitest";
 import { GitStatusBroadcaster } from "../Services/GitStatusBroadcaster.ts";
 import { GitStatusBroadcasterLive, remoteRefreshFailureDelay } from "./GitStatusBroadcaster.ts";
 import { type GitManagerShape, GitManager } from "../Services/GitManager.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 
 const baseLocalStatus: GitStatusLocalResult = {
   isRepo: true,
@@ -73,7 +74,10 @@ function makeTestLayer(state: {
     runStackedAction: () => Effect.die("runStackedAction should not be called in this test"),
   };
 
-  return GitStatusBroadcasterLive.pipe(Layer.provide(Layer.succeed(GitManager, gitManager)));
+  return GitStatusBroadcasterLive.pipe(
+    Layer.provideMerge(ServerSettingsService.layerTest()),
+    Layer.provide(Layer.succeed(GitManager, gitManager)),
+  );
 }
 
 describe("GitStatusBroadcasterLive", () => {
@@ -247,6 +251,7 @@ describe("GitStatusBroadcasterLive", () => {
     let remoteInterruptedDeferred: Deferred.Deferred<void, never> | null = null;
     let remoteStartedDeferred: Deferred.Deferred<void, never> | null = null;
     const testLayer = GitStatusBroadcasterLive.pipe(
+      Layer.provideMerge(ServerSettingsService.layerTest()),
       Layer.provide(
         Layer.succeed(GitManager, {
           localStatus: () =>

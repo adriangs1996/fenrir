@@ -13,13 +13,15 @@ import {
   Stream,
   SynchronizedRef,
 } from "effect";
-import type {
-  GitStatusInput,
-  GitStatusLocalResult,
-  GitStatusRemoteResult,
-  GitStatusStreamEvent,
+import {
+  DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
+  type GitStatusInput,
+  type GitStatusLocalResult,
+  type GitStatusRemoteResult,
+  type GitStatusStreamEvent,
 } from "@fenrir/contracts";
 import { mergeGitStatusParts } from "@fenrir/shared/git";
+import { ServerSettingsService } from "../../serverSettings.ts";
 
 import {
   GitStatusBroadcaster,
@@ -27,7 +29,7 @@ import {
 } from "../Services/GitStatusBroadcaster.ts";
 import { GitManager } from "../Services/GitManager.ts";
 
-const GIT_STATUS_REFRESH_INTERVAL = Duration.seconds(30);
+const DEFAULT_GIT_STATUS_REFRESH_INTERVAL = DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL;
 const GIT_STATUS_REFRESH_FAILURE_BASE_DELAY = Duration.seconds(30);
 const GIT_STATUS_REFRESH_FAILURE_MAX_DELAY = Duration.minutes(15);
 
@@ -81,6 +83,7 @@ export const GitStatusBroadcasterLive = Layer.effect(
   GitStatusBroadcaster,
   Effect.gen(function* () {
     const gitManager = yield* GitManager;
+    const serverSettings = yield* ServerSettingsService;
     const changesPubSub = yield* Effect.acquireRelease(
       PubSub.unbounded<GitStatusChange>(),
       (pubsub) => PubSub.shutdown(pubsub),
@@ -226,20 +229,21 @@ export const GitStatusBroadcasterLive = Layer.effect(
       Effect.gen(function* () {
         const consecutiveFailuresRef = yield* Ref.make(0);
         const refreshWithBackoff = Effect.gen(function* () {
+          const settingsExit = yield* Effect.exit(serverSettings.getSettings);
+          const configuredInterval = Exit.isSuccess(settingsExit)
+            ? settingsExit.value.automaticGitFetchInterval
+            : DEFAULT_GIT_STATUS_REFRESH_INTERVAL;
           const exit = yield* refreshRemoteStatus(cwd).pipe(Effect.exit);
           if (Exit.isSuccess(exit)) {
             yield* Ref.set(consecutiveFailuresRef, 0);
-            return GIT_STATUS_REFRESH_INTERVAL;
+            return configuredInterval;
           }
 
           const consecutiveFailures = yield* Ref.updateAndGet(
             consecutiveFailuresRef,
             (count) => count + 1,
           );
-          const nextDelay = remoteRefreshFailureDelay(
-            consecutiveFailures,
-            GIT_STATUS_REFRESH_INTERVAL,
-          );
+          const nextDelay = remoteRefreshFailureDelay(consecutiveFailures, configuredInterval);
           yield* Effect.logWarning("git remote status refresh failed", {
             cwd,
             detail: exit.cause.toString(),

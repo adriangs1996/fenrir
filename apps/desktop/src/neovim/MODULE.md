@@ -30,7 +30,7 @@ All Lua strings live as TS template literals in `neovimLua.ts`. Canonical `.lua`
 | `FENRIR_INIT_LUA`    | `vim.g.fenrir = true`, `_G.fenrir.private` namespace, sources `ginit.vim`                                                                                         |
 | `FENRIR_EXIT_LUA`    | Graceful `:qa!` (or `:confirm qa` if `vim.g.fenrir_confirm_quit`). Currently unused by NeovimSource directly                                                      |
 | `FENRIR_BRIDGE_LUA`  | `_G.fenrir.private.bridge.{open_file, send_selection}`                                                                                                            |
-| `FENRIR_SESSION_LUA` | `_G.fenrir.private.session.{save, restore}` + VimEnter autocmd for auto-restore                                                                                   |
+| `FENRIR_SESSION_LUA` | `_G.fenrir.private.session.{save, restore}`; host invokes restore explicitly after bootstrap                                                                      |
 | `FENRIR_CMD_LUA`     | `:Fenrir <subcommand>` user command (focus-chat, send, save-and-quit, new-thread, submit, open, log)                                                              |
 | `FENRIR_EVENTS_LUA`  | `FenrirEvents` augroup: BufEnter, BufWritePost, BufModifiedSet → `vim.rpcnotify(0, "fenrir_autocmd", …)` (avoids `_event` suffix swallowed by neovim Node client) |
 
