@@ -2,6 +2,22 @@ import { describe, expect, it, vi } from "vitest";
 
 import { syncShellEnvironment } from "./syncShellEnvironment";
 
+const EXPECTED_LOGIN_SHELL_ENV_NAMES = [
+  "PATH",
+  "SHELL",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "SSH_AUTH_SOCK",
+  "HOMEBREW_PREFIX",
+  "HOMEBREW_CELLAR",
+  "HOMEBREW_REPOSITORY",
+  "ZDOTDIR",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "STARSHIP_CONFIG",
+] as const;
+
 describe("syncShellEnvironment", () => {
   it("hydrates PATH and missing SSH_AUTH_SOCK from the login shell on macOS", () => {
     const env: NodeJS.ProcessEnv = {
@@ -21,18 +37,7 @@ describe("syncShellEnvironment", () => {
       readEnvironment,
     });
 
-    expect(readEnvironment).toHaveBeenCalledWith("/bin/zsh", [
-      "PATH",
-      "SHELL",
-      "SSH_AUTH_SOCK",
-      "HOMEBREW_PREFIX",
-      "HOMEBREW_CELLAR",
-      "HOMEBREW_REPOSITORY",
-      "ZDOTDIR",
-      "XDG_CONFIG_HOME",
-      "XDG_DATA_HOME",
-      "STARSHIP_CONFIG",
-    ]);
+    expect(readEnvironment).toHaveBeenCalledWith("/bin/zsh", EXPECTED_LOGIN_SHELL_ENV_NAMES);
     expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin:/Users/test/.local/bin");
     expect(env.SSH_AUTH_SOCK).toBe("/tmp/secretive.sock");
     expect(env.HOMEBREW_PREFIX).toBe("/opt/homebrew");
@@ -96,18 +101,7 @@ describe("syncShellEnvironment", () => {
       readEnvironment,
     });
 
-    expect(readEnvironment).toHaveBeenCalledWith("/bin/zsh", [
-      "PATH",
-      "SHELL",
-      "SSH_AUTH_SOCK",
-      "HOMEBREW_PREFIX",
-      "HOMEBREW_CELLAR",
-      "HOMEBREW_REPOSITORY",
-      "ZDOTDIR",
-      "XDG_CONFIG_HOME",
-      "XDG_DATA_HOME",
-      "STARSHIP_CONFIG",
-    ]);
+    expect(readEnvironment).toHaveBeenCalledWith("/bin/zsh", EXPECTED_LOGIN_SHELL_ENV_NAMES);
     expect(env.PATH).toBe("/home/linuxbrew/.linuxbrew/bin:/usr/bin");
     expect(env.SSH_AUTH_SOCK).toBe("/tmp/secretive.sock");
   });
@@ -134,30 +128,12 @@ describe("syncShellEnvironment", () => {
       logWarning,
     });
 
-    expect(readEnvironment).toHaveBeenNthCalledWith(1, "/opt/homebrew/bin/nu", [
-      "PATH",
-      "SHELL",
-      "SSH_AUTH_SOCK",
-      "HOMEBREW_PREFIX",
-      "HOMEBREW_CELLAR",
-      "HOMEBREW_REPOSITORY",
-      "ZDOTDIR",
-      "XDG_CONFIG_HOME",
-      "XDG_DATA_HOME",
-      "STARSHIP_CONFIG",
-    ]);
-    expect(readEnvironment).toHaveBeenNthCalledWith(2, "/bin/zsh", [
-      "PATH",
-      "SHELL",
-      "SSH_AUTH_SOCK",
-      "HOMEBREW_PREFIX",
-      "HOMEBREW_CELLAR",
-      "HOMEBREW_REPOSITORY",
-      "ZDOTDIR",
-      "XDG_CONFIG_HOME",
-      "XDG_DATA_HOME",
-      "STARSHIP_CONFIG",
-    ]);
+    expect(readEnvironment).toHaveBeenNthCalledWith(
+      1,
+      "/opt/homebrew/bin/nu",
+      EXPECTED_LOGIN_SHELL_ENV_NAMES,
+    );
+    expect(readEnvironment).toHaveBeenNthCalledWith(2, "/bin/zsh", EXPECTED_LOGIN_SHELL_ENV_NAMES);
     expect(readLaunchctlPath).toHaveBeenCalledTimes(1);
     expect(logWarning).toHaveBeenCalledWith(
       "Failed to read login shell environment from /opt/homebrew/bin/nu.",
@@ -203,6 +179,26 @@ describe("syncShellEnvironment", () => {
     });
 
     expect(env.SHELL).toBe("/bin/zsh");
+  });
+
+  it("hydrates missing locale variables for packaged GUI launches", () => {
+    const env: NodeJS.ProcessEnv = {
+      PATH: "/usr/bin",
+    };
+    const readEnvironment = vi.fn(() => ({
+      PATH: "/opt/homebrew/bin:/usr/bin",
+      LANG: "en_US.UTF-8",
+      LC_CTYPE: "en_US.UTF-8",
+    }));
+
+    syncShellEnvironment(env, {
+      platform: "darwin",
+      readEnvironment,
+      userShell: "/bin/zsh",
+    });
+
+    expect(env.LANG).toBe("en_US.UTF-8");
+    expect(env.LC_CTYPE).toBe("en_US.UTF-8");
   });
 
   it("preserves inherited shell-specific environment variables", () => {

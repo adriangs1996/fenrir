@@ -34,6 +34,7 @@ import { type TerminalContextSelection } from "../terminalContext";
 import { openInPreferredEditor } from "~/editorPreferences";
 import { ensureNerdFontLoaded, waitForNerdFontLoad } from "~/lib/nerdFont";
 import { terminalThemeFromApp } from "../xtermTheme";
+import { observeTerminalFontMetrics, refreshTerminalFontMetrics } from "../xtermFontRefresh";
 import {
   collectWrappedTerminalLinkLine,
   extractTerminalLinks,
@@ -276,23 +277,12 @@ export function TerminalViewport({
     const activeTerminal = terminalRef.current;
     const activeFitAddon = fitAddonRef.current;
     if (!activeTerminal) return;
-    const wasAtBottom =
-      activeTerminal.buffer.active.viewportY >= activeTerminal.buffer.active.baseY;
     activeTerminal.options.fontFamily = buildTerminalFontFamily(terminalFontFamily);
     activeTerminal.options.fontSize = terminalFontSize;
     activeTerminal.options.lineHeight = terminalLineHeight;
     activeTerminal.options.fontWeight = TERMINAL_FONT_WEIGHT_NORMAL;
     activeTerminal.options.fontWeightBold = TERMINAL_FONT_WEIGHT_NORMAL;
-    try {
-      activeTerminal.clearTextureAtlas?.();
-      activeFitAddon?.fit();
-      activeTerminal.refresh(0, Math.max(activeTerminal.rows - 1, 0));
-      if (wasAtBottom) {
-        activeTerminal.scrollToBottom();
-      }
-    } catch {
-      // fit/refresh may throw during transitions
-    }
+    refreshTerminalFontMetrics(activeTerminal, activeFitAddon);
   }, [terminalFontFamily, terminalFontSize, terminalLineHeight]);
 
   useEffect(() => {
@@ -338,7 +328,8 @@ export function TerminalViewport({
     terminal.loadAddon(unicode11Addon);
     terminal.unicode.activeVersion = "11";
     terminal.open(mount);
-    fitAddon.fit();
+    const disposeFontMetricsObserver = observeTerminalFontMetrics(terminal, fitAddon);
+    refreshTerminalFontMetrics(terminal, fitAddon);
     if (nerdFontMountDegraded) {
       writeSystemMessage(
         terminal,
@@ -364,13 +355,7 @@ export function TerminalViewport({
         );
         return;
       }
-      try {
-        terminal.clearTextureAtlas?.();
-        fitAddon.fit();
-        terminal.refresh(0, Math.max(terminal.rows - 1, 0));
-      } catch {
-        // fit may throw during transitions
-      }
+      refreshTerminalFontMetrics(terminal, fitAddon);
     });
 
     const clearSelectionAction = () => {
@@ -844,6 +829,7 @@ export function TerminalViewport({
       }
       terminalHydratedRef.current = false;
       lastAppliedTerminalEventIdRef.current = 0;
+      disposeFontMetricsObserver();
       unsubscribeTerminalEvents();
       window.clearTimeout(fitTimer);
       inputDisposable.dispose();

@@ -9,6 +9,9 @@ import {
 const LOGIN_SHELL_ENV_NAMES = [
   "PATH",
   "SHELL",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
   "SSH_AUTH_SOCK",
   "HOMEBREW_PREFIX",
   "HOMEBREW_CELLAR",
@@ -63,6 +66,9 @@ export function syncShellEnvironment(
 
     for (const name of [
       "SHELL",
+      "LANG",
+      "LC_ALL",
+      "LC_CTYPE",
       "SSH_AUTH_SOCK",
       "HOMEBREW_PREFIX",
       "HOMEBREW_CELLAR",

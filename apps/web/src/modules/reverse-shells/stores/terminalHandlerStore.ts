@@ -3,6 +3,10 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal } from "@xterm/xterm";
 import { createStore } from "zustand";
 import { terminalThemeFromApp } from "../../terminal/xtermTheme";
+import {
+  observeTerminalFontMetrics,
+  refreshTerminalFontMetrics,
+} from "../../terminal/xtermFontRefresh";
 
 interface TerminalMountOptions {
   container: HTMLDivElement;
@@ -29,6 +33,7 @@ export const terminalHandlerStore = createStore<TerminalHandlerState>(() => {
   let terminal: Terminal | null = null;
   let fitAddon: FitAddon | null = null;
   let inputDisposable: { dispose: () => void } | null = null;
+  let disposeFontMetricsObserver: (() => void) | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let themeObserver: MutationObserver | null = null;
   let currentContainer: HTMLDivElement | null = null;
@@ -46,6 +51,8 @@ export const terminalHandlerStore = createStore<TerminalHandlerState>(() => {
   };
 
   const disposeTerminal = () => {
+    disposeFontMetricsObserver?.();
+    disposeFontMetricsObserver = null;
     themeObserver?.disconnect();
     themeObserver = null;
     resizeObserver?.disconnect();
@@ -175,6 +182,8 @@ export const terminalHandlerStore = createStore<TerminalHandlerState>(() => {
       nextTerminal.loadAddon(unicode11Addon);
       nextTerminal.unicode.activeVersion = "11";
       nextTerminal.open(container);
+      disposeFontMetricsObserver = observeTerminalFontMetrics(nextTerminal, nextFitAddon);
+      refreshTerminalFontMetrics(nextTerminal, nextFitAddon);
 
       terminal = nextTerminal;
       fitAddon = nextFitAddon;
@@ -207,7 +216,7 @@ export const terminalHandlerStore = createStore<TerminalHandlerState>(() => {
         attributeFilter: ["class", "style"],
       });
 
-      fit();
+      refreshTerminalFontMetrics(nextTerminal, nextFitAddon);
     },
     syncOutput: (output: string) => {
       const activeTerminal = terminal;
