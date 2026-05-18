@@ -371,4 +371,29 @@ describe("TerminalViewport", () => {
       await mounted.cleanup();
     }
   });
+
+  it("uses regular weight for bold prompt segments and enables overlap rescaling", async () => {
+    const environment = createEnvironmentApi();
+    environmentApiById.set("environment-a", environment);
+
+    const mounted = await mountTerminalViewport({
+      threadRef: scopeThreadRef("environment-a" as never, THREAD_ID),
+    });
+
+    try {
+      await vi.waitFor(() => {
+        expect(terminalConstructorSpy).toHaveBeenCalledTimes(1);
+      });
+
+      expect(terminalConstructorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fontWeight: "400",
+          fontWeightBold: "400",
+          rescaleOverlappingGlyphs: true,
+        }),
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
 });

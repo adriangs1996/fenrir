@@ -61,6 +61,9 @@ export interface WorkspacePathsShape {
    */
   readonly normalizeWorkspaceRoot: (
     workspaceRoot: string,
+    options?: {
+      createIfMissing?: boolean;
+    },
   ) => Effect.Effect<string, WorkspaceRootNotExistsError | WorkspaceRootNotDirectoryError>;
 
   /**

@@ -65,11 +65,13 @@ import { useStore } from "~/store";
 import { createThreadSelectorByRef } from "~/storeSelectors";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { extractLastCommandOutput } from "../extractLastCommandOutput";
-import { useSettings } from "~/hooks/useSettings";
+import { useClientSettingsHydrated, useSettings } from "~/hooks/useSettings";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
 const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
+const TERMINAL_FONT_LOG_SCOPE = "[terminal-font]";
+const TERMINAL_FONT_WEIGHT_NORMAL = "400";
 
 function maxDrawerHeight(): number {
   if (typeof window === "undefined") return getDefaultThreadTerminalHeight();
@@ -244,15 +246,23 @@ export function TerminalViewport({
     terminalFontSize: s.terminalFontSize,
     terminalLineHeight: s.terminalLineHeight,
   }));
+  const clientSettingsHydrated = useClientSettingsHydrated();
   const [nerdFontReady, setNerdFontReady] = useState(false);
+  const [nerdFontMountDegraded, setNerdFontMountDegraded] = useState(false);
   const thread = useStore(useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]));
   const projectId = projectIdProp ?? thread?.projectId;
   const prevProjectIdRef = useRef(projectId);
 
   useEffect(() => {
     let cancelled = false;
-    void waitForNerdFontLoad().then(() => {
+    void waitForNerdFontLoad().then((loaded) => {
       if (!cancelled) {
+        setNerdFontMountDegraded(!loaded);
+        if (!loaded) {
+          console.warn(
+            `${TERMINAL_FONT_LOG_SCOPE} Symbols Nerd Font fallback was not ready before terminal mount. Prompt icons may render incorrectly until the font finishes loading.`,
+          );
+        }
         setNerdFontReady(true);
       }
     });
@@ -266,13 +276,22 @@ export function TerminalViewport({
     const activeTerminal = terminalRef.current;
     const activeFitAddon = fitAddonRef.current;
     if (!activeTerminal) return;
+    const wasAtBottom =
+      activeTerminal.buffer.active.viewportY >= activeTerminal.buffer.active.baseY;
     activeTerminal.options.fontFamily = buildTerminalFontFamily(terminalFontFamily);
     activeTerminal.options.fontSize = terminalFontSize;
     activeTerminal.options.lineHeight = terminalLineHeight;
+    activeTerminal.options.fontWeight = TERMINAL_FONT_WEIGHT_NORMAL;
+    activeTerminal.options.fontWeightBold = TERMINAL_FONT_WEIGHT_NORMAL;
     try {
+      activeTerminal.clearTextureAtlas?.();
       activeFitAddon?.fit();
+      activeTerminal.refresh(0, Math.max(activeTerminal.rows - 1, 0));
+      if (wasAtBottom) {
+        activeTerminal.scrollToBottom();
+      }
     } catch {
-      // fit may throw during transitions
+      // fit/refresh may throw during transitions
     }
   }, [terminalFontFamily, terminalFontSize, terminalLineHeight]);
 
@@ -282,7 +301,7 @@ export function TerminalViewport({
 
   useEffect(() => {
     const mount = containerRef.current;
-    if (!mount || !nerdFontReady) return;
+    if (!mount || !nerdFontReady || !clientSettingsHydrated) return;
 
     let disposed = false;
     const api = readEnvironmentApi(environmentId);
@@ -304,6 +323,9 @@ export function TerminalViewport({
       fontSize: terminalFontSize,
       scrollback: 5_000,
       fontFamily: buildTerminalFontFamily(terminalFontFamily),
+      fontWeight: TERMINAL_FONT_WEIGHT_NORMAL,
+      fontWeightBold: TERMINAL_FONT_WEIGHT_NORMAL,
+      rescaleOverlappingGlyphs: true,
       theme: terminalThemeFromApp(mount),
       allowProposedApi: true,
     });
@@ -317,6 +339,12 @@ export function TerminalViewport({
     terminal.unicode.activeVersion = "11";
     terminal.open(mount);
     fitAddon.fit();
+    if (nerdFontMountDegraded) {
+      writeSystemMessage(
+        terminal,
+        "Symbols Nerd Font fallback is still loading; prompt icons may be temporarily missing.",
+      );
+    }
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -327,8 +355,15 @@ export function TerminalViewport({
     // currently decoded. The bundled `Symbols Nerd Font Mono` fetch may not
     // be ready yet, so re-fit once it lands to refresh metrics and force a
     // glyph re-rasterize for previously-rendered icon codepoints.
-    void ensureNerdFontLoaded().then(() => {
+    void ensureNerdFontLoaded().then((loaded) => {
       if (disposed) return;
+      if (!loaded) {
+        writeSystemMessage(
+          terminal,
+          "Symbols Nerd Font fallback failed to load; icon glyphs may be missing.",
+        );
+        return;
+      }
       try {
         terminal.clearTextureAtlas?.();
         fitAddon.fit();
@@ -829,7 +864,18 @@ export function TerminalViewport({
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, environmentId, runtimeEnv, terminalId, threadId, mode, projectId, nerdFontReady]);
+  }, [
+    clientSettingsHydrated,
+    cwd,
+    environmentId,
+    runtimeEnv,
+    terminalId,
+    threadId,
+    mode,
+    nerdFontMountDegraded,
+    projectId,
+    nerdFontReady,
+  ]);
 
   useEffect(() => {
     if (prevProjectIdRef.current === projectId) return;

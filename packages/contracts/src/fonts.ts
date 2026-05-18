@@ -24,15 +24,28 @@ export const NERD_FONT_FALLBACK_FAMILIES = [
 ] as const;
 
 /**
+ * Color-emoji families used when prompt themes emit real Unicode emoji
+ * alongside Nerd Font PUA symbols.
+ */
+export const TERMINAL_EMOJI_FALLBACK_FAMILIES = [
+  '"Apple Color Emoji"',
+  '"Segoe UI Emoji"',
+  '"Segoe UI Symbol"',
+  '"Noto Color Emoji"',
+] as const;
+
+/**
  * Fallback font families appended after the user-selected terminal font.
  * Shared between all terminal instances for consistency.
  *
  * Nerd-font symbol families come first so PUA icon codepoints (git branch,
  * language logos, powerline arrows, etc.) resolve regardless of the user's
- * chosen base font. Generic monospace families follow as a last resort.
+ * chosen base font. Emoji families follow for prompt themes that mix in real
+ * Unicode emoji. Generic monospace families remain the final text fallback.
  */
 export const TERMINAL_FONT_FALLBACKS = [
   ...NERD_FONT_FALLBACK_FAMILIES,
+  ...TERMINAL_EMOJI_FALLBACK_FAMILIES,
   '"Geist Mono"',
   '"SFMono-Regular"',
   "Consolas",

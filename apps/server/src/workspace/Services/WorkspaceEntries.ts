@@ -9,7 +9,12 @@
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
-import type { ProjectSearchEntriesInput, ProjectSearchEntriesResult } from "@fenrir/contracts";
+import type {
+  FilesystemBrowseInput,
+  FilesystemBrowseResult,
+  ProjectSearchEntriesInput,
+  ProjectSearchEntriesResult,
+} from "@fenrir/contracts";
 
 export class WorkspaceEntriesError extends Schema.TaggedErrorClass<WorkspaceEntriesError>()(
   "WorkspaceEntriesError",
@@ -33,6 +38,13 @@ export interface WorkspaceEntriesShape {
   readonly search: (
     input: ProjectSearchEntriesInput,
   ) => Effect.Effect<ProjectSearchEntriesResult, WorkspaceEntriesError>;
+
+  /**
+   * Browse directories matching a partial filesystem path.
+   */
+  readonly browse: (
+    input: FilesystemBrowseInput,
+  ) => Effect.Effect<FilesystemBrowseResult, WorkspaceEntriesError>;
 
   /**
    * Drop any cached workspace entries for the given workspace root.

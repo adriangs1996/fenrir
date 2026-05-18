@@ -3,7 +3,7 @@ import type { Dirent } from "node:fs";
 
 import { Cache, Duration, Effect, Exit, Layer, Path } from "effect";
 
-import { type ProjectEntry } from "@fenrir/contracts";
+import { type FilesystemBrowseResult, type ProjectEntry } from "@fenrir/contracts";
 
 import {
   VcsDriverRegistry,
@@ -67,6 +67,81 @@ function basenameOf(input: string): string {
     return input;
   }
   return input.slice(separatorIndex + 1);
+}
+
+function isExplicitRelativePath(value: string): boolean {
+  return (
+    value === "." ||
+    value === ".." ||
+    value.startsWith("./") ||
+    value.startsWith("../") ||
+    value.startsWith(".\\") ||
+    value.startsWith("..\\")
+  );
+}
+
+function hasTrailingPathSeparator(value: string): boolean {
+  return /[\\/]$/.test(value);
+}
+
+function trimTrailingPathSeparators(value: string): string {
+  if (value === "/" || value === "\\") {
+    return value;
+  }
+  if (/^[A-Za-z]:[\\/]?$/.test(value)) {
+    return `${value.slice(0, 2)}\\`;
+  }
+  return value.replace(/[\\/]+$/g, "");
+}
+
+function splitBrowsePartialPath(input: {
+  partialPath: string;
+  cwd?: string | undefined;
+  path: Path.Path;
+}):
+  | { error: string }
+  | {
+      absoluteParentPath: string;
+      childPrefix: string;
+    } {
+  const trimmed = input.partialPath.trim();
+  if (trimmed.length === 0) {
+    return { error: "Filesystem browse path cannot be empty." };
+  }
+
+  if (isExplicitRelativePath(trimmed) && !input.cwd) {
+    return { error: "Relative filesystem browse paths require a current project." };
+  }
+
+  const hasTrailing = hasTrailingPathSeparator(trimmed);
+  const resolvedPath = input.cwd
+    ? input.path.resolve(input.cwd, trimmed)
+    : input.path.resolve(trimmed);
+
+  if (hasTrailing) {
+    return {
+      absoluteParentPath: trimTrailingPathSeparators(resolvedPath),
+      childPrefix: "",
+    };
+  }
+
+  const lastSeparatorIndex = Math.max(
+    resolvedPath.lastIndexOf("/"),
+    resolvedPath.lastIndexOf("\\"),
+  );
+  if (lastSeparatorIndex < 0) {
+    return {
+      absoluteParentPath: input.cwd ? input.path.resolve(input.cwd) : input.path.resolve("."),
+      childPrefix: resolvedPath,
+    };
+  }
+
+  const absoluteParentPath = resolvedPath.slice(0, lastSeparatorIndex + 1);
+  const childPrefix = resolvedPath.slice(lastSeparatorIndex + 1);
+  return {
+    absoluteParentPath: trimTrailingPathSeparators(absoluteParentPath),
+    childPrefix,
+  };
 }
 
 function toSearchableWorkspaceEntry(entry: ProjectEntry): SearchableWorkspaceEntry {
@@ -495,7 +570,68 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
     },
   );
 
+  const browse: WorkspaceEntriesShape["browse"] = Effect.fn("WorkspaceEntries.browse")(
+    function* (input) {
+      const split = splitBrowsePartialPath({
+        partialPath: input.partialPath,
+        cwd: input.cwd,
+        path,
+      });
+      if ("error" in split) {
+        return yield* new WorkspaceEntriesError({
+          cwd: input.cwd ?? input.partialPath,
+          operation: "workspaceEntries.browse",
+          detail: split.error,
+        });
+      }
+
+      const normalizedParentPath = yield* workspacePaths
+        .normalizeWorkspaceRoot(split.absoluteParentPath)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new WorkspaceEntriesError({
+                cwd: split.absoluteParentPath,
+                operation: "workspaceEntries.browse",
+                detail: cause.message,
+                cause,
+              }),
+          ),
+        );
+
+      const dirents = yield* Effect.tryPromise({
+        try: () =>
+          fsPromises.readdir(normalizedParentPath, {
+            withFileTypes: true,
+          }),
+        catch: (cause) =>
+          new WorkspaceEntriesError({
+            cwd: normalizedParentPath,
+            operation: "workspaceEntries.browse",
+            detail: processErrorDetail(cause),
+            cause,
+          }),
+      });
+
+      const normalizedPrefix = split.childPrefix.toLowerCase();
+      const entries = dirents
+        .filter((entry): entry is Dirent => entry.isDirectory())
+        .map((entry) => ({
+          name: entry.name,
+          fullPath: path.join(normalizedParentPath, entry.name),
+        }))
+        .filter((entry) => entry.name.toLowerCase().startsWith(normalizedPrefix))
+        .toSorted((left, right) => left.name.localeCompare(right.name));
+
+      return {
+        parentPath: normalizedParentPath,
+        entries,
+      } satisfies FilesystemBrowseResult;
+    },
+  );
+
   return {
+    browse,
     invalidate,
     search,
   } satisfies WorkspaceEntriesShape;

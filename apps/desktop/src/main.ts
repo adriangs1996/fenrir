@@ -2115,14 +2115,16 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
-  ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
+  ipcMain.handle(PICK_FOLDER_CHANNEL, async (_event, options?: { initialPath?: string }) => {
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
     const result = owner
       ? await dialog.showOpenDialog(owner, {
           properties: ["openDirectory", "createDirectory"],
+          ...(options?.initialPath ? { defaultPath: options.initialPath } : {}),
         })
       : await dialog.showOpenDialog({
           properties: ["openDirectory", "createDirectory"],
+          ...(options?.initialPath ? { defaultPath: options.initialPath } : {}),
         });
     if (result.canceled) return null;
     return result.filePaths[0] ?? null;

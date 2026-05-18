@@ -16,6 +16,7 @@
  */
 
 const NERD_FONT_FAMILY = '"Symbols Nerd Font Mono"';
+const NERD_FONT_LOG_SCOPE = "[nerd-font]";
 // Probe character: U+E0A0 is the Powerline branch glyph — present in any
 // Symbols Nerd Font release. Loading at a representative size primes the
 // browser's font cache for terminal/editor use.
@@ -23,6 +24,15 @@ const PROBE_TEXT = "\uE0A0";
 const PROBE_SPEC = `16px ${NERD_FONT_FAMILY}`;
 
 let cachedPromise: Promise<boolean> | null = null;
+let loadFailureWarningEmitted = false;
+
+function warnNerdFontLoadFailure(message: string, error?: unknown): void {
+  if (loadFailureWarningEmitted) {
+    return;
+  }
+  loadFailureWarningEmitted = true;
+  console.warn(`${NERD_FONT_LOG_SCOPE} ${message}`, error ?? "");
+}
 
 export function isNerdFontLoaded(): boolean {
   if (typeof document === "undefined" || !document.fonts?.check) {
@@ -39,8 +49,19 @@ export function ensureNerdFontLoaded(): Promise<boolean> {
   }
   cachedPromise = document.fonts
     .load(PROBE_SPEC, PROBE_TEXT)
-    .then(() => isNerdFontLoaded())
-    .catch(() => false);
+    .then(() => {
+      const loaded = isNerdFontLoaded();
+      if (!loaded) {
+        warnNerdFontLoadFailure(
+          "Bundled Symbols Nerd Font Mono did not report as loaded after document.fonts.load().",
+        );
+      }
+      return loaded;
+    })
+    .catch((error) => {
+      warnNerdFontLoadFailure("Failed to load bundled Symbols Nerd Font Mono.", error);
+      return false;
+    });
   return cachedPromise;
 }
 

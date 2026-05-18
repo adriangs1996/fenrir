@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildRootGroups,
+  filterBrowseEntries,
   filterCommandPaletteGroups,
   getCommandPaletteInputPlaceholder,
   normalizeSearchText,
@@ -63,8 +64,40 @@ describe("CommandPalette.logic", () => {
     expect(filtered[0]?.items.map((item) => item.value)).toEqual(["settings"]);
   });
 
+  it("filters browse entries by the current leaf segment and hides dot-directories by default", () => {
+    const filtered = filterBrowseEntries({
+      browseEntries: [
+        { name: ".git", fullPath: "/repo/.git" },
+        { name: "alpha", fullPath: "/repo/alpha" },
+        { name: "beta", fullPath: "/repo/beta" },
+      ],
+      browseFilterQuery: "a",
+      highlightedItemValue: null,
+    });
+
+    expect(filtered.filteredEntries.map((entry) => entry.name)).toEqual(["alpha"]);
+    expect(filtered.exactEntry).toBeNull();
+  });
+
+  it("preserves dot-directory results when the browse query starts with a dot", () => {
+    const filtered = filterBrowseEntries({
+      browseEntries: [
+        { name: ".git", fullPath: "/repo/.git" },
+        { name: ".github", fullPath: "/repo/.github" },
+        { name: "alpha", fullPath: "/repo/alpha" },
+      ],
+      browseFilterQuery: ".g",
+      highlightedItemValue: "browse:/repo/.git",
+    });
+
+    expect(filtered.filteredEntries.map((entry) => entry.name)).toEqual([".git", ".github"]);
+    expect(filtered.highlightedEntry?.fullPath).toBe("/repo/.git");
+  });
+
   it("returns the correct placeholder", () => {
     expect(getCommandPaletteInputPlaceholder("root")).toContain("projects");
+    expect(getCommandPaletteInputPlaceholder("root-browse")).toContain("project path");
     expect(getCommandPaletteInputPlaceholder("submenu")).toBe("Search...");
+    expect(getCommandPaletteInputPlaceholder("submenu-browse")).toContain("Enter path");
   });
 });

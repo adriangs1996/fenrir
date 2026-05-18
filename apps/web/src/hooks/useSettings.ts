@@ -25,6 +25,7 @@ import { applySettingsUpdated, getServerConfig, useServerSettings } from "~/rpc/
 const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";
 
 const clientSettingsListeners = new Set<() => void>();
+const clientSettingsHydrationListeners = new Set<() => void>();
 let clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
 let clientSettingsHydrated = false;
 let clientSettingsHydrationPromise: Promise<void> | null = null;
@@ -35,8 +36,18 @@ function emitClientSettingsChange() {
   }
 }
 
+function emitClientSettingsHydrationChange() {
+  for (const listener of clientSettingsHydrationListeners) {
+    listener();
+  }
+}
+
 function getClientSettingsSnapshot(): ClientSettings {
   return clientSettingsSnapshot;
+}
+
+function getClientSettingsHydratedSnapshot(): boolean {
+  return clientSettingsHydrated;
 }
 
 function replaceClientSettingsSnapshot(settings: ClientSettings): void {
@@ -49,6 +60,14 @@ function subscribeClientSettings(listener: () => void): () => void {
   void hydrateClientSettings();
   return () => {
     clientSettingsListeners.delete(listener);
+  };
+}
+
+function subscribeClientSettingsHydration(listener: () => void): () => void {
+  clientSettingsHydrationListeners.add(listener);
+  void hydrateClientSettings();
+  return () => {
+    clientSettingsHydrationListeners.delete(listener);
   };
 }
 
@@ -70,6 +89,7 @@ async function hydrateClientSettings(): Promise<void> {
       console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} hydrate failed`, error);
     } finally {
       clientSettingsHydrated = true;
+      emitClientSettingsHydrationChange();
     }
   })();
 
@@ -141,6 +161,14 @@ export function useSettings<T = UnifiedSettings>(selector?: (s: UnifiedSettings)
   return useMemo(() => (selector ? selector(merged) : (merged as T)), [merged, selector]);
 }
 
+export function useClientSettingsHydrated(): boolean {
+  return useSyncExternalStore(
+    subscribeClientSettingsHydration,
+    getClientSettingsHydratedSnapshot,
+    () => false,
+  );
+}
+
 /**
  * Returns an updater that routes each key to the correct backing store.
  *
@@ -183,4 +211,5 @@ export function __resetClientSettingsPersistenceForTests(): void {
   clientSettingsHydrated = false;
   clientSettingsHydrationPromise = null;
   clientSettingsListeners.clear();
+  clientSettingsHydrationListeners.clear();
 }

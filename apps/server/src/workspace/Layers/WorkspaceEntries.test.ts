@@ -68,6 +68,16 @@ const searchWorkspaceEntries = (input: { cwd: string; query: string; limit: numb
     return yield* workspaceEntries.search(input);
   });
 
+const browseWorkspaceEntries = (input: { partialPath: string; cwd?: string }) =>
+  Effect.gen(function* () {
+    const workspaceEntries = yield* WorkspaceEntries;
+    return yield* workspaceEntries.browse(input);
+  });
+
+function appendSeparator(value: string): string {
+  return /[\\/]$/.test(value) ? value : `${value}/`;
+}
+
 it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -260,6 +270,80 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
         yield* searchWorkspaceEntries({ cwd, query: "", limit: 200 });
 
         expect(peakReads).toBeLessThanOrEqual(32);
+      }),
+    );
+  });
+
+  describe("browse", () => {
+    it.effect("returns matching directories and excludes files", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir({ prefix: "fenrir-workspace-browse-prefix-" });
+        yield* writeTextFile(cwd, "alphabet.txt", "ignore me");
+        yield* writeTextFile(cwd, "alpha/index.ts", "export {};\n");
+        yield* writeTextFile(cwd, "alpine/index.ts", "export {};\n");
+
+        const result = yield* browseWorkspaceEntries({
+          partialPath: path.join(cwd, "alp"),
+        });
+
+        expect(result).toEqual({
+          parentPath: cwd,
+          entries: [
+            { name: "alpha", fullPath: path.join(cwd, "alpha") },
+            { name: "alpine", fullPath: path.join(cwd, "alpine") },
+          ],
+        });
+      }),
+    );
+
+    it.effect("includes hidden directories when the prefix matches", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir({ prefix: "fenrir-workspace-browse-hidden-" });
+        yield* writeTextFile(cwd, ".config/settings.json", "{}");
+        yield* writeTextFile(cwd, "config/settings.json", "{}");
+
+        const directoryResult = yield* browseWorkspaceEntries({
+          partialPath: appendSeparator(cwd),
+        });
+        const hiddenPrefixResult = yield* browseWorkspaceEntries({
+          partialPath: `${appendSeparator(cwd)}.c`,
+        });
+
+        expect(directoryResult.entries.map((entry) => entry.name)).toEqual([".config", "config"]);
+        expect(hiddenPrefixResult).toEqual({
+          parentPath: cwd,
+          entries: [{ name: ".config", fullPath: path.join(cwd, ".config") }],
+        });
+      }),
+    );
+
+    it.effect("resolves explicit relative paths against the current project", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir({ prefix: "fenrir-workspace-browse-relative-" });
+        yield* writeTextFile(cwd, "packages/pkg.json", "{}");
+
+        const result = yield* browseWorkspaceEntries({
+          cwd,
+          partialPath: "./pack",
+        });
+
+        expect(result).toEqual({
+          parentPath: cwd,
+          entries: [{ name: "packages", fullPath: path.join(cwd, "packages") }],
+        });
+      }),
+    );
+
+    it.effect("rejects relative paths without a current project", () =>
+      Effect.gen(function* () {
+        const error = yield* browseWorkspaceEntries({
+          partialPath: "./src",
+        }).pipe(Effect.flip);
+
+        expect(error.detail).toBe("Relative filesystem browse paths require a current project.");
       }),
     );
   });
