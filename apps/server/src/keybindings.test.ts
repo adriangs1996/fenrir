@@ -1,19 +1,17 @@
 import { KeybindingCommand, KeybindingRule, KeybindingsConfig } from "@fenrir/contracts";
+import {
+  DEFAULT_KEYBINDINGS,
+  compileResolvedKeybindingRule,
+  compileResolvedKeybindingsConfig,
+  parseKeybindingShortcut,
+} from "@fenrir/shared/keybindings";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { assertFailure } from "@effect/vitest/utils";
 import { Cause, Effect, FileSystem, Layer, Logger, Path, Schema } from "effect";
 import { ServerConfig } from "./config";
 
-import {
-  DEFAULT_KEYBINDINGS,
-  Keybindings,
-  KeybindingsLive,
-  ResolvedKeybindingFromConfig,
-  compileResolvedKeybindingRule,
-  compileResolvedKeybindingsConfig,
-  parseKeybindingShortcut,
-} from "./keybindings";
+import { Keybindings, KeybindingsLive, ResolvedKeybindingFromConfig } from "./keybindings";
 import { KeybindingsConfigError } from "@fenrir/contracts";
 
 const KeybindingsConfigJson = Schema.fromJsonString(KeybindingsConfig);

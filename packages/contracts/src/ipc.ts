@@ -29,6 +29,7 @@ import type {
 import type {
   ServerConfig,
   ServerProviderUpdatedPayload,
+  ServerRemoveKeybindingResult,
   ServerUpsertKeybindingResult,
 } from "./server";
 import type {
@@ -47,7 +48,7 @@ import type {
 } from "./terminal";
 
 import type { TmuxSessionSnapshot } from "./terminal";
-import type { ServerUpsertKeybindingInput } from "./server";
+import type { ServerRemoveKeybindingInput, ServerUpsertKeybindingInput } from "./server";
 import type {
   ClientOrchestrationCommand,
   GlobalScript,
@@ -479,6 +480,7 @@ export interface LocalApi {
     getConfig: () => Promise<ServerConfig>;
     refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
+    removeKeybinding: (input: ServerRemoveKeybindingInput) => Promise<ServerRemoveKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
     getGlobalActions: () => Promise<GlobalScript[]>;

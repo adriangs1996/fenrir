@@ -16,6 +16,7 @@ import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as HackIndexRouteImport } from './routes/hack.index'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsVpnRouteImport } from './routes/settings.vpn'
+import { Route as SettingsKeybindingsRouteImport } from './routes/settings.keybindings'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
 import { Route as SettingsArchivedPlansRouteImport } from './routes/settings.archived-plans'
@@ -60,6 +61,11 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
 const SettingsVpnRoute = SettingsVpnRouteImport.update({
   id: '/vpn',
   path: '/vpn',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsKeybindingsRoute = SettingsKeybindingsRouteImport.update({
+  id: '/keybindings',
+  path: '/keybindings',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
@@ -132,6 +138,7 @@ export interface FileRoutesByFullPath {
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/general': typeof SettingsGeneralRoute
+  '/settings/keybindings': typeof SettingsKeybindingsRoute
   '/settings/vpn': typeof SettingsVpnRoute
   '/hack/': typeof HackIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
@@ -149,6 +156,7 @@ export interface FileRoutesByTo {
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/general': typeof SettingsGeneralRoute
+  '/settings/keybindings': typeof SettingsKeybindingsRoute
   '/settings/vpn': typeof SettingsVpnRoute
   '/': typeof ChatIndexRoute
   '/hack': typeof HackIndexRoute
@@ -170,6 +178,7 @@ export interface FileRoutesById {
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/general': typeof SettingsGeneralRoute
+  '/settings/keybindings': typeof SettingsKeybindingsRoute
   '/settings/vpn': typeof SettingsVpnRoute
   '/_chat/': typeof ChatIndexRoute
   '/hack/': typeof HackIndexRoute
@@ -192,6 +201,7 @@ export interface FileRouteTypes {
     | '/settings/archived-plans'
     | '/settings/connections'
     | '/settings/general'
+    | '/settings/keybindings'
     | '/settings/vpn'
     | '/hack/'
     | '/$environmentId/$threadId'
@@ -209,6 +219,7 @@ export interface FileRouteTypes {
     | '/settings/archived-plans'
     | '/settings/connections'
     | '/settings/general'
+    | '/settings/keybindings'
     | '/settings/vpn'
     | '/'
     | '/hack'
@@ -229,6 +240,7 @@ export interface FileRouteTypes {
     | '/settings/archived-plans'
     | '/settings/connections'
     | '/settings/general'
+    | '/settings/keybindings'
     | '/settings/vpn'
     | '/_chat/'
     | '/hack/'
@@ -296,6 +308,13 @@ declare module '@tanstack/react-router' {
       path: '/vpn'
       fullPath: '/settings/vpn'
       preLoaderRoute: typeof SettingsVpnRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/keybindings': {
+      id: '/settings/keybindings'
+      path: '/keybindings'
+      fullPath: '/settings/keybindings'
+      preLoaderRoute: typeof SettingsKeybindingsRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/general': {
@@ -418,6 +437,7 @@ interface SettingsRouteChildren {
   SettingsArchivedPlansRoute: typeof SettingsArchivedPlansRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
+  SettingsKeybindingsRoute: typeof SettingsKeybindingsRoute
   SettingsVpnRoute: typeof SettingsVpnRoute
 }
 
@@ -426,6 +446,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsArchivedPlansRoute: SettingsArchivedPlansRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
+  SettingsKeybindingsRoute: SettingsKeybindingsRoute,
   SettingsVpnRoute: SettingsVpnRoute,
 }
 

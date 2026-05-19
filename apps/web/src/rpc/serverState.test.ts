@@ -272,6 +272,12 @@ describe("serverState", () => {
       version: 1,
       type: "keybindingsUpdated",
       payload: {
+        keybindings: [
+          {
+            ...baseServerConfig.keybindings[0]!,
+            command: "commandPalette.toggle",
+          },
+        ],
         issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
       },
     });
@@ -296,6 +302,12 @@ describe("serverState", () => {
     await waitFor(() => {
       expect(getServerConfig()).toEqual({
         ...baseServerConfig,
+        keybindings: [
+          {
+            ...baseServerConfig.keybindings[0]!,
+            command: "commandPalette.toggle",
+          },
+        ],
         issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
         providers: nextProviders,
         settings: {

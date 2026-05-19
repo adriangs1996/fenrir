@@ -3,6 +3,7 @@ import {
   ArchiveIcon,
   ArrowLeftIcon,
   FolderArchiveIcon,
+  KeyboardIcon,
   Link2Icon,
   Settings2Icon,
   ShieldIcon,
@@ -21,6 +22,7 @@ import {
 
 export type SettingsSectionPath =
   | "/settings/general"
+  | "/settings/keybindings"
   | "/settings/connections"
   | "/settings/vpn"
   | "/settings/archived"
@@ -32,6 +34,7 @@ export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   icon: ComponentType<{ className?: string }>;
 }> = [
   { label: "General", to: "/settings/general", icon: Settings2Icon },
+  { label: "Keybindings", to: "/settings/keybindings", icon: KeyboardIcon },
   { label: "Connections", to: "/settings/connections", icon: Link2Icon },
   { label: "VPN", to: "/settings/vpn", icon: ShieldIcon },
   { label: "Archived threads", to: "/settings/archived", icon: ArchiveIcon },

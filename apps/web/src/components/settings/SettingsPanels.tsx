@@ -1781,8 +1781,8 @@ export function GeneralSettingsPanel() {
 
       <SettingsSection title="Advanced">
         <SettingsRow
-          title="Keybindings"
-          description="Open the persisted `keybindings.json` file to edit advanced bindings directly."
+          title="Keybindings file"
+          description="Use Settings > Keybindings for normal edits, or open the persisted `keybindings.json` file directly for advanced changes."
           status={
             <>
               <span className="block break-all font-mono text-[11px] text-foreground">

@@ -1,12 +1,16 @@
 import { EnvironmentId, ProjectId } from "@fenrir/contracts";
 import { describe, expect, it } from "vitest";
-import { resolveEditorCwd } from "../useActiveEditorCwd";
+import { resolveEditorCwd, resolveEditorProjectRef } from "../useActiveEditorCwd";
 
 const ENV_ID = EnvironmentId.makeUnsafe("env-1");
 const PROJECT_ID = ProjectId.makeUnsafe("project-1");
 
 function makeThread(worktreePath: string | null) {
   return { worktreePath, environmentId: ENV_ID, projectId: PROJECT_ID };
+}
+
+function makeDraftSession(worktreePath: string | null) {
+  return { worktreePath };
 }
 
 function makeProject(cwd: string) {
@@ -44,5 +48,37 @@ describe("resolveEditorCwd", () => {
     expect(resolveEditorCwd(makeThread("/worktrees/feat"), makeProject("/repo"))).toBe(
       "/worktrees/feat",
     );
+  });
+
+  it("supports draft sessions the same way as server threads", () => {
+    expect(resolveEditorCwd(makeDraftSession("/worktrees/draft"), makeProject("/repo"))).toBe(
+      "/worktrees/draft",
+    );
+    expect(resolveEditorCwd(makeDraftSession(null), makeProject("/repo"))).toBe("/repo");
+  });
+});
+
+describe("resolveEditorProjectRef", () => {
+  it("returns null when target is null", () => {
+    expect(resolveEditorProjectRef(null)).toBeNull();
+  });
+
+  it("returns the scoped project ref for server threads", () => {
+    expect(resolveEditorProjectRef(makeThread(null))).toEqual({
+      environmentId: ENV_ID,
+      projectId: PROJECT_ID,
+    });
+  });
+
+  it("returns the scoped project ref for draft sessions", () => {
+    expect(
+      resolveEditorProjectRef({
+        environmentId: ENV_ID,
+        projectId: PROJECT_ID,
+      }),
+    ).toEqual({
+      environmentId: ENV_ID,
+      projectId: PROJECT_ID,
+    });
   });
 });

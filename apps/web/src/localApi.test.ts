@@ -75,6 +75,7 @@ const rpcClientMock = {
     getConfig: vi.fn(),
     refreshProviders: vi.fn(),
     upsertKeybinding: vi.fn(),
+    removeKeybinding: vi.fn(),
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
     subscribeConfig: vi.fn(),

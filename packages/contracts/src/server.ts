@@ -8,7 +8,12 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
-import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
+import {
+  KeybindingCommand,
+  KeybindingValue,
+  KeybindingWhen,
+  ResolvedKeybindingsConfig,
+} from "./keybindings";
 import { EditorId } from "./editor";
 import { ModelCapabilities } from "./model";
 import { GlobalScript, ProviderKind } from "./orchestration";
@@ -101,14 +106,31 @@ export const ServerConfig = Schema.Struct({
 });
 export type ServerConfig = typeof ServerConfig.Type;
 
-export const ServerUpsertKeybindingInput = KeybindingRule;
+const ServerUpsertKeybindingReplaceTarget = Schema.Struct({
+  key: KeybindingValue,
+  command: KeybindingCommand,
+  when: Schema.optional(KeybindingWhen),
+});
+
+export const ServerUpsertKeybindingInput = Schema.Struct({
+  key: KeybindingValue,
+  command: KeybindingCommand,
+  when: Schema.optional(KeybindingWhen),
+  replace: Schema.optional(ServerUpsertKeybindingReplaceTarget),
+});
 export type ServerUpsertKeybindingInput = typeof ServerUpsertKeybindingInput.Type;
+
+export const ServerRemoveKeybindingInput = ServerUpsertKeybindingReplaceTarget;
+export type ServerRemoveKeybindingInput = typeof ServerRemoveKeybindingInput.Type;
 
 export const ServerUpsertKeybindingResult = Schema.Struct({
   keybindings: ResolvedKeybindingsConfig,
   issues: ServerConfigIssues,
 });
 export type ServerUpsertKeybindingResult = typeof ServerUpsertKeybindingResult.Type;
+
+export const ServerRemoveKeybindingResult = ServerUpsertKeybindingResult;
+export type ServerRemoveKeybindingResult = typeof ServerRemoveKeybindingResult.Type;
 
 export const ServerConfigUpdatedPayload = Schema.Struct({
   issues: ServerConfigIssues,
@@ -118,6 +140,7 @@ export const ServerConfigUpdatedPayload = Schema.Struct({
 export type ServerConfigUpdatedPayload = typeof ServerConfigUpdatedPayload.Type;
 
 export const ServerConfigKeybindingsUpdatedPayload = Schema.Struct({
+  keybindings: ResolvedKeybindingsConfig,
   issues: ServerConfigIssues,
 });
 export type ServerConfigKeybindingsUpdatedPayload =

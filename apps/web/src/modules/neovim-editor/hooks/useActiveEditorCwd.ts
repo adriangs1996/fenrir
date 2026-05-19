@@ -1,20 +1,37 @@
+import { scopeProjectRef } from "@fenrir/client-runtime";
 import { useMemo } from "react";
 import { useParams } from "@tanstack/react-router";
+import type { DraftSessionState } from "~/composerDraftStore";
+import { useComposerDraftStore } from "~/composerDraftStore";
 import type { Thread, Project } from "~/types";
 import { selectProjectByRef, selectThreadByRef, useStore } from "~/store";
 import { resolveThreadRouteTarget } from "~/threadRoutes";
+
+type EditorCwdTarget =
+  | Pick<Thread, "worktreePath" | "environmentId" | "projectId">
+  | Pick<DraftSessionState, "worktreePath" | "environmentId" | "projectId">;
 
 /**
  * Pure derivation: given a thread and its project, resolve the cwd Neovim
  * should use. Prefers `thread.worktreePath`, falls back to `project.cwd`.
  */
 export function resolveEditorCwd(
-  thread: Pick<Thread, "worktreePath" | "environmentId" | "projectId"> | null | undefined,
+  thread: Pick<EditorCwdTarget, "worktreePath"> | null | undefined,
   project: Pick<Project, "cwd"> | null | undefined,
 ): string | null {
   if (!thread) return null;
   if (thread.worktreePath) return thread.worktreePath;
   return project?.cwd ?? null;
+}
+
+export function resolveEditorProjectRef(
+  target: Pick<EditorCwdTarget, "environmentId" | "projectId"> | null | undefined,
+) {
+  if (!target) {
+    return null;
+  }
+
+  return scopeProjectRef(target.environmentId, target.projectId);
 }
 
 /**
@@ -29,17 +46,24 @@ export function useActiveEditorCwd(): string | null {
   });
 
   const activeThreadRef = routeTarget?.kind === "server" ? routeTarget.threadRef : null;
+  const draftId = routeTarget?.kind === "draft" ? routeTarget.draftId : null;
 
-  const cwd = useStore((state) => {
-    if (!activeThreadRef) return null;
-    const thread = selectThreadByRef(state, activeThreadRef);
-    if (!thread) return null;
-    const project = selectProjectByRef(state, {
-      environmentId: thread.environmentId,
-      projectId: thread.projectId,
-    });
-    return resolveEditorCwd(thread, project);
-  });
+  const activeThread = useStore(
+    useMemo(() => (state) => selectThreadByRef(state, activeThreadRef), [activeThreadRef]),
+  );
+  const activeDraftSession = useComposerDraftStore(
+    useMemo(() => (state) => (draftId ? state.getDraftSession(draftId) : null), [draftId]),
+  );
+  const projectRef = useMemo(
+    () => resolveEditorProjectRef(activeThread ?? activeDraftSession),
+    [activeDraftSession, activeThread],
+  );
+  const project = useStore(
+    useMemo(() => (state) => selectProjectByRef(state, projectRef), [projectRef]),
+  );
 
-  return useMemo(() => cwd ?? null, [cwd]);
+  return useMemo(
+    () => resolveEditorCwd(activeThread ?? activeDraftSession, project),
+    [activeDraftSession, activeThread, project],
+  );
 }
