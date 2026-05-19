@@ -8,24 +8,42 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
 }: {
   status: ServerProvider | null;
 }) {
-  if (!status || status.status === "ready" || status.status === "disabled") {
+  if (!status || status.status === "disabled") {
     return null;
   }
 
   const providerLabel = PROVIDER_DISPLAY_NAMES[status.provider] ?? status.provider;
+  const advisory = status.versionAdvisory;
+  if (status.status === "ready" && advisory?.status !== "behind_latest") {
+    return null;
+  }
+
   const defaultMessage =
-    status.status === "error"
-      ? `${providerLabel} provider is unavailable.`
-      : `${providerLabel} provider has limited availability.`;
-  const title = `${providerLabel} provider status`;
+    advisory?.status === "behind_latest"
+      ? (advisory.message ?? `${providerLabel} has an update available.`)
+      : status.status === "error"
+        ? `${providerLabel} provider is unavailable.`
+        : `${providerLabel} provider has limited availability.`;
+  const title =
+    advisory?.status === "behind_latest"
+      ? `${providerLabel} update available`
+      : `${providerLabel} provider status`;
+  const variant =
+    advisory?.status === "behind_latest"
+      ? "warning"
+      : status.status === "error"
+        ? "error"
+        : "warning";
 
   return (
     <div className="pt-3 mx-auto max-w-3xl">
-      <Alert variant={status.status === "error" ? "error" : "warning"}>
+      <Alert variant={variant}>
         <CircleAlertIcon />
         <AlertTitle>{title}</AlertTitle>
         <AlertDescription className="line-clamp-3" title={status.message ?? defaultMessage}>
-          {status.message ?? defaultMessage}
+          {advisory?.status === "behind_latest"
+            ? defaultMessage
+            : (status.message ?? defaultMessage)}
         </AlertDescription>
       </Alert>
     </div>

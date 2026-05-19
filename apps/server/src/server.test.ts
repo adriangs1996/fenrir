@@ -2356,6 +2356,18 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("routes websocket rpc git methods", () =>
     Effect.gen(function* () {
+      const gitStatusResult = {
+        isRepo: true,
+        hasOriginRemote: true,
+        isDefaultBranch: true,
+        branch: "main",
+        hasWorkingTreeChanges: false,
+        workingTree: { files: [], insertions: 0, deletions: 0 },
+        hasUpstream: true,
+        aheadCount: 0,
+        behindCount: 0,
+        pr: null,
+      };
       yield* buildAppUnderTest({
         layers: {
           gitManager: {
@@ -2378,19 +2390,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 behindCount: 0,
                 pr: null,
               }),
-            status: () =>
-              Effect.succeed({
-                isRepo: true,
-                hasOriginRemote: true,
-                isDefaultBranch: true,
-                branch: "main",
-                hasWorkingTreeChanges: false,
-                workingTree: { files: [], insertions: 0, deletions: 0 },
-                hasUpstream: true,
-                aheadCount: 0,
-                behindCount: 0,
-                pr: null,
-              }),
+            status: () => Effect.succeed(gitStatusResult),
             runStackedAction: (input, options) =>
               Effect.gen(function* () {
                 const result = {
@@ -2463,6 +2463,19 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 branch: "feature/demo",
                 worktreePath: null,
               }),
+          },
+          sourceControlStatus: {
+            getStatus: () => Effect.succeed(gitStatusResult),
+            refreshLocalStatus: () =>
+              Effect.succeed({
+                isRepo: true,
+                hasOriginRemote: true,
+                isDefaultBranch: true,
+                branch: "main",
+                hasWorkingTreeChanges: false,
+                workingTree: { files: [], insertions: 0, deletions: 0 },
+              }),
+            refreshStatus: () => Effect.succeed(gitStatusResult),
           },
           gitCore: {
             pullCurrentBranch: () =>
@@ -2897,31 +2910,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         yield* buildAppUnderTest({
           layers: {
             gitManager: {
-              invalidateLocalStatus: () => Effect.void,
-              invalidateRemoteStatus: () => Effect.void,
-              localStatus: () =>
-                Deferred.succeed(localRefreshStarted, undefined).pipe(
-                  Effect.ignore,
-                  Effect.andThen(
-                    Effect.succeed({
-                      isRepo: true,
-                      hasOriginRemote: true,
-                      isDefaultBranch: false,
-                      branch: "feature/demo",
-                      hasWorkingTreeChanges: false,
-                      workingTree: { files: [], insertions: 0, deletions: 0 },
-                    }),
-                  ),
-                ),
-              remoteStatus: () =>
-                Effect.sleep(Duration.seconds(2)).pipe(
-                  Effect.as({
-                    hasUpstream: true,
-                    aheadCount: 0,
-                    behindCount: 0,
-                    pr: null,
-                  }),
-                ),
               runStackedAction: () =>
                 Effect.succeed({
                   action: "commit" as const,
@@ -2945,6 +2933,50 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                     },
                   },
                 }),
+            },
+            sourceControlStatus: {
+              getStatus: () =>
+                Effect.succeed({
+                  isRepo: true,
+                  hasOriginRemote: true,
+                  isDefaultBranch: false,
+                  branch: "feature/demo",
+                  hasWorkingTreeChanges: false,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                }),
+              refreshLocalStatus: () =>
+                Effect.succeed({
+                  isRepo: true,
+                  hasOriginRemote: true,
+                  isDefaultBranch: false,
+                  branch: "feature/demo",
+                  hasWorkingTreeChanges: false,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                }),
+              refreshStatus: () =>
+                Deferred.succeed(localRefreshStarted, undefined).pipe(
+                  Effect.ignore,
+                  Effect.andThen(
+                    Effect.sleep(Duration.seconds(2)).pipe(
+                      Effect.as({
+                        isRepo: true,
+                        hasOriginRemote: true,
+                        isDefaultBranch: false,
+                        branch: "feature/demo",
+                        hasWorkingTreeChanges: false,
+                        workingTree: { files: [], insertions: 0, deletions: 0 },
+                        hasUpstream: true,
+                        aheadCount: 0,
+                        behindCount: 0,
+                        pr: null,
+                      }),
+                    ),
+                  ),
+                ),
             },
           },
         });

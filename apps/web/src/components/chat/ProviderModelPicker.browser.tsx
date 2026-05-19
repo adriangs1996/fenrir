@@ -1,11 +1,12 @@
 import { type ProviderKind, type ServerProvider } from "@fenrir/contracts";
+import { DEFAULT_UNIFIED_SETTINGS } from "@fenrir/contracts/settings";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
-import { ProviderModelPicker } from "./ProviderModelPicker";
 import { getCustomModelOptionsByProvider } from "../../modelSelection";
-import { DEFAULT_UNIFIED_SETTINGS } from "@fenrir/contracts/settings";
+import { __resetClientSettingsPersistenceForTests } from "../../hooks/useSettings";
+import { ProviderModelPicker } from "./ProviderModelPicker";
 
 function effort(value: string, isDefault = false) {
   return {
@@ -165,9 +166,10 @@ async function mountPicker(props: {
 describe("ProviderModelPicker", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+    __resetClientSettingsPersistenceForTests();
   });
 
-  it("shows provider submenus when provider switching is allowed", async () => {
+  it("shows a provider sidebar when provider switching is allowed", async () => {
     const mounted = await mountPicker({
       provider: "claudeAgent",
       model: "claude-opus-4-6",
@@ -179,55 +181,10 @@ describe("ProviderModelPicker", () => {
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
+        expect(text).toContain("Favorites");
         expect(text).toContain("Codex");
         expect(text).toContain("Claude");
-        expect(text).not.toContain("Claude Sonnet 4.6");
       });
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("opens provider submenus with a visible gap from the parent menu", async () => {
-    const mounted = await mountPicker({
-      provider: "claudeAgent",
-      model: "claude-opus-4-6",
-      lockedProvider: null,
-    });
-
-    try {
-      await page.getByRole("button").click();
-      const providerTrigger = page.getByRole("menuitem", { name: "Codex" });
-      await providerTrigger.hover();
-
-      await vi.waitFor(() => {
-        expect(document.body.textContent ?? "").toContain("GPT-5 Codex");
-      });
-
-      const providerTriggerElement = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ).find((element) => element.textContent?.includes("Codex"));
-      if (!providerTriggerElement) {
-        throw new Error("Expected the Codex provider trigger to be mounted.");
-      }
-
-      const providerTriggerRect = providerTriggerElement.getBoundingClientRect();
-      const modelElement = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
-      ).find((element) => element.textContent?.includes("GPT-5 Codex"));
-      if (!modelElement) {
-        throw new Error("Expected the submenu model option to be mounted.");
-      }
-
-      const submenuPopup = modelElement.closest('[data-slot="menu-sub-content"]');
-      if (!(submenuPopup instanceof HTMLElement)) {
-        throw new Error("Expected submenu popup to be mounted.");
-      }
-
-      const submenuRect = submenuPopup.getBoundingClientRect();
-
-      expect(submenuRect.left).toBeGreaterThanOrEqual(providerTriggerRect.right);
-      expect(submenuRect.left - providerTriggerRect.right).toBeGreaterThanOrEqual(2);
     } finally {
       await mounted.cleanup();
     }
@@ -247,7 +204,104 @@ describe("ProviderModelPicker", () => {
         const text = document.body.textContent ?? "";
         expect(text).toContain("Claude Sonnet 4.6");
         expect(text).toContain("Claude Haiku 4.5");
+        expect(text).not.toContain("Favorites");
         expect(text).not.toContain("Codex");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("searches models by name in a flat list", async () => {
+    const mounted = await mountPicker({
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      lockedProvider: null,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByPlaceholder("Search models...").fill("haiku");
+
+      await vi.waitFor(() => {
+        const text = document.body.textContent ?? "";
+        expect(text).toContain("Claude Haiku 4.5");
+        expect(text).not.toContain("GPT-5 Codex");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("searches models by provider name", async () => {
+    const mounted = await mountPicker({
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      lockedProvider: null,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByPlaceholder("Search models...").fill("codex");
+
+      await vi.waitFor(() => {
+        const text = document.body.textContent ?? "";
+        expect(text).toContain("GPT-5 Codex");
+        expect(text).toContain("GPT-5.3 Codex");
+        expect(text).not.toContain("Claude Sonnet 4.6");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("toggles favorite stars and shows favorite models in the favorites section", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: null,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      const favoriteButtons = document.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="Add to favorites"]',
+      );
+      favoriteButtons[0]?.click();
+      await page.getByRole("button", { name: "Favorites" }).click();
+
+      await vi.waitFor(() => {
+        expect(document.body.textContent ?? "").toContain("GPT-5 Codex");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows favorited models first within the selected provider list", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: null,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      const rowsBefore = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-model-picker-model]"),
+      );
+      expect(rowsBefore[0]?.dataset.modelPickerModel).toBe("codex:gpt-5-codex");
+
+      const favoriteButtons = document.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="Add to favorites"]',
+      );
+      favoriteButtons[1]?.click();
+
+      await vi.waitFor(() => {
+        const rowsAfter = Array.from(
+          document.querySelectorAll<HTMLElement>("[data-model-picker-model]"),
+        );
+        expect(rowsAfter[0]?.dataset.modelPickerModel).toBe("codex:gpt-5.3-codex");
       });
     } finally {
       await mounted.cleanup();
@@ -311,7 +365,7 @@ describe("ProviderModelPicker", () => {
 
     try {
       await page.getByRole("button").click();
-      await page.getByRole("menuitem", { name: "Codex" }).hover();
+      await page.getByRole("button", { name: "Codex" }).click();
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
@@ -331,7 +385,7 @@ describe("ProviderModelPicker", () => {
 
     try {
       await page.getByRole("button").click();
-      await page.getByRole("menuitem", { name: "Codex" }).hover();
+      await page.getByRole("button", { name: "Codex" }).click();
 
       await vi.waitFor(() => {
         expect(document.body.textContent ?? "").toContain("GPT-5.3 Codex Spark");
@@ -350,7 +404,7 @@ describe("ProviderModelPicker", () => {
 
     try {
       await page.getByRole("button").click();
-      await page.getByRole("menuitemradio", { name: "Claude Sonnet 4.6" }).click();
+      await page.getByText("Claude Sonnet 4.6").click();
 
       expect(mounted.onProviderModelChange).toHaveBeenCalledWith(
         "claudeAgent",
@@ -361,7 +415,7 @@ describe("ProviderModelPicker", () => {
     }
   });
 
-  it("shows disabled providers as non-selectable entries", async () => {
+  it("shows disabled providers as non-selectable sidebar entries", async () => {
     const disabledProviders = TEST_PROVIDERS.slice();
     const claudeIndex = disabledProviders.findIndex(
       (provider) => provider.provider === "claudeAgent",

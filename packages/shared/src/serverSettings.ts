@@ -46,6 +46,71 @@ function shouldReplaceTextGenerationModelSelection(
   return Boolean(patch && (patch.provider !== undefined || patch.model !== undefined));
 }
 
+function trimOptionalString(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : value.trim();
+}
+
+function normalizeCodexProviderPatch(
+  patch: NonNullable<ServerSettingsPatch["providers"]>["codex"] | undefined,
+) {
+  if (!patch) {
+    return undefined;
+  }
+
+  return {
+    ...patch,
+    ...(patch.binaryPath !== undefined ? { binaryPath: patch.binaryPath.trim() } : {}),
+    ...(patch.homePath !== undefined ? { homePath: patch.homePath.trim() } : {}),
+  };
+}
+
+function normalizeClaudeProviderPatch(
+  patch: NonNullable<ServerSettingsPatch["providers"]>["claudeAgent"] | undefined,
+) {
+  if (!patch) {
+    return undefined;
+  }
+
+  return {
+    ...patch,
+    ...(patch.binaryPath !== undefined ? { binaryPath: patch.binaryPath.trim() } : {}),
+  };
+}
+
+function normalizeServerSettingsPatch(patch: ServerSettingsPatch): ServerSettingsPatch {
+  const providersPatch = patch.providers;
+  const observabilityPatch = patch.observability;
+  const normalizedObservability = observabilityPatch
+    ? {
+        ...(observabilityPatch.otlpTracesUrl !== undefined
+          ? { otlpTracesUrl: trimOptionalString(observabilityPatch.otlpTracesUrl) ?? "" }
+          : {}),
+        ...(observabilityPatch.otlpMetricsUrl !== undefined
+          ? { otlpMetricsUrl: trimOptionalString(observabilityPatch.otlpMetricsUrl) ?? "" }
+          : {}),
+      }
+    : undefined;
+  const normalizedProviders = providersPatch
+    ? {
+        ...(providersPatch.codex
+          ? { codex: normalizeCodexProviderPatch(providersPatch.codex)! }
+          : {}),
+        ...(providersPatch.claudeAgent
+          ? { claudeAgent: normalizeClaudeProviderPatch(providersPatch.claudeAgent)! }
+          : {}),
+      }
+    : undefined;
+
+  return {
+    ...patch,
+    ...(patch.addProjectBaseDirectory !== undefined
+      ? { addProjectBaseDirectory: patch.addProjectBaseDirectory.trim() }
+      : {}),
+    ...(normalizedObservability ? { observability: normalizedObservability } : {}),
+    ...(normalizedProviders ? { providers: normalizedProviders } : {}),
+  };
+}
+
 /**
  * Applies a server settings patch while treating textGenerationModelSelection as
  * replace-on-provider/model updates. This prevents stale nested options from
@@ -55,8 +120,13 @@ export function applyServerSettingsPatch(
   current: ServerSettings,
   patch: ServerSettingsPatch,
 ): ServerSettings {
-  const selectionPatch = patch.textGenerationModelSelection;
-  const next = deepMerge(current, patch);
+  const normalizedPatch = normalizeServerSettingsPatch(patch);
+  const { automaticGitFetchInterval, ...restPatch } = normalizedPatch;
+  const next = {
+    ...deepMerge(current, restPatch),
+    ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
+  };
+  const selectionPatch = normalizedPatch.textGenerationModelSelection;
   if (!selectionPatch || !shouldReplaceTextGenerationModelSelection(selectionPatch)) {
     return next;
   }

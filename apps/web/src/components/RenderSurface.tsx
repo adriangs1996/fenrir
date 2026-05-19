@@ -23,6 +23,7 @@ export function isAppShortcut(
   keybindings: ResolvedKeybindingsConfig,
   options?: {
     terminalOpen?: boolean;
+    platform?: string;
   },
 ): boolean {
   // Alt is reserved for nvim. On macOS especially, Option modifies `event.key`
@@ -36,6 +37,7 @@ export function isAppShortcut(
 
   return (
     resolveShortcutCommand(e, keybindings, {
+      ...(options?.platform ? { platform: options.platform } : {}),
       context: {
         terminalFocus: false,
         terminalOpen: options?.terminalOpen ?? false,

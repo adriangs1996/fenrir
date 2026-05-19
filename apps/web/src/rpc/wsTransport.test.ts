@@ -1,5 +1,5 @@
-import { DEFAULT_SERVER_SETTINGS, WS_METHODS } from "@fenrir/contracts";
-import { Stream } from "effect";
+import { DEFAULT_SERVER_SETTINGS, ServerSettings, WS_METHODS } from "@fenrir/contracts";
+import { Schema, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -84,6 +84,7 @@ class MockWebSocket {
 const originalWebSocket = globalThis.WebSocket;
 const originalFetch = globalThis.fetch;
 const transports: WsTransport[] = [];
+const encodeServerSettings = Schema.encodeSync(ServerSettings);
 
 function getSocket(): MockWebSocket {
   const socket = sockets.at(-1);
@@ -1151,7 +1152,7 @@ describe("WsTransport", () => {
         requestId: requestMessage.id,
         exit: {
           _tag: "Success",
-          value: DEFAULT_SERVER_SETTINGS,
+          value: encodeServerSettings(DEFAULT_SERVER_SETTINGS),
         },
       }),
     );

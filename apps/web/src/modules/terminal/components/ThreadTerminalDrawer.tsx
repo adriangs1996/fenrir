@@ -315,6 +315,9 @@ export function TerminalViewport({
       fontFamily: buildTerminalFontFamily(terminalFontFamily),
       fontWeight: TERMINAL_FONT_WEIGHT_NORMAL,
       fontWeightBold: TERMINAL_FONT_WEIGHT_NORMAL,
+      // Force xterm's custom glyph rasterizer for powerline/nerd-font prompt
+      // separators so rounded capsules render consistently in the browser.
+      customGlyphs: true,
       rescaleOverlappingGlyphs: true,
       theme: terminalThemeFromApp(mount),
       allowProposedApi: true,

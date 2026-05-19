@@ -65,6 +65,22 @@ export const ServerProviderModel = Schema.Struct({
 });
 export type ServerProviderModel = typeof ServerProviderModel.Type;
 
+export const ServerProviderVersionAdvisoryStatus = Schema.Literals([
+  "current",
+  "behind_latest",
+  "unknown",
+]);
+export type ServerProviderVersionAdvisoryStatus = typeof ServerProviderVersionAdvisoryStatus.Type;
+
+export const ServerProviderVersionAdvisory = Schema.Struct({
+  status: ServerProviderVersionAdvisoryStatus,
+  currentVersion: Schema.NullOr(TrimmedNonEmptyString),
+  latestVersion: Schema.NullOr(TrimmedNonEmptyString),
+  checkedAt: Schema.NullOr(IsoDateTime),
+  message: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type ServerProviderVersionAdvisory = typeof ServerProviderVersionAdvisory.Type;
+
 export const ServerProvider = Schema.Struct({
   provider: ProviderKind,
   enabled: Schema.Boolean,
@@ -75,6 +91,7 @@ export const ServerProvider = Schema.Struct({
   checkedAt: IsoDateTime,
   message: Schema.optional(TrimmedNonEmptyString),
   models: Schema.Array(ServerProviderModel),
+  versionAdvisory: Schema.optional(ServerProviderVersionAdvisory),
 });
 export type ServerProvider = typeof ServerProvider.Type;
 

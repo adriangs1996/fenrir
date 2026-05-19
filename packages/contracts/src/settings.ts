@@ -7,7 +7,7 @@ import {
   CodexModelOptions,
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
 } from "./model";
-import { ModelSelection } from "./orchestration";
+import { ModelSelection, ProviderKind } from "./orchestration";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -44,6 +44,12 @@ export const SidebarThreadPreviewCount = Schema.Number.pipe(
 export type SidebarThreadPreviewCount = typeof SidebarThreadPreviewCount.Type;
 export const DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT: SidebarThreadPreviewCount = 6;
 
+export const ModelFavorite = Schema.Struct({
+  provider: ProviderKind,
+  model: TrimmedNonEmptyString,
+});
+export type ModelFavorite = typeof ModelFavorite.Type;
+
 export const ClientSettingsSchema = Schema.Struct({
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
@@ -58,6 +64,7 @@ export const ClientSettingsSchema = Schema.Struct({
   sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
     Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT),
   ),
+  favorites: Schema.Array(ModelFavorite).pipe(Schema.withDecodingDefault(() => [])),
   timestampFormat: TimestampFormat.pipe(Schema.withDecodingDefault(() => DEFAULT_TIMESTAMP_FORMAT)),
   uiFontFamily: Schema.String.pipe(Schema.withDecodingDefault(() => "Geist Mono")),
   uiFontSize: Schema.Number.pipe(

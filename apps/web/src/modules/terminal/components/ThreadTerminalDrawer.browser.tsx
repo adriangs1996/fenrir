@@ -57,6 +57,7 @@ vi.mock("@xterm/xterm", () => ({
     cols = 80;
     rows = 24;
     options: { theme?: unknown } = {};
+    unicode = { activeVersion: "" };
     buffer = {
       active: {
         viewportY: 0,
@@ -122,6 +123,13 @@ vi.mock("@xterm/xterm", () => ({
 }));
 
 vi.mock("~/environmentApi", () => ({
+  ensureEnvironmentApi: vi.fn((environmentId: string) => {
+    const api = environmentApiById.get(environmentId);
+    if (!api) {
+      throw new Error(`Environment API not found for environment ${environmentId}`);
+    }
+    return api;
+  }),
   readEnvironmentApi: readEnvironmentApiMock,
 }));
 
@@ -387,6 +395,7 @@ describe("TerminalViewport", () => {
 
       expect(terminalConstructorSpy).toHaveBeenCalledWith(
         expect.objectContaining({
+          customGlyphs: true,
           fontWeight: "400",
           fontWeightBold: "400",
           rescaleOverlappingGlyphs: true,

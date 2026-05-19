@@ -27,7 +27,7 @@ it.layer(NodeServices.layer)("SourceControlLive", (it) => {
         const workspace = yield* sourceControl.resolveWorkspace(cwd);
 
         expect(workspace?.kind).toBe("git");
-        expect(workspace?.rootPath).toBe(cwd);
+        expect(workspace?.rootPath).toBe(yield* Effect.promise(() => fs.realpath(cwd)));
         expect(workspace?.repositoryIdentity?.canonicalKey).toBe("github.com/fenrir/fenrir");
       }).pipe(Effect.provide(SourceControlLive)),
     );

@@ -66,7 +66,11 @@ describe("isAppShortcut", () => {
     });
 
     it("treats Ctrl+D as app shortcut on non-mac platforms when bound", () => {
-      expect(isAppShortcut(kbd({ key: "d", ctrlKey: true }), DEFAULT_BINDINGS)).toBe(true);
+      expect(
+        isAppShortcut(kbd({ key: "d", ctrlKey: true }), DEFAULT_BINDINGS, {
+          platform: "Win32",
+        }),
+      ).toBe(true);
     });
   });
 

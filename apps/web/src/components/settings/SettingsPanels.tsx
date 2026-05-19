@@ -19,6 +19,7 @@ import {
   type ProviderKind,
   type ServerProvider,
   type ServerProviderModel,
+  type ServerProviderVersionAdvisory,
 } from "@fenrir/contracts";
 import { scopeThreadRef } from "@fenrir/client-runtime";
 import { DEFAULT_UNIFIED_SETTINGS } from "@fenrir/contracts/settings";
@@ -207,6 +208,27 @@ function getProviderSummary(provider: ServerProvider | undefined) {
 function getProviderVersionLabel(version: string | null | undefined) {
   if (!version) return null;
   return version.startsWith("v") ? version : `v${version}`;
+}
+
+function getProviderVersionAdvisoryPresentation(
+  advisory: ServerProviderVersionAdvisory | undefined,
+): {
+  readonly detail: string;
+  readonly emphasis: "normal" | "strong";
+} | null {
+  if (!advisory || advisory.status === "current" || advisory.status === "unknown") {
+    return null;
+  }
+
+  const versionLabel = getProviderVersionLabel(advisory.latestVersion);
+  return {
+    detail:
+      advisory.message ??
+      (versionLabel
+        ? `Update available: install ${versionLabel}.`
+        : "Update available: install the latest provider version."),
+    emphasis: "normal",
+  };
 }
 
 function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string | null }) {
@@ -691,6 +713,7 @@ export function GeneralSettingsPanel() {
     const defaultProviderConfig = DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
     const statusKey = liveProvider?.status ?? (providerConfig.enabled ? "warning" : "disabled");
     const summary = getProviderSummary(liveProvider);
+    const versionAdvisory = getProviderVersionAdvisoryPresentation(liveProvider?.versionAdvisory);
     const models: ReadonlyArray<ServerProviderModel> =
       liveProvider?.models ??
       providerConfig.customModels.map((slug) => ({
@@ -716,6 +739,7 @@ export function GeneralSettingsPanel() {
       statusStyle: PROVIDER_STATUS_STYLES[statusKey],
       summary,
       versionLabel: getProviderVersionLabel(liveProvider?.version),
+      versionAdvisory,
     };
   });
 
@@ -1517,6 +1541,18 @@ export function GeneralSettingsPanel() {
                       {providerCard.summary.headline}
                       {providerCard.summary.detail ? ` - ${providerCard.summary.detail}` : null}
                     </p>
+                    {providerCard.versionAdvisory ? (
+                      <p
+                        className={cn(
+                          "text-xs",
+                          providerCard.versionAdvisory.emphasis === "strong"
+                            ? "font-medium text-foreground"
+                            : "text-amber-700 dark:text-amber-300",
+                        )}
+                      >
+                        {providerCard.versionAdvisory.detail}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
                     <Button

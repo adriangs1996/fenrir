@@ -1,5 +1,6 @@
 import {
   CommandId,
+  DEFAULT_CLIENT_SETTINGS,
   DEFAULT_SERVER_SETTINGS,
   type DesktopBridge,
   EnvironmentId,
@@ -44,13 +45,30 @@ const rpcClientMock = {
     clear: vi.fn(),
     restart: vi.fn(),
     close: vi.fn(),
+    attachTmux: vi.fn(),
+    detachTmux: vi.fn(),
+    writeTmux: vi.fn(),
+    resizeTmux: vi.fn(),
     onEvent: vi.fn((listener: (event: TerminalEvent) => void) =>
       registerListener(terminalEventListeners, listener),
     ),
   },
+  rawTcp: {
+    createListener: vi.fn(),
+    stopListener: vi.fn(),
+    listListeners: vi.fn(),
+    listSessions: vi.fn(),
+    sessionWrite: vi.fn(),
+    sessionUpgradePty: vi.fn(),
+    sessionClose: vi.fn(),
+    onEvent: vi.fn(),
+  },
   projects: {
     searchEntries: vi.fn(),
     writeFile: vi.fn(),
+  },
+  filesystem: {
+    browse: vi.fn(),
   },
   shell: {
     openInEditor: vi.fn(),
@@ -603,6 +621,7 @@ describe("wsApi", () => {
       confirmThreadDelete: false,
       diffIgnoreWhitespace: true,
       diffWordWrap: true,
+      favorites: [],
       sidebarProjectSortOrder: "manual",
       sidebarThreadSortOrder: "created_at",
       sidebarThreadPreviewCount: 6,
@@ -635,6 +654,7 @@ describe("wsApi", () => {
       confirmThreadDelete: false,
       diffIgnoreWhitespace: true,
       diffWordWrap: true,
+      favorites: [],
       sidebarProjectSortOrder: "manual",
       sidebarThreadSortOrder: "created_at",
       sidebarThreadPreviewCount: 6,
@@ -666,6 +686,7 @@ describe("wsApi", () => {
       confirmThreadDelete: false,
       diffIgnoreWhitespace: true,
       diffWordWrap: true,
+      favorites: [],
       sidebarProjectSortOrder: "manual",
       sidebarThreadSortOrder: "created_at",
       sidebarThreadPreviewCount: 6,
@@ -697,11 +718,15 @@ describe("wsApi", () => {
     );
 
     await expect(api.persistence.getClientSettings()).resolves.toEqual({
+      ...DEFAULT_CLIENT_SETTINGS,
       confirmThreadArchive: true,
       confirmThreadDelete: false,
+      diffIgnoreWhitespace: true,
       diffWordWrap: true,
+      favorites: [],
       sidebarProjectSortOrder: "manual",
       sidebarThreadSortOrder: "created_at",
+      sidebarThreadPreviewCount: 6,
       timestampFormat: "24-hour",
       uiFontFamily: "Geist Mono",
       uiFontSize: 14,

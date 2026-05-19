@@ -39,7 +39,7 @@ describe("VcsDriverRegistryLive", () => {
     );
 
     expect(result?.kind).toBe("git");
-    expect(result?.repository.rootPath).toBe(cwd);
+    expect(result?.repository.rootPath).toBe(fs.realpathSync(cwd));
   });
 
   it("returns null for non-repositories", async () => {

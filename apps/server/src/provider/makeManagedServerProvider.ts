@@ -4,6 +4,7 @@ import * as Semaphore from "effect/Semaphore";
 
 import type { ServerProviderShape } from "./Services/ServerProvider";
 import { ServerSettingsError } from "@fenrir/contracts";
+import { enrichProviderSnapshotWithVersionAdvisory } from "./versionAdvisory";
 
 export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(function* <
   Settings,
@@ -20,7 +21,11 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     PubSub.shutdown,
   );
   const initialSettings = yield* input.getSettings;
-  const initialSnapshot = yield* input.checkProvider;
+  const initialSnapshot = yield* input.checkProvider.pipe(
+    Effect.flatMap((snapshot) =>
+      Effect.promise(() => enrichProviderSnapshotWithVersionAdvisory(snapshot)),
+    ),
+  );
   const snapshotRef = yield* Ref.make(initialSnapshot);
   const settingsRef = yield* Ref.make(initialSettings);
 
@@ -35,7 +40,11 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
       return yield* Ref.get(snapshotRef);
     }
 
-    const nextSnapshot = yield* input.checkProvider;
+    const nextSnapshot = yield* input.checkProvider.pipe(
+      Effect.flatMap((snapshot) =>
+        Effect.promise(() => enrichProviderSnapshotWithVersionAdvisory(snapshot)),
+      ),
+    );
     yield* Ref.set(settingsRef, nextSettings);
     yield* Ref.set(snapshotRef, nextSnapshot);
     yield* PubSub.publish(changesPubSub, nextSnapshot);

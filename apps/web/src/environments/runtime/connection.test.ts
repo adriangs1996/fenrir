@@ -5,6 +5,7 @@ import { createEnvironmentConnection } from "./connection";
 import type { WsRpcClient } from "~/rpc/wsRpcClient";
 
 function createTestClient(options?: {
+  readonly getBootstrapSnapshot?: () => Promise<{ readonly snapshotSequence: number }>;
   readonly getSnapshot?: () => Promise<{ readonly snapshotSequence: number }>;
   readonly replayEvents?: () => Promise<ReadonlyArray<any>>;
 }) {
@@ -13,6 +14,15 @@ function createTestClient(options?: {
   const terminalListeners = new Set<(event: any) => void>();
   let domainResubscribe: (() => void) | undefined;
 
+  const getBootstrapSnapshot = vi.fn(
+    options?.getBootstrapSnapshot ??
+      (async () =>
+        ({
+          snapshotSequence: 1,
+          projects: [],
+          threads: [],
+        }) as any),
+  );
   const getSnapshot = vi.fn(
     options?.getSnapshot ??
       (async () =>
@@ -53,6 +63,7 @@ function createTestClient(options?: {
       updateSettings: vi.fn(async () => undefined),
     },
     orchestration: {
+      getBootstrapSnapshot,
       getSnapshot,
       dispatchCommand: vi.fn(async () => undefined),
       getTurnDiff: vi.fn(async () => undefined),
@@ -104,6 +115,7 @@ function createTestClient(options?: {
 
   return {
     client,
+    getBootstrapSnapshot,
     getSnapshot,
     replayEvents,
     emitWelcome: (environmentId: EnvironmentId) => {
@@ -139,7 +151,7 @@ function createTestClient(options?: {
 describe("createEnvironmentConnection", () => {
   it("bootstraps a snapshot immediately for a new connection", async () => {
     const environmentId = EnvironmentId.makeUnsafe("env-1");
-    const { client, getSnapshot } = createTestClient();
+    const { client, getBootstrapSnapshot } = createTestClient();
     const syncSnapshot = vi.fn();
 
     const connection = createEnvironmentConnection({
@@ -163,10 +175,11 @@ describe("createEnvironmentConnection", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(getSnapshot).toHaveBeenCalledTimes(1);
+    expect(getBootstrapSnapshot).toHaveBeenCalledTimes(1);
     expect(syncSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({ snapshotSequence: 1 }),
       environmentId,
+      "bootstrap",
     );
 
     await connection.dispose();
@@ -205,7 +218,7 @@ describe("createEnvironmentConnection", () => {
     const environmentId = EnvironmentId.makeUnsafe("env-1");
     const snapshotError = new Error("snapshot failed");
     const { client } = createTestClient({
-      getSnapshot: async () => {
+      getBootstrapSnapshot: async () => {
         throw snapshotError;
       },
     });

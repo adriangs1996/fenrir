@@ -3,6 +3,10 @@ import * as Schema from "effect/Schema";
 import { ClientSettingsSchema, DEFAULT_CLIENT_SETTINGS } from "./settings";
 
 describe("ClientSettings font defaults", () => {
+  it("defaults favorites to an empty array", () => {
+    expect(DEFAULT_CLIENT_SETTINGS.favorites).toEqual([]);
+  });
+
   it("has correct default uiFontFamily", () => {
     expect(DEFAULT_CLIENT_SETTINGS.uiFontFamily).toBe("Geist Mono");
   });

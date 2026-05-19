@@ -103,6 +103,10 @@ function isSameKeybindingRule(left: KeybindingRule, right: KeybindingRule): bool
   );
 }
 
+function hasSameKeybindingCommand(left: KeybindingRule, right: KeybindingRule): boolean {
+  return left.command === right.command;
+}
+
 function keybindingShortcutContext(rule: KeybindingRule): string | null {
   const parsed = parseKeybindingShortcut(rule.key);
   if (!parsed) return null;
@@ -649,7 +653,7 @@ const makeKeybindings = Effect.gen(function* () {
               if (replaceTarget) {
                 return !isSameKeybindingRule(entry, replaceTarget);
               }
-              return !isSameKeybindingRule(entry, rule);
+              return !hasSameKeybindingCommand(entry, rule);
             }),
             rule,
           ];
