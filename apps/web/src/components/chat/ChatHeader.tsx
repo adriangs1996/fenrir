@@ -163,7 +163,7 @@ export const ChatHeader = memo(function ChatHeader({
                 className="shrink-0"
                 pressed={terminalOpen}
                 onPressedChange={onToggleTerminal}
-                aria-label="Toggle terminal drawer"
+                aria-label="Toggle terminal tab"
                 variant="outline"
                 size="xs"
                 disabled={!terminalAvailable}
@@ -176,8 +176,8 @@ export const ChatHeader = memo(function ChatHeader({
             {!terminalAvailable
               ? "Terminal is unavailable until this thread has an active project."
               : terminalToggleShortcutLabel
-                ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
-                : "Toggle terminal drawer"}
+                ? `Toggle terminal tab (${terminalToggleShortcutLabel})`
+                : "Toggle terminal tab"}
           </TooltipPopup>
         </Tooltip>
         <Tooltip>

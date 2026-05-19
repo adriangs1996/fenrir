@@ -84,6 +84,7 @@ let lastBrowserHiddenAt: number | null = null;
 let lastBrowserResumeReconnectAt = Number.NEGATIVE_INFINITY;
 const BROWSER_RESUME_RECONNECT_COOLDOWN_MS = 2_000;
 const NOOP = () => undefined;
+const threadSnapshotHydrationInFlight = new Map<string, Promise<void>>();
 
 function compareAppliedProjectionVersion(
   left: { readonly sequence: number; readonly updatedAt: string | null },
@@ -396,7 +397,11 @@ function createEnvironmentConnectionHandlers() {
         markAppliedProjectionEvent(environmentId, lastSequence);
       }
     },
-    syncSnapshot: (snapshot: OrchestrationReadModel, environmentId: EnvironmentId) => {
+    syncSnapshot: (
+      snapshot: OrchestrationReadModel,
+      environmentId: EnvironmentId,
+      detailLevel: "bootstrap" | "full",
+    ) => {
       if (
         !shouldApplyProjectionSnapshot({
           current: readLastAppliedProjectionVersion(environmentId),
@@ -405,7 +410,9 @@ function createEnvironmentConnectionHandlers() {
       ) {
         return;
       }
-      useStore.getState().syncServerReadModel(snapshot, environmentId);
+      const store = useStore.getState();
+      store.syncServerReadModel(snapshot, environmentId);
+      store.setEnvironmentThreadDetailsHydrated(environmentId, detailLevel === "full");
       markAppliedProjectionSnapshot(environmentId, snapshot);
       reconcileSnapshotDerivedState();
     },
@@ -830,6 +837,35 @@ export async function ensureEnvironmentConnectionBootstrapped(
   await environmentConnections.get(environmentId)?.ensureBootstrapped();
 }
 
+export async function hydrateEnvironmentThreadSnapshot(input: {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+}): Promise<void> {
+  const key = `${input.environmentId}:${input.threadId}`;
+  const existing = threadSnapshotHydrationInFlight.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const connection = requireEnvironmentConnection(input.environmentId);
+  const next = connection.client.orchestration
+    .getThreadSnapshot({ threadId: input.threadId })
+    .then((thread) => {
+      if (thread === null) {
+        return;
+      }
+      useStore.getState().syncThreadSnapshot(thread, input.environmentId);
+    })
+    .finally(() => {
+      if (threadSnapshotHydrationInFlight.get(key) === next) {
+        threadSnapshotHydrationInFlight.delete(key);
+      }
+    });
+
+  threadSnapshotHydrationInFlight.set(key, next);
+  return next;
+}
+
 export function startEnvironmentConnectionService(queryClient: QueryClient): () => void {
   if (activeService?.queryClient === queryClient) {
     activeService.refCount += 1;
@@ -903,6 +939,7 @@ export async function resetEnvironmentServiceForTests(): Promise<void> {
   lastBrowserHiddenAt = null;
   lastBrowserResumeReconnectAt = Number.NEGATIVE_INFINITY;
   lastAppliedProjectionVersionByEnvironment.clear();
+  threadSnapshotHydrationInFlight.clear();
   await Promise.all(
     [...environmentConnections.keys()].map((environmentId) => removeConnection(environmentId)),
   );

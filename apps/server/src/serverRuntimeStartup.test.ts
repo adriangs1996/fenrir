@@ -69,6 +69,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
 
       yield* launchStartupHeartbeat.pipe(
         Effect.provideService(ProjectionSnapshotQuery, {
+          getBootstrapSnapshot: () => Effect.die("unused"),
           getSnapshot: () => Effect.die("unused"),
           getCounts: () =>
             Deferred.await(releaseCounts).pipe(
@@ -79,6 +80,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
             ),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+          getThreadSnapshot: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
         }),
         Effect.provideService(AnalyticsService, {

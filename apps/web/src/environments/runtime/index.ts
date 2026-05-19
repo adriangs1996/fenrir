@@ -19,6 +19,7 @@ export {
   disconnectSavedEnvironment,
   ensureEnvironmentConnectionBootstrapped,
   getPrimaryEnvironmentConnection,
+  hydrateEnvironmentThreadSnapshot,
   readEnvironmentConnection,
   reconnectSavedEnvironment,
   removeSavedEnvironment,

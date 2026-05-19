@@ -1,20 +1,21 @@
 import { memo } from "react";
 import type { ReactNode } from "react";
-import { FileEditIcon, MessageSquareIcon } from "lucide-react";
+import { FileEditIcon, MessageSquareIcon, TerminalSquareIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { type ChatTab, useEditorStore } from "../stores/editorStore";
 
 interface Props {
   /** Whether the editor tab is available (bridge + main window + nvim ready). */
   editorAvailable: boolean;
+  terminalOpen: boolean;
 }
 
 /**
- * Two-tab bar above the chat main area: Thread | Editor.
- * Editor tab hidden when `editorAvailable` is false — gates remote / non-main /
- * nvim-missing cases per Q9, Q16, Q18 in the neovim-editor-tab plan series.
+ * Tab bar above the chat main area: Thread | Terminal | Editor.
+ * Terminal tab only appears while the current thread has an open terminal.
+ * Editor tab remains gated by bridge / main-window / nvim availability.
  */
-export const ChatTabBar = memo(function ChatTabBar({ editorAvailable }: Props) {
+export const ChatTabBar = memo(function ChatTabBar({ editorAvailable, terminalOpen }: Props) {
   const activeTab = useEditorStore((s) => s.activeChatTab);
   const setActiveTab = useEditorStore((s) => s.setActiveChatTab);
 
@@ -30,6 +31,15 @@ export const ChatTabBar = memo(function ChatTabBar({ editorAvailable }: Props) {
         icon={<MessageSquareIcon className="size-3.5" />}
         label="Thread"
       />
+      {terminalOpen && (
+        <TabButton
+          tab="terminal"
+          active={activeTab === "terminal"}
+          onClick={() => setActiveTab("terminal")}
+          icon={<TerminalSquareIcon className="size-3.5" />}
+          label="Terminal"
+        />
+      )}
       {editorAvailable && (
         <TabButton
           tab="editor"

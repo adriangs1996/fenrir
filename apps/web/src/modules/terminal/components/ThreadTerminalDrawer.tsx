@@ -944,6 +944,7 @@ interface ThreadTerminalDrawerProps {
   /** Explicit projectId for tmux — needed when thread not yet in server store (draft threads). */
   projectId?: string | null;
   keybindings: ResolvedKeybindingsConfig;
+  layoutMode?: "drawer" | "tab";
 }
 
 interface TerminalActionButtonProps {
@@ -999,6 +1000,7 @@ export default function ThreadTerminalDrawer({
   onAddTerminalContext,
   projectId,
   keybindings,
+  layoutMode = "drawer",
 }: ThreadTerminalDrawerProps) {
   const [drawerHeight, setDrawerHeight] = useState(() => clampDrawerHeight(height));
   const [resizeEpoch, setResizeEpoch] = useState(0);
@@ -1013,6 +1015,7 @@ export default function ThreadTerminalDrawer({
     startHeight: number;
   } | null>(null);
   const didResizeDuringDragRef = useRef(false);
+  const isDrawerLayout = layoutMode === "drawer";
 
   const normalizedTerminalIds = useMemo(() => {
     const cleaned = [...new Set(terminalIds.map((id) => id.trim()).filter((id) => id.length > 0))];
@@ -1254,16 +1257,23 @@ export default function ThreadTerminalDrawer({
 
   return (
     <aside
-      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border-strong bg-background"
-      style={{ height: `${drawerHeight}px` }}
+      data-xterm-theme-surface
+      className={`thread-terminal-drawer relative flex min-w-0 flex-col overflow-hidden bg-background ${
+        isDrawerLayout
+          ? "shrink-0 border-t border-border-strong"
+          : "min-h-0 flex-1 border border-border/60"
+      }`}
+      style={isDrawerLayout ? { height: `${drawerHeight}px` } : undefined}
     >
-      <div
-        className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
-        onPointerDown={handleResizePointerDown}
-        onPointerMove={handleResizePointerMove}
-        onPointerUp={handleResizePointerEnd}
-        onPointerCancel={handleResizePointerEnd}
-      />
+      {isDrawerLayout ? (
+        <div
+          className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerEnd}
+          onPointerCancel={handleResizePointerEnd}
+        />
+      ) : null}
 
       {!hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">

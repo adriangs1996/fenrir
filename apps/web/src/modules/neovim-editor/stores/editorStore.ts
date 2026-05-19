@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "~/lib/storage";
 import type { EditorContextDraft } from "../editorContext";
 
-export type ChatTab = "thread" | "editor";
+export type ChatTab = "thread" | "terminal" | "editor";
 
 interface EditorState {
   /** Currently active chat tab. Global — same across thread switches. */
@@ -39,7 +39,7 @@ export const useEditorStore = create<EditorState>()(
       activeChatTab: "thread",
       setActiveChatTab: (tab) => set({ activeChatTab: tab }),
       toggleChatTab: () =>
-        set({ activeChatTab: get().activeChatTab === "thread" ? "editor" : "thread" }),
+        set({ activeChatTab: get().activeChatTab === "editor" ? "thread" : "editor" }),
 
       currentFile: null,
       setCurrentFile: (file) => set({ currentFile: file }),

@@ -1819,7 +1819,7 @@ export function GeneralSettingsPanel() {
         )}
         <SettingsRow
           title="Diagnostics"
-          description={diagnosticsDescription}
+          description={`Open the dedicated diagnostics view for traces and process history. ${diagnosticsDescription}`}
           status={
             <>
               <span className="block break-all font-mono text-[11px] text-foreground">

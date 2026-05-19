@@ -68,6 +68,9 @@ import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem"
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner";
 import { ObservabilityLive } from "./observability/Layers/Observability";
+import { ProcessDiagnosticsLive } from "./diagnostics/ProcessDiagnostics";
+import { ProcessResourceMonitorLive } from "./diagnostics/ProcessResourceMonitor";
+import { TraceDiagnosticsLive } from "./diagnostics/TraceDiagnostics";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
 import {
   authBearerBootstrapRouteLayer,
@@ -322,8 +325,11 @@ const CoreDependenciesLive = CoreInfrastructureLive.pipe(
 
 const RuntimeDependenciesLive = CoreDependenciesLive.pipe(
   Layer.provideMerge(AnalyticsServiceLayerLive),
+  Layer.provideMerge(ProcessDiagnosticsLive),
+  Layer.provideMerge(ProcessResourceMonitorLive),
   Layer.provideMerge(OpenLive),
   Layer.provideMerge(ServerLifecycleEventsLive),
+  Layer.provideMerge(TraceDiagnosticsLive),
 );
 
 const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(

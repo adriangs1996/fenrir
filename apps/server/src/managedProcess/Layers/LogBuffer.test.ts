@@ -7,7 +7,7 @@ import { Effect, Layer } from "effect";
 import { describe, expect } from "vitest";
 
 import { ServerConfig } from "../../config.ts";
-import { LogBuffer, type LogBufferReadResult } from "../Services/LogBuffer.ts";
+import { LogBuffer } from "../Services/LogBuffer.ts";
 import { LogBufferLive, deriveWorktreeKey } from "./LogBuffer.ts";
 import type { ProjectId } from "@fenrir/contracts";
 

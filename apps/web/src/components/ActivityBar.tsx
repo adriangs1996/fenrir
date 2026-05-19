@@ -45,7 +45,7 @@ export function ActivityBar({
 
     // Restore last path for target workspace, or fall back to default
     const targetPath = workspaceLastPathByName[workspace] ?? WORKSPACE_DEFAULT_PATH[workspace];
-    void navigate({ to: targetPath });
+    void (navigate as (options: { to: string }) => Promise<void>)({ to: targetPath });
   };
 
   return (

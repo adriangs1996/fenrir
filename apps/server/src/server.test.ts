@@ -25,12 +25,14 @@ import {
 import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
 import {
+  DateTime,
   Deferred,
   Duration,
   Effect,
   FileSystem,
   Layer,
   ManagedRuntime,
+  Option,
   Path,
   Stream,
 } from "effect";
@@ -119,6 +121,9 @@ import {
   type ImportResolverShape,
 } from "./managedProcess/Services/ImportResolver.ts";
 import { SkillService, type SkillServiceShape } from "./skill/SkillService.ts";
+import { ProcessDiagnostics } from "./diagnostics/ProcessDiagnostics.ts";
+import { ProcessResourceMonitor } from "./diagnostics/ProcessResourceMonitor.ts";
+import { TraceDiagnostics } from "./diagnostics/TraceDiagnostics.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -139,6 +144,7 @@ const testEnvironmentDescriptor = {
     repositoryIdentity: true,
   },
 };
+const testDateTime = DateTime.makeUnsafe(0);
 const makeDefaultOrchestrationReadModel = () => {
   const now = new Date().toISOString();
   return {
@@ -632,6 +638,68 @@ const buildAppUnderTest = (options?: {
           resolveConflict: () => Effect.die(new Error("not available in test")),
           streamChanges: Stream.empty,
           ...options?.layers?.skillService,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProcessDiagnostics)({
+          read: Effect.succeed({
+            serverPid: 1,
+            readAt: testDateTime,
+            processCount: 0,
+            totalRssBytes: 0,
+            totalCpuPercent: 0,
+            processes: [],
+            error: Option.none(),
+          }),
+          signal: (input) =>
+            Effect.succeed({
+              pid: input.pid,
+              signal: input.signal,
+              signaled: true,
+              message: Option.none(),
+            }),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProcessResourceMonitor)({
+          readHistory: () =>
+            Effect.succeed({
+              readAt: testDateTime,
+              windowMs: 60_000,
+              bucketMs: 5_000,
+              sampleIntervalMs: 5_000,
+              retainedSampleCount: 0,
+              totalCpuSecondsApprox: 0,
+              buckets: [],
+              topProcesses: [],
+              error: Option.none(),
+            }),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(TraceDiagnostics)({
+          read: (options) =>
+            Effect.succeed({
+              traceFilePath: options.traceFilePath,
+              scannedFilePaths: [],
+              readAt: testDateTime,
+              recordCount: 0,
+              parseErrorCount: 0,
+              firstSpanAt: Option.none(),
+              lastSpanAt: Option.none(),
+              failureCount: 0,
+              interruptionCount: 0,
+              slowSpanThresholdMs: options.slowSpanThresholdMs ?? 1_000,
+              slowSpanCount: 0,
+              logLevelCounts: {},
+              topSpansByCount: [],
+              slowestSpans: [],
+              commonFailures: [],
+              latestFailures: [],
+              latestWarningAndErrorLogs: [],
+              partialFailure: Option.none(),
+              error: Option.none(),
+            }),
         }),
       ),
       Layer.provideMerge(authTestLayer),

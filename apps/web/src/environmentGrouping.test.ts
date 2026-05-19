@@ -87,6 +87,7 @@ function makeEmptyEnvironmentState(): EnvironmentState {
     proposedPlanByThreadId: {},
     turnDiffIdsByThreadId: {},
     turnDiffSummaryByThreadId: {},
+    threadDetailsHydratedById: {},
     sidebarThreadSummaryById: {},
     managedProcessInstanceById: {},
     managedProcessInstanceIdsByProjectId: {},

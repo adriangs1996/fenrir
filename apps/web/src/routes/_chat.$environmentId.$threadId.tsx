@@ -5,10 +5,16 @@ import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
 import { parseDiffRouteSearch } from "../diffRouteSearch";
-import { selectEnvironmentState, selectThreadExistsByRef, useStore } from "../store";
+import {
+  selectEnvironmentState,
+  selectThreadDetailsHydratedByRef,
+  selectThreadExistsByRef,
+  useStore,
+} from "../store";
 import { createThreadSelectorByRef } from "../storeSelectors";
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { SidebarInset } from "~/components/ui/sidebar";
+import { hydrateEnvironmentThreadSnapshot } from "~/environments/runtime";
 import {
   useInternalPlanRunnerThreadIds,
   useInternalPlanRunnerThreadOwners,
@@ -24,6 +30,9 @@ function ChatThreadRouteView() {
   );
   const serverThread = useStore(useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]));
   const threadExists = useStore((store) => selectThreadExistsByRef(store, threadRef));
+  const threadDetailsHydrated = useStore((store) =>
+    selectThreadDetailsHydratedByRef(store, threadRef),
+  );
   const environmentHasServerThreads = useStore(
     (store) => selectEnvironmentState(store, threadRef?.environmentId ?? null).threadIds.length > 0,
   );
@@ -93,8 +102,26 @@ function ChatThreadRouteView() {
     finalizePromotedDraftThreadByRef(threadRef);
   }, [draftThread?.promotedTo, serverThreadStarted, threadRef]);
 
+  useEffect(() => {
+    if (!threadRef || !bootstrapComplete || !threadExists || threadDetailsHydrated) {
+      return;
+    }
+
+    void hydrateEnvironmentThreadSnapshot(threadRef).catch(() => undefined);
+  }, [bootstrapComplete, threadDetailsHydrated, threadExists, threadRef]);
+
   if (!threadRef || !bootstrapComplete || !routeThreadExists || isInternalPlanRunnerThread) {
     return null;
+  }
+
+  if (threadExists && !threadDetailsHydrated) {
+    return (
+      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          Loading thread…
+        </div>
+      </SidebarInset>
+    );
   }
 
   return (

@@ -50,6 +50,7 @@ function makeEmptyState(): AppState {
     proposedPlanByThreadId: {},
     turnDiffIdsByThreadId: {},
     turnDiffSummaryByThreadId: {},
+    threadDetailsHydratedById: {},
     sidebarThreadSummaryById: {},
     managedProcessInstanceById: {},
     managedProcessInstanceIdsByProjectId: {},

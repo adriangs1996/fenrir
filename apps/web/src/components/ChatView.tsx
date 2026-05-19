@@ -430,6 +430,7 @@ interface PersistentThreadTerminalDrawerProps {
   threadRef: { environmentId: EnvironmentId; threadId: ThreadId };
   threadId: ThreadId;
   visible: boolean;
+  layoutMode?: "drawer" | "tab";
   launchContext: PersistentTerminalLaunchContext | null;
   focusRequestId: number;
   splitShortcutLabel: string | undefined;
@@ -443,6 +444,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   threadRef,
   threadId,
   visible,
+  layoutMode = "drawer",
   launchContext,
   focusRequestId,
   splitShortcutLabel,
@@ -573,7 +575,15 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   }
 
   return (
-    <div className={visible ? undefined : "hidden"}>
+    <div
+      className={
+        visible && layoutMode === "tab"
+          ? "flex min-h-0 flex-1 flex-col"
+          : visible
+            ? undefined
+            : "hidden"
+      }
+    >
       <ThreadTerminalDrawer
         threadRef={threadRef}
         threadId={threadId}
@@ -598,6 +608,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
         onCloseTerminal={closeTerminal}
         onHeightChange={setTerminalHeight}
         onAddTerminalContext={handleAddTerminalContext}
+        layoutMode={layoutMode}
       />
     </div>
   );
@@ -744,7 +755,6 @@ export default function ChatView(props: ChatViewProps) {
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
   const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const rightPanel = useRightPanelStore();
-  const planSidebarOpen = rightPanel.activeTab === "plan";
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
   // When set, the thread-change reset effect will open the sidebar instead of closing it.
@@ -798,6 +808,14 @@ export default function ChatView(props: ChatViewProps) {
   const nvimReady = useNvimAvailable();
   const editorAvailable = desktopBridgeAvailable && isMainWindow && nvimReady;
   const activeChatTab = useEditorStore((s) => s.activeChatTab);
+  const lastNonTerminalChatTabRef = useRef<"thread" | "editor">("thread");
+
+  useEffect(() => {
+    if (activeChatTab === "terminal") {
+      return;
+    }
+    lastNonTerminalChatTabRef.current = activeChatTab;
+  }, [activeChatTab]);
 
   // Force the active tab back to "thread" if the editor becomes unavailable
   // (e.g. nvim binary uninstalled mid-session, secondary window).
@@ -1689,6 +1707,13 @@ export default function ChatView(props: ChatViewProps) {
   const addTerminalContextToDraft = useCallback((selection: TerminalContextSelection) => {
     composerRef.current?.addTerminalContext(selection);
   }, []);
+  const resolveTerminalFallbackChatTab = useCallback(() => {
+    const previousTab = lastNonTerminalChatTabRef.current;
+    if (previousTab === "editor" && editorAvailable) {
+      return "editor" as const;
+    }
+    return "thread" as const;
+  }, [editorAvailable]);
   const setTerminalOpen = useCallback(
     (open: boolean) => {
       if (!activeThreadRef) return;
@@ -1696,10 +1721,41 @@ export default function ChatView(props: ChatViewProps) {
     },
     [activeThreadRef, storeSetTerminalOpen],
   );
+  const activateTerminalTab = useCallback(
+    (options?: { ensureOpen?: boolean; focus?: boolean }) => {
+      if (!activeThreadRef) {
+        return;
+      }
+      if (options?.ensureOpen ?? true) {
+        setTerminalOpen(true);
+      }
+      if (useEditorStore.getState().activeChatTab !== "terminal") {
+        useEditorStore.getState().setActiveChatTab("terminal");
+      }
+      if (options?.focus ?? true) {
+        setTerminalFocusRequestId((value) => value + 1);
+      }
+    },
+    [activeThreadRef, setTerminalOpen],
+  );
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadRef) return;
-    setTerminalOpen(!terminalState.terminalOpen);
-  }, [activeThreadRef, setTerminalOpen, terminalState.terminalOpen]);
+    if (terminalState.terminalOpen) {
+      if (activeChatTab === "terminal") {
+        useEditorStore.getState().setActiveChatTab(resolveTerminalFallbackChatTab());
+      }
+      setTerminalOpen(false);
+      return;
+    }
+    activateTerminalTab({ ensureOpen: true, focus: true });
+  }, [
+    activateTerminalTab,
+    activeChatTab,
+    activeThreadRef,
+    resolveTerminalFallbackChatTab,
+    setTerminalOpen,
+    terminalState.terminalOpen,
+  ]);
   const splitTerminal = useCallback(() => {
     if (!activeThreadRef || hasReachedSplitLimit) return;
     const terminalId = `terminal-${randomUUID()}`;
@@ -1787,7 +1843,7 @@ export default function ChatView(props: ChatViewProps) {
         cwd: targetCwd,
         worktreePath: targetWorktreePath,
       });
-      setTerminalOpen(true);
+      activateTerminalTab({ ensureOpen: true, focus: true });
       if (!activeThreadRef) {
         return;
       }
@@ -1796,7 +1852,6 @@ export default function ChatView(props: ChatViewProps) {
       } else {
         storeSetActiveTerminal(activeThreadRef, targetTerminalId);
       }
-      setTerminalFocusRequestId((value) => value + 1);
 
       const runtimeEnv = projectScriptRuntimeEnv({
         project: {
@@ -1842,8 +1897,8 @@ export default function ChatView(props: ChatViewProps) {
       activeThread,
       activeThreadId,
       activeThreadRef,
+      activateTerminalTab,
       gitCwd,
-      setTerminalOpen,
       setThreadError,
       storeNewTerminal,
       storeSetActiveTerminal,
@@ -2490,6 +2545,11 @@ export default function ChatView(props: ChatViewProps) {
   }, [activeChatTab, focusComposer]);
 
   useEffect(() => {
+    if (activeChatTab !== "terminal") return;
+    setTerminalFocusRequestId((value) => value + 1);
+  }, [activeChatTab]);
+
+  useEffect(() => {
     if (!activeThread?.id) return;
     if (activeThread.messages.length === 0) {
       return;
@@ -2651,19 +2711,32 @@ export default function ChatView(props: ChatViewProps) {
   ]);
 
   useEffect(() => {
+    if (activeChatTab !== "terminal") {
+      return;
+    }
+    if (terminalState.terminalOpen && activeProject) {
+      return;
+    }
+    useEditorStore.getState().setActiveChatTab(resolveTerminalFallbackChatTab());
+  }, [activeChatTab, activeProject, resolveTerminalFallbackChatTab, terminalState.terminalOpen]);
+
+  useEffect(() => {
     if (!activeThreadKey) return;
     const previous = terminalOpenByThreadRef.current[activeThreadKey] ?? false;
     const current = Boolean(terminalState.terminalOpen);
 
     if (!previous && current) {
       terminalOpenByThreadRef.current[activeThreadKey] = current;
-      setTerminalFocusRequestId((value) => value + 1);
       return;
     } else if (previous && !current) {
       terminalOpenByThreadRef.current[activeThreadKey] = current;
       const frame = window.requestAnimationFrame(() => {
+        const fallbackTab = resolveTerminalFallbackChatTab();
+        if (activeChatTab === "terminal") {
+          useEditorStore.getState().setActiveChatTab(fallbackTab);
+        }
         const focusTarget = resolveTerminalCloseFocusTarget({
-          activeChatTab,
+          activeChatTab: fallbackTab,
           editorAvailable,
         });
         if (focusTarget === "editor") {
@@ -2684,6 +2757,7 @@ export default function ChatView(props: ChatViewProps) {
     editorAvailable,
     focusComposer,
     requestEditorFocus,
+    resolveTerminalFallbackChatTab,
     terminalState.terminalOpen,
   ]);
 
@@ -2712,7 +2786,7 @@ export default function ChatView(props: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         if (!terminalState.terminalOpen) {
-          setTerminalOpen(true);
+          activateTerminalTab({ ensureOpen: true, focus: false });
         }
         splitTerminal();
         return;
@@ -2730,7 +2804,7 @@ export default function ChatView(props: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         if (!terminalState.terminalOpen) {
-          setTerminalOpen(true);
+          activateTerminalTab({ ensureOpen: true, focus: false });
         }
         createNewTerminal();
         return;
@@ -2786,7 +2860,7 @@ export default function ChatView(props: ChatViewProps) {
     commandPaletteOpen,
     closeTerminal,
     createNewTerminal,
-    setTerminalOpen,
+    activateTerminalTab,
     runProjectScript,
     runGlobalScript,
     splitTerminal,
@@ -3452,6 +3526,7 @@ export default function ChatView(props: ChatViewProps) {
       isServerThread,
       persistThreadSettingsForNextTurn,
       resetLocalDispatch,
+      rightPanel,
       runtimeMode,
       setComposerDraftInteractionMode,
       setThreadError,
@@ -3759,7 +3834,7 @@ export default function ChatView(props: ChatViewProps) {
       <div className="flex min-h-0 min-w-0 flex-1">
         {/* Chat column */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <ChatTabBar editorAvailable={editorAvailable} />
+          <ChatTabBar editorAvailable={editorAvailable} terminalOpen={terminalState.terminalOpen} />
           {/* Thread tab — composer hides "for free" when this branch is
               hidden via display:none. EditorPane mounts unconditionally
               alongside so its canvas/GL state stays warm across toggles. */}
@@ -3947,7 +4022,21 @@ export default function ChatView(props: ChatViewProps) {
               />
             ) : null}
           </div>
-          {/* end thread tab */}
+          {activeThreadKey ? (
+            <PersistentThreadTerminalDrawer
+              threadRef={routeThreadRef}
+              threadId={threadId}
+              visible={activeChatTab === "terminal" && terminalState.terminalOpen}
+              layoutMode="tab"
+              launchContext={activeTerminalLaunchContext ?? null}
+              focusRequestId={activeChatTab === "terminal" ? terminalFocusRequestId : 0}
+              splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
+              newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+              closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+              keybindings={keybindings}
+              onAddTerminalContext={addTerminalContextToDraft}
+            />
+          ) : null}
           {editorAvailable && (
             <EditorPane
               visible={activeChatTab === "editor"}
@@ -3978,23 +4067,24 @@ export default function ChatView(props: ChatViewProps) {
       </div>
       {/* end horizontal flex container */}
 
-      {mountedTerminalThreadRefs.map(({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
-        <PersistentThreadTerminalDrawer
-          key={mountedThreadKey}
-          threadRef={mountedThreadRef}
-          threadId={mountedThreadRef.threadId}
-          visible={mountedThreadKey === activeThreadKey && terminalState.terminalOpen}
-          launchContext={
-            mountedThreadKey === activeThreadKey ? (activeTerminalLaunchContext ?? null) : null
-          }
-          focusRequestId={mountedThreadKey === activeThreadKey ? terminalFocusRequestId : 0}
-          splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
-          newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-          closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
-          keybindings={keybindings}
-          onAddTerminalContext={addTerminalContextToDraft}
-        />
-      ))}
+      {mountedTerminalThreadRefs
+        .filter(({ key: mountedThreadKey }) => mountedThreadKey !== activeThreadKey)
+        .map(({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
+          <PersistentThreadTerminalDrawer
+            key={mountedThreadKey}
+            threadRef={mountedThreadRef}
+            threadId={mountedThreadRef.threadId}
+            visible={false}
+            layoutMode="tab"
+            launchContext={null}
+            focusRequestId={0}
+            splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
+            newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+            closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+            keybindings={keybindings}
+            onAddTerminalContext={addTerminalContextToDraft}
+          />
+        ))}
       {/* Right panel tabs — mobile sheet */}
       {shouldUsePlanSidebarSheet ? (
         <RightPanelSheet open={rightPanel.activeTab !== null} onClose={closeRightPanel}>

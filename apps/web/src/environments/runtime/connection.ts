@@ -39,7 +39,11 @@ interface OrchestrationHandlers {
     events: ReadonlyArray<OrchestrationEvent>,
     environmentId: EnvironmentId,
   ) => void;
-  readonly syncSnapshot: (snapshot: OrchestrationReadModel, environmentId: EnvironmentId) => void;
+  readonly syncSnapshot: (
+    snapshot: OrchestrationReadModel,
+    environmentId: EnvironmentId,
+    detailLevel: "bootstrap" | "full",
+  ) => void;
   readonly applyTerminalEvent: (event: TerminalEvent, environmentId: EnvironmentId) => void;
 }
 
@@ -231,10 +235,12 @@ export function createEnvironmentConnection(
 
     try {
       const snapshot = await retryTransportRecoveryOperation(() =>
-        input.client.orchestration.getSnapshot(),
+        reason === "bootstrap"
+          ? input.client.orchestration.getBootstrapSnapshot()
+          : input.client.orchestration.getSnapshot(),
       );
       if (!disposed) {
-        input.syncSnapshot(snapshot, environmentId);
+        input.syncSnapshot(snapshot, environmentId, reason === "bootstrap" ? "bootstrap" : "full");
         if (recovery.completeSnapshotRecovery(snapshot.snapshotSequence)) {
           scheduleReplayRecovery("sequence-gap");
         }

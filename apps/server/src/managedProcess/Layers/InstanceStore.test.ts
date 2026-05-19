@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Scope } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 import { describe, expect } from "vitest";
 
 import { ServerConfig } from "../../config.ts";

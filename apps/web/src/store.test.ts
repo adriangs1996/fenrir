@@ -175,6 +175,9 @@ function makeState(thread: Thread): AppState {
         thread.turnDiffSummaries.map((summary) => [summary.turnId, summary] as const),
       ) as EnvironmentState["turnDiffSummaryByThreadId"][ThreadId],
     },
+    threadDetailsHydratedById: {
+      [thread.id]: true,
+    },
     sidebarThreadSummaryById: {},
     managedProcessInstanceById: {},
     managedProcessInstanceIdsByProjectId: {},
@@ -202,6 +205,7 @@ function makeEmptyState(overrides: Partial<AppState & EnvironmentState> = {}): A
     proposedPlanByThreadId: {},
     turnDiffIdsByThreadId: {},
     turnDiffSummaryByThreadId: {},
+    threadDetailsHydratedById: {},
     sidebarThreadSummaryById: {},
     managedProcessInstanceById: {},
     managedProcessInstanceIdsByProjectId: {},

@@ -54,7 +54,7 @@ const makeInstanceStore = Effect.gen(function* () {
   const { stateDir } = yield* ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
-  const { join, dirname } = pathService;
+  const { join } = pathService;
 
   // Keyed mutex: one semaphore per projectId to serialize read-modify-write
   const mutexes = new Map<string, Semaphore.Semaphore>();
@@ -85,14 +85,18 @@ const makeInstanceStore = Effect.gen(function* () {
         .readFileString(fp)
         .pipe(Effect.mapError((e) => new InstanceStoreError("io", `failed to read ${fp}`, e)));
 
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch (e) {
-        yield* Effect.logWarning("InstanceStore: corrupt JSON, returning empty list", {
-          path: fp,
-          error: e,
-        });
+      const parsed = yield* Effect.try({
+        try: () => JSON.parse(raw) as unknown,
+        catch: (error) => new InstanceStoreError("decode", `failed to parse ${fp}`, error),
+      }).pipe(
+        Effect.catchTag("InstanceStoreError", (error) =>
+          Effect.logWarning("InstanceStore: corrupt JSON, returning empty list", {
+            path: fp,
+            error: error.cause,
+          }).pipe(Effect.as(null)),
+        ),
+      );
+      if (parsed === null) {
         return [];
       }
 

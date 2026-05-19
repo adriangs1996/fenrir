@@ -141,6 +141,10 @@ const LOCAL_API = {
     refreshProviders: vi.fn(async () => undefined),
     upsertKeybinding: vi.fn(async () => undefined),
     removeKeybinding: vi.fn(async () => undefined),
+    getTraceDiagnostics: vi.fn(async () => undefined),
+    getProcessDiagnostics: vi.fn(async () => undefined),
+    getProcessResourceHistory: vi.fn(async () => undefined),
+    signalProcess: vi.fn(async () => undefined),
     getSettings: vi.fn(async () => {
       throw new Error("unused");
     }),

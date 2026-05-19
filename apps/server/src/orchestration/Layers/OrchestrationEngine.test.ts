@@ -144,10 +144,12 @@ describe("OrchestrationEngine", () => {
     const layer = OrchestrationEngineLive.pipe(
       Layer.provide(
         Layer.succeed(ProjectionSnapshotQuery, {
+          getBootstrapSnapshot: () => Effect.succeed(projectionSnapshot),
           getSnapshot: () => Effect.succeed(projectionSnapshot),
           getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+          getThreadSnapshot: () => Effect.succeed(Option.some(projectionSnapshot.threads[0]!)),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
         }),
       ),

@@ -388,7 +388,7 @@ it.effect("rejects invalid scope value", () =>
 // ---------- ManagedProcessRpcError ----------
 
 it.effect("round-trips ManagedProcessRpcError", () =>
-  Effect.gen(function* () {
+  Effect.sync(() => {
     const err = new ManagedProcessRpcError({
       code: "not-found",
       message: "Process not found",
@@ -400,7 +400,7 @@ it.effect("round-trips ManagedProcessRpcError", () =>
 );
 
 it.effect("accepts all ManagedProcessRpcError codes", () =>
-  Effect.gen(function* () {
+  Effect.sync(() => {
     const codes = [
       "not-found",
       "invalid-state",

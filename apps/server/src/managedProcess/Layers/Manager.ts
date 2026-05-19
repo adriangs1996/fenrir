@@ -277,13 +277,11 @@ const makeManagedProcessManager = Effect.gen(function* () {
       const readModel = yield* orchestrationEngine.getReadModel();
       const project = readModel.projects.find((p) => p.id === input.projectId);
       if (!project) {
-        return yield* Effect.fail(rpcError("not-found", `project ${input.projectId} not found`));
+        return yield* rpcError("not-found", `project ${input.projectId} not found`);
       }
       const definition = project.managedProcesses.find((d) => d.id === input.processDefId);
       if (!definition) {
-        return yield* Effect.fail(
-          rpcError("not-found", `process definition ${input.processDefId} not found`),
-        );
+        return yield* rpcError("not-found", `process definition ${input.processDefId} not found`);
       }
 
       // 2. Compute instance key.
@@ -447,7 +445,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
             .upsert(toPersistedRecord(inst, executorKind))
             .pipe(Effect.catchCause(() => Effect.void)),
         );
-        return yield* Effect.fail(rpcError("spawn-failed", err.message));
+        return yield* rpcError("spawn-failed", err.message);
       }
 
       // 13. Spawn success — wire handlers.
@@ -496,15 +494,13 @@ const makeManagedProcessManager = Effect.gen(function* () {
     Effect.gen(function* () {
       const inst = byId.get(instanceId);
       if (!inst) {
-        return yield* Effect.fail(rpcError("not-found", "instance not found"));
+        return yield* rpcError("not-found", "instance not found");
       }
       if (inst.status === "idle" || inst.status === "stopped" || inst.status === "crashed") {
-        return yield* Effect.fail(
-          rpcError("invalid-state", `cannot stop instance in ${inst.status} state`),
-        );
+        return yield* rpcError("invalid-state", `cannot stop instance in ${inst.status} state`);
       }
       if (!inst.handle) {
-        return yield* Effect.fail(rpcError("invalid-state", "instance has no active handle"));
+        return yield* rpcError("invalid-state", "instance has no active handle");
       }
 
       const prevStatus = inst.status;
@@ -519,9 +515,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
         lastError: null,
       });
 
-      yield* inst.handle
-        .stop()
-        .pipe(Effect.catch((err) => Effect.fail(rpcError("io-error", err.message))));
+      yield* inst.handle.stop().pipe(Effect.mapError((err) => rpcError("io-error", err.message)));
 
       setTimeout(() => {
         if (inst.status !== "stopping" || !inst.handle) return;
@@ -539,7 +533,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
     Effect.gen(function* () {
       const inst = byId.get(instanceId);
       if (!inst) {
-        return yield* Effect.fail(rpcError("not-found", "instance not found"));
+        return yield* rpcError("not-found", "instance not found");
       }
       if (
         !inst.handle ||
@@ -547,8 +541,9 @@ const makeManagedProcessManager = Effect.gen(function* () {
         inst.status === "crashed" ||
         inst.status === "idle"
       ) {
-        return yield* Effect.fail(
-          rpcError("invalid-state", `cannot force-kill instance in ${inst.status} state`),
+        return yield* rpcError(
+          "invalid-state",
+          `cannot force-kill instance in ${inst.status} state`,
         );
       }
 
@@ -569,7 +564,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
 
       yield* inst.handle
         .forceKill()
-        .pipe(Effect.catch((err) => Effect.fail(rpcError("io-error", err.message))));
+        .pipe(Effect.mapError((err) => rpcError("io-error", err.message)));
 
       return toPublicInstance(inst, executorKind);
     });
@@ -582,7 +577,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
     Effect.gen(function* () {
       const inst = byId.get(instanceId);
       if (!inst) {
-        return yield* Effect.fail(rpcError("not-found", "instance not found"));
+        return yield* rpcError("not-found", "instance not found");
       }
 
       const needsStop =
@@ -603,11 +598,11 @@ const makeManagedProcessManager = Effect.gen(function* () {
       const readModel = yield* orchestrationEngine.getReadModel();
       const project = readModel.projects.find((p) => p.id === inst.projectId);
       if (!project) {
-        return yield* Effect.fail(rpcError("not-found", "project not found after stop"));
+        return yield* rpcError("not-found", "project not found after stop");
       }
       const newDef = project.managedProcesses.find((d) => d.id === inst.processDefId);
       if (!newDef) {
-        return yield* Effect.fail(rpcError("not-found", "process definition deleted"));
+        return yield* rpcError("not-found", "process definition deleted");
       }
 
       // User-initiated restart: counter resets (via _isAutoRestart = false).
@@ -627,13 +622,13 @@ const makeManagedProcessManager = Effect.gen(function* () {
     Effect.gen(function* () {
       const inst = byId.get(input.instanceId);
       if (!inst) {
-        return yield* Effect.fail(rpcError("not-found", "instance not found"));
+        return yield* rpcError("not-found", "instance not found");
       }
       if (inst.status !== "running" && inst.status !== "starting") {
-        return yield* Effect.fail(rpcError("invalid-state", `cannot write to ${inst.status}`));
+        return yield* rpcError("invalid-state", `cannot write to ${inst.status}`);
       }
       if (!inst.handle) {
-        return yield* Effect.fail(rpcError("invalid-state", "instance has no active handle"));
+        return yield* rpcError("invalid-state", "instance has no active handle");
       }
       yield* inst.handle
         .write(input.data)
@@ -671,7 +666,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
   > =>
     Effect.gen(function* () {
       if (!byId.has(instanceId)) {
-        return yield* Effect.fail(rpcError("not-found", "instance not found"));
+        return yield* rpcError("not-found", "instance not found");
       }
 
       const backfill = yield* logBuffer.read(instanceId);

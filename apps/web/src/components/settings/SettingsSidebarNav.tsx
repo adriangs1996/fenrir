@@ -5,6 +5,7 @@ import {
   FolderArchiveIcon,
   KeyboardIcon,
   Link2Icon,
+  SignalIcon,
   Settings2Icon,
   ShieldIcon,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import {
 
 export type SettingsSectionPath =
   | "/settings/general"
+  | "/settings/diagnostics"
   | "/settings/keybindings"
   | "/settings/connections"
   | "/settings/vpn"
@@ -34,6 +36,7 @@ export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   icon: ComponentType<{ className?: string }>;
 }> = [
   { label: "General", to: "/settings/general", icon: Settings2Icon },
+  { label: "Diagnostics", to: "/settings/diagnostics", icon: SignalIcon },
   { label: "Keybindings", to: "/settings/keybindings", icon: KeyboardIcon },
   { label: "Connections", to: "/settings/connections", icon: Link2Icon },
   { label: "VPN", to: "/settings/vpn", icon: ShieldIcon },
@@ -62,7 +65,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                         ? "gap-2.5 px-2.5 py-2 text-left text-[13px] font-medium text-foreground"
                         : "gap-2.5 px-2.5 py-2 text-left text-[13px] text-muted-foreground/70 hover:text-foreground/80"
                     }
-                    onClick={() => void navigate({ to: item.to, replace: true })}
+                    onClick={() => void navigate({ to: item.to as never, replace: true })}
                   >
                     <Icon
                       className={

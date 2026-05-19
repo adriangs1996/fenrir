@@ -74,7 +74,7 @@ export function searchProviderSkills(
   const scored = skills
     .map((skill) => ({ skill, score: scoreSkill(skill, trimmed) }))
     .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score);
+    .toSorted((a, b) => b.score - a.score);
 
   return scored.map(({ skill }) => skill);
 }

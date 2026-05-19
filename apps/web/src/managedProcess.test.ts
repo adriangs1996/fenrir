@@ -1,5 +1,5 @@
 import type { ManagedProcessInstance } from "@fenrir/contracts";
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 
 import {
   displayBranchSlug,

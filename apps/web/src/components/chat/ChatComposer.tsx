@@ -752,17 +752,21 @@ export const ChatComposer = memo(
             if (!query) return true;
             return s.name.includes(query) || s.displayName.toLowerCase().includes(query);
           })
-          .sort((a, b) => a.name.localeCompare(b.name))
+          .toSorted((a, b) => a.name.localeCompare(b.name))
           .slice(0, 8)
-          .map((s) => ({
-            id: `skill:${s.name}`,
-            type: "skill" as const,
-            name: s.name,
-            displayName: s.displayName,
-            description: s.description,
-            ...(s.icon !== undefined ? { icon: s.icon } : {}),
-            body: s.body,
-          }));
+          .map((s) =>
+            Object.assign(
+              {
+                id: `skill:${s.name}`,
+                type: `skill` as const,
+                name: s.name,
+                displayName: s.displayName,
+                description: s.description,
+              },
+              s.icon !== undefined ? { icon: s.icon } : {},
+              { body: s.body },
+            ),
+          );
         return [...matchedSlashCommands, ...matchedSkills];
       }
       return searchableModelOptions

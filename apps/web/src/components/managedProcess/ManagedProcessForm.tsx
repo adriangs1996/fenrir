@@ -91,6 +91,14 @@ export interface ManagedProcessFormProps {
 
 type ProxyKind = "none" | "portless";
 type ReadinessKind = "none" | "portless-http" | "log-pattern";
+type EnvEntry = { id: string; key: string; value: string };
+
+let envEntryCounter = 0;
+
+function createEnvEntry(key = "", value = ""): EnvEntry {
+  envEntryCounter += 1;
+  return { id: `env-${envEntryCounter}`, key, value };
+}
 
 // ---------------------------------------------------------------------------
 // Env key-value editor
@@ -100,10 +108,10 @@ function EnvEditor({
   entries,
   onChange,
 }: {
-  entries: Array<{ key: string; value: string }>;
-  onChange: (entries: Array<{ key: string; value: string }>) => void;
+  entries: EnvEntry[];
+  onChange: (entries: EnvEntry[]) => void;
 }) {
-  const addRow = () => onChange([...entries, { key: "", value: "" }]);
+  const addRow = () => onChange([...entries, createEnvEntry()]);
   const removeRow = (index: number) => onChange(entries.filter((_, i) => i !== index));
   const updateRow = (index: number, field: "key" | "value", val: string) =>
     onChange(entries.map((e, i) => (i === index ? { ...e, [field]: val } : e)));
@@ -111,7 +119,7 @@ function EnvEditor({
   return (
     <div className="space-y-2">
       {entries.map((entry, i) => (
-        <div key={i} className="flex items-center gap-2">
+        <div key={entry.id} className="flex items-center gap-2">
           <Input
             placeholder="KEY"
             value={entry.key}
@@ -167,9 +175,9 @@ export function ManagedProcessForm({
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [scope, setScope] = useState<ManagedProcessScope>(initial?.scope ?? "worktree");
   const [cwd, setCwd] = useState(initial?.cwd ?? "");
-  const [envEntries, setEnvEntries] = useState<Array<{ key: string; value: string }>>(() => {
+  const [envEntries, setEnvEntries] = useState<EnvEntry[]>(() => {
     if (!initial?.env) return [];
-    return Object.entries(initial.env).map(([key, value]) => ({ key, value }));
+    return Object.entries(initial.env).map(([key, value]) => createEnvEntry(key, value));
   });
   const [proxyKind, setProxyKind] = useState<ProxyKind>(initial?.proxy ? "portless" : "none");
   const [proxyAppName, setProxyAppName] = useState(initial?.proxy?.appName ?? "");
@@ -222,7 +230,7 @@ export function ManagedProcessForm({
   const regexError = useMemo(() => {
     if (readinessKind !== "log-pattern" || readinessPattern.trim() === "") return null;
     try {
-      new RegExp(readinessPattern);
+      RegExp(readinessPattern);
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : "Invalid regular expression";

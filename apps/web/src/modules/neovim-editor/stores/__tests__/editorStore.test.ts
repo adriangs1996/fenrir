@@ -17,6 +17,11 @@ describe("editorStore", () => {
       useEditorStore.getState().setActiveChatTab("editor");
       expect(useEditorStore.getState().activeChatTab).toBe("editor");
     });
+
+    it("allows the terminal tab", () => {
+      useEditorStore.getState().setActiveChatTab("terminal");
+      expect(useEditorStore.getState().activeChatTab).toBe("terminal");
+    });
   });
 
   describe("toggleChatTab", () => {
@@ -35,6 +40,12 @@ describe("editorStore", () => {
       useEditorStore.getState().toggleChatTab();
       useEditorStore.getState().toggleChatTab();
       expect(useEditorStore.getState().activeChatTab).toBe("thread");
+    });
+
+    it("switches from terminal to editor", () => {
+      useEditorStore.getState().setActiveChatTab("terminal");
+      useEditorStore.getState().toggleChatTab();
+      expect(useEditorStore.getState().activeChatTab).toBe("editor");
     });
   });
 

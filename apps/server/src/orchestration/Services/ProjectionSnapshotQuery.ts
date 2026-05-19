@@ -10,6 +10,7 @@ import type {
   OrchestrationCheckpointSummary,
   OrchestrationProject,
   OrchestrationReadModel,
+  OrchestrationThread,
   ProjectId,
   ThreadId,
 } from "@fenrir/contracts";
@@ -37,6 +38,17 @@ export interface ProjectionThreadCheckpointContext {
  */
 export interface ProjectionSnapshotQueryShape {
   /**
+   * Read a lightweight bootstrap snapshot for initial UI hydration.
+   *
+   * This omits per-thread history collections and is intended for fast client
+   * startup on large datasets.
+   */
+  readonly getBootstrapSnapshot: () => Effect.Effect<
+    OrchestrationReadModel,
+    ProjectionRepositoryError
+  >;
+
+  /**
    * Read the latest orchestration projection snapshot.
    *
    * Rehydrates from projection tables and derives snapshot sequence from
@@ -62,6 +74,13 @@ export interface ProjectionSnapshotQueryShape {
   readonly getFirstActiveThreadIdByProjectId: (
     projectId: ProjectId,
   ) => Effect.Effect<Option.Option<ThreadId>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single active thread with full projected detail collections.
+   */
+  readonly getThreadSnapshot: (
+    threadId: ThreadId,
+  ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
 
   /**
    * Read the checkpoint context needed to resolve a single thread diff.

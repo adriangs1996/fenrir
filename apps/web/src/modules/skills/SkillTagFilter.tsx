@@ -16,7 +16,7 @@ export function SkillTagFilter({ skills, activeTag, onTagChange }: SkillTagFilte
         seen.add(tag);
       }
     }
-    return Array.from(seen).sort();
+    return Array.from(seen).toSorted();
   }, [skills]);
 
   if (tags.length === 0) return null;

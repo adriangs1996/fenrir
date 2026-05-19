@@ -17,7 +17,9 @@ import {
 } from "./baseSchemas";
 
 export const ORCHESTRATION_WS_METHODS = {
+  getBootstrapSnapshot: "orchestration.getBootstrapSnapshot",
   getSnapshot: "orchestration.getSnapshot",
+  getThreadSnapshot: "orchestration.getThreadSnapshot",
   dispatchCommand: "orchestration.dispatchCommand",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
@@ -1232,6 +1234,20 @@ export type OrchestrationGetSnapshotInput = typeof OrchestrationGetSnapshotInput
 const OrchestrationGetSnapshotResult = OrchestrationReadModel;
 export type OrchestrationGetSnapshotResult = typeof OrchestrationGetSnapshotResult.Type;
 
+export const OrchestrationGetBootstrapSnapshotInput = Schema.Struct({});
+export type OrchestrationGetBootstrapSnapshotInput =
+  typeof OrchestrationGetBootstrapSnapshotInput.Type;
+const OrchestrationGetBootstrapSnapshotResult = OrchestrationReadModel;
+export type OrchestrationGetBootstrapSnapshotResult =
+  typeof OrchestrationGetBootstrapSnapshotResult.Type;
+
+export const OrchestrationGetThreadSnapshotInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type OrchestrationGetThreadSnapshotInput = typeof OrchestrationGetThreadSnapshotInput.Type;
+const OrchestrationGetThreadSnapshotResult = Schema.NullOr(OrchestrationThread);
+export type OrchestrationGetThreadSnapshotResult = typeof OrchestrationGetThreadSnapshotResult.Type;
+
 export const OrchestrationGetTurnDiffInput = TurnCountRange.mapFields(
   Struct.assign({
     threadId: ThreadId,
@@ -1263,9 +1279,17 @@ const OrchestrationReplayEventsResult = Schema.Array(OrchestrationEvent);
 export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsResult.Type;
 
 export const OrchestrationRpcSchemas = {
+  getBootstrapSnapshot: {
+    input: OrchestrationGetBootstrapSnapshotInput,
+    output: OrchestrationGetBootstrapSnapshotResult,
+  },
   getSnapshot: {
     input: OrchestrationGetSnapshotInput,
     output: OrchestrationGetSnapshotResult,
+  },
+  getThreadSnapshot: {
+    input: OrchestrationGetThreadSnapshotInput,
+    output: OrchestrationGetThreadSnapshotResult,
   },
   dispatchCommand: {
     input: ClientOrchestrationCommand,

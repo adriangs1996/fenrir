@@ -59,6 +59,7 @@ export interface EnvironmentState {
   turnDiffIdsByThreadId: Record<ThreadId, TurnId[]>;
   turnDiffSummaryByThreadId: Record<ThreadId, Record<TurnId, TurnDiffSummary>>;
   sidebarThreadSummaryById: Record<ThreadId, SidebarThreadSummary>;
+  threadDetailsHydratedById?: Record<ThreadId, boolean>;
   managedProcessInstanceById: Record<string, ManagedProcessInstance>;
   managedProcessInstanceIdsByProjectId: Record<ProjectId, string[]>;
   bootstrapComplete: boolean;
@@ -86,6 +87,7 @@ const initialEnvironmentState: EnvironmentState = {
   turnDiffIdsByThreadId: {},
   turnDiffSummaryByThreadId: {},
   sidebarThreadSummaryById: {},
+  threadDetailsHydratedById: {},
   managedProcessInstanceById: {},
   managedProcessInstanceIdsByProjectId: {},
   bootstrapComplete: false,
@@ -224,6 +226,24 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     worktreePath: thread.worktreePath,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
+  };
+}
+
+function setThreadDetailsHydrated(
+  state: EnvironmentState,
+  threadId: ThreadId,
+  hydrated: boolean,
+): EnvironmentState {
+  if ((state.threadDetailsHydratedById?.[threadId] ?? false) === hydrated) {
+    return state;
+  }
+
+  return {
+    ...state,
+    threadDetailsHydratedById: {
+      ...state.threadDetailsHydratedById,
+      [threadId]: hydrated,
+    },
   };
 }
 
@@ -605,6 +625,8 @@ function removeThreadState(state: EnvironmentState, threadId: ThreadId): Environ
     state.turnDiffSummaryByThreadId;
   const { [threadId]: _removedSidebarSummary, ...sidebarThreadSummaryById } =
     state.sidebarThreadSummaryById;
+  const { [threadId]: _removedDetailsHydrated, ...threadDetailsHydratedById } =
+    state.threadDetailsHydratedById ?? {};
 
   return {
     ...state,
@@ -622,6 +644,7 @@ function removeThreadState(state: EnvironmentState, threadId: ThreadId): Environ
     turnDiffIdsByThreadId,
     turnDiffSummaryByThreadId,
     sidebarThreadSummaryById,
+    threadDetailsHydratedById,
   };
 }
 
@@ -860,6 +883,7 @@ function buildThreadState(
   | "turnDiffIdsByThreadId"
   | "turnDiffSummaryByThreadId"
   | "sidebarThreadSummaryById"
+  | "threadDetailsHydratedById"
 > {
   const threadIds: ThreadId[] = [];
   const threadIdsByProjectId: Record<ProjectId, ThreadId[]> = {};
@@ -875,6 +899,7 @@ function buildThreadState(
   const turnDiffIdsByThreadId: Record<ThreadId, TurnId[]> = {};
   const turnDiffSummaryByThreadId: Record<ThreadId, Record<TurnId, TurnDiffSummary>> = {};
   const sidebarThreadSummaryById: Record<ThreadId, SidebarThreadSummary> = {};
+  const threadDetailsHydratedById: Record<ThreadId, boolean> = {};
 
   for (const thread of threads) {
     threadIds.push(thread.id);
@@ -898,6 +923,7 @@ function buildThreadState(
     turnDiffIdsByThreadId[thread.id] = turnDiffSlice.ids;
     turnDiffSummaryByThreadId[thread.id] = turnDiffSlice.byId;
     sidebarThreadSummaryById[thread.id] = buildSidebarThreadSummary(thread);
+    threadDetailsHydratedById[thread.id] = true;
   }
 
   return {
@@ -915,6 +941,7 @@ function buildThreadState(
     turnDiffIdsByThreadId,
     turnDiffSummaryByThreadId,
     sidebarThreadSummaryById,
+    threadDetailsHydratedById,
   };
 }
 
@@ -1032,6 +1059,32 @@ function syncEnvironmentReadModel(
   };
 }
 
+function markAllThreadDetailsHydrated(
+  state: EnvironmentState,
+  hydrated: boolean,
+): EnvironmentState {
+  const nextThreadDetailsHydratedById = Object.fromEntries(
+    state.threadIds.map((threadId) => [threadId, hydrated] as const),
+  ) as Record<ThreadId, boolean>;
+
+  if (
+    Object.keys(state.threadDetailsHydratedById ?? {}).length ===
+      Object.keys(nextThreadDetailsHydratedById).length &&
+    state.threadIds.every(
+      (threadId) =>
+        (state.threadDetailsHydratedById?.[threadId] ?? false) ===
+        nextThreadDetailsHydratedById[threadId],
+    )
+  ) {
+    return state;
+  }
+
+  return {
+    ...state,
+    threadDetailsHydratedById: nextThreadDetailsHydratedById,
+  };
+}
+
 export function syncServerReadModel(
   state: AppState,
   readModel: OrchestrationReadModel,
@@ -1045,6 +1098,33 @@ export function syncServerReadModel(
       readModel,
       environmentId,
     ),
+  );
+}
+
+export function syncThreadSnapshot(
+  state: AppState,
+  thread: OrchestrationThread,
+  environmentId: EnvironmentId,
+): AppState {
+  const environmentState = getStoredEnvironmentState(state, environmentId);
+  const previousThread = getThreadFromEnvironmentState(environmentState, thread.id);
+  const nextEnvironmentState = setThreadDetailsHydrated(
+    writeThreadState(environmentState, mapThread(thread, environmentId), previousThread),
+    thread.id,
+    true,
+  );
+  return commitEnvironmentState(state, environmentId, nextEnvironmentState);
+}
+
+export function setEnvironmentThreadDetailsHydrated(
+  state: AppState,
+  environmentId: EnvironmentId,
+  hydrated: boolean,
+): AppState {
+  return commitEnvironmentState(
+    state,
+    environmentId,
+    markAllThreadDetailsHydrated(getStoredEnvironmentState(state, environmentId), hydrated),
   );
 }
 
@@ -1180,7 +1260,11 @@ function applyEnvironmentOrchestrationEvent(
         },
         environmentId,
       );
-      return writeThreadState(state, nextThread, previousThread);
+      return setThreadDetailsHydrated(
+        writeThreadState(state, nextThread, previousThread),
+        event.payload.threadId,
+        true,
+      );
     }
 
     case "thread.deleted":
@@ -1745,6 +1829,16 @@ export function selectThreadExistsByRef(
     : false;
 }
 
+export function selectThreadDetailsHydratedByRef(
+  state: AppState,
+  ref: ScopedThreadRef | null | undefined,
+): boolean {
+  return ref
+    ? (selectEnvironmentState(state, ref.environmentId).threadDetailsHydratedById?.[ref.threadId] ??
+        false)
+    : false;
+}
+
 export function selectSidebarThreadSummaryByRef(
   state: AppState,
   ref: ScopedThreadRef | null | undefined,
@@ -1881,6 +1975,8 @@ export function setThreadBranch(
 interface AppStore extends AppState {
   setActiveEnvironmentId: (environmentId: EnvironmentId) => void;
   syncServerReadModel: (readModel: OrchestrationReadModel, environmentId: EnvironmentId) => void;
+  syncThreadSnapshot: (thread: OrchestrationThread, environmentId: EnvironmentId) => void;
+  setEnvironmentThreadDetailsHydrated: (environmentId: EnvironmentId, hydrated: boolean) => void;
   applyOrchestrationEvent: (event: OrchestrationEvent, environmentId: EnvironmentId) => void;
   applyOrchestrationEvents: (
     events: ReadonlyArray<OrchestrationEvent>,
@@ -1900,6 +1996,10 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => setActiveEnvironmentId(state, environmentId)),
   syncServerReadModel: (readModel, environmentId) =>
     set((state) => syncServerReadModel(state, readModel, environmentId)),
+  syncThreadSnapshot: (thread, environmentId) =>
+    set((state) => syncThreadSnapshot(state, thread, environmentId)),
+  setEnvironmentThreadDetailsHydrated: (environmentId, hydrated) =>
+    set((state) => setEnvironmentThreadDetailsHydrated(state, environmentId, hydrated)),
   applyOrchestrationEvent: (event, environmentId) =>
     set((state) => applyOrchestrationEvent(state, event, environmentId)),
   applyOrchestrationEvents: (events, environmentId) =>

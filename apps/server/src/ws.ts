@@ -1,4 +1,4 @@
-import { Cause, Effect, Layer, Queue, Ref, Schema, Stream } from "effect";
+import { Cause, Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
 import {
   type AuthAccessStreamEvent,
   AuthSessionId,
@@ -79,6 +79,9 @@ import { PlanRunnerService } from "./plan-runner/Services/PlanRunner";
 import type { TrafficLensEvent } from "@fenrir/contracts";
 import { resolveManagedProcessCwd } from "@fenrir/shared/projectScripts";
 import { SkillService } from "./skill/SkillService";
+import { ProcessDiagnostics } from "./diagnostics/ProcessDiagnostics";
+import { ProcessResourceMonitor } from "./diagnostics/ProcessResourceMonitor";
+import { TraceDiagnostics } from "./diagnostics/TraceDiagnostics";
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -153,6 +156,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const skillService = yield* SkillService;
       const managedProcessManager = yield* ManagedProcessManager;
       const importResolver = yield* ImportResolver;
+      const processDiagnostics = yield* ProcessDiagnostics;
+      const processResourceMonitor = yield* ProcessResourceMonitor;
+      const traceDiagnostics = yield* TraceDiagnostics;
       const activeTmuxProcesses = new Map<string, { pid: number }>();
 
       const serverCommandId = (tag: string) =>
@@ -618,6 +624,20 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             { "rpc.aggregate": "terminal" },
           ),
 
+        [ORCHESTRATION_WS_METHODS.getBootstrapSnapshot]: (_input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.getBootstrapSnapshot,
+            projectionSnapshotQuery.getBootstrapSnapshot().pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: "Failed to load orchestration bootstrap snapshot",
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
         [ORCHESTRATION_WS_METHODS.getSnapshot]: (_input) =>
           observeRpcEffect(
             ORCHESTRATION_WS_METHODS.getSnapshot,
@@ -626,6 +646,21 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 (cause) =>
                   new OrchestrationGetSnapshotError({
                     message: "Failed to load orchestration snapshot",
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.getThreadSnapshot]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.getThreadSnapshot,
+            projectionSnapshotQuery.getThreadSnapshot(input.threadId).pipe(
+              Effect.map((thread) => (Option.isSome(thread) ? thread.value : null)),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: "Failed to load orchestration thread snapshot",
                     cause,
                   }),
               ),
@@ -809,6 +844,33 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             }),
             { "rpc.aggregate": "server" },
           ),
+        [WS_METHODS.serverGetTraceDiagnostics]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGetTraceDiagnostics,
+            traceDiagnostics.read({
+              traceFilePath: config.serverTracePath,
+              maxFiles: config.traceMaxFiles,
+            }),
+            {
+              "rpc.aggregate": "server",
+            },
+          ),
+        [WS_METHODS.serverGetProcessDiagnostics]: (_input) =>
+          observeRpcEffect(WS_METHODS.serverGetProcessDiagnostics, processDiagnostics.read, {
+            "rpc.aggregate": "server",
+          }),
+        [WS_METHODS.serverGetProcessResourceHistory]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGetProcessResourceHistory,
+            processResourceMonitor.readHistory(input),
+            {
+              "rpc.aggregate": "server",
+            },
+          ),
+        [WS_METHODS.serverSignalProcess]: (input) =>
+          observeRpcEffect(WS_METHODS.serverSignalProcess, processDiagnostics.signal(input), {
+            "rpc.aggregate": "server",
+          }),
         [WS_METHODS.serverGetSettings]: (_input) =>
           observeRpcEffect(WS_METHODS.serverGetSettings, serverSettings.getSettings, {
             "rpc.aggregate": "server",
@@ -1450,14 +1512,17 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
 
               // Validate readiness log-pattern regex compiles
               if (input.definition.readiness.kind === "log-pattern") {
-                try {
-                  new RegExp(input.definition.readiness.pattern);
-                } catch {
-                  return yield* new ManagedProcessRpcError({
-                    code: "invalid-state",
-                    message: `Invalid readiness log-pattern regex: "${input.definition.readiness.pattern}"`,
-                  });
-                }
+                const readinessPattern = input.definition.readiness.pattern;
+                yield* Effect.try({
+                  try: () => {
+                    void new RegExp(readinessPattern);
+                  },
+                  catch: () =>
+                    new ManagedProcessRpcError({
+                      code: "invalid-state",
+                      message: `Invalid readiness log-pattern regex: "${readinessPattern}"`,
+                    }),
+                });
               }
 
               yield* orchestrationEngine.dispatch({
