@@ -99,6 +99,31 @@ describe("detectComposerTrigger", () => {
     expect(trigger?.kind).toBe("path");
     expect(trigger?.query).toBe("");
   });
+
+  it("detects $skill trigger at cursor", () => {
+    const text = "Use $doc";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "skill",
+      query: "doc",
+      rangeStart: "Use ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects $skill trigger in the middle of existing text", () => {
+    const text = "Use $do before sending";
+    const cursorAfterQuery = "Use $do".length;
+
+    const trigger = detectComposerTrigger(text, cursorAfterQuery);
+    expect(trigger).toEqual({
+      kind: "skill",
+      query: "do",
+      rangeStart: "Use ".length,
+      rangeEnd: cursorAfterQuery,
+    });
+  });
 });
 
 describe("replaceTextRange", () => {

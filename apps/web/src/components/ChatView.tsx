@@ -43,6 +43,7 @@ import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
+import { expandSkillReferences, formatSkillReferenceToken } from "../skillReferences";
 import {
   deriveCompletionDividerBeforeEntryId,
   derivePendingApprovals,
@@ -188,6 +189,7 @@ import {
   useServerAvailableEditors,
   useServerConfig,
   useServerKeybindings,
+  useServerSkills,
 } from "~/rpc/serverState";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
@@ -199,6 +201,7 @@ const IMAGE_ONLY_BOOTSTRAP_PROMPT =
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
+const EMPTY_PROVIDER_SKILLS: ReadonlyArray<{ name: string; displayName: string }> = [];
 const EMPTY_CHANGED_FILES_EXPANDED_BY_TURN_ID: Record<string, boolean> = {};
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 
@@ -717,8 +720,9 @@ export default function ChatView(props: ChatViewProps) {
       const snapshot = composerRef.current?.readSnapshot();
       const draft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
       const current = snapshot?.value ?? draft?.prompt ?? "";
-      const insertion = `/${skillName}`;
-      const next = current.length > 0 ? `${current} ${insertion}` : insertion;
+      const insertion = formatSkillReferenceToken(skillName);
+      const separator = current.length > 0 && !/\s$/.test(current) ? " " : "";
+      const next = `${current}${separator}${insertion} `;
       const nextCursor = collapseExpandedComposerCursor(next, next.length);
 
       setComposerDraftPrompt(composerDraftTarget, next);
@@ -1552,6 +1556,7 @@ export default function ChatView(props: ChatViewProps) {
   const gitStatusQuery = useGitStatus({ environmentId, cwd: gitCwd });
   const keybindings = useServerKeybindings();
   const availableEditors = useServerAvailableEditors();
+  const serverSkills = useServerSkills();
   const activeProviderStatus = useMemo(
     () => providerStatuses.find((status) => status.provider === selectedProvider) ?? null,
     [selectedProvider, providerStatuses],
@@ -3012,8 +3017,9 @@ export default function ChatView(props: ChatViewProps) {
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
     const composerEditorContextsSnapshot = [...useEditorStore.getState().pendingContexts];
+    const skillExpandedPrompt = expandSkillReferences(promptForSend, serverSkills).text;
     const messageTextWithTerminal = appendTerminalContextsToPrompt(
-      promptForSend,
+      skillExpandedPrompt,
       composerTerminalContextsSnapshot,
     );
     const messageTextForSend = appendEditorContextsToPrompt(
@@ -3884,6 +3890,7 @@ export default function ChatView(props: ChatViewProps) {
                   resolvedTheme={resolvedTheme}
                   timestampFormat={timestampFormat}
                   workspaceRoot={activeWorkspaceRoot}
+                  skills={serverSkills.length > 0 ? serverSkills : EMPTY_PROVIDER_SKILLS}
                 />
               </div>
 

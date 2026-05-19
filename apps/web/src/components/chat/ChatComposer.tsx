@@ -78,6 +78,8 @@ import {
 import { ContextWindowMeter } from "./ContextWindowMeter";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { basenameOfPath } from "../../vscode-icons";
+import { searchProviderSkills } from "../../skillSearch";
+import { formatSkillReferenceToken } from "../../skillReferences";
 import { cn, randomUUID } from "~/lib/utils";
 import { Separator } from "../ui/separator";
 import { Button } from "../ui/button";
@@ -746,28 +748,26 @@ export const ChatComposer = memo(
               (item) => item.command.includes(query) || item.label.slice(1).includes(query),
             )
           : slashCommandItems;
-        const matchedSkills: Array<Extract<ComposerCommandItem, { type: "skill" }>> = skills
-          .filter((s) => s.enabled)
-          .filter((s) => {
-            if (!query) return true;
-            return s.name.includes(query) || s.displayName.toLowerCase().includes(query);
-          })
-          .toSorted((a, b) => a.name.localeCompare(b.name))
+        return matchedSlashCommands;
+      }
+      if (composerTrigger.kind === "skill") {
+        return searchProviderSkills(
+          skills.filter((skill) => skill.enabled),
+          composerTrigger.query,
+        )
           .slice(0, 8)
-          .map((s) =>
+          .map((skill) =>
             Object.assign(
               {
-                id: `skill:${s.name}`,
-                type: `skill` as const,
-                name: s.name,
-                displayName: s.displayName,
-                description: s.description,
+                id: `skill:${skill.name}`,
+                type: "skill" as const,
+                name: skill.name,
+                displayName: skill.displayName,
+                description: skill.description,
               },
-              s.icon !== undefined ? { icon: s.icon } : {},
-              { body: s.body },
+              skill.icon !== undefined ? { icon: skill.icon } : {},
             ),
           );
-        return [...matchedSlashCommands, ...matchedSkills];
       }
       return searchableModelOptions
         .filter(({ searchSlug, searchName, searchProvider }) => {
@@ -1404,12 +1404,20 @@ export const ChatComposer = memo(
           return;
         }
         if (item.type === "skill") {
-          // Replace the slash trigger text with the skill body so the user
-          // can review / edit before sending. Auto-send is only available
-          // via the Skills panel "Run" action.
-          const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, item.body, {
-            expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
-          });
+          const replacement = `${formatSkillReferenceToken(item.name)} `;
+          const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+            snapshot.value,
+            trigger.rangeEnd,
+            replacement,
+          );
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            replacementRangeEnd,
+            replacement,
+            {
+              expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+            },
+          );
           if (applied) {
             setComposerHighlightedItemId(null);
           }
@@ -1879,7 +1887,7 @@ export const ChatComposer = memo(
                         ? "Add feedback to refine the plan, or leave this blank to implement it"
                         : phase === "disconnected"
                           ? "Ask for follow-up changes or attach images"
-                          : "Ask anything, @tag files/folders, or use / to show available commands"
+                          : "Ask anything, @tag files/folders, $use skills, or / for commands"
                 }
                 disabled={isConnecting || isComposerApprovalState}
               />

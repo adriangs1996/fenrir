@@ -23,6 +23,27 @@ export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
 
+export const MIN_SIDEBAR_THREAD_PREVIEW_COUNT = 1;
+export const MAX_SIDEBAR_THREAD_PREVIEW_COUNT = 15;
+export const SidebarThreadPreviewCount = Schema.Number.pipe(
+  Schema.decodeTo(
+    Schema.Number,
+    SchemaTransformation.transformOrFail({
+      decode: (value) =>
+        Effect.succeed(
+          Math.min(
+            MAX_SIDEBAR_THREAD_PREVIEW_COUNT,
+            Math.max(MIN_SIDEBAR_THREAD_PREVIEW_COUNT, Math.round(value)),
+          ),
+        ),
+      encode: (value) => Effect.succeed(value),
+    }),
+  ),
+  Schema.withDecodingDefault(() => 6),
+);
+export type SidebarThreadPreviewCount = typeof SidebarThreadPreviewCount.Type;
+export const DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT: SidebarThreadPreviewCount = 6;
+
 export const ClientSettingsSchema = Schema.Struct({
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
@@ -33,6 +54,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   sidebarThreadSortOrder: SidebarThreadSortOrder.pipe(
     Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_THREAD_SORT_ORDER),
+  ),
+  sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT),
   ),
   timestampFormat: TimestampFormat.pipe(Schema.withDecodingDefault(() => DEFAULT_TIMESTAMP_FORMAT)),
   uiFontFamily: Schema.String.pipe(Schema.withDecodingDefault(() => "Geist Mono")),

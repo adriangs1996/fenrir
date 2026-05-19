@@ -71,7 +71,6 @@ export type ComposerCommandItem =
       displayName: string;
       description: string;
       icon?: SkillIcon;
-      body: string;
     };
 
 export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
@@ -156,7 +155,9 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
               ? "Searching workspace files..."
               : props.triggerKind === "path"
                 ? "No matching files or folders."
-                : "No matching command."}
+                : props.triggerKind === "skill"
+                  ? "No matching skills."
+                  : "No matching command."}
           </p>
         )}
       </div>

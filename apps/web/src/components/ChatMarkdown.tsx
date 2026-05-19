@@ -1,5 +1,6 @@
 import { DiffsHighlighter, getSharedHighlighter, SupportedLanguages } from "@pierre/diffs";
 import { CheckIcon, CopyIcon } from "lucide-react";
+import type { ServerProviderSkill } from "@fenrir/contracts";
 import React, {
   Children,
   Suspense,
@@ -18,6 +19,7 @@ import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { renderSkillInlineMarkdownChildren } from "./chat/SkillInlineText";
 import { VscodeEntryIcon } from "./chat/VscodeEntryIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { toastManager } from "./ui/toast";
@@ -55,7 +57,10 @@ interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
   isStreaming?: boolean;
+  skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
 }
+
+const EMPTY_MARKDOWN_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
 const MAX_HIGHLIGHT_CACHE_ENTRIES = 500;
@@ -476,7 +481,12 @@ function areMarkdownFileLinkPropsEqual(
   );
 }
 
-function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
+function ChatMarkdown({
+  text,
+  cwd,
+  isStreaming = false,
+  skills = EMPTY_MARKDOWN_SKILLS,
+}: ChatMarkdownProps) {
   const { syntaxTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(syntaxTheme);
   const fileLinkTheme: "light" | "dark" = syntaxTheme === "light" ? "light" : "dark";
@@ -504,6 +514,12 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
   }, []);
   const markdownComponents = useMemo<Components>(
     () => ({
+      p({ node: _node, children, ...props }) {
+        return <p {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</p>;
+      },
+      li({ node: _node, children, ...props }) {
+        return <li {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</li>;
+      },
       a({ node: _node, href, ...props }) {
         const normalizedHref = href ? normalizeMarkdownLinkHrefKey(href) : "";
         const fileLinkMeta = normalizedHref ? markdownFileLinkMetaByHref.get(normalizedHref) : null;
@@ -562,6 +578,7 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
       fileLinkTheme,
       isStreaming,
       markdownFileLinkMetaByHref,
+      skills,
     ],
   );
 

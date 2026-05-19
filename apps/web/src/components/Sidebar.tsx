@@ -50,7 +50,10 @@ import {
 } from "@fenrir/client-runtime";
 import { Link, useLocation, useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import {
+  MAX_SIDEBAR_THREAD_PREVIEW_COUNT,
+  MIN_SIDEBAR_THREAD_PREVIEW_COUNT,
   type SidebarProjectSortOrder,
+  type SidebarThreadPreviewCount,
   type SidebarThreadSortOrder,
 } from "@fenrir/contracts/settings";
 import { usePrimaryEnvironmentId } from "../environments/primary";
@@ -164,7 +167,6 @@ import {
   ThreadStatusLabel,
 } from "./ThreadStatusIndicators";
 import type { Project, SidebarThreadSummary } from "../types";
-const THREAD_PREVIEW_LIMIT = 6;
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
@@ -179,6 +181,13 @@ const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   easing: "ease-out",
 } as const;
 const EMPTY_THREAD_JUMP_LABELS = new Map<string, string>();
+
+function clampSidebarThreadPreviewCount(value: number): SidebarThreadPreviewCount {
+  return Math.min(
+    MAX_SIDEBAR_THREAD_PREVIEW_COUNT,
+    Math.max(MIN_SIDEBAR_THREAD_PREVIEW_COUNT, Math.round(value)),
+  ) as SidebarThreadPreviewCount;
+}
 
 function threadJumpLabelMapsEqual(
   left: ReadonlyMap<string, string>,
@@ -303,7 +312,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const threadKey = scopedThreadKey(threadRef);
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
-  const hasSelection = useThreadSelectionStore((state) => state.selectedThreadKeys.size > 0);
   const runningTerminalIds = useTerminalStateStore(
     (state) =>
       selectThreadTerminalState(state.terminalStateByThreadKey, threadRef).runningTerminalIds,
@@ -389,6 +397,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const handleRowContextMenu = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
+      const hasSelection = useThreadSelectionStore.getState().hasSelection();
       if (hasSelection && isSelected) {
         void handleMultiSelectContextMenu({
           x: event.clientX,
@@ -405,14 +414,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         y: event.clientY,
       });
     },
-    [
-      clearSelection,
-      handleMultiSelectContextMenu,
-      handleThreadContextMenu,
-      hasSelection,
-      isSelected,
-      threadRef,
-    ],
+    [clearSelection, handleMultiSelectContextMenu, handleThreadContextMenu, isSelected, threadRef],
   );
   const handlePrClick = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -896,6 +898,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const threadSortOrder = useSettings<SidebarThreadSortOrder>(
     (settings) => settings.sidebarThreadSortOrder,
   );
+  const sidebarThreadPreviewCount = useSettings<SidebarThreadPreviewCount>(
+    (settings) => settings.sidebarThreadPreviewCount,
+  );
   const appSettingsConfirmThreadDelete = useSettings<boolean>(
     (settings) => settings.confirmThreadDelete,
   );
@@ -913,7 +918,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const removeFromSelection = useThreadSelectionStore((state) => state.removeFromSelection);
   const setSelectionAnchor = useThreadSelectionStore((state) => state.setAnchor);
-  const selectedThreadCount = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const clearComposerDraftForThread = useComposerDraftStore((state) => state.clearDraftThread);
   const getDraftThreadByProjectRef = useComposerDraftStore(
     (state) => state.getDraftThreadByProjectRef,
@@ -1128,11 +1132,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         },
       });
     };
-    const hasOverflowingThreads = visibleProjectThreads.length > THREAD_PREVIEW_LIMIT;
+    const hasOverflowingThreads = visibleProjectThreads.length > sidebarThreadPreviewCount;
     const previewThreads =
       isThreadListExpanded || !hasOverflowingThreads
         ? visibleProjectThreads
-        : visibleProjectThreads.slice(0, THREAD_PREVIEW_LIMIT);
+        : visibleProjectThreads.slice(0, sidebarThreadPreviewCount);
     const visibleThreadKeys = new Set(
       [...previewThreads, ...(pinnedCollapsedThread ? [pinnedCollapsedThread] : [])].map((thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -1161,6 +1165,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     pinnedCollapsedThread,
     projectExpanded,
     projectThreads,
+    sidebarThreadPreviewCount,
     threadLastVisitedAts,
     visibleProjectThreads,
   ]);
@@ -1184,7 +1189,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         event.stopPropagation();
         return;
       }
-      if (selectedThreadCount > 0) {
+      if (useThreadSelectionStore.getState().hasSelection()) {
         clearSelection();
       }
       toggleProject(project.cwd);
@@ -1193,7 +1198,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       clearSelection,
       dragInProgressRef,
       project.cwd,
-      selectedThreadCount,
       suppressProjectClickAfterDragRef,
       suppressProjectClickForContextMenuRef,
       toggleProject,
@@ -1939,14 +1943,25 @@ type SortableProjectHandleProps = Pick<
 function ProjectSortMenu({
   projectSortOrder,
   threadSortOrder,
+  threadPreviewCount,
   onProjectSortOrderChange,
   onThreadSortOrderChange,
+  onThreadPreviewCountChange,
 }: {
   projectSortOrder: SidebarProjectSortOrder;
   threadSortOrder: SidebarThreadSortOrder;
+  threadPreviewCount: SidebarThreadPreviewCount;
   onProjectSortOrderChange: (sortOrder: SidebarProjectSortOrder) => void;
   onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
+  onThreadPreviewCountChange: (count: SidebarThreadPreviewCount) => void;
 }) {
+  const updateThreadPreviewCount = useCallback(
+    (delta: number) => {
+      onThreadPreviewCountChange(clampSidebarThreadPreviewCount(threadPreviewCount + delta));
+    },
+    [onThreadPreviewCountChange, threadPreviewCount],
+  );
+
   return (
     <Menu>
       <Tooltip>
@@ -1957,9 +1972,9 @@ function ProjectSortMenu({
         >
           <ArrowUpDownIcon className="size-3.5" />
         </TooltipTrigger>
-        <TooltipPopup side="right">Sort projects</TooltipPopup>
+        <TooltipPopup side="right">Sidebar options</TooltipPopup>
       </Tooltip>
-      <MenuPopup align="end" side="bottom" className="min-w-44">
+      <MenuPopup align="end" side="bottom" className="min-w-52">
         <MenuGroup>
           <div className="px-2 py-1 sm:text-xs font-medium text-muted-foreground">
             Sort projects
@@ -1997,6 +2012,34 @@ function ProjectSortMenu({
               </MenuRadioItem>
             ))}
           </MenuRadioGroup>
+        </MenuGroup>
+        <MenuGroup>
+          <div className="px-2 pt-2 pb-1 sm:text-xs font-medium text-muted-foreground">
+            Visible threads
+          </div>
+          <div className="flex items-center gap-1.5 px-2 py-1">
+            <Button
+              size="xs"
+              variant="outline"
+              aria-label="Decrease visible thread count"
+              disabled={threadPreviewCount <= MIN_SIDEBAR_THREAD_PREVIEW_COUNT}
+              onClick={() => updateThreadPreviewCount(-1)}
+            >
+              -
+            </Button>
+            <div className="min-w-8 text-center text-xs tabular-nums text-foreground/85">
+              {threadPreviewCount}
+            </div>
+            <Button
+              size="xs"
+              variant="outline"
+              aria-label="Increase visible thread count"
+              disabled={threadPreviewCount >= MAX_SIDEBAR_THREAD_PREVIEW_COUNT}
+              onClick={() => updateThreadPreviewCount(1)}
+            >
+              +
+            </Button>
+          </div>
         </MenuGroup>
       </MenuPopup>
     </Menu>
@@ -2121,6 +2164,7 @@ interface SidebarProjectsContentProps {
   handleDesktopUpdateButtonClick: () => void;
   projectSortOrder: SidebarProjectSortOrder;
   threadSortOrder: SidebarThreadSortOrder;
+  threadPreviewCount: SidebarThreadPreviewCount;
   updateSettings: ReturnType<typeof useUpdateSettings>["updateSettings"];
   shouldShowProjectPathEntry: boolean;
   handleStartAddProject: () => void;
@@ -2172,6 +2216,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     handleDesktopUpdateButtonClick,
     projectSortOrder,
     threadSortOrder,
+    threadPreviewCount,
     updateSettings,
     shouldShowProjectPathEntry,
     handleStartAddProject,
@@ -2221,6 +2266,12 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
   const handleThreadSortOrderChange = useCallback(
     (sortOrder: SidebarThreadSortOrder) => {
       updateSettings({ sidebarThreadSortOrder: sortOrder });
+    },
+    [updateSettings],
+  );
+  const handleThreadPreviewCountChange = useCallback(
+    (count: SidebarThreadPreviewCount) => {
+      updateSettings({ sidebarThreadPreviewCount: count });
     },
     [updateSettings],
   );
@@ -2279,8 +2330,10 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
             <ProjectSortMenu
               projectSortOrder={projectSortOrder}
               threadSortOrder={threadSortOrder}
+              threadPreviewCount={threadPreviewCount}
               onProjectSortOrderChange={handleProjectSortOrderChange}
               onThreadSortOrderChange={handleThreadSortOrderChange}
+              onThreadPreviewCountChange={handleThreadPreviewCountChange}
             />
             <Tooltip>
               <TooltipTrigger
@@ -2465,6 +2518,7 @@ export default function Sidebar() {
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const isOnSettings = pathname.startsWith("/settings");
   const sidebarThreadSortOrder = useSettings((s) => s.sidebarThreadSortOrder);
+  const sidebarThreadPreviewCount = useSettings((s) => s.sidebarThreadPreviewCount);
   const sidebarProjectSortOrder = useSettings((s) => s.sidebarProjectSortOrder);
   const defaultThreadEnvMode = useSettings((s) => s.defaultThreadEnvMode);
   const { updateSettings } = useUpdateSettings();
@@ -2537,7 +2591,6 @@ export default function Sidebar() {
   const suppressProjectClickAfterDragRef = useRef(false);
   const suppressProjectClickForContextMenuRef = useRef(false);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
-  const selectedThreadCount = useThreadSelectionStore((s) => s.selectedThreadKeys.size);
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const isLinuxDesktop = isElectron && isLinuxPlatform(navigator.platform);
@@ -3017,17 +3070,18 @@ export default function Sidebar() {
           return [];
         }
         const isThreadListExpanded = expandedThreadListsByProject.has(project.projectKey);
-        const hasOverflowingThreads = projectThreads.length > THREAD_PREVIEW_LIMIT;
+        const hasOverflowingThreads = projectThreads.length > sidebarThreadPreviewCount;
         const previewThreads =
           isThreadListExpanded || !hasOverflowingThreads
             ? projectThreads
-            : projectThreads.slice(0, THREAD_PREVIEW_LIMIT);
+            : projectThreads.slice(0, sidebarThreadPreviewCount);
         const renderedThreads = pinnedCollapsedThread ? [pinnedCollapsedThread] : previewThreads;
         return renderedThreads.map((thread) =>
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         );
       }),
     [
+      sidebarThreadPreviewCount,
       sidebarThreadSortOrder,
       expandedThreadListsByProject,
       projectExpandedById,
@@ -3218,7 +3272,7 @@ export default function Sidebar() {
 
   useEffect(() => {
     const onMouseDown = (event: globalThis.MouseEvent) => {
-      if (selectedThreadCount === 0) return;
+      if (!useThreadSelectionStore.getState().hasSelection()) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (!shouldClearThreadSelectionOnMouseDown(target)) return;
       clearSelection();
@@ -3228,7 +3282,7 @@ export default function Sidebar() {
     return () => {
       window.removeEventListener("mousedown", onMouseDown);
     };
-  }, [clearSelection, selectedThreadCount]);
+  }, [clearSelection]);
 
   useEffect(() => {
     if (!isElectron) return;
@@ -3369,6 +3423,7 @@ export default function Sidebar() {
             handleDesktopUpdateButtonClick={handleDesktopUpdateButtonClick}
             projectSortOrder={sidebarProjectSortOrder}
             threadSortOrder={sidebarThreadSortOrder}
+            threadPreviewCount={sidebarThreadPreviewCount}
             updateSettings={updateSettings}
             shouldShowProjectPathEntry={shouldShowProjectPathEntry}
             handleStartAddProject={handleStartAddProject}
