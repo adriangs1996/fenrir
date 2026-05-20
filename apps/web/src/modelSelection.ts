@@ -1,7 +1,9 @@
 import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
+  isBuiltInProviderKind,
   type ModelSelection,
   type ProviderKind,
+  type ProviderSelectionKind,
   type ServerProvider,
 } from "@fenrir/contracts";
 import { normalizeModelSlug, resolveSelectableModel } from "@fenrir/shared/model";
@@ -81,7 +83,7 @@ export function normalizeCustomModelSlugs(
 export function getAppModelOptions(
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
-  provider: ProviderKind,
+  provider: ProviderSelectionKind,
   selectedModel?: string | null,
 ): AppModelOption[] {
   const options: AppModelOption[] = getProviderModels(providers, provider).map(
@@ -99,18 +101,20 @@ export function getAppModelOptions(
       .map((model) => model.slug),
   );
 
-  const customModels = settings.providers[provider].customModels;
-  for (const slug of normalizeCustomModelSlugs(customModels, builtInModelSlugs, provider)) {
-    if (seen.has(slug)) {
-      continue;
-    }
+  if (isBuiltInProviderKind(provider)) {
+    const customModels = settings.providers[provider].customModels;
+    for (const slug of normalizeCustomModelSlugs(customModels, builtInModelSlugs, provider)) {
+      if (seen.has(slug)) {
+        continue;
+      }
 
-    seen.add(slug);
-    options.push({
-      slug,
-      name: slug,
-      isCustom: true,
-    });
+      seen.add(slug);
+      options.push({
+        slug,
+        name: slug,
+        isCustom: true,
+      });
+    }
   }
 
   const normalizedSelectedModel = normalizeModelSlug(selectedModel, provider);
@@ -133,7 +137,7 @@ export function getAppModelOptions(
 }
 
 export function resolveAppModelSelection(
-  provider: ProviderKind,
+  provider: ProviderSelectionKind,
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
   selectedModel: string | null | undefined,
@@ -182,15 +186,17 @@ export function resolveAppModelSelectionState(
   // don't carry over the old provider's model — use the fallback provider's default.
   const selectedModel = provider === selection.provider ? selection.model : null;
   const model = resolveAppModelSelection(provider, settings, providers, selectedModel);
-  const { modelOptionsForDispatch } = getComposerProviderState({
-    provider,
-    model,
-    models: getProviderModels(providers, provider),
-    prompt: "",
-    modelOptions: {
-      [provider]: provider === selection.provider ? selection.options : undefined,
-    },
-  });
+  const modelOptionsForDispatch = isBuiltInProviderKind(provider)
+    ? getComposerProviderState({
+        provider,
+        model,
+        models: getProviderModels(providers, provider),
+        prompt: "",
+        modelOptions: {
+          [provider]: provider === selection.provider ? selection.options : undefined,
+        },
+      }).modelOptionsForDispatch
+    : undefined;
 
   return {
     provider,

@@ -6,6 +6,7 @@ import {
   type OrchestrationEvent,
   type ProviderInstanceId,
   ProviderKind,
+  type ProviderRuntimeProviderKind,
   type OrchestrationSession,
   ThreadId,
   type ProviderSession,
@@ -277,7 +278,8 @@ const make = Effect.gen(function* () {
       : undefined;
     const requestedModelSelection = options?.modelSelection;
     const requestedProviderInstanceId = options?.providerInstanceId;
-    const threadProvider: ProviderKind = currentProvider ?? thread.modelSelection.provider;
+    const threadProvider = (currentProvider ??
+      thread.modelSelection.provider) as ProviderRuntimeProviderKind;
     if (
       requestedModelSelection !== undefined &&
       requestedModelSelection.provider !== threadProvider
@@ -288,7 +290,7 @@ const make = Effect.gen(function* () {
         detail: `Thread '${threadId}' is bound to provider '${threadProvider}' and cannot switch to '${requestedModelSelection.provider}'.`,
       });
     }
-    const preferredProvider: ProviderKind = currentProvider ?? threadProvider;
+    const preferredProvider: ProviderRuntimeProviderKind = currentProvider ?? threadProvider;
     const desiredModelSelection = requestedModelSelection ?? thread.modelSelection;
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
@@ -302,7 +304,7 @@ const make = Effect.gen(function* () {
 
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
-      readonly provider?: ProviderKind;
+      readonly provider?: ProviderRuntimeProviderKind;
     }) =>
       Effect.gen(function* () {
         yield* Effect.logInfo("provider command reactor starting provider session", {

@@ -24,7 +24,9 @@ import { ProviderSessionRuntimeRepositoryLive } from "./persistence/Layers/Provi
 import { PlanRunnerRepositoryLive } from "./persistence/Layers/PlanRunnerRepository";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
 import { makeClaudeAdapterLive } from "./provider/Layers/ClaudeAdapter";
+import { makeOpenCodeAdapterLive } from "./provider/Layers/OpenCodeAdapter";
 import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRegistry";
+import { ProviderInstanceRegistryLive } from "./provider/Layers/ProviderInstanceRegistry";
 import { makeProviderServiceLive } from "./provider/Layers/ProviderService";
 import { OrchestrationEngineLive } from "./orchestration/Layers/OrchestrationEngine";
 import { OrchestrationProjectionPipelineLive } from "./orchestration/Layers/ProjectionPipeline";
@@ -197,10 +199,15 @@ const ProviderLayerLive = Layer.unwrap(
     const claudeAdapterLayer = makeClaudeAdapterLive(
       nativeEventLogger ? { nativeEventLogger } : undefined,
     );
+    const openCodeAdapterLayer = makeOpenCodeAdapterLive(
+      nativeEventLogger ? { nativeEventLogger } : undefined,
+    );
     const adapterRegistryLayer = ProviderAdapterRegistryLive.pipe(
       Layer.provide(codexAdapterLayer),
       Layer.provide(claudeAdapterLayer),
+      Layer.provide(openCodeAdapterLayer),
       Layer.provideMerge(providerSessionDirectoryLayer),
+      Layer.provideMerge(ProviderInstanceRegistryLive),
     );
     return makeProviderServiceLive(
       canonicalEventLogger ? { canonicalEventLogger } : undefined,

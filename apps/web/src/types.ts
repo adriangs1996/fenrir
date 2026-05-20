@@ -14,7 +14,7 @@ import type {
   ProjectId,
   TurnId,
   MessageId,
-  ProviderKind,
+  ProviderRuntimeProviderKind,
   CheckpointRef,
   ProviderInteractionMode,
   RuntimeMode,
@@ -171,7 +171,7 @@ export interface SidebarThreadSummary {
 }
 
 export interface ThreadSession {
-  provider: ProviderKind;
+  provider: ProviderRuntimeProviderKind;
   providerInstanceId?: ProviderInstanceId;
   status: SessionPhase | "error" | "closed";
   activeTurnId?: TurnId | undefined;

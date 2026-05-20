@@ -29,6 +29,10 @@ export const ORCHESTRATION_WS_METHODS = {
 
 export const ProviderKind = Schema.Literals(["codex", "claudeAgent"]);
 export type ProviderKind = typeof ProviderKind.Type;
+export const ProviderSelectionKind = Schema.Union([ProviderKind, TrimmedNonEmptyString]);
+export type ProviderSelectionKind = typeof ProviderSelectionKind.Type;
+export const isBuiltInProviderKind = (value: string): value is ProviderKind =>
+  value === "codex" || value === "claudeAgent";
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
   "on-failure",
@@ -51,6 +55,9 @@ export const CodexModelSelection = Schema.Struct({
   options: Schema.optionalKey(CodexModelOptions),
 });
 export type CodexModelSelection = typeof CodexModelSelection.Type;
+export const isCodexModelSelection = (
+  value: ModelSelection | null | undefined,
+): value is CodexModelSelection => value?.provider === "codex";
 
 export const ClaudeModelSelection = Schema.Struct({
   provider: Schema.Literal("claudeAgent"),
@@ -58,8 +65,22 @@ export const ClaudeModelSelection = Schema.Struct({
   options: Schema.optionalKey(ClaudeModelOptions),
 });
 export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
+export const isClaudeModelSelection = (
+  value: ModelSelection | null | undefined,
+): value is ClaudeModelSelection => value?.provider === "claudeAgent";
 
-export const ModelSelection = Schema.Union([CodexModelSelection, ClaudeModelSelection]);
+export const ExternalModelSelection = Schema.Struct({
+  provider: TrimmedNonEmptyString,
+  model: TrimmedNonEmptyString,
+  options: Schema.optionalKey(Schema.Struct({})),
+});
+export type ExternalModelSelection = typeof ExternalModelSelection.Type;
+
+export const ModelSelection = Schema.Union([
+  CodexModelSelection,
+  ClaudeModelSelection,
+  ExternalModelSelection,
+]);
 export type ModelSelection = typeof ModelSelection.Type;
 
 export const RuntimeMode = Schema.Literals([

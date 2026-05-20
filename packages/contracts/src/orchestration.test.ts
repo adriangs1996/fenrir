@@ -358,8 +358,14 @@ it.effect("accepts provider-scoped model options in thread.turn.start", () =>
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.modelSelection?.provider, "codex");
-    assert.strictEqual(parsed.modelSelection?.options?.reasoningEffort, "high");
-    assert.strictEqual(parsed.modelSelection?.options?.fastMode, true);
+    if (parsed.modelSelection?.provider !== "codex") {
+      throw new Error("Expected codex modelSelection");
+    }
+    const options = parsed.modelSelection.options as
+      | { reasoningEffort?: string; fastMode?: boolean }
+      | undefined;
+    assert.strictEqual(options?.reasoningEffort, "high");
+    assert.strictEqual(options?.fastMode, true);
   }),
 );
 

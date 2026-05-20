@@ -21,7 +21,12 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
   const threadId = ThreadId.makeUnsafe("thread-compact-menu");
   const threadRef = scopeThreadRef(LOCAL_ENVIRONMENT_ID, threadId);
   const threadKey = scopedThreadKey(threadRef);
-  const provider = props?.modelSelection?.provider ?? "claudeAgent";
+  const provider =
+    props?.modelSelection?.provider === "codex"
+      ? "codex"
+      : props?.modelSelection?.provider === "claudeAgent"
+        ? "claudeAgent"
+        : "claudeAgent";
   const model = props?.modelSelection?.model ?? DEFAULT_MODEL_BY_PROVIDER[provider];
 
   useComposerDraftStore.setState({
@@ -51,7 +56,19 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
   const host = document.createElement("div");
   document.body.append(host);
   const onPromptChange = vi.fn();
-  const providerOptions = props?.modelSelection?.options;
+  const providerOptions =
+    provider === "codex"
+      ? (props?.modelSelection?.options as
+          | { reasoningEffort?: "xhigh" | "high" | "medium" | "low"; fastMode?: boolean }
+          | undefined)
+      : (props?.modelSelection?.options as
+          | {
+              thinking?: boolean;
+              effort?: "low" | "medium" | "high" | "xhigh" | "max" | "ultrathink";
+              fastMode?: boolean;
+              contextWindow?: string;
+            }
+          | undefined);
   const models =
     provider === "claudeAgent"
       ? [

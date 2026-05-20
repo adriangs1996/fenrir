@@ -1,107 +1,79 @@
-/**
- * ProviderAdapterRegistryLive - In-memory provider adapter lookup layer.
- *
- * Binds provider kinds (codex/claudeAgent/...) to concrete adapter services.
- * This layer only performs adapter lookup; it does not route session-scoped
- * calls or own provider lifecycle workflows.
- *
- * @module ProviderAdapterRegistryLive
- */
-import {
-  defaultInstanceIdForDriver,
-  ProviderInstanceId,
-  type ProviderKind,
-  type ProviderInstanceId as ProviderInstanceIdType,
-} from "@fenrir/contracts";
+import { defaultInstanceIdForDriver, type ProviderDriverKind } from "@fenrir/contracts";
 import { Effect, Layer } from "effect";
 
-import { ProviderUnsupportedError, type ProviderAdapterError } from "../Errors.ts";
+import { type ProviderAdapterError, ProviderUnsupportedError } from "../Errors.ts";
+import { ClaudeAdapter } from "../Services/ClaudeAdapter.ts";
+import { CodexAdapter } from "../Services/CodexAdapter.ts";
+import { OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
+import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import {
   ProviderAdapterRegistry,
   type ProviderAdapterRegistryShape,
 } from "../Services/ProviderAdapterRegistry.ts";
-import { ClaudeAdapter } from "../Services/ClaudeAdapter.ts";
-import { CodexAdapter } from "../Services/CodexAdapter.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
 
-function toBuiltInProviderKind(value: string): ProviderKind | undefined {
-  return value === "codex" || value === "claudeAgent" ? value : undefined;
-}
+const makeProviderAdapterRegistry = Effect.fn("makeProviderAdapterRegistry")(function* () {
+  const instanceRegistry = yield* ProviderInstanceRegistry;
+  const codexAdapter = yield* CodexAdapter;
+  const claudeAdapter = yield* ClaudeAdapter;
+  const openCodeAdapter = yield* OpenCodeAdapter;
 
-export interface ProviderAdapterRegistryLiveOptions {
-  readonly adapters?: ReadonlyArray<ProviderAdapterShape<ProviderAdapterError>>;
-}
-
-const makeProviderAdapterRegistry = Effect.fn("makeProviderAdapterRegistry")(function* (
-  options?: ProviderAdapterRegistryLiveOptions,
-) {
-  const serverSettings = yield* ServerSettingsService;
-  const adapters =
-    options?.adapters !== undefined
-      ? options.adapters
-      : [yield* CodexAdapter, yield* ClaudeAdapter];
-  const byProvider = new Map(adapters.map((adapter) => [adapter.provider, adapter]));
-  const byInstance = new Map<ProviderInstanceIdType, ProviderAdapterShape<ProviderAdapterError>>(
-    adapters.map((adapter) => [defaultInstanceIdForDriver(adapter.provider), adapter]),
-  );
-
-  const resolveConfiguredInstanceProvider = (
-    instanceId: ProviderInstanceIdType,
-  ): Effect.Effect<ProviderKind | undefined> =>
-    serverSettings.getSettings.pipe(
-      Effect.map((settings) => {
-        const entry = settings.providerInstances[instanceId];
-        if (!entry) {
-          return undefined;
-        }
-        return toBuiltInProviderKind(entry.driver);
-      }),
-      Effect.orElseSucceed(() => undefined),
-    );
+  const resolveAdapterForDriver = (
+    driverKind: string,
+  ): Effect.Effect<ProviderAdapterShape<ProviderAdapterError>, ProviderUnsupportedError> => {
+    switch (driverKind) {
+      case "codex":
+        return Effect.succeed(codexAdapter);
+      case "claudeAgent":
+        return Effect.succeed(claudeAdapter);
+      case "opencode":
+        return Effect.succeed(openCodeAdapter);
+      default:
+        return Effect.fail(new ProviderUnsupportedError({ provider: driverKind }));
+    }
+  };
 
   const getByInstance: ProviderAdapterRegistryShape["getByInstance"] = (instanceId) => {
-    const adapter = byInstance.get(instanceId);
-    if (adapter) {
-      return Effect.succeed(adapter);
-    }
-    return resolveConfiguredInstanceProvider(instanceId).pipe(
-      Effect.flatMap((provider) => {
-        if (!provider) {
-          return Effect.fail(new ProviderUnsupportedError({ provider: instanceId }));
-        }
-        const configuredAdapter = byProvider.get(provider);
-        return configuredAdapter
-          ? Effect.succeed(configuredAdapter)
-          : Effect.fail(new ProviderUnsupportedError({ provider: instanceId }));
-      }),
-    );
+    return instanceRegistry
+      .getInstance(instanceId)
+      .pipe(
+        Effect.flatMap((instance) =>
+          instance
+            ? resolveAdapterForDriver(instance.driverKind)
+            : Effect.fail(new ProviderUnsupportedError({ provider: instanceId })),
+        ),
+      );
   };
 
   const getByProvider: ProviderAdapterRegistryShape["getByProvider"] = (provider) => {
-    const adapter = byProvider.get(provider);
-    if (!adapter) {
-      return Effect.fail(new ProviderUnsupportedError({ provider }));
-    }
-    return Effect.succeed(adapter);
+    const defaultInstanceId = defaultInstanceIdForDriver(provider);
+    return instanceRegistry.listInstances.pipe(
+      Effect.map((instances) => {
+        const direct = instances.find((instance) => instance.instanceId === defaultInstanceId);
+        return direct ?? instances.find((instance) => instance.driverKind === provider);
+      }),
+      Effect.flatMap((instance) =>
+        instance
+          ? resolveAdapterForDriver(instance.driverKind)
+          : Effect.fail(new ProviderUnsupportedError({ provider })),
+      ),
+      Effect.mapError(() => new ProviderUnsupportedError({ provider })),
+    );
   };
 
   const listProviders: ProviderAdapterRegistryShape["listProviders"] = () =>
-    Effect.sync(() => Array.from(byProvider.keys()));
-  const listInstances: ProviderAdapterRegistryShape["listInstances"] = () =>
-    serverSettings.getSettings.pipe(
-      Effect.map((settings) => {
-        const instanceIds = new Set<string>(Array.from(byInstance.keys()));
-        for (const [instanceId, entry] of Object.entries(settings.providerInstances)) {
-          if (entry && toBuiltInProviderKind(entry.driver) !== undefined) {
-            instanceIds.add(instanceId);
-          }
+    instanceRegistry.listInstances.pipe(
+      Effect.map((instances) => {
+        const providers = new Set<ProviderDriverKind>();
+        for (const instance of instances) {
+          providers.add(instance.driverKind);
         }
-        return Array.from(instanceIds).map((instanceId) =>
-          ProviderInstanceId.makeUnsafe(instanceId),
-        );
+        return Array.from(providers);
       }),
-      Effect.orElseSucceed(() => Array.from(byInstance.keys())),
+    );
+  const listInstances: ProviderAdapterRegistryShape["listInstances"] = () =>
+    instanceRegistry.listInstances.pipe(
+      Effect.map((instances) => instances.map((instance) => instance.instanceId)),
     );
 
   return {

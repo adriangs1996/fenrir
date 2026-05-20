@@ -7,7 +7,7 @@ import {
   CodexModelOptions,
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
 } from "./model";
-import { ModelSelection, ProviderKind } from "./orchestration";
+import { ModelSelection, ProviderSelectionKind } from "./orchestration";
 import { ProviderInstanceConfigMap } from "./providerInstance";
 
 // ── Client Settings (local-only) ───────────────────────────────
@@ -46,7 +46,7 @@ export type SidebarThreadPreviewCount = typeof SidebarThreadPreviewCount.Type;
 export const DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT: SidebarThreadPreviewCount = 6;
 
 export const ModelFavorite = Schema.Struct({
-  provider: ProviderKind,
+  provider: ProviderSelectionKind,
   model: TrimmedNonEmptyString,
 });
 export type ModelFavorite = typeof ModelFavorite.Type;
@@ -168,6 +168,23 @@ export const ClaudeSettings = Schema.Struct({
 });
 export type ClaudeSettings = typeof ClaudeSettings.Type;
 
+export const CursorSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  binaryPath: makeBinaryPathSetting("agent"),
+  apiEndpoint: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+  customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+});
+export type CursorSettings = typeof CursorSettings.Type;
+
+export const OpenCodeSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  binaryPath: makeBinaryPathSetting("opencode"),
+  serverUrl: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+  serverPassword: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+  customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+});
+export type OpenCodeSettings = typeof OpenCodeSettings.Type;
+
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
   otlpMetricsUrl: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
@@ -265,6 +282,21 @@ const ClaudeSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const CursorSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(Schema.String),
+  apiEndpoint: Schema.optionalKey(Schema.String),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
+const OpenCodeSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(Schema.String),
+  serverUrl: Schema.optionalKey(Schema.String),
+  serverPassword: Schema.optionalKey(Schema.String),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 export const ServerSettingsPatch = Schema.Struct({
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   automaticGitFetchInterval: Schema.optionalKey(Schema.DurationFromMillis),
@@ -282,6 +314,8 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Struct({
       codex: Schema.optionalKey(CodexSettingsPatch),
       claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
+      cursor: Schema.optionalKey(CursorSettingsPatch),
+      opencode: Schema.optionalKey(OpenCodeSettingsPatch),
     }),
   ),
 });

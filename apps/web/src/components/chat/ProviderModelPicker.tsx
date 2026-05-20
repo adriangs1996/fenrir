@@ -1,9 +1,8 @@
-import { type ProviderKind, type ServerProvider } from "@fenrir/contracts";
+import { type ProviderSelectionKind, type ServerProvider } from "@fenrir/contracts";
 import { resolveSelectableModel } from "@fenrir/shared/model";
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { Clock3Icon, SearchIcon, StarIcon } from "lucide-react";
-import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
 import { ChevronDownIcon } from "lucide-react";
 import { Button, buttonVariants } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
@@ -11,7 +10,11 @@ import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { ClaudeAI, CursorIcon, Gemini, Icon, OpenAI, OpenCodeIcon } from "../Icons";
 import { cn } from "~/lib/utils";
-import { getProviderSnapshot } from "../../providerModels";
+import {
+  getProviderOptionLabel,
+  getProviderSnapshot,
+  getSelectableProviderKinds,
+} from "../../providerModels";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import {
   providerModelKey,
@@ -21,43 +24,28 @@ import {
   type ProviderModelPickerItem,
 } from "./ProviderModelPicker.logic";
 
-function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
-  value: ProviderKind;
-  label: string;
-  available: true;
-} {
-  return option.available;
-}
-
-const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
+const PROVIDER_ICON_BY_PROVIDER: Record<string, Icon> = {
   codex: OpenAI,
   claudeAgent: ClaudeAI,
+  opencode: OpenCodeIcon,
   cursor: CursorIcon,
+  gemini: Gemini,
 };
 
-export const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
-const UNAVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => !option.available);
 const COMING_SOON_PROVIDER_OPTIONS = [
-  { id: "opencode", label: "OpenCode", icon: OpenCodeIcon },
+  { id: "cursor", label: "Cursor", icon: CursorIcon },
   { id: "gemini", label: "Gemini", icon: Gemini },
 ] as const;
 
 function providerIconClassName(
-  provider: ProviderKind | ProviderPickerKind,
+  provider: ProviderSelectionKind | string,
   fallbackClassName: string,
 ): string {
   return provider === "claudeAgent" ? "text-[#d97757]" : fallbackClassName;
 }
 
-function getProviderOptionLabel(
-  providers: ReadonlyArray<ServerProvider> | undefined,
-  provider: ProviderKind,
-): string {
-  return (
-    getProviderSnapshot(providers ?? [], provider)?.displayName ??
-    AVAILABLE_PROVIDER_OPTIONS.find((option) => option.value === provider)?.label ??
-    provider
-  );
+function getProviderIcon(provider: ProviderSelectionKind | string): Icon {
+  return PROVIDER_ICON_BY_PROVIDER[provider] ?? OpenAI;
 }
 
 function describeProviderAvailability(provider: ServerProvider | undefined): string | null {
@@ -106,17 +94,17 @@ function sortStandardItems(
 }
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
-  provider: ProviderKind;
+  provider: ProviderSelectionKind;
   model: string;
-  lockedProvider: ProviderKind | null;
+  lockedProvider: ProviderSelectionKind | null;
   providers?: ReadonlyArray<ServerProvider>;
-  modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
+  modelOptionsByProvider: Record<string, ReadonlyArray<{ slug: string; name: string }>>;
   activeProviderIconClassName?: string;
   compact?: boolean;
   disabled?: boolean;
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
-  onProviderModelChange: (provider: ProviderKind, model: string) => void;
+  onProviderModelChange: (provider: ProviderSelectionKind, model: string) => void;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -125,10 +113,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeProvider = props.lockedProvider ?? props.provider;
-  const selectedProviderOptions = props.modelOptionsByProvider[activeProvider];
+  const selectedProviderOptions = props.modelOptionsByProvider[activeProvider] ?? [];
   const selectedModelLabel =
     selectedProviderOptions.find((option) => option.slug === props.model)?.name ?? props.model;
-  const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[activeProvider];
+  const ProviderIcon = getProviderIcon(activeProvider);
 
   const [selectedSection, setSelectedSection] = useState<ModelPickerSection>(
     () => props.lockedProvider ?? (favorites.length > 0 ? "favorites" : activeProvider),
@@ -175,23 +163,33 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     [favorites],
   );
 
+  const availableProviders = useMemo(
+    () =>
+      props.providers && props.providers.length > 0
+        ? getSelectableProviderKinds(props.providers).filter(
+            (provider) => (props.modelOptionsByProvider[provider] ?? []).length > 0,
+          )
+        : Object.keys(props.modelOptionsByProvider),
+    [props.modelOptionsByProvider, props.providers],
+  );
+
   const availableModelItems = useMemo<ProviderModelPickerItem[]>(() => {
-    return AVAILABLE_PROVIDER_OPTIONS.flatMap((option) => {
+    return availableProviders.flatMap((provider) => {
       const liveProvider = props.providers
-        ? getProviderSnapshot(props.providers, option.value)
+        ? getProviderSnapshot(props.providers, provider)
         : undefined;
       if (liveProvider && describeProviderAvailability(liveProvider) !== null) {
         return [];
       }
-      return props.modelOptionsByProvider[option.value].map((modelOption) => ({
-        provider: option.value,
-        providerLabel: getProviderOptionLabel(props.providers, option.value),
+      return (props.modelOptionsByProvider[provider] ?? []).map((modelOption) => ({
+        provider,
+        providerLabel: getProviderOptionLabel(props.providers ?? [], provider),
         slug: modelOption.slug,
         name: modelOption.name,
-        isFavorite: favoriteKeySet.has(providerModelKey(option.value, modelOption.slug)),
+        isFavorite: favoriteKeySet.has(providerModelKey(provider, modelOption.slug)),
       }));
     });
-  }, [favoriteKeySet, props.modelOptionsByProvider, props.providers]);
+  }, [availableProviders, favoriteKeySet, props.modelOptionsByProvider, props.providers]);
 
   const isSearching = searchQuery.trim().length > 0;
   const sectionGroups = useMemo(
@@ -219,20 +217,17 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
 
   const showSidebar = props.lockedProvider === null && !isSearching;
 
-  const handleModelChange = (provider: ProviderKind, value: string) => {
+  const handleModelChange = (provider: ProviderSelectionKind, value: string) => {
     if (props.disabled) return;
     if (!value) return;
-    const resolvedModel = resolveSelectableModel(
-      provider,
-      value,
-      props.modelOptionsByProvider[provider],
-    );
+    const options = props.modelOptionsByProvider[provider] ?? [];
+    const resolvedModel = resolveSelectableModel(provider, value, options);
     if (!resolvedModel) return;
     props.onProviderModelChange(provider, resolvedModel);
     setIsMenuOpen(false);
   };
 
-  const toggleFavorite = (provider: ProviderKind, model: string) => {
+  const toggleFavorite = (provider: ProviderSelectionKind, model: string) => {
     const existing = favorites.findIndex(
       (favorite) => favorite.provider === provider && favorite.model === model,
     );
@@ -309,26 +304,26 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 onClick={() => setSelectedSection("favorites")}
                 icon={<StarIcon className="size-4" />}
               />
-              {AVAILABLE_PROVIDER_OPTIONS.map((option) => {
+              {availableProviders.map((provider) => {
                 const liveProvider = props.providers
-                  ? getProviderSnapshot(props.providers, option.value)
+                  ? getProviderSnapshot(props.providers, provider)
                   : undefined;
                 const availability = describeProviderAvailability(liveProvider);
-                const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
-                const label = getProviderOptionLabel(props.providers, option.value);
+                const OptionIcon = getProviderIcon(provider);
+                const label = getProviderOptionLabel(props.providers ?? [], provider);
                 return (
                   <SidebarSectionButton
-                    key={option.value}
+                    key={provider}
                     label={label}
                     {...(availability ? { description: availability } : {})}
-                    selected={selectedSection === option.value}
+                    selected={selectedSection === provider}
                     disabled={availability !== null}
-                    onClick={() => setSelectedSection(option.value)}
+                    onClick={() => setSelectedSection(provider)}
                     icon={
                       <OptionIcon
                         className={cn(
                           "size-4",
-                          providerIconClassName(option.value, "text-muted-foreground/80"),
+                          providerIconClassName(provider, "text-muted-foreground/80"),
                         )}
                       />
                     }
@@ -336,18 +331,6 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 );
               })}
               <div className="mt-1 border-t pt-2">
-                {UNAVAILABLE_PROVIDER_OPTIONS.map((option) => {
-                  const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
-                  return (
-                    <SidebarSectionButton
-                      key={option.value}
-                      label={option.label}
-                      description="Coming soon"
-                      disabled
-                      icon={<OptionIcon className="size-4 text-muted-foreground/80" />}
-                    />
-                  );
-                })}
                 {COMING_SOON_PROVIDER_OPTIONS.map((option) => {
                   const OptionIcon = option.icon;
                   return (
@@ -386,9 +369,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               <div className="p-2">
                 {props.lockedProvider !== null && !isSearching ? (
                   <SectionHeader
-                    title={
-                      getProviderOptionLabel(props.providers, props.lockedProvider) ?? "Models"
-                    }
+                    title={getProviderOptionLabel(props.providers ?? [], props.lockedProvider)}
                   />
                 ) : null}
                 {isSearching ? (
@@ -522,10 +503,10 @@ const ModelPickerRow = memo(function ModelPickerRow(props: {
   item: ProviderModelPickerItem;
   current: boolean;
   showProviderMeta: boolean;
-  onSelect: (provider: ProviderKind, model: string) => void;
-  onToggleFavorite: (provider: ProviderKind, model: string) => void;
+  onSelect: (provider: ProviderSelectionKind, model: string) => void;
+  onToggleFavorite: (provider: ProviderSelectionKind, model: string) => void;
 }) {
-  const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.item.provider];
+  const ProviderIcon = getProviderIcon(props.item.provider);
   const favoriteButtonLabel = props.item.isFavorite ? "Remove from favorites" : "Add to favorites";
 
   return (

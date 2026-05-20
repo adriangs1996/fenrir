@@ -22,7 +22,10 @@ import {
   ProviderUserInputAnswers,
   RuntimeMode,
 } from "./orchestration";
-import { ProviderInstanceId } from "./providerInstance";
+import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance";
+
+const ProviderRuntimeProviderKind = Schema.Union([ProviderKind, ProviderDriverKind]);
+export type ProviderRuntimeProviderKind = typeof ProviderRuntimeProviderKind.Type;
 
 const ProviderSessionStatus = Schema.Literals([
   "connecting",
@@ -33,7 +36,7 @@ const ProviderSessionStatus = Schema.Literals([
 ]);
 
 export const ProviderSession = Schema.Struct({
-  provider: ProviderKind,
+  provider: ProviderRuntimeProviderKind,
   providerInstanceId: Schema.optional(ProviderInstanceId),
   status: ProviderSessionStatus,
   runtimeMode: RuntimeMode,
@@ -50,7 +53,7 @@ export type ProviderSession = typeof ProviderSession.Type;
 
 export const ProviderSessionStartInput = Schema.Struct({
   threadId: ThreadId,
-  provider: Schema.optional(ProviderKind),
+  provider: Schema.optional(ProviderRuntimeProviderKind),
   providerInstanceId: Schema.optional(ProviderInstanceId),
   cwd: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
@@ -111,7 +114,7 @@ const ProviderEventKind = Schema.Literals(["session", "notification", "request",
 export const ProviderEvent = Schema.Struct({
   id: EventId,
   kind: ProviderEventKind,
-  provider: ProviderKind,
+  provider: ProviderRuntimeProviderKind,
   providerInstanceId: Schema.optional(ProviderInstanceId),
   threadId: ThreadId,
   createdAt: IsoDateTime,

@@ -1,11 +1,17 @@
-import type { ProviderInstanceId, ProviderKind, ServerProvider } from "@fenrir/contracts";
+import type {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ProviderKind,
+  ServerProvider,
+} from "@fenrir/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 
 import type { ServerProviderShape } from "./ServerProvider.ts";
 
 export interface ProviderInstanceRecord {
-  readonly provider: ProviderKind;
+  readonly provider: ProviderKind | ProviderDriverKind;
+  readonly driverKind: ProviderDriverKind;
   readonly instanceId: ProviderInstanceId;
   readonly displayName?: string;
   readonly snapshot: ServerProviderShape;

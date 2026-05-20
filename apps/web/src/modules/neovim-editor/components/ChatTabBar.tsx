@@ -72,7 +72,7 @@ function TabButton({ tab, active, onClick, icon, label }: TabButtonProps) {
       className={cn(
         "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-3 text-sm transition-colors",
         active
-          ? "border-blue-400 text-blue-400"
+          ? "border-primary text-primary"
           : "border-transparent text-muted-foreground/70 hover:text-foreground/80",
       )}
     >

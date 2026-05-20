@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getSpecialGlyphFillRects } from "./specialGlyphs";
+import { getSpecialGlyphFillRects, rasterizeSpecialGlyph } from "./specialGlyphs";
 
 describe("getSpecialGlyphFillRects", () => {
   it("renders left block guides edge-to-edge vertically", () => {
@@ -52,5 +52,77 @@ describe("getSpecialGlyphFillRects", () => {
         height: 2,
       },
     ]);
+  });
+
+  it("rasterizes rounded box corners as stroked arcs that reach cell edges", () => {
+    const cases = [
+      {
+        cp: 0x256d,
+        expectedMoveTo: [14, 15],
+        expectedLineTo: [9, 24],
+      },
+      {
+        cp: 0x256e,
+        expectedMoveTo: [4, 15],
+        expectedLineTo: [9, 24],
+      },
+      {
+        cp: 0x256f,
+        expectedMoveTo: [4, 15],
+        expectedLineTo: [9, 6],
+      },
+      {
+        cp: 0x2570,
+        expectedMoveTo: [14, 15],
+        expectedLineTo: [9, 6],
+      },
+    ] as const;
+
+    for (const { cp, expectedMoveTo, expectedLineTo } of cases) {
+      const ops: unknown[][] = [];
+      const ctx = {
+        fillStyle: "#ffffff",
+        set strokeStyle(value: string | CanvasGradient | CanvasPattern) {
+          ops.push(["strokeStyle", value]);
+        },
+        set lineWidth(value: number) {
+          ops.push(["lineWidth", value]);
+        },
+        set lineCap(value: CanvasLineCap) {
+          ops.push(["lineCap", value]);
+        },
+        set lineJoin(value: CanvasLineJoin) {
+          ops.push(["lineJoin", value]);
+        },
+        beginPath() {
+          ops.push(["beginPath"]);
+        },
+        moveTo(x: number, y: number) {
+          ops.push(["moveTo", x, y]);
+        },
+        arcTo(x1: number, y1: number, x2: number, y2: number, radius: number) {
+          ops.push(["arcTo", x1, y1, x2, y2, radius]);
+        },
+        lineTo(x: number, y: number) {
+          ops.push(["lineTo", x, y]);
+        },
+        stroke() {
+          ops.push(["stroke"]);
+        },
+      } as unknown as CanvasRenderingContext2D;
+
+      expect(rasterizeSpecialGlyph(ctx, cp, 4, 6, 10, 18)).toBe(true);
+      expect(ops).toEqual([
+        ["strokeStyle", "#ffffff"],
+        ["lineWidth", 1],
+        ["lineCap", "butt"],
+        ["lineJoin", "round"],
+        ["beginPath"],
+        ["moveTo", ...expectedMoveTo],
+        ["arcTo", 9, 15, ...expectedLineTo, 3],
+        ["lineTo", ...expectedLineTo],
+        ["stroke"],
+      ]);
+    }
   });
 });

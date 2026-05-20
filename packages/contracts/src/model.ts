@@ -1,6 +1,10 @@
 import { Schema } from "effect";
 import { TrimmedNonEmptyString } from "./baseSchemas";
-import type { ProviderKind } from "./orchestration";
+import {
+  isBuiltInProviderKind,
+  type ProviderKind,
+  type ProviderSelectionKind,
+} from "./orchestration";
 
 export const CodexReasoningEffort = Schema.Literals(["xhigh", "high", "medium", "low"]);
 export type CodexReasoningEffort = typeof CodexReasoningEffort.Type;
@@ -104,3 +108,25 @@ export const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
   codex: "Codex",
   claudeAgent: "Claude",
 };
+
+export function getDefaultModelByProvider(provider: ProviderSelectionKind | string): string {
+  return isBuiltInProviderKind(provider) ? DEFAULT_MODEL_BY_PROVIDER[provider] : "";
+}
+
+export function getDefaultGitTextGenerationModelByProvider(
+  provider: ProviderSelectionKind | string,
+): string {
+  return isBuiltInProviderKind(provider)
+    ? DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[provider]
+    : "";
+}
+
+export function getModelSlugAliasesByProvider(
+  provider: ProviderSelectionKind | string,
+): Record<string, string> {
+  return isBuiltInProviderKind(provider) ? MODEL_SLUG_ALIASES_BY_PROVIDER[provider] : {};
+}
+
+export function getProviderDisplayName(provider: ProviderSelectionKind | string): string {
+  return isBuiltInProviderKind(provider) ? PROVIDER_DISPLAY_NAMES[provider] : provider;
+}

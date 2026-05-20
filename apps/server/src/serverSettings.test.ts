@@ -160,7 +160,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
       const next = yield* serverSettings.updateSettings({
         textGenerationModelSelection: {
-          provider: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.provider,
+          provider:
+            DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.provider === "claudeAgent"
+              ? "claudeAgent"
+              : "codex",
           model: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.model,
         },
       });

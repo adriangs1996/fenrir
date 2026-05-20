@@ -52,6 +52,15 @@ vi.mock("@xterm/addon-serialize", () => ({
   },
 }));
 
+vi.mock("@xterm/addon-webgl", () => ({
+  WebglAddon: class MockWebglAddon {
+    onContextLoss() {
+      return { dispose: vi.fn() };
+    }
+    dispose() {}
+  },
+}));
+
 vi.mock("@xterm/xterm", () => ({
   Terminal: class MockTerminal {
     cols = 80;
@@ -395,7 +404,6 @@ describe("TerminalViewport", () => {
 
       expect(terminalConstructorSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          customGlyphs: true,
           fontWeight: "400",
           fontWeightBold: "400",
           rescaleOverlappingGlyphs: true,

@@ -7,7 +7,7 @@ import {
   type MessageId,
   type ModelSelection,
   type ProjectScript,
-  type ProviderKind,
+  type ProviderSelectionKind,
   type ProjectId,
   type ProviderApprovalDecision,
   type ServerProvider,
@@ -321,7 +321,7 @@ function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlanCatalog
 }
 
 function formatOutgoingPrompt(params: {
-  provider: ProviderKind;
+  provider: ProviderSelectionKind;
   model: string | null;
   models: ReadonlyArray<ServerProvider["models"][number]>;
   effort: string | null;
@@ -1184,7 +1184,7 @@ export default function ChatView(props: ChatViewProps) {
     providerStatuses,
     selectedProviderByThreadId ?? threadProvider ?? "codex",
   );
-  const selectedProvider: ProviderKind = lockedProvider ?? unlockedSelectedProvider;
+  const selectedProvider: ProviderSelectionKind = lockedProvider ?? unlockedSelectedProvider;
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
@@ -3676,7 +3676,7 @@ export default function ChatView(props: ChatViewProps) {
   ]);
 
   const onProviderModelSelect = useCallback(
-    (provider: ProviderKind, model: string) => {
+    (provider: ProviderSelectionKind, model: string) => {
       if (!activeThread) return;
       if (lockedProvider !== null && provider !== lockedProvider) {
         scheduleComposerFocus();

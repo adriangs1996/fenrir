@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import * as Schema from "effect/Schema";
 import {
   ClientSettingsSchema,
+  CursorSettings,
   DEFAULT_CLIENT_SETTINGS,
   DEFAULT_SERVER_SETTINGS,
+  OpenCodeSettings,
   ServerSettings,
   ServerSettingsPatch,
 } from "./settings";
@@ -108,6 +110,29 @@ describe("ServerSettings.providerInstances", () => {
       driver: "cursor",
       displayName: "Cursor Local",
       config: { workspace: "/tmp/cursor" },
+    });
+  });
+});
+
+describe("additional provider settings schemas", () => {
+  it("decodes CursorSettings defaults", () => {
+    const decoded = Schema.decodeSync(CursorSettings)({});
+    expect(decoded).toEqual({
+      enabled: false,
+      binaryPath: "agent",
+      apiEndpoint: "",
+      customModels: [],
+    });
+  });
+
+  it("decodes OpenCodeSettings defaults", () => {
+    const decoded = Schema.decodeSync(OpenCodeSettings)({});
+    expect(decoded).toEqual({
+      enabled: true,
+      binaryPath: "opencode",
+      serverUrl: "",
+      serverPassword: "",
+      customModels: [],
     });
   });
 });

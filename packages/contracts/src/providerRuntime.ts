@@ -12,10 +12,12 @@ import {
   TrimmedNonEmptyString,
   TurnId,
 } from "./baseSchemas";
+import { ProviderDriverKind } from "./providerInstance";
 import { ProviderKind } from "./orchestration";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
+const ProviderRuntimeEventProviderKind = Schema.Union([ProviderKind, ProviderDriverKind]);
 
 const RuntimeEventRawSource = Schema.Literals([
   "codex.app-server.notification",
@@ -24,6 +26,7 @@ const RuntimeEventRawSource = Schema.Literals([
   "claude.sdk.message",
   "claude.sdk.permission",
   "codex.sdk.thread-event",
+  "opencode.sdk.event",
 ]);
 export type RuntimeEventRawSource = typeof RuntimeEventRawSource.Type;
 
@@ -242,7 +245,7 @@ const RuntimeErrorType = Schema.Literal("runtime.error");
 
 const ProviderRuntimeEventBase = Schema.Struct({
   eventId: EventId,
-  provider: ProviderKind,
+  provider: ProviderRuntimeEventProviderKind,
   threadId: ThreadId,
   createdAt: IsoDateTime,
   turnId: Schema.optional(TurnId),

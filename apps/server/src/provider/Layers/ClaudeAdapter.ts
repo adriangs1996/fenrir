@@ -23,6 +23,7 @@ import {
   ApprovalRequestId,
   type CanonicalItemType,
   type CanonicalRequestType,
+  isClaudeModelSelection,
   EventId,
   type ProviderApprovalDecision,
   ProviderItemId,
@@ -563,11 +564,13 @@ const CLAUDE_SETTING_SOURCES = [
   "local",
 ] as const satisfies ReadonlyArray<SettingSource>;
 
+const getClaudeSelection = (selection: ProviderSendTurnInput["modelSelection"] | undefined) =>
+  selection && isClaudeModelSelection(selection) ? selection : undefined;
+
 function buildPromptText(input: ProviderSendTurnInput): string {
-  const rawEffort =
-    input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.options?.effort : null;
-  const claudeModel =
-    input.modelSelection?.provider === "claudeAgent" ? input.modelSelection.model : undefined;
+  const modelSelection = getClaudeSelection(input.modelSelection);
+  const rawEffort = modelSelection?.options?.effort ?? null;
+  const claudeModel = modelSelection?.model;
   const caps = getClaudeModelCapabilities(claudeModel);
 
   // For prompt injection, we check if the raw effort is a prompt-injected level (e.g. "ultrathink").
@@ -2766,8 +2769,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ),
       );
       const claudeBinaryPath = claudeSettings.binaryPath;
-      const modelSelection =
-        input.modelSelection?.provider === "claudeAgent" ? input.modelSelection : undefined;
+      const modelSelection = getClaudeSelection(input.modelSelection);
       const caps = getClaudeModelCapabilities(modelSelection?.model);
       const apiModelId = modelSelection ? resolveApiModelId(modelSelection) : undefined;
       const effort = (resolveEffort(caps, modelSelection?.options?.effort) ??

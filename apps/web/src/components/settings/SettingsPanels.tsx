@@ -11,10 +11,9 @@ import {
 } from "lucide-react";
 import { FontPicker } from "./FontPicker";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   defaultInstanceIdForDriver,
-  PROVIDER_DISPLAY_NAMES,
   ProviderDriverKind,
   type ProviderInstanceConfig,
   type ScopedThreadRef,
@@ -91,6 +90,11 @@ import {
   usePlanRunnerStore,
   type ArchivedFeatureSummary,
 } from "~/modules/plan-runner";
+import {
+  PROVIDER_DRIVER_DEFINITIONS,
+  getProviderDriverDefinition,
+  getProviderDriverLabel,
+} from "./providerDriverMeta";
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
@@ -114,52 +118,22 @@ function getAutomaticGitFetchIntervalLabel(duration: Duration.Duration) {
   );
 }
 
-type InstallProviderSettings = {
-  provider: ProviderKind;
-  title: string;
-  binaryPlaceholder: string;
-  binaryDescription: ReactNode;
-  homePathKey?: "codexHomePath";
-  homePlaceholder?: string;
-  homeDescription?: ReactNode;
-};
-
-const PROVIDER_DRIVER_OPTIONS = [
-  { value: "codex", label: "Codex" },
-  { value: "claudeAgent", label: "Claude" },
-  { value: "cursor", label: "Cursor" },
-  { value: "opencode", label: "OpenCode" },
-] as const;
-
-type SupportedProviderInstanceDriver = (typeof PROVIDER_DRIVER_OPTIONS)[number]["value"];
-
-function getProviderDriverLabel(driver: string): string {
-  return (
-    PROVIDER_DRIVER_OPTIONS.find((option) => option.value === driver)?.label ??
-    (isBuiltInProviderKind(driver) ? (PROVIDER_DISPLAY_NAMES[driver] ?? driver) : driver)
-  );
-}
-
-const PROVIDER_SETTINGS_BY_KIND: Record<ProviderKind, InstallProviderSettings> = {
-  codex: {
-    provider: "codex",
-    title: "Codex",
-    binaryPlaceholder: "Codex binary path",
-    binaryDescription: "Path to the Codex binary",
-    homePathKey: "codexHomePath",
-    homePlaceholder: "CODEX_HOME",
-    homeDescription: "Optional custom Codex home and config directory.",
-  },
-  claudeAgent: {
-    provider: "claudeAgent",
-    title: "Claude",
-    binaryPlaceholder: "Claude binary path",
-    binaryDescription: "Path to the Claude binary",
-  },
-};
+type SupportedProviderInstanceDriver = "codex" | "claudeAgent" | "cursor" | "opencode";
 
 function isBuiltInProviderKind(value: string): value is ProviderKind {
   return value === "codex" || value === "claudeAgent";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function readConfigString(config: unknown, key: string): string {
+  if (!isRecord(config)) {
+    return "";
+  }
+  const value = config[key];
+  return typeof value === "string" ? value : "";
 }
 
 function normalizeProviderInstanceConfig(
@@ -206,11 +180,6 @@ type ProviderSettingsCard = {
   versionLabel: string | null;
   versionAdvisory: ReturnType<typeof getProviderVersionAdvisoryPresentation>;
   providerConfig: (typeof DEFAULT_UNIFIED_SETTINGS.providers)[ProviderKind] | undefined;
-  binaryPlaceholder: string | undefined;
-  binaryDescription: ReactNode | undefined;
-  homePathKey: "codexHomePath" | undefined;
-  homePlaceholder: string | undefined;
-  homeDescription: ReactNode | undefined;
 };
 
 const PROVIDER_STATUS_STYLES = {
@@ -628,7 +597,6 @@ export function GeneralSettingsPanel() {
   const availableEditors = useServerAvailableEditors();
   const observability = useServerObservability();
   const serverProviders = useServerProviders();
-  const codexHomePath = settings.providers.codex.homePath;
   const providerInstanceMap = settings.providerInstances as Record<string, ProviderInstanceConfig>;
   const updateProviderInstanceEntry = useCallback(
     (
@@ -655,6 +623,43 @@ export function GeneralSettingsPanel() {
       });
     },
     [providerInstanceMap, updateSettings],
+  );
+  const updateProviderDriverConfigField = useCallback(
+    (providerCard: ProviderSettingsCard, fieldKey: string, value: string) => {
+      const builtInProvider = providerCard.provider;
+      if (
+        providerCard.supportsLegacySettings &&
+        providerCard.isDefaultInstance &&
+        builtInProvider
+      ) {
+        updateSettings({
+          providers: {
+            ...settings.providers,
+            [builtInProvider]: {
+              ...settings.providers[builtInProvider],
+              [fieldKey]: value,
+            },
+          },
+        });
+        return;
+      }
+
+      updateProviderInstanceEntry(providerCard.instanceId, providerCard.driver, (current) => {
+        const base = current ?? { driver: ProviderDriverKind.makeUnsafe(providerCard.driver) };
+        const currentConfig = isRecord(base.config) ? { ...base.config } : {};
+        if (value.length > 0) {
+          currentConfig[fieldKey] = value;
+        } else {
+          delete currentConfig[fieldKey];
+        }
+        const { config: _existingConfig, ...rest } = base;
+        return {
+          ...rest,
+          ...(Object.keys(currentConfig).length > 0 ? { config: currentConfig } : {}),
+        };
+      });
+    },
+    [settings.providers, updateProviderInstanceEntry, updateSettings],
   );
   const addProviderInstance = useCallback(() => {
     const instanceId = newProviderInstanceId.trim();
@@ -706,12 +711,13 @@ export function GeneralSettingsPanel() {
 
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenProvider = textGenerationModelSelection.provider;
+  const textGenBuiltInProvider = isBuiltInProviderKind(textGenProvider) ? textGenProvider : null;
   const textGenModel = textGenerationModelSelection.model;
   const textGenModelOptions = textGenerationModelSelection.options;
   const gitModelOptionsByProvider = getCustomModelOptionsByProvider(
     settings,
     serverProviders,
-    textGenProvider,
+    textGenBuiltInProvider,
     textGenModel,
   );
   const isGitWritingModelDirty = !Equal.equals(
@@ -859,7 +865,6 @@ export function GeneralSettingsPanel() {
     const representedInstanceIds = new Set<string>();
 
     for (const provider of ["codex", "claudeAgent"] as const) {
-      const providerSettings = PROVIDER_SETTINGS_BY_KIND[provider];
       const instanceId = defaultInstanceIdForDriver(provider);
       const liveProvider = getProviderSnapshot(serverProviders, provider);
       const providerConfig = settings.providers[provider];
@@ -886,8 +891,8 @@ export function GeneralSettingsPanel() {
         displayName:
           liveProvider?.displayName ??
           explicitInstanceConfig?.displayName ??
-          providerSettings.title,
-        providerDisplayName: PROVIDER_DISPLAY_NAMES[provider] ?? providerSettings.title,
+          getProviderDriverLabel(provider),
+        providerDisplayName: getProviderDriverLabel(provider),
         instanceDisplayNameInput: explicitInstanceConfig?.displayName ?? "",
         isDefaultInstance: true,
         supportsLegacySettings: true,
@@ -901,11 +906,6 @@ export function GeneralSettingsPanel() {
         versionLabel: getProviderVersionLabel(liveProvider?.version),
         versionAdvisory,
         providerConfig,
-        binaryPlaceholder: providerSettings.binaryPlaceholder,
-        binaryDescription: providerSettings.binaryDescription,
-        homePathKey: providerSettings.homePathKey,
-        homePlaceholder: providerSettings.homePlaceholder,
-        homeDescription: providerSettings.homeDescription,
       });
     }
 
@@ -934,10 +934,7 @@ export function GeneralSettingsPanel() {
         driver,
         provider,
         displayName: liveProvider?.displayName ?? instanceConfig.displayName ?? instanceId,
-        providerDisplayName:
-          provider !== null
-            ? (PROVIDER_DISPLAY_NAMES[provider] ?? driver)
-            : getProviderDriverLabel(driver),
+        providerDisplayName: getProviderDriverLabel(driver),
         instanceDisplayNameInput: instanceConfig.displayName ?? "",
         isDefaultInstance: false,
         supportsLegacySettings: false,
@@ -949,11 +946,6 @@ export function GeneralSettingsPanel() {
         versionLabel: getProviderVersionLabel(liveProvider?.version),
         versionAdvisory: getProviderVersionAdvisoryPresentation(liveProvider?.versionAdvisory),
         providerConfig: undefined,
-        binaryPlaceholder: undefined,
-        binaryDescription: undefined,
-        homePathKey: undefined,
-        homePlaceholder: undefined,
-        homeDescription: undefined,
       });
     }
 
@@ -1331,35 +1323,39 @@ export function GeneralSettingsPanel() {
                   });
                 }}
               />
-              <TraitsPicker
-                provider={textGenProvider}
-                models={
-                  serverProviders.find((provider) => provider.provider === textGenProvider)
-                    ?.models ?? []
-                }
-                model={textGenModel}
-                prompt=""
-                onPromptChange={() => {}}
-                modelOptions={textGenModelOptions}
-                allowPromptInjectedEffort={false}
-                triggerVariant="outline"
-                triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                onModelOptionsChange={(nextOptions) => {
-                  updateSettings({
-                    textGenerationModelSelection: resolveAppModelSelectionState(
-                      {
-                        ...settings,
-                        textGenerationModelSelection: {
-                          provider: textGenProvider,
-                          model: textGenModel,
-                          ...(nextOptions ? { options: nextOptions } : {}),
+              {textGenBuiltInProvider ? (
+                <TraitsPicker
+                  provider={textGenBuiltInProvider}
+                  models={
+                    serverProviders.find((provider) => provider.provider === textGenBuiltInProvider)
+                      ?.models ?? []
+                  }
+                  model={textGenModel}
+                  prompt=""
+                  onPromptChange={() => {}}
+                  modelOptions={
+                    textGenModelOptions as Parameters<typeof TraitsPicker>[0]["modelOptions"]
+                  }
+                  allowPromptInjectedEffort={false}
+                  triggerVariant="outline"
+                  triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                  onModelOptionsChange={(nextOptions) => {
+                    updateSettings({
+                      textGenerationModelSelection: resolveAppModelSelectionState(
+                        {
+                          ...settings,
+                          textGenerationModelSelection: {
+                            provider: textGenBuiltInProvider,
+                            model: textGenModel,
+                            ...(nextOptions ? { options: nextOptions } : {}),
+                          },
                         },
-                      },
-                      serverProviders,
-                    ),
-                  });
-                }}
-              />
+                        serverProviders,
+                      ),
+                    });
+                  }}
+                />
+              ) : null}
             </div>
           }
         />
@@ -1733,7 +1729,7 @@ export function GeneralSettingsPanel() {
                   <SelectValue>{getProviderDriverLabel(newProviderInstanceDriver)}</SelectValue>
                 </SelectTrigger>
                 <SelectPopup alignItemWithTrigger={false}>
-                  {PROVIDER_DRIVER_OPTIONS.map((provider) => (
+                  {PROVIDER_DRIVER_DEFINITIONS.map((provider) => (
                     <SelectItem key={provider.value} value={provider.value}>
                       {provider.label}
                     </SelectItem>
@@ -1773,13 +1769,13 @@ export function GeneralSettingsPanel() {
             <p className="mt-2 text-xs text-destructive">{newProviderInstanceError}</p>
           ) : (
             <p className="mt-2 text-xs text-muted-foreground">
-              Create additional built-in provider instances with their own display name and routing
-              identity.
+              Create provider instances with their own display name, config, and routing identity.
             </p>
           )}
         </div>
         {providerCards.map((providerCard) => {
           const builtInProvider = providerCard.provider;
+          const driverDefinition = getProviderDriverDefinition(providerCard.driver);
           const customModelInput =
             builtInProvider !== null ? customModelInputByProvider[builtInProvider] : "";
           const customModelError =
@@ -1787,6 +1783,10 @@ export function GeneralSettingsPanel() {
           const providerDisplayName = providerCard.displayName;
           const isOpen = openProviderDetails[providerCard.cardKey] ?? false;
           const persistedInstanceConfig = providerInstanceMap[providerCard.instanceId];
+          const instanceConfigValue =
+            providerCard.supportsLegacySettings && builtInProvider && providerCard.providerConfig
+              ? providerCard.providerConfig
+              : persistedInstanceConfig?.config;
           const instanceEnabled =
             providerCard.supportsLegacySettings && providerCard.providerConfig
               ? providerCard.providerConfig.enabled
@@ -1983,76 +1983,45 @@ export function GeneralSettingsPanel() {
                       </div>
                     </div>
 
-                    {providerCard.supportsLegacySettings && builtInProvider ? (
-                      <>
-                        <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                          <label
-                            htmlFor={`provider-install-${builtInProvider}-binary-path`}
-                            className="block"
-                          >
-                            <span className="text-xs font-medium text-foreground">
-                              {providerCard.providerDisplayName} binary path
-                            </span>
-                            <Input
-                              id={`provider-install-${builtInProvider}-binary-path`}
-                              className="mt-1.5"
-                              value={providerCard.providerConfig?.binaryPath ?? ""}
-                              onChange={(event) =>
-                                updateSettings({
-                                  providers: {
-                                    ...settings.providers,
-                                    [builtInProvider]: {
-                                      ...settings.providers[builtInProvider],
-                                      binaryPath: event.target.value,
-                                    },
-                                  },
-                                })
-                              }
-                              placeholder={providerCard.binaryPlaceholder}
-                              spellCheck={false}
-                            />
-                            <span className="mt-1 block text-xs text-muted-foreground">
-                              {providerCard.binaryDescription}
-                            </span>
-                          </label>
-                        </div>
-
-                        {providerCard.homePathKey ? (
-                          <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                    {driverDefinition && driverDefinition.settingsFields.length > 0 ? (
+                      <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                        <div className="text-xs font-medium text-foreground">Configuration</div>
+                        <div className="mt-3 grid gap-3">
+                          {driverDefinition.settingsFields.map((field) => (
                             <label
-                              htmlFor={`provider-install-${providerCard.homePathKey}`}
+                              key={`${providerCard.instanceId}:${field.key}`}
+                              htmlFor={`provider-config-${providerCard.instanceId}-${field.key}`}
                               className="block"
                             >
                               <span className="text-xs font-medium text-foreground">
-                                CODEX_HOME path
+                                {field.label}
                               </span>
                               <Input
-                                id={`provider-install-${providerCard.homePathKey}`}
+                                id={`provider-config-${providerCard.instanceId}-${field.key}`}
                                 className="mt-1.5"
-                                value={codexHomePath}
+                                type={field.control === "password" ? "password" : "text"}
+                                value={readConfigString(instanceConfigValue, field.key)}
                                 onChange={(event) =>
-                                  updateSettings({
-                                    providers: {
-                                      ...settings.providers,
-                                      codex: {
-                                        ...settings.providers.codex,
-                                        homePath: event.target.value,
-                                      },
-                                    },
-                                  })
+                                  updateProviderDriverConfigField(
+                                    providerCard,
+                                    field.key,
+                                    event.target.value,
+                                  )
                                 }
-                                placeholder={providerCard.homePlaceholder}
+                                placeholder={field.placeholder}
                                 spellCheck={false}
                               />
-                              {providerCard.homeDescription ? (
-                                <span className="mt-1 block text-xs text-muted-foreground">
-                                  {providerCard.homeDescription}
-                                </span>
-                              ) : null}
+                              <span className="mt-1 block text-xs text-muted-foreground">
+                                {field.description}
+                              </span>
                             </label>
-                          </div>
-                        ) : null}
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
 
+                    {providerCard.supportsLegacySettings && builtInProvider ? (
+                      <>
                         <div className="border-t border-border/60 px-4 py-3 sm:px-5">
                           <div className="text-xs font-medium text-foreground">Models</div>
                           <div className="mt-1 text-xs text-muted-foreground">

@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { ProviderKind, ServerProvider } from "@fenrir/contracts";
+import { isBuiltInProviderKind, type ProviderKind, type ServerProvider } from "@fenrir/contracts";
 import { ProviderModelPicker } from "~/components/chat/ProviderModelPicker";
 
 interface PlanRunnerModelSelectionPanelProps {
@@ -29,7 +29,12 @@ export const PlanRunnerModelSelectionPanel = memo(function PlanRunnerModelSelect
         providers={providers}
         modelOptionsByProvider={modelOptionsByProvider}
         triggerVariant="outline"
-        onProviderModelChange={onProviderModelChange}
+        onProviderModelChange={(nextProvider, nextModel) => {
+          if (!isBuiltInProviderKind(nextProvider)) {
+            return;
+          }
+          onProviderModelChange(nextProvider, nextModel);
+        }}
       />
     </div>
   );

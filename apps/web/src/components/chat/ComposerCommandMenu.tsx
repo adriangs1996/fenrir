@@ -1,4 +1,4 @@
-import { type ProjectEntry, type ProviderKind, type SkillIcon } from "@fenrir/contracts";
+import { type ProjectEntry, type ProviderSelectionKind, type SkillIcon } from "@fenrir/contracts";
 import { memo, useLayoutEffect, useRef } from "react";
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
 import {
@@ -59,7 +59,7 @@ export type ComposerCommandItem =
   | {
       id: string;
       type: "model";
-      provider: ProviderKind;
+      provider: ProviderSelectionKind;
       model: string;
       label: string;
       description: string;

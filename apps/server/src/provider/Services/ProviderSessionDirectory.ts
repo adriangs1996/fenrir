@@ -1,4 +1,5 @@
 import type {
+  ProviderDriverKind,
   ProviderInstanceId,
   ProviderKind,
   ProviderSessionRuntimeStatus,
@@ -15,7 +16,7 @@ import type {
 
 export interface ProviderRuntimeBinding {
   readonly threadId: ThreadId;
-  readonly provider: ProviderKind;
+  readonly provider: ProviderKind | ProviderDriverKind;
   readonly providerInstanceId?: ProviderInstanceId;
   readonly adapterKey?: string;
   readonly status?: ProviderSessionRuntimeStatus;
@@ -37,7 +38,7 @@ export interface ProviderSessionDirectoryShape {
 
   readonly getProvider: (
     threadId: ThreadId,
-  ) => Effect.Effect<ProviderKind, ProviderSessionDirectoryReadError>;
+  ) => Effect.Effect<ProviderKind | ProviderDriverKind, ProviderSessionDirectoryReadError>;
 
   readonly getBinding: (
     threadId: ThreadId,

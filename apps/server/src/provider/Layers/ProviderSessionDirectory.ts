@@ -1,7 +1,7 @@
 import {
   defaultInstanceIdForDriver,
+  ProviderDriverKind,
   ProviderInstanceId,
-  type ProviderKind,
   type ThreadId,
 } from "@fenrir/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
@@ -23,12 +23,12 @@ function toPersistenceError(operation: string) {
     });
 }
 
-function decodeProviderKind(
+function decodeProviderDriverKind(
   providerName: string,
   operation: string,
-): Effect.Effect<ProviderKind, ProviderSessionDirectoryPersistenceError> {
-  if (providerName === "codex" || providerName === "claudeAgent") {
-    return Effect.succeed(providerName);
+): Effect.Effect<ProviderDriverKind, ProviderSessionDirectoryPersistenceError> {
+  if (Schema.is(ProviderDriverKind)(providerName)) {
+    return Effect.succeed(ProviderDriverKind.makeUnsafe(providerName));
   }
   return Effect.fail(
     new ProviderSessionDirectoryPersistenceError({
@@ -41,7 +41,7 @@ function decodeProviderKind(
 const isProviderInstanceId = Schema.is(ProviderInstanceId);
 
 function resolvePersistedProviderInstanceId(
-  provider: ProviderKind,
+  provider: ProviderDriverKind,
   adapterKey: string | undefined,
 ): ProviderInstanceId {
   if (typeof adapterKey === "string" && isProviderInstanceId(adapterKey)) {
@@ -77,7 +77,10 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
         Option.match(runtime, {
           onNone: () => Effect.succeed(Option.none<ProviderRuntimeBinding>()),
           onSome: (value) =>
-            decodeProviderKind(value.providerName, "ProviderSessionDirectory.getBinding").pipe(
+            decodeProviderDriverKind(
+              value.providerName,
+              "ProviderSessionDirectory.getBinding",
+            ).pipe(
               Effect.map((provider) =>
                 Option.some({
                   threadId: value.threadId,
@@ -119,7 +122,7 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
       existingRuntime === undefined
         ? undefined
         : resolvePersistedProviderInstanceId(
-            existingRuntime.providerName as ProviderKind,
+            ProviderDriverKind.makeUnsafe(existingRuntime.providerName),
             existingRuntime.adapterKey,
           );
     const explicitProviderInstanceId =

@@ -1,5 +1,6 @@
 import {
   defaultInstanceIdForDriver,
+  ProviderDriverKind,
   ProviderInstanceId,
   type ProviderKind,
 } from "@fenrir/contracts";
@@ -8,13 +9,14 @@ import { assertFailure } from "@effect/vitest/utils";
 
 import { Effect, Layer, Stream } from "effect";
 
-import { ClaudeAdapter, ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
-import { CodexAdapter, CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
+import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import { OpenCodeAdapter, type OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
+import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import { ProviderAdapterRegistryLive } from "./ProviderAdapterRegistry.ts";
 import { ProviderUnsupportedError } from "../Errors.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ServerSettingsService } from "../../serverSettings.ts";
 
 const fakeCodexAdapter: CodexAdapterShape = {
   provider: "codex",
@@ -50,15 +52,84 @@ const fakeClaudeAdapter: ClaudeAdapterShape = {
   streamEvents: Stream.empty,
 };
 
+const fakeOpenCodeAdapter: OpenCodeAdapterShape = {
+  provider: ProviderDriverKind.makeUnsafe("opencode"),
+  capabilities: { sessionModelSwitch: "in-session" },
+  startSession: vi.fn(),
+  sendTurn: vi.fn(),
+  interruptTurn: vi.fn(),
+  respondToRequest: vi.fn(),
+  respondToUserInput: vi.fn(),
+  stopSession: vi.fn(),
+  listSessions: vi.fn(),
+  hasSession: vi.fn(),
+  readThread: vi.fn(),
+  rollbackThread: vi.fn(),
+  stopAll: vi.fn(),
+  streamEvents: Stream.empty,
+};
+
+function makeInstanceRegistryLayer(options?: { includeCodexWork?: boolean }) {
+  const instances = [
+    {
+      provider: "codex" as const,
+      driverKind: ProviderDriverKind.makeUnsafe("codex"),
+      instanceId: defaultInstanceIdForDriver("codex"),
+      snapshot: {
+        getSnapshot: Effect.die("unused"),
+        refresh: Effect.die("unused"),
+        streamChanges: Stream.empty,
+      },
+    },
+    {
+      provider: "claudeAgent" as const,
+      driverKind: ProviderDriverKind.makeUnsafe("claudeAgent"),
+      instanceId: defaultInstanceIdForDriver("claudeAgent"),
+      snapshot: {
+        getSnapshot: Effect.die("unused"),
+        refresh: Effect.die("unused"),
+        streamChanges: Stream.empty,
+      },
+    },
+    ...(options?.includeCodexWork
+      ? [
+          {
+            provider: "codex" as const,
+            driverKind: ProviderDriverKind.makeUnsafe("codex"),
+            instanceId: ProviderInstanceId.makeUnsafe("codex_work"),
+            displayName: "Codex Work",
+            snapshot: {
+              getSnapshot: Effect.die("unused"),
+              refresh: Effect.die("unused"),
+              streamChanges: Stream.empty,
+            },
+          },
+        ]
+      : []),
+  ] as const;
+
+  return Layer.succeed(ProviderInstanceRegistry, {
+    getInstance: (instanceId) =>
+      Effect.succeed(instances.find((instance) => instance.instanceId === instanceId)),
+    listInstances: Effect.succeed(instances),
+    listUnavailable: Effect.succeed([]),
+    streamChanges: Stream.empty,
+  });
+}
+
+function makeAdapterLayers() {
+  return Layer.mergeAll(
+    Layer.succeed(CodexAdapter, fakeCodexAdapter),
+    Layer.succeed(ClaudeAdapter, fakeClaudeAdapter),
+    Layer.succeed(OpenCodeAdapter, fakeOpenCodeAdapter),
+  );
+}
+
 const layer = it.layer(
   Layer.mergeAll(
-    Layer.provide(
-      ProviderAdapterRegistryLive,
-      Layer.mergeAll(
-        Layer.succeed(CodexAdapter, fakeCodexAdapter),
-        Layer.succeed(ClaudeAdapter, fakeClaudeAdapter),
-        ServerSettingsService.layerTest(),
-      ),
+    ProviderAdapterRegistryLive.pipe(
+      Layer.provideMerge(makeInstanceRegistryLayer()),
+      Layer.provideMerge(makeAdapterLayers()),
     ),
     NodeServices.layer,
   ),
@@ -66,19 +137,9 @@ const layer = it.layer(
 
 const configuredLayer = it.layer(
   Layer.mergeAll(
-    Layer.provide(
-      ProviderAdapterRegistryLive,
-      Layer.mergeAll(
-        Layer.succeed(CodexAdapter, fakeCodexAdapter),
-        Layer.succeed(ClaudeAdapter, fakeClaudeAdapter),
-        ServerSettingsService.layerTest({
-          providerInstances: {
-            [ProviderInstanceId.makeUnsafe("codex_work")]: {
-              driver: "codex",
-            },
-          },
-        }),
-      ),
+    ProviderAdapterRegistryLive.pipe(
+      Layer.provideMerge(makeInstanceRegistryLayer({ includeCodexWork: true })),
+      Layer.provideMerge(makeAdapterLayers()),
     ),
     NodeServices.layer,
   ),

@@ -5,6 +5,17 @@ export interface GlyphFillRect {
   height: number;
 }
 
+interface RoundedCornerGlyphStroke {
+  startX: number;
+  startY: number;
+  cornerX: number;
+  cornerY: number;
+  endX: number;
+  endY: number;
+  radius: number;
+  thickness: number;
+}
+
 function leftBlock(cellWidth: number, cellHeight: number, fraction: number): GlyphFillRect {
   return {
     x: 0,
@@ -71,10 +82,105 @@ function dashedVerticalStroke(
   }));
 }
 
+function lightBoxStrokeThickness(cellWidth: number): number {
+  return Math.max(1, cellWidth / 10);
+}
+
+function heavyBoxStrokeThickness(cellWidth: number): number {
+  const lightThickness = lightBoxStrokeThickness(cellWidth);
+  return Math.max(lightThickness + 0.5, cellWidth / 6);
+}
+
+function roundedCornerStroke(
+  cp: number,
+  cellWidth: number,
+  cellHeight: number,
+): RoundedCornerGlyphStroke | null {
+  const centerX = cellWidth / 2;
+  const centerY = cellHeight / 2;
+  const thickness = lightBoxStrokeThickness(cellWidth);
+  const radius = Math.max(thickness * 1.5, Math.min(cellWidth, cellHeight) * 0.3);
+
+  switch (cp) {
+    case 0x256d:
+      return {
+        startX: cellWidth,
+        startY: centerY,
+        cornerX: centerX,
+        cornerY: centerY,
+        endX: centerX,
+        endY: cellHeight,
+        radius,
+        thickness,
+      };
+    case 0x256e:
+      return {
+        startX: 0,
+        startY: centerY,
+        cornerX: centerX,
+        cornerY: centerY,
+        endX: centerX,
+        endY: cellHeight,
+        radius,
+        thickness,
+      };
+    case 0x256f:
+      return {
+        startX: 0,
+        startY: centerY,
+        cornerX: centerX,
+        cornerY: centerY,
+        endX: centerX,
+        endY: 0,
+        radius,
+        thickness,
+      };
+    case 0x2570:
+      return {
+        startX: cellWidth,
+        startY: centerY,
+        cornerX: centerX,
+        cornerY: centerY,
+        endX: centerX,
+        endY: 0,
+        radius,
+        thickness,
+      };
+    default:
+      return null;
+  }
+}
+
+function strokeRoundedCornerGlyph(
+  ctx: CanvasRenderingContext2D,
+  slotX: number,
+  slotY: number,
+  stroke: RoundedCornerGlyphStroke,
+): void {
+  // Draw rounded prompt borders ourselves so the centerline reaches the cell
+  // edge and stays connected to adjacent box-drawing glyphs.
+  ctx.strokeStyle = ctx.fillStyle;
+  ctx.lineWidth = stroke.thickness;
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(slotX + stroke.startX, slotY + stroke.startY);
+  ctx.arcTo(
+    slotX + stroke.cornerX,
+    slotY + stroke.cornerY,
+    slotX + stroke.endX,
+    slotY + stroke.endY,
+    stroke.radius,
+  );
+  ctx.lineTo(slotX + stroke.endX, slotY + stroke.endY);
+  ctx.stroke();
+}
+
 /**
- * Procedural glyphs for the characters most likely to be used as indent guides
- * or block-based scope markers. Fonts often leave vertical padding around
- * these glyphs, which creates visible gaps between rows in a cell renderer.
+ * Procedural glyphs for the characters most likely to show seams in a cell
+ * renderer. Fonts often leave vertical padding around these glyphs, which
+ * creates visible gaps between rows for indent guides and rounded prompt
+ * borders.
  */
 export function getSpecialGlyphFillRects(
   cp: number,
@@ -98,8 +204,8 @@ export function getSpecialGlyphFillRects(
   if (cp === 0x2594) return [upperBlock(cellWidth, cellHeight, 1 / 8)];
   if (cp === 0x2595) return [rightBlock(cellWidth, cellHeight, 1 / 8)];
 
-  const lightThickness = Math.max(1, cellWidth / 10);
-  const heavyThickness = Math.max(lightThickness + 0.5, cellWidth / 6);
+  const lightThickness = lightBoxStrokeThickness(cellWidth);
+  const heavyThickness = heavyBoxStrokeThickness(cellWidth);
   switch (cp) {
     case 0x2502:
       return [verticalStroke(cellWidth, cellHeight, lightThickness)];
@@ -127,9 +233,15 @@ export function rasterizeSpecialGlyph(
   cellHeight: number,
 ): boolean {
   const rects = getSpecialGlyphFillRects(cp, cellWidth, cellHeight);
-  if (!rects) return false;
-  for (const rect of rects) {
-    ctx.fillRect(slotX + rect.x, slotY + rect.y, rect.width, rect.height);
+  if (rects) {
+    for (const rect of rects) {
+      ctx.fillRect(slotX + rect.x, slotY + rect.y, rect.width, rect.height);
+    }
+    return true;
   }
+
+  const roundedCorner = roundedCornerStroke(cp, cellWidth, cellHeight);
+  if (!roundedCorner) return false;
+  strokeRoundedCornerGlyph(ctx, slotX, slotY, roundedCorner);
   return true;
 }

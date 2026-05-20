@@ -1,17 +1,34 @@
 import {
-  DEFAULT_MODEL_BY_PROVIDER,
-  MODEL_SLUG_ALIASES_BY_PROVIDER,
+  getDefaultModelByProvider,
+  getModelSlugAliasesByProvider,
   type ClaudeAgentEffort,
   type ClaudeModelOptions,
   type CodexModelOptions,
   type ModelCapabilities,
   type ModelSelection,
   type ProviderKind,
+  type ProviderSelectionKind,
 } from "@fenrir/contracts";
 
 export interface SelectableModelOption {
   slug: string;
   name: string;
+}
+
+export function getModelSelectionStringOptionValue(
+  modelSelection: { readonly options?: unknown } | null | undefined,
+  key: string,
+): string | undefined {
+  if (!modelSelection?.options || typeof modelSelection.options !== "object") {
+    return undefined;
+  }
+  const record = modelSelection.options as Record<string, unknown>;
+  const value = record[key];
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 // ── Effort helpers ────────────────────────────────────────────────────
@@ -123,7 +140,7 @@ export function isClaudeUltrathinkPrompt(text: string | null | undefined): boole
 
 export function normalizeModelSlug(
   model: string | null | undefined,
-  provider: ProviderKind = "codex",
+  provider: ProviderSelectionKind | string = "codex",
 ): string | null {
   if (typeof model !== "string") {
     return null;
@@ -134,7 +151,7 @@ export function normalizeModelSlug(
     return null;
   }
 
-  const aliases = MODEL_SLUG_ALIASES_BY_PROVIDER[provider] as Record<string, string>;
+  const aliases = getModelSlugAliasesByProvider(provider);
   const aliased = Object.prototype.hasOwnProperty.call(aliases, trimmed)
     ? aliases[trimmed]
     : undefined;
@@ -142,7 +159,7 @@ export function normalizeModelSlug(
 }
 
 export function resolveSelectableModel(
-  provider: ProviderKind,
+  provider: ProviderSelectionKind | string,
   value: string | null | undefined,
   options: ReadonlyArray<SelectableModelOption>,
 ): string | null {
@@ -177,16 +194,20 @@ export function resolveSelectableModel(
 export function resolveModelSlug(model: string | null | undefined, provider: ProviderKind): string {
   const normalized = normalizeModelSlug(model, provider);
   if (!normalized) {
-    return DEFAULT_MODEL_BY_PROVIDER[provider];
+    return getDefaultModelByProvider(provider);
   }
   return normalized;
 }
 
 export function resolveModelSlugForProvider(
-  provider: ProviderKind,
+  provider: ProviderSelectionKind | string,
   model: string | null | undefined,
 ): string {
-  return resolveModelSlug(model, provider);
+  const normalized = normalizeModelSlug(model, provider);
+  if (!normalized) {
+    return getDefaultModelByProvider(provider);
+  }
+  return normalized;
 }
 
 /** Trim a string, returning null for empty/missing values. */
@@ -210,7 +231,8 @@ export function trimOrNull<T extends string>(value: T | null | undefined): T | n
 export function resolveApiModelId(modelSelection: ModelSelection): string {
   switch (modelSelection.provider) {
     case "claudeAgent": {
-      switch (modelSelection.options?.contextWindow) {
+      const options = modelSelection.options as { contextWindow?: string } | undefined;
+      switch (options?.contextWindow) {
         case "1m":
           return `${modelSelection.model}[1m]`;
         default:

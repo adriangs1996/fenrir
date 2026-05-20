@@ -13,6 +13,7 @@
 import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
+  isBuiltInProviderKind,
   type ModelSelection,
   type ProviderKind,
   ServerSettings,
@@ -142,7 +143,7 @@ const encodeServerSettingsForPersistence = (
  */
 function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
   const selection = settings.textGenerationModelSelection;
-  if (settings.providers[selection.provider].enabled) {
+  if (isBuiltInProviderKind(selection.provider) && settings.providers[selection.provider].enabled) {
     return settings;
   }
 

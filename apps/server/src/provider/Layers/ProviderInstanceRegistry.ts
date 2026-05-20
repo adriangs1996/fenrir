@@ -1,4 +1,5 @@
 import {
+  DEFAULT_SERVER_SETTINGS,
   defaultInstanceIdForDriver,
   type ProviderInstanceConfig,
   ProviderInstanceId,
@@ -7,10 +8,16 @@ import {
   type ServerProvider,
   type ServerSettings,
 } from "@fenrir/contracts";
-import { Effect, Equal, Layer, PubSub, Ref, Stream } from "effect";
+import { deepMerge } from "@fenrir/shared/Struct";
+import { Effect, Equal, Layer, PubSub, Ref, Schema, Stream } from "effect";
 
 import { ClaudeProviderLive } from "./ClaudeProvider.ts";
 import { CodexProviderLive } from "./CodexProvider.ts";
+import { checkOpenCodeProviderStatus, makePendingOpenCodeProvider } from "./OpenCodeProvider.ts";
+import { OpenCodeRuntime, OpenCodeRuntimeLive } from "../opencodeRuntime.ts";
+import { BUILT_IN_DRIVERS } from "../builtInDrivers.ts";
+import type { BuiltInProviderDriver } from "../ProviderDriver.ts";
+import { resolveOpenCodeInstanceSettings } from "../providerSettings.ts";
 import { buildUnavailableProviderSnapshot } from "../unavailableProviderSnapshot.ts";
 import type { ClaudeProviderShape } from "../Services/ClaudeProvider.ts";
 import { ClaudeProvider } from "../Services/ClaudeProvider.ts";
@@ -23,14 +30,8 @@ import {
 } from "../Services/ProviderInstanceRegistry.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
-const BUILT_IN_PROVIDER_KINDS = [
-  "codex",
-  "claudeAgent",
-] as const satisfies ReadonlyArray<ProviderKind>;
-
-function isBuiltInProviderKind(value: string): value is ProviderKind {
-  return value === "codex" || value === "claudeAgent";
-}
+type SnapshotSource = CodexProviderShape | ClaudeProviderShape;
+const OPENCODE_DRIVER = ProviderDriverKind.makeUnsafe("opencode");
 
 function toProviderInstanceConfigMap(
   settings: ServerSettings,
@@ -42,30 +43,16 @@ function unavailableDriverReason(driver: string): string {
   return `This Fenrir build does not ship the '${driver}' provider driver yet.`;
 }
 
-function mergeDefaultInstanceConfig(input: {
-  readonly provider: ProviderKind;
-  readonly explicitEntry: ProviderInstanceConfig | undefined;
-}): ProviderInstanceConfig | undefined {
-  const explicitEntry = input.explicitEntry;
-  if (explicitEntry === undefined) {
-    return undefined;
-  }
-  if (explicitEntry.driver !== input.provider) {
-    return undefined;
-  }
-  return explicitEntry;
-}
-
 function withProviderInstancePresentation(input: {
   readonly snapshot: ServerProvider;
   readonly instanceId: ProviderInstanceId;
-  readonly driver: ProviderKind;
+  readonly driverKind: string;
   readonly displayName: string | undefined;
 }): ServerProvider {
   return {
     ...input.snapshot,
     instanceId: input.instanceId,
-    driver: ProviderDriverKind.makeUnsafe(input.driver),
+    driver: ProviderDriverKind.makeUnsafe(input.driverKind),
     ...(input.displayName ? { displayName: input.displayName } : {}),
   };
 }
@@ -84,6 +71,7 @@ function haveInstanceRecordsChanged(
     }
     return (
       entry.provider !== candidate.provider ||
+      entry.driverKind !== candidate.driverKind ||
       entry.instanceId !== candidate.instanceId ||
       entry.displayName !== candidate.displayName ||
       entry.snapshot !== candidate.snapshot
@@ -91,51 +79,193 @@ function haveInstanceRecordsChanged(
   });
 }
 
+function baseConfigForDriver(
+  driver: BuiltInProviderDriver,
+  settings: ServerSettings,
+): Record<string, unknown> {
+  switch (driver.legacyProvider) {
+    case "codex":
+      return settings.providers.codex as Record<string, unknown>;
+    case "claudeAgent":
+      return settings.providers.claudeAgent as Record<string, unknown>;
+  }
+}
+
+function validateBuiltInDriverConfig(input: {
+  readonly driver: BuiltInProviderDriver;
+  readonly settings: ServerSettings;
+  readonly instanceId: ProviderInstanceId;
+  readonly entry: ProviderInstanceConfig | undefined;
+}): Effect.Effect<void> {
+  const decode = Schema.decodeUnknownSync(input.driver.configSchema as never) as (
+    value: unknown,
+  ) => unknown;
+  const merged = deepMerge(baseConfigForDriver(input.driver, input.settings), {
+    ...(typeof input.entry?.enabled === "boolean" ? { enabled: input.entry.enabled } : {}),
+    ...(input.entry?.config &&
+    typeof input.entry.config === "object" &&
+    !Array.isArray(input.entry.config)
+      ? input.entry.config
+      : {}),
+  });
+
+  return Effect.sync(() => {
+    try {
+      decode(merged);
+      return { ok: true as const };
+    } catch (cause) {
+      return { ok: false as const, cause };
+    }
+  }).pipe(
+    Effect.flatMap((result) =>
+      result.ok
+        ? Effect.void
+        : Effect.logWarning("Ignoring invalid provider instance config override", {
+            provider: input.driver.legacyProvider,
+            driver: input.driver.driverKind,
+            instanceId: input.instanceId,
+            cause: result.cause,
+          }).pipe(Effect.asVoid),
+    ),
+  );
+}
+
 const makeProviderInstanceRegistry = Effect.gen(function* () {
   const codexProvider = yield* CodexProvider;
   const claudeProvider = yield* ClaudeProvider;
+  const openCodeRuntime = yield* OpenCodeRuntime;
   const serverSettings = yield* ServerSettingsService;
   const changesPubSub = yield* Effect.acquireRelease(PubSub.unbounded<void>(), PubSub.shutdown);
 
-  const wrapSnapshotShape = (
-    provider: ProviderKind,
-    instanceId: ProviderInstanceId,
-    displayName: string | undefined,
-    base: CodexProviderShape | ClaudeProviderShape,
-    enabledOverride?: boolean,
-  ) => ({
-    getSnapshot: base.getSnapshot.pipe(
-      Effect.map((snapshot) =>
-        withProviderInstancePresentation({
-          snapshot:
-            enabledOverride === undefined ? snapshot : { ...snapshot, enabled: enabledOverride },
-          instanceId,
-          driver: provider,
-          displayName,
-        }),
+  const snapshotSourceByProvider: Record<ProviderKind, SnapshotSource> = {
+    codex: codexProvider,
+    claudeAgent: claudeProvider,
+  };
+
+  const driverByKind = new Map(BUILT_IN_DRIVERS.map((driver) => [driver.driverKind, driver]));
+
+  const wrapSnapshotShape = (input: {
+    readonly provider: ProviderKind;
+    readonly driverKind: string;
+    readonly instanceId: ProviderInstanceId;
+    readonly displayName: string | undefined;
+    readonly enabledOverride?: boolean;
+  }) => {
+    const base = snapshotSourceByProvider[input.provider];
+    return {
+      getSnapshot: base.getSnapshot.pipe(
+        Effect.map((snapshot) =>
+          withProviderInstancePresentation({
+            snapshot:
+              input.enabledOverride === undefined
+                ? snapshot
+                : { ...snapshot, enabled: input.enabledOverride },
+            instanceId: input.instanceId,
+            driverKind: input.driverKind,
+            displayName: input.displayName,
+          }),
+        ),
       ),
-    ),
-    refresh: base.refresh.pipe(
-      Effect.map((snapshot) =>
-        withProviderInstancePresentation({
-          snapshot:
-            enabledOverride === undefined ? snapshot : { ...snapshot, enabled: enabledOverride },
-          instanceId,
-          driver: provider,
-          displayName,
-        }),
+      refresh: base.refresh.pipe(
+        Effect.map((snapshot) =>
+          withProviderInstancePresentation({
+            snapshot:
+              input.enabledOverride === undefined
+                ? snapshot
+                : { ...snapshot, enabled: input.enabledOverride },
+            instanceId: input.instanceId,
+            driverKind: input.driverKind,
+            displayName: input.displayName,
+          }),
+        ),
       ),
-    ),
-    get streamChanges() {
-      return Stream.map(base.streamChanges, (snapshot) =>
-        withProviderInstancePresentation({
-          snapshot:
-            enabledOverride === undefined ? snapshot : { ...snapshot, enabled: enabledOverride },
-          instanceId,
-          driver: provider,
-          displayName,
-        }),
-      );
+      get streamChanges() {
+        return Stream.map(base.streamChanges, (snapshot) =>
+          withProviderInstancePresentation({
+            snapshot:
+              input.enabledOverride === undefined
+                ? snapshot
+                : { ...snapshot, enabled: input.enabledOverride },
+            instanceId: input.instanceId,
+            driverKind: input.driverKind,
+            displayName: input.displayName,
+          }),
+        );
+      },
+    };
+  };
+
+  const buildLiveInstance = Effect.fn("buildProviderLiveInstance")(function* (input: {
+    readonly driver: BuiltInProviderDriver;
+    readonly settings: ServerSettings;
+    readonly instanceId: ProviderInstanceId;
+    readonly entry: ProviderInstanceConfig | undefined;
+  }) {
+    yield* validateBuiltInDriverConfig(input);
+
+    return {
+      provider: input.driver.legacyProvider,
+      driverKind: input.driver.driverKind,
+      instanceId: input.instanceId,
+      ...(input.entry?.displayName ? { displayName: input.entry.displayName } : {}),
+      snapshot: wrapSnapshotShape({
+        provider: input.driver.legacyProvider,
+        driverKind: input.driver.driverKind,
+        instanceId: input.instanceId,
+        displayName: input.entry?.displayName,
+        ...(input.entry?.enabled !== undefined ? { enabledOverride: input.entry.enabled } : {}),
+      }),
+    } satisfies ProviderInstanceRecord;
+  });
+
+  const buildOpenCodeLiveInstance = (input: {
+    readonly instanceId: ProviderInstanceId;
+    readonly entry: ProviderInstanceConfig;
+  }): ProviderInstanceRecord => ({
+    provider: OPENCODE_DRIVER,
+    driverKind: OPENCODE_DRIVER,
+    instanceId: input.instanceId,
+    ...(input.entry.displayName ? { displayName: input.entry.displayName } : {}),
+    snapshot: {
+      getSnapshot: serverSettings.getSettings.pipe(
+        Effect.flatMap((settings) =>
+          resolveOpenCodeInstanceSettings(settings, input.instanceId).pipe(
+            Effect.flatMap((openCodeSettings) =>
+              checkOpenCodeProviderStatus(openCodeSettings, process.cwd()).pipe(
+                Effect.provideService(OpenCodeRuntime, openCodeRuntime),
+              ),
+            ),
+          ),
+        ),
+        Effect.catchCause(() =>
+          resolveOpenCodeInstanceSettings(
+            DEFAULT_SERVER_SETTINGS as ServerSettings,
+            input.instanceId,
+          ).pipe(
+            Effect.flatMap((openCodeSettings) => makePendingOpenCodeProvider(openCodeSettings)),
+          ),
+        ),
+      ),
+      refresh: serverSettings.getSettings.pipe(
+        Effect.flatMap((settings) =>
+          resolveOpenCodeInstanceSettings(settings, input.instanceId).pipe(
+            Effect.flatMap((openCodeSettings) =>
+              checkOpenCodeProviderStatus(openCodeSettings, process.cwd()).pipe(
+                Effect.provideService(OpenCodeRuntime, openCodeRuntime),
+              ),
+            ),
+          ),
+        ),
+        Effect.catchCause(() =>
+          resolveOpenCodeInstanceSettings(
+            DEFAULT_SERVER_SETTINGS as ServerSettings,
+            input.instanceId,
+          ).pipe(
+            Effect.flatMap((openCodeSettings) => makePendingOpenCodeProvider(openCodeSettings)),
+          ),
+        ),
+      ),
+      streamChanges: Stream.empty,
     },
   });
 
@@ -146,24 +276,18 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
         const liveEntries: ProviderInstanceRecord[] = [];
         const unavailableInputs: Array<Parameters<typeof buildUnavailableProviderSnapshot>[0]> = [];
 
-        for (const provider of BUILT_IN_PROVIDER_KINDS) {
-          const instanceId = defaultInstanceIdForDriver(provider);
-          const explicitEntry = mergeDefaultInstanceConfig({
-            provider,
-            explicitEntry: explicitInstances[instanceId],
-          });
-          const displayName = explicitEntry?.displayName;
-          liveEntries.push({
-            provider,
-            instanceId,
-            ...(displayName ? { displayName } : {}),
-            snapshot: wrapSnapshotShape(
-              provider,
+        for (const driver of BUILT_IN_DRIVERS) {
+          const instanceId = defaultInstanceIdForDriver(driver.driverKind);
+          const explicitEntry = explicitInstances[instanceId];
+          const entry = explicitEntry?.driver === driver.driverKind ? explicitEntry : undefined;
+          liveEntries.push(
+            yield* buildLiveInstance({
+              driver,
+              settings,
               instanceId,
-              displayName,
-              provider === "codex" ? codexProvider : claudeProvider,
-            ),
-          });
+              entry,
+            }),
+          );
         }
 
         for (const [rawInstanceId, explicitEntry] of Object.entries(explicitInstances)) {
@@ -172,17 +296,24 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
           }
 
           const instanceId = ProviderInstanceId.makeUnsafe(rawInstanceId);
-          if (
-            rawInstanceId === explicitEntry.driver &&
-            isBuiltInProviderKind(explicitEntry.driver)
-          ) {
+          if (rawInstanceId === explicitEntry.driver && driverByKind.has(explicitEntry.driver)) {
             continue;
           }
 
-          if (!isBuiltInProviderKind(explicitEntry.driver)) {
+          const driver = driverByKind.get(explicitEntry.driver);
+          if (explicitEntry.driver === OPENCODE_DRIVER) {
+            liveEntries.push(
+              buildOpenCodeLiveInstance({
+                instanceId,
+                entry: explicitEntry,
+              }),
+            );
+            continue;
+          }
+          if (!driver) {
             unavailableInputs.push({
               driverKind: explicitEntry.driver,
-              instanceId: instanceId as ProviderInstanceId,
+              instanceId,
               checkedAt: new Date().toISOString(),
               reason: unavailableDriverReason(explicitEntry.driver),
               ...(explicitEntry.displayName ? { displayName: explicitEntry.displayName } : {}),
@@ -191,18 +322,14 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
             continue;
           }
 
-          liveEntries.push({
-            provider: explicitEntry.driver,
-            instanceId: instanceId as ProviderInstanceId,
-            ...(explicitEntry.displayName ? { displayName: explicitEntry.displayName } : {}),
-            snapshot: wrapSnapshotShape(
-              explicitEntry.driver,
-              instanceId as ProviderInstanceId,
-              explicitEntry.displayName,
-              explicitEntry.driver === "codex" ? codexProvider : claudeProvider,
-              explicitEntry.enabled,
-            ),
-          });
+          liveEntries.push(
+            yield* buildLiveInstance({
+              driver,
+              settings,
+              instanceId,
+              entry: explicitEntry,
+            }),
+          );
         }
 
         const unavailable = yield* Effect.forEach(
@@ -262,4 +389,8 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
 export const ProviderInstanceRegistryLive = Layer.effect(
   ProviderInstanceRegistry,
   makeProviderInstanceRegistry,
-).pipe(Layer.provideMerge(CodexProviderLive), Layer.provideMerge(ClaudeProviderLive));
+).pipe(
+  Layer.provideMerge(CodexProviderLive),
+  Layer.provideMerge(ClaudeProviderLive),
+  Layer.provideMerge(OpenCodeRuntimeLive),
+);

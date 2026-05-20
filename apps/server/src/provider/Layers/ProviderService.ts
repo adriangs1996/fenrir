@@ -13,6 +13,7 @@ import {
   defaultInstanceIdForDriver,
   ModelSelection,
   NonNegativeInt,
+  type ProviderDriverKind,
   type ProviderInstanceId,
   type ProviderKind,
   ThreadId,
@@ -152,7 +153,7 @@ function resolveBindingInstanceId(binding: ProviderRuntimeBinding): ProviderInst
 function isBindingRouteMatch(
   binding: ProviderRuntimeBinding | undefined,
   input: {
-    readonly provider: ProviderKind;
+    readonly provider: ProviderKind | ProviderDriverKind;
     readonly providerInstanceId: ProviderInstanceId;
   },
 ): boolean {
@@ -390,14 +391,16 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             ),
           ),
         );
-        const effectiveProviderSettings = yield* input.provider === "codex"
-          ? resolveEffectiveCodexSettings(settings, input.providerInstanceId)
-          : resolveEffectiveClaudeSettings(settings, input.providerInstanceId);
-        if (!effectiveProviderSettings.enabled) {
-          return yield* toValidationError(
-            "ProviderService.startSession",
-            `Provider '${input.provider}' is disabled in Fenrir settings.`,
-          );
+        if (input.provider === "codex" || input.provider === "claudeAgent") {
+          const effectiveProviderSettings = yield* input.provider === "codex"
+            ? resolveEffectiveCodexSettings(settings, input.providerInstanceId)
+            : resolveEffectiveClaudeSettings(settings, input.providerInstanceId);
+          if (!effectiveProviderSettings.enabled) {
+            return yield* toValidationError(
+              "ProviderService.startSession",
+              `Provider '${input.provider}' is disabled in Fenrir settings.`,
+            );
+          }
         }
         const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
         const persistedBindingMatchesRoute = isBindingRouteMatch(persistedBinding, input);

@@ -10,6 +10,7 @@
 import type {
   ApprovalRequestId,
   ProviderApprovalDecision,
+  ProviderDriverKind,
   ProviderKind,
   ProviderUserInputAnswers,
   ProviderRuntimeEvent,
@@ -46,7 +47,7 @@ export interface ProviderAdapterShape<TError> {
   /**
    * Provider kind implemented by this adapter.
    */
-  readonly provider: ProviderKind;
+  readonly provider: ProviderKind | ProviderDriverKind;
   readonly capabilities: ProviderAdapterCapabilities;
 
   /**

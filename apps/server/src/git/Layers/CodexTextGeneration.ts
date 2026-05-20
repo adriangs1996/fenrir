@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Effect, FileSystem, Layer, Option, Path, Schema, Scope, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { CodexModelSelection } from "@fenrir/contracts";
+import { CodexModelSelection, isCodexModelSelection } from "@fenrir/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@fenrir/shared/git";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -290,19 +290,20 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       includeBranch: input.includeBranch === true,
     });
 
-    if (input.modelSelection.provider !== "codex") {
+    if (!isCodexModelSelection(input.modelSelection)) {
       return yield* new TextGenerationError({
         operation: "generateCommitMessage",
         detail: "Invalid model selection.",
       });
     }
+    const modelSelection = input.modelSelection;
 
     const generated = yield* runCodexJson({
       operation: "generateCommitMessage",
       cwd: input.cwd,
       prompt,
       outputSchemaJson: outputSchema,
-      modelSelection: input.modelSelection,
+      modelSelection,
     });
 
     return {
@@ -325,19 +326,20 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       diffPatch: input.diffPatch,
     });
 
-    if (input.modelSelection.provider !== "codex") {
+    if (!isCodexModelSelection(input.modelSelection)) {
       return yield* new TextGenerationError({
         operation: "generatePrContent",
         detail: "Invalid model selection.",
       });
     }
+    const modelSelection = input.modelSelection;
 
     const generated = yield* runCodexJson({
       operation: "generatePrContent",
       cwd: input.cwd,
       prompt,
       outputSchemaJson: outputSchema,
-      modelSelection: input.modelSelection,
+      modelSelection,
     });
 
     return {
@@ -358,12 +360,13 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       attachments: input.attachments,
     });
 
-    if (input.modelSelection.provider !== "codex") {
+    if (!isCodexModelSelection(input.modelSelection)) {
       return yield* new TextGenerationError({
         operation: "generateBranchName",
         detail: "Invalid model selection.",
       });
     }
+    const modelSelection = input.modelSelection;
 
     const generated = yield* runCodexJson({
       operation: "generateBranchName",
@@ -371,7 +374,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       prompt,
       outputSchemaJson: outputSchema,
       imagePaths,
-      modelSelection: input.modelSelection,
+      modelSelection,
     });
 
     return {
@@ -391,12 +394,13 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       attachments: input.attachments,
     });
 
-    if (input.modelSelection.provider !== "codex") {
+    if (!isCodexModelSelection(input.modelSelection)) {
       return yield* new TextGenerationError({
         operation: "generateThreadTitle",
         detail: "Invalid model selection.",
       });
     }
+    const modelSelection = input.modelSelection;
 
     const generated = yield* runCodexJson({
       operation: "generateThreadTitle",
@@ -404,7 +408,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       prompt,
       outputSchemaJson: outputSchema,
       imagePaths,
-      modelSelection: input.modelSelection,
+      modelSelection,
     });
 
     return {
@@ -420,18 +424,19 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       planContents: input.planContents,
     });
 
-    if (input.modelSelection.provider !== "codex") {
+    if (!isCodexModelSelection(input.modelSelection)) {
       return yield* new TextGenerationError({
         operation: "extractDependencies",
         detail: "Invalid model selection.",
       });
     }
+    const modelSelection = input.modelSelection;
 
     const generated = yield* runCodexJson({
       operation: "extractDependencies",
       prompt,
       outputSchemaJson: outputSchema,
-      modelSelection: input.modelSelection,
+      modelSelection,
     });
 
     return { dependencies: generated.dependencies as Record<string, string[]> };

@@ -1,16 +1,16 @@
-import type { ProviderKind } from "@fenrir/contracts";
+import type { ProviderSelectionKind } from "@fenrir/contracts";
 
-export type ModelPickerSection = ProviderKind | "favorites";
+export type ModelPickerSection = ProviderSelectionKind | "favorites";
 
 export interface ProviderModelPickerItem {
-  provider: ProviderKind;
+  provider: ProviderSelectionKind;
   providerLabel: string;
   slug: string;
   name: string;
   isFavorite: boolean;
 }
 
-export function providerModelKey(provider: ProviderKind, model: string): string {
+export function providerModelKey(provider: ProviderSelectionKind, model: string): string {
   return `${provider}:${model}`;
 }
 
@@ -56,7 +56,7 @@ function scoreProviderModelPickerItem(item: ProviderModelPickerItem, query: stri
 export function searchProviderModelPickerItems(
   items: ReadonlyArray<ProviderModelPickerItem>,
   query: string,
-  lockedProvider: ProviderKind | null,
+  lockedProvider: ProviderSelectionKind | null,
 ): ProviderModelPickerItem[] {
   const ranked = items
     .filter((item) => lockedProvider === null || item.provider === lockedProvider)
@@ -88,7 +88,7 @@ export function searchProviderModelPickerItems(
 export function splitProviderModelPickerSection(
   items: ReadonlyArray<ProviderModelPickerItem>,
   section: ModelPickerSection,
-  lockedProvider: ProviderKind | null,
+  lockedProvider: ProviderSelectionKind | null,
 ): {
   favorites: ProviderModelPickerItem[];
   models: ProviderModelPickerItem[];

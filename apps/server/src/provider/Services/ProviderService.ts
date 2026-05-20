@@ -13,6 +13,7 @@
  */
 import type {
   ProviderInterruptTurnInput,
+  ProviderDriverKind,
   ProviderKind,
   ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
@@ -88,7 +89,7 @@ export interface ProviderServiceShape {
    * Read static capabilities for a provider adapter.
    */
   readonly getCapabilities: (
-    provider: ProviderKind,
+    provider: ProviderKind | ProviderDriverKind,
   ) => Effect.Effect<ProviderAdapterCapabilities, ProviderServiceError>;
 
   /**

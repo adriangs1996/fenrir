@@ -9,6 +9,7 @@
 import {
   type CanonicalItemType,
   type CanonicalRequestType,
+  isCodexModelSelection,
   type ProviderEvent,
   type ProviderRuntimeEvent,
   type ThreadTokenUsageSnapshot,
@@ -44,6 +45,9 @@ import { resolveEffectiveCodexSettings } from "../providerSettings";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "codex" as const;
+
+const getCodexSelection = (selection: ProviderSendTurnInput["modelSelection"] | undefined) =>
+  selection && isCodexModelSelection(selection) ? selection : undefined;
 
 export interface CodexAdapterLiveOptions {
   readonly manager?: CodexAppServerManager;
@@ -1408,6 +1412,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       );
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
+      const modelSelection = getCodexSelection(input.modelSelection);
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
         provider: "codex",
@@ -1416,12 +1421,8 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         runtimeMode: input.runtimeMode,
         binaryPath,
         ...(homePath ? { homePath } : {}),
-        ...(input.modelSelection?.provider === "codex"
-          ? { model: input.modelSelection.model }
-          : {}),
-        ...(input.modelSelection?.provider === "codex" && input.modelSelection.options?.fastMode
-          ? { serviceTier: "fast" }
-          : {}),
+        ...(modelSelection ? { model: modelSelection.model } : {}),
+        ...(modelSelection?.options?.fastMode ? { serviceTier: "fast" } : {}),
       };
 
       return yield* Effect.tryPromise({
@@ -1478,19 +1479,15 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
 
     return yield* Effect.tryPromise({
       try: () => {
+        const modelSelection = getCodexSelection(input.modelSelection);
         const managerInput = {
           threadId: input.threadId,
           ...(input.input !== undefined ? { input: input.input } : {}),
-          ...(input.modelSelection?.provider === "codex"
-            ? { model: input.modelSelection.model }
+          ...(modelSelection ? { model: modelSelection.model } : {}),
+          ...(modelSelection?.options?.reasoningEffort !== undefined
+            ? { effort: modelSelection.options.reasoningEffort }
             : {}),
-          ...(input.modelSelection?.provider === "codex" &&
-          input.modelSelection.options?.reasoningEffort !== undefined
-            ? { effort: input.modelSelection.options.reasoningEffort }
-            : {}),
-          ...(input.modelSelection?.provider === "codex" && input.modelSelection.options?.fastMode
-            ? { serviceTier: "fast" }
-            : {}),
+          ...(modelSelection?.options?.fastMode ? { serviceTier: "fast" } : {}),
           ...(input.interactionMode !== undefined
             ? { interactionMode: input.interactionMode }
             : {}),

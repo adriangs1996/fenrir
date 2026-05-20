@@ -2,6 +2,7 @@ import {
   ClaudeSettings,
   CodexSettings,
   defaultInstanceIdForDriver,
+  OpenCodeSettings,
   ProviderDriverKind,
   type ProviderInstanceConfig,
   type ProviderInstanceId,
@@ -26,7 +27,7 @@ function getDefaultInstanceEntry(
 }
 
 function resolveMergedSettings<T extends Record<string, unknown>>(input: {
-  readonly provider: ProviderKind;
+  readonly provider: ProviderKind | string;
   readonly providerInstanceId?: ProviderInstanceId;
   readonly base: T;
   readonly schema: Schema.Schema<T>;
@@ -81,4 +82,25 @@ export const resolveEffectiveClaudeSettings = (
     base: settings.providers.claudeAgent,
     schema: ClaudeSettings,
     entry: getDefaultInstanceEntry(settings, "claudeAgent", providerInstanceId),
+  });
+
+function getExactInstanceEntry(
+  settings: ServerSettings,
+  providerInstanceId: ProviderInstanceId,
+  driver: string,
+): ProviderInstanceConfig | undefined {
+  const entry = settings.providerInstances[providerInstanceId];
+  return entry?.driver === driver ? entry : undefined;
+}
+
+export const resolveOpenCodeInstanceSettings = (
+  settings: ServerSettings,
+  providerInstanceId: ProviderInstanceId = defaultInstanceIdForDriver("opencode"),
+): Effect.Effect<OpenCodeSettings> =>
+  resolveMergedSettings({
+    provider: "opencode",
+    providerInstanceId,
+    base: Schema.decodeSync(OpenCodeSettings)({}),
+    schema: OpenCodeSettings,
+    entry: getExactInstanceEntry(settings, providerInstanceId, "opencode"),
   });

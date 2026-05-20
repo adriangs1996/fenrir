@@ -1,6 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebglAddon } from "@xterm/addon-webgl";
 import {
   CheckIcon,
   CopyIcon,
@@ -315,9 +316,6 @@ export function TerminalViewport({
       fontFamily: buildTerminalFontFamily(terminalFontFamily),
       fontWeight: TERMINAL_FONT_WEIGHT_NORMAL,
       fontWeightBold: TERMINAL_FONT_WEIGHT_NORMAL,
-      // Force xterm's custom glyph rasterizer for powerline/nerd-font prompt
-      // separators so rounded capsules render consistently in the browser.
-      customGlyphs: true,
       rescaleOverlappingGlyphs: true,
       theme: terminalThemeFromApp(mount),
       allowProposedApi: true,
@@ -331,6 +329,27 @@ export function TerminalViewport({
     terminal.loadAddon(unicode11Addon);
     terminal.unicode.activeVersion = "11";
     terminal.open(mount);
+    let webglAddon: WebglAddon | null = null;
+    let webglContextLossDisposable: { dispose(): void } | null = null;
+    try {
+      webglAddon = new WebglAddon();
+      terminal.loadAddon(webglAddon);
+      webglContextLossDisposable = webglAddon.onContextLoss(() => {
+        console.warn(
+          `${TERMINAL_FONT_LOG_SCOPE} WebGL renderer context lost; falling back to DOM renderer.`,
+        );
+        webglContextLossDisposable?.dispose();
+        webglContextLossDisposable = null;
+        webglAddon?.dispose();
+        webglAddon = null;
+      });
+    } catch (error) {
+      console.warn(
+        `${TERMINAL_FONT_LOG_SCOPE} WebGL renderer unavailable; using DOM renderer.`,
+        error,
+      );
+      webglAddon = null;
+    }
     const disposeFontMetricsObserver = observeTerminalFontMetrics(terminal, fitAddon);
     refreshTerminalFontMetrics(terminal, fitAddon);
     if (nerdFontMountDegraded) {
@@ -833,6 +852,9 @@ export function TerminalViewport({
       terminalHydratedRef.current = false;
       lastAppliedTerminalEventIdRef.current = 0;
       disposeFontMetricsObserver();
+      webglContextLossDisposable?.dispose();
+      webglContextLossDisposable = null;
+      webglAddon = null;
       unsubscribeTerminalEvents();
       window.clearTimeout(fitTimer);
       inputDisposable.dispose();

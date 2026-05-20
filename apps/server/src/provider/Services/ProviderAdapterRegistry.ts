@@ -7,7 +7,7 @@
  *
  * @module ProviderAdapterRegistry
  */
-import type { ProviderInstanceId, ProviderKind } from "@fenrir/contracts";
+import type { ProviderDriverKind, ProviderInstanceId, ProviderKind } from "@fenrir/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -34,13 +34,13 @@ export interface ProviderAdapterRegistryShape {
    * Resolve the adapter for a provider kind.
    */
   readonly getByProvider: (
-    provider: ProviderKind,
+    provider: ProviderKind | ProviderDriverKind,
   ) => Effect.Effect<ProviderAdapterShape<ProviderAdapterError>, ProviderUnsupportedError>;
 
   /**
    * List provider kinds currently registered.
    */
-  readonly listProviders: () => Effect.Effect<ReadonlyArray<ProviderKind>>;
+  readonly listProviders: () => Effect.Effect<ReadonlyArray<ProviderKind | ProviderDriverKind>>;
 }
 
 /**
@@ -50,5 +50,3 @@ export class ProviderAdapterRegistry extends ServiceMap.Service<
   ProviderAdapterRegistry,
   ProviderAdapterRegistryShape
 >()("t3/provider/Services/ProviderAdapterRegistry") {}
-
-// Dummy comment for workflow testing.

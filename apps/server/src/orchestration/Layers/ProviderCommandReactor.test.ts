@@ -8,6 +8,7 @@ import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
+  isBuiltInProviderKind,
   MessageId,
   ProjectId,
   ThreadId,
@@ -131,7 +132,9 @@ describe("ProviderCommandReactor", () => {
           ? ThreadId.makeUnsafe(input.threadId)
           : ThreadId.makeUnsafe(`thread-${sessionIndex}`);
       const session: ProviderSession = {
-        provider: modelSelection.provider,
+        provider: isBuiltInProviderKind(modelSelection.provider)
+          ? modelSelection.provider
+          : "codex",
         status: "ready" as const,
         runtimeMode:
           typeof input === "object" &&

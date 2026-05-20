@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ModelSelection, ProviderKind, ServerProvider } from "@fenrir/contracts";
+import {
+  isBuiltInProviderKind,
+  type ModelSelection,
+  type ProviderKind,
+  type ServerProvider,
+} from "@fenrir/contracts";
 import { useSettings } from "~/hooks/useSettings";
 import { resolveAppModelSelectionState } from "~/modelSelection";
 import { getProviderModels } from "~/providerModels";
@@ -22,7 +27,8 @@ export function usePlanRunnerModelSelection(): PlanRunnerModelSelectionState {
 
   const defaultProvider = useMemo(() => {
     try {
-      return resolveAppModelSelectionState(settings, providers).provider;
+      const provider = resolveAppModelSelectionState(settings, providers).provider;
+      return isBuiltInProviderKind(provider) ? provider : ("codex" as ProviderKind);
     } catch {
       return "codex" as ProviderKind;
     }

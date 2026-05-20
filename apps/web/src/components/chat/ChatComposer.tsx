@@ -6,7 +6,7 @@ import type {
   ProjectEntry,
   ProviderApprovalDecision,
   ProviderInteractionMode,
-  ProviderKind,
+  ProviderSelectionKind,
   RuntimeMode,
   ScopedThreadRef,
   ServerProvider,
@@ -63,7 +63,7 @@ import {
   shouldUseCompactComposerFooter,
 } from "../composerFooterLayout";
 import { type ComposerPromptEditorHandle, ComposerPromptEditor } from "../ComposerPromptEditor";
-import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./ProviderModelPicker";
+import { ProviderModelPicker } from "./ProviderModelPicker";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { ComposerPendingApprovalCommand } from "./ComposerPendingApprovalCommand";
@@ -81,10 +81,13 @@ import { ContextWindowMeter } from "./ContextWindowMeter";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { basenameOfPath } from "../../vscode-icons";
 import {
+  getProviderOptionLabel,
   getProviderModels,
   getProviderSnapshot,
   getProviderSnapshotByInstanceId,
   getProviderSnapshotsForKind,
+  getSelectableProviderKinds,
+  hasProviderTraits,
   resolveSelectableProvider,
 } from "../../providerModels";
 import { searchProviderSkills } from "../../skillSearch";
@@ -343,7 +346,7 @@ export interface ChatComposerHandle {
     selectedPromptEffort: string | null;
     selectedModelOptionsForDispatch: unknown;
     selectedModelSelection: ModelSelection;
-    selectedProvider: ProviderKind;
+    selectedProvider: ProviderSelectionKind;
     selectedProviderInstanceId: ProviderInstanceId;
     selectedModel: string;
     selectedProviderModels: ReadonlyArray<ServerProvider["models"][number]>;
@@ -401,7 +404,7 @@ export interface ChatComposerProps {
   interactionMode: ProviderInteractionMode;
 
   // Provider / model
-  lockedProvider: ProviderKind | null;
+  lockedProvider: ProviderSelectionKind | null;
   providerStatuses: ServerProvider[];
   activeProjectDefaultModelSelection: ModelSelection | null | undefined;
   activeThreadModelSelection: ModelSelection | null | undefined;
@@ -442,7 +445,7 @@ export interface ChatComposerProps {
     cursorAdjacentToMention: boolean,
   ) => void;
 
-  onProviderModelSelect: (provider: ProviderKind, model: string) => void;
+  onProviderModelSelect: (provider: ProviderSelectionKind, model: string) => void;
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
@@ -575,13 +578,14 @@ export const ChatComposer = memo(
       providerStatuses,
       selectedProviderByThreadId ?? threadProvider ?? "codex",
     );
-    const selectedProvider: ProviderKind = lockedProvider ?? unlockedSelectedProvider;
+    const selectedProvider: ProviderSelectionKind = lockedProvider ?? unlockedSelectedProvider;
     const selectedProviderInstanceId = useMemo<ProviderInstanceId>(() => {
       const draftSelection = composerDraft.providerInstanceIdByProvider[selectedProvider];
+      const matchesSelectedProvider = (provider: ServerProvider | undefined): boolean =>
+        provider?.provider === selectedProvider || provider?.driver === selectedProvider;
       if (
         draftSelection &&
-        getProviderSnapshotByInstanceId(providerStatuses, draftSelection)?.provider ===
-          selectedProvider
+        matchesSelectedProvider(getProviderSnapshotByInstanceId(providerStatuses, draftSelection))
       ) {
         return draftSelection;
       }
@@ -591,8 +595,7 @@ export const ChatComposer = memo(
           : undefined;
       if (
         sessionSelection &&
-        getProviderSnapshotByInstanceId(providerStatuses, sessionSelection)?.provider ===
-          selectedProvider
+        matchesSelectedProvider(getProviderSnapshotByInstanceId(providerStatuses, sessionSelection))
       ) {
         return sessionSelection;
       }
@@ -631,13 +634,22 @@ export const ChatComposer = memo(
 
     const composerProviderState = useMemo(
       () =>
-        getComposerProviderState({
-          provider: selectedProvider,
-          model: selectedModel,
-          models: selectedProviderModels,
-          prompt,
-          modelOptions: composerModelOptions,
-        }),
+        hasProviderTraits(selectedProvider)
+          ? getComposerProviderState({
+              provider: selectedProvider,
+              model: selectedModel,
+              models: selectedProviderModels,
+              prompt,
+              modelOptions: composerModelOptions,
+            })
+          : {
+              provider: selectedProvider,
+              promptEffort: null,
+              modelOptionsForDispatch: undefined,
+              composerFrameClassName: undefined,
+              composerSurfaceClassName: undefined,
+              modelPickerIconClassName: undefined,
+            },
       [composerModelOptions, prompt, selectedModel, selectedProvider, selectedProviderModels],
     );
 
@@ -653,40 +665,39 @@ export const ChatComposer = memo(
     );
     const selectedModelForPicker = selectedModel;
     const modelOptionsByProvider = useMemo<
-      Record<ProviderKind, ReadonlyArray<ServerProvider["models"][number]>>
+      Record<string, ReadonlyArray<ServerProvider["models"][number]>>
     >(
-      () => ({
-        codex: getProviderModels(providerStatuses, "codex"),
-        claudeAgent: getProviderModels(providerStatuses, "claudeAgent"),
-      }),
+      () =>
+        Object.fromEntries(
+          getSelectableProviderKinds(providerStatuses).map((provider) => [
+            provider,
+            getProviderModels(providerStatuses, provider),
+          ]),
+        ),
       [providerStatuses],
     );
     const selectedModelForPickerWithCustomFallback = useMemo(() => {
-      const currentOptions = modelOptionsByProvider[selectedProvider];
+      const currentOptions = modelOptionsByProvider[selectedProvider] ?? [];
       return currentOptions.some((option) => option.slug === selectedModelForPicker)
         ? selectedModelForPicker
         : (normalizeModelSlug(selectedModelForPicker, selectedProvider) ?? selectedModelForPicker);
     }, [modelOptionsByProvider, selectedModelForPicker, selectedProvider]);
-    const searchableModelOptions = useMemo(
-      () =>
-        AVAILABLE_PROVIDER_OPTIONS.filter(
-          (option) => lockedProvider === null || option.value === lockedProvider,
-        ).flatMap((option) =>
-          modelOptionsByProvider[option.value].map(({ slug, name }) => ({
-            provider: option.value,
-            providerLabel:
-              getProviderSnapshot(providerStatuses, option.value)?.displayName ?? option.label,
-            slug,
-            name,
-            searchSlug: slug.toLowerCase(),
-            searchName: name.toLowerCase(),
-            searchProvider: (
-              getProviderSnapshot(providerStatuses, option.value)?.displayName ?? option.label
-            ).toLowerCase(),
-          })),
-        ),
-      [lockedProvider, modelOptionsByProvider, providerStatuses],
-    );
+    const searchableModelOptions = useMemo(() => {
+      const availableProviders = getSelectableProviderKinds(providerStatuses).filter(
+        (provider) => lockedProvider === null || provider === lockedProvider,
+      );
+      return availableProviders.flatMap((provider) =>
+        (modelOptionsByProvider[provider] ?? []).map(({ slug, name }) => ({
+          provider,
+          providerLabel: getProviderOptionLabel(providerStatuses, provider),
+          slug,
+          name,
+          searchSlug: slug.toLowerCase(),
+          searchName: name.toLowerCase(),
+          searchProvider: getProviderOptionLabel(providerStatuses, provider).toLowerCase(),
+        })),
+      );
+    }, [lockedProvider, modelOptionsByProvider, providerStatuses]);
 
     // ------------------------------------------------------------------
     // Context window
@@ -956,26 +967,33 @@ export const ChatComposer = memo(
       [composerDraftTarget, promptRef, scheduleComposerFocus, setComposerDraftPrompt],
     );
 
-    const providerTraitsMenuContent = renderProviderTraitsMenuContent({
-      provider: selectedProvider,
-      ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-      ...(routeKind === "draft" && draftId ? { draftId } : {}),
-      model: selectedModel,
-      models: selectedProviderModels,
-      modelOptions: composerModelOptions?.[selectedProvider],
-      prompt,
-      onPromptChange: setPromptFromTraits,
-    });
-    const providerTraitsPicker = renderProviderTraitsPicker({
-      provider: selectedProvider,
-      ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-      ...(routeKind === "draft" && draftId ? { draftId } : {}),
-      model: selectedModel,
-      models: selectedProviderModels,
-      modelOptions: composerModelOptions?.[selectedProvider],
-      prompt,
-      onPromptChange: setPromptFromTraits,
-    });
+    const selectedBuiltInProvider = hasProviderTraits(selectedProvider) ? selectedProvider : null;
+    const providerTraitsMenuContent =
+      selectedBuiltInProvider === null
+        ? null
+        : renderProviderTraitsMenuContent({
+            provider: selectedBuiltInProvider,
+            ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
+            ...(routeKind === "draft" && draftId ? { draftId } : {}),
+            model: selectedModel,
+            models: selectedProviderModels,
+            modelOptions: composerModelOptions?.[selectedBuiltInProvider],
+            prompt,
+            onPromptChange: setPromptFromTraits,
+          });
+    const providerTraitsPicker =
+      selectedBuiltInProvider === null
+        ? null
+        : renderProviderTraitsPicker({
+            provider: selectedBuiltInProvider,
+            ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
+            ...(routeKind === "draft" && draftId ? { draftId } : {}),
+            model: selectedModel,
+            models: selectedProviderModels,
+            modelOptions: composerModelOptions?.[selectedBuiltInProvider],
+            prompt,
+            onPromptChange: setPromptFromTraits,
+          });
     const pendingPrimaryAction = useMemo(
       () =>
         activePendingProgress

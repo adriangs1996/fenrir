@@ -10,7 +10,7 @@
 import { Effect, Layer, Option, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { ClaudeModelSelection } from "@fenrir/contracts";
+import { ClaudeModelSelection, isClaudeModelSelection } from "@fenrir/contracts";
 import { resolveApiModelId } from "@fenrir/shared/model";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@fenrir/shared/git";
 
@@ -219,19 +219,20 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       includeBranch: input.includeBranch === true,
     });
 
-    if (input.modelSelection.provider !== "claudeAgent") {
+    if (!isClaudeModelSelection(input.modelSelection)) {
       return yield* new TextGenerationError({
         operation: "generateCommitMessage",
         detail: "Invalid model selection.",
       });
     }
+    const modelSelection = input.modelSelection;
 
     const generated = yield* runClaudeJson({
       operation: "generateCommitMessage",
       cwd: input.cwd,
       prompt,
       outputSchemaJson: outputSchema,
-      modelSelection: input.modelSelection,
+      modelSelection,
     });
 
     return {
@@ -254,19 +255,20 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       diffPatch: input.diffPatch,
     });
 
-    if (input.modelSelection.provider !== "claudeAgent") {
+    if (!isClaudeModelSelection(input.modelSelection)) {
       return yield* new TextGenerationError({
         operation: "generatePrContent",
         detail: "Invalid model selection.",
       });
     }
+    const modelSelection = input.modelSelection;
 
     const generated = yield* runClaudeJson({
       operation: "generatePrContent",
       cwd: input.cwd,
       prompt,
       outputSchemaJson: outputSchema,
-      modelSelection: input.modelSelection,
+      modelSelection,
     });
 
     return {
@@ -283,19 +285,20 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       attachments: input.attachments,
     });
 
-    if (input.modelSelection.provider !== "claudeAgent") {
+    if (!isClaudeModelSelection(input.modelSelection)) {
       return yield* new TextGenerationError({
         operation: "generateBranchName",
         detail: "Invalid model selection.",
       });
     }
+    const modelSelection = input.modelSelection;
 
     const generated = yield* runClaudeJson({
       operation: "generateBranchName",
       cwd: input.cwd,
       prompt,
       outputSchemaJson: outputSchema,
-      modelSelection: input.modelSelection,
+      modelSelection,
     });
 
     return {
@@ -311,19 +314,20 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       attachments: input.attachments,
     });
 
-    if (input.modelSelection.provider !== "claudeAgent") {
+    if (!isClaudeModelSelection(input.modelSelection)) {
       return yield* new TextGenerationError({
         operation: "generateThreadTitle",
         detail: "Invalid model selection.",
       });
     }
+    const modelSelection = input.modelSelection;
 
     const generated = yield* runClaudeJson({
       operation: "generateThreadTitle",
       cwd: input.cwd,
       prompt,
       outputSchemaJson: outputSchema,
-      modelSelection: input.modelSelection,
+      modelSelection,
     });
 
     return {
@@ -339,18 +343,19 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       planContents: input.planContents,
     });
 
-    if (input.modelSelection.provider !== "claudeAgent") {
+    if (!isClaudeModelSelection(input.modelSelection)) {
       return yield* new TextGenerationError({
         operation: "extractDependencies",
         detail: "Invalid model selection.",
       });
     }
+    const modelSelection = input.modelSelection;
 
     const generated = yield* runClaudeJson({
       operation: "extractDependencies",
       prompt,
       outputSchemaJson: outputSchema,
-      modelSelection: input.modelSelection,
+      modelSelection,
     });
 
     return { dependencies: generated.dependencies as Record<string, string[]> };
