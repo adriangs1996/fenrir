@@ -31,6 +31,7 @@ import {
   toJsonSchemaObject,
 } from "../Utils.ts";
 import { getCodexModelCapabilities } from "../../provider/Layers/CodexProvider.ts";
+import { resolveEffectiveCodexSettings } from "../../provider/providerSettings";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { normalizeCodexModelOptionsWithCapabilities } from "@fenrir/shared/model";
 
@@ -152,10 +153,10 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     );
     const outputPath = yield* writeTempFile(operation, "codex-output", "");
 
-    const codexSettings = yield* Effect.map(
-      serverSettingsService.getSettings,
-      (settings) => settings.providers.codex,
-    ).pipe(Effect.catch(() => Effect.undefined));
+    const codexSettings = yield* serverSettingsService.getSettings.pipe(
+      Effect.flatMap(resolveEffectiveCodexSettings),
+      Effect.catch(() => Effect.undefined),
+    );
 
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
       const normalizedOptions = normalizeCodexModelOptionsWithCapabilities(

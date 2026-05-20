@@ -7,7 +7,7 @@
  *
  * @module ProviderAdapterRegistry
  */
-import type { ProviderKind } from "@fenrir/contracts";
+import type { ProviderInstanceId, ProviderKind } from "@fenrir/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -18,6 +18,18 @@ import type { ProviderAdapterShape } from "./ProviderAdapter.ts";
  * ProviderAdapterRegistryShape - Service API for adapter lookup by provider kind.
  */
 export interface ProviderAdapterRegistryShape {
+  /**
+   * Resolve the adapter for a specific provider instance id.
+   */
+  readonly getByInstance: (
+    instanceId: ProviderInstanceId,
+  ) => Effect.Effect<ProviderAdapterShape<ProviderAdapterError>, ProviderUnsupportedError>;
+
+  /**
+   * List instance ids currently routed by this registry.
+   */
+  readonly listInstances: () => Effect.Effect<ReadonlyArray<ProviderInstanceId>>;
+
   /**
    * Resolve the adapter for a provider kind.
    */

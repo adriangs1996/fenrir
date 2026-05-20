@@ -1,6 +1,8 @@
 import {
   DEFAULT_MODEL_BY_PROVIDER,
+  defaultInstanceIdForDriver,
   type ModelCapabilities,
+  type ProviderInstanceId,
   type ProviderKind,
   type ServerProvider,
   type ServerProviderModel,
@@ -19,14 +21,35 @@ export function getProviderModels(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderKind,
 ): ReadonlyArray<ServerProviderModel> {
-  return providers.find((candidate) => candidate.provider === provider)?.models ?? [];
+  return getProviderSnapshot(providers, provider)?.models ?? [];
 }
 
 export function getProviderSnapshot(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderKind,
 ): ServerProvider | undefined {
-  return providers.find((candidate) => candidate.provider === provider);
+  const defaultInstanceId = defaultInstanceIdForDriver(provider);
+  return (
+    providers.find((candidate) => candidate.instanceId === defaultInstanceId) ??
+    providers.find((candidate) => candidate.provider === provider)
+  );
+}
+
+export function getProviderSnapshotByInstanceId(
+  providers: ReadonlyArray<ServerProvider>,
+  providerInstanceId: ProviderInstanceId | string | null | undefined,
+): ServerProvider | undefined {
+  if (!providerInstanceId) {
+    return undefined;
+  }
+  return providers.find((candidate) => candidate.instanceId === providerInstanceId);
+}
+
+export function getProviderSnapshotsForKind(
+  providers: ReadonlyArray<ServerProvider>,
+  provider: ProviderKind,
+): ReadonlyArray<ServerProvider> {
+  return providers.filter((candidate) => candidate.provider === provider);
 }
 
 export function isProviderEnabled(

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ApprovalRequestId,
+  defaultInstanceIdForDriver,
   ProviderKind,
   type OrchestrationEvent,
   type OrchestrationThread,
@@ -242,6 +243,12 @@ export const makeOrchestrationIntegrationHarness = (
         });
     const fakeRegistry = adapterHarness
       ? Layer.succeed(ProviderAdapterRegistry, {
+          getByInstance: (instanceId) =>
+            instanceId === defaultInstanceIdForDriver(adapterHarness.provider)
+              ? Effect.succeed(adapterHarness.adapter)
+              : Effect.fail(new ProviderUnsupportedError({ provider: instanceId })),
+          listInstances: () =>
+            Effect.succeed([defaultInstanceIdForDriver(adapterHarness.provider)] as const),
           getByProvider: (resolvedProvider) =>
             resolvedProvider === adapterHarness.provider
               ? Effect.succeed(adapterHarness.adapter)
@@ -274,6 +281,11 @@ export const makeOrchestrationIntegrationHarness = (
       Effect.gen(function* () {
         const codexAdapter = yield* CodexAdapter;
         return {
+          getByInstance: (instanceId) =>
+            instanceId === defaultInstanceIdForDriver("codex")
+              ? Effect.succeed(codexAdapter)
+              : Effect.fail(new ProviderUnsupportedError({ provider: instanceId })),
+          listInstances: () => Effect.succeed([defaultInstanceIdForDriver("codex")] as const),
           getByProvider: (resolvedProvider) =>
             resolvedProvider === "codex"
               ? Effect.succeed(codexAdapter)

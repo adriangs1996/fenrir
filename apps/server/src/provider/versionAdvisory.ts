@@ -1,8 +1,4 @@
-import type {
-  ProviderKind,
-  ServerProvider,
-  ServerProviderVersionAdvisory,
-} from "@fenrir/contracts";
+import type { ServerProvider, ServerProviderVersionAdvisory } from "@fenrir/contracts";
 import { compareCliVersions } from "./cliVersion";
 
 const LATEST_VERSION_CACHE_TTL_MS = 60 * 60 * 1_000;
@@ -15,7 +11,7 @@ interface LatestVersionCacheEntry {
 
 const latestVersionCache = new Map<string, LatestVersionCacheEntry>();
 
-const PROVIDER_PACKAGE_NAME: Record<ProviderKind, string | null> = {
+const PROVIDER_PACKAGE_NAME: Record<string, string | null> = {
   codex: "@openai/codex",
   claudeAgent: "@anthropic-ai/claude-code",
 };
@@ -97,7 +93,7 @@ async function fetchNpmLatestVersion(packageName: string): Promise<string | null
   }
 }
 
-async function resolveLatestProviderVersion(provider: ProviderKind): Promise<string | null> {
+async function resolveLatestProviderVersion(provider: string): Promise<string | null> {
   const packageName = PROVIDER_PACKAGE_NAME[provider];
   if (!packageName) {
     return null;
@@ -130,7 +126,8 @@ export async function enrichProviderSnapshotWithVersionAdvisory(
     };
   }
 
-  const latestVersion = await resolveLatestProviderVersion(snapshot.provider);
+  const providerKey = snapshot.driver ?? snapshot.provider;
+  const latestVersion = providerKey ? await resolveLatestProviderVersion(providerKey) : null;
   return {
     ...snapshot,
     versionAdvisory: createProviderVersionAdvisory({

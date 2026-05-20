@@ -121,10 +121,11 @@ export function applyServerSettingsPatch(
   patch: ServerSettingsPatch,
 ): ServerSettings {
   const normalizedPatch = normalizeServerSettingsPatch(patch);
-  const { automaticGitFetchInterval, ...restPatch } = normalizedPatch;
+  const { automaticGitFetchInterval, providerInstances, ...restPatch } = normalizedPatch;
   const next = {
     ...deepMerge(current, restPatch),
     ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
+    ...(providerInstances !== undefined ? { providerInstances } : {}),
   };
   const selectionPatch = normalizedPatch.textGenerationModelSelection;
   if (!selectionPatch || !shouldReplaceTextGenerationModelSelection(selectionPatch)) {

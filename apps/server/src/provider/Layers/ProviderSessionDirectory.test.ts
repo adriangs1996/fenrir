@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@fenrir/contracts";
+import { ProviderInstanceId, ThreadId } from "@fenrir/contracts";
 import { it, assert } from "@effect/vitest";
 import { assertFailure, assertSome } from "@effect/vitest/utils";
 import { Effect, Layer, Option } from "effect";
@@ -49,6 +49,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       assertSome(resolvedBinding, {
         threadId: initialThreadId,
         provider: "codex",
+        providerInstanceId: ProviderInstanceId.makeUnsafe("codex"),
       });
       if (Option.isSome(resolvedBinding)) {
         assert.equal(resolvedBinding.value.threadId, initialThreadId);
@@ -133,6 +134,32 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       }
     }));
 
+  it("persists providerInstanceId through adapterKey for runtime routing", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const threadId = ThreadId.makeUnsafe("thread-instance-id");
+
+      yield* directory.upsert({
+        provider: "codex",
+        providerInstanceId: ProviderInstanceId.makeUnsafe("codex_work"),
+        threadId,
+      });
+
+      const runtime = yield* runtimeRepository.getByThreadId({ threadId });
+      assert.equal(Option.isSome(runtime), true);
+      if (Option.isSome(runtime)) {
+        assert.equal(runtime.value.adapterKey, "codex_work");
+      }
+
+      const binding = yield* directory.getBinding(threadId);
+      assertSome(binding, {
+        threadId,
+        provider: "codex",
+        providerInstanceId: ProviderInstanceId.makeUnsafe("codex_work"),
+      });
+    }));
+
   it("resets adapterKey to the new provider when provider changes without an explicit adapter key", () =>
     Effect.gen(function* () {
       const directory = yield* ProviderSessionDirectory;
@@ -189,6 +216,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
         assertSome(resolvedBinding, {
           threadId,
           provider: "codex",
+          providerInstanceId: ProviderInstanceId.makeUnsafe("codex"),
         });
         if (Option.isSome(resolvedBinding)) {
           assert.equal(resolvedBinding.value.threadId, threadId);

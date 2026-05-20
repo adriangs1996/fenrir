@@ -4,6 +4,7 @@ import {
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
+  type ProviderInstanceId,
   ProviderKind,
   type OrchestrationSession,
   ThreadId,
@@ -259,6 +260,7 @@ const make = Effect.gen(function* () {
     createdAt: string,
     options?: {
       readonly modelSelection?: ModelSelection;
+      readonly providerInstanceId?: ProviderInstanceId;
     },
   ) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -274,6 +276,7 @@ const make = Effect.gen(function* () {
       ? thread.session.providerName
       : undefined;
     const requestedModelSelection = options?.modelSelection;
+    const requestedProviderInstanceId = options?.providerInstanceId;
     const threadProvider: ProviderKind = currentProvider ?? thread.modelSelection.provider;
     if (
       requestedModelSelection !== undefined &&
@@ -305,6 +308,7 @@ const make = Effect.gen(function* () {
         yield* Effect.logInfo("provider command reactor starting provider session", {
           threadId,
           provider: preferredProvider,
+          providerInstanceId: requestedProviderInstanceId ?? null,
           runtimeMode: desiredRuntimeMode,
           cwd: effectiveCwd ?? null,
           modelProvider: desiredModelSelection.provider,
@@ -314,6 +318,9 @@ const make = Effect.gen(function* () {
         const session = yield* providerService.startSession(threadId, {
           threadId,
           ...(preferredProvider ? { provider: preferredProvider } : {}),
+          ...(requestedProviderInstanceId !== undefined
+            ? { providerInstanceId: requestedProviderInstanceId }
+            : {}),
           ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
           modelSelection: desiredModelSelection,
           ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
@@ -337,6 +344,9 @@ const make = Effect.gen(function* () {
           threadId,
           status: mapProviderSessionStatusToOrchestrationStatus(session.status),
           providerName: session.provider,
+          ...(session.providerInstanceId !== undefined
+            ? { providerInstanceId: session.providerInstanceId }
+            : {}),
           runtimeMode: desiredRuntimeMode,
           // Provider turn ids are not orchestration turn ids.
           activeTurnId: null,
@@ -354,6 +364,10 @@ const make = Effect.gen(function* () {
       const providerChanged =
         requestedModelSelection !== undefined &&
         requestedModelSelection.provider !== currentProvider;
+      const providerInstanceChanged =
+        requestedProviderInstanceId !== undefined &&
+        requestedProviderInstanceId !==
+          (activeSession?.providerInstanceId ?? thread.session?.providerInstanceId ?? undefined);
       const cwdChanged = effectiveCwd !== activeSession?.cwd;
       const sessionModelSwitch =
         currentProvider === undefined
@@ -372,6 +386,7 @@ const make = Effect.gen(function* () {
       if (
         !runtimeModeChanged &&
         !providerChanged &&
+        !providerInstanceChanged &&
         !cwdChanged &&
         !shouldRestartForModelChange &&
         !shouldRestartForModelSelectionChange
@@ -380,18 +395,22 @@ const make = Effect.gen(function* () {
       }
 
       const resumeCursor =
-        providerChanged || shouldRestartForModelChange
+        providerChanged || providerInstanceChanged || shouldRestartForModelChange
           ? undefined
           : (activeSession?.resumeCursor ?? undefined);
       yield* Effect.logInfo("provider command reactor restarting provider session", {
         threadId,
         existingSessionThreadId,
         currentProvider,
+        currentProviderInstanceId:
+          activeSession?.providerInstanceId ?? thread.session?.providerInstanceId ?? null,
         desiredProvider: desiredModelSelection.provider,
+        desiredProviderInstanceId: requestedProviderInstanceId ?? null,
         currentRuntimeMode: thread.session?.runtimeMode,
         desiredRuntimeMode: thread.runtimeMode,
         runtimeModeChanged,
         providerChanged,
+        providerInstanceChanged,
         previousCwd: activeSession?.cwd,
         desiredCwd: effectiveCwd,
         cwdChanged,
@@ -425,6 +444,7 @@ const make = Effect.gen(function* () {
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
+    readonly providerInstanceId?: ProviderInstanceId;
     readonly interactionMode?: "default" | "plan";
     readonly createdAt: string;
   }) {
@@ -432,11 +452,12 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
-    yield* ensureSessionForThread(
-      input.threadId,
-      input.createdAt,
-      input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {},
-    );
+    yield* ensureSessionForThread(input.threadId, input.createdAt, {
+      ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+      ...(input.providerInstanceId !== undefined
+        ? { providerInstanceId: input.providerInstanceId }
+        : {}),
+    });
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
@@ -652,6 +673,9 @@ const make = Effect.gen(function* () {
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }
+        : {}),
+      ...(event.payload.providerInstanceId !== undefined
+        ? { providerInstanceId: event.payload.providerInstanceId }
         : {}),
       interactionMode: event.payload.interactionMode,
       createdAt: event.payload.createdAt,

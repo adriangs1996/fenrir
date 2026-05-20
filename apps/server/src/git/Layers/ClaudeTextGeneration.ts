@@ -31,6 +31,7 @@ import {
   toJsonSchemaObject,
 } from "../Utils.ts";
 import { normalizeClaudeModelOptionsWithCapabilities } from "@fenrir/shared/model";
+import { resolveEffectiveClaudeSettings } from "../../provider/providerSettings";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "../../provider/Layers/ClaudeProvider.ts";
 
@@ -97,10 +98,10 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       ...(normalizedOptions?.fastMode ? { fastMode: true } : {}),
     };
 
-    const claudeSettings = yield* Effect.map(
-      serverSettingsService.getSettings,
-      (settings) => settings.providers.claudeAgent,
-    ).pipe(Effect.catch(() => Effect.undefined));
+    const claudeSettings = yield* serverSettingsService.getSettings.pipe(
+      Effect.flatMap(resolveEffectiveClaudeSettings),
+      Effect.catch(() => Effect.undefined),
+    );
 
     const runClaudeCommand = Effect.fn("runClaudeJson.runClaudeCommand")(function* () {
       const command = ChildProcess.make(

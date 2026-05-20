@@ -25,6 +25,7 @@ import {
 } from "../providerSnapshot";
 import { compareCliVersions } from "../cliVersion";
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
+import { resolveEffectiveClaudeSettings } from "../providerSettings";
 import { ClaudeProvider } from "../Services/ClaudeProvider";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@fenrir/contracts";
@@ -461,7 +462,7 @@ const probeClaudeCapabilities = (binaryPath: string) => {
 const runClaudeCommand = Effect.fn("runClaudeCommand")(function* (args: ReadonlyArray<string>) {
   const claudeSettings = yield* Effect.service(ServerSettingsService).pipe(
     Effect.flatMap((service) => service.getSettings),
-    Effect.map((settings) => settings.providers.claudeAgent),
+    Effect.flatMap(resolveEffectiveClaudeSettings),
   );
   const command = ChildProcess.make(claudeSettings.binaryPath, [...args], {
     shell: process.platform === "win32",
@@ -478,7 +479,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 > {
   const claudeSettings = yield* Effect.service(ServerSettingsService).pipe(
     Effect.flatMap((service) => service.getSettings),
-    Effect.map((settings) => settings.providers.claudeAgent),
+    Effect.flatMap(resolveEffectiveClaudeSettings),
   );
   const checkedAt = new Date().toISOString();
   const allModels = providerModelsFromSettings(
@@ -686,11 +687,11 @@ export const ClaudeProviderLive = Layer.effect(
 
     return yield* makeManagedServerProvider<ClaudeSettings>({
       getSettings: serverSettings.getSettings.pipe(
-        Effect.map((settings) => settings.providers.claudeAgent),
+        Effect.flatMap((settings) => resolveEffectiveClaudeSettings(settings)),
         Effect.orDie,
       ),
       streamSettings: serverSettings.streamChanges.pipe(
-        Stream.map((settings) => settings.providers.claudeAgent),
+        Stream.mapEffect((settings) => resolveEffectiveClaudeSettings(settings)),
       ),
       haveSettingsChanged: (previous, next) => !Equal.equals(previous, next),
       checkProvider,

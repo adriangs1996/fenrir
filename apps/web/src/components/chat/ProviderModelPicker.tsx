@@ -49,9 +49,23 @@ function providerIconClassName(
   return provider === "claudeAgent" ? "text-[#d97757]" : fallbackClassName;
 }
 
+function getProviderOptionLabel(
+  providers: ReadonlyArray<ServerProvider> | undefined,
+  provider: ProviderKind,
+): string {
+  return (
+    getProviderSnapshot(providers ?? [], provider)?.displayName ??
+    AVAILABLE_PROVIDER_OPTIONS.find((option) => option.value === provider)?.label ??
+    provider
+  );
+}
+
 function describeProviderAvailability(provider: ServerProvider | undefined): string | null {
   if (!provider) {
     return null;
+  }
+  if (provider.availability === "unavailable") {
+    return provider.unavailableReason ?? "Unavailable in this Fenrir build";
   }
   if (!provider.enabled) {
     return "Disabled";
@@ -171,7 +185,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       }
       return props.modelOptionsByProvider[option.value].map((modelOption) => ({
         provider: option.value,
-        providerLabel: option.label,
+        providerLabel: getProviderOptionLabel(props.providers, option.value),
         slug: modelOption.slug,
         name: modelOption.name,
         isFavorite: favoriteKeySet.has(providerModelKey(option.value, modelOption.slug)),
@@ -301,10 +315,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   : undefined;
                 const availability = describeProviderAvailability(liveProvider);
                 const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
+                const label = getProviderOptionLabel(props.providers, option.value);
                 return (
                   <SidebarSectionButton
                     key={option.value}
-                    label={option.label}
+                    label={label}
                     {...(availability ? { description: availability } : {})}
                     selected={selectedSection === option.value}
                     disabled={availability !== null}
@@ -372,9 +387,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 {props.lockedProvider !== null && !isSearching ? (
                   <SectionHeader
                     title={
-                      AVAILABLE_PROVIDER_OPTIONS.find(
-                        (option) => option.value === props.lockedProvider,
-                      )?.label ?? "Models"
+                      getProviderOptionLabel(props.providers, props.lockedProvider) ?? "Models"
                     }
                   />
                 ) : null}

@@ -40,6 +40,7 @@ import {
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { resolveEffectiveCodexSettings } from "../providerSettings";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "codex" as const;
@@ -1392,7 +1393,9 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       }
 
       const codexSettings = yield* serverSettingsService.getSettings.pipe(
-        Effect.map((settings) => settings.providers.codex),
+        Effect.flatMap((settings) =>
+          resolveEffectiveCodexSettings(settings, input.providerInstanceId),
+        ),
         Effect.mapError(
           (error) =>
             new ProviderAdapterProcessError({

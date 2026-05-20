@@ -65,6 +65,7 @@ import {
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { resolveEffectiveClaudeSettings } from "../providerSettings";
 import { getClaudeModelCapabilities } from "./ClaudeProvider.ts";
 import {
   ProviderAdapterProcessError,
@@ -2751,7 +2752,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         runPromise(canUseToolEffect(toolName, toolInput, callbackOptions));
 
       const claudeSettings = yield* serverSettingsService.getSettings.pipe(
-        Effect.map((settings) => settings.providers.claudeAgent),
+        Effect.flatMap((settings) =>
+          resolveEffectiveClaudeSettings(settings, input.providerInstanceId),
+        ),
         Effect.mapError(
           (error) =>
             new ProviderAdapterProcessError({

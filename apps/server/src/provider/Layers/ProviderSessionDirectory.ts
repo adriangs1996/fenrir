@@ -1,5 +1,10 @@
-import { type ProviderKind, type ThreadId } from "@fenrir/contracts";
-import { Effect, Layer, Option } from "effect";
+import {
+  defaultInstanceIdForDriver,
+  ProviderInstanceId,
+  type ProviderKind,
+  type ThreadId,
+} from "@fenrir/contracts";
+import { Effect, Layer, Option, Schema } from "effect";
 
 import { ProviderSessionRuntimeRepository } from "../../persistence/Services/ProviderSessionRuntime.ts";
 import { ProviderSessionDirectoryPersistenceError, ProviderValidationError } from "../Errors.ts";
@@ -31,6 +36,18 @@ function decodeProviderKind(
       detail: `Unknown persisted provider '${providerName}'.`,
     }),
   );
+}
+
+const isProviderInstanceId = Schema.is(ProviderInstanceId);
+
+function resolvePersistedProviderInstanceId(
+  provider: ProviderKind,
+  adapterKey: string | undefined,
+): ProviderInstanceId {
+  if (typeof adapterKey === "string" && isProviderInstanceId(adapterKey)) {
+    return ProviderInstanceId.makeUnsafe(adapterKey);
+  }
+  return defaultInstanceIdForDriver(provider);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -65,6 +82,10 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
                 Option.some({
                   threadId: value.threadId,
                   provider,
+                  providerInstanceId: resolvePersistedProviderInstanceId(
+                    provider,
+                    value.adapterKey,
+                  ),
                   adapterKey: value.adapterKey,
                   runtimeMode: value.runtimeMode,
                   status: value.status,
@@ -94,13 +115,28 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
     const now = new Date().toISOString();
     const providerChanged =
       existingRuntime !== undefined && existingRuntime.providerName !== binding.provider;
+    const existingProviderInstanceId =
+      existingRuntime === undefined
+        ? undefined
+        : resolvePersistedProviderInstanceId(
+            existingRuntime.providerName as ProviderKind,
+            existingRuntime.adapterKey,
+          );
+    const explicitProviderInstanceId =
+      binding.providerInstanceId ??
+      (typeof binding.adapterKey === "string" && isProviderInstanceId(binding.adapterKey)
+        ? ProviderInstanceId.makeUnsafe(binding.adapterKey)
+        : undefined);
+    const resolvedProviderInstanceId =
+      explicitProviderInstanceId ??
+      (providerChanged
+        ? defaultInstanceIdForDriver(binding.provider)
+        : (existingProviderInstanceId ?? defaultInstanceIdForDriver(binding.provider)));
     yield* repository
       .upsert({
         threadId: resolvedThreadId,
         providerName: binding.provider,
-        adapterKey:
-          binding.adapterKey ??
-          (providerChanged ? binding.provider : (existingRuntime?.adapterKey ?? binding.provider)),
+        adapterKey: resolvedProviderInstanceId,
         runtimeMode: binding.runtimeMode ?? existingRuntime?.runtimeMode ?? "full-access",
         status: binding.status ?? existingRuntime?.status ?? "running",
         lastSeenAt: now,

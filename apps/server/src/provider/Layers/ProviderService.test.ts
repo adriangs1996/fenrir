@@ -12,6 +12,7 @@ import type {
 import {
   ApprovalRequestId,
   EventId,
+  defaultInstanceIdForDriver,
   type ProviderKind,
   ProviderSessionStartInput,
   ThreadId,
@@ -74,6 +75,7 @@ function makeFakeCodexAdapter(provider: ProviderKind = "codex") {
       const now = new Date().toISOString();
       const session: ProviderSession = {
         provider,
+        providerInstanceId: input.providerInstanceId,
         status: "ready",
         runtimeMode: input.runtimeMode,
         threadId: input.threadId,
@@ -243,18 +245,36 @@ const hasMetricSnapshot = (
       Object.entries(attributes).every(([key, value]) => snapshot.attributes?.[key] === value),
   );
 
+function makeRegistryFromAdapters(
+  adapters: ReadonlyArray<ProviderAdapterShape<ProviderAdapterError>>,
+): typeof ProviderAdapterRegistry.Service {
+  const byProvider = new Map(adapters.map((adapter) => [adapter.provider, adapter] as const));
+  const byInstance = new Map(
+    adapters.map((adapter) => [defaultInstanceIdForDriver(adapter.provider), adapter] as const),
+  );
+
+  return {
+    getByInstance: (instanceId) => {
+      const adapter = byInstance.get(instanceId);
+      return adapter
+        ? Effect.succeed(adapter)
+        : Effect.fail(new ProviderUnsupportedError({ provider: instanceId }));
+    },
+    listInstances: () => Effect.succeed(Array.from(byInstance.keys())),
+    getByProvider: (provider) => {
+      const adapter = byProvider.get(provider);
+      return adapter
+        ? Effect.succeed(adapter)
+        : Effect.fail(new ProviderUnsupportedError({ provider }));
+    },
+    listProviders: () => Effect.succeed(Array.from(byProvider.keys())),
+  };
+}
+
 function makeProviderServiceLayer() {
   const codex = makeFakeCodexAdapter();
   const claude = makeFakeCodexAdapter("claudeAgent");
-  const registry: typeof ProviderAdapterRegistry.Service = {
-    getByProvider: (provider) =>
-      provider === "codex"
-        ? Effect.succeed(codex.adapter)
-        : provider === "claudeAgent"
-          ? Effect.succeed(claude.adapter)
-          : Effect.fail(new ProviderUnsupportedError({ provider })),
-    listProviders: () => Effect.succeed(["codex", "claudeAgent"]),
-  };
+  const registry = makeRegistryFromAdapters([codex.adapter, claude.adapter]);
 
   const providerAdapterLayer = Layer.succeed(ProviderAdapterRegistry, registry);
   const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
@@ -284,19 +304,13 @@ function makeProviderServiceLayer() {
   };
 }
 
+const routing = makeProviderServiceLayer();
+
 it.effect("ProviderServiceLive rejects new sessions for disabled providers", () =>
   Effect.gen(function* () {
     const codex = makeFakeCodexAdapter();
     const claude = makeFakeCodexAdapter("claudeAgent");
-    const registry: typeof ProviderAdapterRegistry.Service = {
-      getByProvider: (provider) =>
-        provider === "codex"
-          ? Effect.succeed(codex.adapter)
-          : provider === "claudeAgent"
-            ? Effect.succeed(claude.adapter)
-            : Effect.fail(new ProviderUnsupportedError({ provider })),
-      listProviders: () => Effect.succeed(["codex", "claudeAgent"]),
-    };
+    const registry = makeRegistryFromAdapters([codex.adapter, claude.adapter]);
     const providerAdapterLayer = Layer.succeed(ProviderAdapterRegistry, registry);
     const serverSettingsLayer = ServerSettingsService.layerTest({
       providers: {
@@ -333,20 +347,45 @@ it.effect("ProviderServiceLive rejects new sessions for disabled providers", () 
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
-const routing = makeProviderServiceLayer();
+routing.layer("ProviderServiceLive provider-instance routing", (it) => {
+  it.effect("starts a session from providerInstanceId without an explicit provider kind", () =>
+    Effect.gen(function* () {
+      routing.claude.startSession.mockClear();
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-instance-route");
+      const providerInstanceId = defaultInstanceIdForDriver("claudeAgent");
+
+      const session = yield* provider.startSession(threadId, {
+        providerInstanceId,
+        runtimeMode: "full-access",
+        threadId,
+      });
+
+      assert.equal(session.provider, "claudeAgent");
+      assert.equal(session.providerInstanceId, providerInstanceId);
+      assert.equal(routing.claude.startSession.mock.calls.length > 0, true);
+
+      const startInput = routing.claude.startSession.mock.calls.at(-1)?.[0];
+      assert.equal(typeof startInput === "object" && startInput !== null, true);
+      if (startInput && typeof startInput === "object") {
+        const payload = startInput as {
+          provider?: string;
+          providerInstanceId?: string;
+        };
+        assert.equal(payload.provider, "claudeAgent");
+        assert.equal(payload.providerInstanceId, providerInstanceId);
+      }
+    }),
+  );
+});
+
 it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", () =>
   Effect.gen(function* () {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "fenrir-provider-service-"));
     const dbPath = path.join(tempDir, "orchestration.sqlite");
 
     const codex = makeFakeCodexAdapter();
-    const registry: typeof ProviderAdapterRegistry.Service = {
-      getByProvider: (provider) =>
-        provider === "codex"
-          ? Effect.succeed(codex.adapter)
-          : Effect.fail(new ProviderUnsupportedError({ provider })),
-      listProviders: () => Effect.succeed(["codex"]),
-    };
+    const registry = makeRegistryFromAdapters([codex.adapter]);
 
     const persistenceLayer = makeSqlitePersistenceLive(dbPath);
     const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
@@ -411,13 +450,7 @@ it.effect(
       );
 
       const firstCodex = makeFakeCodexAdapter();
-      const firstRegistry: typeof ProviderAdapterRegistry.Service = {
-        getByProvider: (provider) =>
-          provider === "codex"
-            ? Effect.succeed(firstCodex.adapter)
-            : Effect.fail(new ProviderUnsupportedError({ provider })),
-        listProviders: () => Effect.succeed(["codex"]),
-      };
+      const firstRegistry = makeRegistryFromAdapters([firstCodex.adapter]);
 
       const firstDirectoryLayer = ProviderSessionDirectoryLive.pipe(
         Layer.provide(runtimeRepositoryLayer),
@@ -464,13 +497,7 @@ it.effect(
       }
 
       const secondCodex = makeFakeCodexAdapter();
-      const secondRegistry: typeof ProviderAdapterRegistry.Service = {
-        getByProvider: (provider) =>
-          provider === "codex"
-            ? Effect.succeed(secondCodex.adapter)
-            : Effect.fail(new ProviderUnsupportedError({ provider })),
-        listProviders: () => Effect.succeed(["codex"]),
-      };
+      const secondRegistry = makeRegistryFromAdapters([secondCodex.adapter]);
       const secondDirectoryLayer = ProviderSessionDirectoryLive.pipe(
         Layer.provide(runtimeRepositoryLayer),
       );
@@ -633,6 +660,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
   it.effect("routes explicit claudeAgent provider session starts to the claude adapter", () =>
     Effect.gen(function* () {
+      routing.claude.startSession.mockClear();
       const provider = yield* ProviderService;
 
       const session = yield* provider.startSession(asThreadId("thread-claude"), {
@@ -826,13 +854,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       );
 
       const firstClaude = makeFakeCodexAdapter("claudeAgent");
-      const firstRegistry: typeof ProviderAdapterRegistry.Service = {
-        getByProvider: (provider) =>
-          provider === "claudeAgent"
-            ? Effect.succeed(firstClaude.adapter)
-            : Effect.fail(new ProviderUnsupportedError({ provider })),
-        listProviders: () => Effect.succeed(["claudeAgent"]),
-      };
+      const firstRegistry = makeRegistryFromAdapters([firstClaude.adapter]);
       const firstDirectoryLayer = ProviderSessionDirectoryLive.pipe(
         Layer.provide(runtimeRepositoryLayer),
       );
@@ -859,13 +881,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       }).pipe(Effect.provide(firstProviderLayer));
 
       const secondClaude = makeFakeCodexAdapter("claudeAgent");
-      const secondRegistry: typeof ProviderAdapterRegistry.Service = {
-        getByProvider: (provider) =>
-          provider === "claudeAgent"
-            ? Effect.succeed(secondClaude.adapter)
-            : Effect.fail(new ProviderUnsupportedError({ provider })),
-        listProviders: () => Effect.succeed(["claudeAgent"]),
-      };
+      const secondRegistry = makeRegistryFromAdapters([secondClaude.adapter]);
       const secondDirectoryLayer = ProviderSessionDirectoryLive.pipe(
         Layer.provide(runtimeRepositoryLayer),
       );
@@ -920,13 +936,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         );
 
         const firstClaude = makeFakeCodexAdapter("claudeAgent");
-        const firstRegistry: typeof ProviderAdapterRegistry.Service = {
-          getByProvider: (provider) =>
-            provider === "claudeAgent"
-              ? Effect.succeed(firstClaude.adapter)
-              : Effect.fail(new ProviderUnsupportedError({ provider })),
-          listProviders: () => Effect.succeed(["claudeAgent"]),
-        };
+        const firstRegistry = makeRegistryFromAdapters([firstClaude.adapter]);
         const firstDirectoryLayer = ProviderSessionDirectoryLive.pipe(
           Layer.provide(runtimeRepositoryLayer),
         );
@@ -948,13 +958,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         }).pipe(Effect.provide(firstProviderLayer));
 
         const secondClaude = makeFakeCodexAdapter("claudeAgent");
-        const secondRegistry: typeof ProviderAdapterRegistry.Service = {
-          getByProvider: (provider) =>
-            provider === "claudeAgent"
-              ? Effect.succeed(secondClaude.adapter)
-              : Effect.fail(new ProviderUnsupportedError({ provider })),
-          listProviders: () => Effect.succeed(["claudeAgent"]),
-        };
+        const secondRegistry = makeRegistryFromAdapters([secondClaude.adapter]);
         const secondDirectoryLayer = ProviderSessionDirectoryLive.pipe(
           Layer.provide(runtimeRepositoryLayer),
         );

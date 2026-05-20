@@ -2939,6 +2939,7 @@ export default function ChatView(props: ChatViewProps) {
       images: composerImages,
       terminalContexts: composerTerminalContexts,
       selectedProvider: ctxSelectedProvider,
+      selectedProviderInstanceId: ctxSelectedProviderInstanceId,
       selectedModel: ctxSelectedModel,
       selectedProviderModels: ctxSelectedProviderModels,
       selectedPromptEffort: ctxSelectedPromptEffort,
@@ -3179,6 +3180,7 @@ export default function ChatView(props: ChatViewProps) {
           attachments: turnAttachments,
         },
         modelSelection: ctxSelectedModelSelection,
+        providerInstanceId: ctxSelectedProviderInstanceId,
         titleSeed: title,
         runtimeMode,
         interactionMode,
@@ -3429,6 +3431,7 @@ export default function ChatView(props: ChatViewProps) {
       }
       const {
         selectedProvider: ctxSelectedProvider,
+        selectedProviderInstanceId: ctxSelectedProviderInstanceId,
         selectedModel: ctxSelectedModel,
         selectedProviderModels: ctxSelectedProviderModels,
         selectedPromptEffort: ctxSelectedPromptEffort,
@@ -3489,6 +3492,7 @@ export default function ChatView(props: ChatViewProps) {
             attachments: [],
           },
           modelSelection: ctxSelectedModelSelection,
+          providerInstanceId: ctxSelectedProviderInstanceId,
           titleSeed: activeThread.title,
           runtimeMode,
           interactionMode: nextInteractionMode,
@@ -3561,6 +3565,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     const {
       selectedProvider: ctxSelectedProvider,
+      selectedProviderInstanceId: ctxSelectedProviderInstanceId,
       selectedModel: ctxSelectedModel,
       selectedProviderModels: ctxSelectedProviderModels,
       selectedPromptEffort: ctxSelectedPromptEffort,
@@ -3614,6 +3619,7 @@ export default function ChatView(props: ChatViewProps) {
             attachments: [],
           },
           modelSelection: ctxSelectedModelSelection,
+          providerInstanceId: ctxSelectedProviderInstanceId,
           titleSeed: nextThreadTitle,
           runtimeMode,
           interactionMode: "default",

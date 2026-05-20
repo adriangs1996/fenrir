@@ -46,6 +46,7 @@ import {
   type CodexAccountSnapshot,
 } from "../codexAccount";
 import { probeCodexAccount } from "../codexAppServer";
+import { resolveEffectiveCodexSettings } from "../providerSettings";
 import { CodexProvider } from "../Services/CodexProvider";
 import { expandHomePath } from "../../pathExpansion.ts";
 import { ServerSettingsService } from "../../serverSettings";
@@ -264,11 +265,10 @@ export const readCodexConfigModelProvider = Effect.fn("readCodexConfigModelProvi
   const path = yield* Path.Path;
   const settingsService = yield* ServerSettingsService;
   const codexHome = yield* settingsService.getSettings.pipe(
+    Effect.flatMap(resolveEffectiveCodexSettings),
     Effect.map(
       (settings) =>
-        settings.providers.codex.homePath ||
-        process.env.CODEX_HOME ||
-        path.join(OS.homedir(), ".codex"),
+        settings.homePath || process.env.CODEX_HOME || path.join(OS.homedir(), ".codex"),
     ),
   );
   const configPath = path.join(codexHome, "config.toml");
@@ -319,7 +319,7 @@ const probeCodexCapabilities = (input: {
 const runCodexCommand = Effect.fn("runCodexCommand")(function* (args: ReadonlyArray<string>) {
   const settingsService = yield* ServerSettingsService;
   const codexSettings = yield* settingsService.getSettings.pipe(
-    Effect.map((settings) => settings.providers.codex),
+    Effect.flatMap(resolveEffectiveCodexSettings),
   );
   const command = ChildProcess.make(codexSettings.binaryPath, [...args], {
     shell: process.platform === "win32",
@@ -346,7 +346,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
 > {
   const codexSettings = yield* Effect.service(ServerSettingsService).pipe(
     Effect.flatMap((service) => service.getSettings),
-    Effect.map((settings) => settings.providers.codex),
+    Effect.flatMap(resolveEffectiveCodexSettings),
   );
   const checkedAt = new Date().toISOString();
   const models = providerModelsFromSettings(
@@ -567,11 +567,11 @@ export const CodexProviderLive = Layer.effect(
 
     return yield* makeManagedServerProvider<CodexSettings>({
       getSettings: serverSettings.getSettings.pipe(
-        Effect.map((settings) => settings.providers.codex),
+        Effect.flatMap((settings) => resolveEffectiveCodexSettings(settings)),
         Effect.orDie,
       ),
       streamSettings: serverSettings.streamChanges.pipe(
-        Stream.map((settings) => settings.providers.codex),
+        Stream.mapEffect((settings) => resolveEffectiveCodexSettings(settings)),
       ),
       haveSettingsChanged: (previous, next) => !Equal.equals(previous, next),
       checkProvider,

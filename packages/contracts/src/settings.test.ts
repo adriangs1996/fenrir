@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import * as Schema from "effect/Schema";
-import { ClientSettingsSchema, DEFAULT_CLIENT_SETTINGS } from "./settings";
+import {
+  ClientSettingsSchema,
+  DEFAULT_CLIENT_SETTINGS,
+  DEFAULT_SERVER_SETTINGS,
+  ServerSettings,
+  ServerSettingsPatch,
+} from "./settings";
+import { ProviderInstanceId } from "./providerInstance";
 
 describe("ClientSettings font defaults", () => {
   it("defaults favorites to an empty array", () => {
@@ -68,5 +75,58 @@ describe("ClientSettings font-size clamping", () => {
     expect(result.uiFontSize).toBe(16);
     expect(result.terminalFontSize).toBe(14);
     expect(result.terminalLineHeight).toBe(1.5);
+  });
+});
+
+describe("ServerSettings.providerInstances", () => {
+  it("defaults providerInstances to an empty map", () => {
+    expect(DEFAULT_SERVER_SETTINGS.providerInstances).toEqual({});
+  });
+
+  it("decodes multi-instance provider maps and preserves unknown drivers", () => {
+    const decoded = Schema.decodeSync(ServerSettings)({
+      providerInstances: {
+        codex_personal: {
+          driver: "codex",
+          displayName: "Codex Personal",
+          config: { homePath: "~/.codex-personal" },
+        },
+        cursor_local: {
+          driver: "cursor",
+          displayName: "Cursor Local",
+          config: { workspace: "/tmp/cursor" },
+        },
+      },
+    });
+
+    expect(decoded.providerInstances[ProviderInstanceId.makeUnsafe("codex_personal")]).toEqual({
+      driver: "codex",
+      displayName: "Codex Personal",
+      config: { homePath: "~/.codex-personal" },
+    });
+    expect(decoded.providerInstances[ProviderInstanceId.makeUnsafe("cursor_local")]).toEqual({
+      driver: "cursor",
+      displayName: "Cursor Local",
+      config: { workspace: "/tmp/cursor" },
+    });
+  });
+});
+
+describe("ServerSettingsPatch.providerInstances", () => {
+  it("treats providerInstances as an optional whole-map replacement", () => {
+    const patch = Schema.decodeSync(ServerSettingsPatch)({});
+    expect(patch.providerInstances).toBeUndefined();
+
+    const replacement = Schema.decodeSync(ServerSettingsPatch)({
+      providerInstances: {
+        codex_work: { driver: "codex", config: { homePath: "~/.codex-work" } },
+      },
+    });
+
+    expect(replacement.providerInstances).toBeDefined();
+    expect(replacement.providerInstances?.[ProviderInstanceId.makeUnsafe("codex_work")]).toEqual({
+      driver: "codex",
+      config: { homePath: "~/.codex-work" },
+    });
   });
 });

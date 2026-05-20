@@ -1,5 +1,5 @@
 import type { ProviderRuntimeEvent } from "@fenrir/contracts";
-import { ThreadId } from "@fenrir/contracts";
+import { defaultInstanceIdForDriver, ThreadId } from "@fenrir/contracts";
 import { DEFAULT_SERVER_SETTINGS } from "@fenrir/contracts/settings";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, assert } from "@effect/vitest";
@@ -48,6 +48,11 @@ const makeIntegrationFixture = Effect.gen(function* () {
   const harness = yield* makeTestProviderAdapterHarness();
 
   const registry: typeof ProviderAdapterRegistry.Service = {
+    getByInstance: (instanceId) =>
+      instanceId === defaultInstanceIdForDriver("codex")
+        ? Effect.succeed(harness.adapter)
+        : Effect.fail(new ProviderUnsupportedError({ provider: instanceId })),
+    listInstances: () => Effect.succeed([defaultInstanceIdForDriver("codex")] as const),
     getByProvider: (provider) =>
       provider === "codex"
         ? Effect.succeed(harness.adapter)

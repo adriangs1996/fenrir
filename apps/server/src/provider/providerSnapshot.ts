@@ -1,5 +1,8 @@
-import type {
+import {
   ModelCapabilities,
+  type ProviderKind,
+  ProviderDriverKind,
+  ProviderInstanceId,
   ServerProvider,
   ServerProviderAuth,
   ServerProviderModel,
@@ -103,7 +106,7 @@ export function parseGenericCliVersion(output: string): string | null {
 
 export function providerModelsFromSettings(
   builtInModels: ReadonlyArray<ServerProviderModel>,
-  provider: ServerProvider["provider"],
+  provider: ProviderKind,
   customModels: ReadonlyArray<string>,
   customModelCapabilities: ModelCapabilities,
 ): ReadonlyArray<ServerProviderModel> {
@@ -129,14 +132,31 @@ export function providerModelsFromSettings(
 }
 
 export function buildServerProvider(input: {
-  provider: ServerProvider["provider"];
+  provider?: ProviderKind;
+  instanceId?: ProviderInstanceId;
+  driver?: ProviderDriverKind;
+  displayName?: string;
+  accentColor?: string;
+  availability?: ServerProvider["availability"];
+  unavailableReason?: string;
   enabled: boolean;
   checkedAt: string;
   models: ReadonlyArray<ServerProviderModel>;
   probe: ProviderProbeResult;
 }): ServerProvider {
+  const fallbackProvider = input.provider;
+  const fallbackDriver =
+    input.driver ??
+    (fallbackProvider ? ProviderDriverKind.makeUnsafe(fallbackProvider) : undefined);
+  const fallbackInstanceId =
+    input.instanceId ??
+    (fallbackProvider ? ProviderInstanceId.makeUnsafe(fallbackProvider) : undefined);
   return {
-    provider: input.provider,
+    ...(fallbackProvider ? { provider: fallbackProvider } : {}),
+    ...(fallbackInstanceId ? { instanceId: fallbackInstanceId } : {}),
+    ...(fallbackDriver ? { driver: fallbackDriver } : {}),
+    ...(input.displayName ? { displayName: input.displayName } : {}),
+    ...(input.accentColor ? { accentColor: input.accentColor } : {}),
     enabled: input.enabled,
     installed: input.probe.installed,
     version: input.probe.version,
@@ -144,6 +164,8 @@ export function buildServerProvider(input: {
     auth: input.probe.auth,
     checkedAt: input.checkedAt,
     ...(input.probe.message ? { message: input.probe.message } : {}),
+    ...(input.availability ? { availability: input.availability } : {}),
+    ...(input.unavailableReason ? { unavailableReason: input.unavailableReason } : {}),
     models: input.models,
   };
 }

@@ -15,6 +15,7 @@ import {
 } from "effect";
 import {
   DEFAULT_SERVER_SETTINGS,
+  ProviderInstanceId,
   ServerSettings,
   type ServerProvider,
   type ServerSettings as ContractServerSettings,
@@ -578,6 +579,103 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             );
           }).pipe(Effect.provide(runtimeServices));
         }),
+      );
+
+      it.effect("surfaces additional configured built-in instances as live snapshots", () =>
+        Effect.gen(function* () {
+          const registry = yield* ProviderRegistry;
+          const providers = yield* registry.getProviders;
+          const defaultCodex = providers.find((provider) => provider.instanceId === "codex");
+          const extraCodex = providers.find((provider) => provider.instanceId === "codex_work");
+
+          assert.ok(defaultCodex);
+          assert.ok(extraCodex);
+          assert.strictEqual(defaultCodex?.provider, "codex");
+          assert.strictEqual(extraCodex?.provider, "codex");
+          assert.strictEqual(extraCodex?.displayName, "Codex Work");
+          assert.strictEqual(extraCodex?.status, "ready");
+        }).pipe(
+          Effect.provide(
+            ProviderRegistryLive.pipe(
+              Layer.provideMerge(
+                ServerSettingsService.layerTest({
+                  providerInstances: {
+                    [ProviderInstanceId.makeUnsafe("codex_work")]: {
+                      driver: "codex",
+                      displayName: "Codex Work",
+                    },
+                  },
+                }),
+              ),
+              Layer.provideMerge(
+                mockSpawnerLayer((args) => {
+                  const joined = args.join(" ");
+                  if (joined === "--version")
+                    return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
+                  if (joined === "login status")
+                    return { stdout: "Logged in\n", stderr: "", code: 0 };
+                  if (joined === "auth status")
+                    return {
+                      stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',
+                      stderr: "",
+                      code: 0,
+                    };
+                  throw new Error(`Unexpected args: ${joined}`);
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      it.effect("surfaces unsupported configured drivers as unavailable snapshots", () =>
+        Effect.gen(function* () {
+          const registry = yield* ProviderRegistry;
+          const providers = yield* registry.getProviders;
+          const cursorProvider = providers.find(
+            (provider) => provider.instanceId === "cursor_local",
+          );
+
+          assert.ok(cursorProvider);
+          assert.strictEqual(cursorProvider?.provider, undefined);
+          assert.strictEqual(cursorProvider?.driver, "cursor");
+          assert.strictEqual(cursorProvider?.availability, "unavailable");
+          assert.strictEqual(cursorProvider?.status, "error");
+          assert.strictEqual(cursorProvider?.enabled, false);
+          assert.strictEqual(cursorProvider?.installed, false);
+          assert.include(cursorProvider?.unavailableReason ?? "", "does not ship the 'cursor'");
+        }).pipe(
+          Effect.provide(
+            ProviderRegistryLive.pipe(
+              Layer.provideMerge(
+                ServerSettingsService.layerTest({
+                  providerInstances: {
+                    [ProviderInstanceId.makeUnsafe("cursor_local")]: {
+                      driver: "cursor",
+                      displayName: "Cursor Local",
+                    },
+                  },
+                }),
+              ),
+              Layer.provideMerge(
+                mockSpawnerLayer((args) => {
+                  const joined = args.join(" ");
+                  if (joined === "--version")
+                    return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
+                  if (joined === "login status")
+                    return { stdout: "Logged in\n", stderr: "", code: 0 };
+                  if (joined === "auth status")
+                    return {
+                      stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',
+                      stderr: "",
+                      code: 0,
+                    };
+                  throw new Error(`Unexpected args: ${joined}`);
+                }),
+              ),
+            ),
+          ),
+        ),
       );
 
       it.effect("skips codex probes entirely when the provider is disabled", () =>

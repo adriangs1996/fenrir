@@ -12,7 +12,12 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
     return null;
   }
 
-  const providerLabel = PROVIDER_DISPLAY_NAMES[status.provider] ?? status.provider;
+  const providerLabel =
+    status.displayName?.trim() ||
+    (status.provider ? PROVIDER_DISPLAY_NAMES[status.provider] : undefined) ||
+    status.driver ||
+    status.provider ||
+    "Provider";
   const advisory = status.versionAdvisory;
   if (status.status === "ready" && advisory?.status !== "behind_latest") {
     return null;
@@ -21,9 +26,13 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
   const defaultMessage =
     advisory?.status === "behind_latest"
       ? (advisory.message ?? `${providerLabel} has an update available.`)
-      : status.status === "error"
-        ? `${providerLabel} provider is unavailable.`
-        : `${providerLabel} provider has limited availability.`;
+      : status.availability === "unavailable"
+        ? (status.unavailableReason ??
+          status.message ??
+          `${providerLabel} is not available in this Fenrir build.`)
+        : status.status === "error"
+          ? `${providerLabel} provider is unavailable.`
+          : `${providerLabel} provider has limited availability.`;
   const title =
     advisory?.status === "behind_latest"
       ? `${providerLabel} update available`

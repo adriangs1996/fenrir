@@ -1,25 +1,34 @@
 /**
- * ProviderRegistryLive - Aggregates provider-specific snapshot services.
+ * ProviderRegistryLive - Aggregates provider-instance snapshot services.
+ *
+ * The current Fenrir runtime still only routes the default built-in
+ * instances live, but it now projects them through a real instance
+ * registry so the rest of the server can migrate toward instance-aware
+ * provider state.
  *
  * @module ProviderRegistryLive
  */
 import type { ProviderKind, ServerProvider } from "@fenrir/contracts";
 import { Effect, Equal, Layer, PubSub, Ref, Stream } from "effect";
 
-import { ClaudeProviderLive } from "./ClaudeProvider";
-import { CodexProviderLive } from "./CodexProvider";
-import type { ClaudeProviderShape } from "../Services/ClaudeProvider";
-import { ClaudeProvider } from "../Services/ClaudeProvider";
-import type { CodexProviderShape } from "../Services/CodexProvider";
-import { CodexProvider } from "../Services/CodexProvider";
-import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry";
+import { ProviderInstanceRegistryLive } from "./ProviderInstanceRegistry.ts";
+import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
+import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry.ts";
 
 const loadProviders = (
-  codexProvider: CodexProviderShape,
-  claudeProvider: ClaudeProviderShape,
-): Effect.Effect<readonly [ServerProvider, ServerProvider]> =>
-  Effect.all([codexProvider.getSnapshot, claudeProvider.getSnapshot], {
-    concurrency: "unbounded",
+  registry: typeof ProviderInstanceRegistry.Service,
+): Effect.Effect<ReadonlyArray<ServerProvider>> =>
+  Effect.gen(function* () {
+    const liveInstances = yield* registry.listInstances;
+    const liveSnapshots = yield* Effect.forEach(
+      liveInstances,
+      (instance) => instance.snapshot.getSnapshot,
+      {
+        concurrency: "unbounded",
+      },
+    );
+    const unavailableSnapshots = yield* registry.listUnavailable;
+    return [...liveSnapshots, ...unavailableSnapshots];
   });
 
 export const haveProvidersChanged = (
@@ -30,21 +39,20 @@ export const haveProvidersChanged = (
 export const ProviderRegistryLive = Layer.effect(
   ProviderRegistry,
   Effect.gen(function* () {
-    const codexProvider = yield* CodexProvider;
-    const claudeProvider = yield* ClaudeProvider;
+    const instanceRegistry = yield* ProviderInstanceRegistry;
     const changesPubSub = yield* Effect.acquireRelease(
       PubSub.unbounded<ReadonlyArray<ServerProvider>>(),
       PubSub.shutdown,
     );
     const providersRef = yield* Ref.make<ReadonlyArray<ServerProvider>>(
-      yield* loadProviders(codexProvider, claudeProvider),
+      yield* loadProviders(instanceRegistry),
     );
 
     const syncProviders = Effect.fn("syncProviders")(function* (options?: {
       readonly publish?: boolean;
     }) {
       const previousProviders = yield* Ref.get(providersRef);
-      const providers = yield* loadProviders(codexProvider, claudeProvider);
+      const providers = yield* loadProviders(instanceRegistry);
       yield* Ref.set(providersRef, providers);
 
       if (options?.publish !== false && haveProvidersChanged(previousProviders, providers)) {
@@ -54,27 +62,22 @@ export const ProviderRegistryLive = Layer.effect(
       return providers;
     });
 
-    yield* Stream.runForEach(codexProvider.streamChanges, () => syncProviders()).pipe(
-      Effect.forkScoped,
-    );
-    yield* Stream.runForEach(claudeProvider.streamChanges, () => syncProviders()).pipe(
+    yield* Stream.runForEach(instanceRegistry.streamChanges, () => syncProviders()).pipe(
       Effect.forkScoped,
     );
 
     const refresh = Effect.fn("refresh")(function* (provider?: ProviderKind) {
-      switch (provider) {
-        case "codex":
-          yield* codexProvider.refresh;
-          break;
-        case "claudeAgent":
-          yield* claudeProvider.refresh;
-          break;
-        default:
-          yield* Effect.all([codexProvider.refresh, claudeProvider.refresh], {
-            concurrency: "unbounded",
-          });
-          break;
-      }
+      const liveInstances = yield* instanceRegistry.listInstances;
+      const matchingInstances =
+        provider === undefined
+          ? liveInstances
+          : liveInstances.filter((instance) => instance.provider === provider);
+
+      yield* Effect.forEach(matchingInstances, (instance) => instance.snapshot.refresh, {
+        concurrency: "unbounded",
+        discard: true,
+      });
+
       return yield* syncProviders();
     });
 
@@ -93,4 +96,4 @@ export const ProviderRegistryLive = Layer.effect(
       },
     } satisfies ProviderRegistryShape;
   }),
-).pipe(Layer.provideMerge(CodexProviderLive), Layer.provideMerge(ClaudeProviderLive));
+).pipe(Layer.provideMerge(ProviderInstanceRegistryLive));

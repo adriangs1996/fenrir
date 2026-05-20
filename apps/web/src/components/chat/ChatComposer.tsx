@@ -2,6 +2,7 @@ import type {
   ApprovalRequestId,
   EnvironmentId,
   ModelSelection,
+  ProviderInstanceId,
   ProjectEntry,
   ProviderApprovalDecision,
   ProviderInteractionMode,
@@ -12,6 +13,7 @@ import type {
   ThreadId,
 } from "@fenrir/contracts";
 import {
+  defaultInstanceIdForDriver as defaultProviderInstanceIdForDriver,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
 } from "@fenrir/contracts";
@@ -78,6 +80,13 @@ import {
 import { ContextWindowMeter } from "./ContextWindowMeter";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { basenameOfPath } from "../../vscode-icons";
+import {
+  getProviderModels,
+  getProviderSnapshot,
+  getProviderSnapshotByInstanceId,
+  getProviderSnapshotsForKind,
+  resolveSelectableProvider,
+} from "../../providerModels";
 import { searchProviderSkills } from "../../skillSearch";
 import { formatSkillReferenceToken } from "../../skillReferences";
 import { cn, randomUUID } from "~/lib/utils";
@@ -98,7 +107,6 @@ import {
   ZapIcon,
 } from "lucide-react";
 import { proposedPlanTitle } from "../../proposedPlan";
-import { resolveSelectableProvider, getProviderModels } from "../../providerModels";
 import type { UnifiedSettings } from "@fenrir/contracts/settings";
 import type { SessionPhase, Thread } from "../../types";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
@@ -336,6 +344,7 @@ export interface ChatComposerHandle {
     selectedModelOptionsForDispatch: unknown;
     selectedModelSelection: ModelSelection;
     selectedProvider: ProviderKind;
+    selectedProviderInstanceId: ProviderInstanceId;
     selectedModel: string;
     selectedProviderModels: ReadonlyArray<ServerProvider["models"][number]>;
   };
@@ -544,6 +553,9 @@ export const ChatComposer = memo(
     const setComposerDraftTerminalContexts = useComposerDraftStore(
       (store) => store.setTerminalContexts,
     );
+    const setComposerDraftProviderInstanceId = useComposerDraftStore(
+      (store) => store.setProviderInstanceId,
+    );
     const clearComposerDraftPersistedAttachments = useComposerDraftStore(
       (store) => store.clearPersistedAttachments,
     );
@@ -564,6 +576,40 @@ export const ChatComposer = memo(
       selectedProviderByThreadId ?? threadProvider ?? "codex",
     );
     const selectedProvider: ProviderKind = lockedProvider ?? unlockedSelectedProvider;
+    const selectedProviderInstanceId = useMemo<ProviderInstanceId>(() => {
+      const draftSelection = composerDraft.providerInstanceIdByProvider[selectedProvider];
+      if (
+        draftSelection &&
+        getProviderSnapshotByInstanceId(providerStatuses, draftSelection)?.provider ===
+          selectedProvider
+      ) {
+        return draftSelection;
+      }
+      const sessionSelection =
+        activeThread?.session?.provider === selectedProvider
+          ? activeThread.session.providerInstanceId
+          : undefined;
+      if (
+        sessionSelection &&
+        getProviderSnapshotByInstanceId(providerStatuses, sessionSelection)?.provider ===
+          selectedProvider
+      ) {
+        return sessionSelection;
+      }
+      return (
+        getProviderSnapshot(providerStatuses, selectedProvider)?.instanceId ??
+        defaultProviderInstanceIdForDriver(selectedProvider)
+      );
+    }, [
+      activeThread?.session,
+      composerDraft.providerInstanceIdByProvider,
+      providerStatuses,
+      selectedProvider,
+    ]);
+
+    const selectedProviderSnapshot =
+      getProviderSnapshotByInstanceId(providerStatuses, selectedProviderInstanceId) ??
+      getProviderSnapshot(providerStatuses, selectedProvider);
 
     const { modelOptions: composerModelOptions, selectedModel } = useEffectiveComposerModelState({
       threadRef: composerDraftTarget,
@@ -574,7 +620,14 @@ export const ChatComposer = memo(
       settings,
     });
 
-    const selectedProviderModels = getProviderModels(providerStatuses, selectedProvider);
+    const selectedProviderModels = useMemo(
+      () => selectedProviderSnapshot?.models ?? [],
+      [selectedProviderSnapshot],
+    );
+    const providerInstanceOptions = useMemo(
+      () => getProviderSnapshotsForKind(providerStatuses, selectedProvider),
+      [providerStatuses, selectedProvider],
+    );
 
     const composerProviderState = useMemo(
       () =>
@@ -603,9 +656,8 @@ export const ChatComposer = memo(
       Record<ProviderKind, ReadonlyArray<ServerProvider["models"][number]>>
     >(
       () => ({
-        codex: providerStatuses.find((provider) => provider.provider === "codex")?.models ?? [],
-        claudeAgent:
-          providerStatuses.find((provider) => provider.provider === "claudeAgent")?.models ?? [],
+        codex: getProviderModels(providerStatuses, "codex"),
+        claudeAgent: getProviderModels(providerStatuses, "claudeAgent"),
       }),
       [providerStatuses],
     );
@@ -622,15 +674,18 @@ export const ChatComposer = memo(
         ).flatMap((option) =>
           modelOptionsByProvider[option.value].map(({ slug, name }) => ({
             provider: option.value,
-            providerLabel: option.label,
+            providerLabel:
+              getProviderSnapshot(providerStatuses, option.value)?.displayName ?? option.label,
             slug,
             name,
             searchSlug: slug.toLowerCase(),
             searchName: name.toLowerCase(),
-            searchProvider: option.label.toLowerCase(),
+            searchProvider: (
+              getProviderSnapshot(providerStatuses, option.value)?.displayName ?? option.label
+            ).toLowerCase(),
           })),
         ),
-      [lockedProvider, modelOptionsByProvider],
+      [lockedProvider, modelOptionsByProvider, providerStatuses],
     );
 
     // ------------------------------------------------------------------
@@ -1597,6 +1652,21 @@ export const ChatComposer = memo(
     const handleInterruptPrimaryAction = useCallback(() => {
       void onInterrupt();
     }, [onInterrupt]);
+    const onProviderInstanceSelect = useCallback(
+      (instanceId: string) => {
+        const normalizedInstanceId = instanceId.trim();
+        if (!normalizedInstanceId) {
+          return;
+        }
+        setComposerDraftProviderInstanceId(
+          composerDraftTarget,
+          selectedProvider,
+          normalizedInstanceId as ProviderInstanceId,
+          { persistSticky: true },
+        );
+      },
+      [composerDraftTarget, selectedProvider, setComposerDraftProviderInstanceId],
+    );
     const handleImplementPlanInNewThreadPrimaryAction = useCallback(() => {
       void onImplementPlanInNewThread();
     }, [onImplementPlanInNewThread]);
@@ -1677,6 +1747,7 @@ export const ChatComposer = memo(
           selectedModelOptionsForDispatch,
           selectedModelSelection,
           selectedProvider,
+          selectedProviderInstanceId,
           selectedModel,
           selectedProviderModels,
         }),
@@ -1696,6 +1767,7 @@ export const ChatComposer = memo(
         selectedModelSelection,
         selectedPromptEffort,
         selectedProvider,
+        selectedProviderInstanceId,
         selectedProviderModels,
       ],
     );
@@ -1937,6 +2009,44 @@ export const ChatComposer = memo(
                       : {})}
                     onProviderModelChange={onProviderModelSelect}
                   />
+
+                  {providerInstanceOptions.length > 1 ? (
+                    <Select
+                      value={selectedProviderInstanceId}
+                      onValueChange={(value) => value && onProviderInstanceSelect(value)}
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="min-w-32 gap-2"
+                        aria-label={`${selectedProvider} provider instance`}
+                      >
+                        <SelectValue>
+                          {selectedProviderSnapshot?.displayName ??
+                            selectedProviderSnapshot?.instanceId ??
+                            selectedProviderInstanceId}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup alignItemWithTrigger={false}>
+                        {providerInstanceOptions.map((providerInstance) => (
+                          <SelectItem
+                            key={providerInstance.instanceId ?? providerInstance.provider}
+                            value={providerInstance.instanceId ?? providerInstance.provider}
+                          >
+                            <div className="grid min-w-0 gap-0.5">
+                              <span className="truncate">
+                                {providerInstance.displayName ??
+                                  providerInstance.instanceId ??
+                                  providerInstance.provider}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {providerInstance.instanceId ?? providerInstance.provider}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  ) : null}
 
                   {isComposerFooterCompact ? (
                     <CompactComposerControlsMenu

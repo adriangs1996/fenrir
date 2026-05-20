@@ -39,6 +39,7 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
             ...(props?.modelSelection?.options ? { options: props.modelSelection.options } : {}),
           },
         },
+        providerInstanceIdByProvider: {},
         activeProvider: provider,
         runtimeMode: null,
         interactionMode: null,
