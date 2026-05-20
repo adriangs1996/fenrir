@@ -16,6 +16,8 @@ interface RoundedCornerGlyphStroke {
   thickness: number;
 }
 
+type PowerlineGlyphKind = "triangleLeft" | "triangleRight" | "roundLeft" | "roundRight";
+
 function leftBlock(cellWidth: number, cellHeight: number, fraction: number): GlyphFillRect {
   return {
     x: 0,
@@ -176,6 +178,64 @@ function strokeRoundedCornerGlyph(
   ctx.stroke();
 }
 
+function powerlineGlyphKind(cp: number): PowerlineGlyphKind | null {
+  switch (cp) {
+    case 0xe0b0:
+      return "triangleRight";
+    case 0xe0b2:
+      return "triangleLeft";
+    case 0xe0b4:
+      return "roundRight";
+    case 0xe0b6:
+      return "roundLeft";
+    default:
+      return null;
+  }
+}
+
+function fillPowerlineGlyph(
+  ctx: CanvasRenderingContext2D,
+  slotX: number,
+  slotY: number,
+  cellWidth: number,
+  cellHeight: number,
+  kind: PowerlineGlyphKind,
+): void {
+  const centerY = slotY + cellHeight / 2;
+  ctx.beginPath();
+  switch (kind) {
+    case "triangleRight":
+      ctx.moveTo(slotX, slotY);
+      ctx.lineTo(slotX + cellWidth, centerY);
+      ctx.lineTo(slotX, slotY + cellHeight);
+      break;
+    case "triangleLeft":
+      ctx.moveTo(slotX + cellWidth, slotY);
+      ctx.lineTo(slotX, centerY);
+      ctx.lineTo(slotX + cellWidth, slotY + cellHeight);
+      break;
+    case "roundRight":
+      ctx.moveTo(slotX, slotY);
+      ctx.ellipse(slotX, centerY, cellWidth, cellHeight / 2, 0, -Math.PI / 2, Math.PI / 2);
+      break;
+    case "roundLeft":
+      ctx.moveTo(slotX + cellWidth, slotY);
+      ctx.ellipse(
+        slotX + cellWidth,
+        centerY,
+        cellWidth,
+        cellHeight / 2,
+        0,
+        -Math.PI / 2,
+        Math.PI / 2,
+        true,
+      );
+      break;
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
 /**
  * Procedural glyphs for the characters most likely to show seams in a cell
  * renderer. Fonts often leave vertical padding around these glyphs, which
@@ -237,6 +297,15 @@ export function rasterizeSpecialGlyph(
     for (const rect of rects) {
       ctx.fillRect(slotX + rect.x, slotY + rect.y, rect.width, rect.height);
     }
+    return true;
+  }
+
+  const powerlineGlyph = powerlineGlyphKind(cp);
+  if (powerlineGlyph) {
+    // Powerline prompt separators depend on the fg/bg color pair of the cell.
+    // Font rasterization often pads them vertically, which leaves visible
+    // seams in connected chips, so draw the common solid separators ourselves.
+    fillPowerlineGlyph(ctx, slotX, slotY, cellWidth, cellHeight, powerlineGlyph);
     return true;
   }
 

@@ -13,11 +13,15 @@ import { Effect, Equal, Layer, PubSub, Ref, Schema, Stream } from "effect";
 
 import { ClaudeProviderLive } from "./ClaudeProvider.ts";
 import { CodexProviderLive } from "./CodexProvider.ts";
+import { checkCursorProviderStatus, makePendingCursorProvider } from "./CursorProvider.ts";
 import { checkOpenCodeProviderStatus, makePendingOpenCodeProvider } from "./OpenCodeProvider.ts";
 import { OpenCodeRuntime, OpenCodeRuntimeLive } from "../opencodeRuntime.ts";
 import { BUILT_IN_DRIVERS } from "../builtInDrivers.ts";
 import type { BuiltInProviderDriver } from "../ProviderDriver.ts";
-import { resolveOpenCodeInstanceSettings } from "../providerSettings.ts";
+import {
+  resolveCursorInstanceSettings,
+  resolveOpenCodeInstanceSettings,
+} from "../providerSettings.ts";
 import { buildUnavailableProviderSnapshot } from "../unavailableProviderSnapshot.ts";
 import type { ClaudeProviderShape } from "../Services/ClaudeProvider.ts";
 import { ClaudeProvider } from "../Services/ClaudeProvider.ts";
@@ -32,6 +36,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 
 type SnapshotSource = CodexProviderShape | ClaudeProviderShape;
 const OPENCODE_DRIVER = ProviderDriverKind.makeUnsafe("opencode");
+const CURSOR_DRIVER = ProviderDriverKind.makeUnsafe("cursor");
 
 function toProviderInstanceConfigMap(
   settings: ServerSettings,
@@ -269,6 +274,49 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
     },
   });
 
+  const buildCursorLiveInstance = (input: {
+    readonly instanceId: ProviderInstanceId;
+    readonly entry: ProviderInstanceConfig;
+  }): ProviderInstanceRecord => ({
+    provider: CURSOR_DRIVER,
+    driverKind: CURSOR_DRIVER,
+    instanceId: input.instanceId,
+    ...(input.entry.displayName ? { displayName: input.entry.displayName } : {}),
+    snapshot: {
+      getSnapshot: serverSettings.getSettings.pipe(
+        Effect.flatMap((settings) =>
+          resolveCursorInstanceSettings(settings, input.instanceId).pipe(
+            Effect.flatMap((cursorSettings) =>
+              checkCursorProviderStatus(cursorSettings, process.cwd()),
+            ),
+          ),
+        ),
+        Effect.catchCause(() =>
+          resolveCursorInstanceSettings(
+            DEFAULT_SERVER_SETTINGS as ServerSettings,
+            input.instanceId,
+          ).pipe(Effect.flatMap((cursorSettings) => makePendingCursorProvider(cursorSettings))),
+        ),
+      ),
+      refresh: serverSettings.getSettings.pipe(
+        Effect.flatMap((settings) =>
+          resolveCursorInstanceSettings(settings, input.instanceId).pipe(
+            Effect.flatMap((cursorSettings) =>
+              checkCursorProviderStatus(cursorSettings, process.cwd()),
+            ),
+          ),
+        ),
+        Effect.catchCause(() =>
+          resolveCursorInstanceSettings(
+            DEFAULT_SERVER_SETTINGS as ServerSettings,
+            input.instanceId,
+          ).pipe(Effect.flatMap((cursorSettings) => makePendingCursorProvider(cursorSettings))),
+        ),
+      ),
+      streamChanges: Stream.empty,
+    },
+  });
+
   const buildRegistryState = Effect.fn("buildProviderInstanceRegistryState")(
     (settings: ServerSettings) =>
       Effect.gen(function* () {
@@ -301,6 +349,15 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
           }
 
           const driver = driverByKind.get(explicitEntry.driver);
+          if (explicitEntry.driver === CURSOR_DRIVER) {
+            liveEntries.push(
+              buildCursorLiveInstance({
+                instanceId,
+                entry: explicitEntry,
+              }),
+            );
+            continue;
+          }
           if (explicitEntry.driver === OPENCODE_DRIVER) {
             liveEntries.push(
               buildOpenCodeLiveInstance({

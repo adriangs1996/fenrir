@@ -1,6 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { getSpecialGlyphFillRects, rasterizeSpecialGlyph } from "./specialGlyphs";
+
+function createPathContextSpy() {
+  return {
+    beginPath: vi.fn(),
+    closePath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    ellipse: vi.fn(),
+    fill: vi.fn(),
+    fillRect: vi.fn(),
+  } as unknown as CanvasRenderingContext2D;
+}
 
 describe("getSpecialGlyphFillRects", () => {
   it("renders left block guides edge-to-edge vertically", () => {
@@ -53,7 +65,9 @@ describe("getSpecialGlyphFillRects", () => {
       },
     ]);
   });
+});
 
+describe("rasterizeSpecialGlyph", () => {
   it("rasterizes rounded box corners as stroked arcs that reach cell edges", () => {
     const cases = [
       {
@@ -124,5 +138,30 @@ describe("getSpecialGlyphFillRects", () => {
         ["stroke"],
       ]);
     }
+  });
+
+  it("procedurally rasterizes rounded powerline separators", () => {
+    const ctx = createPathContextSpy();
+
+    const handled = rasterizeSpecialGlyph(ctx, 0xe0b4, 0, 0, 10, 20);
+
+    expect(handled).toBe(true);
+    expect(ctx.beginPath).toHaveBeenCalledOnce();
+    expect(ctx.moveTo).toHaveBeenCalledWith(0, 0);
+    expect(ctx.ellipse).toHaveBeenCalledWith(0, 10, 10, 10, 0, -Math.PI / 2, Math.PI / 2);
+    expect(ctx.fill).toHaveBeenCalledOnce();
+  });
+
+  it("procedurally rasterizes triangular powerline separators", () => {
+    const ctx = createPathContextSpy();
+
+    const handled = rasterizeSpecialGlyph(ctx, 0xe0b0, 2, 4, 12, 18);
+
+    expect(handled).toBe(true);
+    expect(ctx.beginPath).toHaveBeenCalledOnce();
+    expect(ctx.moveTo).toHaveBeenCalledWith(2, 4);
+    expect(ctx.lineTo).toHaveBeenNthCalledWith(1, 14, 13);
+    expect(ctx.lineTo).toHaveBeenNthCalledWith(2, 2, 22);
+    expect(ctx.fill).toHaveBeenCalledOnce();
   });
 });

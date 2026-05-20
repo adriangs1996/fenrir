@@ -5,6 +5,7 @@ import type {
   HlAttrEntry,
   WindowEntry,
 } from "@fenrir/contracts";
+import { findLigatureMatch } from "./ligatures";
 import { rasterizeSpecialGlyph } from "./specialGlyphs";
 
 const ATLAS_COLS = 64;
@@ -17,12 +18,13 @@ const EMPTY_AX = 0;
 const EMPTY_AY = 0;
 const SOLID_AX = 1;
 const SOLID_AY = 0;
-const EMPTY_SLOT: AtlasSlot = { ax: EMPTY_AX, ay: EMPTY_AY };
-const SOLID_SLOT: AtlasSlot = { ax: SOLID_AX, ay: SOLID_AY };
+const EMPTY_SLOT: AtlasSlot = { ax: EMPTY_AX, ay: EMPTY_AY, span: 1 };
+const SOLID_SLOT: AtlasSlot = { ax: SOLID_AX, ay: SOLID_AY, span: 1 };
 
 // Per-instance attribute layout (12 bytes / cell):
 //   bytes[0..1]   : a_atlas_pos (u8 ax, u8 ay)  — slot index, NOT normalized.
-//   bytes[2..3]   : padding (4-byte alignment for fg).
+//   bytes[2]      : a_span (u8 cell-span for grid ligatures; 0 hides follower cells).
+//   bytes[3]      : padding (4-byte alignment for fg).
 //   bytes[4..7]   : a_fg (u8 RGBA, normalized to 0..1 in shader).
 //   bytes[8..11]  : a_bg (u8 RGBA, normalized to 0..1 in shader).
 const BYTES_PER_INSTANCE = 12;
@@ -43,6 +45,7 @@ const SPACE_CP = 0x20;
 const GRID_VERT = `#version 300 es
 in vec2 a_corner;
 in vec2 a_atlas_pos;
+in float a_span;
 in vec4 a_fg;
 in vec4 a_bg;
 
@@ -60,13 +63,14 @@ void main() {
   float fid = float(gl_InstanceID);
   float col = mod(fid, u_cols);
   float row = floor(fid / u_cols);
+  float span = a_span;
   vec2 grid_pos = vec2(col, row);
   vec2 cell_origin = u_grid_offset + grid_pos * u_cell_size;
-  vec2 world = cell_origin + a_corner * u_cell_size;
+  vec2 world = cell_origin + a_corner * vec2(u_cell_size.x * span, u_cell_size.y);
   vec2 ndc = world / u_canvas_size * 2.0 - 1.0;
   ndc.y = -ndc.y;
   gl_Position = vec4(ndc, 0.0, 1.0);
-  v_atlas_uv = (a_atlas_pos + a_corner) * u_atlas_uv_step;
+  v_atlas_uv = (a_atlas_pos + a_corner * vec2(span, 1.0)) * u_atlas_uv_step;
   v_fg = a_fg.rgb;
   v_bg = a_bg.rgb;
 }`;
@@ -123,6 +127,7 @@ void main() {
 interface AtlasSlot {
   ax: number;
   ay: number;
+  span: number;
 }
 
 interface HlPacked {
@@ -143,6 +148,7 @@ class GlyphAtlas {
   // hashes faster than strings, and avoids the per-cell template-literal
   // allocation that dominated the old `${bold}${italic}|${ch}` path.
   private map = new Map<number, AtlasSlot>();
+  private textMap = new Map<string, AtlasSlot>();
   private nextAx = 2;
   private nextAy = 0;
   // Pending-upload bbox, in atlas-slot units. New glyphs are rasterized into
@@ -192,10 +198,11 @@ class GlyphAtlas {
     return this.canvas.height;
   }
 
-  private markPending(ax: number, ay: number): void {
+  private markPending(ax: number, ay: number, span = 1): void {
     if (ax < this.pendMinX) this.pendMinX = ax;
     if (ay < this.pendMinY) this.pendMinY = ay;
-    if (ax > this.pendMaxX) this.pendMaxX = ax;
+    const maxAx = ax + span - 1;
+    if (maxAx > this.pendMaxX) this.pendMaxX = maxAx;
     if (ay > this.pendMaxY) this.pendMaxY = ay;
     this.hasPending = true;
   }
@@ -205,13 +212,48 @@ class GlyphAtlas {
     const key = (cp << 2) | (italic ? 2 : 0) | (bold ? 1 : 0);
     const cached = this.map.get(key);
     if (cached) return cached;
-    if (this.nextAy >= ATLAS_ROWS) return EMPTY_SLOT;
-    const slot: AtlasSlot = { ax: this.nextAx, ay: this.nextAy };
-    this.nextAx += 1;
+    const slot = this.allocateSlot(1);
+    if (!slot) return EMPTY_SLOT;
+    this.rasterizeText(slot, String.fromCodePoint(cp), bold, italic, cp);
+    this.map.set(key, slot);
+    return slot;
+  }
+
+  ensureText(text: string, span: number, bold: boolean, italic: boolean): AtlasSlot {
+    if (span <= 1) return this.ensureCp(text.codePointAt(0) ?? 0, bold, italic);
+    const key = `${italic ? 1 : 0}${bold ? 1 : 0}|${span}|${text}`;
+    const cached = this.textMap.get(key);
+    if (cached) return cached;
+    const slot = this.allocateSlot(span);
+    if (!slot) return EMPTY_SLOT;
+    this.rasterizeText(slot, text, bold, italic);
+    this.textMap.set(key, slot);
+    return slot;
+  }
+
+  private allocateSlot(span: number): AtlasSlot | null {
+    if (span <= 0 || span > ATLAS_COLS) return null;
+    if (this.nextAx + span > ATLAS_COLS) {
+      this.nextAx = 0;
+      this.nextAy += 1;
+    }
+    if (this.nextAy >= ATLAS_ROWS) return null;
+    const slot: AtlasSlot = { ax: this.nextAx, ay: this.nextAy, span };
+    this.nextAx += span;
     if (this.nextAx >= ATLAS_COLS) {
       this.nextAx = 0;
       this.nextAy += 1;
     }
+    return slot;
+  }
+
+  private rasterizeText(
+    slot: AtlasSlot,
+    text: string,
+    bold: boolean,
+    italic: boolean,
+    cp?: number,
+  ): void {
     const m = this.metrics;
     const weight = bold ? 700 : m.fontWeight;
     // Compose the CSS font shorthand. m.font carries `<size>px <family>`
@@ -221,7 +263,8 @@ class GlyphAtlas {
     this.ctx.fillStyle = "#ffffff";
     const slotX = slot.ax * m.width;
     const slotY = slot.ay * m.height;
-    this.ctx.clearRect(slotX, slotY, m.width, m.height);
+    const slotWidth = slot.span * m.width;
+    this.ctx.clearRect(slotX, slotY, slotWidth, m.height);
     // Clip fillText to the slot rect. Italic / tall glyphs (e.g. `{`, italic
     // `f`, ligatures, glyphs with side bearings) can otherwise draw outside
     // the slot and corrupt adjacent glyphs in the atlas. Cold path — runs
@@ -229,18 +272,16 @@ class GlyphAtlas {
     // is irrelevant.
     this.ctx.save();
     this.ctx.beginPath();
-    this.ctx.rect(slotX, slotY, m.width, m.height);
+    this.ctx.rect(slotX, slotY, slotWidth, m.height);
     this.ctx.clip();
     // Iterate by codepoint, not UTF-16 unit. fillText accepts strings, so
     // we materialize the glyph string only here (cold path: once per new
     // glyph), keeping the hot row-build loop string-free.
-    if (!rasterizeSpecialGlyph(this.ctx, cp, slotX, slotY, m.width, m.height)) {
-      this.ctx.fillText(String.fromCodePoint(cp), slotX, slotY + m.ascent);
+    if (cp === undefined || !rasterizeSpecialGlyph(this.ctx, cp, slotX, slotY, m.width, m.height)) {
+      this.ctx.fillText(text, slotX, slotY + m.ascent);
     }
     this.ctx.restore();
-    this.map.set(key, slot);
-    this.markPending(slot.ax, slot.ay);
-    return slot;
+    this.markPending(slot.ax, slot.ay, slot.span);
   }
 
   // Upload the pending bbox to the GPU. R8 single-channel, alpha extracted
@@ -317,6 +358,7 @@ export class GLRenderer {
 
   private readonly locGridCorner: number;
   private readonly locGridAtlasPos: number;
+  private readonly locGridSpan: number;
   private readonly locGridFg: number;
   private readonly locGridBg: number;
   private readonly locGridCellSize: WebGLUniformLocation | null;
@@ -376,6 +418,7 @@ export class GLRenderer {
     const locGridSampler = gl.getUniformLocation(this.gridProgram, "u_atlas");
     this.locGridCorner = gl.getAttribLocation(this.gridProgram, "a_corner");
     this.locGridAtlasPos = gl.getAttribLocation(this.gridProgram, "a_atlas_pos");
+    this.locGridSpan = gl.getAttribLocation(this.gridProgram, "a_span");
     this.locGridFg = gl.getAttribLocation(this.gridProgram, "a_fg");
     this.locGridBg = gl.getAttribLocation(this.gridProgram, "a_bg");
 
@@ -710,7 +753,7 @@ export class GLRenderer {
     const cols = grid.cols;
     let byteOff = base * BYTES_PER_INSTANCE;
     let u32Off = base * 3;
-    for (let c = 0; c < cols; c++) {
+    for (let c = 0; c < cols; ) {
       const cp = cellChars[base + c]!;
       const hlId = cellHl[base + c]!;
       const hl = hlPacked[hlId];
@@ -731,20 +774,50 @@ export class GLRenderer {
       }
       let ax = EMPTY_AX;
       let ay = EMPTY_AY;
+      let span = 1;
       // Skip ensureCp for blank cells — by far the common case (line numbers,
       // margins, indentation). Map.get + key compute is avoided entirely.
       if (cp !== 0 && cp !== SPACE_CP) {
-        const slot = atlas.ensureCp(cp, bold, italic);
-        ax = slot.ax;
-        ay = slot.ay;
+        const ligature =
+          m.ligatures === true ? findLigatureMatch(cellChars, cellHl, base, cols, c) : null;
+        if (ligature !== null) {
+          const slot = atlas.ensureText(ligature.text, ligature.span, bold, italic);
+          if (slot !== EMPTY_SLOT) {
+            ax = slot.ax;
+            ay = slot.ay;
+            span = ligature.span;
+          } else {
+            const fallbackSlot = atlas.ensureCp(cp, bold, italic);
+            ax = fallbackSlot.ax;
+            ay = fallbackSlot.ay;
+          }
+        } else {
+          const fallbackSlot = atlas.ensureCp(cp, bold, italic);
+          ax = fallbackSlot.ax;
+          ay = fallbackSlot.ay;
+        }
       }
       bytes[byteOff] = ax;
       bytes[byteOff + 1] = ay;
-      // bytes[byteOff+2..3] are padding; left untouched (initial 0 is fine).
+      bytes[byteOff + 2] = span;
+      // byte 3 is padding; left untouched (initial 0 is fine).
       u32[u32Off + FG_U32_OFF] = fgU32;
       u32[u32Off + BG_U32_OFF] = bgU32;
-      byteOff += BYTES_PER_INSTANCE;
-      u32Off += 3;
+      if (span > 1) {
+        for (let follower = 1; follower < span; follower++) {
+          const followerByteOff = byteOff + follower * BYTES_PER_INSTANCE;
+          const followerU32Off = u32Off + follower * 3;
+          bytes[followerByteOff] = EMPTY_AX;
+          bytes[followerByteOff + 1] = EMPTY_AY;
+          bytes[followerByteOff + 2] = 0;
+          u32[followerU32Off + FG_U32_OFF] = fgU32;
+          u32[followerU32Off + BG_U32_OFF] = bgU32;
+        }
+      }
+      const advance = span > 1 ? span : 1;
+      c += advance;
+      byteOff += advance * BYTES_PER_INSTANCE;
+      u32Off += advance * 3;
     }
   }
 
@@ -831,6 +904,12 @@ export class GLRenderer {
         0,
       );
       gl.vertexAttribDivisor(this.locGridAtlasPos, 1);
+    }
+
+    if (this.locGridSpan >= 0) {
+      gl.enableVertexAttribArray(this.locGridSpan);
+      gl.vertexAttribPointer(this.locGridSpan, 1, gl.UNSIGNED_BYTE, false, BYTES_PER_INSTANCE, 2);
+      gl.vertexAttribDivisor(this.locGridSpan, 1);
     }
 
     if (this.locGridFg >= 0) {

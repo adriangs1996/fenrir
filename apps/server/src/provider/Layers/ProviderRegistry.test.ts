@@ -632,27 +632,27 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
         Effect.gen(function* () {
           const registry = yield* ProviderRegistry;
           const providers = yield* registry.getProviders;
-          const cursorProvider = providers.find(
-            (provider) => provider.instanceId === "cursor_local",
+          const unknownProvider = providers.find(
+            (provider) => provider.instanceId === "acme_local",
           );
 
-          assert.ok(cursorProvider);
-          assert.strictEqual(cursorProvider?.provider, undefined);
-          assert.strictEqual(cursorProvider?.driver, "cursor");
-          assert.strictEqual(cursorProvider?.availability, "unavailable");
-          assert.strictEqual(cursorProvider?.status, "error");
-          assert.strictEqual(cursorProvider?.enabled, false);
-          assert.strictEqual(cursorProvider?.installed, false);
-          assert.include(cursorProvider?.unavailableReason ?? "", "does not ship the 'cursor'");
+          assert.ok(unknownProvider);
+          assert.strictEqual(unknownProvider?.provider, undefined);
+          assert.strictEqual(unknownProvider?.driver, "acme");
+          assert.strictEqual(unknownProvider?.availability, "unavailable");
+          assert.strictEqual(unknownProvider?.status, "error");
+          assert.strictEqual(unknownProvider?.enabled, false);
+          assert.strictEqual(unknownProvider?.installed, false);
+          assert.include(unknownProvider?.unavailableReason ?? "", "does not ship the 'acme'");
         }).pipe(
           Effect.provide(
             ProviderRegistryLive.pipe(
               Layer.provideMerge(
                 ServerSettingsService.layerTest({
                   providerInstances: {
-                    [ProviderInstanceId.makeUnsafe("cursor_local")]: {
-                      driver: "cursor",
-                      displayName: "Cursor Local",
+                    [ProviderInstanceId.makeUnsafe("acme_local")]: {
+                      driver: "acme",
+                      displayName: "Acme Local",
                     },
                   },
                 }),

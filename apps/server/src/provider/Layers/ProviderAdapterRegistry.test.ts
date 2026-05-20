@@ -11,6 +11,7 @@ import { Effect, Layer, Stream } from "effect";
 
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import { CursorAdapter, type CursorAdapterShape } from "../Services/CursorAdapter.ts";
 import { OpenCodeAdapter, type OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
@@ -69,12 +70,39 @@ const fakeOpenCodeAdapter: OpenCodeAdapterShape = {
   streamEvents: Stream.empty,
 };
 
+const fakeCursorAdapter: CursorAdapterShape = {
+  provider: ProviderDriverKind.makeUnsafe("cursor"),
+  capabilities: { sessionModelSwitch: "restart-session" },
+  startSession: vi.fn(),
+  sendTurn: vi.fn(),
+  interruptTurn: vi.fn(),
+  respondToRequest: vi.fn(),
+  respondToUserInput: vi.fn(),
+  stopSession: vi.fn(),
+  listSessions: vi.fn(),
+  hasSession: vi.fn(),
+  readThread: vi.fn(),
+  rollbackThread: vi.fn(),
+  stopAll: vi.fn(),
+  streamEvents: Stream.empty,
+};
+
 function makeInstanceRegistryLayer(options?: { includeCodexWork?: boolean }) {
   const instances = [
     {
       provider: "codex" as const,
       driverKind: ProviderDriverKind.makeUnsafe("codex"),
       instanceId: defaultInstanceIdForDriver("codex"),
+      snapshot: {
+        getSnapshot: Effect.die("unused"),
+        refresh: Effect.die("unused"),
+        streamChanges: Stream.empty,
+      },
+    },
+    {
+      provider: ProviderDriverKind.makeUnsafe("cursor"),
+      driverKind: ProviderDriverKind.makeUnsafe("cursor"),
+      instanceId: defaultInstanceIdForDriver("cursor"),
       snapshot: {
         getSnapshot: Effect.die("unused"),
         refresh: Effect.die("unused"),
@@ -121,6 +149,7 @@ function makeAdapterLayers() {
   return Layer.mergeAll(
     Layer.succeed(CodexAdapter, fakeCodexAdapter),
     Layer.succeed(ClaudeAdapter, fakeClaudeAdapter),
+    Layer.succeed(CursorAdapter, fakeCursorAdapter),
     Layer.succeed(OpenCodeAdapter, fakeOpenCodeAdapter),
   );
 }
@@ -151,19 +180,32 @@ layer("ProviderAdapterRegistryLive", (it) => {
       const registry = yield* ProviderAdapterRegistry;
       const codexDefaultInstance = defaultInstanceIdForDriver("codex");
       const claudeDefaultInstance = defaultInstanceIdForDriver("claudeAgent");
+      const cursorDefaultInstance = defaultInstanceIdForDriver("cursor");
       const codexByInstance = yield* registry.getByInstance(codexDefaultInstance);
+      const cursorByInstance = yield* registry.getByInstance(cursorDefaultInstance);
       const claudeByInstance = yield* registry.getByInstance(claudeDefaultInstance);
       const codex = yield* registry.getByProvider("codex");
+      const cursor = yield* registry.getByProvider("cursor" as never);
       const claude = yield* registry.getByProvider("claudeAgent");
       assert.equal(codexByInstance, fakeCodexAdapter);
+      assert.equal(cursorByInstance, fakeCursorAdapter);
       assert.equal(claudeByInstance, fakeClaudeAdapter);
       assert.equal(codex, fakeCodexAdapter);
+      assert.equal(cursor, fakeCursorAdapter);
       assert.equal(claude, fakeClaudeAdapter);
 
       const instances = yield* registry.listInstances();
       const providers = yield* registry.listProviders();
-      assert.deepEqual(instances, [codexDefaultInstance, claudeDefaultInstance]);
-      assert.deepEqual(providers, ["codex", "claudeAgent"]);
+      assert.deepEqual(instances, [
+        codexDefaultInstance,
+        cursorDefaultInstance,
+        claudeDefaultInstance,
+      ]);
+      assert.deepEqual(providers, [
+        "codex",
+        ProviderDriverKind.makeUnsafe("cursor"),
+        "claudeAgent",
+      ]);
     }),
   );
 
@@ -188,6 +230,7 @@ configuredLayer("ProviderAdapterRegistryLive configured instances", (it) => {
       const instances = yield* registry.listInstances();
       assert.deepEqual(instances, [
         defaultInstanceIdForDriver("codex"),
+        defaultInstanceIdForDriver("cursor"),
         defaultInstanceIdForDriver("claudeAgent"),
         ProviderInstanceId.makeUnsafe("codex_work"),
       ]);

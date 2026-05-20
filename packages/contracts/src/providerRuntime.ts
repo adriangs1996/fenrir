@@ -27,6 +27,7 @@ const RuntimeEventRawSource = Schema.Literals([
   "claude.sdk.permission",
   "codex.sdk.thread-event",
   "opencode.sdk.event",
+  "cursor.agent.stream-json",
 ]);
 export type RuntimeEventRawSource = typeof RuntimeEventRawSource.Type;
 

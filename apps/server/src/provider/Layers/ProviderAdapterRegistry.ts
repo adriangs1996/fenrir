@@ -4,6 +4,7 @@ import { Effect, Layer } from "effect";
 import { type ProviderAdapterError, ProviderUnsupportedError } from "../Errors.ts";
 import { ClaudeAdapter } from "../Services/ClaudeAdapter.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";
+import { CursorAdapter } from "../Services/CursorAdapter.ts";
 import { OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
@@ -16,6 +17,7 @@ const makeProviderAdapterRegistry = Effect.fn("makeProviderAdapterRegistry")(fun
   const instanceRegistry = yield* ProviderInstanceRegistry;
   const codexAdapter = yield* CodexAdapter;
   const claudeAdapter = yield* ClaudeAdapter;
+  const cursorAdapter = yield* CursorAdapter;
   const openCodeAdapter = yield* OpenCodeAdapter;
 
   const resolveAdapterForDriver = (
@@ -28,6 +30,8 @@ const makeProviderAdapterRegistry = Effect.fn("makeProviderAdapterRegistry")(fun
         return Effect.succeed(claudeAdapter);
       case "opencode":
         return Effect.succeed(openCodeAdapter);
+      case "cursor":
+        return Effect.succeed(cursorAdapter);
       default:
         return Effect.fail(new ProviderUnsupportedError({ provider: driverKind }));
     }

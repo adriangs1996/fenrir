@@ -170,7 +170,7 @@ export type ClaudeSettings = typeof ClaudeSettings.Type;
 
 export const CursorSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
-  binaryPath: makeBinaryPathSetting("agent"),
+  binaryPath: makeBinaryPathSetting("cursor-agent"),
   apiEndpoint: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
 });

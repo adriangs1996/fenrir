@@ -7,7 +7,11 @@ import {
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { resolveEffectiveClaudeSettings, resolveEffectiveCodexSettings } from "./providerSettings";
+import {
+  resolveCursorInstanceSettings,
+  resolveEffectiveClaudeSettings,
+  resolveEffectiveCodexSettings,
+} from "./providerSettings";
 
 describe("providerSettings", () => {
   it("merges default codex instance config overrides into effective settings", () => {
@@ -90,5 +94,30 @@ describe("providerSettings", () => {
       resolveEffectiveCodexSettings(settings, ProviderInstanceId.makeUnsafe("codex_work")),
     );
     expect(resolved.binaryPath).toBe("/tmp/codex-work");
+  });
+
+  it("resolves cursor instance overrides", () => {
+    const settings: ServerSettings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: {
+        [ProviderInstanceId.makeUnsafe("cursor_work")]: {
+          driver: ProviderDriverKind.makeUnsafe("cursor"),
+          enabled: true,
+          config: {
+            binaryPath: "/tmp/cursor-agent",
+            apiEndpoint: "https://cursor.internal",
+            customModels: ["gpt-5"],
+          },
+        },
+      },
+    };
+
+    const resolved = Effect.runSync(
+      resolveCursorInstanceSettings(settings, ProviderInstanceId.makeUnsafe("cursor_work")),
+    );
+    expect(resolved.enabled).toBe(true);
+    expect(resolved.binaryPath).toBe("/tmp/cursor-agent");
+    expect(resolved.apiEndpoint).toBe("https://cursor.internal");
+    expect(resolved.customModels).toEqual(["gpt-5"]);
   });
 });

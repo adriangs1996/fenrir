@@ -1,6 +1,7 @@
 import {
   ClaudeSettings,
   CodexSettings,
+  CursorSettings,
   defaultInstanceIdForDriver,
   OpenCodeSettings,
   ProviderDriverKind,
@@ -103,4 +104,16 @@ export const resolveOpenCodeInstanceSettings = (
     base: Schema.decodeSync(OpenCodeSettings)({}),
     schema: OpenCodeSettings,
     entry: getExactInstanceEntry(settings, providerInstanceId, "opencode"),
+  });
+
+export const resolveCursorInstanceSettings = (
+  settings: ServerSettings,
+  providerInstanceId: ProviderInstanceId = defaultInstanceIdForDriver("cursor"),
+): Effect.Effect<CursorSettings> =>
+  resolveMergedSettings({
+    provider: "cursor",
+    providerInstanceId,
+    base: Schema.decodeSync(CursorSettings)({}),
+    schema: CursorSettings,
+    entry: getExactInstanceEntry(settings, providerInstanceId, "cursor"),
   });
