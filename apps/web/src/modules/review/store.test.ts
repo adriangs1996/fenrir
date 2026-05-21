@@ -22,6 +22,28 @@ function makeContext(threadId: string) {
   };
 }
 
+function makeProviderAvailability() {
+  return {
+    connectionState: "connected" as const,
+    authState: "authenticated" as const,
+    serverProviders: [
+      {
+        key: "github",
+        label: "GitHub",
+        state: "ready" as const,
+        availability: "available" as const,
+        authStatus: "authenticated" as const,
+        message: null,
+      },
+    ],
+    github: {
+      available: true,
+      writable: true,
+      pullRequestNumber: 42,
+    },
+  };
+}
+
 function makeDiffSnapshot(input: {
   readonly laneFileId: string;
   readonly normalizedPath: string;
@@ -127,6 +149,45 @@ describe("review store", () => {
     expect(thread.filePatchCache).toEqual({});
     expect(thread.chunkPayloadCache).toEqual({});
     expect(thread.explorer.fileEntryById["file-2"]?.normalizedPath).toBe("src/b.ts");
+  });
+
+  it("skips no-op thread writes for equivalent route state", () => {
+    const threadKey = "environment-local:thread-1";
+    const store = useReviewStore.getState();
+    store.ensureThread(threadKey, makeContext("thread-1"), makeRouteState());
+
+    const stateAfterEnsure = useReviewStore.getState();
+    const threadAfterEnsure = stateAfterEnsure.threads[threadKey];
+    const equivalentRouteState = { ...makeRouteState() };
+
+    store.ensureThread(threadKey, makeContext("thread-1"), equivalentRouteState);
+    expect(useReviewStore.getState()).toBe(stateAfterEnsure);
+    expect(useReviewStore.getState().threads[threadKey]).toBe(threadAfterEnsure);
+
+    store.setRouteState(threadKey, equivalentRouteState);
+    expect(useReviewStore.getState()).toBe(stateAfterEnsure);
+    expect(useReviewStore.getState().threads[threadKey]).toBe(threadAfterEnsure);
+  });
+
+  it("skips provider availability writes when the derived availability is unchanged", () => {
+    const threadKey = "environment-local:thread-1";
+    const store = useReviewStore.getState();
+    store.ensureThread(threadKey, makeContext("thread-1"), makeRouteState());
+
+    const providerAvailability = makeProviderAvailability();
+    store.setProviderAvailability(threadKey, providerAvailability);
+
+    const stateAfterAvailability = useReviewStore.getState();
+    const threadAfterAvailability = stateAfterAvailability.threads[threadKey];
+
+    store.setProviderAvailability(threadKey, {
+      ...providerAvailability,
+      serverProviders: providerAvailability.serverProviders.map((provider) => ({ ...provider })),
+      github: { ...providerAvailability.github },
+    });
+
+    expect(useReviewStore.getState()).toBe(stateAfterAvailability);
+    expect(useReviewStore.getState().threads[threadKey]).toBe(threadAfterAvailability);
   });
 
   it("keeps review UI expansion persisted per thread without leaking session caches", () => {

@@ -26,7 +26,7 @@ import type {
   ReviewStreamEvent,
 } from "../../../../../../packages/contracts/src/review.ts";
 import type { ReviewRawSelectionTarget } from "../rawState";
-import type { ReviewRouteState } from "../routeSearch";
+import { createReviewRouteStateKey, type ReviewRouteState } from "../routeSearch";
 import {
   countVisibleLocalThreads,
   countVisibleOverviewNotes,
@@ -59,6 +59,12 @@ interface AnalysisRequestState {
   readonly status: "idle" | "running" | "error";
   readonly action: "generate" | "refresh" | null;
   readonly error: string | null;
+}
+
+interface CoalescedRefreshState {
+  currentKey: string | null;
+  inFlight: boolean;
+  queuedKey: string | null;
 }
 
 function errorMessage(error: unknown): string {
@@ -121,6 +127,16 @@ export function useReviewController(input: UseReviewControllerInput) {
   const diffRequestRef = useRef<RequestHandle | null>(null);
   const filePatchRequestsRef = useRef<Set<string>>(new Set());
   const chunkPayloadRequestsRef = useRef<Set<string>>(new Set());
+  const snapshotRefreshStateRef = useRef<CoalescedRefreshState>({
+    currentKey: null,
+    inFlight: false,
+    queuedKey: null,
+  });
+  const diffRefreshStateRef = useRef<CoalescedRefreshState>({
+    currentKey: null,
+    inFlight: false,
+    queuedKey: null,
+  });
   const subscriptionSessionIdRef = useRef<ReviewGetSessionInput["sessionId"] | null>(null);
   const requestIdRef = useRef(0);
   const [analysisRequest, setAnalysisRequest] = useState<AnalysisRequestState>({
@@ -132,6 +148,21 @@ export function useReviewController(input: UseReviewControllerInput) {
     () => scopeThreadRef(input.environmentId, input.threadId),
     [input.environmentId, input.threadId],
   );
+  const routeStateKey = createReviewRouteStateKey(input.routeState);
+  const stableRouteStateRef = useRef<{
+    readonly key: string;
+    readonly value: ReviewRouteState;
+  }>({
+    key: routeStateKey,
+    value: input.routeState,
+  });
+  if (stableRouteStateRef.current.key !== routeStateKey) {
+    stableRouteStateRef.current = {
+      key: routeStateKey,
+      value: input.routeState,
+    };
+  }
+  const stableRouteState = stableRouteStateRef.current.value;
 
   const nextRequestId = useCallback(() => {
     requestIdRef.current += 1;
@@ -148,20 +179,20 @@ export function useReviewController(input: UseReviewControllerInput) {
         threadId: input.threadId,
         routeKind: input.routeKind,
       },
-      input.routeState,
+      stableRouteState,
     );
   }, [
     ensureThread,
     input.environmentId,
     input.routeKind,
-    input.routeState,
     input.threadId,
+    stableRouteState,
     threadKey,
   ]);
 
   useEffect(() => {
-    setRouteState(threadKey, input.routeState);
-  }, [input.routeState, setRouteState, threadKey]);
+    setRouteState(threadKey, stableRouteState);
+  }, [setRouteState, stableRouteState, threadKey]);
 
   useEffect(() => {
     setProviderAvailability(
@@ -185,6 +216,14 @@ export function useReviewController(input: UseReviewControllerInput) {
       if (!rpcClient) {
         return;
       }
+      const refreshState = snapshotRefreshStateRef.current;
+      if (refreshState.inFlight) {
+        refreshState.queuedKey = sessionId;
+        return;
+      }
+      refreshState.inFlight = true;
+      refreshState.currentKey = sessionId;
+      refreshState.queuedKey = null;
       const requestId = nextRequestId();
       snapshotRequestRef.current = { requestId, sessionId };
       try {
@@ -200,6 +239,14 @@ export function useReviewController(input: UseReviewControllerInput) {
         applySessionSnapshot(threadKey, snapshot);
       } catch (error) {
         setSessionStatus(threadKey, "error", errorMessage(error));
+      } finally {
+        const queuedSessionId = refreshState.queuedKey;
+        refreshState.inFlight = false;
+        refreshState.currentKey = null;
+        refreshState.queuedKey = null;
+        if (queuedSessionId) {
+          void refreshSessionSnapshot(queuedSessionId);
+        }
       }
     },
     [applySessionSnapshot, nextRequestId, rpcClient, setSessionStatus, threadKey],
@@ -210,6 +257,14 @@ export function useReviewController(input: UseReviewControllerInput) {
       if (!rpcClient) {
         return;
       }
+      const refreshState = diffRefreshStateRef.current;
+      if (refreshState.inFlight) {
+        refreshState.queuedKey = sessionId;
+        return;
+      }
+      refreshState.inFlight = true;
+      refreshState.currentKey = sessionId;
+      refreshState.queuedKey = null;
       const requestId = nextRequestId();
       diffRequestRef.current = { requestId, sessionId };
       setExplorerLoading(threadKey);
@@ -226,6 +281,14 @@ export function useReviewController(input: UseReviewControllerInput) {
         applyDiffSnapshot(threadKey, snapshot);
       } catch (error) {
         setExplorerError(threadKey, errorMessage(error));
+      } finally {
+        const queuedSessionId = refreshState.queuedKey;
+        refreshState.inFlight = false;
+        refreshState.currentKey = null;
+        refreshState.queuedKey = null;
+        if (queuedSessionId) {
+          void refreshDiffSnapshot(queuedSessionId);
+        }
       }
     },
     [applyDiffSnapshot, nextRequestId, rpcClient, setExplorerError, setExplorerLoading, threadKey],

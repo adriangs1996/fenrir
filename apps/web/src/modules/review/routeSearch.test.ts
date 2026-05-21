@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildReviewRouteSearch,
+  createReviewRouteStateKey,
   parseReviewRouteSearch,
   resolveReviewRouteState,
   stripReviewSearchParams,
@@ -81,6 +82,26 @@ describe("review route search", () => {
       reviewScope: "uncommitted",
       reviewChunkId: "chunk-4",
     });
+  });
+
+  it("builds a stable route-state key for equivalent state objects", () => {
+    expect(
+      createReviewRouteStateKey({
+        tab: "review",
+        reviewMode: "review",
+        reviewScope: "combined",
+      }),
+    ).toBe(
+      createReviewRouteStateKey({
+        tab: "review",
+        reviewMode: "review",
+        reviewScope: "combined",
+        reviewGroupId: undefined,
+        reviewFileId: undefined,
+        reviewChunkId: undefined,
+        reviewCommentId: undefined,
+      }),
+    );
   });
 
   it("strips review-specific params while preserving unrelated search", () => {

@@ -118,6 +118,12 @@ interface ReviewStoreState {
   readonly setChunkPayloadError: (threadKey: string, cacheKey: string, error: string) => void;
 }
 
+const DEFAULT_ROUTE_STATE: ReviewRouteState = {
+  tab: "review",
+  reviewMode: "review",
+  reviewScope: "combined",
+};
+
 function createStorage() {
   return createDebouncedStorage(typeof window !== "undefined" ? window.localStorage : undefined);
 }
@@ -146,13 +152,92 @@ function createDefaultThreadState(routeState: ReviewRouteState): ReviewThreadSta
   };
 }
 
+function reviewSelectionEqual(left: ReviewSelectionState, right: ReviewSelectionState): boolean {
+  return (
+    left.groupId === right.groupId &&
+    left.fileId === right.fileId &&
+    left.chunkId === right.chunkId &&
+    left.commentId === right.commentId &&
+    left.hasInvalidGroupId === right.hasInvalidGroupId &&
+    left.hasInvalidFileId === right.hasInvalidFileId &&
+    left.hasInvalidChunkId === right.hasInvalidChunkId &&
+    left.hasInvalidCommentId === right.hasInvalidCommentId
+  );
+}
+
+function reviewDegradedBannersEqual(
+  left: readonly ReviewDegradedBanner[],
+  right: readonly ReviewDegradedBanner[],
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftBanner = left[index];
+    const rightBanner = right[index];
+    if (
+      !leftBanner ||
+      !rightBanner ||
+      leftBanner.id !== rightBanner.id ||
+      leftBanner.tone !== rightBanner.tone ||
+      leftBanner.title !== rightBanner.title ||
+      leftBanner.detail !== rightBanner.detail
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function providerAvailabilityEqual(
+  left: ReviewProviderAvailabilityState | null,
+  right: ReviewProviderAvailabilityState,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === null) {
+    return false;
+  }
+  if (
+    left.connectionState !== right.connectionState ||
+    left.authState !== right.authState ||
+    left.github.available !== right.github.available ||
+    left.github.writable !== right.github.writable ||
+    left.github.pullRequestNumber !== right.github.pullRequestNumber ||
+    left.serverProviders.length !== right.serverProviders.length
+  ) {
+    return false;
+  }
+  for (let index = 0; index < left.serverProviders.length; index += 1) {
+    const leftProvider = left.serverProviders[index];
+    const rightProvider = right.serverProviders[index];
+    if (
+      !leftProvider ||
+      !rightProvider ||
+      leftProvider.key !== rightProvider.key ||
+      leftProvider.label !== rightProvider.label ||
+      leftProvider.state !== rightProvider.state ||
+      leftProvider.availability !== rightProvider.availability ||
+      leftProvider.authStatus !== rightProvider.authStatus ||
+      leftProvider.message !== rightProvider.message
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function recalculateThreadState(thread: ReviewThreadState): ReviewThreadState {
-  const selection = resolveReviewSelection({
+  const nextSelection = resolveReviewSelection({
     routeState: thread.routeState,
     snapshot: thread.snapshot,
     explorer: thread.explorer,
   });
-  const degradedBanners = deriveReviewDegradedBanners({
+  const nextDegradedBanners = deriveReviewDegradedBanners({
     summary: thread.snapshot.summary,
     providerAvailability: thread.providerAvailability ?? {
       connectionState: "disconnected",
@@ -160,8 +245,17 @@ function recalculateThreadState(thread: ReviewThreadState): ReviewThreadState {
       serverProviders: [],
       github: { available: false, writable: null, pullRequestNumber: null },
     },
-    selection,
+    selection: nextSelection,
   });
+  const selection = reviewSelectionEqual(thread.selection, nextSelection)
+    ? thread.selection
+    : nextSelection;
+  const degradedBanners = reviewDegradedBannersEqual(thread.degradedBanners, nextDegradedBanners)
+    ? thread.degradedBanners
+    : nextDegradedBanners;
+  if (selection === thread.selection && degradedBanners === thread.degradedBanners) {
+    return thread;
+  }
   return {
     ...thread,
     selection,
@@ -174,14 +268,14 @@ function updateThreadState(
   threadKey: string,
   updater: (thread: ReviewThreadState) => ReviewThreadState,
 ) {
-  const current =
-    state.threads[threadKey] ??
-    createDefaultThreadState({
-      tab: "review",
-      reviewMode: "review",
-      reviewScope: "combined",
-    });
+  const hasThread = Object.hasOwn(state.threads, threadKey);
+  const current = hasThread
+    ? state.threads[threadKey]!
+    : createDefaultThreadState(DEFAULT_ROUTE_STATE);
   const nextThread = recalculateThreadState(updater(current));
+  if (hasThread && nextThread === current) {
+    return state;
+  }
   return {
     threads: {
       ...state.threads,
@@ -359,10 +453,14 @@ export const useReviewStore = create<ReviewStoreState>()(
         ),
       setProviderAvailability: (threadKey, providerAvailability) =>
         set((state) =>
-          updateThreadState(state as ReviewStoreState, threadKey, (thread) => ({
-            ...thread,
-            providerAvailability,
-          })),
+          updateThreadState(state as ReviewStoreState, threadKey, (thread) =>
+            providerAvailabilityEqual(thread.providerAvailability, providerAvailability)
+              ? thread
+              : {
+                  ...thread,
+                  providerAvailability,
+                },
+          ),
         ),
       setFilters: (threadKey, updater) =>
         set((state) =>
@@ -551,9 +649,7 @@ export const useReviewStore = create<ReviewStoreState>()(
           const base =
             existing ??
             createDefaultThreadState({
-              tab: "review",
-              reviewMode: "review",
-              reviewScope: "combined",
+              ...DEFAULT_ROUTE_STATE,
             });
           nextThreads[threadKey] = {
             ...base,

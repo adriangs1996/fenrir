@@ -1119,6 +1119,7 @@ export const makeReviewRpcService = (deps: ReviewRpcDependencies) =>
                     Stream.mapEffect(() => buildSnapshot(input.sessionId, authSessionId)),
                   ),
                   deps.sourceControlStatus.streamStatus({ cwd: session.target.cwd }).pipe(
+                    Stream.filter((event) => event._tag !== "snapshot"),
                     Stream.debounce(Duration.millis(150)),
                     Stream.mapEffect(() => buildSnapshot(input.sessionId, authSessionId)),
                   ),

@@ -138,3 +138,15 @@ export function buildReviewRouteSearch(state: ReviewRouteState): ReviewRouteSear
     ...(state.reviewCommentId ? { reviewCommentId: state.reviewCommentId } : {}),
   };
 }
+
+export function createReviewRouteStateKey(state: ReviewRouteState): string {
+  return JSON.stringify([
+    state.tab,
+    state.reviewMode,
+    state.reviewScope,
+    state.reviewGroupId ?? null,
+    state.reviewFileId ?? null,
+    state.reviewChunkId ?? null,
+    state.reviewCommentId ?? null,
+  ]);
+}

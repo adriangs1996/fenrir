@@ -169,6 +169,7 @@ import {
   buildTemporaryWorktreeBranchName,
   collectUserMessageBlobPreviewUrls,
   createLocalDispatchSnapshot,
+  createSearchStateKey,
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
@@ -181,6 +182,7 @@ import {
   reconcileMountedTerminalThreadIds,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
+  shouldForceActiveReviewTab,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
 } from "./ChatView.logic";
@@ -350,17 +352,6 @@ function formatOutgoingPrompt(params: {
     return applyClaudePromptEffortPrefix(params.text, params.effort as ClaudeAgentEffort | null);
   }
   return params.text;
-}
-
-function searchShallowEqual(left: object, right: object): boolean {
-  const leftRecord = left as Record<string, unknown>;
-  const rightRecord = right as Record<string, unknown>;
-  const leftKeys = Object.keys(leftRecord);
-  const rightKeys = Object.keys(rightRecord);
-  if (leftKeys.length !== rightKeys.length) {
-    return false;
-  }
-  return leftKeys.every((key) => leftRecord[key] === rightRecord[key]);
 }
 
 const SCRIPT_TERMINAL_COLS = 120;
@@ -849,7 +840,10 @@ export default function ChatView(props: ChatViewProps) {
   const activeChatTab = useEditorStore((s) => s.activeChatTab);
   const setActiveChatTab = useEditorStore((s) => s.setActiveChatTab);
   const lastNonTerminalChatTabRef = useRef<"thread" | "review" | "editor">("thread");
+  const pendingReviewRouteExitRef = useRef(false);
+  const pendingRouteSearchStateKeyRef = useRef<string | null>(null);
   const reviewRouteState = useMemo(() => resolveReviewRouteState(rawSearch), [rawSearch]);
+  const rawSearchStateKey = useMemo(() => createSearchStateKey(rawSearch), [rawSearch]);
   const activeReviewRouteState = useMemo<ReviewRouteState | null>(
     () =>
       reviewRouteState ??
@@ -863,19 +857,39 @@ export default function ChatView(props: ChatViewProps) {
     [activeChatTab, reviewRouteState],
   );
 
+  useEffect(() => {
+    if (pendingRouteSearchStateKeyRef.current === rawSearchStateKey) {
+      pendingRouteSearchStateKeyRef.current = null;
+    }
+  }, [rawSearchStateKey]);
+
   const replaceCurrentRouteSearch = useCallback(
     (search: Record<string, unknown>) => {
+      const nextSearchStateKey = createSearchStateKey(search);
+      if (
+        nextSearchStateKey === rawSearchStateKey ||
+        pendingRouteSearchStateKeyRef.current === nextSearchStateKey
+      ) {
+        return;
+      }
+      pendingRouteSearchStateKeyRef.current = nextSearchStateKey;
+
       if (routeKind === "server") {
         void navigate({
           to: "/$environmentId/$threadId",
           params: buildThreadRouteParams(routeThreadRef),
           search,
           replace: true,
+        }).catch(() => {
+          if (pendingRouteSearchStateKeyRef.current === nextSearchStateKey) {
+            pendingRouteSearchStateKeyRef.current = null;
+          }
         });
         return;
       }
 
       if (!draftId) {
+        pendingRouteSearchStateKeyRef.current = null;
         return;
       }
 
@@ -884,13 +898,18 @@ export default function ChatView(props: ChatViewProps) {
         params: buildDraftThreadRouteParams(draftId),
         search,
         replace: true,
+      }).catch(() => {
+        if (pendingRouteSearchStateKeyRef.current === nextSearchStateKey) {
+          pendingRouteSearchStateKeyRef.current = null;
+        }
       });
     },
-    [draftId, navigate, routeKind, routeThreadRef],
+    [draftId, navigate, rawSearchStateKey, routeKind, routeThreadRef],
   );
 
   const updateReviewRouteState = useCallback(
     (nextState: ReviewRouteState) => {
+      pendingReviewRouteExitRef.current = false;
       setActiveChatTab("review");
       replaceCurrentRouteSearch({
         ...stripReviewSearchParams(rawSearch),
@@ -902,9 +921,10 @@ export default function ChatView(props: ChatViewProps) {
 
   const handleChatTabSelect = useCallback(
     (tab: "thread" | "review" | "terminal" | "editor") => {
+      pendingReviewRouteExitRef.current = tab !== "review" && reviewRouteState !== null;
       setActiveChatTab(tab);
     },
-    [setActiveChatTab],
+    [reviewRouteState, setActiveChatTab],
   );
 
   useEffect(() => {
@@ -923,7 +943,13 @@ export default function ChatView(props: ChatViewProps) {
   }, [editorAvailable, activeChatTab, setActiveChatTab]);
 
   useLayoutEffect(() => {
-    if (reviewRouteState && activeChatTab !== "review") {
+    if (
+      shouldForceActiveReviewTab({
+        activeChatTab,
+        hasReviewRouteState: reviewRouteState !== null,
+        pendingReviewRouteExit: pendingReviewRouteExitRef.current,
+      })
+    ) {
       setActiveChatTab("review");
     }
   }, [activeChatTab, reviewRouteState, setActiveChatTab]);
@@ -935,13 +961,10 @@ export default function ChatView(props: ChatViewProps) {
         reviewMode: DEFAULT_REVIEW_ROUTE_MODE,
         reviewScope: DEFAULT_REVIEW_ROUTE_SCOPE,
       };
-      const nextSearch = {
+      replaceCurrentRouteSearch({
         ...stripReviewSearchParams(rawSearch),
         ...buildReviewRouteSearch(nextReviewState),
-      };
-      if (!searchShallowEqual(rawSearch, nextSearch)) {
-        replaceCurrentRouteSearch(nextSearch);
-      }
+      });
       return;
     }
 
@@ -949,10 +972,7 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
 
-    const nextSearch = stripReviewSearchParams(rawSearch);
-    if (!searchShallowEqual(rawSearch, nextSearch)) {
-      replaceCurrentRouteSearch(nextSearch);
-    }
+    replaceCurrentRouteSearch(stripReviewSearchParams(rawSearch));
   }, [
     activeChatTab,
     activeReviewRouteState,
@@ -960,6 +980,12 @@ export default function ChatView(props: ChatViewProps) {
     replaceCurrentRouteSearch,
     reviewRouteState,
   ]);
+
+  useEffect(() => {
+    if (reviewRouteState === null) {
+      pendingReviewRouteExitRef.current = false;
+    }
+  }, [reviewRouteState]);
 
   // Subscribe to nvim's `:Fenrir focus-chat` so the renderer can flip back to
   // the thread tab when the user invokes the command from inside the editor.

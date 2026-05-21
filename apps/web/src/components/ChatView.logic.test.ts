@@ -7,10 +7,12 @@ import { type Thread } from "../types";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   buildExpiredTerminalContextToastCopy,
+  createSearchStateKey,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   reconcileMountedTerminalThreadIds,
+  shouldForceActiveReviewTab,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
 } from "./ChatView.logic";
@@ -93,6 +95,62 @@ describe("buildExpiredTerminalContextToastCopy", () => {
       title: "Expired terminal contexts omitted from message",
       description: "Re-add it if you want that terminal output included.",
     });
+  });
+});
+
+describe("createSearchStateKey", () => {
+  it("stays stable across equivalent search objects", () => {
+    expect(
+      createSearchStateKey({
+        reviewScope: "combined",
+        tab: "review",
+        reviewMode: "review",
+      }),
+    ).toBe(
+      createSearchStateKey({
+        tab: "review",
+        reviewMode: "review",
+        reviewScope: "combined",
+      }),
+    );
+  });
+
+  it("changes when route-search values change", () => {
+    expect(
+      createSearchStateKey({
+        tab: "review",
+        reviewMode: "review",
+        reviewScope: "combined",
+      }),
+    ).not.toBe(
+      createSearchStateKey({
+        tab: "review",
+        reviewMode: "raw",
+        reviewScope: "combined",
+      }),
+    );
+  });
+});
+
+describe("shouldForceActiveReviewTab", () => {
+  it("keeps the review tab active when the route explicitly targets review", () => {
+    expect(
+      shouldForceActiveReviewTab({
+        activeChatTab: "thread",
+        hasReviewRouteState: true,
+        pendingReviewRouteExit: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("lets the user leave review while the route clear is still pending", () => {
+    expect(
+      shouldForceActiveReviewTab({
+        activeChatTab: "thread",
+        hasReviewRouteState: true,
+        pendingReviewRouteExit: true,
+      }),
+    ).toBe(false);
   });
 });
 

@@ -206,6 +206,28 @@ export function deriveComposerSendState(options: {
   };
 }
 
+export function createSearchStateKey(search: object): string {
+  const searchRecord = search as Record<string, unknown>;
+  return JSON.stringify(
+    Object.keys(searchRecord)
+      .toSorted()
+      .map((key) => [
+        key,
+        searchRecord[key] === undefined ? "__fenrir_undefined__" : searchRecord[key],
+      ]),
+  );
+}
+
+export function shouldForceActiveReviewTab(input: {
+  activeChatTab: "thread" | "review" | "terminal" | "editor";
+  hasReviewRouteState: boolean;
+  pendingReviewRouteExit: boolean;
+}): boolean {
+  return (
+    input.hasReviewRouteState && input.activeChatTab !== "review" && !input.pendingReviewRouteExit
+  );
+}
+
 export function buildExpiredTerminalContextToastCopy(
   expiredTerminalContextCount: number,
   variant: "omitted" | "empty",
