@@ -3,10 +3,8 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   type ClaudeAgentEffort,
   type EnvironmentId,
-  type GlobalScript,
   type MessageId,
   type ModelSelection,
-  type ProjectScript,
   type ProviderSelectionKind,
   type ProjectId,
   type ProviderApprovalDecision,
@@ -15,11 +13,9 @@ import {
   type ScopedThreadRef,
   type ThreadId,
   type TurnId,
-  type KeybindingCommand,
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
-  TerminalOpenInput,
 } from "@fenrir/contracts";
 import {
   parseScopedThreadKey,
@@ -83,7 +79,6 @@ import {
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
-  DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
   type SessionPhase,
@@ -102,17 +97,8 @@ import ThreadTerminalDrawer from "~/modules/terminal/components/ThreadTerminalDr
 import { ChevronDownIcon } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
 import { toastManager } from "./ui/toast";
-import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
-import { type NewProjectScriptInput, type NewGlobalScriptInput } from "./ProjectScriptsControl";
 import PlaceholderInputDialog from "./PlaceholderInputDialog";
-import { parsePlaceholders, substitutePlaceholders } from "~/lib/placeholders";
-import {
-  commandForProjectScript,
-  commandForGlobalScript,
-  nextProjectScriptId,
-  projectScriptIdFromCommand,
-  globalScriptIdFromCommand,
-} from "~/projectScripts";
+import { globalScriptIdFromCommand, projectScriptIdFromCommand } from "~/projectScripts";
 import { newCommandId, newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
@@ -123,7 +109,7 @@ import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
-import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
+import { buildDraftThreadRouteParams } from "../threadRoutes";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -167,9 +153,9 @@ import {
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
   buildTemporaryWorktreeBranchName,
+  closeTerminalWithFallback,
   collectUserMessageBlobPreviewUrls,
   createLocalDispatchSnapshot,
-  createSearchStateKey,
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
@@ -182,10 +168,11 @@ import {
   reconcileMountedTerminalThreadIds,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
-  shouldForceActiveReviewTab,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
 } from "./ChatView.logic";
+import { useChatViewScripts } from "./chatView/useChatViewScripts";
+import { useChatViewTabs } from "./chatView/useChatViewTabs";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   useServerAvailableEditors,
@@ -198,16 +185,10 @@ import { RightPanelSheet } from "./RightPanelSheet";
 import { useComposerHandleContext } from "../composerHandleContext";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import {
-  buildReviewRouteSearch,
-  DEFAULT_REVIEW_ROUTE_MODE,
-  DEFAULT_REVIEW_ROUTE_SCOPE,
   ReviewTabShell,
   useReviewStore,
   type ReviewRouteMode,
   type ReviewRouteScope,
-  resolveReviewRouteState,
-  stripReviewSearchParams,
-  type ReviewRouteState,
 } from "~/modules/review";
 import {
   buildReviewContextTrace,
@@ -353,9 +334,6 @@ function formatOutgoingPrompt(params: {
   }
   return params.text;
 }
-
-const SCRIPT_TERMINAL_COLS = 120;
-const SCRIPT_TERMINAL_ROWS = 30;
 
 type ChatViewProps =
   | {
@@ -559,24 +537,13 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     (terminalId: string) => {
       const api = readEnvironmentApi(threadRef.environmentId);
       if (!api) return;
-      const isFinalTerminal = terminalState.terminalIds.length <= 1;
-      const fallbackExitWrite = () =>
-        api.terminal.write({ threadId, terminalId, data: "exit\n" }).catch(() => undefined);
 
-      if ("close" in api.terminal && typeof api.terminal.close === "function") {
-        void (async () => {
-          if (isFinalTerminal) {
-            await api.terminal.clear({ threadId, terminalId }).catch(() => undefined);
-          }
-          await api.terminal.close({
-            threadId,
-            terminalId,
-            deleteHistory: true,
-          });
-        })().catch(() => fallbackExitWrite());
-      } else {
-        void fallbackExitWrite();
-      }
+      closeTerminalWithFallback({
+        terminalApi: api.terminal,
+        threadId,
+        terminalId,
+        isFinalTerminal: terminalState.terminalIds.length <= 1,
+      });
 
       storeCloseTerminal(threadRef, terminalId);
       bumpFocusRequestId();
@@ -837,168 +804,21 @@ export default function ChatView(props: ChatViewProps) {
   const isMainWindow = useIsMainWindow();
   const nvimReady = useNvimAvailable();
   const editorAvailable = desktopBridgeAvailable && isMainWindow && nvimReady;
-  const activeChatTab = useEditorStore((s) => s.activeChatTab);
-  const setActiveChatTab = useEditorStore((s) => s.setActiveChatTab);
-  const lastNonTerminalChatTabRef = useRef<"thread" | "review" | "editor">("thread");
-  const pendingReviewRouteExitRef = useRef(false);
-  const pendingRouteSearchStateKeyRef = useRef<string | null>(null);
-  const reviewRouteState = useMemo(() => resolveReviewRouteState(rawSearch), [rawSearch]);
-  const rawSearchStateKey = useMemo(() => createSearchStateKey(rawSearch), [rawSearch]);
-  const activeReviewRouteState = useMemo<ReviewRouteState | null>(
-    () =>
-      reviewRouteState ??
-      (activeChatTab === "review"
-        ? {
-            tab: "review",
-            reviewMode: DEFAULT_REVIEW_ROUTE_MODE,
-            reviewScope: DEFAULT_REVIEW_ROUTE_SCOPE,
-          }
-        : null),
-    [activeChatTab, reviewRouteState],
-  );
-
-  useEffect(() => {
-    if (pendingRouteSearchStateKeyRef.current === rawSearchStateKey) {
-      pendingRouteSearchStateKeyRef.current = null;
-    }
-  }, [rawSearchStateKey]);
-
-  const replaceCurrentRouteSearch = useCallback(
-    (search: Record<string, unknown>) => {
-      const nextSearchStateKey = createSearchStateKey(search);
-      if (
-        nextSearchStateKey === rawSearchStateKey ||
-        pendingRouteSearchStateKeyRef.current === nextSearchStateKey
-      ) {
-        return;
-      }
-      pendingRouteSearchStateKeyRef.current = nextSearchStateKey;
-
-      if (routeKind === "server") {
-        void navigate({
-          to: "/$environmentId/$threadId",
-          params: buildThreadRouteParams(routeThreadRef),
-          search,
-          replace: true,
-        }).catch(() => {
-          if (pendingRouteSearchStateKeyRef.current === nextSearchStateKey) {
-            pendingRouteSearchStateKeyRef.current = null;
-          }
-        });
-        return;
-      }
-
-      if (!draftId) {
-        pendingRouteSearchStateKeyRef.current = null;
-        return;
-      }
-
-      void navigate({
-        to: "/draft/$draftId",
-        params: buildDraftThreadRouteParams(draftId),
-        search,
-        replace: true,
-      }).catch(() => {
-        if (pendingRouteSearchStateKeyRef.current === nextSearchStateKey) {
-          pendingRouteSearchStateKeyRef.current = null;
-        }
-      });
-    },
-    [draftId, navigate, rawSearchStateKey, routeKind, routeThreadRef],
-  );
-
-  const updateReviewRouteState = useCallback(
-    (nextState: ReviewRouteState) => {
-      pendingReviewRouteExitRef.current = false;
-      setActiveChatTab("review");
-      replaceCurrentRouteSearch({
-        ...stripReviewSearchParams(rawSearch),
-        ...buildReviewRouteSearch(nextState),
-      });
-    },
-    [rawSearch, replaceCurrentRouteSearch, setActiveChatTab],
-  );
-
-  const handleChatTabSelect = useCallback(
-    (tab: "thread" | "review" | "terminal" | "editor") => {
-      pendingReviewRouteExitRef.current = tab !== "review" && reviewRouteState !== null;
-      setActiveChatTab(tab);
-    },
-    [reviewRouteState, setActiveChatTab],
-  );
-
-  useEffect(() => {
-    if (activeChatTab === "terminal") {
-      return;
-    }
-    lastNonTerminalChatTabRef.current = activeChatTab;
-  }, [activeChatTab]);
-
-  // Force the active tab back to "thread" if the editor becomes unavailable
-  // (e.g. nvim binary uninstalled mid-session, secondary window).
-  useEffect(() => {
-    if (!editorAvailable && activeChatTab === "editor") {
-      setActiveChatTab("thread");
-    }
-  }, [editorAvailable, activeChatTab, setActiveChatTab]);
-
-  useLayoutEffect(() => {
-    if (
-      shouldForceActiveReviewTab({
-        activeChatTab,
-        hasReviewRouteState: reviewRouteState !== null,
-        pendingReviewRouteExit: pendingReviewRouteExitRef.current,
-      })
-    ) {
-      setActiveChatTab("review");
-    }
-  }, [activeChatTab, reviewRouteState, setActiveChatTab]);
-
-  useEffect(() => {
-    if (activeChatTab === "review") {
-      const nextReviewState = activeReviewRouteState ?? {
-        tab: "review",
-        reviewMode: DEFAULT_REVIEW_ROUTE_MODE,
-        reviewScope: DEFAULT_REVIEW_ROUTE_SCOPE,
-      };
-      replaceCurrentRouteSearch({
-        ...stripReviewSearchParams(rawSearch),
-        ...buildReviewRouteSearch(nextReviewState),
-      });
-      return;
-    }
-
-    if (!reviewRouteState) {
-      return;
-    }
-
-    replaceCurrentRouteSearch(stripReviewSearchParams(rawSearch));
-  }, [
+  const {
     activeChatTab,
     activeReviewRouteState,
+    handleChatTabSelect,
+    lastNonTerminalChatTabRef,
+    setActiveChatTab,
+    updateReviewRouteState,
+  } = useChatViewTabs({
+    desktopBridgeAvailable,
+    draftId,
+    editorAvailable,
     rawSearch,
-    replaceCurrentRouteSearch,
-    reviewRouteState,
-  ]);
-
-  useEffect(() => {
-    if (reviewRouteState === null) {
-      pendingReviewRouteExitRef.current = false;
-    }
-  }, [reviewRouteState]);
-
-  // Subscribe to nvim's `:Fenrir focus-chat` so the renderer can flip back to
-  // the thread tab when the user invokes the command from inside the editor.
-  useEffect(() => {
-    if (!desktopBridgeAvailable) return;
-    const editor = window.desktopBridge?.editor;
-    if (!editor?.onCmd) return;
-    return editor.onCmd((ev) => {
-      if (ev.subcommand === "focus-chat") {
-        setActiveChatTab("thread");
-      }
-    });
-  }, [desktopBridgeAvailable, setActiveChatTab]);
+    routeKind,
+    routeThreadRef,
+  });
 
   const terminalState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadKey, routeThreadRef),
@@ -1879,7 +1699,7 @@ export default function ChatView(props: ChatViewProps) {
       return "editor" as const;
     }
     return "thread" as const;
-  }, [editorAvailable]);
+  }, [editorAvailable, lastNonTerminalChatTabRef]);
   const setTerminalOpen = useCallback(
     (open: boolean) => {
       if (!activeThreadRef) return;
@@ -1939,27 +1759,14 @@ export default function ChatView(props: ChatViewProps) {
     (terminalId: string) => {
       const api = readEnvironmentApi(environmentId);
       if (!activeThreadId || !api) return;
-      const isFinalTerminal = terminalState.terminalIds.length <= 1;
-      const fallbackExitWrite = () =>
-        api.terminal
-          .write({ threadId: activeThreadId, terminalId, data: "exit\n" })
-          .catch(() => undefined);
-      if ("close" in api.terminal && typeof api.terminal.close === "function") {
-        void (async () => {
-          if (isFinalTerminal) {
-            await api.terminal
-              .clear({ threadId: activeThreadId, terminalId })
-              .catch(() => undefined);
-          }
-          await api.terminal.close({
-            threadId: activeThreadId,
-            terminalId,
-            deleteHistory: true,
-          });
-        })().catch(() => fallbackExitWrite());
-      } else {
-        void fallbackExitWrite();
-      }
+
+      closeTerminalWithFallback({
+        terminalApi: api.terminal,
+        threadId: activeThreadId,
+        terminalId,
+        isFinalTerminal: terminalState.terminalIds.length <= 1,
+      });
+
       if (activeThreadRef) {
         storeCloseTerminal(activeThreadRef, terminalId);
       }
@@ -1973,384 +1780,31 @@ export default function ChatView(props: ChatViewProps) {
       terminalState.terminalIds.length,
     ],
   );
-  const runProjectScript = useCallback(
-    async (
-      script: ProjectScript,
-      options?: {
-        cwd?: string;
-        env?: Record<string, string>;
-        worktreePath?: string | null;
-        preferNewTerminal?: boolean;
-        rememberAsLastInvoked?: boolean;
-      },
-    ) => {
-      const api = readEnvironmentApi(environmentId);
-      if (!api || !activeThreadId || !activeProject || !activeThread) return;
-      if (options?.rememberAsLastInvoked !== false) {
-        setLastInvokedScriptByProjectId((current) => {
-          if (current[activeProject.id] === script.id) return current;
-          return { ...current, [activeProject.id]: script.id };
-        });
-      }
-      const targetCwd = options?.cwd ?? gitCwd ?? activeProject.cwd;
-      const baseTerminalId =
-        terminalState.activeTerminalId ||
-        terminalState.terminalIds[0] ||
-        DEFAULT_THREAD_TERMINAL_ID;
-      const isBaseTerminalBusy = terminalState.runningTerminalIds.includes(baseTerminalId);
-      const wantsNewTerminal = Boolean(options?.preferNewTerminal) || isBaseTerminalBusy;
-      const shouldCreateNewTerminal = wantsNewTerminal;
-      const targetTerminalId = shouldCreateNewTerminal
-        ? `terminal-${randomUUID()}`
-        : baseTerminalId;
-      const targetWorktreePath = options?.worktreePath ?? activeThread.worktreePath ?? null;
-
-      setTerminalLaunchContext({
-        threadId: activeThreadId,
-        cwd: targetCwd,
-        worktreePath: targetWorktreePath,
-      });
-      activateTerminalTab({ ensureOpen: true, focus: true });
-      if (!activeThreadRef) {
-        return;
-      }
-      if (shouldCreateNewTerminal) {
-        storeNewTerminal(activeThreadRef, targetTerminalId);
-      } else {
-        storeSetActiveTerminal(activeThreadRef, targetTerminalId);
-      }
-
-      const runtimeEnv = projectScriptRuntimeEnv({
-        project: {
-          cwd: activeProject.cwd,
-        },
-        worktreePath: targetWorktreePath,
-        ...(options?.env ? { extraEnv: options.env } : {}),
-      });
-      const openTerminalInput: TerminalOpenInput = shouldCreateNewTerminal
-        ? {
-            threadId: activeThreadId,
-            terminalId: targetTerminalId,
-            cwd: targetCwd,
-            ...(targetWorktreePath !== null ? { worktreePath: targetWorktreePath } : {}),
-            env: runtimeEnv,
-            cols: SCRIPT_TERMINAL_COLS,
-            rows: SCRIPT_TERMINAL_ROWS,
-          }
-        : {
-            threadId: activeThreadId,
-            terminalId: targetTerminalId,
-            cwd: targetCwd,
-            ...(targetWorktreePath !== null ? { worktreePath: targetWorktreePath } : {}),
-            env: runtimeEnv,
-          };
-
-      try {
-        await api.terminal.open(openTerminalInput);
-        await api.terminal.write({
-          threadId: activeThreadId,
-          terminalId: targetTerminalId,
-          data: `${script.command}\r`,
-        });
-      } catch (error) {
-        setThreadError(
-          activeThreadId,
-          error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
-        );
-      }
-    },
-    [
-      activeProject,
-      activeThread,
-      activeThreadId,
-      activeThreadRef,
-      activateTerminalTab,
-      gitCwd,
-      setThreadError,
-      storeNewTerminal,
-      storeSetActiveTerminal,
-      setLastInvokedScriptByProjectId,
-      environmentId,
-      terminalState.activeTerminalId,
-      terminalState.runningTerminalIds,
-      terminalState.terminalIds,
-    ],
-  );
-
-  const persistProjectScripts = useCallback(
-    async (input: {
-      projectId: ProjectId;
-      projectCwd: string;
-      previousScripts: ProjectScript[];
-      nextScripts: ProjectScript[];
-      keybinding?: string | null;
-      keybindingCommand: KeybindingCommand;
-    }) => {
-      const api = readEnvironmentApi(environmentId);
-      if (!api) return;
-
-      await api.orchestration.dispatchCommand({
-        type: "project.meta.update",
-        commandId: newCommandId(),
-        projectId: input.projectId,
-        scripts: input.nextScripts,
-      });
-
-      const keybindingRule = decodeProjectScriptKeybindingRule({
-        keybinding: input.keybinding,
-        command: input.keybindingCommand,
-      });
-
-      if (isElectron && keybindingRule) {
-        const localApi = readLocalApi();
-        if (!localApi) {
-          throw new Error("Local API unavailable.");
-        }
-        await localApi.server.upsertKeybinding(keybindingRule);
-      }
-    },
-    [environmentId],
-  );
-  const saveProjectScript = useCallback(
-    async (input: NewProjectScriptInput) => {
-      if (!activeProject) return;
-      const nextId = nextProjectScriptId(
-        input.name,
-        activeProject.scripts.map((script) => script.id),
-      );
-      const nextScript: ProjectScript = {
-        id: nextId,
-        name: input.name,
-        command: input.command,
-        icon: input.icon,
-        runOnWorktreeCreate: input.runOnWorktreeCreate,
-      };
-      const nextScripts = input.runOnWorktreeCreate
-        ? [
-            ...activeProject.scripts.map((script) =>
-              script.runOnWorktreeCreate ? { ...script, runOnWorktreeCreate: false } : script,
-            ),
-            nextScript,
-          ]
-        : [...activeProject.scripts, nextScript];
-
-      await persistProjectScripts({
-        projectId: activeProject.id,
-        projectCwd: activeProject.cwd,
-        previousScripts: activeProject.scripts,
-        nextScripts,
-        keybinding: input.keybinding,
-        keybindingCommand: commandForProjectScript(nextId),
-      });
-    },
-    [activeProject, persistProjectScripts],
-  );
-  const updateProjectScript = useCallback(
-    async (scriptId: string, input: NewProjectScriptInput) => {
-      if (!activeProject) return;
-      const existingScript = activeProject.scripts.find((script) => script.id === scriptId);
-      if (!existingScript) {
-        throw new Error("Script not found.");
-      }
-
-      const updatedScript: ProjectScript = {
-        ...existingScript,
-        name: input.name,
-        command: input.command,
-        icon: input.icon,
-        runOnWorktreeCreate: input.runOnWorktreeCreate,
-      };
-      const nextScripts = activeProject.scripts.map((script) =>
-        script.id === scriptId
-          ? updatedScript
-          : input.runOnWorktreeCreate
-            ? { ...script, runOnWorktreeCreate: false }
-            : script,
-      );
-
-      await persistProjectScripts({
-        projectId: activeProject.id,
-        projectCwd: activeProject.cwd,
-        previousScripts: activeProject.scripts,
-        nextScripts,
-        keybinding: input.keybinding,
-        keybindingCommand: commandForProjectScript(scriptId),
-      });
-    },
-    [activeProject, persistProjectScripts],
-  );
-  const deleteProjectScript = useCallback(
-    async (scriptId: string) => {
-      if (!activeProject) return;
-      const nextScripts = activeProject.scripts.filter((script) => script.id !== scriptId);
-
-      const deletedName = activeProject.scripts.find((s) => s.id === scriptId)?.name;
-
-      try {
-        await persistProjectScripts({
-          projectId: activeProject.id,
-          projectCwd: activeProject.cwd,
-          previousScripts: activeProject.scripts,
-          nextScripts,
-          keybinding: null,
-          keybindingCommand: commandForProjectScript(scriptId),
-        });
-        toastManager.add({
-          type: "success",
-          title: `Deleted action "${deletedName ?? "Unknown"}"`,
-        });
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not delete action",
-          description: error instanceof Error ? error.message : "An unexpected error occurred.",
-        });
-      }
-    },
-    [activeProject, persistProjectScripts],
-  );
-
-  // -- Global action CRUD -------------------------------------------------
-
-  const saveGlobalScript = useCallback(async (input: NewGlobalScriptInput) => {
-    const localApi = readLocalApi();
-    if (!localApi) return;
-    const script = await localApi.server.createGlobalAction({
-      name: input.name,
-      command: input.command,
-      icon: input.icon,
-    });
-    if (input.keybinding) {
-      const rule = decodeProjectScriptKeybindingRule({
-        keybinding: input.keybinding,
-        command: commandForGlobalScript(script.id),
-      });
-      if (rule) {
-        await localApi.server.upsertKeybinding(rule);
-      }
-    }
-  }, []);
-
-  const updateGlobalScript = useCallback(async (scriptId: string, input: NewGlobalScriptInput) => {
-    const localApi = readLocalApi();
-    if (!localApi) return;
-    await localApi.server.updateGlobalAction(scriptId, {
-      name: input.name,
-      command: input.command,
-      icon: input.icon,
-    });
-    if (input.keybinding) {
-      const rule = decodeProjectScriptKeybindingRule({
-        keybinding: input.keybinding,
-        command: commandForGlobalScript(scriptId),
-      });
-      if (rule) {
-        await localApi.server.upsertKeybinding(rule);
-      }
-    }
-  }, []);
-
-  const deleteGlobalScript = useCallback(async (scriptId: string) => {
-    const localApi = readLocalApi();
-    if (!localApi) return;
-    await localApi.server.deleteGlobalAction(scriptId);
-  }, []);
-
-  // -- Global action execution with placeholder resolution -----------------
-
-  const [placeholderDialogOpen, setPlaceholderDialogOpen] = useState(false);
-  const [pendingGlobalScript, setPendingGlobalScript] = useState<GlobalScript | null>(null);
-
-  const runGlobalScript = useCallback(
-    async (script: GlobalScript, altKey: boolean) => {
-      if (!activeThreadId || !activeThread) {
-        toastManager.add({
-          type: "error",
-          title: "Open a thread first",
-          description: "Global actions run in a terminal and need an active thread.",
-        });
-        return;
-      }
-
-      const placeholders = parsePlaceholders(script.command);
-
-      if (placeholders.length === 0) {
-        // No placeholders — run immediately like a project script
-        await runProjectScript({
-          id: script.id,
-          name: script.name,
-          command: script.command,
-          icon: script.icon,
-          runOnWorktreeCreate: false,
-        });
-        return;
-      }
-
-      // Check project defaults
-      const projectDefaults = activeProject?.globalScriptDefaults?.find(
-        (d) => d.scriptId === script.id,
-      );
-      const allDefaultsFilled = projectDefaults
-        ? placeholders.every((name) => (projectDefaults.defaults[name] ?? "").length > 0)
-        : false;
-
-      if (allDefaultsFilled && !altKey) {
-        // Defaults exist and user didn't hold Alt — run immediately with substitution
-        const resolved = substitutePlaceholders(script.command, projectDefaults!.defaults);
-        await runProjectScript({
-          id: script.id,
-          name: script.name,
-          command: resolved,
-          icon: script.icon,
-          runOnWorktreeCreate: false,
-        });
-        return;
-      }
-
-      // Show placeholder input dialog
-      setPendingGlobalScript(script);
-      setPlaceholderDialogOpen(true);
-    },
-    [activeProject, activeThreadId, activeThread, runProjectScript],
-  );
-
-  const handlePlaceholderRun = useCallback(
-    async (values: Record<string, string>, saveAsDefault: boolean) => {
-      if (!pendingGlobalScript) return;
-      const resolved = substitutePlaceholders(pendingGlobalScript.command, values);
-      await runProjectScript({
-        id: pendingGlobalScript.id,
-        name: pendingGlobalScript.name,
-        command: resolved,
-        icon: pendingGlobalScript.icon,
-        runOnWorktreeCreate: false,
-      });
-
-      if (saveAsDefault && activeProject) {
-        const api = readEnvironmentApi(environmentId);
-        if (api) {
-          const currentDefaults = activeProject.globalScriptDefaults ?? [];
-          const existingIndex = currentDefaults.findIndex(
-            (d) => d.scriptId === pendingGlobalScript.id,
-          );
-          const newEntry = { scriptId: pendingGlobalScript.id, defaults: values };
-          const nextDefaults =
-            existingIndex >= 0
-              ? currentDefaults.map((d, i) => (i === existingIndex ? newEntry : d))
-              : [...currentDefaults, newEntry];
-
-          await api.orchestration.dispatchCommand({
-            type: "project.meta.update",
-            commandId: newCommandId(),
-            projectId: activeProject.id,
-            globalScriptDefaults: nextDefaults,
-          });
-        }
-      }
-      setPendingGlobalScript(null);
-    },
-    [pendingGlobalScript, activeProject, environmentId, runProjectScript],
-  );
+  const {
+    deleteGlobalScript,
+    deleteProjectScript,
+    placeholderDialog,
+    runGlobalScript,
+    runProjectScript,
+    saveGlobalScript,
+    saveProjectScript,
+    updateGlobalScript,
+    updateProjectScript,
+  } = useChatViewScripts({
+    activateTerminalTab,
+    activeProject,
+    activeThread,
+    activeThreadId,
+    activeThreadRef,
+    environmentId,
+    gitCwd,
+    setLastInvokedScriptByProjectId,
+    setTerminalLaunchContext,
+    setThreadError,
+    storeNewTerminal,
+    storeSetActiveTerminal,
+    terminalState,
+  });
 
   const handleRuntimeModeChange = useCallback(
     (mode: RuntimeMode) => {
@@ -4358,20 +3812,13 @@ export default function ChatView(props: ChatViewProps) {
         <ExpandedImageDialog preview={expandedImage} onClose={closeExpandedImage} />
       )}
 
-      {pendingGlobalScript && (
+      {placeholderDialog.script && (
         <PlaceholderInputDialog
-          open={placeholderDialogOpen}
-          onOpenChange={(open) => {
-            setPlaceholderDialogOpen(open);
-            if (!open) setPendingGlobalScript(null);
-          }}
-          script={pendingGlobalScript}
-          defaults={
-            activeProject?.globalScriptDefaults?.find(
-              (d) => d.scriptId === pendingGlobalScript.id,
-            ) ?? null
-          }
-          onRun={handlePlaceholderRun}
+          open={placeholderDialog.open}
+          onOpenChange={placeholderDialog.onOpenChange}
+          script={placeholderDialog.script}
+          defaults={placeholderDialog.defaults}
+          onRun={placeholderDialog.onRun}
         />
       )}
     </div>

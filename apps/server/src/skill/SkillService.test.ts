@@ -725,6 +725,52 @@ it.layer(NodeServices.layer)("SkillService", (it) => {
       }),
     );
 
+    it.effect("accept-external only resolves the selected skill on the selected provider", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "skill-svc-" });
+
+        const svc = yield* makeTestService(cwd);
+        yield* svc.create(GRILL_ME);
+        yield* svc.create(CODE_REVIEW);
+
+        const grillMeClaudePath = path.join(cwd, ".claude", "skills", "grill-me", "SKILL.md");
+        const codeReviewClaudePath = path.join(cwd, ".claude", "skills", "code-review", "SKILL.md");
+
+        yield* fs.writeFileString(
+          grillMeClaudePath,
+          `---\nname: grill-me\ndescription: External grill-me description\n---\n\nExternally edited grill-me body.\n`,
+        );
+        yield* fs.writeFileString(
+          codeReviewClaudePath,
+          `---\nname: code-review\ndescription: External code-review description\n---\n\nExternally edited code-review body.\n`,
+        );
+
+        yield* svc.resolveConflict({
+          name: "grill-me",
+          provider: "claudeAgent",
+          resolution: "accept-external",
+        });
+
+        const skills = yield* svc.getAll;
+        const grillMe = skills.find((skill) => skill.name === "grill-me");
+        const codeReview = skills.find((skill) => skill.name === "code-review");
+        const grillMeClaudeSync = grillMe?.syncStatus.find((s) => s.provider === "claudeAgent");
+        const codeReviewClaudeSync = codeReview?.syncStatus.find(
+          (s) => s.provider === "claudeAgent",
+        );
+
+        expect(grillMe?.body).toBe("Externally edited grill-me body.");
+        expect(grillMeClaudeSync?.state).toBe("synced");
+        expect(codeReview?.body).toBe(CODE_REVIEW.body);
+        expect(codeReviewClaudeSync?.state).toBe("conflict");
+        expect(yield* fs.readFileString(codeReviewClaudePath)).toContain(
+          "Externally edited code-review body.",
+        );
+      }),
+    );
+
     it.effect("fails with SkillServiceError when skill does not exist", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;

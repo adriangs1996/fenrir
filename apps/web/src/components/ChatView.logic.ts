@@ -1,3 +1,4 @@
+import { Schema } from "effect";
 import {
   type EnvironmentId,
   ProjectId,
@@ -7,16 +8,20 @@ import {
   type ThreadId,
   type TurnId,
 } from "@fenrir/contracts";
-import { type ChatMessage, type SessionPhase, type Thread, type ThreadSession } from "../types";
-import { randomUUID } from "~/lib/utils";
-import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
-import { Schema } from "effect";
-import { selectThreadByRef, useStore } from "../store";
 import {
   filterTerminalContextsWithText,
   stripInlineTerminalContextPlaceholders,
   type TerminalContextDraft,
 } from "~/modules/terminal";
+import {
+  DEFAULT_REVIEW_ROUTE_MODE,
+  DEFAULT_REVIEW_ROUTE_SCOPE,
+  type ReviewRouteState,
+} from "~/modules/review";
+import { randomUUID } from "~/lib/utils";
+import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
+import { selectThreadByRef, useStore } from "../store";
+import { type ChatMessage, type SessionPhase, type Thread, type ThreadSession } from "../types";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "fenrir:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
@@ -218,6 +223,25 @@ export function createSearchStateKey(search: object): string {
   );
 }
 
+export function deriveActiveReviewRouteState(input: {
+  activeChatTab: "thread" | "review" | "terminal" | "editor";
+  reviewRouteState: ReviewRouteState | null;
+}): ReviewRouteState | null {
+  if (input.reviewRouteState !== null) {
+    return input.reviewRouteState;
+  }
+
+  if (input.activeChatTab !== "review") {
+    return null;
+  }
+
+  return {
+    tab: "review",
+    reviewMode: DEFAULT_REVIEW_ROUTE_MODE,
+    reviewScope: DEFAULT_REVIEW_ROUTE_SCOPE,
+  };
+}
+
 export function shouldForceActiveReviewTab(input: {
   activeChatTab: "thread" | "review" | "terminal" | "editor";
   hasReviewRouteState: boolean;
@@ -226,6 +250,59 @@ export function shouldForceActiveReviewTab(input: {
   return (
     input.hasReviewRouteState && input.activeChatTab !== "review" && !input.pendingReviewRouteExit
   );
+}
+
+interface TerminalCloseApi {
+  clear(input: { threadId: ThreadId; terminalId: string }): Promise<unknown>;
+  close?(input: {
+    threadId: ThreadId;
+    terminalId: string;
+    deleteHistory: boolean;
+  }): Promise<unknown>;
+  write(input: { threadId: ThreadId; terminalId: string; data: string }): Promise<unknown>;
+}
+
+export function closeTerminalWithFallback(input: {
+  isFinalTerminal: boolean;
+  terminalApi: TerminalCloseApi;
+  terminalId: string;
+  threadId: ThreadId;
+}): void {
+  const writeExitCommand = (): Promise<unknown> =>
+    input.terminalApi
+      .write({
+        threadId: input.threadId,
+        terminalId: input.terminalId,
+        data: "exit\n",
+      })
+      .catch(() => undefined);
+
+  if (typeof input.terminalApi.close !== "function") {
+    void writeExitCommand();
+    return;
+  }
+
+  const closeTerminalPromise = input.isFinalTerminal
+    ? input.terminalApi
+        .clear({
+          threadId: input.threadId,
+          terminalId: input.terminalId,
+        })
+        .catch(() => undefined)
+        .then(() =>
+          input.terminalApi.close?.({
+            threadId: input.threadId,
+            terminalId: input.terminalId,
+            deleteHistory: true,
+          }),
+        )
+    : input.terminalApi.close({
+        threadId: input.threadId,
+        terminalId: input.terminalId,
+        deleteHistory: true,
+      });
+
+  void closeTerminalPromise.catch(() => writeExitCommand());
 }
 
 export function buildExpiredTerminalContextToastCopy(

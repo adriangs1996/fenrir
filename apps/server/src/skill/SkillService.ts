@@ -683,12 +683,26 @@ export const makeSkillService = Effect.gen(function* () {
 
   const syncFenrirStateToProviders = (options?: {
     readonly providers?: readonly ProviderSkillAdapter["provider"][];
+    readonly skillNames?: readonly string[];
   }) =>
     Effect.gen(function* () {
       const ctx = yield* Ref.get(projectCtxRef);
-      yield* refreshAllSkillIndexes(ctx);
+      const skillNameFilter = options?.skillNames ? new Set(options.skillNames) : null;
+
+      if (skillNameFilter === null) {
+        yield* refreshAllSkillIndexes(ctx);
+      } else {
+        yield* Effect.forEach(skillNameFilter, (skillName) => refreshSkillIndex(ctx, skillName), {
+          concurrency: "unbounded",
+          discard: true,
+        });
+      }
 
       const allSkills = yield* loadFromDisk;
+      const targetSkills =
+        skillNameFilter === null
+          ? allSkills
+          : allSkills.filter((skill) => skillNameFilter.has(skill.name));
       const providerFilter = options?.providers ? new Set(options.providers) : null;
       const targetAdapters = ctx.adapters.filter((adapter) =>
         providerFilter === null ? true : providerFilter.has(adapter.provider),
@@ -698,10 +712,13 @@ export const makeSkillService = Effect.gen(function* () {
         const existingProviderFolders = yield* adapter
           .readProviderSkillFolders()
           .pipe(Effect.catch(() => Effect.succeed([] as readonly ProviderSkillFolder[])));
-        const desiredSkillNames = new Set(allSkills.map((skill) => skill.name));
+        const desiredSkillNames = new Set(targetSkills.map((skill) => skill.name));
 
         for (const folder of existingProviderFolders) {
           const skillName = String(folder.entry.frontmatter.name ?? folder.skillName);
+          if (skillNameFilter !== null && !skillNameFilter.has(skillName)) {
+            continue;
+          }
           if (desiredSkillNames.has(skillName)) continue;
           yield* adapter.deleteSkillFromProvider(skillName).pipe(
             Effect.tapError((e) =>
@@ -713,7 +730,7 @@ export const makeSkillService = Effect.gen(function* () {
           );
         }
 
-        for (const skill of allSkills) {
+        for (const skill of targetSkills) {
           const { projection } = yield* buildProjectedManifest(ctx, adapter, skill);
           yield* adapter.writeSkillProjection(projection).pipe(
             Effect.tapError((e) =>
@@ -940,7 +957,10 @@ export const makeSkillService = Effect.gen(function* () {
 
           yield* importProviderFilesIntoFenrirState(ctx, adapter, providerFolder, merged);
 
-          yield* syncFenrirStateToProviders();
+          yield* syncFenrirStateToProviders({
+            providers: [adapter.provider],
+            skillNames: [input.name],
+          });
         }
 
         yield* Cache.invalidate(skillsCache, cacheKey);
