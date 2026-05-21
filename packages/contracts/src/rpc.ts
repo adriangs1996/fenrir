@@ -160,6 +160,48 @@ import {
   SkillRpcError,
   UpdateSkillInput,
 } from "./skill";
+import {
+  GitHubReviewSnapshot,
+  ReviewAnalysisArtifact,
+  ReviewActionBlockedError,
+  ReviewApplyRawMutationInput,
+  ReviewApplyRawMutationResult,
+  ReviewCreateLocalAnnotationReplyInput,
+  ReviewCreateLocalAnnotationThreadInput,
+  ReviewDeleteLocalAnnotationReplyInput,
+  ReviewDeleteLocalAnnotationThreadInput,
+  ReviewDeleteOverviewNoteInput,
+  ReviewDeleteGitHubDraftInput,
+  ReviewGenerateAnalysisInput,
+  ReviewGetChunkPayloadInput,
+  ReviewChunkPayload,
+  ReviewGetDiffSnapshotInput,
+  ReviewGetFilePatchInput,
+  ReviewGetGitHubSnapshotInput,
+  ReviewGetOrCreateSessionInput,
+  ReviewGetSessionInput,
+  ReviewDiffFilePatch,
+  ReviewDiffSnapshot,
+  ReviewLocalAnnotationReply,
+  ReviewLocalAnnotationThread,
+  ReviewMutationConflictError,
+  ReviewOverviewNote,
+  ReviewRefreshProviderDataInput,
+  ReviewReplyToGitHubThreadInput,
+  ReviewRpcError,
+  ReviewSessionSnapshot,
+  ReviewSessionSummary,
+  ReviewSetLocalThreadResolvedInput,
+  ReviewSetModeInput,
+  ReviewSetProgressInput,
+  ReviewSetScopeInput,
+  ReviewStreamEvent,
+  ReviewSubmitGitHubDraftInput,
+  ReviewUpdateLocalAnnotationReplyInput,
+  ReviewUpdateLocalAnnotationThreadInput,
+  ReviewUpsertGitHubDraftInput,
+  ReviewUpsertOverviewNoteInput,
+} from "./review";
 export const WS_METHODS = {
   // Project registry methods
   projectsList: "projects.list",
@@ -278,6 +320,35 @@ export const WS_METHODS = {
   serverDeleteSkill: "serverDeleteSkill",
   serverResolveSkillConflict: "serverResolveSkillConflict",
   serverSetActiveSkillProject: "serverSetActiveSkillProject",
+
+  // Review
+  reviewGetOrCreateSession: "review.getOrCreateSession",
+  reviewGetSessionSummary: "review.getSessionSummary",
+  reviewGetSessionSnapshot: "review.getSessionSnapshot",
+  reviewSetMode: "review.setMode",
+  reviewSetScope: "review.setScope",
+  reviewSetProgress: "review.setProgress",
+  reviewCreateLocalThread: "review.createLocalThread",
+  reviewUpdateLocalThread: "review.updateLocalThread",
+  reviewDeleteLocalThread: "review.deleteLocalThread",
+  reviewSetLocalThreadResolved: "review.setLocalThreadResolved",
+  reviewCreateLocalReply: "review.createLocalReply",
+  reviewUpdateLocalReply: "review.updateLocalReply",
+  reviewDeleteLocalReply: "review.deleteLocalReply",
+  reviewUpsertOverviewNote: "review.upsertOverviewNote",
+  reviewDeleteOverviewNote: "review.deleteOverviewNote",
+  reviewGetDiffSnapshot: "review.getDiffSnapshot",
+  reviewGetFilePatch: "review.getFilePatch",
+  reviewGetChunkPayload: "review.getChunkPayload",
+  reviewGetGitHubSnapshot: "review.getGitHubSnapshot",
+  reviewUpsertGitHubDraft: "review.upsertGitHubDraft",
+  reviewApplyRawMutation: "review.applyRawMutation",
+  reviewDeleteGitHubDraft: "review.deleteGitHubDraft",
+  reviewReplyToGitHubThread: "review.replyToGitHubThread",
+  reviewSubmitGitHubDraft: "review.submitGitHubDraft",
+  reviewRefreshProviderData: "review.refreshProviderData",
+  reviewGenerateAnalysis: "review.generateAnalysis",
+  subscribeReviewEvents: "subscribeReviewEvents",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -910,6 +981,171 @@ export const WsServerSetActiveSkillProjectRpc = Rpc.make(WS_METHODS.serverSetAct
   error: SkillRpcError,
 });
 
+// ─── Review RPCs ───────────────────────────────────────────────────────────
+
+export const WsReviewGetOrCreateSessionRpc = Rpc.make(WS_METHODS.reviewGetOrCreateSession, {
+  payload: ReviewGetOrCreateSessionInput,
+  success: ReviewSessionSummary,
+  error: ReviewRpcError,
+});
+
+export const WsReviewGetSessionSummaryRpc = Rpc.make(WS_METHODS.reviewGetSessionSummary, {
+  payload: ReviewGetSessionInput,
+  success: ReviewSessionSummary,
+  error: ReviewRpcError,
+});
+
+export const WsReviewGetSessionSnapshotRpc = Rpc.make(WS_METHODS.reviewGetSessionSnapshot, {
+  payload: ReviewGetSessionInput,
+  success: ReviewSessionSnapshot,
+  error: ReviewRpcError,
+});
+
+export const WsReviewSetModeRpc = Rpc.make(WS_METHODS.reviewSetMode, {
+  payload: ReviewSetModeInput,
+  success: ReviewSessionSummary,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewSetScopeRpc = Rpc.make(WS_METHODS.reviewSetScope, {
+  payload: ReviewSetScopeInput,
+  success: ReviewSessionSummary,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewSetProgressRpc = Rpc.make(WS_METHODS.reviewSetProgress, {
+  payload: ReviewSetProgressInput,
+  success: ReviewSessionSummary,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewCreateLocalThreadRpc = Rpc.make(WS_METHODS.reviewCreateLocalThread, {
+  payload: ReviewCreateLocalAnnotationThreadInput,
+  success: ReviewLocalAnnotationThread,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewUpdateLocalThreadRpc = Rpc.make(WS_METHODS.reviewUpdateLocalThread, {
+  payload: ReviewUpdateLocalAnnotationThreadInput,
+  success: ReviewLocalAnnotationThread,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewDeleteLocalThreadRpc = Rpc.make(WS_METHODS.reviewDeleteLocalThread, {
+  payload: ReviewDeleteLocalAnnotationThreadInput,
+  success: Schema.Void,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewSetLocalThreadResolvedRpc = Rpc.make(WS_METHODS.reviewSetLocalThreadResolved, {
+  payload: ReviewSetLocalThreadResolvedInput,
+  success: ReviewLocalAnnotationThread,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewCreateLocalReplyRpc = Rpc.make(WS_METHODS.reviewCreateLocalReply, {
+  payload: ReviewCreateLocalAnnotationReplyInput,
+  success: ReviewLocalAnnotationReply,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewUpdateLocalReplyRpc = Rpc.make(WS_METHODS.reviewUpdateLocalReply, {
+  payload: ReviewUpdateLocalAnnotationReplyInput,
+  success: ReviewLocalAnnotationReply,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewDeleteLocalReplyRpc = Rpc.make(WS_METHODS.reviewDeleteLocalReply, {
+  payload: ReviewDeleteLocalAnnotationReplyInput,
+  success: Schema.Void,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewUpsertOverviewNoteRpc = Rpc.make(WS_METHODS.reviewUpsertOverviewNote, {
+  payload: ReviewUpsertOverviewNoteInput,
+  success: ReviewOverviewNote,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewDeleteOverviewNoteRpc = Rpc.make(WS_METHODS.reviewDeleteOverviewNote, {
+  payload: ReviewDeleteOverviewNoteInput,
+  success: Schema.Void,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewGetDiffSnapshotRpc = Rpc.make(WS_METHODS.reviewGetDiffSnapshot, {
+  payload: ReviewGetDiffSnapshotInput,
+  success: ReviewDiffSnapshot,
+  error: ReviewRpcError,
+});
+
+export const WsReviewGetFilePatchRpc = Rpc.make(WS_METHODS.reviewGetFilePatch, {
+  payload: ReviewGetFilePatchInput,
+  success: Schema.NullOr(ReviewDiffFilePatch),
+  error: ReviewRpcError,
+});
+
+export const WsReviewGetChunkPayloadRpc = Rpc.make(WS_METHODS.reviewGetChunkPayload, {
+  payload: ReviewGetChunkPayloadInput,
+  success: Schema.NullOr(ReviewChunkPayload),
+  error: ReviewRpcError,
+});
+
+export const WsReviewGetGitHubSnapshotRpc = Rpc.make(WS_METHODS.reviewGetGitHubSnapshot, {
+  payload: ReviewGetGitHubSnapshotInput,
+  success: Schema.NullOr(GitHubReviewSnapshot),
+  error: ReviewRpcError,
+});
+
+export const WsReviewUpsertGitHubDraftRpc = Rpc.make(WS_METHODS.reviewUpsertGitHubDraft, {
+  payload: ReviewUpsertGitHubDraftInput,
+  success: GitHubReviewSnapshot,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewApplyRawMutationRpc = Rpc.make(WS_METHODS.reviewApplyRawMutation, {
+  payload: ReviewApplyRawMutationInput,
+  success: ReviewApplyRawMutationResult,
+  error: Schema.Union([ReviewRpcError, ReviewMutationConflictError]),
+});
+
+export const WsReviewDeleteGitHubDraftRpc = Rpc.make(WS_METHODS.reviewDeleteGitHubDraft, {
+  payload: ReviewDeleteGitHubDraftInput,
+  success: GitHubReviewSnapshot,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewReplyToGitHubThreadRpc = Rpc.make(WS_METHODS.reviewReplyToGitHubThread, {
+  payload: ReviewReplyToGitHubThreadInput,
+  success: GitHubReviewSnapshot,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewSubmitGitHubDraftRpc = Rpc.make(WS_METHODS.reviewSubmitGitHubDraft, {
+  payload: ReviewSubmitGitHubDraftInput,
+  success: GitHubReviewSnapshot,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsReviewRefreshProviderDataRpc = Rpc.make(WS_METHODS.reviewRefreshProviderData, {
+  payload: ReviewRefreshProviderDataInput,
+  success: ReviewSessionSnapshot,
+  error: ReviewRpcError,
+});
+
+export const WsReviewGenerateAnalysisRpc = Rpc.make(WS_METHODS.reviewGenerateAnalysis, {
+  payload: ReviewGenerateAnalysisInput,
+  success: ReviewAnalysisArtifact,
+  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
+});
+
+export const WsSubscribeReviewEventsRpc = Rpc.make(WS_METHODS.subscribeReviewEvents, {
+  payload: ReviewGetSessionInput,
+  success: ReviewStreamEvent,
+  error: ReviewRpcError,
+  stream: true,
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -1009,4 +1245,25 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerDeleteSkillRpc,
   WsServerResolveSkillConflictRpc,
   WsServerSetActiveSkillProjectRpc,
+  WsReviewGetOrCreateSessionRpc,
+  WsReviewGetSessionSummaryRpc,
+  WsReviewGetSessionSnapshotRpc,
+  WsReviewSetModeRpc,
+  WsReviewSetScopeRpc,
+  WsReviewSetProgressRpc,
+  WsReviewCreateLocalThreadRpc,
+  WsReviewCreateLocalReplyRpc,
+  WsReviewUpsertOverviewNoteRpc,
+  WsReviewGetDiffSnapshotRpc,
+  WsReviewGetFilePatchRpc,
+  WsReviewGetChunkPayloadRpc,
+  WsReviewGetGitHubSnapshotRpc,
+  WsReviewUpsertGitHubDraftRpc,
+  WsReviewApplyRawMutationRpc,
+  WsReviewDeleteGitHubDraftRpc,
+  WsReviewReplyToGitHubThreadRpc,
+  WsReviewSubmitGitHubDraftRpc,
+  WsReviewRefreshProviderDataRpc,
+  WsReviewGenerateAnalysisRpc,
+  WsSubscribeReviewEventsRpc,
 );

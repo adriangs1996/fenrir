@@ -27,6 +27,19 @@ export const THREAD_KEYBINDING_COMMANDS = [
 ] as const;
 export type ThreadKeybindingCommand = (typeof THREAD_KEYBINDING_COMMANDS)[number];
 
+export const REVIEW_KEYBINDING_COMMANDS = [
+  "review.previousItem",
+  "review.nextItem",
+  "review.openChange",
+  "review.askAgent",
+  "review.markReviewed",
+  "review.markNeedsFollowUp",
+  "review.toggleMode",
+  "review.refreshAnalysis",
+  "review.openSubmitReviewTray",
+] as const;
+export type ReviewKeybindingCommand = (typeof REVIEW_KEYBINDING_COMMANDS)[number];
+
 const STATIC_KEYBINDING_COMMANDS = [
   "commandPalette.toggle",
   "terminal.toggle",
@@ -39,7 +52,6 @@ const STATIC_KEYBINDING_COMMANDS = [
   "editor.openFavorite",
   "editor.sendSelection",
   "editor.toggleChatTab",
-  ...THREAD_KEYBINDING_COMMANDS,
 ] as const;
 
 export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
@@ -62,6 +74,8 @@ export const GLOBAL_SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
 
 export const KeybindingCommand = Schema.Union([
   Schema.Literals(STATIC_KEYBINDING_COMMANDS),
+  Schema.Literals(THREAD_KEYBINDING_COMMANDS),
+  Schema.Literals(REVIEW_KEYBINDING_COMMANDS),
   SCRIPT_RUN_COMMAND_PATTERN,
   GLOBAL_SCRIPT_RUN_COMMAND_PATTERN,
 ]);

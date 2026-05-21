@@ -6,11 +6,13 @@ import { useComposerDraftStore, DraftId } from "../composerDraftStore";
 import { SidebarInset } from "../components/ui/sidebar";
 import { createThreadSelectorAcrossEnvironments } from "../storeSelectors";
 import { useStore } from "../store";
+import { parseThreadRouteSearch } from "../threadRouteSearch";
 import { buildThreadRouteParams } from "../threadRoutes";
 
 function DraftChatThreadRouteView() {
   const navigate = useNavigate();
   const { draftId: rawDraftId } = Route.useParams();
+  const routeSearch = Route.useSearch();
   const draftId = DraftId.makeUnsafe(rawDraftId);
   const draftSession = useComposerDraftStore((store) => store.getDraftSession(draftId));
   const serverThread = useStore(
@@ -42,9 +44,10 @@ function DraftChatThreadRouteView() {
     void navigate({
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(canonicalThreadRef),
+      search: routeSearch,
       replace: true,
     });
-  }, [canonicalThreadRef, navigate]);
+  }, [canonicalThreadRef, navigate, routeSearch]);
 
   useEffect(() => {
     if (draftSession || canonicalThreadRef) {
@@ -82,5 +85,6 @@ function DraftChatThreadRouteView() {
 }
 
 export const Route = createFileRoute("/_chat/draft/$draftId")({
+  validateSearch: (search) => parseThreadRouteSearch(search),
   component: DraftChatThreadRouteView,
 });

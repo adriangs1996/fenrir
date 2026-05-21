@@ -42,6 +42,9 @@ import Migration0026 from "./Migrations/026_CleanupInvalidProjectionPendingAppro
 import Migration0027 from "./Migrations/027_PlanRunnerPersistence.ts";
 import Migration0028 from "./Migrations/028_ManagedProcessDefinitions.ts";
 import Migration0029 from "./Migrations/029_ProjectionThreadSessionProviderInstances.ts";
+import Migration0030 from "./Migrations/030_ReviewSharedPersistence.ts";
+import Migration0031 from "./Migrations/031_ReviewSessionPullRequestOverride.ts";
+import Migration0032 from "./Migrations/032_ReviewSessionModeScope.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -83,6 +86,9 @@ export const migrationEntries = [
   [27, "PlanRunnerPersistence", Migration0027],
   [28, "ManagedProcessDefinitions", Migration0028],
   [29, "ProjectionThreadSessionProviderInstances", Migration0029],
+  [30, "ReviewSharedPersistence", Migration0030],
+  [31, "ReviewSessionPullRequestOverride", Migration0031],
+  [32, "ReviewSessionModeScope", Migration0032],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

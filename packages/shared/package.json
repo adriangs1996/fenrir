@@ -68,6 +68,10 @@
       "types": "./src/providerActivityLog.ts",
       "import": "./src/providerActivityLog.ts"
     },
+    "./review": {
+      "types": "./src/review.ts",
+      "import": "./src/review.ts"
+    },
     "./commandFormat": {
       "types": "./src/commandFormat.ts",
       "import": "./src/commandFormat.ts"

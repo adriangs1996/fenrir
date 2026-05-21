@@ -5,6 +5,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   type EnvironmentId,
   type FilesystemBrowseResult,
+  type KeybindingCommand,
   type ProjectId,
 } from "@fenrir/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,6 +18,10 @@ import {
   FolderIcon,
   FolderPlusIcon,
   MessageSquareIcon,
+  MoveVerticalIcon,
+  PanelBottomOpenIcon,
+  RefreshCcwIcon,
+  SearchCheckIcon,
   SettingsIcon,
   SquarePenIcon,
 } from "lucide-react";
@@ -75,6 +80,12 @@ import {
   selectThreadTerminalState,
   useTerminalStateStore,
 } from "~/modules/terminal";
+import { useEditorStore } from "~/modules/neovim-editor";
+import {
+  readReviewCommandRegistration,
+  type ReviewCommandId,
+  useReviewCommandStore,
+} from "~/modules/review/commandStore";
 import {
   ADDON_ICON_CLASS,
   buildBrowseGroups,
@@ -166,6 +177,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         context: {
           terminalFocus: isTerminalFocused(),
           terminalOpen,
+          reviewFocus: useEditorStore.getState().activeChatTab === "review",
         },
       });
       if (command !== "commandPalette.toggle") {
@@ -229,6 +241,8 @@ function OpenCommandPaletteDialog() {
   const primaryEnvironmentLabel = readPrimaryEnvironmentDescriptor()?.label ?? null;
   const savedEnvironmentRegistry = useSavedEnvironmentRegistryStore((state) => state.byId);
   const savedEnvironmentRuntimeById = useSavedEnvironmentRuntimeStore((state) => state.byId);
+  const reviewCommandRegistration = useReviewCommandStore((store) => store.registration);
+  const activeChatTab = useEditorStore((store) => store.activeChatTab);
 
   const addProjectEnvironmentOptions = useMemo(() => {
     const options: AddProjectEnvironmentOption[] = [];
@@ -801,6 +815,91 @@ function OpenCommandPaletteDialog() {
     });
   }
 
+  if (activeChatTab === "review" && reviewCommandRegistration) {
+    const reviewActions: ReadonlyArray<{
+      command: ReviewCommandId;
+      title: string;
+      searchTerms: readonly string[];
+      icon: ReactNode;
+    }> = [
+      {
+        command: "review.nextItem",
+        title: "Next review item",
+        searchTerms: ["review", "next", "item", "chunk", "file"],
+        icon: <MoveVerticalIcon className={ITEM_ICON_CLASS} />,
+      },
+      {
+        command: "review.previousItem",
+        title: "Previous review item",
+        searchTerms: ["review", "previous", "item", "chunk", "file"],
+        icon: <MoveVerticalIcon className={ITEM_ICON_CLASS} />,
+      },
+      {
+        command: "review.openChange",
+        title: "Open change",
+        searchTerms: ["review", "open", "change", "editor"],
+        icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+      },
+      {
+        command: "review.askAgent",
+        title: "Ask agent",
+        searchTerms: ["review", "agent", "context", "question"],
+        icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+      },
+      {
+        command: "review.markReviewed",
+        title: "Mark reviewed",
+        searchTerms: ["review", "mark", "reviewed", "done"],
+        icon: <SearchCheckIcon className={ITEM_ICON_CLASS} />,
+      },
+      {
+        command: "review.markNeedsFollowUp",
+        title: "Mark needs follow-up",
+        searchTerms: ["review", "follow up", "needs", "attention"],
+        icon: <SearchCheckIcon className={ITEM_ICON_CLASS} />,
+      },
+      {
+        command: "review.toggleMode",
+        title: "Toggle Raw / Review",
+        searchTerms: ["review", "raw", "mode", "toggle"],
+        icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+      },
+      {
+        command: "review.refreshAnalysis",
+        title: "Refresh analysis",
+        searchTerms: ["review", "analysis", "refresh", "rerun"],
+        icon: <RefreshCcwIcon className={ITEM_ICON_CLASS} />,
+      },
+      {
+        command: "review.openSubmitReviewTray",
+        title: "Open submit-review tray",
+        searchTerms: ["review", "submit", "tray", "github"],
+        icon: <PanelBottomOpenIcon className={ITEM_ICON_CLASS} />,
+      },
+    ];
+
+    for (const action of reviewActions) {
+      if (!reviewCommandRegistration.availableCommands.has(action.command)) {
+        continue;
+      }
+      actionItems.push({
+        kind: "action",
+        value: `action:${action.command}`,
+        searchTerms: [...action.searchTerms],
+        title: action.title,
+        icon: action.icon,
+        shortcutCommand: action.command as KeybindingCommand,
+        run: async () => {
+          const registration = readReviewCommandRegistration();
+          if (!registration || !registration.availableCommands.has(action.command)) {
+            return;
+          }
+          await registration.runCommand(action.command);
+        },
+      });
+    }
+  }
+
   actionItems.push({
     kind: "action",
     value: "action:settings",
@@ -1046,6 +1145,9 @@ function OpenCommandPaletteDialog() {
             highlightedItemValue={highlightedItemValue}
             isActionsOnly={isActionsOnly}
             keybindings={keybindings}
+            shortcutContext={{
+              reviewFocus: activeChatTab === "review" && reviewCommandRegistration !== null,
+            }}
             onExecuteItem={executeItem}
             {...(relativePathNeedsActiveProject
               ? { emptyStateMessage: "Relative paths require an active project." }

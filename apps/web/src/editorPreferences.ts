@@ -5,6 +5,10 @@ import { useEditorStore } from "~/modules/neovim-editor";
 
 const LAST_EDITOR_KEY = "fenrir:last-editor";
 
+interface PreferredEditorOptions {
+  readonly allowEmbedded?: boolean;
+}
+
 export function usePreferredEditor(availableEditors: ReadonlyArray<EditorId>) {
   const [lastEditor, setLastEditor] = useLocalStorage(LAST_EDITOR_KEY, null, EditorId);
 
@@ -18,18 +22,27 @@ export function usePreferredEditor(availableEditors: ReadonlyArray<EditorId>) {
 
 export function resolveAndPersistPreferredEditor(
   availableEditors: readonly EditorId[],
+  options: PreferredEditorOptions = {},
 ): EditorId | null {
-  const availableEditorIds = new Set(availableEditors);
+  const allowEmbedded = options.allowEmbedded ?? true;
+  const filteredEditors = allowEmbedded
+    ? availableEditors
+    : availableEditors.filter((editorId) => editorId !== "fenrir-embedded");
+  const availableEditorIds = new Set(filteredEditors);
   const stored = getLocalStorageItem(LAST_EDITOR_KEY, EditorId);
   if (stored && availableEditorIds.has(stored)) return stored;
-  const editor = EDITORS.find((editor) => availableEditorIds.has(editor.id))?.id ?? null;
+  const editor = EDITORS.find((entry) => availableEditorIds.has(entry.id))?.id ?? null;
   if (editor) setLocalStorageItem(LAST_EDITOR_KEY, editor, EditorId);
   return editor ?? null;
 }
 
-export async function openInPreferredEditor(api: LocalApi, targetPath: string): Promise<EditorId> {
+export async function openInPreferredEditor(
+  api: LocalApi,
+  targetPath: string,
+  options: PreferredEditorOptions = {},
+): Promise<EditorId> {
   const { availableEditors } = await api.server.getConfig();
-  const editor = resolveAndPersistPreferredEditor(availableEditors);
+  const editor = resolveAndPersistPreferredEditor(availableEditors, options);
   if (!editor) throw new Error("No available editors found.");
 
   if (editor === "fenrir-embedded") {

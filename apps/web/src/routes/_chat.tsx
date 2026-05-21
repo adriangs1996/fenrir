@@ -13,6 +13,7 @@ import {
 } from "~/modules/terminal";
 import { usePlanRunnerLifecycle } from "~/modules/plan-runner";
 import { useEditorStore } from "~/modules/neovim-editor";
+import { readReviewCommandRegistration } from "~/modules/review/commandStore";
 import { resolveShortcutCommand } from "../keybindings";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
@@ -53,6 +54,7 @@ function ChatRouteGlobalShortcuts() {
         context: {
           terminalFocus: isTerminalFocused(),
           terminalOpen,
+          reviewFocus: useEditorStore.getState().activeChatTab === "review",
         },
       });
 
@@ -91,6 +93,16 @@ function ChatRouteGlobalShortcuts() {
         event.stopPropagation();
         void window.desktopBridge?.editor.invokeBridge("send_selection");
         return;
+      }
+
+      if (String(command).startsWith("review.")) {
+        const registration = readReviewCommandRegistration();
+        if (!registration || !registration.availableCommands.has(command as never)) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        void registration.runCommand(command as never);
       }
     };
 

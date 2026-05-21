@@ -4,7 +4,6 @@ import { useEffect, useMemo } from "react";
 import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
-import { parseDiffRouteSearch } from "../diffRouteSearch";
 import {
   selectEnvironmentState,
   selectThreadDetailsHydratedByRef,
@@ -12,6 +11,7 @@ import {
   useStore,
 } from "../store";
 import { createThreadSelectorByRef } from "../storeSelectors";
+import { parseThreadRouteSearch } from "../threadRouteSearch";
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { hydrateEnvironmentThreadSnapshot } from "~/environments/runtime";
@@ -136,6 +136,6 @@ function ChatThreadRouteView() {
 }
 
 export const Route = createFileRoute("/_chat/$environmentId/$threadId")({
-  validateSearch: (search) => parseDiffRouteSearch(search),
+  validateSearch: (search) => parseThreadRouteSearch(search),
   component: ChatThreadRouteView,
 });

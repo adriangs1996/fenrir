@@ -60,6 +60,36 @@ interface GitRunStackedActionOptions {
   readonly onProgress?: (event: GitActionProgressEvent) => void;
 }
 
+const REVIEW_WS_METHODS = {
+  getOrCreateSession: "review.getOrCreateSession",
+  getSessionSummary: "review.getSessionSummary",
+  getSessionSnapshot: "review.getSessionSnapshot",
+  setMode: "review.setMode",
+  setScope: "review.setScope",
+  setProgress: "review.setProgress",
+  createLocalThread: "review.createLocalThread",
+  updateLocalThread: "review.updateLocalThread",
+  deleteLocalThread: "review.deleteLocalThread",
+  setLocalThreadResolved: "review.setLocalThreadResolved",
+  createLocalReply: "review.createLocalReply",
+  updateLocalReply: "review.updateLocalReply",
+  deleteLocalReply: "review.deleteLocalReply",
+  upsertOverviewNote: "review.upsertOverviewNote",
+  deleteOverviewNote: "review.deleteOverviewNote",
+  getDiffSnapshot: "review.getDiffSnapshot",
+  getFilePatch: "review.getFilePatch",
+  getChunkPayload: "review.getChunkPayload",
+  getGitHubSnapshot: "review.getGitHubSnapshot",
+  upsertGitHubDraft: "review.upsertGitHubDraft",
+  applyRawMutation: "review.applyRawMutation",
+  deleteGitHubDraft: "review.deleteGitHubDraft",
+  replyToGitHubThread: "review.replyToGitHubThread",
+  submitGitHubDraft: "review.submitGitHubDraft",
+  refreshProviderData: "review.refreshProviderData",
+  generateAnalysis: "review.generateAnalysis",
+  subscribeEvents: "subscribeReviewEvents",
+} as const;
+
 export interface WsRpcClient {
   readonly dispose: () => Promise<void>;
   readonly reconnect: () => Promise<void>;
@@ -219,9 +249,70 @@ export interface WsRpcClient {
     readonly replayEvents: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.replayEvents>;
     readonly onDomainEvent: RpcStreamMethod<typeof WS_METHODS.subscribeOrchestrationDomainEvents>;
   };
+  readonly review: {
+    readonly getOrCreateSession: (input: unknown) => Promise<unknown>;
+    readonly getSessionSummary: (input: unknown) => Promise<unknown>;
+    readonly getSessionSnapshot: (input: unknown) => Promise<unknown>;
+    readonly setMode: (input: unknown) => Promise<unknown>;
+    readonly setScope: (input: unknown) => Promise<unknown>;
+    readonly setProgress: (input: unknown) => Promise<unknown>;
+    readonly createLocalThread: (input: unknown) => Promise<unknown>;
+    readonly updateLocalThread: (input: unknown) => Promise<unknown>;
+    readonly deleteLocalThread: (input: unknown) => Promise<unknown>;
+    readonly setLocalThreadResolved: (input: unknown) => Promise<unknown>;
+    readonly createLocalReply: (input: unknown) => Promise<unknown>;
+    readonly updateLocalReply: (input: unknown) => Promise<unknown>;
+    readonly deleteLocalReply: (input: unknown) => Promise<unknown>;
+    readonly upsertOverviewNote: (input: unknown) => Promise<unknown>;
+    readonly deleteOverviewNote: (input: unknown) => Promise<unknown>;
+    readonly getDiffSnapshot: (input: unknown) => Promise<unknown>;
+    readonly getFilePatch: (input: unknown) => Promise<unknown>;
+    readonly getChunkPayload: (input: unknown) => Promise<unknown>;
+    readonly getGitHubSnapshot: (input: unknown) => Promise<unknown>;
+    readonly upsertGitHubDraft: (input: unknown) => Promise<unknown>;
+    readonly applyRawMutation: (input: unknown) => Promise<unknown>;
+    readonly deleteGitHubDraft: (input: unknown) => Promise<unknown>;
+    readonly replyToGitHubThread: (input: unknown) => Promise<unknown>;
+    readonly submitGitHubDraft: (input: unknown) => Promise<unknown>;
+    readonly refreshProviderData: (input: unknown) => Promise<unknown>;
+    readonly generateAnalysis: (input: unknown) => Promise<unknown>;
+    readonly onEvent: (
+      input: unknown,
+      listener: (event: unknown) => void,
+      options?: StreamSubscriptionOptions,
+    ) => () => void;
+  };
 }
 
 export function createWsRpcClient(transport: WsTransport): WsRpcClient {
+  const reviewRequest = (method: string, input: unknown) =>
+    transport.request(
+      (client) =>
+        (
+          client as unknown as Record<
+            string,
+            ((value: unknown) => Effect.Effect<unknown, Error, never>) | undefined
+          >
+        )[method]?.(input) as Effect.Effect<unknown, Error, never>,
+    );
+  const reviewSubscribe = (
+    method: string,
+    input: unknown,
+    listener: (event: unknown) => void,
+    options?: StreamSubscriptionOptions,
+  ) =>
+    transport.subscribe(
+      (client) =>
+        (
+          client as unknown as Record<
+            string,
+            ((value: unknown) => Stream.Stream<unknown, Error, never>) | undefined
+          >
+        )[method]?.(input) as Stream.Stream<unknown, Error, never>,
+      listener,
+      options,
+    );
+
   return {
     dispose: () => transport.dispose(),
     reconnect: async () => {
@@ -496,6 +587,37 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
           listener,
           options,
         ),
+    },
+    review: {
+      getOrCreateSession: (input) => reviewRequest(REVIEW_WS_METHODS.getOrCreateSession, input),
+      getSessionSummary: (input) => reviewRequest(REVIEW_WS_METHODS.getSessionSummary, input),
+      getSessionSnapshot: (input) => reviewRequest(REVIEW_WS_METHODS.getSessionSnapshot, input),
+      setMode: (input) => reviewRequest(REVIEW_WS_METHODS.setMode, input),
+      setScope: (input) => reviewRequest(REVIEW_WS_METHODS.setScope, input),
+      setProgress: (input) => reviewRequest(REVIEW_WS_METHODS.setProgress, input),
+      createLocalThread: (input) => reviewRequest(REVIEW_WS_METHODS.createLocalThread, input),
+      updateLocalThread: (input) => reviewRequest(REVIEW_WS_METHODS.updateLocalThread, input),
+      deleteLocalThread: (input) => reviewRequest(REVIEW_WS_METHODS.deleteLocalThread, input),
+      setLocalThreadResolved: (input) =>
+        reviewRequest(REVIEW_WS_METHODS.setLocalThreadResolved, input),
+      createLocalReply: (input) => reviewRequest(REVIEW_WS_METHODS.createLocalReply, input),
+      updateLocalReply: (input) => reviewRequest(REVIEW_WS_METHODS.updateLocalReply, input),
+      deleteLocalReply: (input) => reviewRequest(REVIEW_WS_METHODS.deleteLocalReply, input),
+      upsertOverviewNote: (input) => reviewRequest(REVIEW_WS_METHODS.upsertOverviewNote, input),
+      deleteOverviewNote: (input) => reviewRequest(REVIEW_WS_METHODS.deleteOverviewNote, input),
+      getDiffSnapshot: (input) => reviewRequest(REVIEW_WS_METHODS.getDiffSnapshot, input),
+      getFilePatch: (input) => reviewRequest(REVIEW_WS_METHODS.getFilePatch, input),
+      getChunkPayload: (input) => reviewRequest(REVIEW_WS_METHODS.getChunkPayload, input),
+      getGitHubSnapshot: (input) => reviewRequest(REVIEW_WS_METHODS.getGitHubSnapshot, input),
+      upsertGitHubDraft: (input) => reviewRequest(REVIEW_WS_METHODS.upsertGitHubDraft, input),
+      applyRawMutation: (input) => reviewRequest(REVIEW_WS_METHODS.applyRawMutation, input),
+      deleteGitHubDraft: (input) => reviewRequest(REVIEW_WS_METHODS.deleteGitHubDraft, input),
+      replyToGitHubThread: (input) => reviewRequest(REVIEW_WS_METHODS.replyToGitHubThread, input),
+      submitGitHubDraft: (input) => reviewRequest(REVIEW_WS_METHODS.submitGitHubDraft, input),
+      refreshProviderData: (input) => reviewRequest(REVIEW_WS_METHODS.refreshProviderData, input),
+      generateAnalysis: (input) => reviewRequest(REVIEW_WS_METHODS.generateAnalysis, input),
+      onEvent: (input, listener, options) =>
+        reviewSubscribe(REVIEW_WS_METHODS.subscribeEvents, input, listener, options),
     },
   };
 }

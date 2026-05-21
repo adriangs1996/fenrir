@@ -106,6 +106,14 @@ import {
   ServerEnvironment,
   type ServerEnvironmentShape,
 } from "./environment/Services/ServerEnvironment.ts";
+import {
+  ReviewWriteService,
+  type ReviewWriteServiceShape,
+} from "./review/Services/ReviewWriteService.ts";
+import {
+  ReviewRpcService,
+  type ReviewRpcServiceShape,
+} from "./review/Services/ReviewRpcService.ts";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
@@ -124,6 +132,7 @@ import { SkillService, type SkillServiceShape } from "./skill/SkillService.ts";
 import { ProcessDiagnostics } from "./diagnostics/ProcessDiagnostics.ts";
 import { ProcessResourceMonitor } from "./diagnostics/ProcessResourceMonitor.ts";
 import { TraceDiagnostics } from "./diagnostics/TraceDiagnostics.ts";
+import { ReviewSessionId } from "../../../packages/contracts/src/review.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -324,6 +333,8 @@ const buildAppUnderTest = (options?: {
     sourceControlQuery?: Partial<SourceControlQueryShape>;
     sourceControlStatus?: Partial<SourceControlStatusShape>;
     sourceControlWorkflows?: Partial<SourceControlWorkflowsShape>;
+    reviewWriteService?: Partial<ReviewWriteServiceShape>;
+    reviewRpcService?: Partial<ReviewRpcServiceShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
@@ -423,6 +434,51 @@ const buildAppUnderTest = (options?: {
         });
       }),
     ).pipe(Layer.provide(gitManagerLayer), Layer.provideMerge(gitCoreLayer));
+
+    const reviewWriteServiceLayer = Layer.succeed(
+      ReviewWriteService,
+      ReviewWriteService.of({
+        getGitHubSnapshot: () => Effect.die(new Error("not implemented in test")),
+        upsertGitHubDraft: () => Effect.die(new Error("not implemented in test")),
+        deleteGitHubDraft: () => Effect.die(new Error("not implemented in test")),
+        replyToGitHubThread: () => Effect.die(new Error("not implemented in test")),
+        submitGitHubDraft: () => Effect.die(new Error("not implemented in test")),
+        applyRawMutation: () => Effect.die(new Error("not implemented in test")),
+      }),
+    );
+    const reviewRpcServiceLayer = Layer.succeed(
+      ReviewRpcService,
+      ReviewRpcService.of({
+        getOrCreateSession: () => Effect.die(new Error("not implemented in test")),
+        getSessionSummary: () => Effect.die(new Error("not implemented in test")),
+        getSessionSnapshot: () => Effect.die(new Error("not implemented in test")),
+        getDiffSnapshot: () => Effect.die(new Error("not implemented in test")),
+        getFilePatch: () => Effect.die(new Error("not implemented in test")),
+        getChunkPayload: () => Effect.die(new Error("not implemented in test")),
+        setMode: () => Effect.die(new Error("not implemented in test")),
+        setScope: () => Effect.die(new Error("not implemented in test")),
+        setProgress: () => Effect.die(new Error("not implemented in test")),
+        createLocalThread: () => Effect.die(new Error("not implemented in test")),
+        updateLocalThread: () => Effect.die(new Error("not implemented in test")),
+        deleteLocalThread: () => Effect.die(new Error("not implemented in test")),
+        setLocalThreadResolved: () => Effect.die(new Error("not implemented in test")),
+        createLocalReply: () => Effect.die(new Error("not implemented in test")),
+        updateLocalReply: () => Effect.die(new Error("not implemented in test")),
+        deleteLocalReply: () => Effect.die(new Error("not implemented in test")),
+        upsertOverviewNote: () => Effect.die(new Error("not implemented in test")),
+        deleteOverviewNote: () => Effect.die(new Error("not implemented in test")),
+        getGitHubSnapshot: () => Effect.die(new Error("not implemented in test")),
+        upsertGitHubDraft: () => Effect.die(new Error("not implemented in test")),
+        applyRawMutation: () => Effect.die(new Error("not implemented in test")),
+        deleteGitHubDraft: () => Effect.die(new Error("not implemented in test")),
+        replyToGitHubThread: () => Effect.die(new Error("not implemented in test")),
+        submitGitHubDraft: () => Effect.die(new Error("not implemented in test")),
+        refreshProviderData: () => Effect.die(new Error("not implemented in test")),
+        generateAnalysis: () => Effect.die(new Error("not implemented in test")),
+        streamEvents: () => Stream.empty,
+        ...options?.layers?.reviewRpcService,
+      }),
+    );
 
     const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
@@ -582,7 +638,12 @@ const buildAppUnderTest = (options?: {
       ),
     );
 
-    const appLayer = servedRoutesLayer.pipe(
+    const servedRoutesLayerWithReview = servedRoutesLayer.pipe(
+      Layer.provide(reviewWriteServiceLayer),
+      Layer.provide(reviewRpcServiceLayer),
+    );
+
+    const appLayer = servedRoutesLayerWithReview.pipe(
       Layer.provide(
         Layer.mock(BrowserTraceCollector)({
           record: () => Effect.void,
@@ -752,6 +813,31 @@ const withWsRpcClient = <A, E, R>(
   wsUrl: string,
   f: (client: WsRpcClient) => Effect.Effect<A, E, R>,
 ) => makeWsRpcClient.pipe(Effect.flatMap(f), Effect.provide(wsRpcProtocolLayer(wsUrl)));
+
+const reviewGetGitHubSnapshotMethod = "review.getGitHubSnapshot";
+const subscribeReviewEventsMethod = "subscribeReviewEvents";
+
+const callWsReviewMethod = <A>(wsUrl: string, method: string, input: unknown) =>
+  withWsRpcClient(wsUrl, (client) =>
+    (
+      client as unknown as Record<
+        string,
+        ((value: unknown) => Effect.Effect<A, Error, never>) | undefined
+      >
+    )[method]!(input),
+  );
+
+const subscribeWsReviewMethod = <A>(wsUrl: string, method: string, input: unknown) =>
+  Effect.scoped(
+    withWsRpcClient(wsUrl, (client) =>
+      (
+        client as unknown as Record<
+          string,
+          ((value: unknown) => Stream.Stream<A, Error, never>) | undefined
+        >
+      )[method]!(input).pipe(Stream.take(1), Stream.runCollect),
+    ),
+  );
 
 const appendSessionCookieToWsUrl = (url: string, sessionCookieHeader: string) => {
   const isAbsoluteUrl = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(url);
@@ -2351,6 +2437,131 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assertFailure(result, openError);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc review.getGitHubSnapshot scopes drafts by auth session id", () =>
+    Effect.gen(function* () {
+      let observedAuthSessionId: string | null = null;
+      const sessionId = "review-session-1" as const;
+
+      yield* buildAppUnderTest({
+        layers: {
+          reviewRpcService: {
+            getGitHubSnapshot: (_input, authSessionId) =>
+              Effect.sync(() => {
+                observedAuthSessionId = authSessionId;
+
+                return {
+                  provider: "github" as const,
+                  pullRequestNumber: 42,
+                  writable: true,
+                  draft: {
+                    id: "github-review-draft-1" as never,
+                    state: "pending" as const,
+                    pullRequestNumber: 42,
+                    decision: "comment" as const,
+                    body: `draft-for-${authSessionId}`,
+                    threads: [],
+                    createdAt: "2026-05-21T10:00:00.000Z",
+                    updatedAt: "2026-05-21T10:00:00.000Z",
+                  },
+                  pendingDrafts: [],
+                  threads: [],
+                  generalComments: [],
+                  reviews: [],
+                };
+              }),
+          },
+        },
+      });
+
+      const firstCookie = yield* getAuthenticatedSessionCookieHeader();
+      const firstUrl = appendSessionCookieToWsUrl(
+        yield* getWsServerUrl("/ws", { authenticated: false }),
+        firstCookie,
+      );
+
+      const first = (yield* callWsReviewMethod<{
+        readonly draft: { readonly body?: string } | null;
+      }>(firstUrl, reviewGetGitHubSnapshotMethod, {
+        sessionId: ReviewSessionId.makeUnsafe(sessionId),
+      })) as {
+        readonly draft: { readonly body?: string } | null;
+      };
+
+      assert.isNotNull(observedAuthSessionId);
+      assert.equal(first.draft?.body, `draft-for-${observedAuthSessionId}`);
+      assert.notEqual(first.draft?.body, `draft-for-${sessionId}`);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc subscribeReviewEvents with snapshot replacement", () =>
+    Effect.gen(function* () {
+      const sessionId = ReviewSessionId.makeUnsafe("review-session-1");
+
+      yield* buildAppUnderTest({
+        layers: {
+          reviewRpcService: {
+            streamEvents: () =>
+              Stream.make({
+                _tag: "sessionSnapshotReplaced" as const,
+                snapshot: {
+                  summary: {
+                    id: sessionId,
+                    mode: "review",
+                    scope: "combined",
+                    target: {
+                      cwd: "/repo/worktree",
+                      repositoryRoot: "/repo",
+                      worktreePath: null,
+                    },
+                    progressCounts: {
+                      unreviewed: 1,
+                      reviewed: 0,
+                      needsFollowUp: 0,
+                    },
+                    fileCount: 1,
+                    chunkCount: 0,
+                    localThreadCount: 0,
+                    overviewNoteCount: 0,
+                    analysisArtifactCount: 0,
+                    degradedReasons: [],
+                    blockedActions: [],
+                    createdAt: "2026-05-21T10:00:00.000Z",
+                    updatedAt: "2026-05-21T10:00:00.000Z",
+                  },
+                  groups: [],
+                  files: [],
+                  chunks: [],
+                  localThreads: [],
+                  localReplies: [],
+                  overviewNotes: [],
+                  analysisArtifacts: [],
+                  github: null,
+                },
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const events = yield* subscribeWsReviewMethod<{
+        readonly _tag: "sessionSnapshotReplaced";
+        readonly snapshot: {
+          readonly summary: {
+            readonly id: typeof sessionId;
+            readonly fileCount: number;
+          };
+        };
+      }>(wsUrl, subscribeReviewEventsMethod, { sessionId });
+
+      const first = Array.from(events)[0];
+      assert.equal(first?._tag, "sessionSnapshotReplaced");
+      if (first?._tag === "sessionSnapshotReplaced") {
+        assert.equal(first.snapshot.summary.id, sessionId);
+        assert.equal(first.snapshot.summary.fileCount, 1);
+      }
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

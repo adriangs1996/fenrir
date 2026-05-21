@@ -361,7 +361,19 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const defaultProvider = parsed.provider ?? "codex";
       const providerInstanceId =
         parsed.providerInstanceId ?? defaultInstanceIdForDriver(defaultProvider);
-      const adapter = yield* registry.getByInstance(providerInstanceId);
+      const adapter = yield* registry
+        .getByInstance(providerInstanceId)
+        .pipe(
+          Effect.mapError((error) =>
+            error._tag === "ProviderUnsupportedError"
+              ? toValidationError(
+                  "ProviderService.startSession",
+                  `Unknown provider instance '${providerInstanceId}' requested for provider '${parsed.provider ?? defaultProvider}'.`,
+                  error,
+                )
+              : error,
+          ),
+        );
       if (parsed.provider !== undefined && parsed.provider !== adapter.provider) {
         return yield* toValidationError(
           "ProviderService.startSession",

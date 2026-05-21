@@ -17,6 +17,11 @@ import {
 import { cn } from "~/lib/utils";
 
 interface CommandPaletteResultsProps {
+  shortcutContext?: {
+    readonly reviewFocus?: boolean;
+    readonly terminalFocus?: boolean;
+    readonly terminalOpen?: boolean;
+  };
   emptyStateMessage?: string;
   groups: ReadonlyArray<CommandPaletteGroup>;
   highlightedItemValue?: string | null;
@@ -49,6 +54,7 @@ export function CommandPaletteResults(props: CommandPaletteResultsProps) {
                 isActive={props.highlightedItemValue === item.value}
                 key={item.value}
                 keybindings={props.keybindings}
+                shortcutContext={props.shortcutContext}
                 onExecuteItem={props.onExecuteItem}
               />
             )}
@@ -63,10 +69,15 @@ function CommandPaletteResultRow(props: {
   item: CommandPaletteActionItem | CommandPaletteSubmenuItem;
   isActive: boolean;
   keybindings: ResolvedKeybindingsConfig;
+  shortcutContext?: CommandPaletteResultsProps["shortcutContext"];
   onExecuteItem: (item: CommandPaletteActionItem | CommandPaletteSubmenuItem) => void;
 }) {
   const shortcutLabel = props.item.shortcutCommand
-    ? shortcutLabelForCommand(props.keybindings, props.item.shortcutCommand)
+    ? shortcutLabelForCommand(
+        props.keybindings,
+        props.item.shortcutCommand,
+        props.shortcutContext ? { context: props.shortcutContext } : undefined,
+      )
     : null;
 
   return (

@@ -1,10 +1,6 @@
 import { Schema } from "effect";
 import { TrimmedNonEmptyString } from "./baseSchemas";
-import {
-  isBuiltInProviderKind,
-  type ProviderKind,
-  type ProviderSelectionKind,
-} from "./orchestration";
+import type { ProviderKind, ProviderSelectionKind } from "./orchestration";
 
 export const CodexReasoningEffort = Schema.Literals(["xhigh", "high", "medium", "low"]);
 export type CodexReasoningEffort = typeof CodexReasoningEffort.Type;
@@ -108,6 +104,9 @@ export const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
   codex: "Codex",
   claudeAgent: "Claude",
 };
+
+const isBuiltInProviderKind = (value: string): value is ProviderKind =>
+  value === "codex" || value === "claudeAgent";
 
 export function getDefaultModelByProvider(provider: ProviderSelectionKind | string): string {
   return isBuiltInProviderKind(provider) ? DEFAULT_MODEL_BY_PROVIDER[provider] : "";

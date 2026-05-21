@@ -21,5 +21,13 @@
       }
     ]
   },
-  "include": ["src", "tsdown.config.ts", "scripts", "integration", "../../scripts/lib"]
+  "include": [
+    "src",
+    "tsdown.config.ts",
+    "scripts",
+    "integration",
+    "../../scripts/lib",
+    "../../packages/contracts/src",
+    "../../packages/shared/src/review.ts"
+  ]
 }

@@ -150,4 +150,31 @@ describe("openInPreferredEditor", () => {
     expect(shellOpenInEditorMock).not.toHaveBeenCalled();
     expect(useEditorStore.getState().activeChatTab).toBe("editor");
   });
+
+  it("falls back to a non-embedded editor when embedded launches are disabled", async () => {
+    vi.stubGlobal("window", {
+      desktopBridge: { editor: { openFile: openFileMock } },
+      localStorage: {
+        getItem: vi.fn(() => "fenrir-embedded"),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      },
+    });
+
+    const api = {
+      server: {
+        getConfig: vi.fn(async () => ({
+          availableEditors: ["fenrir-embedded", "vscode"],
+        })),
+      },
+      shell: { openInEditor: shellOpenInEditorMock },
+    } as const;
+
+    await expect(
+      openInPreferredEditor(api as never, "/src/index.ts:12", { allowEmbedded: false }),
+    ).resolves.toBe("vscode");
+
+    expect(openFileMock).not.toHaveBeenCalled();
+    expect(shellOpenInEditorMock).toHaveBeenCalledWith("/src/index.ts:12", "vscode");
+  });
 });

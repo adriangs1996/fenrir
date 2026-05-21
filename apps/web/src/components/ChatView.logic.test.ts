@@ -64,6 +64,20 @@ describe("deriveComposerSendState", () => {
     expect(state.expiredTerminalContextCount).toBe(1);
     expect(state.hasSendableContent).toBe(true);
   });
+
+  it("treats attached review context as sendable content", () => {
+    const state = deriveComposerSendState({
+      prompt: "",
+      imageCount: 0,
+      terminalContexts: [],
+      reviewContextCount: 2,
+    });
+
+    expect(state.trimmedPrompt).toBe("");
+    expect(state.sendableTerminalContexts).toEqual([]);
+    expect(state.expiredTerminalContextCount).toBe(0);
+    expect(state.hasSendableContent).toBe(true);
+  });
 });
 
 describe("buildExpiredTerminalContextToastCopy", () => {

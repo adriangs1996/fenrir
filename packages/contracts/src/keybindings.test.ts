@@ -58,6 +58,12 @@ it.effect("parses keybinding rules", () =>
       command: "thread.previous",
     });
     assert.strictEqual(parsedThreadPrevious.command, "thread.previous");
+
+    const parsedReviewOpenChange = yield* decode(KeybindingRule, {
+      key: "o",
+      command: "review.openChange",
+    });
+    assert.strictEqual(parsedReviewOpenChange.command, "review.openChange");
   }),
 );
 

@@ -38,7 +38,7 @@ import { usePrimaryEnvironmentId } from "../environments/primary";
 import { readEnvironmentApi } from "../environmentApi";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
-import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { stripDiffSearchParams } from "../diffRouteSearch";
 import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
@@ -123,7 +123,7 @@ import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
-import { buildDraftThreadRouteParams } from "../threadRoutes";
+import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -195,6 +195,24 @@ import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
 import { useComposerHandleContext } from "../composerHandleContext";
 import { useCommandPaletteStore } from "../commandPaletteStore";
+import {
+  buildReviewRouteSearch,
+  DEFAULT_REVIEW_ROUTE_MODE,
+  DEFAULT_REVIEW_ROUTE_SCOPE,
+  ReviewTabShell,
+  useReviewStore,
+  type ReviewRouteMode,
+  type ReviewRouteScope,
+  resolveReviewRouteState,
+  stripReviewSearchParams,
+  type ReviewRouteState,
+} from "~/modules/review";
+import {
+  buildReviewContextTrace,
+  formatReviewContextPrompt,
+  isReviewContextAttachmentStale,
+} from "~/modules/review/reviewComposer";
+import { parseThreadRouteSearch } from "~/threadRouteSearch";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -333,6 +351,18 @@ function formatOutgoingPrompt(params: {
   }
   return params.text;
 }
+
+function searchShallowEqual(left: object, right: object): boolean {
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  return leftKeys.every((key) => leftRecord[key] === rightRecord[key]);
+}
+
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
 
@@ -661,7 +691,7 @@ export default function ChatView(props: ChatViewProps) {
   const navigate = useNavigate();
   const rawSearch = useSearch({
     strict: false,
-    select: (params) => parseDiffRouteSearch(params),
+    select: (params) => parseThreadRouteSearch(params),
   });
   const { resolvedTheme } = useTheme();
   // Granular store selectors — avoid subscribing to prompt changes.
@@ -679,6 +709,7 @@ export default function ChatView(props: ChatViewProps) {
   const setComposerDraftTerminalContexts = useComposerDraftStore(
     (store) => store.setTerminalContexts,
   );
+  const addComposerReviewContext = useComposerDraftStore((store) => store.addReviewContext);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const setComposerDraftInteractionMode = useComposerDraftStore(
@@ -703,6 +734,10 @@ export default function ChatView(props: ChatViewProps) {
   const promptRef = useRef("");
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
+  const reviewThreadState = useReviewStore(
+    (state) => state.threads[scopedThreadKey(routeThreadRef)] ?? null,
+  );
+  const reviewDiffCacheToken = reviewThreadState?.diffCacheToken ?? null;
   const composerHandleContext = useComposerHandleContext();
   const composerRef = useRef<ChatComposerHandle>(null);
   const commandPaletteOpen = useCommandPaletteStore((state) => state.open);
@@ -805,14 +840,72 @@ export default function ChatView(props: ChatViewProps) {
   }, []);
 
   // Editor tab visibility — gated by desktop bridge presence, main window,
-  // and successful nvim probe. When false, the chat tab bar collapses to a
-  // single "Thread" tab and Cmd+E is a no-op.
+  // and successful nvim probe. When false, the editor tab disappears and
+  // Cmd+E is a no-op.
   const desktopBridgeAvailable = useDesktopBridgeAvailable();
   const isMainWindow = useIsMainWindow();
   const nvimReady = useNvimAvailable();
   const editorAvailable = desktopBridgeAvailable && isMainWindow && nvimReady;
   const activeChatTab = useEditorStore((s) => s.activeChatTab);
-  const lastNonTerminalChatTabRef = useRef<"thread" | "editor">("thread");
+  const setActiveChatTab = useEditorStore((s) => s.setActiveChatTab);
+  const lastNonTerminalChatTabRef = useRef<"thread" | "review" | "editor">("thread");
+  const reviewRouteState = useMemo(() => resolveReviewRouteState(rawSearch), [rawSearch]);
+  const activeReviewRouteState = useMemo<ReviewRouteState | null>(
+    () =>
+      reviewRouteState ??
+      (activeChatTab === "review"
+        ? {
+            tab: "review",
+            reviewMode: DEFAULT_REVIEW_ROUTE_MODE,
+            reviewScope: DEFAULT_REVIEW_ROUTE_SCOPE,
+          }
+        : null),
+    [activeChatTab, reviewRouteState],
+  );
+
+  const replaceCurrentRouteSearch = useCallback(
+    (search: Record<string, unknown>) => {
+      if (routeKind === "server") {
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(routeThreadRef),
+          search,
+          replace: true,
+        });
+        return;
+      }
+
+      if (!draftId) {
+        return;
+      }
+
+      void navigate({
+        to: "/draft/$draftId",
+        params: buildDraftThreadRouteParams(draftId),
+        search,
+        replace: true,
+      });
+    },
+    [draftId, navigate, routeKind, routeThreadRef],
+  );
+
+  const updateReviewRouteState = useCallback(
+    (nextState: ReviewRouteState) => {
+      setActiveChatTab("review");
+      replaceCurrentRouteSearch({
+        ...stripReviewSearchParams(rawSearch),
+        ...buildReviewRouteSearch(nextState),
+      });
+    },
+    [rawSearch, replaceCurrentRouteSearch, setActiveChatTab],
+  );
+
+  const handleChatTabSelect = useCallback(
+    (tab: "thread" | "review" | "terminal" | "editor") => {
+      setActiveChatTab(tab);
+    },
+    [setActiveChatTab],
+  );
 
   useEffect(() => {
     if (activeChatTab === "terminal") {
@@ -825,9 +918,48 @@ export default function ChatView(props: ChatViewProps) {
   // (e.g. nvim binary uninstalled mid-session, secondary window).
   useEffect(() => {
     if (!editorAvailable && activeChatTab === "editor") {
-      useEditorStore.getState().setActiveChatTab("thread");
+      setActiveChatTab("thread");
     }
-  }, [editorAvailable, activeChatTab]);
+  }, [editorAvailable, activeChatTab, setActiveChatTab]);
+
+  useLayoutEffect(() => {
+    if (reviewRouteState && activeChatTab !== "review") {
+      setActiveChatTab("review");
+    }
+  }, [activeChatTab, reviewRouteState, setActiveChatTab]);
+
+  useEffect(() => {
+    if (activeChatTab === "review") {
+      const nextReviewState = activeReviewRouteState ?? {
+        tab: "review",
+        reviewMode: DEFAULT_REVIEW_ROUTE_MODE,
+        reviewScope: DEFAULT_REVIEW_ROUTE_SCOPE,
+      };
+      const nextSearch = {
+        ...stripReviewSearchParams(rawSearch),
+        ...buildReviewRouteSearch(nextReviewState),
+      };
+      if (!searchShallowEqual(rawSearch, nextSearch)) {
+        replaceCurrentRouteSearch(nextSearch);
+      }
+      return;
+    }
+
+    if (!reviewRouteState) {
+      return;
+    }
+
+    const nextSearch = stripReviewSearchParams(rawSearch);
+    if (!searchShallowEqual(rawSearch, nextSearch)) {
+      replaceCurrentRouteSearch(nextSearch);
+    }
+  }, [
+    activeChatTab,
+    activeReviewRouteState,
+    rawSearch,
+    replaceCurrentRouteSearch,
+    reviewRouteState,
+  ]);
 
   // Subscribe to nvim's `:Fenrir focus-chat` so the renderer can flip back to
   // the thread tab when the user invokes the command from inside the editor.
@@ -837,10 +969,10 @@ export default function ChatView(props: ChatViewProps) {
     if (!editor?.onCmd) return;
     return editor.onCmd((ev) => {
       if (ev.subcommand === "focus-chat") {
-        useEditorStore.getState().setActiveChatTab("thread");
+        setActiveChatTab("thread");
       }
     });
-  }, [desktopBridgeAvailable]);
+  }, [desktopBridgeAvailable, setActiveChatTab]);
 
   const terminalState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadKey, routeThreadRef),
@@ -1714,6 +1846,9 @@ export default function ChatView(props: ChatViewProps) {
   }, []);
   const resolveTerminalFallbackChatTab = useCallback(() => {
     const previousTab = lastNonTerminalChatTabRef.current;
+    if (previousTab === "review") {
+      return "review" as const;
+    }
     if (previousTab === "editor" && editorAvailable) {
       return "editor" as const;
     }
@@ -1735,19 +1870,19 @@ export default function ChatView(props: ChatViewProps) {
         setTerminalOpen(true);
       }
       if (useEditorStore.getState().activeChatTab !== "terminal") {
-        useEditorStore.getState().setActiveChatTab("terminal");
+        setActiveChatTab("terminal");
       }
       if (options?.focus ?? true) {
         setTerminalFocusRequestId((value) => value + 1);
       }
     },
-    [activeThreadRef, setTerminalOpen],
+    [activeThreadRef, setActiveChatTab, setTerminalOpen],
   );
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadRef) return;
     if (terminalState.terminalOpen) {
       if (activeChatTab === "terminal") {
-        useEditorStore.getState().setActiveChatTab(resolveTerminalFallbackChatTab());
+        setActiveChatTab(resolveTerminalFallbackChatTab());
       }
       setTerminalOpen(false);
       return;
@@ -1758,6 +1893,7 @@ export default function ChatView(props: ChatViewProps) {
     activeChatTab,
     activeThreadRef,
     resolveTerminalFallbackChatTab,
+    setActiveChatTab,
     setTerminalOpen,
     terminalState.terminalOpen,
   ]);
@@ -2722,8 +2858,14 @@ export default function ChatView(props: ChatViewProps) {
     if (terminalState.terminalOpen && activeProject) {
       return;
     }
-    useEditorStore.getState().setActiveChatTab(resolveTerminalFallbackChatTab());
-  }, [activeChatTab, activeProject, resolveTerminalFallbackChatTab, terminalState.terminalOpen]);
+    setActiveChatTab(resolveTerminalFallbackChatTab());
+  }, [
+    activeChatTab,
+    activeProject,
+    resolveTerminalFallbackChatTab,
+    setActiveChatTab,
+    terminalState.terminalOpen,
+  ]);
 
   useEffect(() => {
     if (!activeThreadKey) return;
@@ -2738,7 +2880,7 @@ export default function ChatView(props: ChatViewProps) {
       const frame = window.requestAnimationFrame(() => {
         const fallbackTab = resolveTerminalFallbackChatTab();
         if (activeChatTab === "terminal") {
-          useEditorStore.getState().setActiveChatTab(fallbackTab);
+          setActiveChatTab(fallbackTab);
         }
         const focusTarget = resolveTerminalCloseFocusTarget({
           activeChatTab: fallbackTab,
@@ -2763,6 +2905,7 @@ export default function ChatView(props: ChatViewProps) {
     focusComposer,
     requestEditorFocus,
     resolveTerminalFallbackChatTab,
+    setActiveChatTab,
     terminalState.terminalOpen,
   ]);
 
@@ -2773,6 +2916,7 @@ export default function ChatView(props: ChatViewProps) {
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
         terminalOpen: Boolean(terminalState.terminalOpen),
+        reviewFocus: activeChatTab === "review",
       };
 
       const command = resolveShortcutCommand(event, keybindings, {
@@ -2873,6 +3017,7 @@ export default function ChatView(props: ChatViewProps) {
     onToggleDiff,
     toggleTerminalVisibility,
     editorAvailable,
+    activeChatTab,
   ]);
 
   const onRevertToTurnCount = useCallback(
@@ -2938,6 +3083,7 @@ export default function ChatView(props: ChatViewProps) {
     const {
       images: composerImages,
       terminalContexts: composerTerminalContexts,
+      reviewContexts: composerReviewContexts,
       selectedProvider: ctxSelectedProvider,
       selectedProviderInstanceId: ctxSelectedProviderInstanceId,
       selectedModel: ctxSelectedModel,
@@ -2955,7 +3101,11 @@ export default function ChatView(props: ChatViewProps) {
       prompt: promptForSend,
       imageCount: composerImages.length,
       terminalContexts: composerTerminalContexts,
+      reviewContextCount: composerReviewContexts.length,
     });
+    const staleReviewContextCount = composerReviewContexts.filter((attachment) =>
+      isReviewContextAttachmentStale(attachment, reviewDiffCacheToken),
+    ).length;
     if (showPlanFollowUpPrompt && activeProposedPlan) {
       const followUp = resolvePlanFollowUpSubmission({
         draftText: trimmed,
@@ -2995,6 +3145,17 @@ export default function ChatView(props: ChatViewProps) {
       }
       return;
     }
+    if (staleReviewContextCount > 0) {
+      toastManager.add({
+        type: "warning",
+        title: "Refresh stale review attachments before sending",
+        description:
+          staleReviewContextCount === 1
+            ? "One attached review selection is stale."
+            : `${staleReviewContextCount} attached review selections are stale.`,
+      });
+      return;
+    }
     if (!activeProject) return;
     const threadIdForSend = activeThread.id;
     const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
@@ -3017,10 +3178,18 @@ export default function ChatView(props: ChatViewProps) {
 
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
+    const composerReviewContextsSnapshot = [...composerReviewContexts];
     const composerEditorContextsSnapshot = [...useEditorStore.getState().pendingContexts];
     const skillExpandedPrompt = expandSkillReferences(promptForSend, serverSkills).text;
+    const reviewContextPrompt = formatReviewContextPrompt(composerReviewContextsSnapshot);
+    const messageTextWithReview =
+      reviewContextPrompt.length > 0
+        ? [skillExpandedPrompt, reviewContextPrompt]
+            .filter((value) => value.trim().length > 0)
+            .join("\n\n")
+        : skillExpandedPrompt;
     const messageTextWithTerminal = appendTerminalContextsToPrompt(
-      skillExpandedPrompt,
+      messageTextWithReview,
       composerTerminalContextsSnapshot,
     );
     const messageTextForSend = appendEditorContextsToPrompt(
@@ -3184,6 +3353,9 @@ export default function ChatView(props: ChatViewProps) {
         titleSeed: title,
         runtimeMode,
         interactionMode,
+        ...(buildReviewContextTrace(composerReviewContextsSnapshot)
+          ? { reviewContext: buildReviewContextTrace(composerReviewContextsSnapshot) }
+          : {}),
         ...(bootstrap ? { bootstrap } : {}),
         createdAt: messageCreatedAt,
       });
@@ -3210,6 +3382,9 @@ export default function ChatView(props: ChatViewProps) {
         setComposerDraftPrompt(composerDraftTarget, promptForSend);
         addComposerDraftImages(composerDraftTarget, retryComposerImages);
         setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
+        for (const attachment of composerReviewContextsSnapshot) {
+          addComposerReviewContext(composerDraftTarget, attachment);
+        }
         composerRef.current?.resetCursorState({
           cursor: collapseExpandedComposerCursor(promptForSend, promptForSend.length),
           prompt: promptForSend,
@@ -3846,7 +4021,12 @@ export default function ChatView(props: ChatViewProps) {
       <div className="flex min-h-0 min-w-0 flex-1">
         {/* Chat column */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <ChatTabBar editorAvailable={editorAvailable} terminalOpen={terminalState.terminalOpen} />
+          <ChatTabBar
+            activeTab={activeChatTab}
+            editorAvailable={editorAvailable}
+            onTabSelect={handleChatTabSelect}
+            terminalOpen={terminalState.terminalOpen}
+          />
           {/* Thread tab — composer hides "for free" when this branch is
               hidden via display:none. EditorPane mounts unconditionally
               alongside so its canvas/GL state stays warm across toggles. */}
@@ -3932,6 +4112,7 @@ export default function ChatView(props: ChatViewProps) {
                 environmentId={environmentId}
                 routeKind={routeKind}
                 routeThreadRef={routeThreadRef}
+                reviewDiffCacheToken={reviewDiffCacheToken}
                 draftId={draftId}
                 activeThreadId={activeThreadId}
                 activeThreadEnvironmentId={activeThread?.environmentId}
@@ -4035,6 +4216,35 @@ export default function ChatView(props: ChatViewProps) {
               />
             ) : null}
           </div>
+          {activeReviewRouteState ? (
+            <div
+              className="flex min-h-0 min-w-0 flex-1 flex-col"
+              style={{ display: activeChatTab === "review" ? "flex" : "none" }}
+            >
+              <ReviewTabShell
+                environmentId={environmentId}
+                threadId={threadId}
+                routeKind={routeKind}
+                active={activeChatTab === "review"}
+                routeState={activeReviewRouteState}
+                composerDraftTarget={composerDraftTarget}
+                onAskAgent={() => void onSend()}
+                onModeChange={(reviewMode: ReviewRouteMode) =>
+                  updateReviewRouteState({
+                    ...activeReviewRouteState,
+                    reviewMode,
+                  })
+                }
+                onScopeChange={(reviewScope: ReviewRouteScope) =>
+                  updateReviewRouteState({
+                    ...activeReviewRouteState,
+                    reviewScope,
+                  })
+                }
+                onRouteStateChange={updateReviewRouteState}
+              />
+            </div>
+          ) : null}
           {activeThreadKey ? (
             <PersistentThreadTerminalDrawer
               threadRef={routeThreadRef}

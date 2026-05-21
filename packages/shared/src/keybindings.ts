@@ -34,6 +34,27 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+e", command: "editor.toggleChatTab", when: "!terminalFocus" },
   { key: "mod+shift+[", command: "thread.previous" },
   { key: "mod+shift+]", command: "thread.next" },
+  { key: "j", command: "review.previousItem" as KeybindingRule["command"], when: "reviewFocus" },
+  { key: "k", command: "review.nextItem" as KeybindingRule["command"], when: "reviewFocus" },
+  { key: "o", command: "review.openChange" as KeybindingRule["command"], when: "reviewFocus" },
+  { key: "a", command: "review.askAgent" as KeybindingRule["command"], when: "reviewFocus" },
+  { key: "r", command: "review.markReviewed" as KeybindingRule["command"], when: "reviewFocus" },
+  {
+    key: "f",
+    command: "review.markNeedsFollowUp" as KeybindingRule["command"],
+    when: "reviewFocus",
+  },
+  { key: "tab", command: "review.toggleMode" as KeybindingRule["command"], when: "reviewFocus" },
+  {
+    key: "g",
+    command: "review.refreshAnalysis" as KeybindingRule["command"],
+    when: "reviewFocus",
+  },
+  {
+    key: "s",
+    command: "review.openSubmitReviewTray" as KeybindingRule["command"],
+    when: "reviewFocus",
+  },
   ...THREAD_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
     key: `mod+${index + 1}`,
     command,

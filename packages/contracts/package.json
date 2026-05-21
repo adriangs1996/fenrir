@@ -10,6 +10,11 @@
   "module": "./dist/index.mjs",
   "types": "./src/index.ts",
   "exports": {
+    "./review": {
+      "types": "./src/review.ts",
+      "import": "./src/review.ts",
+      "require": "./src/review.ts"
+    },
     "./settings": {
       "types": "./src/settings.ts",
       "import": "./src/settings.ts",

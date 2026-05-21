@@ -107,6 +107,11 @@ const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
   { shortcut: modShortcut("[", { shiftKey: true }), command: "thread.previous" },
   { shortcut: modShortcut("]", { shiftKey: true }), command: "thread.next" },
+  {
+    shortcut: { ...modShortcut("o"), modKey: false },
+    command: "review.openChange" as KeybindingCommand,
+    whenAst: whenIdentifier("reviewFocus"),
+  },
   { shortcut: modShortcut("1"), command: "thread.jump.1" },
   { shortcut: modShortcut("2"), command: "thread.jump.2" },
   { shortcut: modShortcut("3"), command: "thread.jump.3" },
@@ -270,6 +275,17 @@ describe("shortcutLabelForCommand", () => {
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.previous", "Linux"),
       "Ctrl+Shift+[",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(
+        DEFAULT_BINDINGS,
+        "review.openChange" as KeybindingCommand,
+        {
+          platform: "Linux",
+          context: { reviewFocus: true },
+        } as never,
+      ),
+      "O",
     );
   });
 
@@ -502,6 +518,22 @@ describe("resolveShortcutCommand", () => {
         },
       ),
       "thread.next",
+    );
+  });
+
+  it("respects reviewFocus-only commands", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "o" }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { reviewFocus: true },
+      }),
+      "review.openChange",
+    );
+    assert.isNull(
+      resolveShortcutCommand(event({ key: "o" }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { reviewFocus: false },
+      }),
     );
   });
 });

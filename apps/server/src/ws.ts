@@ -28,6 +28,34 @@ import {
   TmuxError,
   type ServerProviderSkill,
   type ManagedProcessLogServerMessage,
+  ReviewActionBlockedError,
+  type ReviewApplyRawMutationInput,
+  type ReviewCreateLocalAnnotationReplyInput,
+  type ReviewCreateLocalAnnotationThreadInput,
+  type ReviewDeleteLocalAnnotationReplyInput,
+  type ReviewDeleteLocalAnnotationThreadInput,
+  type ReviewDeleteOverviewNoteInput,
+  type ReviewDeleteGitHubDraftInput,
+  type ReviewGenerateAnalysisInput,
+  type ReviewGetChunkPayloadInput,
+  type ReviewGetDiffSnapshotInput,
+  type ReviewGetFilePatchInput,
+  type ReviewGetGitHubSnapshotInput,
+  type ReviewGetOrCreateSessionInput,
+  type ReviewGetSessionInput,
+  ReviewMutationConflictError,
+  type ReviewSetLocalThreadResolvedInput,
+  type ReviewRefreshProviderDataInput,
+  type ReviewReplyToGitHubThreadInput,
+  ReviewRpcError,
+  type ReviewSetModeInput,
+  type ReviewSetProgressInput,
+  type ReviewSetScopeInput,
+  type ReviewSubmitGitHubDraftInput,
+  type ReviewUpdateLocalAnnotationReplyInput,
+  type ReviewUpdateLocalAnnotationThreadInput,
+  type ReviewUpsertGitHubDraftInput,
+  type ReviewUpsertOverviewNoteInput,
 } from "@fenrir/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
@@ -82,6 +110,10 @@ import { SkillService } from "./skill/SkillService";
 import { ProcessDiagnostics } from "./diagnostics/ProcessDiagnostics";
 import { ProcessResourceMonitor } from "./diagnostics/ProcessResourceMonitor";
 import { TraceDiagnostics } from "./diagnostics/TraceDiagnostics";
+import { ReviewRpcService } from "./review/Services/ReviewRpcService";
+import type { ReviewRpcServiceShape } from "./review/Services/ReviewRpcService";
+
+const ContractWsMethods = WS_METHODS;
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -168,9 +200,47 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         if (Schema.is(ManagedProcessRpcError)(err)) return err;
         return new ManagedProcessRpcError({
           code: "io-error",
-          message: err instanceof Error ? err.message : "Managed process operation failed",
+          message:
+            err instanceof globalThis.Error ? err.message : "Managed process operation failed",
         });
       };
+
+      const toReviewRpcErrorOnly = (err: unknown): ReviewRpcError => {
+        if (Schema.is(ReviewRpcError)(err)) return err;
+        return new ReviewRpcError({
+          message: err instanceof globalThis.Error ? err.message : "Review operation failed.",
+          cause: err,
+        });
+      };
+
+      const toReviewRpcOrBlockedError = (
+        err: unknown,
+      ): ReviewRpcError | ReviewActionBlockedError => {
+        if (Schema.is(ReviewActionBlockedError)(err) || Schema.is(ReviewRpcError)(err)) return err;
+        return new ReviewRpcError({
+          message: err instanceof globalThis.Error ? err.message : "Review operation failed.",
+          cause: err,
+        });
+      };
+
+      const toReviewRpcOrConflictError = (
+        err: unknown,
+      ): ReviewRpcError | ReviewMutationConflictError => {
+        if (Schema.is(ReviewMutationConflictError)(err) || Schema.is(ReviewRpcError)(err))
+          return err;
+        return new ReviewRpcError({
+          message: err instanceof globalThis.Error ? err.message : "Review operation failed.",
+          cause: err,
+        });
+      };
+
+      const withReviewRpcService = <A, E, R>(
+        f: (reviewRpcService: ReviewRpcServiceShape) => Effect.Effect<A, E, R>,
+      ) =>
+        Effect.gen(function* () {
+          const reviewRpcService = yield* ReviewRpcService;
+          return yield* f(reviewRpcService);
+        });
 
       const loadAuthAccessSnapshot = () =>
         Effect.all({
@@ -1667,6 +1737,279 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
               ),
             { "rpc.aggregate": "server" },
+          ),
+
+        [ContractWsMethods.reviewGetOrCreateSession]: (input: ReviewGetOrCreateSessionInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewGetOrCreateSession,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.getOrCreateSession(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewGetSessionSummary]: (input: ReviewGetSessionInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewGetSessionSummary,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.getSessionSummary(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewGetSessionSnapshot]: (input: ReviewGetSessionInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewGetSessionSnapshot,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.getSessionSnapshot(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewSetMode]: (input: ReviewSetModeInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewSetMode,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.setMode(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewSetScope]: (input: ReviewSetScopeInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewSetScope,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.setScope(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewSetProgress]: (input: ReviewSetProgressInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewSetProgress,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.setProgress(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewCreateLocalThread]: (
+          input: ReviewCreateLocalAnnotationThreadInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewCreateLocalThread,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.createLocalThread(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewUpdateLocalThread]: (
+          input: ReviewUpdateLocalAnnotationThreadInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewUpdateLocalThread,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.updateLocalThread(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewDeleteLocalThread]: (
+          input: ReviewDeleteLocalAnnotationThreadInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewDeleteLocalThread,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.deleteLocalThread(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewSetLocalThreadResolved]: (
+          input: ReviewSetLocalThreadResolvedInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewSetLocalThreadResolved,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.setLocalThreadResolved(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewCreateLocalReply]: (
+          input: ReviewCreateLocalAnnotationReplyInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewCreateLocalReply,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.createLocalReply(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewUpdateLocalReply]: (
+          input: ReviewUpdateLocalAnnotationReplyInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewUpdateLocalReply,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.updateLocalReply(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewDeleteLocalReply]: (
+          input: ReviewDeleteLocalAnnotationReplyInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewDeleteLocalReply,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.deleteLocalReply(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewUpsertOverviewNote]: (input: ReviewUpsertOverviewNoteInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewUpsertOverviewNote,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.upsertOverviewNote(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewDeleteOverviewNote]: (input: ReviewDeleteOverviewNoteInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewDeleteOverviewNote,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.deleteOverviewNote(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewGetDiffSnapshot]: (input: ReviewGetDiffSnapshotInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewGetDiffSnapshot,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.getDiffSnapshot(input),
+            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewGetFilePatch]: (input: ReviewGetFilePatchInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewGetFilePatch,
+            withReviewRpcService((reviewRpcService) => reviewRpcService.getFilePatch(input)).pipe(
+              Effect.mapError(toReviewRpcErrorOnly),
+            ),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewGetChunkPayload]: (input: ReviewGetChunkPayloadInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewGetChunkPayload,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.getChunkPayload(input),
+            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewGetGitHubSnapshot]: (input: ReviewGetGitHubSnapshotInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewGetGitHubSnapshot,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.getGitHubSnapshot(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewUpsertGitHubDraft]: (input: ReviewUpsertGitHubDraftInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewUpsertGitHubDraft,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.upsertGitHubDraft({
+                ...input,
+                authSessionId: currentSessionId,
+              }),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewApplyRawMutation]: (input: ReviewApplyRawMutationInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewApplyRawMutation,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.applyRawMutation(input),
+            ).pipe(Effect.mapError(toReviewRpcOrConflictError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewDeleteGitHubDraft]: (input: ReviewDeleteGitHubDraftInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewDeleteGitHubDraft,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.deleteGitHubDraft({
+                ...input,
+                authSessionId: currentSessionId,
+              }),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewReplyToGitHubThread]: (input: ReviewReplyToGitHubThreadInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewReplyToGitHubThread,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.replyToGitHubThread({
+                ...input,
+                authSessionId: currentSessionId,
+              }),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewSubmitGitHubDraft]: (input: ReviewSubmitGitHubDraftInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewSubmitGitHubDraft,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.submitGitHubDraft({
+                ...input,
+                authSessionId: currentSessionId,
+              }),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewRefreshProviderData]: (input: ReviewRefreshProviderDataInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewRefreshProviderData,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.refreshProviderData(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.reviewGenerateAnalysis]: (input: ReviewGenerateAnalysisInput) =>
+          observeRpcEffect(
+            ContractWsMethods.reviewGenerateAnalysis,
+            withReviewRpcService((reviewRpcService) =>
+              reviewRpcService.generateAnalysis(input, currentSessionId),
+            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
+            { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.subscribeReviewEvents]: (input: ReviewGetSessionInput) =>
+          observeRpcStream(
+            ContractWsMethods.subscribeReviewEvents,
+            withReviewRpcService((reviewRpcService) =>
+              Effect.succeed(
+                reviewRpcService
+                  .streamEvents(input, currentSessionId)
+                  .pipe(Stream.mapError(toReviewRpcErrorOnly)),
+              ),
+            ).pipe(Stream.unwrap),
+            { "rpc.aggregate": "review" },
           ),
       });
     }),

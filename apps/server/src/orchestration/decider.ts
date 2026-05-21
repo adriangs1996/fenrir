@@ -450,6 +450,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           runtimeMode: targetThread.runtimeMode,
           interactionMode: targetThread.interactionMode,
           ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
+          ...("reviewContext" in command && command.reviewContext !== undefined
+            ? { reviewContext: command.reviewContext }
+            : {}),
           createdAt: command.createdAt,
         },
       };

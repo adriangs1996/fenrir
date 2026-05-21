@@ -17,6 +17,7 @@ import {
   type ScopedThreadRef,
   ThreadId,
 } from "@fenrir/contracts";
+import { ReviewRawLaneKind, ReviewStableAnchor } from "../../../packages/contracts/src/review";
 import {
   parseScopedProjectKey,
   parseScopedThreadKey,
@@ -44,9 +45,10 @@ import { useShallow } from "zustand/react/shallow";
 import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
 import { getDefaultServerModel } from "./providerModels";
 import { UnifiedSettings } from "@fenrir/contracts/settings";
+import type { ReviewContextAttachmentDraft } from "./modules/review/reviewComposer";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "fenrir:composer-drafts:v1";
-const COMPOSER_DRAFT_STORAGE_VERSION = 5;
+const COMPOSER_DRAFT_STORAGE_VERSION = 6;
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 const isRuntimeMode = Schema.is(RuntimeMode);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
@@ -93,10 +95,37 @@ const PersistedTerminalContextDraft = Schema.Struct({
 });
 type PersistedTerminalContextDraft = typeof PersistedTerminalContextDraft.Type;
 
+const PersistedReviewContextChunkSnapshot = Schema.Struct({
+  sessionId: Schema.String,
+  groupId: Schema.String,
+  fileId: Schema.String,
+  lane: ReviewRawLaneKind,
+  normalizedPath: Schema.String,
+  displayPath: Schema.String,
+  chunkId: Schema.String,
+  anchor: ReviewStableAnchor,
+  header: Schema.String,
+  rawPatch: Schema.String,
+  codeExcerpt: Schema.String,
+});
+type PersistedReviewContextChunkSnapshot = typeof PersistedReviewContextChunkSnapshot.Type;
+
+const PersistedReviewContextAttachmentDraft = Schema.Struct({
+  id: Schema.String,
+  createdAt: Schema.String,
+  sourceKind: Schema.Literals(["chunk", "file", "group"]),
+  title: Schema.String,
+  sessionId: Schema.String,
+  diffCacheToken: Schema.NullOr(Schema.String),
+  chunks: Schema.Array(PersistedReviewContextChunkSnapshot),
+});
+type PersistedReviewContextAttachmentDraft = typeof PersistedReviewContextAttachmentDraft.Type;
+
 const PersistedComposerThreadDraftState = Schema.Struct({
   prompt: Schema.String,
   attachments: Schema.Array(PersistedComposerImageAttachment),
   terminalContexts: Schema.optionalKey(Schema.Array(PersistedTerminalContextDraft)),
+  reviewContexts: Schema.optionalKey(Schema.Array(PersistedReviewContextAttachmentDraft)),
   modelSelectionByProvider: Schema.optionalKey(Schema.Record(Schema.String, ModelSelection)),
   providerInstanceIdByProvider: Schema.optionalKey(
     Schema.Record(Schema.String, ProviderInstanceId),
@@ -204,6 +233,7 @@ export interface ComposerThreadDraftState {
   nonPersistedImageIds: string[];
   persistedAttachments: PersistedComposerImageAttachment[];
   terminalContexts: TerminalContextDraft[];
+  reviewContexts: ReviewContextAttachmentDraft[];
   modelSelectionByProvider: Partial<Record<ProviderSelectionKind, ModelSelection>>;
   providerInstanceIdByProvider: Partial<Record<ProviderSelectionKind, ProviderInstanceId>>;
   activeProvider: ProviderSelectionKind | null;
@@ -341,6 +371,16 @@ interface ComposerDraftStoreState {
   ) => void;
   setPrompt: (threadRef: ComposerThreadTarget, prompt: string) => void;
   setTerminalContexts: (threadRef: ComposerThreadTarget, contexts: TerminalContextDraft[]) => void;
+  addReviewContext: (
+    threadRef: ComposerThreadTarget,
+    attachment: ReviewContextAttachmentDraft,
+  ) => void;
+  refreshReviewContext: (
+    threadRef: ComposerThreadTarget,
+    attachment: ReviewContextAttachmentDraft,
+  ) => void;
+  removeReviewContext: (threadRef: ComposerThreadTarget, attachmentId: string) => void;
+  clearReviewContexts: (threadRef: ComposerThreadTarget) => void;
   setModelSelection: (
     threadRef: ComposerThreadTarget,
     modelSelection: ModelSelection | null | undefined,
@@ -443,9 +483,11 @@ const EMPTY_IMAGES: ComposerImageAttachment[] = [];
 const EMPTY_IDS: string[] = [];
 const EMPTY_PERSISTED_ATTACHMENTS: PersistedComposerImageAttachment[] = [];
 const EMPTY_TERMINAL_CONTEXTS: TerminalContextDraft[] = [];
+const EMPTY_REVIEW_CONTEXTS: ReviewContextAttachmentDraft[] = [];
 Object.freeze(EMPTY_IMAGES);
 Object.freeze(EMPTY_IDS);
 Object.freeze(EMPTY_PERSISTED_ATTACHMENTS);
+Object.freeze(EMPTY_REVIEW_CONTEXTS);
 const EMPTY_MODEL_SELECTION_BY_PROVIDER: Partial<Record<ProviderSelectionKind, ModelSelection>> =
   Object.freeze({});
 const EMPTY_PROVIDER_INSTANCE_ID_BY_PROVIDER: Partial<
@@ -462,6 +504,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   nonPersistedImageIds: EMPTY_IDS,
   persistedAttachments: EMPTY_PERSISTED_ATTACHMENTS,
   terminalContexts: EMPTY_TERMINAL_CONTEXTS,
+  reviewContexts: EMPTY_REVIEW_CONTEXTS,
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
   providerInstanceIdByProvider: EMPTY_PROVIDER_INSTANCE_ID_BY_PROVIDER,
   activeProvider: null,
@@ -476,6 +519,7 @@ function createEmptyThreadDraft(): ComposerThreadDraftState {
     nonPersistedImageIds: [],
     persistedAttachments: [],
     terminalContexts: [],
+    reviewContexts: [],
     modelSelectionByProvider: {},
     providerInstanceIdByProvider: {},
     activeProvider: null,
@@ -541,12 +585,20 @@ function normalizeTerminalContextsForThread(
   return normalizedContexts;
 }
 
+function normalizePersistedReviewContextAttachmentDraft(
+  value: unknown,
+): PersistedReviewContextAttachmentDraft | null {
+  const result = Schema.decodeUnknownOption(PersistedReviewContextAttachmentDraft)(value);
+  return result._tag === "Some" ? result.value : null;
+}
+
 function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
   return (
     draft.prompt.length === 0 &&
     draft.images.length === 0 &&
     draft.persistedAttachments.length === 0 &&
     draft.terminalContexts.length === 0 &&
+    draft.reviewContexts.length === 0 &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     Object.keys(draft.providerInstanceIdByProvider).length === 0 &&
     draft.activeProvider === null &&
@@ -1477,6 +1529,12 @@ function normalizePersistedDraftsByThreadId(
           return normalized ? [normalized] : [];
         })
       : [];
+    const reviewContexts = Array.isArray(draftCandidate.reviewContexts)
+      ? draftCandidate.reviewContexts.flatMap((entry) => {
+          const normalized = normalizePersistedReviewContextAttachmentDraft(entry);
+          return normalized ? [normalized] : [];
+        })
+      : [];
     const runtimeMode = isRuntimeMode(draftCandidate.runtimeMode)
       ? draftCandidate.runtimeMode
       : null;
@@ -1547,6 +1605,7 @@ function normalizePersistedDraftsByThreadId(
       promptCandidate.length === 0 &&
       attachments.length === 0 &&
       terminalContexts.length === 0 &&
+      reviewContexts.length === 0 &&
       !hasModelData &&
       !runtimeMode &&
       !interactionMode
@@ -1569,6 +1628,7 @@ function normalizePersistedDraftsByThreadId(
       prompt,
       attachments: [...attachments],
       ...(terminalContexts.length > 0 ? { terminalContexts: [...terminalContexts] } : {}),
+      ...(reviewContexts.length > 0 ? { reviewContexts: [...reviewContexts] } : {}),
       ...(hasModelData
         ? { modelSelectionByProvider, providerInstanceIdByProvider, activeProvider }
         : {}),
@@ -1652,6 +1712,7 @@ function partializeComposerDraftStoreState(
       draft.prompt.length === 0 &&
       draft.persistedAttachments.length === 0 &&
       draft.terminalContexts.length === 0 &&
+      draft.reviewContexts.length === 0 &&
       !hasModelData &&
       draft.runtimeMode === null &&
       draft.interactionMode === null
@@ -1671,6 +1732,14 @@ function partializeComposerDraftStoreState(
               terminalLabel: context.terminalLabel,
               lineStart: context.lineStart,
               lineEnd: context.lineEnd,
+            })),
+          }
+        : {}),
+      ...(draft.reviewContexts.length > 0
+        ? {
+            reviewContexts: draft.reviewContexts.map((attachment) => ({
+              ...attachment,
+              chunks: attachment.chunks.map((chunk) => ({ ...chunk })),
             })),
           }
         : {}),
@@ -1912,6 +1981,11 @@ function toHydratedThreadDraft(
       persistedDraft.terminalContexts?.map((context) => ({
         ...context,
         text: "",
+      })) ?? [],
+    reviewContexts:
+      persistedDraft.reviewContexts?.map((attachment) => ({
+        ...attachment,
+        chunks: attachment.chunks.map((chunk) => ({ ...chunk })),
       })) ?? [],
     modelSelectionByProvider,
     providerInstanceIdByProvider,
@@ -2407,6 +2481,100 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 normalizedContexts.length,
               ),
               terminalContexts: normalizedContexts,
+            };
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(nextDraft)) {
+              delete nextDraftsByThreadKey[threadKey];
+            } else {
+              nextDraftsByThreadKey[threadKey] = nextDraft;
+            }
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        addReviewContext: (threadRef, attachment) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          set((state) => {
+            const existing = state.draftsByThreadKey[threadKey] ?? createEmptyThreadDraft();
+            if (existing.reviewContexts.some((entry) => entry.id === attachment.id)) {
+              return state;
+            }
+            return {
+              draftsByThreadKey: {
+                ...state.draftsByThreadKey,
+                [threadKey]: {
+                  ...existing,
+                  reviewContexts: [...existing.reviewContexts, attachment],
+                },
+              },
+            };
+          });
+        },
+        refreshReviewContext: (threadRef, attachment) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          set((state) => {
+            const current = state.draftsByThreadKey[threadKey];
+            if (!current) {
+              return state;
+            }
+            const index = current.reviewContexts.findIndex((entry) => entry.id === attachment.id);
+            if (index === -1) {
+              return state;
+            }
+            const nextReviewContexts = [...current.reviewContexts];
+            nextReviewContexts[index] = attachment;
+            return {
+              draftsByThreadKey: {
+                ...state.draftsByThreadKey,
+                [threadKey]: {
+                  ...current,
+                  reviewContexts: nextReviewContexts,
+                },
+              },
+            };
+          });
+        },
+        removeReviewContext: (threadRef, attachmentId) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          set((state) => {
+            const current = state.draftsByThreadKey[threadKey];
+            if (!current) {
+              return state;
+            }
+            const nextDraft: ComposerThreadDraftState = {
+              ...current,
+              reviewContexts: current.reviewContexts.filter((entry) => entry.id !== attachmentId),
+            };
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(nextDraft)) {
+              delete nextDraftsByThreadKey[threadKey];
+            } else {
+              nextDraftsByThreadKey[threadKey] = nextDraft;
+            }
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        clearReviewContexts: (threadRef) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          set((state) => {
+            const current = state.draftsByThreadKey[threadKey];
+            if (!current || current.reviewContexts.length === 0) {
+              return state;
+            }
+            const nextDraft: ComposerThreadDraftState = {
+              ...current,
+              reviewContexts: [],
             };
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {
@@ -3023,6 +3191,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nonPersistedImageIds: [],
               persistedAttachments: [],
               terminalContexts: [],
+              reviewContexts: [],
             };
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {
