@@ -10,7 +10,16 @@ import {
   SquareIcon,
   XCircleIcon,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { ProjectId } from "@fenrir/contracts";
 import {
@@ -23,6 +32,16 @@ import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton } from "~/components/ui/sidebar";
 import { Button } from "~/components/ui/button";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "~/components/ui/collapsible";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "~/components/ui/dialog";
+import { Input } from "~/components/ui/input";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { toastManager } from "~/components/ui/toast";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
@@ -42,6 +61,23 @@ interface PlanRunnerFeatureFolderProps {
 
 const PLAN_RUNNER_FEATURE_FOLDER_KEY_PREFIX = "plan-runner:feature:";
 
+function getValidatedFeatureRename(
+  oldName: string,
+  rawInput: string,
+): { nextName: string | null; error: string | null } {
+  const nextName = rawInput.trim();
+  if (nextName.length === 0 || nextName === oldName) {
+    return { nextName: null, error: null };
+  }
+  if (/[/\\]|\.\./.test(nextName)) {
+    return {
+      nextName: null,
+      error: "Name must not contain '/', '\\\\', or '..'.",
+    };
+  }
+  return { nextName, error: null };
+}
+
 export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   feature,
   projectId,
@@ -56,6 +92,10 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   const setPlans = usePlanRunnerStore((s) => s.setPlans);
   const archiveFeature = usePlanRunnerStore((s) => s.archiveFeature);
   const renameFeature = usePlanRunnerStore((s) => s.renameFeature);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [renameInput, setRenameInput] = useState(feature.featureName);
+  const [renamePending, setRenamePending] = useState(false);
 
   const rpcClient = useMemo(() => {
     try {
@@ -73,6 +113,17 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
       .then((result) => setPlans(featureKey, result.plans))
       .catch((err) => console.error("getFeaturePlans failed:", err));
   }, [expanded, rpcClient, projectId, feature.featureName, featureKey, setPlans, plans.length]);
+
+  useEffect(() => {
+    if (!renameDialogOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [renameDialogOpen]);
 
   const status: FeatureRunStatus = useMemo(() => getFeatureRunStatus(feature), [feature]);
 
@@ -115,40 +166,56 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
       });
       return;
     }
-    const oldName = feature.featureName;
-    const input = window.prompt(`Rename feature "${oldName}" to:`, oldName);
-    if (input === null) return; // dismissed
-    const newName = input.trim();
-    if (newName.length === 0 || newName === oldName) return;
-    if (/[/\\]|\.\./.test(newName)) {
-      toastManager.add({
-        type: "error",
-        title: "Invalid feature name",
-        description: "Name must not contain '/', '\\\\', or '..'.",
-      });
-      return;
-    }
-    renameFeature(projectId, oldName, newName)
-      .then(({ featureName }) => {
+    setRenameInput(feature.featureName);
+    setRenameDialogOpen(true);
+  }, [canRename, feature.featureName]);
+
+  const submitRename = useCallback(
+    async (event?: FormEvent) => {
+      event?.preventDefault();
+      if (renamePending) return;
+
+      const oldName = feature.featureName;
+      const validated = getValidatedFeatureRename(oldName, renameInput);
+      if (validated.error) {
+        toastManager.add({
+          type: "error",
+          title: "Invalid feature name",
+          description: validated.error,
+        });
+        return;
+      }
+      if (!validated.nextName) {
+        setRenameDialogOpen(false);
+        return;
+      }
+
+      setRenamePending(true);
+      try {
+        const { featureName } = await renameFeature(projectId, oldName, validated.nextName);
+        setRenameDialogOpen(false);
         // If the user is currently viewing the renamed feature, swap the URL
         // so route params stay valid.
         const currentPath = window.location.pathname;
         const encodedOld = encodeURIComponent(oldName);
         if (currentPath.includes(`/plan-runner/${encodedOld}`)) {
-          void navigate({
+          await navigate({
             to: "/plan-runner/$featureName/run",
             params: { featureName },
           });
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         toastManager.add({
           type: "error",
           title: "Failed to rename feature",
           description: err instanceof Error ? err.message : "An error occurred.",
         });
-      });
-  }, [canRename, renameFeature, projectId, feature.featureName, navigate]);
+      } finally {
+        setRenamePending(false);
+      }
+    },
+    [feature.featureName, navigate, projectId, renameFeature, renameInput, renamePending],
+  );
 
   const handleContextMenu = useCallback(
     (event: ReactMouseEvent<HTMLElement>) => {
@@ -198,95 +265,141 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
     },
     [navigate, feature.featureName],
   );
-
   return (
-    <SidebarMenuSubItem className="w-full">
-      <Collapsible
-        open={expanded}
-        onOpenChange={(open) => setPlanRunnerFolderExpanded(expansionKey, open)}
-      >
-        <div className="flex items-center" onContextMenu={handleContextMenu}>
-          <CollapsibleTrigger
-            aria-label={expanded ? "Collapse plans" : "Expand plans"}
-            className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <ChevronRightIcon
-              className={`size-3 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
+    <>
+      <SidebarMenuSubItem className="w-full">
+        <Collapsible
+          open={expanded}
+          onOpenChange={(open) => setPlanRunnerFolderExpanded(expansionKey, open)}
+        >
+          <div className="flex items-center" onContextMenu={handleContextMenu}>
+            <CollapsibleTrigger
+              aria-label={expanded ? "Collapse plans" : "Expand plans"}
+              className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <ChevronRightIcon
+                className={`size-3 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
+              />
+            </CollapsibleTrigger>
+            <SidebarMenuSubButton
+              size="sm"
+              className="h-7 min-w-0 flex-1 translate-x-0 justify-start gap-1.5 px-2 text-left text-xs text-muted-foreground"
+              onClick={handleConfigure}
+              title={`Open ${feature.featureName} run`}
+            >
+              <span className="min-w-0 flex-1 truncate">{feature.featureName}</span>
+            </SidebarMenuSubButton>
+            <FeatureStatusIcon
+              status={status}
+              lastUpdatedAt={feature.lastRunUpdatedAt}
+              hasRun={statusRunId !== null}
+              onClick={handleStatusClick}
             />
-          </CollapsibleTrigger>
-          <SidebarMenuSubButton
-            size="sm"
-            className="h-7 min-w-0 flex-1 translate-x-0 justify-start gap-1.5 px-2 text-left text-xs text-muted-foreground"
-            onClick={handleConfigure}
-            title={`Open ${feature.featureName} run`}
-          >
-            <span className="min-w-0 flex-1 truncate">{feature.featureName}</span>
-          </SidebarMenuSubButton>
-          <FeatureStatusIcon
-            status={status}
-            lastUpdatedAt={feature.lastRunUpdatedAt}
-            hasRun={statusRunId !== null}
-            onClick={handleStatusClick}
-          />
-          {feature.hasActiveRun && status !== "stopped" && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-5 shrink-0 text-warning"
-              onClick={handleStop}
-              title="Stop run"
+            {feature.hasActiveRun && status !== "stopped" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-5 shrink-0 text-warning"
+                onClick={handleStop}
+                title="Stop run"
+              >
+                <SquareIcon className="size-3" />
+              </Button>
+            )}
+            {status === "stopped" && feature.activeRunId && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-5 shrink-0 text-success"
+                onClick={handleResume}
+                title="Resume run"
+              >
+                <PlayIcon className="size-3 fill-current" />
+              </Button>
+            )}
+            <button
+              type="button"
+              className={`inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:opacity-100 ${
+                canArchive
+                  ? "hover:bg-accent hover:text-foreground"
+                  : "cursor-not-allowed opacity-50 group-hover/menu-sub-item:opacity-50"
+              }`}
+              disabled={!canArchive}
+              title={canArchive ? "Archive feature" : "Cannot archive feature with active run"}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleArchive();
+              }}
+              aria-label={`Archive feature ${feature.featureName}`}
             >
-              <SquareIcon className="size-3" />
-            </Button>
-          )}
-          {status === "stopped" && feature.activeRunId && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-5 shrink-0 text-success"
-              onClick={handleResume}
-              title="Resume run"
-            >
-              <PlayIcon className="size-3 fill-current" />
-            </Button>
-          )}
-          <button
-            type="button"
-            className={`inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:opacity-100 ${
-              canArchive
-                ? "hover:bg-accent hover:text-foreground"
-                : "cursor-not-allowed opacity-50 group-hover/menu-sub-item:opacity-50"
-            }`}
-            disabled={!canArchive}
-            title={canArchive ? "Archive feature" : "Cannot archive feature with active run"}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleArchive();
-            }}
-            aria-label={`Archive feature ${feature.featureName}`}
-          >
-            <ArchiveIcon className="size-3" />
-          </button>
-        </div>
+              <ArchiveIcon className="size-3" />
+            </button>
+          </div>
 
-        <CollapsibleContent>
-          <SidebarMenuSub className="mx-2 gap-0 border-l border-sidebar-border py-0 pl-2">
-            {plans.map((plan) => (
-              <SidebarMenuSubItem key={plan.planId}>
-                <SidebarMenuSubButton
-                  size="sm"
-                  className="group h-6 w-full gap-1.5 px-1.5 text-[10px] text-muted-foreground/70"
-                  onClick={() => handlePlanClick(plan)}
-                >
-                  <FileTextIcon className="size-3 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{plan.filename}</span>
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            ))}
-          </SidebarMenuSub>
-        </CollapsibleContent>
-      </Collapsible>
-    </SidebarMenuSubItem>
+          <CollapsibleContent>
+            <SidebarMenuSub className="mx-2 gap-0 border-l border-sidebar-border py-0 pl-2">
+              {plans.map((plan) => (
+                <SidebarMenuSubItem key={plan.planId}>
+                  <SidebarMenuSubButton
+                    size="sm"
+                    className="group h-6 w-full gap-1.5 px-1.5 text-[10px] text-muted-foreground/70"
+                    onClick={() => handlePlanClick(plan)}
+                  >
+                    <FileTextIcon className="size-3 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">{plan.filename}</span>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+              ))}
+            </SidebarMenuSub>
+          </CollapsibleContent>
+        </Collapsible>
+      </SidebarMenuSubItem>
+
+      <Dialog
+        open={renameDialogOpen}
+        onOpenChange={(open) => {
+          if (!renamePending) {
+            setRenameDialogOpen(open);
+          }
+        }}
+      >
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename feature</DialogTitle>
+            <DialogDescription>
+              Rename <code>{feature.featureName}</code> in the plan runner.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <form id={`rename-feature-${featureKey}`} className="space-y-3" onSubmit={submitRename}>
+              <label className="grid gap-1.5">
+                <span className="text-xs font-medium text-foreground">Feature name</span>
+                <Input
+                  ref={renameInputRef}
+                  value={renameInput}
+                  onChange={(event) => setRenameInput(event.target.value)}
+                  placeholder="feature-name"
+                  disabled={renamePending}
+                />
+              </label>
+            </form>
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRenameDialogOpen(false)}
+              disabled={renamePending}
+            >
+              Cancel
+            </Button>
+            <Button form={`rename-feature-${featureKey}`} type="submit" disabled={renamePending}>
+              {renamePending ? "Renaming..." : "Rename"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </>
   );
 });
 
