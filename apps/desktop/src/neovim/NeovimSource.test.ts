@@ -21,6 +21,17 @@ function buildFrame(source: NeovimSource) {
 }
 
 describe("NeovimSource", () => {
+  it("pastes clipboard text through nvim_paste", () => {
+    const source = createSource();
+    const request = vi.fn().mockResolvedValue(true);
+    (source as any).client = { request };
+    (source as any).started = true;
+
+    source.handleInput({ kind: "paste", text: "console.log('hi')\n" });
+
+    expect(request).toHaveBeenCalledWith("nvim_paste", ["console.log('hi')\n", false, -1]);
+  });
+
   it("emits binary grid deltas preserving supplementary-plane glyphs", () => {
     const source = createSource();
 

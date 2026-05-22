@@ -86,15 +86,6 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
 
-      if (command === "editor.sendSelection") {
-        const activeTab = useEditorStore.getState().activeChatTab;
-        if (activeTab !== "editor") return;
-        event.preventDefault();
-        event.stopPropagation();
-        void window.desktopBridge?.editor.invokeBridge("send_selection");
-        return;
-      }
-
       if (String(command).startsWith("review.")) {
         const registration = readReviewCommandRegistration();
         if (!registration || !registration.availableCommands.has(command as never)) {

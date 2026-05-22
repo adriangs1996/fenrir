@@ -692,10 +692,6 @@ export default function ChatView(props: ChatViewProps) {
   const promptRef = useRef("");
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
-  const reviewThreadState = useReviewStore(
-    (state) => state.threads[scopedThreadKey(routeThreadRef)] ?? null,
-  );
-  const reviewDiffCacheToken = reviewThreadState?.diffCacheToken ?? null;
   const composerHandleContext = useComposerHandleContext();
   const composerRef = useRef<ChatComposerHandle>(null);
   const commandPaletteOpen = useCommandPaletteStore((state) => state.open);
@@ -905,6 +901,11 @@ export default function ChatView(props: ChatViewProps) {
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
     [activeThread],
   );
+  const reviewThreadRef = activeThreadRef ?? routeThreadRef;
+  const reviewThreadState = useReviewStore(
+    (state) => state.threads[scopedThreadKey(reviewThreadRef)] ?? null,
+  );
+  const reviewDiffCacheToken = reviewThreadState?.diffCacheToken ?? null;
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const existingOpenTerminalThreadKeys = useMemo(() => {
     const existingThreadKeys = new Set<string>([...serverThreadKeys, ...draftThreadKeys]);
@@ -2454,6 +2455,14 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "editor.sendSelection") {
+        if (activeChatTab !== "editor") return;
+        event.preventDefault();
+        event.stopPropagation();
+        void window.desktopBridge?.editor.invokeBridge("send_selection");
+        return;
+      }
+
       // Project scripts checked first (project wins on conflict)
       const scriptId = projectScriptIdFromCommand(command);
       if (scriptId && activeProject) {
@@ -2485,6 +2494,7 @@ export default function ChatView(props: ChatViewProps) {
     serverConfig,
     terminalState.terminalOpen,
     terminalState.activeTerminalId,
+    activeChatTab,
     activeThreadId,
     commandPaletteOpen,
     closeTerminal,
@@ -2497,7 +2507,6 @@ export default function ChatView(props: ChatViewProps) {
     onToggleDiff,
     toggleTerminalVisibility,
     editorAvailable,
-    activeChatTab,
   ]);
 
   const onRevertToTurnCount = useCallback(
@@ -3702,8 +3711,8 @@ export default function ChatView(props: ChatViewProps) {
               style={{ display: activeChatTab === "review" ? "flex" : "none" }}
             >
               <ReviewTabShell
-                environmentId={environmentId}
-                threadId={threadId}
+                environmentId={activeThread.environmentId}
+                threadId={activeThread.id}
                 routeKind={routeKind}
                 active={activeChatTab === "review"}
                 routeState={activeReviewRouteState}

@@ -4,8 +4,19 @@ import type { SystemFont } from "@fenrir/contracts";
 
 const execAsync = promisify(exec);
 
-// In-memory cache — fonts don't change during session
-let cachedFonts: SystemFont[] | null = null;
+const SYSTEM_FONTS_CACHE_TTL_MS = 10_000;
+
+type SystemFontsCacheEntry = {
+  readonly fonts: SystemFont[];
+  readonly fetchedAt: number;
+};
+
+type GetSystemFontsOptions = {
+  readonly refresh?: boolean;
+};
+
+let cachedFonts: SystemFontsCacheEntry | null = null;
+let inFlightFontsPromise: Promise<SystemFont[]> | null = null;
 
 const MONOSPACE_KEYWORDS = [
   "mono",
@@ -125,7 +136,7 @@ export function parseFcListOutput(output: string): SystemFont[] {
   return Array.from(familyMap.values()).toSorted((a, b) => a.family.localeCompare(b.family));
 }
 
-function parsePowerShellOutput(output: string): SystemFont[] {
+export function parsePowerShellOutput(output: string): SystemFont[] {
   const familyMap = new Map<string, SystemFont>();
 
   for (const line of output.split("\n")) {
@@ -136,6 +147,41 @@ function parsePowerShellOutput(output: string): SystemFont[] {
   }
 
   return Array.from(familyMap.values()).toSorted((a, b) => a.family.localeCompare(b.family));
+}
+
+export function parseSystemProfilerOutput(output: string): SystemFont[] {
+  const data = JSON.parse(output);
+  const fonts = data?.SPFontsDataType ?? [];
+  const familyMap = new Map<string, SystemFont>();
+
+  for (const font of fonts) {
+    const typefaces = Array.isArray(font?.typefaces) ? font.typefaces : [];
+
+    for (const typeface of typefaces) {
+      const family = typeof typeface?.family === "string" ? typeface.family.trim() : "";
+      if (!family || familyMap.has(family)) continue;
+      familyMap.set(family, {
+        family,
+        category: classifyFontByName(family),
+      });
+    }
+
+    const fallbackFamily = typeof font?.family === "string" ? font.family.trim() : "";
+    if (!fallbackFamily || familyMap.has(fallbackFamily)) continue;
+    familyMap.set(fallbackFamily, {
+      family: fallbackFamily,
+      category: classifyFontByName(fallbackFamily),
+    });
+  }
+
+  return Array.from(familyMap.values()).toSorted((a, b) => a.family.localeCompare(b.family));
+}
+
+export function isSystemFontsCacheFresh(
+  cacheEntry: SystemFontsCacheEntry | null,
+  now = Date.now(),
+): boolean {
+  return cacheEntry !== null && now - cacheEntry.fetchedAt < SYSTEM_FONTS_CACHE_TTL_MS;
 }
 
 async function discoverFonts(): Promise<SystemFont[]> {
@@ -154,20 +200,7 @@ async function discoverFonts(): Promise<SystemFont[]> {
           const { stdout } = await execAsync("system_profiler SPFontsDataType -json", {
             timeout: 15_000,
           });
-          const data = JSON.parse(stdout);
-          const fonts = data?.SPFontsDataType ?? [];
-          const familyMap = new Map<string, SystemFont>();
-          for (const font of fonts) {
-            const family = font._name ?? font.family;
-            if (!family || familyMap.has(family)) continue;
-            familyMap.set(family, {
-              family,
-              category: classifyFontByName(family),
-            });
-          }
-          return Array.from(familyMap.values()).toSorted((a, b) =>
-            a.family.localeCompare(b.family),
-          );
+          return parseSystemProfilerOutput(stdout);
         }
         return [];
       }
@@ -188,8 +221,38 @@ async function discoverFonts(): Promise<SystemFont[]> {
   }
 }
 
-export async function getSystemFonts(): Promise<SystemFont[]> {
-  if (cachedFonts) return cachedFonts;
-  cachedFonts = await discoverFonts();
-  return cachedFonts;
+export async function getSystemFonts(options?: GetSystemFontsOptions): Promise<SystemFont[]> {
+  if (options?.refresh) {
+    clearSystemFontsCache();
+  }
+
+  const cacheEntry = cachedFonts;
+  if (cacheEntry !== null && isSystemFontsCacheFresh(cacheEntry)) {
+    return cacheEntry.fonts;
+  }
+
+  if (inFlightFontsPromise) {
+    return inFlightFontsPromise;
+  }
+
+  inFlightFontsPromise = discoverFonts()
+    .then((fonts) => {
+      cachedFonts = {
+        fonts,
+        fetchedAt: Date.now(),
+      };
+      return fonts;
+    })
+    .finally(() => {
+      inFlightFontsPromise = null;
+    });
+
+  return inFlightFontsPromise;
 }
+
+export function clearSystemFontsCache(): void {
+  cachedFonts = null;
+  inFlightFontsPromise = null;
+}
+
+export const clearSystemFontsCacheForTests = clearSystemFontsCache;

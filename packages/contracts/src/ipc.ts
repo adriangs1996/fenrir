@@ -301,6 +301,11 @@ export interface DesktopBridge {
   renderStart: () => Promise<void>;
   renderStop: () => Promise<void>;
   renderSetFps: (fps: number) => Promise<void>;
+  /**
+   * Sync the embedded renderer viewport after the editor surface is restored
+   * from a hidden state, then force a full repaint from the main process.
+   */
+  renderSyncViewport: (w: number, h: number) => Promise<void>;
   setEditorFontMetrics: (metrics: EditorFontMetrics) => Promise<void>;
   sendInput: (event: InputEvent) => void;
   onFrame: (listener: (frame: Frame) => void) => () => void;
@@ -421,6 +426,10 @@ export type InputEvent =
       key: string;
       code: string;
       mods: InputModifiers;
+    }
+  | {
+      kind: "paste";
+      text: string;
     }
   | {
       kind: "mouse";

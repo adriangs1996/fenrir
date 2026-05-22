@@ -9,6 +9,7 @@ import {
 import { useSettings } from "~/hooks/useSettings";
 import { ensureNerdFontLoaded } from "~/lib/nerdFont";
 import { resolveShortcutCommand } from "~/keybindings";
+import { isMacPlatform } from "~/lib/utils";
 import { GLRenderer } from "./render/glRenderer";
 
 /**
@@ -30,8 +31,9 @@ export function isAppShortcut(
   // into dead keys / symbols; the editor translator handles that via `event.code`.
   if (e.altKey) return false;
 
-  // Let Cmd+V reach nvim for user-configured paste mappings.
-  if (e.metaKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "v") {
+  // Let the browser emit a native paste event instead of converting paste into
+  // a synthetic key chord. The paste listener forwards the clipboard text.
+  if (isNativePasteShortcut(e, options?.platform)) {
     return false;
   }
 
@@ -44,6 +46,36 @@ export function isAppShortcut(
       },
     }) !== null
   );
+}
+
+export function isNativePasteShortcut(
+  e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">,
+  platform = navigator.platform,
+): boolean {
+  const key = e.key.toLowerCase();
+  if (key !== "v" || e.altKey || e.shiftKey) {
+    return false;
+  }
+  return isMacPlatform(platform) ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+}
+
+export function resolveViewportSize(
+  width: number,
+  height: number,
+): { w: number; h: number } | null {
+  const w = Math.floor(width);
+  const h = Math.floor(height);
+  if (w < 1 || h < 1) {
+    return null;
+  }
+  return { w, h };
+}
+
+export function shouldResyncViewportOnVisibleTransition(
+  previousVisible: boolean,
+  nextVisible: boolean,
+): boolean {
+  return !previousVisible && nextVisible;
 }
 
 interface RenderSurfaceProps {
@@ -139,6 +171,8 @@ export function RenderSurface({
   const compositeNeededRef = useRef(false);
   const keybindingsRef = useRef(keybindings);
   const terminalOpenRef = useRef(terminalOpen);
+  const visibleRef = useRef(visible);
+  const previousVisibleRef = useRef(visible);
   const [bridgeMissing, setBridgeMissing] = useState(false);
   const [glError, setGlError] = useState<string | null>(null);
 
@@ -161,6 +195,10 @@ export function RenderSurface({
     keybindingsRef.current = keybindings;
     terminalOpenRef.current = terminalOpen;
   }, [keybindings, terminalOpen]);
+
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
 
   // Initialise GL renderer once the canvas mounts.
   useEffect(() => {
@@ -186,6 +224,22 @@ export function RenderSurface({
     if (!visible) return;
     canvasRef.current?.focus({ preventScroll: true });
   }, [visible, focusRequestId]);
+
+  useEffect(() => {
+    const wasVisible = previousVisibleRef.current;
+    previousVisibleRef.current = visible;
+    if (!shouldResyncViewportOnVisibleTransition(wasVisible, visible)) {
+      return;
+    }
+    const bridge = window.desktopBridge;
+    const container = containerRef.current;
+    if (!bridge || !container) return;
+    const viewport = resolveViewportSize(container.clientWidth, container.clientHeight);
+    if (!viewport) return;
+    const dpr = window.devicePixelRatio || 1;
+    rendererRef.current?.resize(viewport.w, viewport.h, dpr);
+    void bridge.renderSyncViewport(viewport.w, viewport.h);
+  }, [visible]);
 
   useEffect(() => {
     const bridge = window.desktopBridge;
@@ -246,12 +300,12 @@ export function RenderSurface({
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (!entry) return;
-      const { width, height } = entry.contentRect;
+      if (!visibleRef.current) return;
+      const viewport = resolveViewportSize(entry.contentRect.width, entry.contentRect.height);
+      if (!viewport) return;
       const dpr = window.devicePixelRatio || 1;
-      const w = Math.max(1, Math.floor(width));
-      const h = Math.max(1, Math.floor(height));
-      rendererRef.current?.resize(w, h, dpr);
-      bridge.sendInput({ kind: "resize", w, h });
+      rendererRef.current?.resize(viewport.w, viewport.h, dpr);
+      bridge.sendInput({ kind: "resize", w: viewport.w, h: viewport.h });
       compositeNeededRef.current = true;
       if (rafRef.current === null) {
         rafRef.current = requestAnimationFrame(composite);
@@ -274,6 +328,9 @@ export function RenderSurface({
     });
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isNativePasteShortcut(e)) {
+        return;
+      }
       if (isAppShortcut(e, keybindingsRef.current, { terminalOpen: terminalOpenRef.current })) {
         return; // bubble to app keybinding layer
       }
@@ -286,7 +343,16 @@ export function RenderSurface({
       });
       e.preventDefault();
     };
+    const onPaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData("text/plain");
+      if (!text) return;
+      bridge.sendInput({ kind: "paste", text });
+      e.preventDefault();
+    };
     const onKeyUp = (e: KeyboardEvent) => {
+      if (isNativePasteShortcut(e)) {
+        return;
+      }
       if (isAppShortcut(e, keybindingsRef.current, { terminalOpen: terminalOpenRef.current })) {
         return;
       }
@@ -348,6 +414,7 @@ export function RenderSurface({
 
     canvas.addEventListener("keydown", onKeyDown);
     canvas.addEventListener("keyup", onKeyUp);
+    canvas.addEventListener("paste", onPaste);
     canvas.addEventListener("mousedown", onMouseDown);
     canvas.addEventListener("mouseup", onMouseUp);
     canvas.addEventListener("mousemove", onMouseMove);
@@ -355,6 +422,7 @@ export function RenderSurface({
     return () => {
       canvas.removeEventListener("keydown", onKeyDown);
       canvas.removeEventListener("keyup", onKeyUp);
+      canvas.removeEventListener("paste", onPaste);
       canvas.removeEventListener("mousedown", onMouseDown);
       canvas.removeEventListener("mouseup", onMouseUp);
       canvas.removeEventListener("mousemove", onMouseMove);

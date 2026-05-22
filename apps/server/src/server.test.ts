@@ -839,7 +839,7 @@ const subscribeWsReviewMethod = <A>(wsUrl: string, method: string, input: unknow
     ),
   );
 
-const appendSessionCookieToWsUrl = (url: string, sessionCookieHeader: string) => {
+export const appendSessionCookieToWsUrl = (url: string, sessionCookieHeader: string) => {
   const isAbsoluteUrl = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(url);
   const next = new URL(url, "http://localhost");
   next.hash = `cookie=${encodeURIComponent(sessionCookieHeader)}`;
@@ -1674,7 +1674,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       });
       assert.isNotNull(attachmentPath, "Attachment path should be resolvable");
 
-      yield* fileSystem.makeDirectory(path.dirname(attachmentPath), { recursive: true });
+      yield* fileSystem.makeDirectory(path.dirname(attachmentPath), {
+        recursive: true,
+      });
       yield* fileSystem.writeFileString(attachmentPath, "attachment-ok");
 
       const response = yield* HttpClient.get(`/attachments/${attachmentId}`, {
@@ -1699,7 +1701,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       });
       assert.isNotNull(attachmentPath, "Attachment path should be resolvable");
 
-      yield* fileSystem.makeDirectory(path.dirname(attachmentPath), { recursive: true });
+      yield* fileSystem.makeDirectory(path.dirname(attachmentPath), {
+        recursive: true,
+      });
       yield* fileSystem.writeFileString(attachmentPath, "attachment-encoded-ok");
 
       const response = yield* HttpClient.get(
@@ -2246,7 +2250,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           version: 1 as const,
           sequence: 2,
           type: "ready" as const,
-          payload: { at: new Date().toISOString(), environment: testEnvironmentDescriptor },
+          payload: {
+            at: new Date().toISOString(),
+            environment: testEnvironmentDescriptor,
+          },
         });
 
         yield* buildAppUnderTest({
@@ -2417,7 +2424,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("routes websocket rpc shell.openInEditor errors", () =>
     Effect.gen(function* () {
-      const openError = new OpenError({ message: "Editor command not found: cursor" });
+      const openError = new OpenError({
+        message: "Editor command not found: cursor",
+      });
       yield* buildAppUnderTest({
         layers: {
           open: {

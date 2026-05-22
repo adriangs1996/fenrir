@@ -541,7 +541,12 @@ export function GeneralSettingsPanel() {
   const { theme, setTheme } = useTheme();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
-  const { fonts, isLoading: fontsLoading } = useFonts();
+  const {
+    fonts,
+    isLoading: fontsLoading,
+    isRefreshing: fontsRefreshing,
+    refreshFonts,
+  } = useFonts();
   const [openingPathByTarget, setOpeningPathByTarget] = useState({
     keybindings: false,
     logsDirectory: false,
@@ -1383,6 +1388,8 @@ export function GeneralSettingsPanel() {
               onChange={(value) => updateSettings({ uiFontFamily: value })}
               fonts={fonts}
               isLoading={fontsLoading}
+              isRefreshing={fontsRefreshing}
+              onRefresh={refreshFonts}
             />
           }
         />
@@ -1443,6 +1450,8 @@ export function GeneralSettingsPanel() {
               fonts={fonts}
               filterMonospace
               isLoading={fontsLoading}
+              isRefreshing={fontsRefreshing}
+              onRefresh={refreshFonts}
             />
           }
         />
@@ -1541,6 +1550,8 @@ export function GeneralSettingsPanel() {
               fonts={fonts}
               filterMonospace
               isLoading={fontsLoading}
+              isRefreshing={fontsRefreshing}
+              onRefresh={refreshFonts}
             />
           }
         />

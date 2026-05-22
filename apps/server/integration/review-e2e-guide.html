@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fenrir Review E2E Guide</title>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --panel: #121933;
+        --panel-2: #0f152b;
+        --text: #ecf2ff;
+        --muted: #a9b6d3;
+        --line: #2a355f;
+        --accent: #7dd3fc;
+        --accent-2: #93c5fd;
+        --warn: #fbbf24;
+        --good: #86efac;
+        --code: #0a0f1e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        background:
+          radial-gradient(circle at top right, rgba(125, 211, 252, 0.12), transparent 28%),
+          linear-gradient(180deg, #09101d 0%, var(--bg) 100%);
+        color: var(--text);
+        line-height: 1.5;
+      }
+
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 40px 24px 72px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.2;
+        margin: 0 0 12px;
+      }
+
+      h1 {
+        font-size: 2.4rem;
+      }
+
+      h2 {
+        font-size: 1.45rem;
+        margin-top: 36px;
+      }
+
+      h3 {
+        font-size: 1.05rem;
+        color: var(--accent);
+        margin-top: 20px;
+      }
+
+      p,
+      li {
+        color: var(--muted);
+      }
+
+      a {
+        color: var(--accent-2);
+      }
+
+      .hero,
+      .card,
+      .step,
+      .checklist {
+        background: linear-gradient(180deg, rgba(18, 25, 51, 0.98), rgba(11, 16, 32, 0.98));
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+      }
+
+      .hero {
+        padding: 28px;
+      }
+
+      .hero p {
+        max-width: 860px;
+        font-size: 1.02rem;
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .grid.two {
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
+
+      .card,
+      .step,
+      .checklist {
+        padding: 20px;
+      }
+
+      .pill {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(147, 197, 253, 0.08);
+        color: var(--accent-2);
+        font-size: 0.86rem;
+        margin-bottom: 12px;
+      }
+
+      code {
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      }
+
+      pre {
+        margin: 14px 0 0;
+        padding: 16px;
+        overflow: auto;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: var(--code);
+        color: #e6edf8;
+        font-size: 0.92rem;
+      }
+
+      .note {
+        border-left: 3px solid var(--warn);
+        padding-left: 12px;
+        margin-top: 10px;
+      }
+
+      .ok {
+        color: var(--good);
+      }
+
+      .path {
+        color: var(--text);
+      }
+
+      ol,
+      ul {
+        padding-left: 22px;
+      }
+
+      .section-gap {
+        margin-top: 28px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <div class="pill">Guide</div>
+        <h1>Fenrir Review E2E Implementation Guide</h1>
+        <p>
+          This guide walks you through finishing
+          <code>apps/server/integration/review.e2e.scaffold.test.ts</code> manually. The target is a
+          real server integration test: real Fenrir server, real auth bootstrap, real websocket RPC,
+          real git repository state. The only thing you control directly is the temp repo and the
+          project/thread that point at it.
+        </p>
+      </section>
+
+      <section class="section-gap grid two">
+        <article class="card">
+          <h2>What You Already Have</h2>
+          <ul>
+            <li>A scoped temp repo fixture.</li>
+            <li>Committed, staged, unstaged, and ignored file states.</li>
+            <li>A real server boot helper stub.</li>
+            <li>Skipped <code>it.live.skip(...)</code> tests using Effect style.</li>
+          </ul>
+        </article>
+        <article class="card">
+          <h2>What You Need Next</h2>
+          <ol>
+            <li>Prove the server boots and answers HTTP.</li>
+            <li>Bootstrap a real session with <code>/api/auth/bootstrap</code>.</li>
+            <li>Create a typed websocket review RPC helper.</li>
+            <li>Create a real project and thread bound to the temp repo.</li>
+            <li>Call <code>review.getOrCreateSession</code> and assert the diff.</li>
+          </ol>
+        </article>
+      </section>
+
+      <section class="step">
+        <div class="pill">Step 1</div>
+        <h2>Import the Missing Server Test Helpers</h2>
+        <p>
+          You are going to reuse the same transport/auth wiring patterns that already exist in
+          <span class="path">apps/server/src/server.test.ts</span>.
+        </p>
+        <p>Add imports like these to <code>review.e2e.scaffold.test.ts</code>:</p>
+        <pre><code>import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
+import * as Socket from "effect/unstable/socket/Socket";
+import { HttpServer } from "effect/unstable/http";
+import { Effect, Layer } from "effect";
+
+import {
+  CommandId,
+  DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  ORCHESTRATION_WS_METHODS,
+  ProjectId,
+  ThreadId,
+  WS_METHODS,
+  WsRpcGroup,
+} from "@fenrir/contracts";
+</code></pre>
+        <p class="note">
+          These are the exact pieces you need for auth bootstrap, websocket RPC, and real
+          orchestration command dispatch.
+        </p>
+      </section>
+
+      <section class="step">
+        <div class="pill">Step 2</div>
+        <h2>Make Sure the Server Really Boots</h2>
+        <p>
+          Right after <code>startFenrirServerForReviewScenario(...)</code>, prove that HTTP is
+          reachable before touching auth or RPC.
+        </p>
+        <pre><code>const server = yield* startFenrirServerForReviewScenario(workspace);
+
+const sessionProbe = yield* Effect.promise(() =>
+  fetch(`${server.httpBaseUrl}/api/auth/session`, {
+    redirect: "manual",
+  }),
+);
+
+assert.equal(
+  sessionProbe.status === 200 || sessionProbe.status === 401,
+  true,
+);
+</code></pre>
+        <p class="ok">If this fails, do not proceed to auth or websocket work. Fix boot first.</p>
+      </section>
+
+      <section class="step">
+        <div class="pill">Step 3</div>
+        <h2>Implement Session Bootstrap</h2>
+        <p>
+          Reuse the same HTTP bootstrap flow used by <code>server.test.ts</code>. Since your server
+          config uses <code>desktopBootstrapToken: "test-desktop-bootstrap-token"</code>, that is
+          the credential to send.
+        </p>
+
+        <h3>Add a URL helper</h3>
+        <pre><code>function appendSessionCookieToWsUrl(url: string, sessionCookieHeader: string): string {
+  const next = new URL(url);
+  const cookie = sessionCookieHeader.split(";", 1)[0] ?? sessionCookieHeader;
+  next.hash = `cookie=${encodeURIComponent(cookie)}`;
+  return next.toString();
+}
+</code></pre>
+
+        <h3>Replace <code>bootstrapAuthenticatedSession</code></h3>
+        <pre><code>function bootstrapAuthenticatedSession(server: ReviewE2eServerHandle) {
+  return Effect.gen(function* () {
+    const response = yield* Effect.promise(() =>
+      fetch(`${server.httpBaseUrl}/api/auth/bootstrap`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          credential: "test-desktop-bootstrap-token",
+        }),
+      }),
+    );
+
+    assert.equal(response.ok, true);
+
+    const sessionCookieHeader = response.headers.get("set-cookie");
+    if (!sessionCookieHeader) {
+      return yield* Effect.fail(new Error("Expected bootstrap to return a session cookie."));
+    }
+
+    return {
+      sessionCookieHeader,
+      wsUrl: appendSessionCookieToWsUrl(server.wsBaseUrl, sessionCookieHeader),
+    } satisfies ReviewE2eAuthSession;
+  });
+}
+</code></pre>
+
+        <h3>Immediately test it</h3>
+        <pre><code>const session = yield* bootstrapAuthenticatedSession(server);
+assert.equal(session.wsUrl.startsWith("ws://127.0.0.1:"), true);
+</code></pre>
+      </section>
+
+      <section class="step">
+        <div class="pill">Step 4</div>
+        <h2>Create the Typed WebSocket RPC Helper</h2>
+        <p>
+          Copy the transport pattern from <code>server.test.ts</code>. You need four small helpers.
+        </p>
+
+        <h3>1. Parse the hash cookie back out</h3>
+        <pre><code>const parseSessionCookieFromWsUrl = (
+  wsUrl: string,
+): { readonly cookie: string | null; readonly url: string } => {
+  const next = new URL(wsUrl);
+  const cookie = next.hash.startsWith("#cookie=")
+    ? decodeURIComponent(next.hash.slice("#cookie=".length))
+    : null;
+  next.hash = "";
+  return {
+    cookie,
+    url: next.toString(),
+  };
+};
+</code></pre>
+
+        <h3>2. Build the websocket protocol layer</h3>
+        <pre><code>const wsRpcProtocolLayer = (wsUrl: string) => {
+  const { cookie, url } = parseSessionCookieFromWsUrl(wsUrl);
+  const webSocketConstructorLayer = Layer.succeed(
+    Socket.WebSocketConstructor,
+    (socketUrl, protocols) =>
+      new NodeSocket.NodeWS.WebSocket(
+        socketUrl,
+        protocols,
+        cookie ? { headers: { cookie } } : undefined,
+      ) as unknown as globalThis.WebSocket,
+  );
+
+  return RpcClient.layerProtocolSocket().pipe(
+    Layer.provide(Socket.layerWebSocket(url).pipe(Layer.provide(webSocketConstructorLayer))),
+    Layer.provide(RpcSerialization.layerJson),
+  );
+};
+</code></pre>
+
+        <h3>3. Create a typed client helper</h3>
+        <pre><code>const makeWsRpcClient = RpcClient.make(WsRpcGroup);
+type WsRpcClient =
+  typeof makeWsRpcClient extends Effect.Effect&lt;infer Client, any, any&gt; ? Client : never;
+
+const withWsRpcClient = &lt;A, E, R&gt;(
+  wsUrl: string,
+  f: (client: WsRpcClient) =&gt; Effect.Effect&lt;A, E, R&gt;,
+) =&gt; makeWsRpcClient.pipe(
+  Effect.flatMap(f),
+  Effect.provide(wsRpcProtocolLayer(wsUrl)),
+);
+</code></pre>
+
+        <h3>4. Replace <code>callReviewRpc</code></h3>
+        <pre><code>function callReviewRpc&lt;T&gt;(
+  session: ReviewE2eAuthSession,
+  method: string,
+  input: unknown,
+) {
+  return withWsRpcClient(session.wsUrl, (client) =>
+    (
+      client as unknown as Record&lt;
+        string,
+        ((value: unknown) =&gt; Effect.Effect&lt;T, Error, never&gt;) | undefined
+      &gt;
+    )[method]!(input),
+  );
+}
+</code></pre>
+
+        <p>Now do a smoke check:</p>
+        <pre><code>const config = yield* withWsRpcClient(session.wsUrl, (client) =>
+  client[WS_METHODS.serverGetConfig]({}),
+);
+
+assert.equal(config.environment.label.length &gt; 0, true);
+</code></pre>
+      </section>
+
+      <section class="step">
+        <div class="pill">Step 5</div>
+        <h2>Create a Real Project and Thread</h2>
+        <p>
+          Do not fake the review target. The thread must point at your temp repo so that the review
+          session resolves the same folder you seeded in the git fixture.
+        </p>
+        <p>
+          Use the real websocket orchestration command path. That keeps the whole flow on the real
+          running server.
+        </p>
+
+        <h3>Add a small command helper</h3>
+        <pre><code>function dispatchOrchestrationCommand(
+  session: ReviewE2eAuthSession,
+  command: unknown,
+) {
+  return withWsRpcClient(session.wsUrl, (client) =>
+    client[ORCHESTRATION_WS_METHODS.dispatchCommand](command),
+  );
+}
+</code></pre>
+
+        <h3>Replace <code>createProjectAndThreadForRepo</code></h3>
+        <pre><code>function createProjectAndThreadForRepo(
+  _server: ReviewE2eServerHandle,
+  session: ReviewE2eAuthSession,
+  workspace: ReviewE2eWorkspace,
+  scenario: ReviewE2eScenario,
+) {
+  return Effect.gen(function* () {
+    const provider = "codex";
+    const projectId = ProjectId.makeUnsafe("review-e2e-project");
+    const threadId = ThreadId.makeUnsafe("review-e2e-thread");
+    const createdAt = new Date().toISOString();
+    const defaultModel = DEFAULT_MODEL_BY_PROVIDER[provider];
+
+    yield* dispatchOrchestrationCommand(session, {
+      type: "project.create",
+      commandId: CommandId.makeUnsafe("cmd-review-e2e-project-create"),
+      projectId,
+      title: "Review E2E Project",
+      workspaceRoot: workspace.repoDir,
+      defaultModelSelection: {
+        provider,
+        model: defaultModel,
+      },
+      createdAt,
+    });
+
+    yield* dispatchOrchestrationCommand(session, {
+      type: "thread.create",
+      commandId: CommandId.makeUnsafe("cmd-review-e2e-thread-create"),
+      threadId,
+      projectId,
+      title: "Review E2E Thread",
+      modelSelection: {
+        provider,
+        model: defaultModel,
+      },
+      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+      runtimeMode: "approval-required",
+      branch: scenario.branchName,
+      worktreePath: workspace.repoDir,
+      createdAt,
+    });
+
+    return {
+      projectId,
+      threadId,
+    } satisfies ReviewE2eThreadHandle;
+  });
+}
+</code></pre>
+
+        <p class="note">
+          The two values that matter most are <code>workspaceRoot: workspace.repoDir</code> and
+          <code>worktreePath: workspace.repoDir</code>. If either points somewhere else, review will
+          inspect the wrong repository.
+        </p>
+      </section>
+
+      <section class="step">
+        <div class="pill">Step 6</div>
+        <h2>Wait Until the Projection Sees the Thread</h2>
+        <p>
+          Command dispatch returns quickly, but your next review call depends on the projection
+          snapshot already containing the project and thread. Add a small poller before calling any
+          review RPC.
+        </p>
+        <pre><code>function waitForThreadProjection(
+  session: ReviewE2eAuthSession,
+  threadId: ThreadId,
+) {
+  return Effect.gen(function* () {
+    const deadline = Date.now() + 10_000;
+
+    while (true) {
+      const snapshot = yield* withWsRpcClient(session.wsUrl, (client) =>
+        client[ORCHESTRATION_WS_METHODS.getBootstrapSnapshot]({}),
+      );
+
+      const threadExists = snapshot.threads.some((thread) => thread.id === threadId);
+      if (threadExists) {
+        return snapshot;
+      }
+
+      if (Date.now() >= deadline) {
+        return yield* Effect.fail(
+          new Error(`Timed out waiting for projected thread ${threadId}`),
+        );
+      }
+
+      yield* Effect.sleep("50 millis");
+    }
+  });
+}
+</code></pre>
+        <p>Use it right after thread creation:</p>
+        <pre><code>const thread = yield* createProjectAndThreadForRepo(
+  server,
+  session,
+  workspace,
+  scenario,
+);
+
+yield* waitForThreadProjection(session, thread.threadId);
+</code></pre>
+      </section>
+
+      <section class="step">
+        <div class="pill">Step 7</div>
+        <h2>Call the Review RPCs</h2>
+        <p>
+          Once project/thread creation works, your first real review call should be
+          <code>review.getOrCreateSession</code>.
+        </p>
+        <pre><code>const summary = yield* callReviewRpc&lt;{
+  readonly id: string;
+  readonly mode: "raw" | "review";
+  readonly scope: "uncommitted" | "branch" | "combined";
+  readonly fileCount: number;
+  readonly chunkCount: number;
+  readonly degradedReasons: readonly string[];
+}&gt;(session, "review.getOrCreateSession", {
+  threadId: thread.threadId,
+  mode: "raw",
+  scope: "combined",
+});
+
+assert.equal(summary.mode, "raw");
+assert.equal(summary.scope, "combined");
+assert.equal(summary.fileCount &gt; 0, true);
+assert.equal(summary.chunkCount &gt; 0, true);
+assert.equal(summary.degradedReasons.includes("diff-unavailable"), false);
+</code></pre>
+
+        <p>Then hydrate the detail surfaces:</p>
+        <pre><code>const snapshot = yield* callReviewRpc&lt;{
+  readonly files: ReadonlyArray&lt;{ readonly normalizedPath: string }&gt;;
+  readonly github: unknown;
+}&gt;(session, "review.getSessionSnapshot", {
+  sessionId: summary.id,
+});
+
+const diffSnapshot = yield* callReviewRpc&lt;{
+  readonly lanes: ReadonlyArray&lt;{
+    readonly kind: string;
+    readonly files: ReadonlyArray&lt;{ readonly normalizedPath: string }&gt;;
+  }&gt;;
+}&gt;(session, "review.getDiffSnapshot", {
+  sessionId: summary.id,
+});
+</code></pre>
+      </section>
+
+      <section class="step">
+        <div class="pill">Step 8</div>
+        <h2>Add the First Assertions That Matter</h2>
+        <pre><code>assert.equal(
+  snapshot.files.some((file) =&gt; file.normalizedPath === scenario.committedFilePath),
+  true,
+);
+assert.equal(
+  snapshot.files.some((file) =&gt; file.normalizedPath === scenario.stagedFilePath),
+  true,
+);
+assert.equal(
+  snapshot.files.some((file) =&gt; file.normalizedPath === scenario.unstagedFilePath),
+  true,
+);
+assert.equal(
+  snapshot.files.some((file) =&gt; file.normalizedPath === scenario.ignoredFilePath),
+  false,
+);
+
+assert.equal(diffSnapshot.lanes.some((lane) =&gt; lane.kind === "committed"), true);
+assert.equal(diffSnapshot.lanes.some((lane) =&gt; lane.kind === "staged"), true);
+assert.equal(diffSnapshot.lanes.some((lane) =&gt; lane.kind === "unstaged"), true);
+</code></pre>
+      </section>
+
+      <section class="step">
+        <div class="pill">Step 9</div>
+        <h2>Handle the GitHub-Unavailable Case Separately</h2>
+        <p>
+          Do not start with live GitHub. First prove that local review still works when GitHub is
+          unavailable.
+        </p>
+        <pre><code>assert.equal(summary.fileCount &gt; 0, true);
+assert.equal(snapshot.files.length &gt; 0, true);
+assert.equal(summary.degradedReasons.includes("github-unavailable"), true);
+assert.equal(summary.degradedReasons.includes("diff-unavailable"), false);
+assert.equal(snapshot.github, null);
+</code></pre>
+        <p>
+          This is a much better first milestone than trying to get a live PR + authenticated GitHub
+          provider stable on day one.
+        </p>
+      </section>
+
+      <section class="checklist">
+        <div class="pill">Runbook</div>
+        <h2>Suggested Order of Work</h2>
+        <ol>
+          <li>Keep the tests skipped.</li>
+          <li>Implement <code>bootstrapAuthenticatedSession</code>.</li>
+          <li>Implement <code>callReviewRpc</code>.</li>
+          <li>Add a websocket smoke check with <code>serverGetConfig</code>.</li>
+          <li>Implement <code>createProjectAndThreadForRepo</code>.</li>
+          <li>Add <code>waitForThreadProjection</code>.</li>
+          <li>Unskip only the first test.</li>
+          <li>Get <code>review.getOrCreateSession</code> passing.</li>
+          <li>Add snapshot + lane assertions.</li>
+          <li>Only then work on GitHub-specific behavior.</li>
+        </ol>
+      </section>
+
+      <section class="checklist">
+        <div class="pill">Commands</div>
+        <h2>How to Run While You Work</h2>
+        <pre><code>cd /Users/adriangonzalez/sandbox/t3code/apps/server
+bun run test integration/review.e2e.scaffold.test.ts
+
+# Run only the first test after you unskip it
+bun run test integration/review.e2e.scaffold.test.ts -t "hydrates a review session"
+
+# Full required repo checks before calling it done
+cd /Users/adriangonzalez/sandbox/t3code
+bun fmt
+bun lint
+bun typecheck
+</code></pre>
+      </section>
+    </main>
+  </body>
+</html>

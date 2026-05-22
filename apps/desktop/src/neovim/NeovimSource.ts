@@ -312,6 +312,15 @@ export class NeovimSource implements SceneSource {
       return;
     }
 
+    if (event.kind === "paste" && this.client) {
+      this.client
+        .request("nvim_paste", [event.text, event.text.includes("\r\n"), -1])
+        .catch((e: unknown) => {
+          console.warn("[neovimSource] paste failed:", e);
+        });
+      return;
+    }
+
     if (event.kind === "key" && event.type === "down") {
       const keys = domKeyToVimNotation(event.key, event.code, event.mods);
       if (keys && this.client) {

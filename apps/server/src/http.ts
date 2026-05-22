@@ -227,10 +227,13 @@ export const fontsRouteLayer = HttpRouter.add(
   "/api/fonts",
   Effect.gen(function* () {
     yield* requireAuthenticatedRequest;
-    const fonts = yield* Effect.tryPromise(() => getSystemFonts());
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    const refresh = Option.isSome(url) && url.value.searchParams.get("refresh") === "1";
+    const fonts = yield* Effect.tryPromise(() => getSystemFonts({ refresh }));
     return HttpServerResponse.jsonUnsafe(fonts, {
       status: 200,
-      headers: { "cache-control": "private, max-age=3600" },
+      headers: { "cache-control": "private, no-store" },
     });
   }).pipe(Effect.catchTag("AuthError", respondToAuthError)),
 );

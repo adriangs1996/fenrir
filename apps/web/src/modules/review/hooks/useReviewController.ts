@@ -4,11 +4,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { openInEmbeddedEditor, openInPreferredEditor } from "~/editorPreferences";
-import { readEnvironmentConnection, useSavedEnvironmentRuntimeStore } from "~/environments/runtime";
+import { getPrimaryKnownEnvironment } from "~/environments/primary";
+import {
+  ensureEnvironmentConnectionBootstrapped,
+  readEnvironmentConnection,
+  useSavedEnvironmentRuntimeStore,
+} from "~/environments/runtime";
+import type { SavedEnvironmentConnectionState } from "~/environments/runtime/catalog";
 import { randomUUID } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { useEditorStore } from "~/modules/neovim-editor";
 import { useServerProviders } from "~/rpc/serverState";
+import { getWsConnectionUiState, useWsConnectionStatus } from "~/rpc/wsConnectionState";
 import type {
   GitHubReviewDecision,
   ReviewApplyRawMutationResult,
@@ -88,6 +95,35 @@ function headerFromPatch(rawPatch: string): string {
   return header.length > 0 ? header : "Diff chunk";
 }
 
+function deriveEnvironmentConnectionState(args: {
+  readonly environmentId: EnvironmentId;
+  readonly runtimeStateConnection: SavedEnvironmentConnectionState | null;
+  readonly wsConnectionStatus: ReturnType<typeof useWsConnectionStatus>;
+}): SavedEnvironmentConnectionState {
+  if (args.runtimeStateConnection !== null) {
+    return args.runtimeStateConnection;
+  }
+
+  const primaryEnvironmentId = getPrimaryKnownEnvironment()?.environmentId ?? null;
+  if (args.environmentId !== primaryEnvironmentId) {
+    return "disconnected";
+  }
+
+  switch (getWsConnectionUiState(args.wsConnectionStatus)) {
+    case "connected":
+      return "connected";
+    case "error":
+      return "error";
+    case "offline":
+      return "disconnected";
+    case "connecting":
+    case "reconnecting":
+      return "connecting";
+    default:
+      return "disconnected";
+  }
+}
+
 export function useReviewController(input: UseReviewControllerInput) {
   const threadKey = useMemo(
     () => scopedThreadKey(scopeThreadRef(input.environmentId, input.threadId)),
@@ -96,8 +132,15 @@ export function useReviewController(input: UseReviewControllerInput) {
   const runtimeState = useSavedEnvironmentRuntimeStore(
     (state) => state.byId[input.environmentId] ?? null,
   );
+  const wsConnectionStatus = useWsConnectionStatus();
   const serverProviders = useServerProviders();
-  const rpcClient = readEnvironmentConnection(input.environmentId)?.client ?? null;
+  const environmentConnection = readEnvironmentConnection(input.environmentId);
+  const rpcClient = environmentConnection?.client ?? null;
+  const connectionState = deriveEnvironmentConnectionState({
+    environmentId: input.environmentId,
+    runtimeStateConnection: runtimeState?.connectionState ?? null,
+    wsConnectionStatus,
+  });
 
   const threadState = useReviewStore(useShallow((state) => state.threads[threadKey]));
   const ensureThread = useReviewStore((state) => state.ensureThread);
@@ -198,12 +241,14 @@ export function useReviewController(input: UseReviewControllerInput) {
     setProviderAvailability(
       threadKey,
       deriveReviewProviderAvailability({
-        runtimeState,
+        connectionState,
+        authState: runtimeState?.authState ?? "unknown",
         serverProviders,
         github: currentThreadState?.snapshot.github ?? null,
       }),
     );
   }, [
+    connectionState,
     currentThreadState?.snapshot.github,
     runtimeState,
     serverProviders,
@@ -301,6 +346,7 @@ export function useReviewController(input: UseReviewControllerInput) {
     setSessionStatus(threadKey, "loading", null);
     setLiveStatus(threadKey, "connecting");
     try {
+      await ensureEnvironmentConnectionBootstrapped(input.environmentId);
       const summary = (await rpcClient.review.getOrCreateSession({
         threadId: input.threadId,
         mode: input.routeState.reviewMode,
@@ -320,6 +366,7 @@ export function useReviewController(input: UseReviewControllerInput) {
     input.routeKind,
     input.routeState.reviewMode,
     input.routeState.reviewScope,
+    input.environmentId,
     input.threadId,
     refreshDiffSnapshot,
     refreshSessionSnapshot,

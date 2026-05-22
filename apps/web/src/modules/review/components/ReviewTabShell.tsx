@@ -45,7 +45,11 @@ type ReviewController = ReturnType<typeof useReviewController>;
 type ReviewState = NonNullable<ReviewController["state"]>;
 
 type OverviewDiscussionItem =
-  | { readonly source: "local"; readonly note: ReviewOverviewNote; readonly updatedAt: string }
+  | {
+      readonly source: "local";
+      readonly note: ReviewOverviewNote;
+      readonly updatedAt: string;
+    }
   | {
       readonly source: "github";
       readonly comment: GitHubReviewGeneralComment;
@@ -58,7 +62,11 @@ type ChunkDiscussionItem =
       readonly thread: ReviewLocalAnnotationThread;
       readonly updatedAt: string;
     }
-  | { readonly source: "github"; readonly thread: GitHubReviewThread; readonly updatedAt: string };
+  | {
+      readonly source: "github";
+      readonly thread: GitHubReviewThread;
+      readonly updatedAt: string;
+    };
 
 const MODE_OPTIONS: readonly ReviewRouteMode[] = ["raw", "review"];
 const SCOPE_OPTIONS: readonly ReviewRouteScope[] = ["uncommitted", "branch", "combined"];
@@ -107,6 +115,11 @@ export function ReviewTabShell(props: ReviewTabShellProps) {
         threadId: props.threadId,
       } as const),
   );
+
+  useEffect(() => {
+    console.log(review);
+  }, [review]);
+
   const setComposerPrompt = useComposerDraftStore((store) => store.setPrompt);
   const removeReviewContext = useComposerDraftStore((store) => store.removeReviewContext);
   const clearReviewContexts = useComposerDraftStore((store) => store.clearReviewContexts);
@@ -521,7 +534,10 @@ export function ReviewTabShell(props: ReviewTabShellProps) {
                     pending={pendingKey === `file-progress:${selectedFile.id}`}
                     onChange={(progressState) =>
                       void run(`file-progress:${selectedFile.id}`, () =>
-                        review.setProgress({ fileId: selectedFile.id, progressState }),
+                        review.setProgress({
+                          fileId: selectedFile.id,
+                          progressState,
+                        }),
                       )
                     }
                   />
@@ -591,7 +607,10 @@ export function ReviewTabShell(props: ReviewTabShellProps) {
                         pending={pendingKey === `chunk-progress:${selectedChunk.chunkId}`}
                         onChange={(progressState) =>
                           void run(`chunk-progress:${selectedChunk.chunkId}`, () =>
-                            review.setProgress({ chunkId: selectedChunk.chunkId, progressState }),
+                            review.setProgress({
+                              chunkId: selectedChunk.chunkId,
+                              progressState,
+                            }),
                           )
                         }
                       />

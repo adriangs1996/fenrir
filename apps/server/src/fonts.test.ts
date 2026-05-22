@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parseFcListOutput, classifyFontByName } from "./fonts";
+import {
+  classifyFontByName,
+  isSystemFontsCacheFresh,
+  parseFcListOutput,
+  parsePowerShellOutput,
+  parseSystemProfilerOutput,
+} from "./fonts";
 
 describe("parseFcListOutput", () => {
   it("parses fc-list colon-separated output", () => {
@@ -73,5 +79,96 @@ describe("classifyFontByName", () => {
 
   it("returns 'other' for unknown fonts", () => {
     expect(classifyFontByName("MyCustomFont")).toBe("other");
+  });
+});
+
+describe("parsePowerShellOutput", () => {
+  it("parses distinct family names from powershell output", () => {
+    const output = ["Consolas", "Arial", "Consolas", "", "Times New Roman"].join("\n");
+
+    expect(parsePowerShellOutput(output)).toEqual([
+      { family: "Arial", category: "sans-serif" },
+      { family: "Consolas", category: "monospace" },
+      { family: "Times New Roman", category: "serif" },
+    ]);
+  });
+});
+
+describe("parseSystemProfilerOutput", () => {
+  it("prefers canonical typeface family names over file names", () => {
+    const output = JSON.stringify({
+      SPFontsDataType: [
+        {
+          _name: "CommitMonodev-500-Regular.otf",
+          typefaces: [
+            {
+              _name: "CommitMonodev-Regular",
+              family: "CommitMonodev",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(parseSystemProfilerOutput(output)).toEqual([
+      { family: "CommitMonodev", category: "monospace" },
+    ]);
+  });
+
+  it("deduplicates repeated families across multiple font files", () => {
+    const output = JSON.stringify({
+      SPFontsDataType: [
+        {
+          _name: "CommitMonodev-500-Regular.otf",
+          typefaces: [
+            {
+              family: "CommitMonodev",
+            },
+          ],
+        },
+        {
+          _name: "CommitMonodev-700-Regular.otf",
+          typefaces: [
+            {
+              family: "CommitMonodev",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(parseSystemProfilerOutput(output)).toEqual([
+      { family: "CommitMonodev", category: "monospace" },
+    ]);
+  });
+});
+
+describe("isSystemFontsCacheFresh", () => {
+  it("treats recent cache entries as fresh", () => {
+    expect(
+      isSystemFontsCacheFresh(
+        {
+          fonts: [],
+          fetchedAt: 1_000,
+        },
+        10_999,
+      ),
+    ).toBe(true);
+  });
+
+  it("expires cache entries once they reach the ttl boundary", () => {
+    expect(
+      isSystemFontsCacheFresh(
+        {
+          fonts: [],
+          fetchedAt: 1_000,
+        },
+        11_000,
+      ),
+    ).toBe(false);
+  });
+
+  it("treats a missing cache entry as stale", () => {
+    expect(isSystemFontsCacheFresh(null, 5_000)).toBe(false);
   });
 });

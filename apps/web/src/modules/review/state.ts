@@ -461,13 +461,14 @@ export function resolveReviewSelection(args: {
 }
 
 export function deriveReviewProviderAvailability(args: {
-  readonly runtimeState: SavedEnvironmentRuntimeState | null | undefined;
+  readonly connectionState: SavedEnvironmentConnectionState;
+  readonly authState: SavedEnvironmentRuntimeState["authState"];
   readonly serverProviders: readonly ServerProvider[];
   readonly github: GitHubReviewSnapshot | null;
 }): ReviewProviderAvailabilityState {
   return {
-    connectionState: args.runtimeState?.connectionState ?? "disconnected",
-    authState: args.runtimeState?.authState ?? "unknown",
+    connectionState: args.connectionState,
+    authState: args.authState,
     serverProviders: args.serverProviders.map((provider) => ({
       key:
         provider.instanceId ??

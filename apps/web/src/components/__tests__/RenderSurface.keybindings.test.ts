@@ -4,7 +4,12 @@ import type {
   KeybindingShortcut,
   ResolvedKeybindingsConfig,
 } from "@fenrir/contracts";
-import { isAppShortcut } from "../RenderSurface";
+import {
+  isAppShortcut,
+  isNativePasteShortcut,
+  resolveViewportSize,
+  shouldResyncViewportOnVisibleTransition,
+} from "../RenderSurface";
 
 /** Helper to build a minimal keyboard-event-like object. */
 function kbd(mods: {
@@ -48,6 +53,7 @@ const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("j"), command: "terminal.toggle" },
   { shortcut: modShortcut("d"), command: "diff.toggle" },
   { shortcut: modShortcut("n"), command: "chat.new" },
+  { shortcut: modShortcut("c", { shiftKey: true }), command: "editor.sendSelection" },
   { shortcut: modShortcut("e"), command: "editor.toggleChatTab" },
   { shortcut: modShortcut("1"), command: "thread.jump.1" },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
@@ -65,6 +71,12 @@ describe("isAppShortcut", () => {
       ).toBe(true);
     });
 
+    it("treats Cmd+Shift+C as app shortcut on macOS when bound", () => {
+      expect(
+        isAppShortcut(kbd({ key: "C", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS),
+      ).toBe(true);
+    });
+
     it("treats Ctrl+D as app shortcut on non-mac platforms when bound", () => {
       expect(
         isAppShortcut(kbd({ key: "d", ctrlKey: true }), DEFAULT_BINDINGS, {
@@ -75,8 +87,12 @@ describe("isAppShortcut", () => {
   });
 
   describe("editor passthrough", () => {
-    it("forwards Cmd+V to nvim", () => {
+    it("does not treat Cmd+V as an app shortcut", () => {
       expect(isAppShortcut(kbd({ key: "v", metaKey: true }), DEFAULT_BINDINGS)).toBe(false);
+    });
+
+    it("detects Cmd+V as the native paste shortcut on macOS", () => {
+      expect(isNativePasteShortcut(kbd({ key: "v", metaKey: true }), "MacIntel")).toBe(true);
     });
 
     it("forwards Alt+key to nvim", () => {
@@ -94,5 +110,20 @@ describe("isAppShortcut", () => {
     it("forwards Ctrl+C to nvim when it is not bound", () => {
       expect(isAppShortcut(kbd({ key: "c", ctrlKey: true }), DEFAULT_BINDINGS)).toBe(false);
     });
+  });
+});
+
+describe("RenderSurface visibility helpers", () => {
+  it("drops zero-sized hidden viewport measurements", () => {
+    expect(resolveViewportSize(0, 600)).toBeNull();
+    expect(resolveViewportSize(800, 0)).toBeNull();
+    expect(resolveViewportSize(800.9, 599.1)).toEqual({ w: 800, h: 599 });
+  });
+
+  it("requests a viewport resync only when the editor becomes visible again", () => {
+    expect(shouldResyncViewportOnVisibleTransition(true, true)).toBe(false);
+    expect(shouldResyncViewportOnVisibleTransition(true, false)).toBe(false);
+    expect(shouldResyncViewportOnVisibleTransition(false, false)).toBe(false);
+    expect(shouldResyncViewportOnVisibleTransition(false, true)).toBe(true);
   });
 });

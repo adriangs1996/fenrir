@@ -17,6 +17,8 @@ interface FontPickerProps {
   fonts: SystemFont[];
   filterMonospace?: boolean;
   isLoading?: boolean;
+  isRefreshing?: boolean;
+  onRefresh?: () => Promise<void> | void;
 }
 
 const CATEGORY_LABELS: Record<SystemFont["category"], string> = {
@@ -34,6 +36,8 @@ export function FontPicker({
   fonts,
   filterMonospace = false,
   isLoading = false,
+  isRefreshing = false,
+  onRefresh,
 }: FontPickerProps) {
   const [showAllFonts, setShowAllFonts] = useState(false);
   const [inputValue, setInputValue] = useState("");
@@ -113,17 +117,34 @@ export function FontPicker({
             ))}
             <ComboboxEmpty>No matching fonts found</ComboboxEmpty>
           </ComboboxList>
-          {filterMonospace && (
-            <button
-              type="button"
-              className="w-full border-t border-border/60 px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                setShowAllFonts((prev) => !prev);
-              }}
-            >
-              {showAllFonts ? "Show monospace only" : "Show all fonts"}
-            </button>
+          {(filterMonospace || onRefresh) && (
+            <div className="border-t border-border/60">
+              {filterMonospace && (
+                <button
+                  type="button"
+                  className="w-full px-3 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setShowAllFonts((prev) => !prev);
+                  }}
+                >
+                  {showAllFonts ? "Show monospace only" : "Show all fonts"}
+                </button>
+              )}
+              {onRefresh && (
+                <button
+                  type="button"
+                  className="w-full border-t border-border/60 px-3 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-60"
+                  disabled={isRefreshing}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    void onRefresh();
+                  }}
+                >
+                  {isRefreshing ? "Refreshing fonts..." : "Refresh fonts"}
+                </button>
+              )}
+            </div>
           )}
         </ComboboxPopup>
       </Combobox>

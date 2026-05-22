@@ -265,6 +265,7 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     renderStart: async () => undefined,
     renderStop: async () => undefined,
     renderSetFps: async () => undefined,
+    renderSyncViewport: async () => undefined,
     setEditorFontMetrics: async () => undefined,
     sendInput: () => undefined,
     onFrame: () => () => undefined,

@@ -145,6 +145,7 @@ const NEOVIM_SET_CWD_CHANNEL = "desktop:neovim-set-cwd";
 const RENDER_START_CHANNEL = "desktop:render-start";
 const RENDER_STOP_CHANNEL = "desktop:render-stop";
 const RENDER_SET_FPS_CHANNEL = "desktop:render-set-fps";
+const RENDER_SYNC_VIEWPORT_CHANNEL = "desktop:render-sync-viewport";
 const RENDER_INPUT_CHANNEL = "desktop:render-input";
 const RENDER_FRAME_PORT_CHANNEL = "desktop:render-frame-port";
 const RENDER_SET_EDITOR_FONT_METRICS_CHANNEL = "desktop:render-set-editor-font-metrics";
@@ -1537,6 +1538,10 @@ function parseInputEvent(payload: unknown): InputEvent | null {
       mods: parseMods(p["mods"]),
     };
   }
+  if (kind === "paste") {
+    if (typeof p["text"] !== "string") return null;
+    return { kind: "paste", text: p["text"] };
+  }
   if (kind === "mouse") {
     const type = p["type"];
     if (type !== "down" && type !== "up" && type !== "move" && type !== "wheel") return null;
@@ -2082,6 +2087,22 @@ function registerIpcHandlers(): void {
   ipcMain.handle(RENDER_SET_FPS_CHANNEL, async (_event, fps: unknown) => {
     if (typeof fps !== "number") throw new Error("Invalid fps");
     renderLoop.setFps(fps);
+  });
+
+  ipcMain.removeHandler(RENDER_SYNC_VIEWPORT_CHANNEL);
+  ipcMain.handle(RENDER_SYNC_VIEWPORT_CHANNEL, async (_event, width: unknown, height: unknown) => {
+    if (
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width < 1 ||
+      height < 1
+    ) {
+      throw new Error("Invalid viewport");
+    }
+    renderLoop.pushInput({ kind: "resize", w: width, h: height });
+    neovimSource.requestFullRepaint();
   });
 
   ipcMain.removeAllListeners(RENDER_INPUT_CHANNEL);

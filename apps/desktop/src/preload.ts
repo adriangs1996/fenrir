@@ -59,6 +59,7 @@ const NEOVIM_SET_CWD_CHANNEL = "desktop:neovim-set-cwd";
 const RENDER_START_CHANNEL = "desktop:render-start";
 const RENDER_STOP_CHANNEL = "desktop:render-stop";
 const RENDER_SET_FPS_CHANNEL = "desktop:render-set-fps";
+const RENDER_SYNC_VIEWPORT_CHANNEL = "desktop:render-sync-viewport";
 const RENDER_INPUT_CHANNEL = "desktop:render-input";
 const RENDER_FRAME_CHANNEL = "desktop:render-frame";
 const RENDER_FRAME_PORT_CHANNEL = "desktop:render-frame-port";
@@ -228,6 +229,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   renderStart: () => ipcRenderer.invoke(RENDER_START_CHANNEL),
   renderStop: () => ipcRenderer.invoke(RENDER_STOP_CHANNEL),
   renderSetFps: (fps: number) => ipcRenderer.invoke(RENDER_SET_FPS_CHANNEL, fps),
+  renderSyncViewport: (w: number, h: number) =>
+    ipcRenderer.invoke(RENDER_SYNC_VIEWPORT_CHANNEL, w, h),
   setEditorFontMetrics: (metrics: EditorFontMetrics) =>
     ipcRenderer.invoke(RENDER_SET_EDITOR_FONT_METRICS_CHANNEL, metrics),
   sendInput: (event: InputEvent) => {

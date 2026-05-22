@@ -471,7 +471,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   websocketRpcRouteLayer,
 ).pipe(Layer.provide(trafficLensApiCorsLayer));
 
-export const makeServerLayer = Layer.unwrap(
+export const makeServerApplicationLayer = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig;
 
@@ -494,13 +494,14 @@ export const makeServerLayer = Layer.unwrap(
 
     return serverApplicationLayer.pipe(
       Layer.provide(RuntimeServicesLive),
-      Layer.provide(HttpServerLive),
       Layer.provide(ObservabilityLive),
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provideMerge(PlatformServicesLive),
     );
   }),
 );
+
+export const makeServerLayer = makeServerApplicationLayer.pipe(Layer.provide(HttpServerLive));
 
 // Important: Only `ServerConfig` should be provided by the CLI layer!!! Don't let other requirements leak into the launch layer.
 export const runServer = Layer.launch(makeServerLayer) satisfies Effect.Effect<
