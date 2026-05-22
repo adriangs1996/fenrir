@@ -178,6 +178,16 @@ export function useChatViewTabs(input: UseChatViewTabsInput): UseChatViewTabsRes
       return;
     }
 
+    if (
+      shouldForceActiveReviewTab({
+        activeChatTab,
+        hasReviewRouteState: true,
+        pendingReviewRouteExit: pendingReviewRouteExitRef.current,
+      })
+    ) {
+      return;
+    }
+
     replaceCurrentRouteSearch(stripReviewSearchParams(input.rawSearch));
   }, [
     activeChatTab,

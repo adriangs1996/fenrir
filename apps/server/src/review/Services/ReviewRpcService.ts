@@ -518,7 +518,67 @@ export const makeReviewRpcService = (deps: ReviewRpcDependencies) =>
     const buildSummary = (
       sessionId: ReviewGetSessionInput["sessionId"],
       authSessionId: AuthSessionId,
-    ) => buildSnapshot(sessionId, authSessionId).pipe(Effect.map((snapshot) => snapshot.summary));
+    ): EffectType.Effect<ReviewSessionSummary, ReviewRpcServiceErrorCause> =>
+      Effect.gen(function* () {
+        const session = yield* loadSession(sessionId);
+        const [diffResult, annotationRows, progressRows, analysisRow, github] = yield* Effect.all([
+          loadDiffSnapshot(session),
+          deps.annotations
+            .listBySessionId({ sessionId })
+            .pipe(
+              Effect.mapError((cause) => rpcError("Failed to load review annotations.", cause)),
+            ),
+          deps.progress
+            .listBySessionId({ sessionId })
+            .pipe(Effect.mapError((cause) => rpcError("Failed to load review progress.", cause))),
+          deps.analysis.getBySessionId({ sessionId }).pipe(
+            Effect.map((row) => Option.getOrNull(row)),
+            Effect.mapError((cause) => rpcError("Failed to load review analysis.", cause)),
+          ),
+          deps.write
+            .getGitHubSnapshot({ sessionId, authSessionId })
+            .pipe(Effect.orElseSucceed(() => null)),
+        ]);
+
+        const progressMap = new Map(
+          progressRows.map((row) => [progressKey(row.targetKind, row.targetId), row.progressState]),
+        );
+        const files = applyFileProgress(diffResult.snapshot, progressMap);
+        const localThreads = annotationRows
+          .filter((record) => record.annotationKind === "thread")
+          .map((record) => ({
+            progressState: progressStateFor(progressMap, "thread", record.annotationId),
+          }));
+        const overviewNotes = annotationRows
+          .filter((record) => record.annotationKind === "overview-note")
+          .map((record) => ({
+            progressState: progressStateFor(progressMap, "overview-note", record.annotationId),
+          }));
+
+        const progressCounts = countProgress([...files, ...localThreads, ...overviewNotes]);
+        const degradedReasons = [...diffResult.degraded];
+        const blockedActions: Array<ReviewSessionSummary["blockedActions"][number]> = [];
+        if (files.length === 0) blockedActions.push("no-reviewable-content");
+        if (degradedReasons.length > 0) blockedActions.push("degraded-state");
+        if (github && github.writable === false) blockedActions.push("github-review-read-only");
+
+        return {
+          id: session.sessionId,
+          mode: session.mode,
+          scope: session.scope,
+          target: session.target,
+          progressCounts,
+          fileCount: files.length,
+          chunkCount: 0,
+          localThreadCount: localThreads.length,
+          overviewNoteCount: overviewNotes.length,
+          analysisArtifactCount: analysisRow ? 1 : 0,
+          degradedReasons,
+          blockedActions,
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+        } satisfies ReviewSessionSummary;
+      });
 
     const updateSession = <
       TInput extends { readonly sessionId: ReviewGetSessionInput["sessionId"] },

@@ -301,7 +301,7 @@ function parseDiffChunks(patch: string): ReadonlyArray<ParsedPatchChunk> {
       continue;
     }
 
-    if (!current || line === "\\ No newline at end of file") {
+    if (!current || line === "" || line === "\\ No newline at end of file") {
       continue;
     }
     if (line.startsWith("diff --git ") || line.startsWith("--- ") || line.startsWith("+++ ")) {

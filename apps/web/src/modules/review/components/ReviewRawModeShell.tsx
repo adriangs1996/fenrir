@@ -1184,9 +1184,16 @@ function ExplorerFileRow(props: {
           <Checkbox
             checked={props.checked}
             onCheckedChange={(checked) => props.onToggleChecked(checked === true)}
+            aria-label={`Select file ${props.row.fileEntry.displayPath} from ${props.row.fileEntry.provenance.lane} ${props.row.fileEntry.provenance.scope}`}
+            data-testid={`review-raw-file-checkbox:${props.row.fileEntry.displayPath}:${props.row.fileEntry.provenance.lane}`}
             className="mt-0.5"
           />
-          <button type="button" className="min-w-0 flex-1 text-left" onClick={props.onSelect}>
+          <button
+            type="button"
+            data-testid={`review-raw-file-button:${props.row.fileEntry.displayPath}:${props.row.fileEntry.provenance.lane}`}
+            className="min-w-0 flex-1 text-left"
+            onClick={props.onSelect}
+          >
             <div className="truncate font-mono text-xs text-foreground">
               {props.row.fileEntry.displayPath}
             </div>
@@ -1209,6 +1216,7 @@ function ExplorerFileRow(props: {
             type="button"
             variant="ghost"
             size="sm"
+            data-testid={`review-raw-file-expand:${props.row.fileEntry.displayPath}:${props.row.fileEntry.provenance.lane}`}
             className="h-6 px-2 text-[11px]"
             onClick={props.onToggleExpanded}
           >
@@ -1239,6 +1247,8 @@ function ExplorerChunkRow(props: {
           <Checkbox
             checked={props.checked}
             onCheckedChange={(checked) => props.onToggleChecked(checked === true)}
+            aria-label={`Select chunk ${props.row.chunk.anchor.excerpt} from ${props.row.fileEntry.displayPath} ${props.row.chunk.anchor.provenance.lane} ${props.row.chunk.anchor.provenance.scope}`}
+            data-testid={`review-raw-chunk-checkbox:${props.row.fileEntry.displayPath}:${props.row.chunk.anchor.provenance.lane}:${props.row.chunk.chunkId}`}
             className="mt-0.5"
           />
           <button type="button" className="min-w-0 flex-1 text-left" onClick={props.onSelect}>

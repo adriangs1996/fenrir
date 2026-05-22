@@ -116,10 +116,6 @@ export function ReviewTabShell(props: ReviewTabShellProps) {
       } as const),
   );
 
-  useEffect(() => {
-    console.log(review);
-  }, [review]);
-
   const setComposerPrompt = useComposerDraftStore((store) => store.setPrompt);
   const removeReviewContext = useComposerDraftStore((store) => store.removeReviewContext);
   const clearReviewContexts = useComposerDraftStore((store) => store.clearReviewContexts);
@@ -475,6 +471,7 @@ export function ReviewTabShell(props: ReviewTabShellProps) {
                           >
                             <button
                               type="button"
+                              data-testid={`review-file-button:${entry.displayPath}:${entry.lane}`}
                               className="block w-full text-left"
                               onClick={() => selectFile(laneId, fileId)}
                             >
@@ -572,6 +569,7 @@ export function ReviewTabShell(props: ReviewTabShellProps) {
                         <button
                           key={chunkId}
                           type="button"
+                          data-testid={`review-chunk-button:${selectedFile.displayPath}:${chunk.id}`}
                           className={cn(
                             "block w-full rounded-md border px-3 py-2 text-left",
                             selection?.chunkId === chunkId
@@ -772,6 +770,7 @@ export function ReviewTabShell(props: ReviewTabShellProps) {
                     actionLabel="Add local thread"
                   >
                     <Textarea
+                      data-testid="review-chunk-local-note-input"
                       rows={4}
                       value={threadBody}
                       onChange={(event) => setThreadBody(event.target.value)}
@@ -779,6 +778,7 @@ export function ReviewTabShell(props: ReviewTabShellProps) {
                     />
                     <div className="mt-2 flex justify-end">
                       <Button
+                        data-testid="review-chunk-local-note-submit"
                         size="sm"
                         disabled={threadBody.trim().length === 0 || pendingKey === "create-thread"}
                         onClick={() =>

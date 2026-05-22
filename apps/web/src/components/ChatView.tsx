@@ -185,6 +185,7 @@ import { RightPanelSheet } from "./RightPanelSheet";
 import { useComposerHandleContext } from "../composerHandleContext";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import {
+  ReviewRawModeShell,
   ReviewTabShell,
   useReviewStore,
   type ReviewRouteMode,
@@ -3710,28 +3711,51 @@ export default function ChatView(props: ChatViewProps) {
               className="flex min-h-0 min-w-0 flex-1 flex-col"
               style={{ display: activeChatTab === "review" ? "flex" : "none" }}
             >
-              <ReviewTabShell
-                environmentId={activeThread.environmentId}
-                threadId={activeThread.id}
-                routeKind={routeKind}
-                active={activeChatTab === "review"}
-                routeState={activeReviewRouteState}
-                composerDraftTarget={composerDraftTarget}
-                onAskAgent={() => void onSend()}
-                onModeChange={(reviewMode: ReviewRouteMode) =>
-                  updateReviewRouteState({
-                    ...activeReviewRouteState,
-                    reviewMode,
-                  })
-                }
-                onScopeChange={(reviewScope: ReviewRouteScope) =>
-                  updateReviewRouteState({
-                    ...activeReviewRouteState,
-                    reviewScope,
-                  })
-                }
-                onRouteStateChange={updateReviewRouteState}
-              />
+              {activeReviewRouteState.reviewMode === "raw" ? (
+                <ReviewRawModeShell
+                  environmentId={activeThread.environmentId}
+                  threadId={activeThread.id}
+                  routeKind={routeKind}
+                  active={activeChatTab === "review"}
+                  routeState={activeReviewRouteState}
+                  onModeChange={(reviewMode: ReviewRouteMode) =>
+                    updateReviewRouteState({
+                      ...activeReviewRouteState,
+                      reviewMode,
+                    })
+                  }
+                  onScopeChange={(reviewScope: ReviewRouteScope) =>
+                    updateReviewRouteState({
+                      ...activeReviewRouteState,
+                      reviewScope,
+                    })
+                  }
+                  onRouteStateChange={updateReviewRouteState}
+                />
+              ) : (
+                <ReviewTabShell
+                  environmentId={activeThread.environmentId}
+                  threadId={activeThread.id}
+                  routeKind={routeKind}
+                  active={activeChatTab === "review"}
+                  routeState={activeReviewRouteState}
+                  composerDraftTarget={composerDraftTarget}
+                  onAskAgent={() => void onSend()}
+                  onModeChange={(reviewMode: ReviewRouteMode) =>
+                    updateReviewRouteState({
+                      ...activeReviewRouteState,
+                      reviewMode,
+                    })
+                  }
+                  onScopeChange={(reviewScope: ReviewRouteScope) =>
+                    updateReviewRouteState({
+                      ...activeReviewRouteState,
+                      reviewScope,
+                    })
+                  }
+                  onRouteStateChange={updateReviewRouteState}
+                />
+              )}
             </div>
           ) : null}
           {activeThreadKey ? (

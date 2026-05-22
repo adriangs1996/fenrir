@@ -40,6 +40,7 @@
     "typecheck": "turbo run typecheck",
     "lint": "oxlint --report-unused-disable-directives",
     "test": "turbo run test",
+    "test:browser:live": "cd apps/web && bun run test:browser:live",
     "test:desktop-smoke": "turbo run smoke-test --filter=@fenrir/desktop",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",

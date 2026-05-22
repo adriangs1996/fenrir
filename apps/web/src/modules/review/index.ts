@@ -1,3 +1,4 @@
+export { ReviewRawModeShell } from "./components/ReviewRawModeShell";
 export { ReviewTabShell } from "./ReviewTabShell";
 export { useReviewController } from "./hooks/useReviewController";
 export {

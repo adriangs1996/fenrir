@@ -11,6 +11,15 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
+  type ReviewDiffFileEntry,
+  type ReviewDiffFilePatch,
+  type ReviewDiffSnapshot,
+  type ReviewChunkPayload,
+  type ReviewApplyRawMutationResult,
+  type ReviewLocalAnnotationThread,
+  type ReviewRawLaneKind,
+  type ReviewSessionSnapshot,
+  type ReviewSessionSummary,
   ThreadId,
   WS_METHODS,
   WsRpcGroup,
@@ -41,7 +50,12 @@ interface ReviewE2eScenario {
   readonly baseRef: string;
   readonly committedFilePath: string;
   readonly stagedFilePath: string;
+  readonly stagedAddedFilePath: string;
+  readonly chunkFilePath: string;
+  readonly chunkTopChangeText: string;
+  readonly chunkBottomChangeText: string;
   readonly unstagedFilePath: string;
+  readonly unstagedDeletedFilePath: string;
   readonly ignoredFilePath: string;
 }
 
@@ -101,6 +115,13 @@ function appendSessionCookieToWsUrl(url: string, sessionCookieHeader: string) {
   return isAbsoluteUrl ? next.toString() : `${next.pathname}${next.search}${next.hash}`;
 }
 
+function normalizeWorkspacePath(pathValue: string | null | undefined) {
+  if (!pathValue) {
+    return pathValue ?? null;
+  }
+  return pathValue.replace(/^\/private(?=\/var\/)/, "");
+}
+
 function writeRepoFile(repoDir: string, relativePath: string, contents: string) {
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -110,6 +131,14 @@ function writeRepoFile(repoDir: string, relativePath: string, contents: string) 
       recursive: true,
     });
     yield* fileSystem.writeFileString(absolutePath, contents);
+  });
+}
+
+function removeRepoFile(repoDir: string, relativePath: string) {
+  return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    yield* fileSystem.remove(path.join(repoDir, relativePath));
   });
 }
 
@@ -153,6 +182,33 @@ function initializeGitRepository(repoDir: string) {
       "src/unstaged-only.ts",
       ["export function unstagedOnly(): string {", '  return "before";', "}", ""].join("\n"),
     );
+    yield* writeRepoFile(
+      repoDir,
+      "src/chunk-target.ts",
+      [
+        "export const chunkLines = [",
+        '  "line-01",',
+        '  "line-02",',
+        '  "line-03",',
+        '  "line-04",',
+        '  "line-05",',
+        '  "line-06",',
+        '  "line-07",',
+        '  "line-08",',
+        '  "line-09",',
+        '  "line-10",',
+        '  "line-11",',
+        '  "line-12",',
+        '  "line-13",',
+        "];",
+        "",
+      ].join("\n"),
+    );
+    yield* writeRepoFile(
+      repoDir,
+      "src/deleted-unstaged.ts",
+      ["export function deletedUnstaged(): string {", '  return "delete me";', "}", ""].join("\n"),
+    );
 
     yield* runGit(repoDir, ["add", "."]);
     yield* runGit(repoDir, ["commit", "-m", "Initial review fixture"]);
@@ -164,7 +220,12 @@ function seedReviewScenario(repoDir: string) {
     const branchName = "feature/review-e2e";
     const committedFilePath = "src/committed-only.ts";
     const stagedFilePath = "src/staged-only.ts";
+    const stagedAddedFilePath = "src/staged-added.ts";
+    const chunkFilePath = "src/chunk-target.ts";
+    const chunkTopChangeText = '"TOP CHUNK CHANGE"';
+    const chunkBottomChangeText = '"BOTTOM CHUNK CHANGE"';
     const unstagedFilePath = "src/unstaged-only.ts";
+    const unstagedDeletedFilePath = "src/deleted-unstaged.ts";
     const ignoredFilePath = "ignored-artifacts/debug.log";
 
     yield* runGit(repoDir, ["checkout", "-b", branchName]);
@@ -193,6 +254,18 @@ function seedReviewScenario(repoDir: string) {
 
     yield* writeRepoFile(
       repoDir,
+      stagedAddedFilePath,
+      [
+        "export function stagedAdded(): string {",
+        '  return "brand new staged file";',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    yield* runGit(repoDir, ["add", stagedAddedFilePath]);
+
+    yield* writeRepoFile(
+      repoDir,
       unstagedFilePath,
       [
         "export function unstagedOnly(): string {",
@@ -201,6 +274,30 @@ function seedReviewScenario(repoDir: string) {
         "",
       ].join("\n"),
     );
+    yield* writeRepoFile(
+      repoDir,
+      chunkFilePath,
+      [
+        "export const chunkLines = [",
+        `  ${chunkTopChangeText},`,
+        '  "line-02",',
+        '  "line-03",',
+        '  "line-04",',
+        '  "line-05",',
+        '  "line-06",',
+        '  "line-07",',
+        '  "line-08",',
+        '  "line-09",',
+        '  "line-10",',
+        '  "line-11",',
+        `  ${chunkBottomChangeText},`,
+        '  "line-13",',
+        "];",
+        "",
+      ].join("\n"),
+    );
+
+    yield* removeRepoFile(repoDir, unstagedDeletedFilePath);
 
     yield* writeRepoFile(repoDir, ignoredFilePath, "ignored runtime artifact\n");
 
@@ -209,7 +306,12 @@ function seedReviewScenario(repoDir: string) {
       baseRef: "main",
       committedFilePath,
       stagedFilePath,
+      stagedAddedFilePath,
+      chunkFilePath,
+      chunkTopChangeText,
+      chunkBottomChangeText,
       unstagedFilePath,
+      unstagedDeletedFilePath,
       ignoredFilePath,
     } satisfies ReviewE2eScenario;
   });
@@ -457,6 +559,101 @@ function getBootstrapSnapshot(session: ReviewE2eAuthSession) {
   );
 }
 
+function getOrCreateReviewSession(session: ReviewE2eAuthSession, threadId: string) {
+  return callWsRpcMethod<ReviewSessionSummary>(session, WS_METHODS.reviewGetOrCreateSession, {
+    threadId,
+    mode: "raw",
+    scope: "combined",
+  });
+}
+
+function getReviewSessionSnapshot(session: ReviewE2eAuthSession, sessionId: string) {
+  return callWsRpcMethod<ReviewSessionSnapshot>(session, WS_METHODS.reviewGetSessionSnapshot, {
+    sessionId,
+  });
+}
+
+function getReviewDiffSnapshot(session: ReviewE2eAuthSession, sessionId: string) {
+  return callWsRpcMethod<ReviewDiffSnapshot>(session, WS_METHODS.reviewGetDiffSnapshot, {
+    sessionId,
+  });
+}
+
+function getReviewFilePatch(
+  session: ReviewE2eAuthSession,
+  sessionId: string,
+  lane: ReviewRawLaneKind,
+  normalizedPath: string,
+) {
+  return callWsRpcMethod<ReviewDiffFilePatch | null>(session, WS_METHODS.reviewGetFilePatch, {
+    sessionId,
+    lane,
+    normalizedPath,
+  });
+}
+
+function getReviewChunkPayload(
+  session: ReviewE2eAuthSession,
+  sessionId: string,
+  lane: ReviewRawLaneKind,
+  normalizedPath: string,
+  chunkId: string,
+) {
+  return callWsRpcMethod<ReviewChunkPayload | null>(session, WS_METHODS.reviewGetChunkPayload, {
+    sessionId,
+    lane,
+    normalizedPath,
+    chunkId,
+  });
+}
+
+function applyRawChunkMutation(
+  session: ReviewE2eAuthSession,
+  sessionId: string,
+  action: "stage" | "unstage" | "undo",
+  lane: ReviewRawLaneKind,
+  normalizedPath: string,
+  chunkId: string,
+) {
+  return callWsRpcMethod<ReviewApplyRawMutationResult>(session, WS_METHODS.reviewApplyRawMutation, {
+    sessionId,
+    action,
+    target: {
+      targetKind: "chunk",
+      lane,
+      normalizedPath,
+      chunkId,
+    },
+  });
+}
+
+function createChunkComment(
+  session: ReviewE2eAuthSession,
+  sessionId: string,
+  patch: ReviewDiffFilePatch,
+  chunkId: string,
+  body: string,
+) {
+  const chunk = patch.chunks.find((candidate) => candidate.chunkId === chunkId) ?? null;
+  if (!chunk) {
+    return Effect.fail(new Error(`Chunk ${chunkId} not found in patch ${patch.normalizedPath}`));
+  }
+
+  return callWsRpcMethod<ReviewLocalAnnotationThread>(session, WS_METHODS.reviewCreateLocalThread, {
+    sessionId,
+    groupId: patch.groupId,
+    fileId: patch.fileId,
+    chunkId,
+    anchor: chunk.anchor,
+    body,
+    author: {
+      authSessionId: "review-e2e-user",
+      subject: "Review E2E User",
+      role: "user",
+    },
+  });
+}
+
 function waitForProjectedThread(session: ReviewE2eAuthSession, threadId: string) {
   return Effect.gen(function* () {
     const deadline = Date.now() + 10_000;
@@ -476,6 +673,33 @@ function waitForProjectedThread(session: ReviewE2eAuthSession, threadId: string)
       yield* Effect.sleep("50 millis");
     }
   });
+}
+
+function findLaneFile(
+  snapshot: ReviewDiffSnapshot,
+  lane: ReviewRawLaneKind,
+  normalizedPath: string,
+): ReviewDiffFileEntry | null {
+  return (
+    snapshot.lanes
+      .find((entry) => entry.kind === lane)
+      ?.files.find((file) => file.normalizedPath === normalizedPath) ?? null
+  );
+}
+
+function requireFilePatchChunk(patch: ReviewDiffFilePatch | null, chunkIndex = 0) {
+  assert.equal(patch !== null, true);
+  if (!patch) {
+    throw new Error("Expected a review file patch.");
+  }
+
+  const chunk = patch.chunks[chunkIndex] ?? null;
+  assert.equal(chunk !== null, true);
+  if (!chunk) {
+    throw new Error(`Expected chunk index ${chunkIndex} in patch ${patch.normalizedPath}.`);
+  }
+
+  return chunk;
 }
 
 it.live("bootstraps a real authenticated websocket session", () =>
@@ -520,7 +744,10 @@ it.live("creates a real project and thread through orchestration rpc", () =>
       if (projectedThread) {
         assert.equal(projectedThread.projectId, thread.projectId);
         assert.equal(projectedThread.branch, scenario.branchName);
-        assert.equal(projectedThread.worktreePath, workspace.repoDir);
+        assert.equal(
+          normalizeWorkspacePath(projectedThread.worktreePath),
+          normalizeWorkspacePath(workspace.repoDir),
+        );
       }
 
       const projectedThreadSnapshot = yield* callWsRpcMethod<{
@@ -537,8 +764,422 @@ it.live("creates a real project and thread through orchestration rpc", () =>
       if (projectedThreadSnapshot) {
         assert.equal(projectedThreadSnapshot.projectId, thread.projectId);
         assert.equal(projectedThreadSnapshot.branch, scenario.branchName);
-        assert.equal(projectedThreadSnapshot.worktreePath, workspace.repoDir);
+        assert.equal(
+          normalizeWorkspacePath(projectedThreadSnapshot.worktreePath),
+          normalizeWorkspacePath(workspace.repoDir),
+        );
       }
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("hydrates a real review session and exposes mixed diff lanes", () =>
+  withReviewE2eSuite(({ scenario, session, workspace }) =>
+    Effect.gen(function* () {
+      const thread = yield* createProjectAndThreadForRepo(session, workspace, scenario);
+      const reviewSession = yield* getOrCreateReviewSession(session, thread.threadId);
+      const reviewSnapshot = yield* getReviewSessionSnapshot(session, reviewSession.id);
+      const diffSnapshot = yield* getReviewDiffSnapshot(session, reviewSession.id);
+
+      assert.equal(reviewSession.mode, "raw");
+      assert.equal(reviewSession.scope, "combined");
+      assert.equal(reviewSession.target.threadId, thread.threadId);
+      assert.equal(
+        normalizeWorkspacePath(reviewSession.target.worktreePath),
+        normalizeWorkspacePath(workspace.repoDir),
+      );
+      assert.equal(reviewSession.degradedReasons.includes("diff-unavailable"), false);
+      assert.equal(reviewSnapshot.summary.id, reviewSession.id);
+
+      assert.equal(
+        reviewSnapshot.files.some((file) => file.normalizedPath === scenario.committedFilePath),
+        true,
+      );
+      assert.equal(
+        reviewSnapshot.files.some((file) => file.normalizedPath === scenario.stagedFilePath),
+        true,
+      );
+      assert.equal(
+        reviewSnapshot.files.some((file) => file.normalizedPath === scenario.stagedAddedFilePath),
+        true,
+      );
+      assert.equal(
+        reviewSnapshot.files.some((file) => file.normalizedPath === scenario.unstagedFilePath),
+        true,
+      );
+      assert.equal(
+        reviewSnapshot.files.some(
+          (file) => file.normalizedPath === scenario.unstagedDeletedFilePath,
+        ),
+        true,
+      );
+      assert.equal(
+        reviewSnapshot.files.some((file) => file.normalizedPath === scenario.ignoredFilePath),
+        true,
+      );
+
+      assert.equal(
+        diffSnapshot.lanes.some((lane) => lane.kind === "ignored"),
+        true,
+      );
+      assert.equal(
+        diffSnapshot.lanes.some((lane) => lane.kind === "unstaged"),
+        true,
+      );
+      assert.equal(
+        diffSnapshot.lanes.some((lane) => lane.kind === "staged"),
+        true,
+      );
+      assert.equal(
+        diffSnapshot.lanes.some((lane) => lane.kind === "committed"),
+        true,
+      );
+
+      assert.equal(
+        findLaneFile(diffSnapshot, "committed", scenario.committedFilePath) !== null,
+        true,
+      );
+      assert.equal(findLaneFile(diffSnapshot, "staged", scenario.stagedFilePath) !== null, true);
+      assert.equal(
+        findLaneFile(diffSnapshot, "staged", scenario.stagedAddedFilePath) !== null,
+        true,
+      );
+      assert.equal(
+        findLaneFile(diffSnapshot, "unstaged", scenario.unstagedFilePath) !== null,
+        true,
+      );
+      assert.equal(
+        findLaneFile(diffSnapshot, "unstaged", scenario.unstagedDeletedFilePath) !== null,
+        true,
+      );
+      assert.equal(findLaneFile(diffSnapshot, "ignored", scenario.ignoredFilePath) !== null, true);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("extracts additions removals and modifications through review diff rpc", () =>
+  withReviewE2eSuite(({ scenario, session, workspace }) =>
+    Effect.gen(function* () {
+      const thread = yield* createProjectAndThreadForRepo(session, workspace, scenario);
+      const reviewSession = yield* getOrCreateReviewSession(session, thread.threadId);
+      const diffSnapshot = yield* getReviewDiffSnapshot(session, reviewSession.id);
+
+      const committedFile = findLaneFile(diffSnapshot, "committed", scenario.committedFilePath);
+      const stagedAddedFile = findLaneFile(diffSnapshot, "staged", scenario.stagedAddedFilePath);
+      const unstagedDeletedFile = findLaneFile(
+        diffSnapshot,
+        "unstaged",
+        scenario.unstagedDeletedFilePath,
+      );
+
+      assert.equal(committedFile !== null, true);
+      assert.equal(stagedAddedFile !== null, true);
+      assert.equal(unstagedDeletedFile !== null, true);
+
+      if (!committedFile || !stagedAddedFile || !unstagedDeletedFile) {
+        return;
+      }
+
+      assert.equal(committedFile.changeKind, "text");
+      assert.equal(committedFile.insertions > 0, true);
+      assert.equal(committedFile.deletions > 0, true);
+
+      assert.equal(stagedAddedFile.changeKind, "text");
+      assert.equal(stagedAddedFile.insertions > 0, true);
+      assert.equal(stagedAddedFile.deletions, 0);
+
+      assert.equal(unstagedDeletedFile.changeKind, "delete");
+      assert.equal(unstagedDeletedFile.insertions, 0);
+      assert.equal(unstagedDeletedFile.deletions > 0, true);
+
+      const committedPatch = yield* getReviewFilePatch(
+        session,
+        reviewSession.id,
+        "committed",
+        scenario.committedFilePath,
+      );
+      const stagedAddedPatch = yield* getReviewFilePatch(
+        session,
+        reviewSession.id,
+        "staged",
+        scenario.stagedAddedFilePath,
+      );
+      const unstagedDeletedPatch = yield* getReviewFilePatch(
+        session,
+        reviewSession.id,
+        "unstaged",
+        scenario.unstagedDeletedFilePath,
+      );
+
+      assert.equal(committedPatch !== null, true);
+      assert.equal(stagedAddedPatch !== null, true);
+      assert.equal(unstagedDeletedPatch !== null, true);
+
+      if (!committedPatch || !stagedAddedPatch || !unstagedDeletedPatch) {
+        return;
+      }
+
+      const committedLineKinds = new Set(
+        committedPatch.chunks.flatMap((chunk) => chunk.lines.map((line) => line.kind)),
+      );
+      const stagedAddedLineKinds = new Set(
+        stagedAddedPatch.chunks.flatMap((chunk) => chunk.lines.map((line) => line.kind)),
+      );
+      const unstagedDeletedLineKinds = new Set(
+        unstagedDeletedPatch.chunks.flatMap((chunk) => chunk.lines.map((line) => line.kind)),
+      );
+
+      assert.equal(committedLineKinds.has("add"), true);
+      assert.equal(committedLineKinds.has("delete"), true);
+      assert.equal(stagedAddedLineKinds.has("add"), true);
+      assert.equal(stagedAddedLineKinds.has("delete"), false);
+      assert.equal(unstagedDeletedLineKinds.has("delete"), true);
+      assert.equal(unstagedDeletedLineKinds.has("add"), false);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("loads chunk patches and raw chunk payloads for multi-hunk review files", () =>
+  withReviewE2eSuite(({ scenario, session, workspace }) =>
+    Effect.gen(function* () {
+      const thread = yield* createProjectAndThreadForRepo(session, workspace, scenario);
+      const reviewSession = yield* getOrCreateReviewSession(session, thread.threadId);
+      const patch = yield* getReviewFilePatch(
+        session,
+        reviewSession.id,
+        "unstaged",
+        scenario.chunkFilePath,
+      );
+
+      assert.equal(patch !== null, true);
+      if (!patch) {
+        return;
+      }
+
+      assert.equal(patch.chunks.length >= 2, true);
+      const firstChunk = requireFilePatchChunk(patch, 0);
+      const secondChunk = requireFilePatchChunk(patch, 1);
+
+      const firstChunkPayload = yield* getReviewChunkPayload(
+        session,
+        reviewSession.id,
+        "unstaged",
+        scenario.chunkFilePath,
+        firstChunk.chunkId,
+      );
+      const secondChunkPayload = yield* getReviewChunkPayload(
+        session,
+        reviewSession.id,
+        "unstaged",
+        scenario.chunkFilePath,
+        secondChunk.chunkId,
+      );
+
+      assert.equal(firstChunkPayload !== null, true);
+      assert.equal(secondChunkPayload !== null, true);
+
+      if (!firstChunkPayload || !secondChunkPayload) {
+        return;
+      }
+
+      assert.equal(firstChunkPayload.rawPatch.includes(scenario.chunkTopChangeText), true);
+      assert.equal(firstChunkPayload.rawPatch.includes(scenario.chunkBottomChangeText), false);
+      assert.equal(secondChunkPayload.rawPatch.includes(scenario.chunkBottomChangeText), true);
+      assert.equal(secondChunkPayload.rawPatch.includes(scenario.chunkTopChangeText), false);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("stages a single chunk without touching the other hunk", () =>
+  withReviewE2eSuite(({ scenario, session, workspace }) =>
+    Effect.gen(function* () {
+      const thread = yield* createProjectAndThreadForRepo(session, workspace, scenario);
+      const reviewSession = yield* getOrCreateReviewSession(session, thread.threadId);
+      const patch = yield* getReviewFilePatch(
+        session,
+        reviewSession.id,
+        "unstaged",
+        scenario.chunkFilePath,
+      );
+      const firstChunk = requireFilePatchChunk(patch, 0);
+
+      const mutation = yield* applyRawChunkMutation(
+        session,
+        reviewSession.id,
+        "stage",
+        "unstaged",
+        scenario.chunkFilePath,
+        firstChunk.chunkId,
+      );
+
+      assert.equal(mutation.selectionStatus, "applied");
+      assert.equal(mutation.targetKind, "chunk");
+      assert.equal(mutation.confirmation, `Chunk staged: ${scenario.chunkFilePath}`);
+      assert.equal(mutation.laneTransitions[0]?.fromLane, "unstaged");
+      assert.equal(mutation.laneTransitions[0]?.toLane, "staged");
+
+      const diffSnapshot = yield* getReviewDiffSnapshot(session, reviewSession.id);
+      assert.equal(findLaneFile(diffSnapshot, "staged", scenario.chunkFilePath) !== null, true);
+      assert.equal(findLaneFile(diffSnapshot, "unstaged", scenario.chunkFilePath) !== null, true);
+
+      const cachedDiff = yield* runGit(workspace.repoDir, [
+        "diff",
+        "--cached",
+        "--",
+        scenario.chunkFilePath,
+      ]);
+      const worktreeDiff = yield* runGit(workspace.repoDir, ["diff", "--", scenario.chunkFilePath]);
+
+      assert.equal(cachedDiff.includes(scenario.chunkTopChangeText), true);
+      assert.equal(cachedDiff.includes(scenario.chunkBottomChangeText), false);
+      assert.equal(worktreeDiff.includes(scenario.chunkTopChangeText), false);
+      assert.equal(worktreeDiff.includes(scenario.chunkBottomChangeText), true);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("discards a single unstaged chunk while preserving the other hunk", () =>
+  withReviewE2eSuite(({ scenario, session, workspace }) =>
+    Effect.gen(function* () {
+      const thread = yield* createProjectAndThreadForRepo(session, workspace, scenario);
+      const reviewSession = yield* getOrCreateReviewSession(session, thread.threadId);
+      const patch = yield* getReviewFilePatch(
+        session,
+        reviewSession.id,
+        "unstaged",
+        scenario.chunkFilePath,
+      );
+      const firstChunk = requireFilePatchChunk(patch, 0);
+
+      const mutation = yield* applyRawChunkMutation(
+        session,
+        reviewSession.id,
+        "undo",
+        "unstaged",
+        scenario.chunkFilePath,
+        firstChunk.chunkId,
+      );
+
+      assert.equal(mutation.selectionStatus, "applied");
+      assert.equal(mutation.generatedInverseEdit, false);
+      assert.equal(mutation.confirmation, `Chunk undone: ${scenario.chunkFilePath}`);
+      assert.equal(mutation.laneTransitions[0]?.fromLane, "unstaged");
+      assert.equal(mutation.laneTransitions[0]?.toLane, undefined);
+
+      const refreshedPatch = yield* getReviewFilePatch(
+        session,
+        reviewSession.id,
+        "unstaged",
+        scenario.chunkFilePath,
+      );
+      assert.equal(refreshedPatch !== null, true);
+      if (!refreshedPatch) {
+        return;
+      }
+
+      assert.equal(refreshedPatch.chunks.length, 1);
+      const worktreeDiff = yield* runGit(workspace.repoDir, ["diff", "--", scenario.chunkFilePath]);
+
+      assert.equal(worktreeDiff.includes(scenario.chunkTopChangeText), false);
+      assert.equal(worktreeDiff.includes(scenario.chunkBottomChangeText), true);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("adds a local comment thread anchored to a review chunk", () =>
+  withReviewE2eSuite(({ scenario, session, workspace }) =>
+    Effect.gen(function* () {
+      const thread = yield* createProjectAndThreadForRepo(session, workspace, scenario);
+      const reviewSession = yield* getOrCreateReviewSession(session, thread.threadId);
+      const patch = yield* getReviewFilePatch(
+        session,
+        reviewSession.id,
+        "unstaged",
+        scenario.chunkFilePath,
+      );
+      const firstChunk = requireFilePatchChunk(patch, 0);
+      const body = "Investigate this chunk before staging.";
+
+      const localThread = yield* createChunkComment(
+        session,
+        reviewSession.id,
+        patch!,
+        firstChunk.chunkId,
+        body,
+      );
+
+      assert.equal(localThread.chunkId, firstChunk.chunkId);
+      assert.equal(localThread.body, body);
+      assert.equal(localThread.anchor.normalizedPath, scenario.chunkFilePath);
+
+      const snapshot = yield* getReviewSessionSnapshot(session, reviewSession.id);
+      const persistedThread =
+        snapshot.localThreads.find((entry) => entry.id === localThread.id) ?? null;
+
+      assert.equal(persistedThread !== null, true);
+      if (!persistedThread) {
+        return;
+      }
+
+      assert.equal(persistedThread.chunkId, firstChunk.chunkId);
+      assert.equal(persistedThread.body, body);
+      assert.equal(persistedThread.anchor.patchFingerprint, firstChunk.anchor.patchFingerprint);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("undos committed chunks by creating inverse edits instead of rewriting history", () =>
+  withReviewE2eSuite(({ scenario, session, workspace }) =>
+    Effect.gen(function* () {
+      const thread = yield* createProjectAndThreadForRepo(session, workspace, scenario);
+      const reviewSession = yield* getOrCreateReviewSession(session, thread.threadId);
+      const committedPatch = yield* getReviewFilePatch(
+        session,
+        reviewSession.id,
+        "committed",
+        scenario.committedFilePath,
+      );
+      const committedChunk = requireFilePatchChunk(committedPatch, 0);
+
+      const mutation = yield* applyRawChunkMutation(
+        session,
+        reviewSession.id,
+        "undo",
+        "committed",
+        scenario.committedFilePath,
+        committedChunk.chunkId,
+      );
+
+      assert.equal(mutation.selectionStatus, "applied");
+      assert.equal(mutation.generatedInverseEdit, true);
+      assert.equal(mutation.laneTransitions[0]?.fromLane, "committed");
+      assert.equal(mutation.laneTransitions[0]?.toLane, "inverse-edit");
+
+      const diffSnapshot = yield* getReviewDiffSnapshot(session, reviewSession.id);
+      assert.equal(
+        findLaneFile(diffSnapshot, "committed", scenario.committedFilePath) !== null,
+        true,
+      );
+      assert.equal(
+        findLaneFile(diffSnapshot, "inverse-edit", scenario.committedFilePath) !== null,
+        true,
+      );
+
+      const cachedDiff = yield* runGit(workspace.repoDir, [
+        "diff",
+        "--cached",
+        "--",
+        scenario.committedFilePath,
+      ]);
+      const worktreeDiff = yield* runGit(workspace.repoDir, [
+        "diff",
+        "--",
+        scenario.committedFilePath,
+      ]);
+
+      assert.equal(cachedDiff, "");
+      assert.equal(worktreeDiff.includes('return "before";'), true);
+      assert.equal(worktreeDiff.includes('return "after committed change";'), true);
     }),
   ).pipe(Effect.provide(NodeServices.layer)),
 );
