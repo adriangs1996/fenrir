@@ -6,9 +6,15 @@ import {
   ensurePrimaryEnvironmentReady,
   resolveInitialServerAuthGateState,
 } from "../environments/primary";
+import { cn } from "../lib/utils";
+import {
+  DESKTOP_TITLEBAR_LEADING_INSET_CLASS_NAME,
+  DESKTOP_TITLEBAR_TRAILING_CONTROLS_INSET_CLASS_NAME,
+  shouldReserveDesktopTitlebarLeadingInset,
+} from "../lib/desktopTitleBar";
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
 import { Button } from "../components/ui/button";
-import { SidebarInset, SidebarTrigger } from "../components/ui/sidebar";
+import { SidebarInset, SidebarTrigger, useSidebar } from "../components/ui/sidebar";
 import { isElectron } from "../env";
 
 function RestoreDefaultsButton({ onRestored }: { onRestored: () => void }) {
@@ -29,9 +35,16 @@ function RestoreDefaultsButton({ onRestored }: { onRestored: () => void }) {
 
 function SettingsContentLayout() {
   const location = useLocation();
+  const { isMobile, open: sidebarOpen } = useSidebar();
   const [restoreSignal, setRestoreSignal] = useState(0);
   const showRestoreDefaults = location.pathname === "/settings/general";
   const handleRestored = () => setRestoreSignal((value) => value + 1);
+  const reserveLeadingTitlebarInset = shouldReserveDesktopTitlebarLeadingInset({
+    isElectron,
+    isMobile,
+    platform: typeof navigator === "undefined" ? "" : navigator.platform,
+    sidebarOpen,
+  });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -66,7 +79,15 @@ function SettingsContentLayout() {
         )}
 
         {isElectron && (
-          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-5 wco:h-[env(titlebar-area-height)] wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]">
+          <div
+            className={cn(
+              "drag-region flex h-[52px] shrink-0 items-center border-b border-border wco:h-[env(titlebar-area-height)]",
+              reserveLeadingTitlebarInset
+                ? cn("pr-5", DESKTOP_TITLEBAR_LEADING_INSET_CLASS_NAME)
+                : "px-5",
+              DESKTOP_TITLEBAR_TRAILING_CONTROLS_INSET_CLASS_NAME,
+            )}
+          >
             <span className="text-xs font-medium tracking-wide text-muted-foreground/70">
               Settings
             </span>

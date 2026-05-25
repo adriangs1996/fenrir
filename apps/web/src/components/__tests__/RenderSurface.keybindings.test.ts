@@ -52,6 +52,7 @@ function compile(
 const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("j"), command: "terminal.toggle" },
   { shortcut: modShortcut("d"), command: "diff.toggle" },
+  { shortcut: modShortcut("b"), command: "sidebar.toggle" },
   { shortcut: modShortcut("n"), command: "chat.new" },
   { shortcut: modShortcut("c", { shiftKey: true }), command: "editor.sendSelection" },
   { shortcut: modShortcut("e"), command: "editor.toggleChatTab" },
@@ -83,6 +84,10 @@ describe("isAppShortcut", () => {
           platform: "Win32",
         }),
       ).toBe(true);
+    });
+
+    it("treats Cmd+B as an app shortcut on macOS when bound", () => {
+      expect(isAppShortcut(kbd({ key: "b", metaKey: true }), DEFAULT_BINDINGS)).toBe(true);
     });
   });
 

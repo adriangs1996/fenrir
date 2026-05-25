@@ -41,6 +41,7 @@ export const REVIEW_KEYBINDING_COMMANDS = [
 export type ReviewKeybindingCommand = (typeof REVIEW_KEYBINDING_COMMANDS)[number];
 
 const STATIC_KEYBINDING_COMMANDS = [
+  "sidebar.toggle",
   "commandPalette.toggle",
   "terminal.toggle",
   "terminal.split",

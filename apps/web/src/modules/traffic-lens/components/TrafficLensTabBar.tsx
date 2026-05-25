@@ -1,5 +1,11 @@
 import { X } from "lucide-react";
 import { Button } from "../../../components/ui/button";
+import { useSidebar } from "../../../components/ui/sidebar";
+import { isElectron } from "../../../env";
+import {
+  DESKTOP_TITLEBAR_LEADING_INSET_CLASS_NAME,
+  shouldReserveDesktopTitlebarLeadingInset,
+} from "../../../lib/desktopTitleBar";
 import { useTrafficLensStore } from "../stores/useTrafficLensStore";
 import { cn } from "../../../lib/utils";
 
@@ -7,12 +13,24 @@ export function TrafficLensTabBar() {
   const tabs = useTrafficLensStore((s) => s.tabs);
   const activeTabId = useTrafficLensStore((s) => s.activeTabId);
   const setActiveTab = useTrafficLensStore((s) => s.setActiveTab);
+  const { isMobile, open: sidebarOpen } = useSidebar();
+  const reserveLeadingTitlebarInset = shouldReserveDesktopTitlebarLeadingInset({
+    isElectron,
+    isMobile,
+    platform: typeof navigator === "undefined" ? "" : navigator.platform,
+    sidebarOpen,
+  });
 
   const tabList = Object.values(tabs);
   if (tabList.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-0.5 overflow-x-auto border-b bg-muted/30 px-1">
+    <div
+      className={cn(
+        "flex items-center gap-0.5 overflow-x-auto border-b bg-muted/30 px-1",
+        reserveLeadingTitlebarInset && DESKTOP_TITLEBAR_LEADING_INSET_CLASS_NAME,
+      )}
+    >
       {tabList.map((tab) => (
         <div
           key={tab.tabId}

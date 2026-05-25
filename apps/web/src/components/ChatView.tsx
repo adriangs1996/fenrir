@@ -96,6 +96,11 @@ import { RightPanelTabs } from "./chat/RightPanelTabs";
 import ThreadTerminalDrawer from "~/modules/terminal/components/ThreadTerminalDrawer";
 import { ChevronDownIcon } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
+import {
+  DESKTOP_TITLEBAR_LEADING_INSET_CLASS_NAME,
+  DESKTOP_TITLEBAR_TRAILING_CONTROLS_INSET_CLASS_NAME,
+  shouldReserveDesktopTitlebarLeadingInset,
+} from "~/lib/desktopTitleBar";
 import { toastManager } from "./ui/toast";
 import PlaceholderInputDialog from "./PlaceholderInputDialog";
 import { globalScriptIdFromCommand, projectScriptIdFromCommand } from "~/projectScripts";
@@ -148,6 +153,7 @@ import { NoActiveThreadState } from "./NoActiveThreadState";
 import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
+import { useSidebar } from "./ui/sidebar";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   buildExpiredTerminalContextToastCopy,
@@ -172,7 +178,7 @@ import {
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import { useChatViewScripts } from "./chatView/useChatViewScripts";
-import { useChatViewTabs } from "./chatView/useChatViewTabs";
+import { type ChatViewTab, useChatViewTabs } from "./chatView/useChatViewTabs";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   useServerAvailableEditors,
@@ -748,7 +754,14 @@ export default function ChatView(props: ChatViewProps) {
     useState<Record<string, number>>({});
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
   const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const { isMobile: isSidebarMobile, open: sidebarOpen } = useSidebar();
   const rightPanel = useRightPanelStore();
+  const reserveLeadingTitlebarInset = shouldReserveDesktopTitlebarLeadingInset({
+    isElectron,
+    isMobile: isSidebarMobile,
+    platform: typeof navigator === "undefined" ? "" : navigator.platform,
+    sidebarOpen,
+  });
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
   // When set, the thread-change reset effect will open the sidebar instead of closing it.
@@ -1745,6 +1758,16 @@ export default function ChatView(props: ChatViewProps) {
     setTerminalOpen,
     terminalState.terminalOpen,
   ]);
+  const handleTabBarSelect = useCallback(
+    (tab: ChatViewTab) => {
+      if (tab === "terminal") {
+        activateTerminalTab({ ensureOpen: true, focus: true });
+        return;
+      }
+      handleChatTabSelect(tab);
+    },
+    [activateTerminalTab, handleChatTabSelect],
+  );
   const splitTerminal = useCallback(() => {
     if (!activeThreadRef || hasReachedSplitLimit) return;
     const terminalId = `terminal-${randomUUID()}`;
@@ -3453,12 +3476,14 @@ export default function ChatView(props: ChatViewProps) {
       {/* Top bar */}
       <header
         className={cn(
-          "border-b border-border px-3 sm:px-5",
+          "border-b border-border",
+          reserveLeadingTitlebarInset
+            ? cn("pr-3 sm:pr-5", DESKTOP_TITLEBAR_LEADING_INSET_CLASS_NAME)
+            : "px-3 sm:px-5",
           isElectron
             ? cn(
                 "drag-region flex h-[52px] items-center wco:h-[env(titlebar-area-height)]",
-                reserveTitleBarControlInset &&
-                  "wco:pr-[calc(100vw-env(titlebar-area-width)-env(titlebar-area-x)+1em)]",
+                reserveTitleBarControlInset && DESKTOP_TITLEBAR_TRAILING_CONTROLS_INSET_CLASS_NAME,
               )
             : "py-2 sm:py-3",
         )}
@@ -3514,8 +3539,7 @@ export default function ChatView(props: ChatViewProps) {
           <ChatTabBar
             activeTab={activeChatTab}
             editorAvailable={editorAvailable}
-            onTabSelect={handleChatTabSelect}
-            terminalOpen={terminalState.terminalOpen}
+            onTabSelect={handleTabBarSelect}
           />
           {/* Thread tab — composer hides "for free" when this branch is
               hidden via display:none. EditorPane mounts unconditionally

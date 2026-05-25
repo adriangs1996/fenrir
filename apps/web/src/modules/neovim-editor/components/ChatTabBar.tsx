@@ -9,19 +9,17 @@ interface Props {
   activeTab: ChatTab;
   editorAvailable: boolean;
   onTabSelect: (tab: ChatTab) => void;
-  terminalOpen: boolean;
 }
 
 /**
- * Tab bar above the chat main area: Thread | Review | Terminal | Editor.
- * Terminal tab only appears while the current thread has an open terminal.
+ * Tab bar above the chat main area: Thread | Editor | Terminal | Review.
+ * Terminal remains visible and selection can open the thread terminal on demand.
  * Editor tab remains gated by bridge / main-window / nvim availability.
  */
 export const ChatTabBar = memo(function ChatTabBar({
   activeTab,
   editorAvailable,
   onTabSelect,
-  terminalOpen,
 }: Props) {
   return (
     <div
@@ -35,22 +33,6 @@ export const ChatTabBar = memo(function ChatTabBar({
         icon={<MessageSquareIcon className="size-3.5" />}
         label="Thread"
       />
-      <TabButton
-        tab="review"
-        active={activeTab === "review"}
-        onClick={() => onTabSelect("review")}
-        icon={<SearchIcon className="size-3.5" />}
-        label="Review"
-      />
-      {terminalOpen && (
-        <TabButton
-          tab="terminal"
-          active={activeTab === "terminal"}
-          onClick={() => onTabSelect("terminal")}
-          icon={<TerminalSquareIcon className="size-3.5" />}
-          label="Terminal"
-        />
-      )}
       {editorAvailable && (
         <TabButton
           tab="editor"
@@ -60,6 +42,20 @@ export const ChatTabBar = memo(function ChatTabBar({
           label="Editor"
         />
       )}
+      <TabButton
+        tab="terminal"
+        active={activeTab === "terminal"}
+        onClick={() => onTabSelect("terminal")}
+        icon={<TerminalSquareIcon className="size-3.5" />}
+        label="Terminal"
+      />
+      <TabButton
+        tab="review"
+        active={activeTab === "review"}
+        onClick={() => onTabSelect("review")}
+        icon={<SearchIcon className="size-3.5" />}
+        label="Review"
+      />
     </div>
   );
 });

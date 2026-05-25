@@ -12,6 +12,7 @@ import {
   isChatNewLocalShortcut,
   isDiffToggleShortcut,
   isOpenFavoriteEditorShortcut,
+  isSidebarToggleShortcut,
   isTerminalClearShortcut,
   isTerminalCloseShortcut,
   isTerminalNewShortcut,
@@ -100,6 +101,11 @@ const DEFAULT_BINDINGS = compile([
   {
     shortcut: modShortcut("d"),
     command: "diff.toggle",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
+    shortcut: modShortcut("b"),
+    command: "sidebar.toggle",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
@@ -233,6 +239,26 @@ describe("split/new/close terminal shortcuts", () => {
     assert.isFalse(
       isTerminalNewShortcut(event({ key: "m", ctrlKey: true }), keybindings, {
         platform: "Linux",
+      }),
+    );
+  });
+});
+
+describe("isSidebarToggleShortcut", () => {
+  it("matches Cmd+B outside terminal focus", () => {
+    assert.isTrue(
+      isSidebarToggleShortcut(event({ key: "b", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+    );
+  });
+
+  it("does not match while terminal focus is true", () => {
+    assert.isFalse(
+      isSidebarToggleShortcut(event({ key: "b", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: true },
       }),
     );
   });

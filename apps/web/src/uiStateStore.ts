@@ -21,7 +21,6 @@ interface PersistedUiState {
   expandedPlanRunnerFolderKeys?: string[];
   projectOrderCwds?: string[];
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
-  workspaceLastPathByName?: Record<string, string>;
 }
 
 export interface UiProjectState {
@@ -39,10 +38,7 @@ export interface UiPlanRunnerState {
   planRunnerFolderExpandedByKey: Record<string, boolean>;
 }
 
-export interface UiState extends UiProjectState, UiThreadState, UiPlanRunnerState {
-  activeWorkspace: "code" | "hack";
-  workspaceLastPathByName: Record<string, string>;
-}
+export interface UiState extends UiProjectState, UiThreadState, UiPlanRunnerState {}
 
 export interface SyncProjectInput {
   key: string;
@@ -59,10 +55,8 @@ const initialState: UiState = {
   projectThreadFolderExpandedByCwd: {},
   projectOrder: [],
   threadLastVisitedAtById: {},
-  activeWorkspace: "code" as const,
   threadChangedFilesExpandedById: {},
   planRunnerFolderExpandedByKey: {},
-  workspaceLastPathByName: {},
 };
 
 const persistedExpandedProjectCwds = new Set<string>();
@@ -100,7 +94,6 @@ function readPersistedState(): UiState {
       threadChangedFilesExpandedById: sanitizePersistedThreadChangedFilesExpanded(
         parsed.threadChangedFilesExpandedById,
       ),
-      workspaceLastPathByName: sanitizePersistedWorkspacePaths(parsed.workspaceLastPathByName),
     };
   } catch {
     return initialState;
@@ -152,21 +145,6 @@ function sanitizePersistedExpandedKeys(
   return nextState;
 }
 
-function sanitizePersistedWorkspacePaths(
-  value: Record<string, string> | undefined,
-): Record<string, string> {
-  if (!value || typeof value !== "object") {
-    return {};
-  }
-  const result: Record<string, string> = {};
-  for (const [workspace, path] of Object.entries(value)) {
-    if (typeof workspace === "string" && typeof path === "string" && path.length > 0) {
-      result[workspace] = path;
-    }
-  }
-  return result;
-}
-
 function hydratePersistedProjectState(parsed: PersistedUiState): void {
   persistedExpandedProjectCwds.clear();
   persistedProjectOrderCwds.length = 0;
@@ -216,7 +194,6 @@ function persistState(state: UiState): void {
         expandedPlanRunnerFolderKeys,
         projectOrderCwds,
         threadChangedFilesExpandedById,
-        workspaceLastPathByName: state.workspaceLastPathByName,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -621,8 +598,6 @@ interface UiStateStore extends UiState {
   setProjectThreadFolderExpanded: (projectCwd: string, expanded: boolean) => void;
   setPlanRunnerFolderExpanded: (key: string, expanded: boolean) => void;
   reorderProjects: (draggedProjectIds: readonly string[], targetProjectId: string) => void;
-  setActiveWorkspace: (workspace: "code" | "hack") => void;
-  setWorkspaceLastPath: (workspace: string, path: string) => void;
 }
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
@@ -645,14 +620,6 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setPlanRunnerFolderExpanded(state, key, expanded)),
   reorderProjects: (draggedProjectIds, targetProjectId) =>
     set((state) => reorderProjects(state, draggedProjectIds, targetProjectId)),
-  setActiveWorkspace: (workspace) => set({ activeWorkspace: workspace }),
-  setWorkspaceLastPath: (workspace, path) =>
-    set((state) => ({
-      workspaceLastPathByName: {
-        ...state.workspaceLastPathByName,
-        [workspace]: path,
-      },
-    })),
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));

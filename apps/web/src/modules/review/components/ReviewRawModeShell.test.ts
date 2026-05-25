@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { buildReviewExplorerTree } from "../explorerTree";
 import {
   buildExplorerRows,
   estimateExplorerRowSize,
@@ -15,32 +16,40 @@ function makeFileRef(input: { fileId: string; path: string; laneId?: string }) {
       lane: "committed",
       normalizedPath: input.path,
       displayPath: input.path,
+      insertions: 1,
+      deletions: 0,
     },
   } as never;
 }
 
 describe("ReviewRawModeShell logic", () => {
   it("keeps large explorer payloads lazy by only rendering chunks for the selected file patch", () => {
-    const sections = new Map([
+    const sectionTrees = new Map([
       [
         "committed",
-        Array.from({ length: 250 }, (_, index) =>
-          makeFileRef({
-            fileId: `file-${index + 1}`,
-            path: `src/file-${index + 1}.ts`,
-          }),
+        buildReviewExplorerTree(
+          Array.from({ length: 250 }, (_, index) =>
+            makeFileRef({
+              fileId: `file-${index + 1}`,
+              path: `src/file-${index + 1}.ts`,
+            }),
+          ),
         ),
       ],
     ]);
 
     const rows = buildExplorerRows({
-      sections: sections as never,
+      sectionTrees: sectionTrees as never,
       expandedSections: {
         ignored: false,
         unstaged: false,
         staged: false,
         committed: true,
       },
+      expandedDirectories: {
+        "directory:committed:src": true,
+      },
+      autoExpandedDirectories: new Set<string>(),
       fileExpansion: {
         "file-1": true,
         "file-2": true,
@@ -75,11 +84,12 @@ describe("ReviewRawModeShell logic", () => {
         id: "status:file-1:error",
         kind: "status",
         sectionKey: "committed",
+        depth: 1,
         fileId: "file-1",
         message: "failed",
         tone: "error",
       }),
-    ).toBe(36);
+    ).toBe(28);
     expect(
       estimatePatchChunkRowSize({
         lines: Array.from({ length: 20 }, () => ({ kind: "context", text: "x" })),

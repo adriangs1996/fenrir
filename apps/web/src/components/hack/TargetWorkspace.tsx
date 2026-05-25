@@ -2,10 +2,17 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { usePrimaryEnvironmentId } from "../../environments/primary";
 import { readEnvironmentApi } from "../../environmentApi";
+import { isElectron } from "../../env";
+import {
+  DESKTOP_TITLEBAR_LEADING_INSET_CLASS_NAME,
+  shouldReserveDesktopTitlebarLeadingInset,
+} from "../../lib/desktopTitleBar";
+import { cn } from "../../lib/utils";
 import { terminalHandlerStore } from "../../modules/reverse-shells/stores/terminalHandlerStore";
 import { useRawTcpStore } from "../../rawTcpStore";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { useSidebar } from "../ui/sidebar";
 import { useRawTcpSync } from "./useRawTcpSync";
 
 interface Props {
@@ -15,11 +22,18 @@ interface Props {
 export function TargetWorkspace({ sessionId }: Props) {
   const environmentId = usePrimaryEnvironmentId();
   useRawTcpSync(environmentId);
+  const { isMobile, open: sidebarOpen } = useSidebar();
 
   const session = useRawTcpStore((s) => s.sessions[sessionId]);
   const output = useRawTcpStore((s) => s.sessionOutput[sessionId] ?? "");
   const terminalContainerRef = useRef<HTMLDivElement | null>(null);
   const [upgradingPty, setUpgradingPty] = useState(false);
+  const reserveLeadingTitlebarInset = shouldReserveDesktopTitlebarLeadingInset({
+    isElectron,
+    isMobile,
+    platform: typeof navigator === "undefined" ? "" : navigator.platform,
+    sidebarOpen,
+  });
 
   const sendData = useEffectEvent((data: string) => {
     if (!session || !environmentId) return;
@@ -112,7 +126,12 @@ export function TargetWorkspace({ sessionId }: Props) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+      <div
+        className={cn(
+          "flex items-center justify-between border-b border-border px-3 py-2",
+          reserveLeadingTitlebarInset && DESKTOP_TITLEBAR_LEADING_INSET_CLASS_NAME,
+        )}
+      >
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <div className="truncate font-mono text-sm">{sessionId}</div>

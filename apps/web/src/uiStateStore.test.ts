@@ -20,10 +20,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectThreadFolderExpandedByCwd: {},
     projectOrder: [],
     threadLastVisitedAtById: {},
-    activeWorkspace: "code",
     threadChangedFilesExpandedById: {},
     planRunnerFolderExpandedByKey: {},
-    workspaceLastPathByName: {},
     ...overrides,
   };
 }
