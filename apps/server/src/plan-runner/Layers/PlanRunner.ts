@@ -263,13 +263,25 @@ const isActiveFeatureState = (state: FeatureState): boolean =>
 const ARCHIVE_DIR_NAME = ".archive";
 const ARCHIVE_SUFFIX = "--archived-";
 
+function isValidDate(value: Date): boolean {
+  return Number.isFinite(value.getTime());
+}
+
+function dateFromEpochMs(value: string): Date | null {
+  const epochMs = Number(value);
+  if (!Number.isFinite(epochMs)) return null;
+
+  const date = new Date(epochMs);
+  return isValidDate(date) ? date : null;
+}
+
 function parseArchivedDirName(dir: string): {
   displayName: string;
   archivedAt: Date | null;
 } {
   const match = dir.match(/^(.+)--archived-(\d+)$/);
   if (match) {
-    return { displayName: match[1]!, archivedAt: new Date(Number(match[2])) };
+    return { displayName: match[1]!, archivedAt: dateFromEpochMs(match[2]!) };
   }
   return { displayName: dir, archivedAt: null };
 }
@@ -939,8 +951,9 @@ export const PlanRunnerLive = Layer.effect(
           );
 
           const { displayName, archivedAt } = parseArchivedDirName(entry);
-          const effectiveDate =
-            archivedAt ?? (Option.isSome(stat.mtime) ? stat.mtime.value : new Date());
+          const statMtime =
+            Option.isSome(stat.mtime) && isValidDate(stat.mtime.value) ? stat.mtime.value : null;
+          const effectiveDate = archivedAt ?? statMtime ?? new Date();
 
           features.push({
             projectId,

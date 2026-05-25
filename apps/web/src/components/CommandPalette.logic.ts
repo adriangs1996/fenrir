@@ -85,6 +85,17 @@ export function normalizeSearchText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+export function getCommandPaletteItemValue(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value && typeof value === "object" && "value" in value) {
+    const itemValue = value.value;
+    return typeof itemValue === "string" ? itemValue : null;
+  }
+  return null;
+}
+
 export function buildProjectActionItems(input: {
   projects: ReadonlyArray<Project>;
   valuePrefix: string;

@@ -98,6 +98,7 @@ import {
   filterBrowseEntries,
   filterCommandPaletteGroups,
   getCommandPaletteInputPlaceholder,
+  getCommandPaletteItemValue,
   getCommandPaletteMode,
   ITEM_ICON_CLASS,
   RECENT_THREAD_LIMIT,
@@ -1081,7 +1082,7 @@ function OpenCommandPaletteDialog() {
         autoHighlight={isBrowsing ? false : "always"}
         mode="none"
         onItemHighlighted={(value) => {
-          setHighlightedItemValue(typeof value === "string" ? value : null);
+          setHighlightedItemValue(getCommandPaletteItemValue(value));
         }}
         onValueChange={handleQueryChange}
         value={query}
@@ -1139,7 +1140,7 @@ function OpenCommandPaletteDialog() {
             </Button>
           ) : null}
         </div>
-        <CommandPanel className="max-h-[min(28rem,70vh)]">
+        <CommandPanel className="flex min-h-0 flex-1">
           <CommandPaletteResults
             groups={displayedGroups}
             highlightedItemValue={highlightedItemValue}

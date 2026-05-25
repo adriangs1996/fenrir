@@ -131,6 +131,8 @@ function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
       resolveDiffThemeName("light"),
       resolveDiffThemeName("catppuccin-mocha"),
       resolveDiffThemeName("rose-pine"),
+      resolveDiffThemeName("kanagawa-wave"),
+      resolveDiffThemeName("kanagawa-dragon"),
       resolveDiffThemeName("nord"),
     ],
     langs: [language as SupportedLanguages],

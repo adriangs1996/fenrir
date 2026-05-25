@@ -15,6 +15,8 @@
         const DARK_BACKGROUND = "#161616";
         const CATPPUCCIN_BACKGROUND = "#181825";
         const ROSE_PINE_BACKGROUND = "#191724";
+        const KANAGAWA_BACKGROUND = "#1f1f28";
+        const KANAGAWA_DRAGON_BACKGROUND = "#181616";
         const NORD_BACKGROUND = "#191c22";
         const themeColorMeta = document.querySelector('meta[name="theme-color"]');
         try {
@@ -25,32 +27,44 @@
             storedTheme === "system" ||
             storedTheme === "catppuccin-mocha" ||
             storedTheme === "rose-pine" ||
+            storedTheme === "kanagawa" ||
+            storedTheme === "kanagawa-dragon" ||
             storedTheme === "nord"
               ? storedTheme
               : "system";
           const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           const isCatppuccin = theme === "catppuccin-mocha";
           const isRosePine = theme === "rose-pine";
+          const isKanagawa = theme === "kanagawa";
+          const isKanagawaDragon = theme === "kanagawa-dragon";
           const isNord = theme === "nord";
           const isDark =
             isCatppuccin ||
             isRosePine ||
+            isKanagawa ||
+            isKanagawaDragon ||
             isNord ||
             theme === "dark" ||
             (theme === "system" && prefersDark);
           document.documentElement.classList.toggle("dark", isDark);
           document.documentElement.classList.toggle("catppuccin-mocha", isCatppuccin);
           document.documentElement.classList.toggle("rose-pine", isRosePine);
+          document.documentElement.classList.toggle("kanagawa", isKanagawa);
+          document.documentElement.classList.toggle("kanagawa-dragon", isKanagawaDragon);
           document.documentElement.classList.toggle("nord", isNord);
           const chromeColor = isCatppuccin
             ? CATPPUCCIN_BACKGROUND
             : isRosePine
               ? ROSE_PINE_BACKGROUND
-              : isNord
-                ? NORD_BACKGROUND
-                : isDark
-                  ? DARK_BACKGROUND
-                  : LIGHT_BACKGROUND;
+              : isKanagawa
+                ? KANAGAWA_BACKGROUND
+                : isKanagawaDragon
+                  ? KANAGAWA_DRAGON_BACKGROUND
+                  : isNord
+                    ? NORD_BACKGROUND
+                    : isDark
+                      ? DARK_BACKGROUND
+                      : LIGHT_BACKGROUND;
           document.documentElement.style.backgroundColor = chromeColor;
           themeColorMeta?.setAttribute("content", chromeColor);
         } catch {
@@ -94,6 +108,16 @@
       html.rose-pine body {
         background: #191724;
         color: #e0def4;
+      }
+
+      html.kanagawa body {
+        background: #1f1f28;
+        color: #dcd7ba;
+      }
+
+      html.kanagawa-dragon body {
+        background: #181616;
+        color: #c5c9c5;
       }
 
       html.nord body {

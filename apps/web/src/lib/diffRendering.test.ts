@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildPatchCacheKey } from "./diffRendering";
+import { buildPatchCacheKey, resolveDiffThemeName } from "./diffRendering";
+
+describe("resolveDiffThemeName", () => {
+  it("maps Kanagawa syntax themes to Shiki theme ids", () => {
+    expect(resolveDiffThemeName("kanagawa-wave")).toBe("kanagawa-wave");
+    expect(resolveDiffThemeName("kanagawa-dragon")).toBe("kanagawa-dragon");
+  });
+});
 
 describe("buildPatchCacheKey", () => {
   it("returns a stable cache key for identical content", () => {

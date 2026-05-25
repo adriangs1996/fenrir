@@ -806,6 +806,33 @@ describe("listArchivedFeatures", () => {
       await rt.dispose();
     }
   });
+
+  it("falls back to directory mtime when archive suffix is outside Date range", async () => {
+    const tempDir = makeTempProject();
+    const rt = buildArchiveRuntime(tempDir);
+    try {
+      const result = await rt.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const service = yield* PlanRunnerService;
+
+          const archDir = path.join(tempDir, ".plans", ".archive");
+          const featureDir = path.join(archDir, "alpha--archived-999999999999999999999999999999");
+          yield* fs.makeDirectory(featureDir, { recursive: true });
+          yield* fs.writeFileString(path.join(featureDir, "01.md"), "# Step 1");
+
+          return yield* service.listArchivedFeatures({ projectId: testProjectId });
+        }),
+      );
+
+      expect(result.features).toHaveLength(1);
+      expect(result.features[0]?.featureName).toBe("alpha");
+      expect(() => new Date(result.features[0]!.archivedAt).toISOString()).not.toThrow();
+    } finally {
+      await rt.dispose();
+    }
+  });
 });
 
 // ─── Test coverage gaps (documented) ──────────────────────────────────────

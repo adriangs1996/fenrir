@@ -228,6 +228,40 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     Stream.runForEach(adapter.streamEvents, processRuntimeEvent).pipe(Effect.forkScoped),
   ).pipe(Effect.asVoid);
 
+  const stopStaleSessionsForThread = Effect.fn("stopStaleSessionsForThread")(function* (input: {
+    readonly threadId: ThreadId;
+    readonly currentProvider: ProviderSession["provider"];
+  }) {
+    yield* Effect.forEach(
+      adapters,
+      (adapter) =>
+        adapter.provider === input.currentProvider
+          ? Effect.void
+          : Effect.gen(function* () {
+              const hasSession = yield* adapter.hasSession(input.threadId);
+              if (!hasSession) {
+                return;
+              }
+
+              yield* adapter.stopSession(input.threadId).pipe(
+                Effect.tap(() =>
+                  analytics.record("provider.session.stopped", {
+                    provider: adapter.provider,
+                  }),
+                ),
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("provider.session.stop-stale-failed", {
+                    threadId: input.threadId,
+                    provider: adapter.provider,
+                    cause,
+                  }),
+                ),
+              );
+            }),
+      { discard: true },
+    );
+  });
+
   const recoverSessionForThread = Effect.fn("recoverSessionForThread")(function* (input: {
     readonly binding: ProviderRuntimeBinding;
     readonly operation: string;
@@ -453,6 +487,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           );
         }
 
+        yield* stopStaleSessionsForThread({
+          threadId,
+          currentProvider: adapter.provider,
+        });
         yield* upsertSessionBinding(session, threadId, {
           providerInstanceId: input.providerInstanceId,
           modelSelection: input.modelSelection,
@@ -686,7 +724,15 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         if (routed.isActive) {
           yield* routed.adapter.stopSession(routed.threadId);
         }
-        yield* directory.remove(input.threadId);
+        yield* directory.upsert({
+          threadId: input.threadId,
+          provider: routed.adapter.provider,
+          providerInstanceId: routed.providerInstanceId,
+          status: "stopped",
+          runtimePayload: {
+            activeTurnId: null,
+          },
+        });
         yield* analytics.record("provider.session.stopped", {
           provider: routed.adapter.provider,
         });

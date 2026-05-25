@@ -32,6 +32,7 @@ import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { ServerAuth } from "./auth/Services/ServerAuth";
 import { SkillService } from "./skill/SkillService";
+import { ProviderSessionReaper } from "./provider/Services/ProviderSessionReaper";
 
 const isWildcardHost = (host: string | undefined): boolean =>
   host === "0.0.0.0" || host === "::" || host === "[::]";
@@ -279,6 +280,7 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
   const serverSettings = yield* ServerSettingsService;
   const serverEnvironment = yield* ServerEnvironment;
   const skillService = yield* SkillService;
+  const providerSessionReaper = yield* ProviderSessionReaper;
 
   const commandGate = yield* makeCommandGate;
   const httpListening = yield* Deferred.make<void>();
@@ -335,6 +337,12 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
     yield* runStartupPhase(
       "reactors.start",
       orchestrationReactor.start().pipe(Scope.provide(reactorScope)),
+    );
+
+    yield* Effect.logDebug("startup phase: starting provider session reaper");
+    yield* runStartupPhase(
+      "provider-session-reaper.start",
+      providerSessionReaper.start().pipe(Scope.provide(reactorScope)),
     );
 
     yield* Effect.logDebug("startup phase: preparing welcome payload");

@@ -90,6 +90,7 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
                     value.adapterKey,
                   ),
                   adapterKey: value.adapterKey,
+                  lastSeenAt: value.lastSeenAt,
                   runtimeMode: value.runtimeMode,
                   status: value.status,
                   resumeCursor: value.resumeCursor,
@@ -171,24 +172,45 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
       ),
     );
 
-  const remove: ProviderSessionDirectoryShape["remove"] = (threadId) =>
-    repository
-      .deleteByThreadId({ threadId })
-      .pipe(
-        Effect.mapError(toPersistenceError("ProviderSessionDirectory.remove:deleteByThreadId")),
-      );
-
   const listThreadIds: ProviderSessionDirectoryShape["listThreadIds"] = () =>
     repository.list().pipe(
       Effect.mapError(toPersistenceError("ProviderSessionDirectory.listThreadIds:list")),
       Effect.map((rows) => rows.map((row) => row.threadId)),
     );
 
+  const listBindings: ProviderSessionDirectoryShape["listBindings"] = () =>
+    repository.list().pipe(
+      Effect.mapError(toPersistenceError("ProviderSessionDirectory.listBindings:list")),
+      Effect.flatMap((rows) =>
+        Effect.forEach(
+          rows,
+          (value) =>
+            decodeProviderDriverKind(
+              value.providerName,
+              "ProviderSessionDirectory.listBindings",
+            ).pipe(
+              Effect.map((provider) => ({
+                threadId: value.threadId,
+                provider,
+                providerInstanceId: resolvePersistedProviderInstanceId(provider, value.adapterKey),
+                adapterKey: value.adapterKey,
+                lastSeenAt: value.lastSeenAt,
+                runtimeMode: value.runtimeMode,
+                status: value.status,
+                resumeCursor: value.resumeCursor,
+                runtimePayload: value.runtimePayload,
+              })),
+            ),
+          { concurrency: "unbounded" },
+        ),
+      ),
+    );
+
   return {
     upsert,
     getProvider,
     getBinding,
-    remove,
+    listBindings,
     listThreadIds,
   } satisfies ProviderSessionDirectoryShape;
 });

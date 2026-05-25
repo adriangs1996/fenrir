@@ -1,5 +1,6 @@
 import { type ResolvedKeybindingsConfig } from "@fenrir/contracts";
 import { ChevronRightIcon } from "lucide-react";
+import { useLayoutEffect, useRef } from "react";
 import { shortcutLabelForCommand } from "../keybindings";
 import {
   type CommandPaletteActionItem,
@@ -31,6 +32,19 @@ interface CommandPaletteResultsProps {
 }
 
 export function CommandPaletteResults(props: CommandPaletteResultsProps) {
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!props.highlightedItemValue || !resultsRef.current) {
+      return;
+    }
+
+    const highlightedItem = resultsRef.current.querySelector<HTMLElement>(
+      `[data-command-palette-item-value="${CSS.escape(props.highlightedItemValue)}"]`,
+    );
+    highlightedItem?.scrollIntoView({ block: "nearest" });
+  }, [props.highlightedItemValue]);
+
   if (props.groups.length === 0) {
     return (
       <div className="py-10 text-center text-sm text-muted-foreground">
@@ -43,25 +57,27 @@ export function CommandPaletteResults(props: CommandPaletteResultsProps) {
   }
 
   return (
-    <CommandList>
-      {props.groups.map((group) => (
-        <CommandGroup items={group.items} key={group.value}>
-          <CommandGroupLabel>{group.label}</CommandGroupLabel>
-          <CommandCollection>
-            {(item) => (
-              <CommandPaletteResultRow
-                item={item}
-                isActive={props.highlightedItemValue === item.value}
-                key={item.value}
-                keybindings={props.keybindings}
-                shortcutContext={props.shortcutContext}
-                onExecuteItem={props.onExecuteItem}
-              />
-            )}
-          </CommandCollection>
-        </CommandGroup>
-      ))}
-    </CommandList>
+    <div ref={resultsRef} className="min-h-0 flex-1" data-command-palette-results="true">
+      <CommandList>
+        {props.groups.map((group) => (
+          <CommandGroup items={group.items} key={group.value}>
+            <CommandGroupLabel>{group.label}</CommandGroupLabel>
+            <CommandCollection>
+              {(item) => (
+                <CommandPaletteResultRow
+                  item={item}
+                  isActive={props.highlightedItemValue === item.value}
+                  key={item.value}
+                  keybindings={props.keybindings}
+                  shortcutContext={props.shortcutContext}
+                  onExecuteItem={props.onExecuteItem}
+                />
+              )}
+            </CommandCollection>
+          </CommandGroup>
+        ))}
+      </CommandList>
+    </div>
   );
 }
 
@@ -83,9 +99,11 @@ function CommandPaletteResultRow(props: {
   return (
     <CommandItem
       value={props.item.value}
+      data-command-palette-active={props.isActive ? "true" : undefined}
+      data-command-palette-item-value={props.item.value}
       className={cn(
-        "cursor-pointer gap-2 hover:bg-transparent hover:text-inherit data-highlighted:bg-transparent data-highlighted:text-inherit data-selected:bg-transparent data-selected:text-inherit [&[data-highlighted][data-selected]]:bg-transparent [&[data-highlighted][data-selected]]:text-inherit",
-        props.isActive && "bg-accent! text-accent-foreground!",
+        "cursor-pointer gap-2 transition-colors",
+        props.isActive && "bg-foreground/8 ring-1 ring-foreground/10",
       )}
       onMouseDown={(event) => {
         event.preventDefault();
@@ -97,23 +115,43 @@ function CommandPaletteResultRow(props: {
       {props.item.icon}
       {props.item.description ? (
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
+          <span
+            className={cn(
+              "flex min-w-0 items-center gap-1.5 text-sm text-foreground",
+              props.isActive && "text-accent-foreground",
+            )}
+          >
             {props.item.titleLeadingContent}
             <span className="truncate">{props.item.title}</span>
           </span>
-          <span className="truncate text-muted-foreground/70 text-xs">
+          <span
+            className={cn(
+              "truncate text-muted-foreground/70 text-xs",
+              props.isActive && "text-accent-foreground/75",
+            )}
+          >
             {props.item.description}
           </span>
         </span>
       ) : (
-        <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm text-foreground">
+        <span
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm text-foreground",
+            props.isActive && "text-accent-foreground",
+          )}
+        >
           {props.item.titleLeadingContent}
           <span className="truncate">{props.item.title}</span>
         </span>
       )}
       {props.item.titleTrailingContent}
       {props.item.timestamp ? (
-        <span className="min-w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground/70">
+        <span
+          className={cn(
+            "min-w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground/70",
+            props.isActive && "text-accent-foreground/70",
+          )}
+        >
           {props.item.timestamp}
         </span>
       ) : null}

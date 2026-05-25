@@ -1,20 +1,21 @@
+import type { SyntaxTheme } from "./theme";
+
 export const DIFF_THEME_NAMES = {
   light: "pierre-light",
   dark: "pierre-dark",
   "catppuccin-mocha": "catppuccin-mocha",
   "rose-pine": "rose-pine",
+  "kanagawa-wave": "kanagawa-wave",
+  "kanagawa-dragon": "kanagawa-dragon",
   nord: "nord",
 } as const;
 
 export type DiffThemeName = (typeof DIFF_THEME_NAMES)[keyof typeof DIFF_THEME_NAMES];
 
-export type DiffThemeInput = "light" | "dark" | "catppuccin-mocha" | "rose-pine" | "nord";
+export type DiffThemeInput = SyntaxTheme;
 
 export function resolveDiffThemeName(theme: DiffThemeInput): DiffThemeName {
-  if (theme === "catppuccin-mocha") return DIFF_THEME_NAMES["catppuccin-mocha"];
-  if (theme === "rose-pine") return DIFF_THEME_NAMES["rose-pine"];
-  if (theme === "nord") return DIFF_THEME_NAMES.nord;
-  return theme === "dark" ? DIFF_THEME_NAMES.dark : DIFF_THEME_NAMES.light;
+  return DIFF_THEME_NAMES[theme];
 }
 
 const FNV_OFFSET_BASIS_32 = 0x811c9dc5;

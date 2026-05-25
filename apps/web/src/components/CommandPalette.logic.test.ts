@@ -4,6 +4,7 @@ import {
   filterBrowseEntries,
   filterCommandPaletteGroups,
   getCommandPaletteInputPlaceholder,
+  getCommandPaletteItemValue,
   normalizeSearchText,
   type CommandPaletteActionItem,
 } from "./CommandPalette.logic";
@@ -26,6 +27,13 @@ function actionItem(input: {
 describe("CommandPalette.logic", () => {
   it("normalizes search text", () => {
     expect(normalizeSearchText("  New   Thread  ")).toBe("new thread");
+  });
+
+  it("reads item values from Base UI highlight payloads", () => {
+    expect(getCommandPaletteItemValue("action:settings")).toBe("action:settings");
+    expect(getCommandPaletteItemValue({ value: "thread:1" })).toBe("thread:1");
+    expect(getCommandPaletteItemValue({ value: 42 })).toBeNull();
+    expect(getCommandPaletteItemValue(null)).toBeNull();
   });
 
   it("filters root groups and appends project and thread matches", () => {

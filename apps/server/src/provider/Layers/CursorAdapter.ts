@@ -10,6 +10,7 @@ import {
   EventId,
   ProviderDriverKind,
   ProviderInstanceId,
+  type RuntimeEventRawSource,
   type ProviderRuntimeEvent,
   type ProviderSession,
   RuntimeItemId,
@@ -89,7 +90,33 @@ interface CursorStreamEvent {
   readonly is_error?: unknown;
 }
 
+export interface CursorAdapterSpawnInput {
+  readonly settings: {
+    readonly binaryPath: string;
+    readonly apiEndpoint: string;
+  };
+  readonly cwd: string;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly prompt: string;
+  readonly model?: string;
+  readonly resumeState?: CursorResumeState;
+}
+
+export interface CursorAdapterSpawnPlan {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd?: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly shell?: boolean;
+}
+
 export interface CursorAdapterLiveOptions {
+  readonly provider?: ProviderDriverKind;
+  readonly instanceId?: ProviderInstanceId;
+  readonly rawSource?: RuntimeEventRawSource;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly readyReason?: string;
+  readonly spawn?: (input: CursorAdapterSpawnInput) => CursorAdapterSpawnPlan;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
 }
@@ -155,6 +182,8 @@ function killChildTree(child: NodeChildProcess, signal: NodeJS.Signals = "SIGTER
 }
 
 function buildEventBase(input: {
+  readonly provider?: ProviderDriverKind;
+  readonly rawSource?: RuntimeEventRawSource;
   readonly threadId: ThreadId;
   readonly turnId?: TurnId;
   readonly itemId?: string;
@@ -166,7 +195,7 @@ function buildEventBase(input: {
 > {
   return {
     eventId: EventId.makeUnsafe(randomUUID()),
-    provider: PROVIDER,
+    provider: input.provider ?? PROVIDER,
     threadId: input.threadId,
     createdAt: nowIso(),
     ...(input.turnId ? { turnId: input.turnId } : {}),
@@ -175,7 +204,7 @@ function buildEventBase(input: {
     ...(input.raw !== undefined
       ? {
           raw: {
-            source: "cursor.agent.stream-json" as const,
+            source: input.rawSource ?? "cursor.agent.stream-json",
             payload: input.raw,
           },
         }
@@ -327,12 +356,37 @@ function processExitDetail(
   return `Cursor process exited with code ${code ?? "null"}.`;
 }
 
+function buildDefaultCursorSpawnPlan(input: CursorAdapterSpawnInput): CursorAdapterSpawnPlan {
+  return {
+    command: input.settings.binaryPath,
+    args: [
+      ...(input.settings.apiEndpoint.trim().length > 0
+        ? ["--endpoint", input.settings.apiEndpoint.trim()]
+        : []),
+      "--print",
+      "--output-format",
+      "stream-json",
+      ...(input.resumeState ? ["--resume", input.resumeState.sessionId] : []),
+      ...(input.model ? ["--model", input.model] : []),
+      input.prompt,
+    ],
+    cwd: input.cwd,
+    env: input.environment,
+    shell: process.platform === "win32",
+  };
+}
+
 export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
   return Effect.gen(function* () {
     const services = yield* Effect.services();
     const runFork = Effect.runForkWith(services);
     const serverConfig = yield* ServerConfig;
     const serverSettings = yield* ServerSettingsService;
+    const runtimeProvider = options?.provider ?? PROVIDER;
+    const defaultInstanceId = options?.instanceId ?? ProviderInstanceId.makeUnsafe("cursor");
+    const runtimeRawSource = options?.rawSource ?? "cursor.agent.stream-json";
+    const runtimeEnvironment = options?.environment ?? process.env;
+    const buildSpawnPlan = options?.spawn ?? buildDefaultCursorSpawnPlan;
     const nativeEventLogger =
       options?.nativeEventLogger ??
       (options?.nativeEventLogPath
@@ -343,6 +397,8 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       PubSub.shutdown,
     );
     const sessions = new Map<ThreadId, CursorSessionContext>();
+    const buildRuntimeEventBase = (input: Omit<Parameters<typeof buildEventBase>[0], "provider">) =>
+      buildEventBase({ provider: runtimeProvider, rawSource: runtimeRawSource, ...input });
 
     const emit = (event: ProviderRuntimeEvent) =>
       Effect.succeed(event).pipe(
@@ -367,7 +423,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         Effect.mapError(
           (cause) =>
             new ProviderAdapterValidationError({
-              provider: PROVIDER,
+              provider: runtimeProvider,
               operation,
               issue:
                 cause instanceof Error
@@ -382,7 +438,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       const context = sessions.get(threadId);
       if (!context || context.stopped) {
         throw new ProviderAdapterSessionNotFoundError({
-          provider: PROVIDER,
+          provider: runtimeProvider,
           threadId,
         });
       }
@@ -413,7 +469,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       run.assistantCompleted = true;
       runFork(
         emit({
-          ...buildEventBase({
+          ...buildRuntimeEventBase({
             threadId: context.session.threadId,
             turnId: run.turnId,
             itemId: run.assistantItemId,
@@ -491,7 +547,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         });
         runFork(
           emit({
-            ...buildEventBase({
+            ...buildRuntimeEventBase({
               threadId: context.session.threadId,
               turnId: run.turnId,
             }),
@@ -528,7 +584,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       if (outcome.kind === "aborted") {
         runFork(
           emit({
-            ...buildEventBase({
+            ...buildRuntimeEventBase({
               threadId: context.session.threadId,
               turnId: run.turnId,
             }),
@@ -541,7 +597,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       } else {
         runFork(
           emit({
-            ...buildEventBase({
+            ...buildRuntimeEventBase({
               threadId: context.session.threadId,
               turnId: run.turnId,
             }),
@@ -585,7 +641,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         run.toolStates.set(callId, state);
         runFork(
           emit({
-            ...buildEventBase({
+            ...buildRuntimeEventBase({
               threadId: context.session.threadId,
               turnId: run.turnId,
               itemId: state.itemId,
@@ -616,7 +672,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         run.toolStates.delete(callId);
         runFork(
           emit({
-            ...buildEventBase({
+            ...buildRuntimeEventBase({
               threadId: context.session.threadId,
               turnId: run.turnId,
               itemId: state.itemId,
@@ -652,7 +708,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       run.assistantText += delta;
       runFork(
         emit({
-          ...buildEventBase({
+          ...buildRuntimeEventBase({
             threadId: context.session.threadId,
             turnId: run.turnId,
             itemId: run.assistantItemId,
@@ -787,20 +843,19 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
 
     const startSession: CursorAdapterShape["startSession"] = Effect.fn("startSession")(
       function* (input) {
-        if (input.provider !== undefined && input.provider !== PROVIDER) {
+        if (input.provider !== undefined && input.provider !== runtimeProvider) {
           return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
+            provider: runtimeProvider,
             operation: "startSession",
-            issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
+            issue: `Expected provider '${runtimeProvider}' but received '${input.provider}'.`,
           });
         }
 
-        const providerInstanceId =
-          input.providerInstanceId ?? ProviderInstanceId.makeUnsafe("cursor");
+        const providerInstanceId = input.providerInstanceId ?? defaultInstanceId;
         const settings = yield* loadCursorSettings("startSession", providerInstanceId);
         if (!settings.enabled) {
           return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
+            provider: runtimeProvider,
             operation: "startSession",
             issue: "Cursor is disabled for this provider instance.",
           });
@@ -814,7 +869,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         const createdAt = nowIso();
         const resumeState = parseCursorResumeState(input.resumeCursor);
         const session: ProviderSession = {
-          provider: PROVIDER,
+          provider: runtimeProvider,
           providerInstanceId,
           status: "ready",
           runtimeMode: input.runtimeMode,
@@ -833,15 +888,15 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         sessions.set(input.threadId, context);
 
         yield* emit({
-          ...buildEventBase({ threadId: input.threadId }),
+          ...buildRuntimeEventBase({ threadId: input.threadId }),
           type: "session.started",
           payload: {
-            message: "Cursor session started",
+            message: options?.readyReason ?? "Cursor session started",
             ...(resumeState ? { resume: resumeState } : {}),
           },
         });
         yield* emit({
-          ...buildEventBase({ threadId: input.threadId }),
+          ...buildRuntimeEventBase({ threadId: input.threadId }),
           type: "thread.started",
           payload: resumeState ? { providerThreadId: resumeState.sessionId } : {},
         });
@@ -854,7 +909,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       const context = ensureSessionContext(input.threadId);
       if (context.activeRun) {
         return yield* new ProviderAdapterValidationError({
-          provider: PROVIDER,
+          provider: runtimeProvider,
           operation: "sendTurn",
           issue: "Cursor already has an active turn for this thread.",
         });
@@ -865,7 +920,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       const settings = yield* loadCursorSettings("sendTurn", providerInstanceId);
       if (!settings.enabled) {
         return yield* new ProviderAdapterValidationError({
-          provider: PROVIDER,
+          provider: runtimeProvider,
           operation: "sendTurn",
           issue: "Cursor is disabled for this provider instance.",
         });
@@ -885,7 +940,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       });
       if (!prompt) {
         return yield* new ProviderAdapterValidationError({
-          provider: PROVIDER,
+          provider: runtimeProvider,
           operation: "sendTurn",
           issue: "Cursor turns require text input or at least one attachment.",
         });
@@ -894,29 +949,30 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       const turnId = TurnId.makeUnsafe(`cursor-turn-${randomUUID()}`);
       const selectedModel = input.modelSelection?.model ?? context.session.model;
       const resumeState = parseCursorResumeState(context.session.resumeCursor);
-      const args = [
-        ...(settings.apiEndpoint.trim().length > 0
-          ? ["--endpoint", settings.apiEndpoint.trim()]
-          : []),
-        "--print",
-        "--output-format",
-        "stream-json",
-        ...(resumeState ? ["--resume", resumeState.sessionId] : []),
-        ...(selectedModel ? ["--model", selectedModel] : []),
+      const sessionCwd = context.session.cwd ?? process.cwd();
+      const spawnPlan = buildSpawnPlan({
+        settings: {
+          binaryPath: settings.binaryPath,
+          apiEndpoint: settings.apiEndpoint,
+        },
+        cwd: sessionCwd,
+        environment: runtimeEnvironment,
         prompt,
-      ];
+        ...(selectedModel ? { model: selectedModel } : {}),
+        ...(resumeState ? { resumeState } : {}),
+      });
 
       const child = yield* Effect.try({
         try: () =>
-          spawn(settings.binaryPath, args, {
-            cwd: context.session.cwd,
-            env: process.env,
+          spawn(spawnPlan.command, [...spawnPlan.args], {
+            cwd: spawnPlan.cwd ?? sessionCwd,
+            env: spawnPlan.env ?? runtimeEnvironment,
             stdio: "pipe",
-            shell: process.platform === "win32",
+            shell: spawnPlan.shell ?? process.platform === "win32",
           }),
         catch: (cause) =>
           new ProviderAdapterProcessError({
-            provider: PROVIDER,
+            provider: runtimeProvider,
             threadId: input.threadId,
             detail: cause instanceof Error ? cause.message : "Failed to spawn Cursor process.",
             cause,
@@ -949,7 +1005,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       attachCursorProcess(context, run);
 
       yield* emit({
-        ...buildEventBase({
+        ...buildRuntimeEventBase({
           threadId: input.threadId,
           turnId,
         }),
@@ -995,7 +1051,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
 
     const unsupportedRequestError = (method: string) =>
       new ProviderAdapterRequestError({
-        provider: PROVIDER,
+        provider: runtimeProvider,
         method,
         detail: "Cursor CLI print mode does not expose interactive approval callbacks.",
       });
@@ -1025,7 +1081,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         }
         sessions.delete(threadId);
         yield* emit({
-          ...buildEventBase({ threadId }),
+          ...buildRuntimeEventBase({ threadId }),
           type: "session.exited",
           payload: {
             reason: "Session stopped.",
@@ -1061,7 +1117,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       function* (threadId) {
         const context = ensureSessionContext(threadId);
         return yield* new ProviderAdapterValidationError({
-          provider: PROVIDER,
+          provider: runtimeProvider,
           operation: "rollbackThread",
           issue: `Cursor sessions do not support remote rollback for thread '${threadId}'.`,
           cause: context.turns,
@@ -1073,7 +1129,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       Effect.forEach([...sessions.keys()], (threadId) => stopSession(threadId)).pipe(Effect.asVoid);
 
     return {
-      provider: PROVIDER,
+      provider: runtimeProvider,
       capabilities: {
         sessionModelSwitch: "restart-session",
       },

@@ -27,6 +27,8 @@
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant catppuccin-mocha (&:is(.catppuccin-mocha, .catppuccin-mocha *));
 @custom-variant rose-pine (&:is(.rose-pine, .rose-pine *));
+@custom-variant kanagawa (&:is(.kanagawa, .kanagawa *));
+@custom-variant kanagawa-dragon (&:is(.kanagawa-dragon, .kanagawa-dragon *));
 @custom-variant nord (&:is(.nord, .nord *));
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */
 @custom-variant wco (&:is(.wco, .wco *));
@@ -276,6 +278,106 @@
     --fenrir-sky: #9ccfd8;
   }
 
+  @variant kanagawa {
+    color-scheme: dark;
+
+    --background: #1f1f28;
+    --app-chrome-background: #16161d;
+    --foreground: #dcd7ba;
+    --kanagawa-surface: #2a2a37;
+    --kanagawa-overlay: #363646;
+
+    --card: var(--kanagawa-surface);
+    --card-foreground: #dcd7ba;
+    --popover: var(--kanagawa-overlay);
+    --popover-foreground: #dcd7ba;
+
+    --color-sidebar: #1f1f28;
+    --color-sidebar-foreground: #dcd7ba;
+    --color-sidebar-border: #16161d;
+    --color-sidebar-accent: var(--kanagawa-surface);
+    --color-sidebar-accent-foreground: #dcd7ba;
+
+    --primary: #7e9cd8;
+    --primary-foreground: #16161d;
+    --secondary: var(--kanagawa-surface);
+    --secondary-foreground: #c8c093;
+    --muted: var(--kanagawa-surface);
+    --muted-foreground: #727169;
+    --accent: var(--kanagawa-overlay);
+    --accent-foreground: #dcd7ba;
+
+    --destructive: #c34043;
+    --destructive-foreground: #e82424;
+    --info: #7fb4ca;
+    --info-foreground: #7fb4ca;
+    --success: #76946a;
+    --success-foreground: #98bb6c;
+    --warning: #e6c384;
+    --warning-foreground: #ffa066;
+
+    --border: #363646;
+    --border-strong: #54546d;
+    --input: var(--kanagawa-surface);
+    --ring: #7e9cd8;
+
+    --fenrir-mauve: #957fb8;
+    --fenrir-peach: #ffa066;
+    --fenrir-teal: #7aa89f;
+    --fenrir-pink: #d27e99;
+    --fenrir-sky: #7fb4ca;
+  }
+
+  @variant kanagawa-dragon {
+    color-scheme: dark;
+
+    --background: #181616;
+    --app-chrome-background: #0d0c0c;
+    --foreground: #c5c9c5;
+    --kanagawa-dragon-surface: #282727;
+    --kanagawa-dragon-overlay: #393836;
+
+    --card: var(--kanagawa-dragon-surface);
+    --card-foreground: #c5c9c5;
+    --popover: var(--kanagawa-dragon-overlay);
+    --popover-foreground: #c5c9c5;
+
+    --color-sidebar: #181616;
+    --color-sidebar-foreground: #c5c9c5;
+    --color-sidebar-border: #0d0c0c;
+    --color-sidebar-accent: var(--kanagawa-dragon-surface);
+    --color-sidebar-accent-foreground: #c5c9c5;
+
+    --primary: #8ba4b0;
+    --primary-foreground: #0d0c0c;
+    --secondary: var(--kanagawa-dragon-surface);
+    --secondary-foreground: #c8c093;
+    --muted: var(--kanagawa-dragon-surface);
+    --muted-foreground: #737c73;
+    --accent: var(--kanagawa-dragon-overlay);
+    --accent-foreground: #c5c9c5;
+
+    --destructive: #c34043;
+    --destructive-foreground: #e82424;
+    --info: #8ba4b0;
+    --info-foreground: #8ba4b0;
+    --success: #8a9a7b;
+    --success-foreground: #87a987;
+    --warning: #c4b28a;
+    --warning-foreground: #ff9e3b;
+
+    --border: #393836;
+    --border-strong: #625e5a;
+    --input: var(--kanagawa-dragon-surface);
+    --ring: #8ba4b0;
+
+    --fenrir-mauve: #a292a3;
+    --fenrir-peach: #b6927b;
+    --fenrir-teal: #8ea4a2;
+    --fenrir-pink: #c4746e;
+    --fenrir-sky: #8ba4b0;
+  }
+
   @variant nord {
     color-scheme: dark;
 
@@ -424,6 +526,22 @@ code {
 
 .rose-pine ::-webkit-scrollbar-thumb:hover {
   background: rgba(110, 106, 134, 0.72);
+}
+
+.kanagawa ::-webkit-scrollbar-thumb {
+  background: rgba(84, 84, 109, 0.4);
+}
+
+.kanagawa ::-webkit-scrollbar-thumb:hover {
+  background: rgba(84, 84, 109, 0.5);
+}
+
+.kanagawa-dragon ::-webkit-scrollbar-thumb {
+  background: rgba(98, 94, 90, 0.4);
+}
+
+.kanagawa-dragon ::-webkit-scrollbar-thumb:hover {
+  background: rgba(98, 94, 90, 0.5);
 }
 
 .nord ::-webkit-scrollbar-thumb {

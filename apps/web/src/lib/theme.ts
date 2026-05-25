@@ -20,6 +20,14 @@ export const THEME_OPTIONS = [
     label: "Rose Pine",
   },
   {
+    value: "kanagawa",
+    label: "Kanagawa",
+  },
+  {
+    value: "kanagawa-dragon",
+    label: "Kanagawa Dragon",
+  },
+  {
     value: "nord",
     label: "Nord",
   },
@@ -36,6 +44,14 @@ const CUSTOM_THEME_CONFIG = {
     className: "rose-pine",
     syntaxTheme: "rose-pine",
   },
+  kanagawa: {
+    className: "kanagawa",
+    syntaxTheme: "kanagawa-wave",
+  },
+  "kanagawa-dragon": {
+    className: "kanagawa-dragon",
+    syntaxTheme: "kanagawa-dragon",
+  },
   nord: {
     className: "nord",
     syntaxTheme: "nord",
@@ -43,7 +59,8 @@ const CUSTOM_THEME_CONFIG = {
 } as const;
 
 type CustomTheme = keyof typeof CUSTOM_THEME_CONFIG;
-export type SyntaxTheme = "light" | "dark" | CustomTheme;
+type CustomSyntaxTheme = (typeof CUSTOM_THEME_CONFIG)[CustomTheme]["syntaxTheme"];
+export type SyntaxTheme = "light" | "dark" | CustomSyntaxTheme;
 
 const THEME_VALUES = new Set<string>(THEME_OPTIONS.map((option) => option.value));
 

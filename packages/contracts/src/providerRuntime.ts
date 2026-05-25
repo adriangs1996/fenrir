@@ -19,15 +19,19 @@ const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
 const ProviderRuntimeEventProviderKind = Schema.Union([ProviderKind, ProviderDriverKind]);
 
-const RuntimeEventRawSource = Schema.Literals([
-  "codex.app-server.notification",
-  "codex.app-server.request",
-  "codex.eventmsg",
-  "claude.sdk.message",
-  "claude.sdk.permission",
-  "codex.sdk.thread-event",
-  "opencode.sdk.event",
-  "cursor.agent.stream-json",
+const RuntimeEventRawSource = Schema.Union([
+  Schema.Literals([
+    "codex.app-server.notification",
+    "codex.app-server.request",
+    "codex.eventmsg",
+    "claude.sdk.message",
+    "claude.sdk.permission",
+    "codex.sdk.thread-event",
+    "opencode.sdk.event",
+    "cursor.agent.stream-json",
+    "acp.jsonrpc",
+  ]),
+  Schema.TemplateLiteral([Schema.Literal("acp."), Schema.String, Schema.Literal(".extension")]),
 ]);
 export type RuntimeEventRawSource = typeof RuntimeEventRawSource.Type;
 
