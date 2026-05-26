@@ -32,9 +32,7 @@ export const TRAFFIC_LENS_MOBILE_PRESETS: Record<
 };
 
 export const TRAFFIC_LENS_MOBILE_PRESET_OPTIONS = (
-  Object.values(
-    TRAFFIC_LENS_MOBILE_PRESETS,
-  ) satisfies readonly TrafficLensMobilePresetDefinition[]
+  Object.values(TRAFFIC_LENS_MOBILE_PRESETS) satisfies readonly TrafficLensMobilePresetDefinition[]
 ).map((preset) => ({
   value: preset.id,
   label: preset.label,

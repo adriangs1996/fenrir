@@ -44,6 +44,8 @@ import {
 } from "@fenrir/contracts";
 import {
   applyClaudePromptEffortPrefix,
+  getProviderOptionBooleanSelectionValue,
+  getProviderOptionStringSelectionValue,
   resolveApiModelId,
   resolveEffort,
   trimOrNull,
@@ -569,7 +571,8 @@ const getClaudeSelection = (selection: ProviderSendTurnInput["modelSelection"] |
 
 function buildPromptText(input: ProviderSendTurnInput): string {
   const modelSelection = getClaudeSelection(input.modelSelection);
-  const rawEffort = modelSelection?.options?.effort ?? null;
+  const rawEffort =
+    getProviderOptionStringSelectionValue(modelSelection?.options, "effort") ?? null;
   const claudeModel = modelSelection?.model;
   const caps = getClaudeModelCapabilities(claudeModel);
 
@@ -577,7 +580,9 @@ function buildPromptText(input: ProviderSendTurnInput): string {
   // resolveEffort strips prompt-injected values (returning the default instead), so we check the raw value directly.
   const trimmedEffort = trimOrNull(rawEffort);
   const promptEffort =
-    trimmedEffort && caps.promptInjectedEffortLevels.includes(trimmedEffort) ? trimmedEffort : null;
+    trimmedEffort && caps.promptInjectedEffortLevels.includes(trimmedEffort)
+      ? (trimmedEffort as ClaudeAgentEffort)
+      : null;
   return applyClaudePromptEffortPrefix(input.input?.trim() ?? "", promptEffort);
 }
 
@@ -2791,13 +2796,19 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const modelSelection = getClaudeSelection(input.modelSelection);
       const caps = getClaudeModelCapabilities(modelSelection?.model);
       const apiModelId = modelSelection ? resolveApiModelId(modelSelection) : undefined;
-      const effort = (resolveEffort(caps, modelSelection?.options?.effort) ??
-        null) as ClaudeAgentEffort | null;
-      const fastMode = modelSelection?.options?.fastMode === true && caps.supportsFastMode;
+      const effort = (resolveEffort(
+        caps,
+        getProviderOptionStringSelectionValue(modelSelection?.options, "effort"),
+      ) ?? null) as ClaudeAgentEffort | null;
+      const fastMode =
+        getProviderOptionBooleanSelectionValue(modelSelection?.options, "fastMode") === true &&
+        caps.supportsFastMode;
+      const rawThinking = getProviderOptionBooleanSelectionValue(
+        modelSelection?.options,
+        "thinking",
+      );
       const thinking =
-        typeof modelSelection?.options?.thinking === "boolean" && caps.supportsThinkingToggle
-          ? modelSelection.options.thinking
-          : undefined;
+        typeof rawThinking === "boolean" && caps.supportsThinkingToggle ? rawThinking : undefined;
       const effectiveEffort = getEffectiveClaudeAgentEffort(effort);
       const runtimeModeToPermission: Record<string, PermissionMode> = {
         "auto-accept-edits": "acceptEdits",

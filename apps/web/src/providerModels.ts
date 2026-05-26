@@ -13,6 +13,7 @@ import {
 import { normalizeModelSlug } from "@fenrir/shared/model";
 
 const EMPTY_CAPABILITIES: ModelCapabilities = {
+  optionDescriptors: [],
   reasoningEffortLevels: [],
   supportsFastMode: false,
   supportsThinkingToggle: false,

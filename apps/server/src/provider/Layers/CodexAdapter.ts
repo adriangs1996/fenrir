@@ -24,6 +24,10 @@ import {
   ProviderSendTurnInput,
 } from "@fenrir/contracts";
 import { Effect, FileSystem, Layer, Queue, Schema, ServiceMap, Stream } from "effect";
+import {
+  getProviderOptionBooleanSelectionValue,
+  getProviderOptionStringSelectionValue,
+} from "@fenrir/shared/model";
 
 import {
   ProviderAdapterProcessError,
@@ -1413,6 +1417,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
       const modelSelection = getCodexSelection(input.modelSelection);
+      const fastMode = getProviderOptionBooleanSelectionValue(modelSelection?.options, "fastMode");
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
         provider: "codex",
@@ -1422,7 +1427,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         binaryPath,
         ...(homePath ? { homePath } : {}),
         ...(modelSelection ? { model: modelSelection.model } : {}),
-        ...(modelSelection?.options?.fastMode ? { serviceTier: "fast" } : {}),
+        ...(fastMode ? { serviceTier: "fast" } : {}),
       };
 
       return yield* Effect.tryPromise({
@@ -1480,14 +1485,20 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     return yield* Effect.tryPromise({
       try: () => {
         const modelSelection = getCodexSelection(input.modelSelection);
+        const reasoningEffort = getProviderOptionStringSelectionValue(
+          modelSelection?.options,
+          "reasoningEffort",
+        );
+        const fastMode = getProviderOptionBooleanSelectionValue(
+          modelSelection?.options,
+          "fastMode",
+        );
         const managerInput = {
           threadId: input.threadId,
           ...(input.input !== undefined ? { input: input.input } : {}),
           ...(modelSelection ? { model: modelSelection.model } : {}),
-          ...(modelSelection?.options?.reasoningEffort !== undefined
-            ? { effort: modelSelection.options.reasoningEffort }
-            : {}),
-          ...(modelSelection?.options?.fastMode ? { serviceTier: "fast" } : {}),
+          ...(reasoningEffort !== undefined ? { effort: reasoningEffort } : {}),
+          ...(fastMode ? { serviceTier: "fast" } : {}),
           ...(input.interactionMode !== undefined
             ? { interactionMode: input.interactionMode }
             : {}),

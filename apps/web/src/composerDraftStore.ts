@@ -1,5 +1,4 @@
 import {
-  ClaudeAgentEffort,
   CodexReasoningEffort,
   getDefaultModelByProvider,
   type EnvironmentId,
@@ -11,8 +10,10 @@ import {
   ProviderKind,
   ProviderSelectionKind,
   ProviderModelOptions,
+  ProviderOptionSelections,
   RuntimeMode,
   type ServerProvider,
+  type ProviderOptionSelection,
   type ScopedProjectRef,
   type ScopedThreadRef,
   ThreadId,
@@ -766,78 +767,53 @@ function normalizeProviderModelOptions(
   legacy?: LegacyCodexFields,
 ): ProviderModelOptions | null {
   const candidate = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-  const codexCandidate =
-    candidate?.codex && typeof candidate.codex === "object"
-      ? (candidate.codex as Record<string, unknown>)
-      : null;
-  const claudeCandidate =
-    candidate?.claudeAgent && typeof candidate.claudeAgent === "object"
-      ? (candidate.claudeAgent as Record<string, unknown>)
-      : null;
+  if (!candidate) return null;
 
-  const codexReasoningEffort = Schema.is(CodexReasoningEffort)(codexCandidate?.reasoningEffort)
-    ? codexCandidate.reasoningEffort
-    : provider === "codex"
-      ? Schema.is(CodexReasoningEffort)(legacy?.effort)
-        ? legacy.effort
-        : undefined
-      : undefined;
-  const codexFastMode =
-    codexCandidate?.fastMode === true
-      ? true
-      : codexCandidate?.fastMode === false
-        ? false
-        : (provider === "codex" && legacy?.codexFastMode === true) ||
-            (typeof legacy?.serviceTier === "string" && legacy.serviceTier === "fast")
-          ? true
-          : undefined;
-  const codex =
-    codexReasoningEffort !== undefined || codexFastMode !== undefined
-      ? {
-          ...(codexReasoningEffort !== undefined ? { reasoningEffort: codexReasoningEffort } : {}),
-          ...(codexFastMode !== undefined ? { fastMode: codexFastMode } : {}),
-        }
-      : undefined;
-
-  const claudeThinking =
-    claudeCandidate?.thinking === true
-      ? true
-      : claudeCandidate?.thinking === false
-        ? false
-        : undefined;
-  const claudeEffort = Schema.is(ClaudeAgentEffort)(claudeCandidate?.effort)
-    ? claudeCandidate.effort
-    : undefined;
-  const claudeFastMode =
-    claudeCandidate?.fastMode === true
-      ? true
-      : claudeCandidate?.fastMode === false
-        ? false
-        : undefined;
-  const claudeContextWindow =
-    typeof claudeCandidate?.contextWindow === "string" && claudeCandidate.contextWindow.length > 0
-      ? claudeCandidate.contextWindow
-      : undefined;
-  const claude =
-    claudeThinking !== undefined ||
-    claudeEffort !== undefined ||
-    claudeFastMode !== undefined ||
-    claudeContextWindow !== undefined
-      ? {
-          ...(claudeThinking !== undefined ? { thinking: claudeThinking } : {}),
-          ...(claudeEffort !== undefined ? { effort: claudeEffort } : {}),
-          ...(claudeFastMode !== undefined ? { fastMode: claudeFastMode } : {}),
-          ...(claudeContextWindow !== undefined ? { contextWindow: claudeContextWindow } : {}),
-        }
-      : undefined;
-
-  if (!codex && !claude) {
-    return null;
+  const result: Record<string, ReadonlyArray<ProviderOptionSelection>> = {};
+  for (const providerKey of ["codex", "claudeAgent"] as const) {
+    const rawProviderOptions = candidate[providerKey];
+    const decoded = decodeProviderOptionSelections(rawProviderOptions);
+    if (decoded) {
+      result[providerKey] = decoded;
+    }
   }
-  return {
-    ...(codex ? { codex } : {}),
-    ...(claude ? { claudeAgent: claude } : {}),
-  };
+
+  if (provider === "codex" && legacy) {
+    const legacySelections: ProviderOptionSelection[] = [];
+    if (Schema.is(CodexReasoningEffort)(legacy.effort)) {
+      legacySelections.push({ id: "reasoningEffort", value: legacy.effort });
+    }
+    if (
+      legacy.codexFastMode === true ||
+      (typeof legacy.serviceTier === "string" && legacy.serviceTier === "fast")
+    ) {
+      legacySelections.push({ id: "fastMode", value: true });
+    }
+    if (legacySelections.length > 0 && result.codex === undefined) {
+      result.codex = legacySelections;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? (result as ProviderModelOptions) : null;
+}
+
+function decodeProviderOptionSelections(
+  value: unknown,
+): ReadonlyArray<ProviderOptionSelection> | undefined {
+  const decoded = Schema.decodeUnknownOption(ProviderOptionSelections)(value);
+  if (decoded._tag === "None") {
+    return undefined;
+  }
+  if (Array.isArray(decoded.value)) {
+    return decoded.value.length > 0 ? decoded.value : undefined;
+  }
+  const selections: ProviderOptionSelection[] = [];
+  for (const [id, optionValue] of Object.entries(decoded.value)) {
+    if (id.trim().length === 0) continue;
+    if (optionValue === undefined) continue;
+    selections.push({ id, value: optionValue });
+  }
+  return selections.length > 0 ? selections : undefined;
 }
 
 // ── Legacy sync helpers (used only during migration from v2 storage) ──

@@ -1,4 +1,9 @@
-import { ServerSettings, type ServerSettingsPatch } from "@fenrir/contracts";
+import {
+  ServerSettings,
+  type ProviderOptionSelection,
+  type ProviderOptionSelections,
+  type ServerSettingsPatch,
+} from "@fenrir/contracts";
 import { Schema } from "effect";
 import { deepMerge } from "./Struct";
 import { fromLenientJson } from "./schemaJson";
@@ -44,6 +49,31 @@ function shouldReplaceTextGenerationModelSelection(
   patch: ServerSettingsPatch["textGenerationModelSelection"] | undefined,
 ): boolean {
   return Boolean(patch && (patch.provider !== undefined || patch.model !== undefined));
+}
+
+function optionSelectionsToEntries(
+  options: ProviderOptionSelections | undefined,
+): ReadonlyArray<ProviderOptionSelection> {
+  if (!options) return [];
+  if (Array.isArray(options)) return options;
+  return Object.entries(options).flatMap(([id, value]) =>
+    typeof value === "string" || typeof value === "boolean" ? [{ id, value }] : [],
+  );
+}
+
+function mergeProviderOptionSelections(
+  current: ProviderOptionSelections | undefined,
+  patch: ProviderOptionSelections | undefined,
+): ReadonlyArray<ProviderOptionSelection> | undefined {
+  const merged = new Map<string, string | boolean>();
+  for (const selection of optionSelectionsToEntries(current)) {
+    merged.set(selection.id, selection.value);
+  }
+  for (const selection of optionSelectionsToEntries(patch)) {
+    merged.set(selection.id, selection.value);
+  }
+  const selections = Array.from(merged, ([id, value]) => ({ id, value }));
+  return selections.length > 0 ? selections : undefined;
 }
 
 function trimOptionalString(value: string | undefined): string | undefined {
@@ -128,8 +158,21 @@ export function applyServerSettingsPatch(
     ...(providerInstances !== undefined ? { providerInstances } : {}),
   };
   const selectionPatch = normalizedPatch.textGenerationModelSelection;
-  if (!selectionPatch || !shouldReplaceTextGenerationModelSelection(selectionPatch)) {
+  if (!selectionPatch) {
     return next;
+  }
+  if (!shouldReplaceTextGenerationModelSelection(selectionPatch)) {
+    const options = mergeProviderOptionSelections(
+      current.textGenerationModelSelection.options,
+      selectionPatch.options,
+    );
+    return {
+      ...next,
+      textGenerationModelSelection: {
+        ...next.textGenerationModelSelection,
+        ...(options ? { options } : {}),
+      },
+    };
   }
 
   return {

@@ -6,6 +6,10 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderRegistry";
 
+function selections(record: Record<string, string | boolean>) {
+  return Object.entries(record).map(([id, value]) => ({ id, value }));
+}
+
 const CODEX_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
     slug: "gpt-5.4",
@@ -123,9 +127,7 @@ describe("getComposerProviderState", () => {
     expect(state).toEqual({
       provider: "codex",
       promptEffort: "high",
-      modelOptionsForDispatch: {
-        reasoningEffort: "high",
-      },
+      modelOptionsForDispatch: selections({ reasoningEffort: "high" }),
     });
   });
 
@@ -146,10 +148,7 @@ describe("getComposerProviderState", () => {
     expect(state).toEqual({
       provider: "codex",
       promptEffort: "low",
-      modelOptionsForDispatch: {
-        reasoningEffort: "low",
-        fastMode: true,
-      },
+      modelOptionsForDispatch: selections({ reasoningEffort: "low", fastMode: true }),
     });
   });
 
@@ -169,10 +168,7 @@ describe("getComposerProviderState", () => {
     expect(state).toEqual({
       provider: "codex",
       promptEffort: "high",
-      modelOptionsForDispatch: {
-        reasoningEffort: "high",
-        fastMode: true,
-      },
+      modelOptionsForDispatch: selections({ reasoningEffort: "high", fastMode: true }),
     });
   });
 
@@ -193,10 +189,7 @@ describe("getComposerProviderState", () => {
     expect(state).toEqual({
       provider: "codex",
       promptEffort: "high",
-      modelOptionsForDispatch: {
-        reasoningEffort: "high",
-        fastMode: false,
-      },
+      modelOptionsForDispatch: selections({ reasoningEffort: "high", fastMode: false }),
     });
   });
 
@@ -212,9 +205,7 @@ describe("getComposerProviderState", () => {
     expect(state).toEqual({
       provider: "claudeAgent",
       promptEffort: "high",
-      modelOptionsForDispatch: {
-        effort: "high",
-      },
+      modelOptionsForDispatch: selections({ effort: "high" }),
     });
   });
 
@@ -234,9 +225,7 @@ describe("getComposerProviderState", () => {
     expect(state).toEqual({
       provider: "claudeAgent",
       promptEffort: "medium",
-      modelOptionsForDispatch: {
-        effort: "medium",
-      },
+      modelOptionsForDispatch: selections({ effort: "medium" }),
       composerFrameClassName: "ultrathink-frame",
       composerSurfaceClassName: "shadow-[0_0_0_1px_rgba(255,255,255,0.04)_inset]",
       modelPickerIconClassName: "ultrathink-chroma",
@@ -260,9 +249,7 @@ describe("getComposerProviderState", () => {
     expect(state).toEqual({
       provider: "claudeAgent",
       promptEffort: null,
-      modelOptionsForDispatch: {
-        thinking: false,
-      },
+      modelOptionsForDispatch: selections({ thinking: false }),
     });
   });
 
@@ -282,10 +269,7 @@ describe("getComposerProviderState", () => {
     expect(state).toEqual({
       provider: "claudeAgent",
       promptEffort: "high",
-      modelOptionsForDispatch: {
-        effort: "high",
-        fastMode: true,
-      },
+      modelOptionsForDispatch: selections({ effort: "high", fastMode: true }),
     });
   });
 
@@ -306,10 +290,7 @@ describe("getComposerProviderState", () => {
     expect(state).toEqual({
       provider: "claudeAgent",
       promptEffort: "high",
-      modelOptionsForDispatch: {
-        effort: "high",
-        fastMode: false,
-      },
+      modelOptionsForDispatch: selections({ effort: "high", fastMode: false }),
     });
   });
 
@@ -329,7 +310,7 @@ describe("getComposerProviderState", () => {
       },
     });
 
-    expect(state.modelOptionsForDispatch).toHaveProperty("fastMode", false);
+    expect(state.modelOptionsForDispatch).toContainEqual({ id: "fastMode", value: false });
   });
 
   it("preserves explicit thinking: true so deepMerge can overwrite a prior false", () => {
@@ -347,7 +328,7 @@ describe("getComposerProviderState", () => {
       },
     });
 
-    expect(state.modelOptionsForDispatch).toHaveProperty("thinking", true);
+    expect(state.modelOptionsForDispatch).toContainEqual({ id: "thinking", value: true });
   });
 
   it("preserves Claude default context window explicitly in dispatch options", () => {
@@ -364,10 +345,9 @@ describe("getComposerProviderState", () => {
       },
     });
 
-    expect(state.modelOptionsForDispatch).toMatchObject({
-      effort: "high",
-      contextWindow: "200k",
-    });
+    expect(state.modelOptionsForDispatch).toEqual(
+      selections({ effort: "high", contextWindow: "200k" }),
+    );
   });
 
   it("preserves explicit contextWindow default so deepMerge can overwrite a prior 1m", () => {
@@ -385,7 +365,10 @@ describe("getComposerProviderState", () => {
       },
     });
 
-    expect(state.modelOptionsForDispatch).toHaveProperty("contextWindow", "200k");
+    expect(state.modelOptionsForDispatch).toContainEqual({
+      id: "contextWindow",
+      value: "200k",
+    });
   });
 
   it("omits contextWindow when the model does not support it", () => {
@@ -418,7 +401,7 @@ describe("getComposerProviderState", () => {
       },
     });
 
-    expect(state.modelOptionsForDispatch).not.toHaveProperty("fastMode");
+    expect(state.modelOptionsForDispatch).not.toContainEqual({ id: "fastMode", value: true });
   });
 });
 

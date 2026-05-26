@@ -192,9 +192,10 @@ export function resolveAppModelSelectionState(
         model,
         models: getProviderModels(providers, provider),
         prompt: "",
-        modelOptions: {
-          [provider]: provider === selection.provider ? selection.options : undefined,
-        },
+        modelOptions:
+          provider === selection.provider && selection.options
+            ? { [provider]: selection.options }
+            : undefined,
       }).modelOptionsForDispatch
     : undefined;
 

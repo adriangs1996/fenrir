@@ -1,10 +1,16 @@
 import {
   type ProviderKind,
   type ProviderModelOptions,
+  type ProviderOptionSelection,
+  type ProviderOptionSelections,
   type ScopedThreadRef,
   type ServerProviderModel,
 } from "@fenrir/contracts";
-import { isClaudeUltrathinkPrompt, resolveEffort } from "@fenrir/shared/model";
+import {
+  getProviderOptionStringSelectionValue,
+  isClaudeUltrathinkPrompt,
+  resolveEffort,
+} from "@fenrir/shared/model";
 import type { ReactNode } from "react";
 import type { DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
@@ -25,7 +31,7 @@ export type ComposerProviderStateInput = {
 export type ComposerProviderState = {
   provider: ProviderKind;
   promptEffort: string | null;
-  modelOptionsForDispatch: ProviderModelOptions[ProviderKind] | undefined;
+  modelOptionsForDispatch: ReadonlyArray<ProviderOptionSelection> | undefined;
   composerFrameClassName?: string;
   composerSurfaceClassName?: string;
   modelPickerIconClassName?: string;
@@ -38,7 +44,7 @@ type ProviderRegistryEntry = {
     draftId?: DraftId;
     model: string;
     models: ReadonlyArray<ServerProviderModel>;
-    modelOptions: ProviderModelOptions[ProviderKind] | undefined;
+    modelOptions: ProviderOptionSelections | undefined;
     prompt: string;
     onPromptChange: (prompt: string) => void;
   }) => ReactNode;
@@ -47,7 +53,7 @@ type ProviderRegistryEntry = {
     draftId?: DraftId;
     model: string;
     models: ReadonlyArray<ServerProviderModel>;
-    modelOptions: ProviderModelOptions[ProviderKind] | undefined;
+    modelOptions: ProviderOptionSelections | undefined;
     prompt: string;
     onPromptChange: (prompt: string) => void;
   }) => ReactNode;
@@ -68,14 +74,10 @@ function getProviderStateFromCapabilities(
   const providerOptions = modelOptions?.[provider];
 
   // Resolve effort
-  const rawEffort = providerOptions
-    ? "effort" in providerOptions
-      ? providerOptions.effort
-      : "reasoningEffort" in providerOptions
-        ? providerOptions.reasoningEffort
-        : null
-    : null;
-
+  const rawEffort =
+    getProviderOptionStringSelectionValue(providerOptions, "effort") ??
+    getProviderOptionStringSelectionValue(providerOptions, "reasoningEffort") ??
+    null;
   const promptEffort = resolveEffort(caps, rawEffort) ?? null;
 
   // Normalize options for dispatch
@@ -203,7 +205,7 @@ export function renderProviderTraitsMenuContent(input: {
   draftId?: DraftId;
   model: string;
   models: ReadonlyArray<ServerProviderModel>;
-  modelOptions: ProviderModelOptions[ProviderKind] | undefined;
+  modelOptions: ProviderOptionSelections | undefined;
   prompt: string;
   onPromptChange: (prompt: string) => void;
 }): ReactNode {
@@ -224,7 +226,7 @@ export function renderProviderTraitsPicker(input: {
   draftId?: DraftId;
   model: string;
   models: ReadonlyArray<ServerProviderModel>;
-  modelOptions: ProviderModelOptions[ProviderKind] | undefined;
+  modelOptions: ProviderOptionSelections | undefined;
   prompt: string;
   onPromptChange: (prompt: string) => void;
 }): ReactNode {

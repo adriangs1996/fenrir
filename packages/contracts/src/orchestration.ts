@@ -1,5 +1,5 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
-import { ClaudeModelOptions, CodexModelOptions } from "./model";
+import { ProviderOptionSelections } from "./model";
 import { RepositoryIdentity } from "./environment";
 import {
   ApprovalRequestId,
@@ -55,7 +55,7 @@ export const DEFAULT_PROVIDER_KIND: ProviderKind = "codex";
 export const CodexModelSelection = Schema.Struct({
   provider: Schema.Literal("codex"),
   model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(CodexModelOptions),
+  options: Schema.optionalKey(ProviderOptionSelections),
 });
 export type CodexModelSelection = typeof CodexModelSelection.Type;
 export const isCodexModelSelection = (
@@ -65,7 +65,7 @@ export const isCodexModelSelection = (
 export const ClaudeModelSelection = Schema.Struct({
   provider: Schema.Literal("claudeAgent"),
   model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(ClaudeModelOptions),
+  options: Schema.optionalKey(ProviderOptionSelections),
 });
 export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
 export const isClaudeModelSelection = (
@@ -75,7 +75,7 @@ export const isClaudeModelSelection = (
 export const ExternalModelSelection = Schema.Struct({
   provider: TrimmedNonEmptyString,
   model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(Schema.Struct({})),
+  options: Schema.optionalKey(ProviderOptionSelections),
 });
 export type ExternalModelSelection = typeof ExternalModelSelection.Type;
 

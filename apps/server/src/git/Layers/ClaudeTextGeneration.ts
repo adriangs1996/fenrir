@@ -30,7 +30,11 @@ import {
   sanitizeThreadTitle,
   toJsonSchemaObject,
 } from "../Utils.ts";
-import { normalizeClaudeModelOptionsWithCapabilities } from "@fenrir/shared/model";
+import {
+  getProviderOptionBooleanSelectionValue,
+  getProviderOptionStringSelectionValue,
+  normalizeClaudeModelOptionsWithCapabilities,
+} from "@fenrir/shared/model";
 import { resolveEffectiveClaudeSettings } from "../../provider/providerSettings";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "../../provider/Layers/ClaudeProvider.ts";
@@ -91,11 +95,12 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       getClaudeModelCapabilities(modelSelection.model),
       modelSelection.options,
     );
+    const thinking = getProviderOptionBooleanSelectionValue(normalizedOptions, "thinking");
+    const fastMode = getProviderOptionBooleanSelectionValue(normalizedOptions, "fastMode");
+    const effort = getProviderOptionStringSelectionValue(normalizedOptions, "effort");
     const settings = {
-      ...(typeof normalizedOptions?.thinking === "boolean"
-        ? { alwaysThinkingEnabled: normalizedOptions.thinking }
-        : {}),
-      ...(normalizedOptions?.fastMode ? { fastMode: true } : {}),
+      ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
+      ...(fastMode ? { fastMode: true } : {}),
     };
 
     const claudeSettings = yield* serverSettingsService.getSettings.pipe(
@@ -114,7 +119,7 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
           jsonSchemaStr,
           "--model",
           resolveApiModelId(modelSelection),
-          ...(normalizedOptions?.effort ? ["--effort", normalizedOptions.effort] : []),
+          ...(effort ? ["--effort", effort] : []),
           ...(Object.keys(settings).length > 0 ? ["--settings", JSON.stringify(settings)] : []),
           "--dangerously-skip-permissions",
         ],

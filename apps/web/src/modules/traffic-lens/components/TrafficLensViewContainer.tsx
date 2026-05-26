@@ -15,9 +15,7 @@ function ViewportStage(props: { children: React.ReactNode }) {
 
 export function TrafficLensViewContainer() {
   const activeTabId = useTrafficLensStore((s) => s.activeTabId);
-  const activeTab = useTrafficLensStore((s) =>
-    s.activeTabId ? s.tabs[s.activeTabId] : null,
-  );
+  const activeTab = useTrafficLensStore((s) => (s.activeTabId ? s.tabs[s.activeTabId] : null));
   const viewportRef = useRef<HTMLDivElement>(null);
 
   useTrafficLensBounds(viewportRef);

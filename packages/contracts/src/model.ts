@@ -15,6 +15,54 @@ export const ClaudeAgentEffort = Schema.Literals([
 export type ClaudeAgentEffort = typeof ClaudeAgentEffort.Type;
 export type ProviderReasoningEffort = CodexReasoningEffort | ClaudeAgentEffort;
 
+export const ProviderOptionDescriptorType = Schema.Literals(["select", "boolean"]);
+export type ProviderOptionDescriptorType = typeof ProviderOptionDescriptorType.Type;
+
+export const ProviderOptionChoice = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  description: Schema.optional(TrimmedNonEmptyString),
+  isDefault: Schema.optional(Schema.Boolean),
+});
+export type ProviderOptionChoice = typeof ProviderOptionChoice.Type;
+
+const ProviderOptionDescriptorBase = {
+  id: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  description: Schema.optional(TrimmedNonEmptyString),
+} as const;
+
+export const SelectProviderOptionDescriptor = Schema.Struct({
+  ...ProviderOptionDescriptorBase,
+  type: Schema.Literal("select"),
+  options: Schema.Array(ProviderOptionChoice),
+  currentValue: Schema.optional(TrimmedNonEmptyString),
+  promptInjectedValues: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+});
+export type SelectProviderOptionDescriptor = typeof SelectProviderOptionDescriptor.Type;
+
+export const BooleanProviderOptionDescriptor = Schema.Struct({
+  ...ProviderOptionDescriptorBase,
+  type: Schema.Literal("boolean"),
+  currentValue: Schema.optional(Schema.Boolean),
+});
+export type BooleanProviderOptionDescriptor = typeof BooleanProviderOptionDescriptor.Type;
+
+export const ProviderOptionDescriptor = Schema.Union([
+  SelectProviderOptionDescriptor,
+  BooleanProviderOptionDescriptor,
+]);
+export type ProviderOptionDescriptor = typeof ProviderOptionDescriptor.Type;
+
+export const ProviderOptionSelectionValue = Schema.Union([TrimmedNonEmptyString, Schema.Boolean]);
+export type ProviderOptionSelectionValue = typeof ProviderOptionSelectionValue.Type;
+
+export const ProviderOptionSelection = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  value: ProviderOptionSelectionValue,
+});
+export type ProviderOptionSelection = typeof ProviderOptionSelection.Type;
+
 export const CodexModelOptions = Schema.Struct({
   reasoningEffort: Schema.optional(CodexReasoningEffort),
   fastMode: Schema.optional(Schema.Boolean),
@@ -29,10 +77,18 @@ export const ClaudeModelOptions = Schema.Struct({
 });
 export type ClaudeModelOptions = typeof ClaudeModelOptions.Type;
 
-export const ProviderModelOptions = Schema.Struct({
-  codex: Schema.optional(CodexModelOptions),
-  claudeAgent: Schema.optional(ClaudeModelOptions),
-});
+const LegacyProviderOptionSelectionsObject = Schema.Record(
+  Schema.String,
+  Schema.Union([ProviderOptionSelectionValue, Schema.Undefined]),
+);
+
+export const ProviderOptionSelections = Schema.Union([
+  Schema.Array(ProviderOptionSelection),
+  LegacyProviderOptionSelectionsObject,
+]);
+export type ProviderOptionSelections = typeof ProviderOptionSelections.Type;
+
+export const ProviderModelOptions = Schema.Record(Schema.String, ProviderOptionSelections);
 export type ProviderModelOptions = typeof ProviderModelOptions.Type;
 
 export const EffortOption = Schema.Struct({
@@ -50,6 +106,7 @@ export const ContextWindowOption = Schema.Struct({
 export type ContextWindowOption = typeof ContextWindowOption.Type;
 
 export const ModelCapabilities = Schema.Struct({
+  optionDescriptors: Schema.optional(Schema.Array(ProviderOptionDescriptor)),
   reasoningEffortLevels: Schema.Array(EffortOption),
   supportsFastMode: Schema.Boolean,
   supportsThinkingToggle: Schema.Boolean,

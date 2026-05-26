@@ -126,10 +126,17 @@ function modelSelection(
   model: string,
   options?: ModelSelection["options"],
 ): ModelSelection {
+  const canonicalOptions = Array.isArray(options)
+    ? options
+    : options
+      ? Object.entries(options).flatMap(([id, value]) =>
+          typeof value === "string" || typeof value === "boolean" ? [{ id, value }] : [],
+        )
+      : undefined;
   return {
     provider,
     model,
-    ...(options ? { options } : {}),
+    ...(canonicalOptions && canonicalOptions.length > 0 ? { options: canonicalOptions } : {}),
   } as ModelSelection;
 }
 
@@ -1156,8 +1163,12 @@ describe("composerDraftStore modelSelection", () => {
     store.setModelOptions(threadRef, providerModelOptions({ codex: { reasoningEffort: "xhigh" } }));
 
     const draft = draftFor(threadId, TEST_ENVIRONMENT_ID);
-    expect(draft?.modelSelectionByProvider.codex?.options).toEqual({ reasoningEffort: "xhigh" });
-    expect(draft?.modelSelectionByProvider.claudeAgent?.options).toEqual({ effort: "max" });
+    expect(draft?.modelSelectionByProvider.codex?.options).toEqual([
+      { id: "reasoningEffort", value: "xhigh" },
+    ]);
+    expect(draft?.modelSelectionByProvider.claudeAgent?.options).toEqual([
+      { id: "effort", value: "max" },
+    ]);
   });
 
   it("preserves other provider options when switching the active model selection", () => {
@@ -1177,7 +1188,9 @@ describe("composerDraftStore modelSelection", () => {
     expect(draft?.modelSelectionByProvider.claudeAgent).toEqual(
       modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
     );
-    expect(draft?.modelSelectionByProvider.codex?.options).toEqual({ fastMode: true });
+    expect(draft?.modelSelectionByProvider.codex?.options).toEqual([
+      { id: "fastMode", value: true },
+    ]);
     expect(draft?.activeProvider).toBe("claudeAgent");
   });
 
@@ -1325,7 +1338,9 @@ describe("composerDraftStore provider-scoped option updates", () => {
     expect(draft?.modelSelectionByProvider.codex).toEqual(
       modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),
     );
-    expect(draft?.modelSelectionByProvider.claudeAgent?.options).toEqual({ effort: "max" });
+    expect(draft?.modelSelectionByProvider.claudeAgent?.options).toEqual([
+      { id: "effort", value: "max" },
+    ]);
     expect(draft?.activeProvider).toBe("codex");
   });
 });

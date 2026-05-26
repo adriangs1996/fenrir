@@ -59,10 +59,10 @@ describe("serverSettings helpers", () => {
       textGenerationModelSelection: {
         provider: "codex" as const,
         model: "gpt-5.4-mini",
-        options: {
-          reasoningEffort: "high" as const,
-          fastMode: true,
-        },
+        options: [
+          { id: "reasoningEffort", value: "high" as const },
+          { id: "fastMode", value: true },
+        ],
       },
     };
 
@@ -85,28 +85,26 @@ describe("serverSettings helpers", () => {
       textGenerationModelSelection: {
         provider: "codex" as const,
         model: "gpt-5.4-mini",
-        options: {
-          reasoningEffort: "high" as const,
-          fastMode: true,
-        },
+        options: [
+          { id: "reasoningEffort", value: "high" as const },
+          { id: "fastMode", value: true },
+        ],
       },
     };
 
     expect(
       applyServerSettingsPatch(current, {
         textGenerationModelSelection: {
-          options: {
-            fastMode: false,
-          },
+          options: [{ id: "fastMode", value: false }],
         },
       }).textGenerationModelSelection,
     ).toEqual({
       provider: "codex",
       model: "gpt-5.4-mini",
-      options: {
-        reasoningEffort: "high",
-        fastMode: false,
-      },
+      options: [
+        { id: "reasoningEffort", value: "high" },
+        { id: "fastMode", value: false },
+      ],
     });
   });
 });

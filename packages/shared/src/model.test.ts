@@ -202,7 +202,7 @@ describe("resolveApiModelId", () => {
       resolveApiModelId({
         provider: "claudeAgent",
         model: "claude-opus-4-6",
-        options: { contextWindow: "1m" },
+        options: [{ id: "contextWindow", value: "1m" }],
       }),
     ).toBe("claude-opus-4-6[1m]");
   });
@@ -212,7 +212,7 @@ describe("resolveApiModelId", () => {
       resolveApiModelId({
         provider: "claudeAgent",
         model: "claude-opus-4-6",
-        options: { contextWindow: "200k" },
+        options: [{ id: "contextWindow", value: "200k" }],
       }),
     ).toBe("claude-opus-4-6");
   });
@@ -222,7 +222,7 @@ describe("resolveApiModelId", () => {
       "claude-opus-4-6",
     );
     expect(
-      resolveApiModelId({ provider: "claudeAgent", model: "claude-opus-4-6", options: {} }),
+      resolveApiModelId({ provider: "claudeAgent", model: "claude-opus-4-6", options: [] }),
     ).toBe("claude-opus-4-6");
   });
 
@@ -238,10 +238,10 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
         reasoningEffort: "high",
         fastMode: false,
       }),
-    ).toEqual({
-      reasoningEffort: "high",
-      fastMode: false,
-    });
+    ).toEqual([
+      { id: "reasoningEffort", value: "high" },
+      { id: "fastMode", value: false },
+    ]);
   });
 
   it("preserves the default Claude context window explicitly", () => {
@@ -259,10 +259,10 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
           contextWindow: "200k",
         },
       ),
-    ).toEqual({
-      effort: "high",
-      contextWindow: "200k",
-    });
+    ).toEqual([
+      { id: "effort", value: "high" },
+      { id: "contextWindow", value: "200k" },
+    ]);
   });
 
   it("omits unsupported Claude context window options", () => {
@@ -279,8 +279,6 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
           contextWindow: "1m",
         },
       ),
-    ).toEqual({
-      thinking: true,
-    });
+    ).toEqual([{ id: "thinking", value: true }]);
   });
 });
