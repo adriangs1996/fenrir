@@ -1,6 +1,6 @@
 import { ProviderInteractionMode, RuntimeMode } from "@fenrir/contracts";
 import { memo, type ReactNode } from "react";
-import { EllipsisIcon, ListTodoIcon, ZapIcon } from "lucide-react";
+import { DiffIcon, EllipsisIcon, ListTodoIcon, ZapIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -15,13 +15,21 @@ import {
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
   skillsPanelOpen: boolean;
-  hasActivePlan: boolean;
+  sidePanelLabel: "Plan" | "Tasks" | "Skills" | "Diff";
   runtimeMode: RuntimeMode;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
   onToggleSkillsPanel: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
+  const SidePanelIcon =
+    props.sidePanelLabel === "Diff"
+      ? DiffIcon
+      : props.sidePanelLabel === "Skills"
+        ? ZapIcon
+        : ListTodoIcon;
+  const sidePanelAction = `${props.skillsPanelOpen ? "Hide" : "Show"} ${props.sidePanelLabel.toLowerCase()} panel`;
+
   return (
     <Menu>
       <MenuTrigger
@@ -70,18 +78,8 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         <MenuDivider />
         <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Panels</div>
         <MenuItem onClick={props.onToggleSkillsPanel}>
-          {props.hasActivePlan ? (
-            <ListTodoIcon className="size-4 shrink-0" />
-          ) : (
-            <ZapIcon className="size-4 shrink-0" />
-          )}
-          {props.hasActivePlan
-            ? props.skillsPanelOpen
-              ? "Hide tasks panel"
-              : "Show tasks panel"
-            : props.skillsPanelOpen
-              ? "Hide skills panel"
-              : "Show skills panel"}
+          <SidePanelIcon className="size-4 shrink-0" />
+          {sidePanelAction}
         </MenuItem>
       </MenuPopup>
     </Menu>

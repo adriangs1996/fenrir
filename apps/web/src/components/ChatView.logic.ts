@@ -19,6 +19,7 @@ import {
   type ReviewRouteState,
 } from "~/modules/review";
 import { randomUUID } from "~/lib/utils";
+import type { RightPanelTab } from "../rightPanelStore";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import { selectThreadByRef, useStore } from "../store";
 import { type ChatMessage, type SessionPhase, type Thread, type ThreadSession } from "../types";
@@ -28,6 +29,23 @@ export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 const WORKTREE_BRANCH_PREFIX = "fenrir";
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
+
+export function resolveSidePanelControlLabel(input: {
+  activeTab: RightPanelTab | null;
+  planLabel: "Plan" | "Tasks";
+  hasPlanContent: boolean;
+}): "Plan" | "Tasks" | "Skills" | "Diff" {
+  switch (input.activeTab) {
+    case "plan":
+      return input.planLabel;
+    case "diff":
+      return "Diff";
+    case "skills":
+      return "Skills";
+    case null:
+      return input.hasPlanContent ? input.planLabel : "Skills";
+  }
+}
 
 export function buildLocalDraftThread(
   threadId: ThreadId,

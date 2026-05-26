@@ -47,6 +47,7 @@ import Migration0031 from "./Migrations/031_ReviewSessionPullRequestOverride.ts"
 import Migration0032 from "./Migrations/032_ReviewSessionModeScope.ts";
 import Migration0033 from "./Migrations/033_TrafficLensWorkbench.ts";
 import Migration0034 from "./Migrations/034_TrafficLensStoragePersistence.ts";
+import Migration0035 from "./Migrations/035_CanonicalizeModelSelectionOptions.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -93,6 +94,7 @@ export const migrationEntries = [
   [32, "ReviewSessionModeScope", Migration0032],
   [33, "TrafficLensWorkbench", Migration0033],
   [34, "TrafficLensStoragePersistence", Migration0034],
+  [35, "CanonicalizeModelSelectionOptions", Migration0035],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

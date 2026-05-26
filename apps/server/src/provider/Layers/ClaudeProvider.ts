@@ -29,14 +29,100 @@ import { resolveEffectiveClaudeSettings } from "../providerSettings";
 import { ClaudeProvider } from "../Services/ClaudeProvider";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@fenrir/contracts";
+import {
+  booleanModelOptionDescriptor,
+  createModelCapabilitiesFromDescriptors,
+  selectModelOptionDescriptor,
+} from "../modelCapabilities";
 
-const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = {
-  reasoningEffortLevels: [],
-  supportsFastMode: false,
-  supportsThinkingToggle: false,
-  contextWindowOptions: [],
-  promptInjectedEffortLevels: [],
-};
+const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilitiesFromDescriptors(
+  [],
+);
+
+const contextWindowOptions = [
+  { value: "200k", label: "200k", isDefault: true },
+  { value: "1m", label: "1M" },
+] as const;
+
+const effortOptions = {
+  opus47: [
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High" },
+    { value: "xhigh", label: "Extra High", isDefault: true },
+    { value: "max", label: "Max" },
+    { value: "ultrathink", label: "Ultrathink" },
+  ],
+  opus46: [
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High", isDefault: true },
+    { value: "max", label: "Max" },
+    { value: "ultrathink", label: "Ultrathink" },
+  ],
+  opus45: [
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High", isDefault: true },
+    { value: "max", label: "Max" },
+  ],
+  sonnet46: [
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High", isDefault: true },
+    { value: "ultrathink", label: "Ultrathink" },
+  ],
+} as const;
+
+function claudeCapabilities(input: {
+  readonly effortOptions?: ReadonlyArray<{ value: string; label: string; isDefault?: boolean }>;
+  readonly supportsFastMode?: boolean;
+  readonly supportsThinking?: boolean;
+  readonly supportsContextWindow?: boolean;
+  readonly promptInjectedValues?: ReadonlyArray<string>;
+}): ModelCapabilities {
+  return createModelCapabilitiesFromDescriptors([
+    ...(input.effortOptions
+      ? [
+          selectModelOptionDescriptor({
+            id: "effort",
+            label: "Effort",
+            options: input.effortOptions,
+            ...(input.promptInjectedValues !== undefined
+              ? { promptInjectedValues: input.promptInjectedValues }
+              : {}),
+          }),
+        ]
+      : []),
+    ...(input.supportsThinking
+      ? [
+          booleanModelOptionDescriptor({
+            id: "thinking",
+            label: "Thinking",
+            currentValue: true,
+          }),
+        ]
+      : []),
+    ...(input.supportsFastMode
+      ? [
+          booleanModelOptionDescriptor({
+            id: "fastMode",
+            label: "Fast Mode",
+            currentValue: false,
+          }),
+        ]
+      : []),
+    ...(input.supportsContextWindow
+      ? [
+          selectModelOptionDescriptor({
+            id: "contextWindow",
+            label: "Context Window",
+            options: contextWindowOptions,
+          }),
+        ]
+      : []),
+  ]);
+}
 
 const PROVIDER = "claudeAgent" as const;
 const MINIMUM_CLAUDE_OPUS_4_7_VERSION = "2.1.111";
@@ -45,93 +131,47 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
     slug: "claude-opus-4-7",
     name: "Claude Opus 4.7",
     isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "low", label: "Low" },
-        { value: "medium", label: "Medium" },
-        { value: "high", label: "High" },
-        { value: "xhigh", label: "Extra High", isDefault: true },
-        { value: "max", label: "Max" },
-        { value: "ultrathink", label: "Ultrathink" },
-      ],
-      supportsFastMode: false,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [
-        { value: "200k", label: "200k", isDefault: true },
-        { value: "1m", label: "1M" },
-      ],
-      promptInjectedEffortLevels: ["ultrathink"],
-    } satisfies ModelCapabilities,
+    capabilities: claudeCapabilities({
+      effortOptions: effortOptions.opus47,
+      supportsContextWindow: true,
+      promptInjectedValues: ["ultrathink"],
+    }),
   },
   {
     slug: "claude-opus-4-6",
     name: "Claude Opus 4.6",
     isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "low", label: "Low" },
-        { value: "medium", label: "Medium" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "max", label: "Max" },
-        { value: "ultrathink", label: "Ultrathink" },
-      ],
+    capabilities: claudeCapabilities({
+      effortOptions: effortOptions.opus46,
       supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [
-        { value: "200k", label: "200k", isDefault: true },
-        { value: "1m", label: "1M" },
-      ],
-      promptInjectedEffortLevels: ["ultrathink"],
-    } satisfies ModelCapabilities,
+      supportsContextWindow: true,
+      promptInjectedValues: ["ultrathink"],
+    }),
   },
   {
     slug: "claude-opus-4-5",
     name: "Claude Opus 4.5",
     isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "low", label: "Low" },
-        { value: "medium", label: "Medium" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "max", label: "Max" },
-      ],
+    capabilities: claudeCapabilities({
+      effortOptions: effortOptions.opus45,
       supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    } satisfies ModelCapabilities,
+    }),
   },
   {
     slug: "claude-sonnet-4-6",
     name: "Claude Sonnet 4.6",
     isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "low", label: "Low" },
-        { value: "medium", label: "Medium" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "ultrathink", label: "Ultrathink" },
-      ],
-      supportsFastMode: false,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [
-        { value: "200k", label: "200k", isDefault: true },
-        { value: "1m", label: "1M" },
-      ],
-      promptInjectedEffortLevels: ["ultrathink"],
-    } satisfies ModelCapabilities,
+    capabilities: claudeCapabilities({
+      effortOptions: effortOptions.sonnet46,
+      supportsContextWindow: true,
+      promptInjectedValues: ["ultrathink"],
+    }),
   },
   {
     slug: "claude-haiku-4-5",
     name: "Claude Haiku 4.5",
     isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [],
-      supportsFastMode: false,
-      supportsThinkingToggle: true,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    } satisfies ModelCapabilities,
+    capabilities: claudeCapabilities({ supportsThinking: true }),
   },
 ];
 

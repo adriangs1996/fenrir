@@ -51,6 +51,21 @@ function stepStatusIcon(status: string): React.ReactNode {
   );
 }
 
+function keyedPlanSteps(
+  steps: ActivePlanState["steps"],
+): Array<{ key: string; step: ActivePlanState["steps"][number] }> {
+  const occurrences = new Map<string, number>();
+  return steps.map((step) => {
+    const baseKey = `${step.status}:${step.step}`;
+    const occurrence = occurrences.get(baseKey) ?? 0;
+    occurrences.set(baseKey, occurrence + 1);
+    return {
+      key: occurrence === 0 ? baseKey : `${baseKey}:${occurrence}`,
+      step,
+    };
+  });
+}
+
 interface PlanSidebarProps {
   activePlan: ActivePlanState | null;
   activeProposedPlan: LatestProposedPlanState | null;
@@ -196,9 +211,9 @@ const PlanSidebar = memo(function PlanSidebar({
               <p className="mb-2 text-[10px] font-semibold tracking-widest text-muted-foreground/40 uppercase">
                 Steps
               </p>
-              {activePlan.steps.map((step) => (
+              {keyedPlanSteps(activePlan.steps).map(({ key, step }) => (
                 <div
-                  key={`${step.status}:${step.step}`}
+                  key={key}
                   className={cn(
                     "flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-200",
                     step.status === "inProgress" && "bg-blue-500/5",

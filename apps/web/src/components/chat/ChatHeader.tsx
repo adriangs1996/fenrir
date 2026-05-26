@@ -43,7 +43,7 @@ interface ChatHeaderProps {
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
-  diffToggleShortcutLabel: string | null;
+  diffToggleShortcutLabel?: string | null;
   gitCwd: string | null;
   diffOpen: boolean;
   globalScripts: GlobalScript[];

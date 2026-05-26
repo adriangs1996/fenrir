@@ -12,12 +12,56 @@ import {
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   reconcileMountedTerminalThreadIds,
+  resolveSidePanelControlLabel,
   shouldForceActiveReviewTab,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 
 const localEnvironmentId = EnvironmentId.makeUnsafe("environment-local");
+
+describe("resolveSidePanelControlLabel", () => {
+  it("uses the active right-panel tab label when the panel is open", () => {
+    expect(
+      resolveSidePanelControlLabel({
+        activeTab: "plan",
+        planLabel: "Tasks",
+        hasPlanContent: true,
+      }),
+    ).toBe("Tasks");
+    expect(
+      resolveSidePanelControlLabel({
+        activeTab: "diff",
+        planLabel: "Tasks",
+        hasPlanContent: true,
+      }),
+    ).toBe("Diff");
+    expect(
+      resolveSidePanelControlLabel({
+        activeTab: "skills",
+        planLabel: "Plan",
+        hasPlanContent: true,
+      }),
+    ).toBe("Skills");
+  });
+
+  it("uses the smart default label when the right panel is closed", () => {
+    expect(
+      resolveSidePanelControlLabel({
+        activeTab: null,
+        planLabel: "Plan",
+        hasPlanContent: true,
+      }),
+    ).toBe("Plan");
+    expect(
+      resolveSidePanelControlLabel({
+        activeTab: null,
+        planLabel: "Tasks",
+        hasPlanContent: false,
+      }),
+    ).toBe("Skills");
+  });
+});
 
 describe("deriveComposerSendState", () => {
   it("treats expired terminal pills as non-sendable content", () => {

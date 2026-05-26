@@ -51,19 +51,31 @@ import { CodexProvider } from "../Services/CodexProvider";
 import { expandHomePath } from "../../pathExpansion.ts";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@fenrir/contracts";
+import {
+  booleanModelOptionDescriptor,
+  createModelCapabilitiesFromDescriptors,
+  selectModelOptionDescriptor,
+} from "../modelCapabilities";
 
-const DEFAULT_CODEX_MODEL_CAPABILITIES: ModelCapabilities = {
-  reasoningEffortLevels: [
-    { value: "xhigh", label: "Extra High" },
-    { value: "high", label: "High", isDefault: true },
-    { value: "medium", label: "Medium" },
-    { value: "low", label: "Low" },
-  ],
-  supportsFastMode: true,
-  supportsThinkingToggle: false,
-  contextWindowOptions: [],
-  promptInjectedEffortLevels: [],
-};
+const CODEX_REASONING_EFFORT_OPTIONS = [
+  { value: "xhigh", label: "Extra High" },
+  { value: "high", label: "High", isDefault: true },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
+] as const;
+
+const DEFAULT_CODEX_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilitiesFromDescriptors([
+  selectModelOptionDescriptor({
+    id: "reasoningEffort",
+    label: "Effort",
+    options: CODEX_REASONING_EFFORT_OPTIONS,
+  }),
+  booleanModelOptionDescriptor({
+    id: "fastMode",
+    label: "Fast Mode",
+    currentValue: false,
+  }),
+]);
 
 const PROVIDER = "codex" as const;
 const OPENAI_AUTH_PROVIDERS = new Set(["openai"]);

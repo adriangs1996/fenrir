@@ -20,6 +20,7 @@ import {
   type CommandResult,
 } from "../providerSnapshot.ts";
 import { runProcess } from "../../processRunner.ts";
+import { createModelCapabilitiesFromDescriptors } from "../modelCapabilities.ts";
 
 const DRIVER = ProviderDriverKind.makeUnsafe("cursor");
 
@@ -28,13 +29,9 @@ class CursorProbeCommandError extends Data.TaggedError("CursorProbeCommandError"
   readonly detail: string;
 }> {}
 
-const DEFAULT_CURSOR_MODEL_CAPABILITIES: ModelCapabilities = {
-  reasoningEffortLevels: [],
-  supportsFastMode: false,
-  supportsThinkingToggle: false,
-  contextWindowOptions: [],
-  promptInjectedEffortLevels: [],
-};
+const DEFAULT_CURSOR_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilitiesFromDescriptors(
+  [],
+);
 
 function cursorGlobalArgs(cursorSettings: Pick<CursorSettings, "apiEndpoint">): Array<string> {
   const endpoint = cursorSettings.apiEndpoint.trim();

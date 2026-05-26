@@ -90,6 +90,11 @@ export interface LatestProposedPlanState {
   implementationThreadId: ThreadId | null;
 }
 
+type LatestTurnScope = Pick<
+  OrchestrationLatestTurn,
+  "turnId" | "state" | "requestedAt" | "startedAt" | "completedAt"
+>;
+
 export type TimelineEntry =
   | {
       id: string;
@@ -402,6 +407,47 @@ export function deriveActivePlanState(
   };
 }
 
+export function isActivePlanScopedToLatestTurn(
+  activePlan: ActivePlanState | null,
+  latestTurn: LatestTurnScope | null,
+): boolean {
+  if (!activePlan || !latestTurn) {
+    return false;
+  }
+  if (activePlan.turnId === latestTurn.turnId) {
+    return true;
+  }
+  if (activePlan.turnId !== null) {
+    return false;
+  }
+  return isTimestampInLatestTurnWindow(activePlan.createdAt, latestTurn);
+}
+
+export function deriveDisplayActivePlanState(
+  activePlan: ActivePlanState | null,
+  latestTurn: LatestTurnScope | null,
+): ActivePlanState | null {
+  if (!activePlan || !latestTurn) {
+    return activePlan;
+  }
+  const isScopedToLatestTurn = isActivePlanScopedToLatestTurn(activePlan, latestTurn);
+  if (
+    (isScopedToLatestTurn && latestTurn.state === "running") ||
+    activePlan.steps.every((step) => step.status !== "inProgress")
+  ) {
+    return activePlan;
+  }
+
+  const settledStatus =
+    isScopedToLatestTurn && latestTurn.state !== "completed" ? "pending" : "completed";
+  return {
+    ...activePlan,
+    steps: activePlan.steps.map((step) =>
+      step.status === "inProgress" ? { ...step, status: settledStatus } : step,
+    ),
+  };
+}
+
 export function findLatestProposedPlan(
   proposedPlans: ReadonlyArray<ProposedPlan>,
   latestTurnId: TurnId | string | null | undefined,
@@ -464,11 +510,11 @@ export function hasActionableProposedPlan(
 
 export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
-  latestTurnId: TurnId | undefined,
+  latestTurn: LatestTurnScope | TurnId | undefined,
 ): WorkLogEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   const entries = ordered
-    .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
+    .filter((activity) => isActivityInLatestTurnScope(activity, latestTurn))
     .filter((activity) => activity.kind !== "tool.started")
     .filter((activity) => activity.kind !== "task.started")
     .filter((activity) => activity.kind !== "context-window.updated")
@@ -478,6 +524,36 @@ export function deriveWorkLogEntries(
   return collapseDerivedWorkLogEntries(entries).map(
     ({ activityKind: _activityKind, collapseKey: _collapseKey, ...entry }) => entry,
   );
+}
+
+function isActivityInLatestTurnScope(
+  activity: OrchestrationThreadActivity,
+  latestTurn: LatestTurnScope | TurnId | undefined,
+): boolean {
+  if (!latestTurn) {
+    return true;
+  }
+
+  const latestTurnId = typeof latestTurn === "string" ? latestTurn : latestTurn.turnId;
+  if (activity.turnId === latestTurnId) {
+    return true;
+  }
+  if (activity.turnId !== null || typeof latestTurn === "string") {
+    return false;
+  }
+
+  return isTimestampInLatestTurnWindow(activity.createdAt, latestTurn);
+}
+
+function isTimestampInLatestTurnWindow(timestamp: string, latestTurn: LatestTurnScope): boolean {
+  const startedAt = latestTurn.startedAt ?? latestTurn.requestedAt;
+  if (timestamp < startedAt) {
+    return false;
+  }
+  if (latestTurn.completedAt !== null && timestamp > latestTurn.completedAt) {
+    return false;
+  }
+  return true;
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {

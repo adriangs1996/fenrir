@@ -103,6 +103,7 @@ import { toastManager } from "../ui/toast";
 import {
   BotIcon,
   CircleAlertIcon,
+  DiffIcon,
   ListTodoIcon,
   type LucideIcon,
   LockIcon,
@@ -178,13 +179,20 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
   skillsPanelOpen: boolean;
-  hasActivePlan: boolean;
+  sidePanelLabel: "Plan" | "Tasks" | "Skills" | "Diff";
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   onToggleSkillsPanel: () => void;
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
+  const SidePanelIcon =
+    props.sidePanelLabel === "Diff"
+      ? DiffIcon
+      : props.sidePanelLabel === "Skills"
+        ? ZapIcon
+        : ListTodoIcon;
+  const sidePanelTitle = `${props.skillsPanelOpen ? "Hide" : "Show"} ${props.sidePanelLabel.toLowerCase()} panel`;
 
   return (
     <>
@@ -257,18 +265,10 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         size="sm"
         type="button"
         onClick={props.onToggleSkillsPanel}
-        title={
-          props.hasActivePlan
-            ? props.skillsPanelOpen
-              ? "Hide tasks panel"
-              : "Show tasks panel"
-            : props.skillsPanelOpen
-              ? "Hide skills panel"
-              : "Show skills panel"
-        }
+        title={sidePanelTitle}
       >
-        {props.hasActivePlan ? <ListTodoIcon /> : <ZapIcon />}
-        <span className="sr-only sm:not-sr-only">{props.hasActivePlan ? "Tasks" : "Skills"}</span>
+        <SidePanelIcon />
+        <span className="sr-only sm:not-sr-only">{props.sidePanelLabel}</span>
       </Button>
     </>
   );
@@ -401,7 +401,6 @@ export interface ChatComposerProps {
   // Plan
   showPlanFollowUpPrompt: boolean;
   activeProposedPlan: Thread["proposedPlans"][number] | null;
-  hasActivePlan: boolean;
 
   // Mode
   runtimeMode: RuntimeMode;
@@ -454,6 +453,7 @@ export interface ChatComposerProps {
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
   skillsPanelOpen: boolean;
+  sidePanelLabel: "Plan" | "Tasks" | "Skills" | "Diff";
   toggleSkillsPanel: () => void;
 
   focusComposer: () => void;
@@ -494,7 +494,6 @@ export const ChatComposer = memo(
       respondingRequestIds,
       showPlanFollowUpPrompt,
       activeProposedPlan,
-      hasActivePlan,
       runtimeMode,
       interactionMode,
       lockedProvider,
@@ -523,6 +522,7 @@ export const ChatComposer = memo(
       handleRuntimeModeChange,
       handleInteractionModeChange,
       skillsPanelOpen,
+      sidePanelLabel,
       toggleSkillsPanel,
       focusComposer,
       scheduleComposerFocus,
@@ -2092,7 +2092,7 @@ export const ChatComposer = memo(
                     <CompactComposerControlsMenu
                       interactionMode={interactionMode}
                       skillsPanelOpen={skillsPanelOpen}
-                      hasActivePlan={hasActivePlan}
+                      sidePanelLabel={sidePanelLabel}
                       runtimeMode={runtimeMode}
                       traitsMenuContent={providerTraitsMenuContent}
                       onToggleInteractionMode={toggleInteractionMode}
@@ -2114,7 +2114,7 @@ export const ChatComposer = memo(
                         interactionMode={interactionMode}
                         runtimeMode={runtimeMode}
                         skillsPanelOpen={skillsPanelOpen}
-                        hasActivePlan={hasActivePlan}
+                        sidePanelLabel={sidePanelLabel}
                         onToggleInteractionMode={toggleInteractionMode}
                         onRuntimeModeChange={handleRuntimeModeChange}
                         onToggleSkillsPanel={toggleSkillsPanel}

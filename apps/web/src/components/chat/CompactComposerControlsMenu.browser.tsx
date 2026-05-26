@@ -141,7 +141,7 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
   const screen = await render(
     <CompactComposerControlsMenu
       interactionMode="default"
-      hasActivePlan={false}
+      sidePanelLabel="Skills"
       runtimeMode="approval-required"
       traitsMenuContent={
         <TraitsMenuContent

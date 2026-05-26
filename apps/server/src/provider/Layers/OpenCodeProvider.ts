@@ -22,16 +22,12 @@ import {
   type OpenCodeInventory,
 } from "../opencodeRuntime.ts";
 import { scopedSafeTeardown } from "./scopedSafeTeardown.ts";
+import { createModelCapabilitiesFromDescriptors } from "../modelCapabilities.ts";
 
 const DRIVER = ProviderDriverKind.makeUnsafe("opencode");
 const MINIMUM_OPENCODE_VERSION = "1.14.19";
-const DEFAULT_OPENCODE_MODEL_CAPABILITIES: ModelCapabilities = {
-  reasoningEffortLevels: [],
-  supportsFastMode: false,
-  supportsThinkingToggle: false,
-  contextWindowOptions: [],
-  promptInjectedEffortLevels: [],
-};
+const DEFAULT_OPENCODE_MODEL_CAPABILITIES: ModelCapabilities =
+  createModelCapabilitiesFromDescriptors([]);
 
 class OpenCodeProbeError extends Data.TaggedError("OpenCodeProbeError")<{
   readonly cause: unknown;

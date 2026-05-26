@@ -48,11 +48,13 @@ import {
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveDisplayActivePlanState,
   findSidebarProposedPlan,
   findLatestProposedPlan,
   deriveWorkLogEntries,
   hasActionableProposedPlan,
   hasToolActivityForTurn,
+  isActivePlanScopedToLatestTurn,
   isLatestTurnSettled,
   formatElapsed,
 } from "../session-logic";
@@ -172,6 +174,7 @@ import {
   deriveLockedProvider,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
+  resolveSidePanelControlLabel,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
   shouldWriteThreadErrorToCurrentServerThread,
@@ -1181,8 +1184,8 @@ export default function ChatView(props: ChatViewProps) {
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
-    () => deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined),
-    [activeLatestTurn?.turnId, threadActivities],
+    () => deriveWorkLogEntries(threadActivities, activeLatestTurn ?? undefined),
+    [activeLatestTurn, threadActivities],
   );
   const latestTurnHasToolActivity = useMemo(
     () => hasToolActivityForTurn(threadActivities, activeLatestTurn?.turnId),
@@ -1248,11 +1251,21 @@ export default function ChatView(props: ChatViewProps) {
       }),
     [activeLatestTurn, activeThread?.id, latestTurnSettled, threadPlanCatalog],
   );
-  const activePlan = useMemo(
+  const derivedActivePlan = useMemo(
     () => deriveActivePlanState(threadActivities, activeLatestTurn?.turnId ?? undefined),
     [activeLatestTurn?.turnId, threadActivities],
   );
+  const activePlan = useMemo(
+    () => deriveDisplayActivePlanState(derivedActivePlan, activeLatestTurn),
+    [activeLatestTurn, derivedActivePlan],
+  );
   const planSidebarLabel = sidebarProposedPlan || interactionMode === "plan" ? "Plan" : "Tasks";
+  const hasPlanContent = Boolean(activePlan || sidebarProposedPlan);
+  const sidePanelControlLabel = resolveSidePanelControlLabel({
+    activeTab: rightPanel.activeTab,
+    planLabel: planSidebarLabel,
+    hasPlanContent,
+  });
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
@@ -1572,15 +1585,6 @@ export default function ChatView(props: ChatViewProps) {
     }),
     [terminalState.terminalOpen],
   );
-  const nonTerminalShortcutLabelOptions = useMemo(
-    () => ({
-      context: {
-        terminalFocus: false,
-        terminalOpen: Boolean(terminalState.terminalOpen),
-      },
-    }),
-    [terminalState.terminalOpen],
-  );
   const terminalToggleShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.toggle"),
     [keybindings],
@@ -1596,10 +1600,6 @@ export default function ChatView(props: ChatViewProps) {
   const closeTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.close", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
-  );
-  const diffPanelShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "diff.toggle", nonTerminalShortcutLabelOptions),
-    [keybindings, nonTerminalShortcutLabelOptions],
   );
   const clearDiffRouteState = useCallback(() => {
     if (!isServerThread || !diffOpen) {
@@ -2143,14 +2143,13 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     if (!activePlan) return;
     if (rightPanel.activeTab !== null) return;
-    const latestTurnId = activeLatestTurn?.turnId ?? null;
-    if (latestTurnId && activePlan.turnId !== latestTurnId) return;
+    if (activeLatestTurn && !isActivePlanScopedToLatestTurn(activePlan, activeLatestTurn)) return;
     const turnKey = activePlan.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
     if (planSidebarDismissedForTurnRef.current === turnKey) return;
     rightPanel.openTab("plan");
     // rightPanel intentionally omitted from deps: store is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePlan, activeLatestTurn?.turnId, rightPanel.activeTab, sidebarProposedPlan?.turnId]);
+  }, [activePlan, activeLatestTurn, rightPanel.activeTab, sidebarProposedPlan?.turnId]);
 
   // Open the shared right panel on the Diff tab when the route explicitly
   // targets a diff. Do not auto-close or bounce the user back to Diff once
@@ -2467,7 +2466,7 @@ export default function ChatView(props: ChatViewProps) {
       if (command === "diff.toggle") {
         event.preventDefault();
         event.stopPropagation();
-        onToggleDiff();
+        toggleSkillsPanel();
         return;
       }
 
@@ -2528,7 +2527,7 @@ export default function ChatView(props: ChatViewProps) {
     runGlobalScript,
     splitTerminal,
     keybindings,
-    onToggleDiff,
+    toggleSkillsPanel,
     toggleTerminalVisibility,
     editorAvailable,
   ]);
@@ -3508,7 +3507,6 @@ export default function ChatView(props: ChatViewProps) {
           terminalAvailable={activeProject !== undefined}
           terminalOpen={terminalState.terminalOpen}
           terminalToggleShortcutLabel={terminalToggleShortcutLabel}
-          diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffPanelOpen}
           globalScripts={[...(serverConfig?.globalActions ?? [])]}
@@ -3648,7 +3646,6 @@ export default function ChatView(props: ChatViewProps) {
                 respondingRequestIds={respondingRequestIds}
                 showPlanFollowUpPrompt={showPlanFollowUpPrompt}
                 activeProposedPlan={activeProposedPlan}
-                hasActivePlan={Boolean(activePlan || sidebarProposedPlan)}
                 runtimeMode={runtimeMode}
                 interactionMode={interactionMode}
                 lockedProvider={lockedProvider}
@@ -3679,6 +3676,7 @@ export default function ChatView(props: ChatViewProps) {
                 handleRuntimeModeChange={handleRuntimeModeChange}
                 handleInteractionModeChange={handleInteractionModeChange}
                 skillsPanelOpen={rightPanel.activeTab !== null}
+                sidePanelLabel={sidePanelControlLabel}
                 toggleSkillsPanel={toggleSkillsPanel}
                 focusComposer={focusComposer}
                 scheduleComposerFocus={scheduleComposerFocus}
@@ -3847,7 +3845,7 @@ export default function ChatView(props: ChatViewProps) {
         ))}
       {/* Right panel tabs — mobile sheet */}
       {shouldUsePlanSidebarSheet ? (
-        <RightPanelSheet open={rightPanel.activeTab !== null} onClose={closeRightPanel}>
+        <RightPanelSheet open={rightPanel.activeTab !== null} onClose={closePlanSidebar}>
           <RightPanelTabs
             planProps={{
               activePlan,

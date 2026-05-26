@@ -11,6 +11,7 @@ import {
   deriveCompletionDividerBeforeEntryId,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveDisplayActivePlanState,
   PROVIDER_OPTIONS,
   derivePendingApprovals,
   derivePendingUserInputs,
@@ -20,6 +21,7 @@ import {
   findSidebarProposedPlan,
   hasActionableProposedPlan,
   hasToolActivityForTurn,
+  isActivePlanScopedToLatestTurn,
   isLatestTurnSettled,
 } from "./session-logic";
 
@@ -367,6 +369,66 @@ describe("deriveActivePlanState", () => {
       steps: [{ step: "Write tests", status: "completed" }],
     });
   });
+
+  it("treats unscoped plan updates inside the latest turn window as latest-turn work", () => {
+    const activePlan = {
+      createdAt: "2026-02-23T00:00:02.000Z",
+      turnId: null,
+      steps: [{ step: "Implement change", status: "inProgress" as const }],
+    };
+
+    expect(
+      isActivePlanScopedToLatestTurn(activePlan, {
+        turnId: TurnId.makeUnsafe("turn-1"),
+        state: "running",
+        requestedAt: "2026-02-23T00:00:01.000Z",
+        startedAt: "2026-02-23T00:00:01.500Z",
+        completedAt: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("settles in-progress latest-turn plan steps once the turn completes", () => {
+    const activePlan = {
+      createdAt: "2026-02-23T00:00:02.000Z",
+      turnId: TurnId.makeUnsafe("turn-1"),
+      steps: [
+        { step: "Inspect code", status: "completed" as const },
+        { step: "Write tests", status: "inProgress" as const },
+      ],
+    };
+
+    expect(
+      deriveDisplayActivePlanState(activePlan, {
+        turnId: TurnId.makeUnsafe("turn-1"),
+        state: "completed",
+        requestedAt: "2026-02-23T00:00:01.000Z",
+        startedAt: "2026-02-23T00:00:01.500Z",
+        completedAt: "2026-02-23T00:00:05.000Z",
+      })?.steps,
+    ).toEqual([
+      { step: "Inspect code", status: "completed" },
+      { step: "Write tests", status: "completed" },
+    ]);
+  });
+
+  it("settles carried-over previous-turn plan steps while a new turn is running", () => {
+    const activePlan = {
+      createdAt: "2026-02-23T00:00:02.000Z",
+      turnId: TurnId.makeUnsafe("turn-1"),
+      steps: [{ step: "Write tests", status: "inProgress" as const }],
+    };
+
+    expect(
+      deriveDisplayActivePlanState(activePlan, {
+        turnId: TurnId.makeUnsafe("turn-2"),
+        state: "running",
+        requestedAt: "2026-02-23T00:01:00.000Z",
+        startedAt: "2026-02-23T00:01:01.000Z",
+        completedAt: null,
+      })?.steps,
+    ).toEqual([{ step: "Write tests", status: "completed" }]);
+  });
 });
 
 describe("findLatestProposedPlan", () => {
@@ -668,6 +730,33 @@ describe("deriveWorkLogEntries", () => {
 
     const entries = deriveWorkLogEntries(activities, TurnId.makeUnsafe("turn-2"));
     expect(entries.map((entry) => entry.id)).toEqual(["turn-2"]);
+  });
+
+  it("keeps unscoped work entries created inside the latest turn window", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "old-unscoped",
+        createdAt: "2026-02-23T00:00:00.500Z",
+        summary: "Old work",
+        kind: "task.progress",
+      }),
+      makeActivity({
+        id: "current-unscoped",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        summary: "Current work",
+        kind: "task.progress",
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, {
+      turnId: TurnId.makeUnsafe("turn-2"),
+      state: "running",
+      requestedAt: "2026-02-23T00:00:01.000Z",
+      startedAt: "2026-02-23T00:00:01.500Z",
+      completedAt: null,
+    });
+
+    expect(entries.map((entry) => entry.id)).toEqual(["current-unscoped"]);
   });
 
   it("omits checkpoint captured info entries", () => {
