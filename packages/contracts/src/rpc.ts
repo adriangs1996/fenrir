@@ -636,6 +636,16 @@ export const WsOrchestrationSubscribeShellRpc = Rpc.make(ORCHESTRATION_WS_METHOD
   stream: true,
 });
 
+export const WsOrchestrationSubscribeManagedProcessesRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.subscribeManagedProcesses,
+  {
+    payload: OrchestrationRpcSchemas.subscribeManagedProcesses.input,
+    success: OrchestrationRpcSchemas.subscribeManagedProcesses.output,
+    error: OrchestrationGetSnapshotError,
+    stream: true,
+  },
+);
+
 export const WsOrchestrationGetSnapshotRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getSnapshot, {
   payload: OrchestrationGetSnapshotInput,
   success: OrchestrationRpcSchemas.getSnapshot.output,
@@ -1374,6 +1384,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetBootstrapSnapshotRpc,
   WsOrchestrationGetArchivedShellSnapshotRpc,
   WsOrchestrationSubscribeShellRpc,
+  WsOrchestrationSubscribeManagedProcessesRpc,
   WsOrchestrationGetSnapshotRpc,
   WsOrchestrationGetThreadSnapshotRpc,
   WsOrchestrationDispatchCommandRpc,

@@ -13,8 +13,10 @@ function createTestClient(options?: {
   const configListeners = new Set<(event: any) => void>();
   const terminalListeners = new Set<(event: any) => void>();
   const shellListeners = new Set<(item: any) => void>();
+  const managedProcessListeners = new Set<(item: any) => void>();
   let domainResubscribe: (() => void) | undefined;
   let shellResubscribe: (() => void) | undefined;
+  let managedProcessResubscribe: (() => void) | undefined;
 
   const getBootstrapSnapshot = vi.fn(
     options?.getBootstrapSnapshot ??
@@ -89,6 +91,25 @@ function createTestClient(options?: {
             shellListeners.delete(listener);
             if (shellResubscribe === options?.onResubscribe) {
               shellResubscribe = undefined;
+            }
+          };
+        },
+      ),
+      subscribeManagedProcesses: vi.fn(
+        (listener: (item: any) => void, options?: { onResubscribe?: () => void }) => {
+          managedProcessListeners.add(listener);
+          managedProcessResubscribe = options?.onResubscribe;
+          listener({
+            kind: "snapshot",
+            snapshot: {
+              instances: [],
+              updatedAt: "2026-04-22T10:00:00.000Z",
+            },
+          });
+          return () => {
+            managedProcessListeners.delete(listener);
+            if (managedProcessResubscribe === options?.onResubscribe) {
+              managedProcessResubscribe = undefined;
             }
           };
         },
@@ -189,6 +210,20 @@ function createTestClient(options?: {
     triggerShellResubscribe: () => {
       shellResubscribe?.();
     },
+    emitManagedProcessSnapshot: (instances: ReadonlyArray<unknown>) => {
+      for (const listener of managedProcessListeners) {
+        listener({
+          kind: "snapshot",
+          snapshot: {
+            instances,
+            updatedAt: "2026-04-22T10:00:00.000Z",
+          },
+        });
+      }
+    },
+    triggerManagedProcessResubscribe: () => {
+      managedProcessResubscribe?.();
+    },
   };
 }
 
@@ -211,6 +246,7 @@ describe("createEnvironmentConnection", () => {
         environmentId,
       },
       client,
+      syncManagedProcessSnapshot: vi.fn(),
       syncShellSnapshot: vi.fn(),
       applyShellEvent: vi.fn(),
       applyEventBatch: vi.fn(),
@@ -248,6 +284,7 @@ describe("createEnvironmentConnection", () => {
         environmentId,
       },
       client,
+      syncManagedProcessSnapshot: vi.fn(),
       syncShellSnapshot: vi.fn(),
       applyShellEvent: vi.fn(),
       applyEventBatch: vi.fn(),
@@ -284,6 +321,7 @@ describe("createEnvironmentConnection", () => {
         environmentId,
       },
       client,
+      syncManagedProcessSnapshot: vi.fn(),
       syncShellSnapshot: vi.fn(),
       applyShellEvent: vi.fn(),
       applyEventBatch: vi.fn(),
@@ -330,6 +368,7 @@ describe("createEnvironmentConnection", () => {
         environmentId,
       },
       client,
+      syncManagedProcessSnapshot: vi.fn(),
       syncShellSnapshot: vi.fn(),
       applyShellEvent: vi.fn(),
       applyEventBatch,
@@ -391,6 +430,7 @@ describe("createEnvironmentConnection", () => {
         environmentId,
       },
       client,
+      syncManagedProcessSnapshot: vi.fn(),
       syncShellSnapshot: vi.fn(),
       applyShellEvent: vi.fn(),
       applyEventBatch: vi.fn(),
@@ -417,9 +457,15 @@ describe("createEnvironmentConnection", () => {
     await connection.dispose();
   });
 
-  it("waits for a fresh shell snapshot after reconnect", async () => {
+  it("waits for fresh shell and managed-process snapshots after reconnect", async () => {
     const environmentId = EnvironmentId.makeUnsafe("env-1");
-    const { client, emitShellSnapshot, triggerShellResubscribe } = createTestClient();
+    const {
+      client,
+      emitManagedProcessSnapshot,
+      emitShellSnapshot,
+      triggerManagedProcessResubscribe,
+      triggerShellResubscribe,
+    } = createTestClient();
 
     const connection = createEnvironmentConnection({
       kind: "saved",
@@ -434,6 +480,7 @@ describe("createEnvironmentConnection", () => {
         environmentId,
       },
       client,
+      syncManagedProcessSnapshot: vi.fn(),
       syncShellSnapshot: vi.fn(),
       applyShellEvent: vi.fn(),
       applyEventBatch: vi.fn(),
@@ -446,6 +493,7 @@ describe("createEnvironmentConnection", () => {
     const reconnectPromise = connection.reconnect();
     await Promise.resolve();
     triggerShellResubscribe();
+    triggerManagedProcessResubscribe();
     await Promise.resolve();
 
     let settled = false;
@@ -457,6 +505,11 @@ describe("createEnvironmentConnection", () => {
     expect(settled).toBe(false);
 
     emitShellSnapshot(2);
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+
+    emitManagedProcessSnapshot([]);
     await reconnectPromise;
 
     expect(client.reconnect).toHaveBeenCalledTimes(1);

@@ -35,6 +35,7 @@ function registerListener<T>(listeners: Set<(event: T) => void>, listener: (even
 const terminalEventListeners = new Set<(event: TerminalEvent) => void>();
 const orchestrationEventListeners = new Set<(event: OrchestrationEvent) => void>();
 const orchestrationShellListeners = new Set<(item: unknown) => void>();
+const orchestrationManagedProcessListeners = new Set<(item: unknown) => void>();
 const gitStatusListeners = new Set<(event: GitStatusResult) => void>();
 
 const rpcClientMock = {
@@ -109,6 +110,9 @@ const rpcClientMock = {
     getArchivedShellSnapshot: vi.fn(),
     subscribeShell: vi.fn((listener: (item: unknown) => void) =>
       registerListener(orchestrationShellListeners, listener),
+    ),
+    subscribeManagedProcesses: vi.fn((listener: (item: unknown) => void) =>
+      registerListener(orchestrationManagedProcessListeners, listener),
     ),
     getThreadSnapshot: vi.fn(),
     getSnapshot: vi.fn(),

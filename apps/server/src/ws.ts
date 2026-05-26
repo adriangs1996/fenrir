@@ -12,6 +12,7 @@ import {
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   type OrchestrationShellStreamEvent,
+  type OrchestrationManagedProcessStreamItem,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
@@ -821,6 +822,30 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 liveStream,
               );
             }),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.subscribeManagedProcesses]: (_input) =>
+          observeRpcStreamEffect(
+            ORCHESTRATION_WS_METHODS.subscribeManagedProcesses,
+            managedProcessManager.listAll().pipe(
+              Effect.map((instances) => {
+                const snapshot: OrchestrationManagedProcessStreamItem = {
+                  kind: "snapshot",
+                  snapshot: {
+                    instances,
+                    updatedAt: new Date().toISOString(),
+                  },
+                };
+                return Stream.concat(Stream.succeed(snapshot), Stream.never);
+              }),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: "Failed to load managed process snapshot",
+                    cause,
+                  }),
+              ),
+            ),
             { "rpc.aggregate": "orchestration" },
           ),
         [ORCHESTRATION_WS_METHODS.getSnapshot]: (_input) =>

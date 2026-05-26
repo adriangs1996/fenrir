@@ -19,6 +19,7 @@ import type {
   TrafficLensTabSnapshot,
 } from "@fenrir/contracts";
 import { mergeTrafficEntriesForTab } from "../trafficEntryMerge";
+import type { TrafficLensTrafficFilterMode } from "../trafficFilters";
 
 export type TrafficLensDockTab =
   | "traffic"
@@ -38,6 +39,8 @@ interface TrafficLensState {
   tabs: Record<string, TrafficLensTabSnapshot>;
   activeTabId: string | null;
   trafficEntries: TrafficLensEntry[];
+  trafficFilterQuery: string;
+  trafficFilterMode: TrafficLensTrafficFilterMode;
   selectedTrafficId: number | null;
   repeaterDetail: TrafficLensDetail | null;
   dockTab: TrafficLensDockTab;
@@ -70,6 +73,8 @@ interface TrafficLensState {
   appendTraffic: (entry: TrafficLensEntry) => void;
   hydrateTraffic: (tabId: string, entries: readonly TrafficLensEntry[]) => void;
   clearTraffic: () => void;
+  setTrafficFilterQuery: (query: string) => void;
+  setTrafficFilterMode: (mode: TrafficLensTrafficFilterMode) => void;
   setSelectedTraffic: (id: number | null) => void;
   openRepeater: (detail: TrafficLensDetail) => void;
   closeRepeater: () => void;
@@ -106,6 +111,8 @@ export const useTrafficLensStore = create<TrafficLensState>((set) => ({
   tabs: {},
   activeTabId: null,
   trafficEntries: [],
+  trafficFilterQuery: "",
+  trafficFilterMode: "focus",
   selectedTrafficId: null,
   repeaterDetail: null,
   dockTab: "traffic",
@@ -237,6 +244,10 @@ export const useTrafficLensStore = create<TrafficLensState>((set) => ({
     }),
 
   clearTraffic: () => set({ trafficEntries: [], selectedTrafficId: null, findings: [] }),
+
+  setTrafficFilterQuery: (query) => set({ trafficFilterQuery: query }),
+
+  setTrafficFilterMode: (mode) => set({ trafficFilterMode: mode }),
 
   setSelectedTraffic: (id) =>
     set({

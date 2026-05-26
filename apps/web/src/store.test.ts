@@ -25,6 +25,7 @@ import {
   setThreadBranch,
   selectThreadsAcrossEnvironments,
   syncServerBootstrapSnapshot,
+  syncServerManagedProcessSnapshot,
   syncServerReadModel,
   syncServerShellSnapshot,
   type AppState,
@@ -664,6 +665,46 @@ describe("store read model sync", () => {
     expect(localEnvironmentStateOf(next).messageIdsByThreadId[threadId]).toEqual([
       MessageId.makeUnsafe("message-1"),
     ]);
+  });
+
+  it("replaces managed-process runtime state from a recovery snapshot", () => {
+    const initialState = makeEmptyState({
+      managedProcessInstanceById: {
+        "instance-stale": {
+          instanceId: "instance-stale",
+          projectId: ProjectId.makeUnsafe("project-1"),
+          processDefId: "dev-server",
+          worktreePath: null,
+          scope: "project",
+          status: "running",
+          ready: true,
+          executor: "direct",
+          url: { estimate: "http://localhost:3000", confirmed: "http://localhost:3000" },
+          startedAt: "2026-02-27T00:00:00.000Z",
+          stoppedAt: null,
+          exitCode: null,
+          exitSignal: null,
+          restartAttempt: 0,
+          lastError: null,
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+      },
+      managedProcessInstanceIdsByProjectId: {
+        [ProjectId.makeUnsafe("project-1")]: ["instance-stale"],
+      },
+    });
+
+    const next = syncServerManagedProcessSnapshot(
+      initialState,
+      {
+        instances: [],
+        updatedAt: "2026-02-27T00:05:00.000Z",
+      },
+      localEnvironmentId,
+    );
+
+    expect(localEnvironmentStateOf(next).managedProcessInstanceById).toEqual({});
+    expect(localEnvironmentStateOf(next).managedProcessInstanceIdsByProjectId).toEqual({});
   });
 
   it("preserves claude model slugs without an active session", () => {

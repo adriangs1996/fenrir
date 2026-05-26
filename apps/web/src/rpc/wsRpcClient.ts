@@ -273,6 +273,9 @@ export interface WsRpcClient {
       typeof ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot
     >;
     readonly subscribeShell: RpcStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeShell>;
+    readonly subscribeManagedProcesses: RpcStreamMethod<
+      typeof ORCHESTRATION_WS_METHODS.subscribeManagedProcesses
+    >;
     readonly getSnapshot: RpcUnaryNoArgMethod<typeof ORCHESTRATION_WS_METHODS.getSnapshot>;
     readonly getThreadSnapshot: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getThreadSnapshot>;
     readonly dispatchCommand: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.dispatchCommand>;
@@ -647,6 +650,12 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       subscribeShell: (listener, options) =>
         transport.subscribe(
           (client) => client[ORCHESTRATION_WS_METHODS.subscribeShell]({}),
+          listener,
+          options,
+        ),
+      subscribeManagedProcesses: (listener, options) =>
+        transport.subscribe(
+          (client) => client[ORCHESTRATION_WS_METHODS.subscribeManagedProcesses]({}),
           listener,
           options,
         ),

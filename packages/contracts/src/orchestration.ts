@@ -21,6 +21,7 @@ export const ORCHESTRATION_WS_METHODS = {
   getBootstrapSnapshot: "orchestration.getBootstrapSnapshot",
   getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
   subscribeShell: "orchestration.subscribeShell",
+  subscribeManagedProcesses: "orchestration.subscribeManagedProcesses",
   getSnapshot: "orchestration.getSnapshot",
   getThreadSnapshot: "orchestration.getThreadSnapshot",
   dispatchCommand: "orchestration.dispatchCommand",
@@ -530,6 +531,19 @@ export const OrchestrationShellStreamItem = Schema.Union([
   OrchestrationShellStreamEvent,
 ]);
 export type OrchestrationShellStreamItem = typeof OrchestrationShellStreamItem.Type;
+
+export const OrchestrationManagedProcessSnapshot = Schema.Struct({
+  instances: Schema.Array(ManagedProcessInstance).pipe(Schema.withDecodingDefault(() => [])),
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationManagedProcessSnapshot = typeof OrchestrationManagedProcessSnapshot.Type;
+
+export const OrchestrationManagedProcessStreamItem = Schema.Struct({
+  kind: Schema.Literal("snapshot"),
+  snapshot: OrchestrationManagedProcessSnapshot,
+});
+export type OrchestrationManagedProcessStreamItem =
+  typeof OrchestrationManagedProcessStreamItem.Type;
 
 export const ProjectCreateCommand = Schema.Struct({
   type: Schema.Literal("project.create"),
@@ -1419,6 +1433,10 @@ export const OrchestrationRpcSchemas = {
   subscribeShell: {
     input: Schema.Struct({}),
     output: OrchestrationShellStreamItem,
+  },
+  subscribeManagedProcesses: {
+    input: Schema.Struct({}),
+    output: OrchestrationManagedProcessStreamItem,
   },
   getSnapshot: {
     input: OrchestrationGetSnapshotInput,

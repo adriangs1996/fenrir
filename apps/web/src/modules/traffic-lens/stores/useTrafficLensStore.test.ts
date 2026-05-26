@@ -60,6 +60,8 @@ describe("trafficLensStore", () => {
       tabs: {},
       activeTabId: null,
       trafficEntries: [],
+      trafficFilterQuery: "",
+      trafficFilterMode: "focus",
       selectedTrafficId: null,
       repeaterDetail: null,
       dockTab: "traffic",
@@ -143,6 +145,14 @@ describe("trafficLensStore", () => {
     useTrafficLensStore.getState().setSelectedTraffic(42);
     expect(useTrafficLensStore.getState().selectedTrafficId).toBe(42);
     expect(useTrafficLensStore.getState().dockTab).toBe("inspector");
+  });
+
+  it("stores traffic filter state independently from table rendering", () => {
+    useTrafficLensStore.getState().setTrafficFilterQuery("graphql");
+    useTrafficLensStore.getState().setTrafficFilterMode("api");
+
+    expect(useTrafficLensStore.getState().trafficFilterQuery).toBe("graphql");
+    expect(useTrafficLensStore.getState().trafficFilterMode).toBe("api");
   });
 
   it("hydrates traffic without wiping live entries for the active tab", () => {

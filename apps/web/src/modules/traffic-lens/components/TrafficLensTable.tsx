@@ -1,7 +1,10 @@
-import { useTrafficLensStore } from "../stores/useTrafficLensStore";
+import { useMemo } from "react";
 import { getPrimaryEnvironmentConnection } from "../../../environments/runtime/service";
 import { cn } from "../../../lib/utils";
 import type { TrafficLensEntry } from "@fenrir/contracts";
+import { Input } from "../../../components/ui/input";
+import { TRAFFIC_LENS_FILTER_OPTIONS, matchesTrafficEntryFilter } from "../trafficFilters";
+import { useTrafficLensStore } from "../stores/useTrafficLensStore";
 
 const METHOD_COLORS: Record<string, string> = {
   GET: "text-green-500",
@@ -43,10 +46,57 @@ interface TrafficLensTableProps {
 
 export function TrafficLensTable({ onSelectEntry, selectedId }: TrafficLensTableProps) {
   const entries = useTrafficLensStore((s) => s.trafficEntries);
+  const trafficFilterQuery = useTrafficLensStore((s) => s.trafficFilterQuery);
+  const trafficFilterMode = useTrafficLensStore((s) => s.trafficFilterMode);
+  const setTrafficFilterQuery = useTrafficLensStore((s) => s.setTrafficFilterQuery);
+  const setTrafficFilterMode = useTrafficLensStore((s) => s.setTrafficFilterMode);
+  const filteredEntries = useMemo(
+    () =>
+      entries.filter((entry) =>
+        matchesTrafficEntryFilter(entry, {
+          mode: trafficFilterMode,
+          query: trafficFilterQuery,
+        }),
+      ),
+    [entries, trafficFilterMode, trafficFilterQuery],
+  );
+  const hiddenCount = entries.length - filteredEntries.length;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Header */}
+      <div className="border-b border-border/70 bg-background/80 px-2 py-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={trafficFilterQuery}
+            onChange={(event) => setTrafficFilterQuery(event.target.value)}
+            placeholder="Filter host, path, type, method, status..."
+            className="h-8 min-w-[16rem] max-w-sm bg-background/80 text-xs"
+          />
+          <div className="flex flex-wrap items-center gap-1">
+            {TRAFFIC_LENS_FILTER_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  trafficFilterMode === option.id
+                    ? "border-emerald-400/50 bg-emerald-400/12 text-emerald-100"
+                    : "border-border/70 text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setTrafficFilterMode(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-1.5 text-[11px] text-muted-foreground">
+          {hiddenCount > 0
+            ? `Showing ${filteredEntries.length} of ${entries.length} requests. ${hiddenCount} hidden as noise.`
+            : `${filteredEntries.length} requests visible.`}
+        </div>
+      </div>
+
       <div className="flex border-b bg-muted/30 px-2 py-1 text-xs font-medium text-muted-foreground">
         <div className="w-16">Method</div>
         <div className="flex-1">URL</div>
@@ -57,7 +107,7 @@ export function TrafficLensTable({ onSelectEntry, selectedId }: TrafficLensTable
       </div>
 
       <div className="flex-1 overflow-auto">
-        {entries.map((entry) => (
+        {filteredEntries.map((entry) => (
           <div
             key={entry.id}
             className={cn(
@@ -86,24 +136,40 @@ export function TrafficLensTable({ onSelectEntry, selectedId }: TrafficLensTable
 
       {/* Footer status */}
       <div className="flex items-center justify-between border-t px-2 py-0.5 text-xs text-muted-foreground">
-        <span>{entries.length} requests</span>
-        <button
-          className="hover:text-foreground"
-          onClick={() => {
-            const activeTabId = useTrafficLensStore.getState().activeTabId ?? undefined;
-            try {
-              void getPrimaryEnvironmentConnection()
-                .client.trafficLens.clearTraffic({ tabId: activeTabId })
-                .finally(() => {
-                  useTrafficLensStore.getState().clearTraffic();
-                });
-            } catch {
-              useTrafficLensStore.getState().clearTraffic();
-            }
-          }}
-        >
-          Clear
-        </button>
+        <span>
+          {filteredEntries.length}
+          {filteredEntries.length !== entries.length ? ` / ${entries.length}` : ""} requests
+        </span>
+        <div className="flex items-center gap-3">
+          {(trafficFilterQuery || trafficFilterMode !== "focus") && (
+            <button
+              className="hover:text-foreground"
+              onClick={() => {
+                setTrafficFilterQuery("");
+                setTrafficFilterMode("focus");
+              }}
+            >
+              Reset Filters
+            </button>
+          )}
+          <button
+            className="hover:text-foreground"
+            onClick={() => {
+              const activeTabId = useTrafficLensStore.getState().activeTabId ?? undefined;
+              try {
+                void getPrimaryEnvironmentConnection()
+                  .client.trafficLens.clearTraffic({ tabId: activeTabId })
+                  .finally(() => {
+                    useTrafficLensStore.getState().clearTraffic();
+                  });
+              } catch {
+                useTrafficLensStore.getState().clearTraffic();
+              }
+            }}
+          >
+            Clear
+          </button>
+        </div>
       </div>
     </div>
   );

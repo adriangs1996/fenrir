@@ -68,6 +68,7 @@ export interface ManagedProcessManagerShape {
   }): Effect.Effect<void, ManagedProcessRpcError>;
 
   list(projectId: ProjectId): Effect.Effect<ManagedProcessInstance[], never>;
+  listAll(): Effect.Effect<ManagedProcessInstance[], never>;
 
   /** Stream lifecycle events for fan-out to orchestration domain channel. */
   readonly events: Stream.Stream<ManagerLifecycleEvent>;

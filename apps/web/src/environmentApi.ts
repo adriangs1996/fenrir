@@ -52,6 +52,8 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       getArchivedShellSnapshot: rpcClient.orchestration.getArchivedShellSnapshot,
       subscribeShell: (callback, options) =>
         rpcClient.orchestration.subscribeShell(callback, options),
+      subscribeManagedProcesses: (callback, options) =>
+        rpcClient.orchestration.subscribeManagedProcesses(callback, options),
       getThreadSnapshot: ({ threadId }) => rpcClient.orchestration.getThreadSnapshot({ threadId }),
       getSnapshot: rpcClient.orchestration.getSnapshot,
       dispatchCommand: rpcClient.orchestration.dispatchCommand,

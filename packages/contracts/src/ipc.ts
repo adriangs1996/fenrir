@@ -61,6 +61,7 @@ import type {
   OrchestrationGetThreadSnapshotInput,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
+  OrchestrationManagedProcessStreamItem,
   OrchestrationGetTurnDiffInput,
   OrchestrationGetTurnDiffResult,
   OrchestrationEvent,
@@ -720,6 +721,12 @@ export interface EnvironmentApi {
     getArchivedShellSnapshot: () => Promise<OrchestrationShellSnapshot>;
     subscribeShell: (
       callback: (item: OrchestrationShellStreamItem) => void,
+      options?: {
+        onResubscribe?: () => void;
+      },
+    ) => () => void;
+    subscribeManagedProcesses: (
+      callback: (item: OrchestrationManagedProcessStreamItem) => void,
       options?: {
         onResubscribe?: () => void;
       },

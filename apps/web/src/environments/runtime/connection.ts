@@ -1,5 +1,6 @@
 import type {
   EnvironmentId,
+  OrchestrationManagedProcessSnapshot,
   OrchestrationBootstrapSnapshot,
   OrchestrationEvent,
   OrchestrationReadModel,
@@ -38,6 +39,10 @@ export interface EnvironmentConnection {
 }
 
 interface OrchestrationHandlers {
+  readonly syncManagedProcessSnapshot: (
+    snapshot: OrchestrationManagedProcessSnapshot,
+    environmentId: EnvironmentId,
+  ) => void;
   readonly syncShellSnapshot: (
     snapshot: OrchestrationShellSnapshot,
     environmentId: EnvironmentId,
@@ -144,6 +149,7 @@ export function createEnvironmentConnection(
 
   let disposed = false;
   const shellSnapshotGate = createSnapshotGate();
+  const managedProcessSnapshotGate = createSnapshotGate();
 
   const observeEnvironmentIdentity = (nextEnvironmentId: EnvironmentId, source: string) => {
     if (environmentId !== nextEnvironmentId) {
@@ -342,6 +348,23 @@ export function createEnvironmentConnection(
     },
   );
 
+  const unsubManagedProcesses = input.client.orchestration.subscribeManagedProcesses(
+    (
+      item: Parameters<Parameters<WsRpcClient["orchestration"]["subscribeManagedProcesses"]>[0]>[0],
+    ) => {
+      input.syncManagedProcessSnapshot(item.snapshot, environmentId);
+      managedProcessSnapshotGate.resolve();
+    },
+    {
+      onResubscribe: () => {
+        if (disposed) {
+          return;
+        }
+        managedProcessSnapshotGate.reset();
+      },
+    },
+  );
+
   const unsubDomainEvent = input.client.orchestration.onDomainEvent(
     (event: Parameters<Parameters<WsRpcClient["orchestration"]["onDomainEvent"]>[0]>[0]) => {
       const action = recovery.classifyDomainEvent(event.sequence);
@@ -379,6 +402,7 @@ export function createEnvironmentConnection(
     flushPendingDomainEventsScheduled = false;
     pendingDomainEvents.length = 0;
     unsubShell();
+    unsubManagedProcesses();
     unsubDomainEvent();
     unsubTerminalEvent();
     unsubLifecycle();
@@ -393,12 +417,14 @@ export function createEnvironmentConnection(
     ensureBootstrapped: () => snapshotBootstrap.ensureSnapshotRecovery("bootstrap"),
     reconnect: async () => {
       shellSnapshotGate.reset();
+      managedProcessSnapshotGate.reset();
       await input.client.reconnect();
       await input.refreshMetadata?.();
       try {
-        await shellSnapshotGate.wait();
+        await Promise.all([shellSnapshotGate.wait(), managedProcessSnapshotGate.wait()]);
       } catch (error) {
         shellSnapshotGate.reject(error);
+        managedProcessSnapshotGate.reject(error);
         throw error;
       }
       await snapshotBootstrap.ensureSnapshotRecovery("bootstrap");

@@ -3,6 +3,7 @@ import {
   type EnvironmentId,
   type OrchestrationBootstrapSnapshot,
   type OrchestrationEvent,
+  type OrchestrationManagedProcessSnapshot,
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
   type OrchestrationShellStreamEvent,
@@ -443,6 +444,13 @@ function createEnvironmentConnectionHandlers() {
       }
       useStore.getState().syncServerShellSnapshot(snapshot, environmentId);
       markAppliedProjectionSnapshot(environmentId, snapshot);
+      reconcileSnapshotDerivedState();
+    },
+    syncManagedProcessSnapshot: (
+      snapshot: OrchestrationManagedProcessSnapshot,
+      environmentId: EnvironmentId,
+    ) => {
+      useStore.getState().syncServerManagedProcessSnapshot(snapshot, environmentId);
       reconcileSnapshotDerivedState();
     },
     applyShellEvent,

@@ -6,6 +6,7 @@ import type {
   OrchestrationBootstrapSnapshot,
   OrchestrationCheckpointSummary,
   OrchestrationEvent,
+  OrchestrationManagedProcessSnapshot,
   OrchestrationMessage,
   OrchestrationProposedPlan,
   OrchestrationReadModel,
@@ -1204,6 +1205,16 @@ function buildManagedProcessInstanceState(
   return { managedProcessInstanceById, managedProcessInstanceIdsByProjectId };
 }
 
+function syncEnvironmentManagedProcessSnapshot(
+  state: EnvironmentState,
+  snapshot: OrchestrationManagedProcessSnapshot,
+): EnvironmentState {
+  return {
+    ...state,
+    ...buildManagedProcessInstanceState(snapshot.instances),
+  };
+}
+
 function upsertManagedProcessInstance(
   state: EnvironmentState,
   instance: ManagedProcessInstance,
@@ -1293,7 +1304,12 @@ function syncEnvironmentReadModel(
     ...state,
     ...buildProjectState(projects),
     ...buildThreadState(threads),
-    ...buildManagedProcessInstanceState(readModel.managedProcessInstances ?? []),
+    ...(readModel.managedProcessInstances.length > 0
+      ? buildManagedProcessInstanceState(readModel.managedProcessInstances)
+      : {
+          managedProcessInstanceById: state.managedProcessInstanceById,
+          managedProcessInstanceIdsByProjectId: state.managedProcessInstanceIdsByProjectId,
+        }),
     bootstrapComplete: true,
   };
 }
@@ -1352,7 +1368,14 @@ export function syncServerBootstrapSnapshot(
     ...getStoredEnvironmentState(state, environmentId),
     ...buildProjectState(projects),
     ...buildThreadShellState(snapshot.threads, environmentId),
-    ...buildManagedProcessInstanceState(snapshot.managedProcessInstances ?? []),
+    ...(snapshot.managedProcessInstances.length > 0
+      ? buildManagedProcessInstanceState(snapshot.managedProcessInstances)
+      : {
+          managedProcessInstanceById: getStoredEnvironmentState(state, environmentId)
+            .managedProcessInstanceById,
+          managedProcessInstanceIdsByProjectId: getStoredEnvironmentState(state, environmentId)
+            .managedProcessInstanceIdsByProjectId,
+        }),
     bootstrapComplete: true,
   });
 }
@@ -1432,6 +1455,21 @@ export function syncServerShellSnapshot(
       getStoredEnvironmentState(state, environmentId),
       snapshot,
       environmentId,
+    ),
+  );
+}
+
+export function syncServerManagedProcessSnapshot(
+  state: AppState,
+  snapshot: OrchestrationManagedProcessSnapshot,
+  environmentId: EnvironmentId,
+): AppState {
+  return commitEnvironmentState(
+    state,
+    environmentId,
+    syncEnvironmentManagedProcessSnapshot(
+      getStoredEnvironmentState(state, environmentId),
+      snapshot,
     ),
   );
 }
@@ -2390,6 +2428,10 @@ interface AppStore extends AppState {
     snapshot: OrchestrationShellSnapshot,
     environmentId: EnvironmentId,
   ) => void;
+  syncServerManagedProcessSnapshot: (
+    snapshot: OrchestrationManagedProcessSnapshot,
+    environmentId: EnvironmentId,
+  ) => void;
   syncServerBootstrapSnapshot: (
     snapshot: OrchestrationBootstrapSnapshot,
     environmentId: EnvironmentId,
@@ -2417,6 +2459,8 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => setActiveEnvironmentId(state, environmentId)),
   syncServerShellSnapshot: (snapshot, environmentId) =>
     set((state) => syncServerShellSnapshot(state, snapshot, environmentId)),
+  syncServerManagedProcessSnapshot: (snapshot, environmentId) =>
+    set((state) => syncServerManagedProcessSnapshot(state, snapshot, environmentId)),
   syncServerBootstrapSnapshot: (snapshot, environmentId) =>
     set((state) => syncServerBootstrapSnapshot(state, snapshot, environmentId)),
   syncServerReadModel: (readModel, environmentId) =>

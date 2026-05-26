@@ -648,6 +648,9 @@ const makeManagedProcessManager = Effect.gen(function* () {
       return out;
     });
 
+  const listAllImpl: ManagedProcessManagerShape["listAll"] = () =>
+    Effect.sync(() => Array.from(byId.values(), (inst) => toPublicInstance(inst, executorKind)));
+
   // ── subscribeLog ───────────────────────────────────────────────────────
 
   const subscribeLogImpl = (
@@ -834,6 +837,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
     restart: restartImpl,
     writeStdin: writeStdinImpl,
     list: listImpl,
+    listAll: listAllImpl,
     events,
     subscribeLog: subscribeLogImpl,
   } satisfies ManagedProcessManagerShape;
