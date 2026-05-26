@@ -35,6 +35,11 @@
 
 @theme inline {
   --animate-skeleton: skeleton 2s -1s infinite linear;
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-success-foreground: var(--success-foreground);
@@ -114,6 +119,11 @@
   --card-foreground: var(--color-neutral-800);
   --popover: var(--color-white);
   --popover-foreground: var(--color-neutral-800);
+  --sidebar: color-mix(in srgb, var(--background) 94%, var(--color-black));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-accent: color-mix(in srgb, var(--sidebar) 88%, var(--background));
+  --sidebar-accent-foreground: var(--foreground);
   --primary: oklch(0.488 0.217 264);
   --primary-foreground: var(--color-white);
   --secondary: --alpha(var(--color-black) / 4%);
@@ -149,6 +159,11 @@
     --card-foreground: var(--color-neutral-100);
     --popover: color-mix(in srgb, var(--background) 98%, var(--color-white));
     --popover-foreground: var(--color-neutral-100);
+    --sidebar: color-mix(in srgb, var(--background) 72%, var(--color-black));
+    --sidebar-foreground: var(--foreground);
+    --sidebar-border: var(--border);
+    --sidebar-accent: color-mix(in srgb, var(--sidebar) 78%, var(--background));
+    --sidebar-accent-foreground: var(--foreground);
     --primary: oklch(0.588 0.217 264);
     --primary-foreground: var(--color-white);
     --secondary: --alpha(var(--color-white) / 4%);
@@ -184,12 +199,12 @@
     --popover: #11111b; /* Mantle — popovers, dropdowns */
     --popover-foreground: #cdd6f4;
 
-    /* Sidebar uses Crust-level for darker panel feel */
-    --color-sidebar: #11111b;
-    --color-sidebar-foreground: #cdd6f4;
-    --color-sidebar-border: #181825;
-    --color-sidebar-accent: #181825;
-    --color-sidebar-accent-foreground: #cdd6f4;
+    /* Sidebar stays a step darker than the content surface. */
+    --sidebar: color-mix(in srgb, var(--background) 72%, var(--color-black));
+    --sidebar-foreground: #cdd6f4;
+    --sidebar-border: #181825;
+    --sidebar-accent: #181825;
+    --sidebar-accent-foreground: #cdd6f4;
 
     /* === Brand & Interactive === */
     /* --primary: #a6e3a1; */
@@ -242,11 +257,11 @@
     --popover: #26233a;
     --popover-foreground: #e0def4;
 
-    --color-sidebar: #191724;
-    --color-sidebar-foreground: #e0def4;
-    --color-sidebar-border: #26233a;
-    --color-sidebar-accent: #1f1d2e;
-    --color-sidebar-accent-foreground: #e0def4;
+    --sidebar: color-mix(in srgb, var(--background) 72%, var(--color-black));
+    --sidebar-foreground: #e0def4;
+    --sidebar-border: #26233a;
+    --sidebar-accent: #1f1d2e;
+    --sidebar-accent-foreground: #e0def4;
 
     --primary: #ebbcba;
     --primary-foreground: #191724;
@@ -292,11 +307,11 @@
     --popover: var(--kanagawa-overlay);
     --popover-foreground: #dcd7ba;
 
-    --color-sidebar: #1f1f28;
-    --color-sidebar-foreground: #dcd7ba;
-    --color-sidebar-border: #16161d;
-    --color-sidebar-accent: var(--kanagawa-surface);
-    --color-sidebar-accent-foreground: #dcd7ba;
+    --sidebar: color-mix(in srgb, var(--background) 72%, var(--color-black));
+    --sidebar-foreground: #dcd7ba;
+    --sidebar-border: #16161d;
+    --sidebar-accent: var(--kanagawa-surface);
+    --sidebar-accent-foreground: #dcd7ba;
 
     --primary: #7e9cd8;
     --primary-foreground: #16161d;
@@ -342,11 +357,11 @@
     --popover: var(--kanagawa-dragon-overlay);
     --popover-foreground: #c5c9c5;
 
-    --color-sidebar: #181616;
-    --color-sidebar-foreground: #c5c9c5;
-    --color-sidebar-border: #0d0c0c;
-    --color-sidebar-accent: var(--kanagawa-dragon-surface);
-    --color-sidebar-accent-foreground: #c5c9c5;
+    --sidebar: var(--background);
+    --sidebar-foreground: #c5c9c5;
+    --sidebar-border: #0d0c0c;
+    --sidebar-accent: var(--kanagawa-dragon-surface);
+    --sidebar-accent-foreground: #c5c9c5;
 
     --primary: #8ba4b0;
     --primary-foreground: #0d0c0c;
@@ -391,11 +406,11 @@
     --popover: var(--nord-surface);
     --popover-foreground: #eceff4;
 
-    --color-sidebar: #191c22;
-    --color-sidebar-foreground: #eceff4;
-    --color-sidebar-border: #3b4252;
-    --color-sidebar-accent: var(--nord-surface);
-    --color-sidebar-accent-foreground: #eceff4;
+    --sidebar: color-mix(in srgb, var(--background) 72%, var(--color-black));
+    --sidebar-foreground: #eceff4;
+    --sidebar-border: #3b4252;
+    --sidebar-accent: var(--nord-surface);
+    --sidebar-accent-foreground: #eceff4;
 
     --primary: #88c0d0; /* nord8 */
     --primary-foreground: #191c22;

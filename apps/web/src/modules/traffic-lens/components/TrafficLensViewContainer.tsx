@@ -13,5 +13,5 @@ export function TrafficLensViewContainer() {
     );
   }
 
-  return <div ref={containerRef} className="flex-1" style={{ minHeight: 200 }} />;
+  return <div ref={containerRef} className="h-full min-h-0 w-full flex-1" />;
 }

@@ -23,6 +23,7 @@ import { Route as SettingsConnectionsRouteImport } from './routes/settings.conne
 import { Route as SettingsArchivedPlansRouteImport } from './routes/settings.archived-plans'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as HackSessionIdRouteImport } from './routes/hack.$sessionId'
+import { Route as ChatBrowserLabRouteImport } from './routes/_chat.browser-lab'
 import { Route as ChatPlanRunnerRunIdRouteImport } from './routes/_chat.plan-runner.$runId'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
@@ -99,6 +100,11 @@ const HackSessionIdRoute = HackSessionIdRouteImport.update({
   path: '/$sessionId',
   getParentRoute: () => HackRoute,
 } as any)
+const ChatBrowserLabRoute = ChatBrowserLabRouteImport.update({
+  id: '/browser-lab',
+  path: '/browser-lab',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatPlanRunnerRunIdRoute = ChatPlanRunnerRunIdRouteImport.update({
   id: '/plan-runner/$runId',
   path: '/plan-runner/$runId',
@@ -139,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/hack': typeof HackRouteWithChildren
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/browser-lab': typeof ChatBrowserLabRoute
   '/hack/$sessionId': typeof HackSessionIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
@@ -158,6 +165,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/browser-lab': typeof ChatBrowserLabRoute
   '/hack/$sessionId': typeof HackSessionIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
@@ -181,6 +189,7 @@ export interface FileRoutesById {
   '/hack': typeof HackRouteWithChildren
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/_chat/browser-lab': typeof ChatBrowserLabRoute
   '/hack/$sessionId': typeof HackSessionIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
@@ -205,6 +214,7 @@ export interface FileRouteTypes {
     | '/hack'
     | '/pair'
     | '/settings'
+    | '/browser-lab'
     | '/hack/$sessionId'
     | '/settings/archived'
     | '/settings/archived-plans'
@@ -224,6 +234,7 @@ export interface FileRouteTypes {
   to:
     | '/pair'
     | '/settings'
+    | '/browser-lab'
     | '/hack/$sessionId'
     | '/settings/archived'
     | '/settings/archived-plans'
@@ -246,6 +257,7 @@ export interface FileRouteTypes {
     | '/hack'
     | '/pair'
     | '/settings'
+    | '/_chat/browser-lab'
     | '/hack/$sessionId'
     | '/settings/archived'
     | '/settings/archived-plans'
@@ -371,6 +383,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HackSessionIdRouteImport
       parentRoute: typeof HackRoute
     }
+    '/_chat/browser-lab': {
+      id: '/_chat/browser-lab'
+      path: '/browser-lab'
+      fullPath: '/browser-lab'
+      preLoaderRoute: typeof ChatBrowserLabRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/plan-runner/$runId': {
       id: '/_chat/plan-runner/$runId'
       path: '/plan-runner/$runId'
@@ -417,6 +436,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface ChatRouteChildren {
+  ChatBrowserLabRoute: typeof ChatBrowserLabRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
@@ -427,6 +447,7 @@ interface ChatRouteChildren {
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
+  ChatBrowserLabRoute: ChatBrowserLabRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,

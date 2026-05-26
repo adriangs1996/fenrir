@@ -123,6 +123,7 @@ import { GlobalActionsService, type GlobalActionsShape } from "./globalActions.t
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner.ts";
 import { RawTcpListenerService } from "./raw-tcp/Services/RawTcpListenerService.ts";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService.ts";
+import { TrafficLensStorageService } from "./traffic-lens-storage/Services/TrafficLensStorageService.ts";
 import { ManagedProcessManager } from "./managedProcess/Services/Manager.ts";
 import {
   ImportResolver,
@@ -558,13 +559,37 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(TrafficLensService)({
-          ingestTraffic: () => Effect.void,
-          queryTraffic: () => Effect.succeed([]),
-          getTrafficDetail: () => Effect.die(new Error("not available in test")),
-          clearTraffic: () => Effect.void,
-          subscribe: () => Effect.succeed(() => {}),
-        }),
+        Layer.mergeAll(
+          Layer.mock(TrafficLensService)({
+            ingestTraffic: () => Effect.void,
+            queryTraffic: () => Effect.succeed([]),
+            getTrafficDetail: () => Effect.die(new Error("not available in test")),
+            clearTraffic: () => Effect.void,
+            subscribe: () => Effect.succeed(() => {}),
+            replayRequest: () => Effect.die(new Error("not available in test")),
+            listProfiles: () => Effect.succeed([]),
+            upsertProfile: () => Effect.die(new Error("not available in test")),
+            deleteProfile: () => Effect.void,
+            listRules: () => Effect.succeed([]),
+            upsertRule: () => Effect.die(new Error("not available in test")),
+            deleteRule: () => Effect.void,
+            listOverrides: () => Effect.succeed([]),
+            upsertOverride: () => Effect.die(new Error("not available in test")),
+            deleteOverride: () => Effect.void,
+            listFindings: () => Effect.succeed([]),
+          }),
+          Layer.mock(TrafficLensStorageService)({
+            ingestSnapshot: () => Effect.void,
+            listOrigins: () => Effect.succeed([]),
+            getCookieSnapshot: () => Effect.succeed(null),
+            getLocalStorageSnapshot: () => Effect.succeed(null),
+            listSessionStorageSnapshots: () => Effect.succeed([]),
+            getSessionStorageSnapshot: () => Effect.succeed([]),
+            updateSessionStorageSnapshot: () => Effect.void,
+            getStorageVersions: () => Effect.succeed([]),
+            clearPersistedOrigin: () => Effect.void,
+          }),
+        ),
       ),
       Layer.provide(
         Layer.mock(PlanRunnerService)({

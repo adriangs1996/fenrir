@@ -4,6 +4,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const { fakeSession, fakeWebContents, mockWebContentsView } = vi.hoisted(() => {
   const fakeWebContents = {
     loadURL: vi.fn(),
+    executeJavaScript: vi.fn(() => Promise.resolve([])),
     getURL: vi.fn(() => "about:blank"),
     getTitle: vi.fn(() => ""),
     isLoading: vi.fn(() => false),
@@ -76,11 +77,13 @@ describe("trafficLensManager", () => {
 
   describe("createTrafficLensManager", () => {
     it("creates isolated session partition", async () => {
+      manager.createTab();
       const electron = await import("electron");
-      expect(electron.session.fromPartition).toHaveBeenCalledWith("persist:target-browsing");
+      expect(electron.session.fromPartition).toHaveBeenCalledWith("persist:traffic-lens:default");
     });
 
     it("accepts all certificates in target session", () => {
+      manager.createTab();
       expect(fakeSession.setCertificateVerifyProc).toHaveBeenCalledWith(expect.any(Function));
       // Call the proc and verify it accepts (calls callback with 0)
       const proc = fakeSession.setCertificateVerifyProc.mock.calls[0]![0];
@@ -90,6 +93,7 @@ describe("trafficLensManager", () => {
     });
 
     it("sets a non-default user agent", () => {
+      manager.createTab();
       expect(fakeSession.setUserAgent).toHaveBeenCalled();
       const ua = fakeSession.setUserAgent.mock.calls[0]![0];
       expect(ua).toContain("Chrome");
@@ -103,6 +107,7 @@ describe("trafficLensManager", () => {
       expect(snapshot.tabId).toBeDefined();
       expect(typeof snapshot.tabId).toBe("string");
       expect(snapshot.url).toBe("about:blank");
+      expect(snapshot.profileId).toBe("default");
     });
 
     it("creates WebContentsView with correct preferences", () => {
@@ -110,7 +115,7 @@ describe("trafficLensManager", () => {
       expect(mockWebContentsView).toHaveBeenCalledWith(
         expect.objectContaining({
           webPreferences: expect.objectContaining({
-            partition: "persist:target-browsing",
+            partition: "persist:traffic-lens:default",
             contextIsolation: true,
             nodeIntegration: false,
             sandbox: true,

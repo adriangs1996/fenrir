@@ -71,7 +71,45 @@ import { EditorId } from "./editor";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import { ClientSettings, ServerSettings, ServerSettingsPatch } from "./settings";
 import type { VpnConnectionState, VpnProfile, VpnProfileId } from "./vpn";
-import type { TrafficLensTabSnapshot, TrafficLensTabEvent } from "./trafficLens";
+import type {
+  TrafficLensArchivedSessionStorageSummary,
+  TrafficLensClearLiveSessionStorageInput,
+  TrafficLensClearLocalStorageInput,
+  TrafficLensDeleteCookieForOriginInput,
+  TrafficLensContinueInput,
+  TrafficLensCookieEntry,
+  TrafficLensDomStorageEntry,
+  TrafficLensDeleteCookieInput,
+  TrafficLensDeleteLiveSessionStorageItemInput,
+  TrafficLensDeleteLocalStorageItemInput,
+  TrafficLensDeleteStorageEntryInput,
+  TrafficLensGetApplicableCookiesInput,
+  TrafficLensGetLiveSessionStorageInput,
+  TrafficLensGetLocalStorageInput,
+  TrafficLensGetSessionStorageSnapshotInput,
+  TrafficLensListSessionStorageSnapshotsInput,
+  TrafficLensListStorageOriginsInput,
+  TrafficLensOverride,
+  TrafficLensOverrideInput,
+  TrafficLensPausedEvent,
+  TrafficLensPausedRequest,
+  TrafficLensProfile,
+  TrafficLensProfileInput,
+  TrafficLensRehydrateSessionStorageSnapshotInput,
+  TrafficLensRule,
+  TrafficLensRuleInput,
+  TrafficLensSetCookieForOriginInput,
+  TrafficLensSetCookieInput,
+  TrafficLensSetLiveSessionStorageItemInput,
+  TrafficLensSetLocalStorageItemInput,
+  TrafficLensSetStorageEntryInput,
+  TrafficLensStorageEvent,
+  TrafficLensStorageEntry,
+  TrafficLensStorageOriginSummary,
+  TrafficLensTabEvent,
+  TrafficLensTabSnapshot,
+  TrafficLensUpdateSessionStorageSnapshotInput,
+} from "./trafficLens";
 import type {
   CreateRawTcpListenerInput,
   RawTcpEvent,
@@ -263,6 +301,10 @@ export interface DesktopBridge {
 
   // Traffic Lens
   trafficLensCreateTab: (url?: string) => Promise<TrafficLensTabSnapshot>;
+  trafficLensCreateTabInProfile: (input: {
+    url?: string;
+    profileId: string;
+  }) => Promise<TrafficLensTabSnapshot>;
   trafficLensCloseTab: (tabId: string) => Promise<void>;
   trafficLensNavigate: (tabId: string, url: string) => Promise<void>;
   trafficLensGoBack: (tabId: string) => Promise<void>;
@@ -275,7 +317,90 @@ export interface DesktopBridge {
   ) => Promise<void>;
   trafficLensShowTab: (tabId: string) => Promise<void>;
   trafficLensHideAllTabs: () => Promise<void>;
+  trafficLensListRules: () => Promise<readonly TrafficLensRule[]>;
+  trafficLensCreateRule: (
+    input: TrafficLensRuleInput & { id?: string },
+  ) => Promise<TrafficLensRule>;
+  trafficLensUpdateRule: (id: string, input: TrafficLensRuleInput) => Promise<TrafficLensRule>;
+  trafficLensDeleteRule: (id: string) => Promise<void>;
+  trafficLensSetRuleEnabled: (id: string, enabled: boolean) => Promise<void>;
+  trafficLensListPaused: () => Promise<readonly TrafficLensPausedRequest[]>;
+  trafficLensContinuePaused: (input: TrafficLensContinueInput) => Promise<void>;
+  trafficLensDropPaused: (input: { pauseId: string }) => Promise<void>;
+  trafficLensListProfiles: () => Promise<readonly TrafficLensProfile[]>;
+  trafficLensCreateProfile: (
+    input: TrafficLensProfileInput & { id?: string },
+  ) => Promise<TrafficLensProfile>;
+  trafficLensUpdateProfile: (
+    id: string,
+    input: TrafficLensProfileInput,
+  ) => Promise<TrafficLensProfile>;
+  trafficLensDeleteProfile: (id: string) => Promise<void>;
+  trafficLensGetCookies: (tabId: string) => Promise<readonly TrafficLensCookieEntry[]>;
+  trafficLensSetCookie: (input: TrafficLensSetCookieInput) => Promise<void>;
+  trafficLensDeleteCookie: (input: TrafficLensDeleteCookieInput) => Promise<void>;
+  trafficLensGetStorage: (tabId: string) => Promise<readonly TrafficLensStorageEntry[]>;
+  trafficLensSetStorageEntry: (input: TrafficLensSetStorageEntryInput) => Promise<void>;
+  trafficLensDeleteStorageEntry: (input: TrafficLensDeleteStorageEntryInput) => Promise<void>;
+  trafficLensListStorageOrigins: (
+    input: TrafficLensListStorageOriginsInput,
+  ) => Promise<readonly TrafficLensStorageOriginSummary[]>;
+  trafficLensCaptureStorageOrigin: (input: {
+    profileId: string;
+    origin: string;
+    tabId?: string;
+  }) => Promise<void>;
+  trafficLensGetApplicableCookies: (
+    input: TrafficLensGetApplicableCookiesInput,
+  ) => Promise<readonly TrafficLensCookieEntry[]>;
+  trafficLensSetCookieForOrigin: (input: TrafficLensSetCookieForOriginInput) => Promise<void>;
+  trafficLensDeleteCookieForOrigin: (input: TrafficLensDeleteCookieForOriginInput) => Promise<void>;
+  trafficLensGetLocalStorage: (
+    input: TrafficLensGetLocalStorageInput,
+  ) => Promise<readonly TrafficLensDomStorageEntry[]>;
+  trafficLensSetLocalStorageItem: (input: TrafficLensSetLocalStorageItemInput) => Promise<void>;
+  trafficLensDeleteLocalStorageItem: (
+    input: TrafficLensDeleteLocalStorageItemInput,
+  ) => Promise<void>;
+  trafficLensClearLocalStorage: (input: TrafficLensClearLocalStorageInput) => Promise<void>;
+  trafficLensGetLiveSessionStorage: (
+    input: TrafficLensGetLiveSessionStorageInput,
+  ) => Promise<readonly TrafficLensDomStorageEntry[]>;
+  trafficLensSetLiveSessionStorageItem: (
+    input: TrafficLensSetLiveSessionStorageItemInput,
+  ) => Promise<void>;
+  trafficLensDeleteLiveSessionStorageItem: (
+    input: TrafficLensDeleteLiveSessionStorageItemInput,
+  ) => Promise<void>;
+  trafficLensClearLiveSessionStorage: (
+    input: TrafficLensClearLiveSessionStorageInput,
+  ) => Promise<void>;
+  trafficLensListSessionStorageSnapshots: (
+    input: TrafficLensListSessionStorageSnapshotsInput,
+  ) => Promise<readonly TrafficLensArchivedSessionStorageSummary[]>;
+  trafficLensGetSessionStorageSnapshot: (
+    input: TrafficLensGetSessionStorageSnapshotInput,
+  ) => Promise<readonly TrafficLensDomStorageEntry[]>;
+  trafficLensUpdateSessionStorageSnapshot: (
+    input: TrafficLensUpdateSessionStorageSnapshotInput,
+  ) => Promise<void>;
+  trafficLensRehydrateSessionStorageSnapshot: (
+    input: TrafficLensRehydrateSessionStorageSnapshotInput,
+  ) => Promise<{ tabId: string }>;
+  trafficLensListOverrides: () => Promise<readonly TrafficLensOverride[]>;
+  trafficLensCreateOverride: (
+    input: TrafficLensOverrideInput & { id?: string },
+  ) => Promise<TrafficLensOverride>;
+  trafficLensUpdateOverride: (
+    id: string,
+    input: TrafficLensOverrideInput,
+  ) => Promise<TrafficLensOverride>;
+  trafficLensDeleteOverride: (id: string) => Promise<void>;
+  trafficLensSetOverrideEnabled: (id: string, enabled: boolean) => Promise<void>;
   onTrafficLensTabEvent: (listener: (event: TrafficLensTabEvent) => void) => () => void;
+  onTrafficLensPausedEvent: (listener: (event: TrafficLensPausedEvent) => void) => () => void;
+  onTrafficLensStorageChanged: (listener: (tabId: string) => void) => () => void;
+  onTrafficLensStorageEvent: (listener: (event: TrafficLensStorageEvent) => void) => () => void;
 
   // Neovim
   neovimAttach: (cwd: string, cols: number, rows: number) => Promise<void>;

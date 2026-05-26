@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 
 import { usePrimaryEnvironmentId } from "../../environments/primary";
 import { readEnvironmentApi } from "../../environmentApi";
@@ -43,6 +43,21 @@ export function HackSidebar() {
         />
       </div>
       <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
+        <section className="rounded-lg border border-border/70 bg-muted/20 p-3">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground">Browser</div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            Browser tooling now lives in Browser Lab.
+          </div>
+          <Button
+            className="mt-3 w-full"
+            render={<Link to="/browser-lab" />}
+            size="sm"
+            variant="outline"
+          >
+            Open Browser Lab
+          </Button>
+        </section>
+
         <section>
           <h3 className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
             Listeners ({listenerList.length})

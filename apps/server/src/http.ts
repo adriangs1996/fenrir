@@ -26,6 +26,7 @@ import { ServerAuth } from "./auth/Services/ServerAuth.ts";
 import { respondToAuthError } from "./auth/http.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService.ts";
+import { TrafficLensStorageService } from "./traffic-lens-storage/Services/TrafficLensStorageService.ts";
 
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
 const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
@@ -56,6 +57,27 @@ export function resolveDevRedirectUrl(devUrl: URL, requestUrl: URL): string {
 
 const requireAuthenticatedRequest = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
+  const serverAuth = yield* ServerAuth;
+  yield* serverAuth.authenticateHttpRequest(request);
+});
+
+function parseBearerToken(request: HttpServerRequest.HttpServerRequest): string | null {
+  const authorization = request.headers["authorization"];
+  if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
+    return null;
+  }
+  const token = authorization.slice("Bearer ".length).trim();
+  return token.length > 0 ? token : null;
+}
+
+const requireTrafficLensIngestRequest = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const config = yield* ServerConfig;
+  const desktopBootstrapToken = config.desktopBootstrapToken;
+  const bearerToken = parseBearerToken(request);
+  if (desktopBootstrapToken && bearerToken === desktopBootstrapToken) {
+    return;
+  }
   const serverAuth = yield* ServerAuth;
   yield* serverAuth.authenticateHttpRequest(request);
 });
@@ -242,11 +264,24 @@ export const trafficLensIngestRouteLayer = HttpRouter.add(
   "POST",
   "/api/traffic-lens/ingest",
   Effect.gen(function* () {
-    yield* requireAuthenticatedRequest;
+    yield* requireTrafficLensIngestRequest;
     const request = yield* HttpServerRequest.HttpServerRequest;
     const body = yield* request.json;
     const service = yield* TrafficLensService;
     yield* service.ingestTraffic(body as any);
+    return HttpServerResponse.empty({ status: 204 });
+  }).pipe(Effect.catchTag("AuthError", respondToAuthError)),
+);
+
+export const trafficLensStorageIngestRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/traffic-lens/storage/ingest",
+  Effect.gen(function* () {
+    yield* requireTrafficLensIngestRequest;
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const body = yield* request.json;
+    const service = yield* TrafficLensStorageService;
+    yield* service.ingestSnapshot(body as any);
     return HttpServerResponse.empty({ status: 204 });
   }).pipe(Effect.catchTag("AuthError", respondToAuthError)),
 );

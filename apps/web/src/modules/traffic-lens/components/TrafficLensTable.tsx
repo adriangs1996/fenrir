@@ -1,6 +1,5 @@
-import { useRef } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTrafficLensStore } from "../stores/useTrafficLensStore";
+import { getPrimaryEnvironmentConnection } from "../../../environments/runtime/service";
 import { cn } from "../../../lib/utils";
 import type { TrafficLensEntry } from "@fenrir/contracts";
 
@@ -44,14 +43,6 @@ interface TrafficLensTableProps {
 
 export function TrafficLensTable({ onSelectEntry, selectedId }: TrafficLensTableProps) {
   const entries = useTrafficLensStore((s) => s.trafficEntries);
-  const parentRef = useRef<HTMLDivElement>(null);
-
-  const virtualizer = useVirtualizer({
-    count: entries.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 28,
-    overscan: 20,
-  });
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -65,52 +56,32 @@ export function TrafficLensTable({ onSelectEntry, selectedId }: TrafficLensTable
         <div className="w-16 text-right">Time</div>
       </div>
 
-      {/* Virtual rows */}
-      <div ref={parentRef} className="flex-1 overflow-auto">
-        <div
-          style={{
-            height: `${virtualizer.getTotalSize()}px`,
-            position: "relative",
-          }}
-        >
-          {virtualizer.getVirtualItems().map((virtualItem) => {
-            const entry = entries[virtualItem.index];
-            if (!entry) return null;
-
-            return (
-              <div
-                key={entry.requestId}
-                className={cn(
-                  "absolute left-0 right-0 flex cursor-pointer items-center px-2 text-xs hover:bg-muted/50",
-                  selectedId === entry.id && "bg-accent",
-                )}
-                style={{
-                  top: 0,
-                  transform: `translateY(${virtualItem.start}px)`,
-                  height: `${virtualItem.size}px`,
-                }}
-                onClick={() => onSelectEntry?.(entry)}
-              >
-                <div className={cn("w-16 font-mono", METHOD_COLORS[entry.method])}>
-                  {entry.method}
-                </div>
-                <div className="flex-1 truncate font-mono">{entry.url}</div>
-                <div className={cn("w-14 font-mono", STATUS_COLORS(entry.statusCode))}>
-                  {entry.statusCode ?? "..."}
-                </div>
-                <div className="w-24 truncate text-muted-foreground">
-                  {entry.contentType?.split(";")[0] ?? "-"}
-                </div>
-                <div className="w-16 text-right text-muted-foreground">
-                  {formatSize(entry.contentLength)}
-                </div>
-                <div className="w-16 text-right text-muted-foreground">
-                  {formatTime(entry.timingStartedAt, entry.timingCompletedAt)}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      <div className="flex-1 overflow-auto">
+        {entries.map((entry) => (
+          <div
+            key={entry.id}
+            className={cn(
+              "flex h-7 cursor-pointer items-center px-2 text-xs hover:bg-muted/50",
+              selectedId === entry.id && "bg-accent",
+            )}
+            onClick={() => onSelectEntry?.(entry)}
+          >
+            <div className={cn("w-16 font-mono", METHOD_COLORS[entry.method])}>{entry.method}</div>
+            <div className="flex-1 truncate font-mono">{entry.url}</div>
+            <div className={cn("w-14 font-mono", STATUS_COLORS(entry.statusCode))}>
+              {entry.statusCode ?? "..."}
+            </div>
+            <div className="w-24 truncate text-muted-foreground">
+              {entry.contentType?.split(";")[0] ?? "-"}
+            </div>
+            <div className="w-16 text-right text-muted-foreground">
+              {formatSize(entry.contentLength)}
+            </div>
+            <div className="w-16 text-right text-muted-foreground">
+              {formatTime(entry.timingStartedAt, entry.timingCompletedAt)}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Footer status */}
@@ -119,7 +90,16 @@ export function TrafficLensTable({ onSelectEntry, selectedId }: TrafficLensTable
         <button
           className="hover:text-foreground"
           onClick={() => {
-            useTrafficLensStore.getState().clearTraffic();
+            const activeTabId = useTrafficLensStore.getState().activeTabId ?? undefined;
+            try {
+              void getPrimaryEnvironmentConnection()
+                .client.trafficLens.clearTraffic({ tabId: activeTabId })
+                .finally(() => {
+                  useTrafficLensStore.getState().clearTraffic();
+                });
+            } catch {
+              useTrafficLensStore.getState().clearTraffic();
+            }
           }}
         >
           Clear

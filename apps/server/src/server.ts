@@ -11,6 +11,7 @@ import {
   staticAndDevRouteLayer,
   trafficLensApiCorsLayer,
   trafficLensIngestRouteLayer,
+  trafficLensStorageIngestRouteLayer,
 } from "./http";
 import { fixPath } from "./os-jank";
 import { websocketRpcRouteLayer } from "./ws";
@@ -52,6 +53,7 @@ import { TerminalProcessLifecycleLive } from "./terminal/Layers/ProcessLifecycle
 import { TmuxSessionManagerLive } from "./terminal/Layers/TmuxSessionManager";
 import { RawTcpListenerServiceLive } from "./raw-tcp/Layers/RawTcpListenerService";
 import { TrafficLensServiceLive } from "./traffic-lens/Layers/TrafficLensService";
+import { TrafficLensStorageServiceLive } from "./traffic-lens-storage/Layers/TrafficLensStorageService";
 import { PlanRunnerLive } from "./plan-runner/Layers/PlanRunner";
 import { GitManagerLive } from "./git/Layers/GitManager";
 import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster";
@@ -414,6 +416,7 @@ const CoreInfrastructureLive = ReactorLayerLive.pipe(
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(RawTcpListenerServiceLive),
   Layer.provideMerge(TrafficLensServiceLive),
+  Layer.provideMerge(TrafficLensStorageServiceLive),
   Layer.provideMerge(
     PlanRunnerLive.pipe(
       Layer.provideMerge(SourceControlQueryLayerLive),
@@ -479,6 +482,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   serverEnvironmentRouteLayer,
   fontsRouteLayer,
   trafficLensIngestRouteLayer,
+  trafficLensStorageIngestRouteLayer,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,
 ).pipe(Layer.provide(trafficLensApiCorsLayer));

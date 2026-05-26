@@ -1,14 +1,25 @@
 import { Effect, ServiceMap } from "effect";
 import type {
-  TrafficLensEntry,
+  TrafficLensDeleteOverrideInput,
+  TrafficLensDeleteProfileInput,
+  TrafficLensDeleteRuleInput,
   TrafficLensDetail,
-  TrafficLensQueryInput,
-  TrafficLensIngestPayload,
-  TrafficLensNotFoundError,
+  TrafficLensEntry,
+  TrafficLensError,
   TrafficLensEvent,
+  TrafficLensFinding,
+  TrafficLensIngestPayload,
+  TrafficLensListFindingsInput,
+  TrafficLensNotFoundError,
+  TrafficLensOverride,
+  TrafficLensProfile,
+  TrafficLensQueryInput,
   TrafficLensReplayInput,
   TrafficLensReplayResponse,
-  TrafficLensError,
+  TrafficLensRule,
+  TrafficLensUpsertOverrideInput,
+  TrafficLensUpsertProfileInput,
+  TrafficLensUpsertRuleInput,
 } from "@fenrir/contracts";
 
 export interface TrafficLensServiceShape {
@@ -24,6 +35,28 @@ export interface TrafficLensServiceShape {
   readonly replayRequest: (
     input: TrafficLensReplayInput,
   ) => Effect.Effect<TrafficLensReplayResponse, TrafficLensError>;
+  readonly listProfiles: () => Effect.Effect<readonly TrafficLensProfile[]>;
+  readonly upsertProfile: (
+    input: TrafficLensUpsertProfileInput,
+  ) => Effect.Effect<TrafficLensProfile, TrafficLensError>;
+  readonly deleteProfile: (
+    input: TrafficLensDeleteProfileInput,
+  ) => Effect.Effect<void, TrafficLensError>;
+  readonly listRules: () => Effect.Effect<readonly TrafficLensRule[]>;
+  readonly upsertRule: (
+    input: TrafficLensUpsertRuleInput,
+  ) => Effect.Effect<TrafficLensRule, TrafficLensError>;
+  readonly deleteRule: (input: TrafficLensDeleteRuleInput) => Effect.Effect<void, TrafficLensError>;
+  readonly listOverrides: () => Effect.Effect<readonly TrafficLensOverride[]>;
+  readonly upsertOverride: (
+    input: TrafficLensUpsertOverrideInput,
+  ) => Effect.Effect<TrafficLensOverride, TrafficLensError>;
+  readonly deleteOverride: (
+    input: TrafficLensDeleteOverrideInput,
+  ) => Effect.Effect<void, TrafficLensError>;
+  readonly listFindings: (
+    input: TrafficLensListFindingsInput,
+  ) => Effect.Effect<readonly TrafficLensFinding[]>;
 }
 
 export class TrafficLensService extends ServiceMap.Service<

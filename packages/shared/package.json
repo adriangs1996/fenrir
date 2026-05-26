@@ -79,6 +79,10 @@
     "./managedProcess": {
       "types": "./src/managedProcess.ts",
       "import": "./src/managedProcess.ts"
+    },
+    "./toolActivity": {
+      "types": "./src/toolActivity.ts",
+      "import": "./src/toolActivity.ts"
     }
   },
   "scripts": {

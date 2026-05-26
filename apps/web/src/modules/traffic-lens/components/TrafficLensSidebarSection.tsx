@@ -17,7 +17,7 @@ export function TrafficLensSidebarSection() {
 
   const handleNewTab = async () => {
     const snapshot = await window.desktopBridge?.trafficLensCreateTab();
-    if (snapshot) {
+    if (snapshot?.tabId) {
       setActiveTab(snapshot.tabId);
     }
   };

@@ -136,6 +136,60 @@ const TRAFFIC_LENS_SET_BOUNDS_CHANNEL = "desktop:traffic-lens-set-bounds";
 const TRAFFIC_LENS_SHOW_TAB_CHANNEL = "desktop:traffic-lens-show-tab";
 const TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL = "desktop:traffic-lens-hide-all-tabs";
 const TRAFFIC_LENS_TAB_EVENT_CHANNEL = "desktop:traffic-lens-tab-event";
+const TRAFFIC_LENS_CREATE_TAB_IN_PROFILE_CHANNEL = "desktop:traffic-lens-create-tab-in-profile";
+const TRAFFIC_LENS_LIST_RULES_CHANNEL = "desktop:traffic-lens-list-rules";
+const TRAFFIC_LENS_CREATE_RULE_CHANNEL = "desktop:traffic-lens-create-rule";
+const TRAFFIC_LENS_UPDATE_RULE_CHANNEL = "desktop:traffic-lens-update-rule";
+const TRAFFIC_LENS_DELETE_RULE_CHANNEL = "desktop:traffic-lens-delete-rule";
+const TRAFFIC_LENS_SET_RULE_ENABLED_CHANNEL = "desktop:traffic-lens-set-rule-enabled";
+const TRAFFIC_LENS_LIST_PAUSED_CHANNEL = "desktop:traffic-lens-list-paused";
+const TRAFFIC_LENS_CONTINUE_PAUSED_CHANNEL = "desktop:traffic-lens-continue-paused";
+const TRAFFIC_LENS_DROP_PAUSED_CHANNEL = "desktop:traffic-lens-drop-paused";
+const TRAFFIC_LENS_LIST_PROFILES_CHANNEL = "desktop:traffic-lens-list-profiles";
+const TRAFFIC_LENS_CREATE_PROFILE_CHANNEL = "desktop:traffic-lens-create-profile";
+const TRAFFIC_LENS_UPDATE_PROFILE_CHANNEL = "desktop:traffic-lens-update-profile";
+const TRAFFIC_LENS_DELETE_PROFILE_CHANNEL = "desktop:traffic-lens-delete-profile";
+const TRAFFIC_LENS_GET_COOKIES_CHANNEL = "desktop:traffic-lens-get-cookies";
+const TRAFFIC_LENS_SET_COOKIE_CHANNEL = "desktop:traffic-lens-set-cookie";
+const TRAFFIC_LENS_DELETE_COOKIE_CHANNEL = "desktop:traffic-lens-delete-cookie";
+const TRAFFIC_LENS_GET_STORAGE_CHANNEL = "desktop:traffic-lens-get-storage";
+const TRAFFIC_LENS_SET_STORAGE_ENTRY_CHANNEL = "desktop:traffic-lens-set-storage-entry";
+const TRAFFIC_LENS_DELETE_STORAGE_ENTRY_CHANNEL = "desktop:traffic-lens-delete-storage-entry";
+const TRAFFIC_LENS_LIST_STORAGE_ORIGINS_CHANNEL = "desktop:traffic-lens-list-storage-origins";
+const TRAFFIC_LENS_CAPTURE_STORAGE_ORIGIN_CHANNEL = "desktop:traffic-lens-capture-storage-origin";
+const TRAFFIC_LENS_GET_APPLICABLE_COOKIES_CHANNEL = "desktop:traffic-lens-get-applicable-cookies";
+const TRAFFIC_LENS_SET_COOKIE_FOR_ORIGIN_CHANNEL = "desktop:traffic-lens-set-cookie-for-origin";
+const TRAFFIC_LENS_DELETE_COOKIE_FOR_ORIGIN_CHANNEL =
+  "desktop:traffic-lens-delete-cookie-for-origin";
+const TRAFFIC_LENS_GET_LOCAL_STORAGE_CHANNEL = "desktop:traffic-lens-get-local-storage";
+const TRAFFIC_LENS_SET_LOCAL_STORAGE_ITEM_CHANNEL = "desktop:traffic-lens-set-local-storage-item";
+const TRAFFIC_LENS_DELETE_LOCAL_STORAGE_ITEM_CHANNEL =
+  "desktop:traffic-lens-delete-local-storage-item";
+const TRAFFIC_LENS_CLEAR_LOCAL_STORAGE_CHANNEL = "desktop:traffic-lens-clear-local-storage";
+const TRAFFIC_LENS_GET_LIVE_SESSION_STORAGE_CHANNEL =
+  "desktop:traffic-lens-get-live-session-storage";
+const TRAFFIC_LENS_SET_LIVE_SESSION_STORAGE_ITEM_CHANNEL =
+  "desktop:traffic-lens-set-live-session-storage-item";
+const TRAFFIC_LENS_DELETE_LIVE_SESSION_STORAGE_ITEM_CHANNEL =
+  "desktop:traffic-lens-delete-live-session-storage-item";
+const TRAFFIC_LENS_CLEAR_LIVE_SESSION_STORAGE_CHANNEL =
+  "desktop:traffic-lens-clear-live-session-storage";
+const TRAFFIC_LENS_LIST_SESSION_STORAGE_SNAPSHOTS_CHANNEL =
+  "desktop:traffic-lens-list-session-storage-snapshots";
+const TRAFFIC_LENS_GET_SESSION_STORAGE_SNAPSHOT_CHANNEL =
+  "desktop:traffic-lens-get-session-storage-snapshot";
+const TRAFFIC_LENS_UPDATE_SESSION_STORAGE_SNAPSHOT_CHANNEL =
+  "desktop:traffic-lens-update-session-storage-snapshot";
+const TRAFFIC_LENS_REHYDRATE_SESSION_STORAGE_SNAPSHOT_CHANNEL =
+  "desktop:traffic-lens-rehydrate-session-storage-snapshot";
+const TRAFFIC_LENS_LIST_OVERRIDES_CHANNEL = "desktop:traffic-lens-list-overrides";
+const TRAFFIC_LENS_CREATE_OVERRIDE_CHANNEL = "desktop:traffic-lens-create-override";
+const TRAFFIC_LENS_UPDATE_OVERRIDE_CHANNEL = "desktop:traffic-lens-update-override";
+const TRAFFIC_LENS_DELETE_OVERRIDE_CHANNEL = "desktop:traffic-lens-delete-override";
+const TRAFFIC_LENS_SET_OVERRIDE_ENABLED_CHANNEL = "desktop:traffic-lens-set-override-enabled";
+const TRAFFIC_LENS_PAUSED_EVENT_CHANNEL = "desktop:traffic-lens-paused-event";
+const TRAFFIC_LENS_STORAGE_CHANGED_CHANNEL = "desktop:traffic-lens-storage-changed";
+const TRAFFIC_LENS_STORAGE_EVENT_CHANNEL = "desktop:traffic-lens-storage-event";
 const NEOVIM_ATTACH_CHANNEL = "desktop:neovim-attach";
 const NEOVIM_DETACH_CHANNEL = "desktop:neovim-detach";
 const NEOVIM_INPUT_CHANNEL = "desktop:neovim-input";
@@ -211,6 +265,10 @@ let desktopLogSink: RotatingFileSink | null = null;
 let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
 let trafficLensManager: TrafficLensManager | null = null;
+let trafficLensManagerOwner: BrowserWindow | null = null;
+let stopTrafficLensTabEventForwarding: (() => void) | null = null;
+let stopTrafficLensPausedEventForwarding: (() => void) | null = null;
+let stopTrafficLensStorageEventForwarding: (() => void) | null = null;
 let nvimSession: {
   client: any;
   proc: ChildProcess.ChildProcessWithoutNullStreams;
@@ -514,6 +572,71 @@ function installStdIoCapture(): void {
     process.stderr.write = originalStderrWrite;
     restoreStdIoCapture = null;
   };
+}
+
+function stopTrafficLensManager(): void {
+  stopTrafficLensTabEventForwarding?.();
+  stopTrafficLensTabEventForwarding = null;
+  stopTrafficLensPausedEventForwarding?.();
+  stopTrafficLensPausedEventForwarding = null;
+  stopTrafficLensStorageEventForwarding?.();
+  stopTrafficLensStorageEventForwarding = null;
+  trafficLensManager?.stop();
+  trafficLensManager = null;
+  trafficLensManagerOwner = null;
+}
+
+function ensureTrafficLensManager(): TrafficLensManager {
+  if (mainWindow === null || mainWindow.isDestroyed()) {
+    stopTrafficLensManager();
+    throw new Error("Traffic Lens manager is unavailable.");
+  }
+
+  if (trafficLensManager !== null && trafficLensManagerOwner === mainWindow) {
+    return trafficLensManager;
+  }
+
+  stopTrafficLensManager();
+
+  const nextManager = createTrafficLensManager({
+    window: mainWindow,
+    backendHttpUrl,
+    bootstrapToken: backendBootstrapToken,
+  });
+
+  stopTrafficLensTabEventForwarding = nextManager.onTabEvent((event) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+    mainWindow.webContents.send(TRAFFIC_LENS_TAB_EVENT_CHANNEL, event);
+  });
+  stopTrafficLensPausedEventForwarding = nextManager.onPausedEvent((event) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+    mainWindow.webContents.send(TRAFFIC_LENS_PAUSED_EVENT_CHANNEL, event);
+  });
+  stopTrafficLensStorageEventForwarding = nextManager.onStorageChanged((tabId) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+    mainWindow.webContents.send(TRAFFIC_LENS_STORAGE_CHANGED_CHANNEL, tabId);
+  });
+  const stopStructuredStorageEventForwarding = nextManager.onStorageEvent((event) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+    mainWindow.webContents.send(TRAFFIC_LENS_STORAGE_EVENT_CHANNEL, event);
+  });
+  const previousStop = stopTrafficLensStorageEventForwarding;
+  stopTrafficLensStorageEventForwarding = () => {
+    previousStop?.();
+    stopStructuredStorageEventForwarding();
+  };
+
+  trafficLensManager = nextManager;
+  trafficLensManagerOwner = mainWindow;
+  return nextManager;
 }
 
 function initializePackagedLogging(): void {
@@ -1797,53 +1920,60 @@ function registerIpcHandlers(): void {
 
   // ---- Traffic Lens Manager ----
 
-  if (mainWindow) {
-    trafficLensManager = createTrafficLensManager({
-      window: mainWindow,
-      backendHttpUrl,
-      bootstrapToken: backendBootstrapToken,
-    });
-  }
-
   ipcMain.removeHandler(TRAFFIC_LENS_CREATE_TAB_CHANNEL);
   ipcMain.handle(TRAFFIC_LENS_CREATE_TAB_CHANNEL, async (_event, url: unknown) => {
     const validUrl = typeof url === "string" ? url : undefined;
-    return trafficLensManager?.createTab(validUrl);
+    return ensureTrafficLensManager().createTab(validUrl);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_CREATE_TAB_IN_PROFILE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_CREATE_TAB_IN_PROFILE_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid profile tab input.");
+    }
+    const payload = input as { url?: unknown; profileId?: unknown };
+    if (typeof payload.profileId !== "string") {
+      throw new Error("Invalid profile ID.");
+    }
+    return ensureTrafficLensManager().createTabInProfile({
+      profileId: payload.profileId,
+      ...(typeof payload.url === "string" ? { url: payload.url } : {}),
+    });
   });
 
   ipcMain.removeHandler(TRAFFIC_LENS_CLOSE_TAB_CHANNEL);
   ipcMain.handle(TRAFFIC_LENS_CLOSE_TAB_CHANNEL, async (_event, tabId: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-    trafficLensManager?.closeTab(tabId);
+    ensureTrafficLensManager().closeTab(tabId);
   });
 
   ipcMain.removeHandler(TRAFFIC_LENS_NAVIGATE_CHANNEL);
   ipcMain.handle(TRAFFIC_LENS_NAVIGATE_CHANNEL, async (_event, tabId: unknown, url: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
     if (typeof url !== "string") throw new Error("Invalid URL.");
-    trafficLensManager?.navigateTab(tabId, url);
+    ensureTrafficLensManager().navigateTab(tabId, url);
   });
 
   ipcMain.removeHandler(TRAFFIC_LENS_GO_BACK_CHANNEL);
   ipcMain.handle(TRAFFIC_LENS_GO_BACK_CHANNEL, async (_event, tabId: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-    trafficLensManager?.goBack(tabId);
+    ensureTrafficLensManager().goBack(tabId);
   });
 
   ipcMain.removeHandler(TRAFFIC_LENS_GO_FORWARD_CHANNEL);
   ipcMain.handle(TRAFFIC_LENS_GO_FORWARD_CHANNEL, async (_event, tabId: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-    trafficLensManager?.goForward(tabId);
+    ensureTrafficLensManager().goForward(tabId);
   });
 
   ipcMain.removeHandler(TRAFFIC_LENS_RELOAD_CHANNEL);
   ipcMain.handle(TRAFFIC_LENS_RELOAD_CHANNEL, async (_event, tabId: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-    trafficLensManager?.reloadTab(tabId);
+    ensureTrafficLensManager().reloadTab(tabId);
   });
 
   ipcMain.removeHandler(TRAFFIC_LENS_GET_TABS_CHANNEL);
-  ipcMain.handle(TRAFFIC_LENS_GET_TABS_CHANNEL, async () => trafficLensManager?.getTabs() ?? []);
+  ipcMain.handle(TRAFFIC_LENS_GET_TABS_CHANNEL, async () => ensureTrafficLensManager().getTabs());
 
   ipcMain.removeHandler(TRAFFIC_LENS_SET_BOUNDS_CHANNEL);
   ipcMain.handle(
@@ -1860,7 +1990,7 @@ function registerIpcHandlers(): void {
       ) {
         throw new Error("Invalid bounds shape.");
       }
-      trafficLensManager?.setTabBounds(tabId, {
+      ensureTrafficLensManager().setTabBounds(tabId, {
         x: b.x,
         y: b.y,
         width: b.width,
@@ -1872,16 +2002,370 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(TRAFFIC_LENS_SHOW_TAB_CHANNEL);
   ipcMain.handle(TRAFFIC_LENS_SHOW_TAB_CHANNEL, async (_event, tabId: unknown) => {
     if (typeof tabId !== "string") throw new Error("Invalid tab ID.");
-    trafficLensManager?.showTab(tabId);
+    ensureTrafficLensManager().showTab(tabId);
   });
 
   ipcMain.removeHandler(TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL);
-  ipcMain.handle(TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL, async () => trafficLensManager?.hideAllTabs());
+  ipcMain.handle(TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL, async () =>
+    ensureTrafficLensManager().hideAllTabs(),
+  );
 
-  // Push traffic lens tab events to renderer
-  trafficLensManager?.onTabEvent((event) => {
-    mainWindow?.webContents.send(TRAFFIC_LENS_TAB_EVENT_CHANNEL, event);
+  ipcMain.removeHandler(TRAFFIC_LENS_LIST_RULES_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_LIST_RULES_CHANNEL, async () =>
+    ensureTrafficLensManager().listRules(),
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_CREATE_RULE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_CREATE_RULE_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid rule input.");
+    }
+    return ensureTrafficLensManager().createRule(input as any);
   });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_UPDATE_RULE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_UPDATE_RULE_CHANNEL, async (_event, id: unknown, input: unknown) => {
+    if (typeof id !== "string" || typeof input !== "object" || input === null) {
+      throw new Error("Invalid rule update input.");
+    }
+    return ensureTrafficLensManager().updateRule(id, input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_DELETE_RULE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_DELETE_RULE_CHANNEL, async (_event, id: unknown) => {
+    if (typeof id !== "string") {
+      throw new Error("Invalid rule ID.");
+    }
+    ensureTrafficLensManager().deleteRule(id);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_SET_RULE_ENABLED_CHANNEL);
+  ipcMain.handle(
+    TRAFFIC_LENS_SET_RULE_ENABLED_CHANNEL,
+    async (_event, id: unknown, enabled: unknown) => {
+      if (typeof id !== "string" || typeof enabled !== "boolean") {
+        throw new Error("Invalid rule enabled payload.");
+      }
+      ensureTrafficLensManager().setRuleEnabled(id, enabled);
+    },
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_LIST_PAUSED_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_LIST_PAUSED_CHANNEL, async () =>
+    ensureTrafficLensManager().listPaused(),
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_CONTINUE_PAUSED_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_CONTINUE_PAUSED_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid paused continuation input.");
+    }
+    await ensureTrafficLensManager().continuePaused(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_DROP_PAUSED_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_DROP_PAUSED_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid paused drop input.");
+    }
+    const payload = input as { pauseId?: unknown };
+    if (typeof payload.pauseId !== "string") {
+      throw new Error("Invalid pause ID.");
+    }
+    await ensureTrafficLensManager().dropPaused({ pauseId: payload.pauseId });
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_LIST_PROFILES_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_LIST_PROFILES_CHANNEL, async () =>
+    ensureTrafficLensManager().listProfiles(),
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_CREATE_PROFILE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_CREATE_PROFILE_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid profile input.");
+    }
+    return ensureTrafficLensManager().createProfile(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_UPDATE_PROFILE_CHANNEL);
+  ipcMain.handle(
+    TRAFFIC_LENS_UPDATE_PROFILE_CHANNEL,
+    async (_event, id: unknown, input: unknown) => {
+      if (typeof id !== "string" || typeof input !== "object" || input === null) {
+        throw new Error("Invalid profile update input.");
+      }
+      return ensureTrafficLensManager().updateProfile(id, input as any);
+    },
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_DELETE_PROFILE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_DELETE_PROFILE_CHANNEL, async (_event, id: unknown) => {
+    if (typeof id !== "string") {
+      throw new Error("Invalid profile ID.");
+    }
+    ensureTrafficLensManager().deleteProfile(id);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_GET_COOKIES_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_GET_COOKIES_CHANNEL, async (_event, tabId: unknown) => {
+    if (typeof tabId !== "string") {
+      throw new Error("Invalid tab ID.");
+    }
+    return ensureTrafficLensManager().getCookies(tabId);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_SET_COOKIE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_SET_COOKIE_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid cookie input.");
+    }
+    await ensureTrafficLensManager().setCookie(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_DELETE_COOKIE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_DELETE_COOKIE_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid cookie delete input.");
+    }
+    await ensureTrafficLensManager().deleteCookie(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_GET_STORAGE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_GET_STORAGE_CHANNEL, async (_event, tabId: unknown) => {
+    if (typeof tabId !== "string") {
+      throw new Error("Invalid tab ID.");
+    }
+    return ensureTrafficLensManager().getStorage(tabId);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_SET_STORAGE_ENTRY_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_SET_STORAGE_ENTRY_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid storage input.");
+    }
+    await ensureTrafficLensManager().setStorageEntry(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_DELETE_STORAGE_ENTRY_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_DELETE_STORAGE_ENTRY_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid storage delete input.");
+    }
+    await ensureTrafficLensManager().deleteStorageEntry(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_LIST_STORAGE_ORIGINS_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_LIST_STORAGE_ORIGINS_CHANNEL, async (_event, input: unknown) => {
+    if (
+      typeof input !== "object" ||
+      input === null ||
+      typeof (input as any).profileId !== "string"
+    ) {
+      throw new Error("Invalid storage origins input.");
+    }
+    return ensureTrafficLensManager().listStorageOrigins((input as any).profileId);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_CAPTURE_STORAGE_ORIGIN_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_CAPTURE_STORAGE_ORIGIN_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid storage capture input.");
+    }
+    await ensureTrafficLensManager().captureStorageOrigin(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_GET_APPLICABLE_COOKIES_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_GET_APPLICABLE_COOKIES_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid applicable cookies input.");
+    }
+    return ensureTrafficLensManager().getApplicableCookies(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_SET_COOKIE_FOR_ORIGIN_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_SET_COOKIE_FOR_ORIGIN_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid origin cookie input.");
+    }
+    await ensureTrafficLensManager().setCookieForOrigin(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_DELETE_COOKIE_FOR_ORIGIN_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_DELETE_COOKIE_FOR_ORIGIN_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid origin cookie delete input.");
+    }
+    await ensureTrafficLensManager().deleteCookieForOrigin(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_GET_LOCAL_STORAGE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_GET_LOCAL_STORAGE_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid localStorage input.");
+    }
+    return ensureTrafficLensManager().getLocalStorage(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_SET_LOCAL_STORAGE_ITEM_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_SET_LOCAL_STORAGE_ITEM_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid localStorage set input.");
+    }
+    await ensureTrafficLensManager().setLocalStorageItem(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_DELETE_LOCAL_STORAGE_ITEM_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_DELETE_LOCAL_STORAGE_ITEM_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid localStorage delete input.");
+    }
+    await ensureTrafficLensManager().deleteLocalStorageItem(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_CLEAR_LOCAL_STORAGE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_CLEAR_LOCAL_STORAGE_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid localStorage clear input.");
+    }
+    await ensureTrafficLensManager().clearLocalStorage(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_GET_LIVE_SESSION_STORAGE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_GET_LIVE_SESSION_STORAGE_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid live sessionStorage input.");
+    }
+    return ensureTrafficLensManager().getLiveSessionStorage(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_SET_LIVE_SESSION_STORAGE_ITEM_CHANNEL);
+  ipcMain.handle(
+    TRAFFIC_LENS_SET_LIVE_SESSION_STORAGE_ITEM_CHANNEL,
+    async (_event, input: unknown) => {
+      if (typeof input !== "object" || input === null) {
+        throw new Error("Invalid live sessionStorage set input.");
+      }
+      await ensureTrafficLensManager().setLiveSessionStorageItem(input as any);
+    },
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_DELETE_LIVE_SESSION_STORAGE_ITEM_CHANNEL);
+  ipcMain.handle(
+    TRAFFIC_LENS_DELETE_LIVE_SESSION_STORAGE_ITEM_CHANNEL,
+    async (_event, input: unknown) => {
+      if (typeof input !== "object" || input === null) {
+        throw new Error("Invalid live sessionStorage delete input.");
+      }
+      await ensureTrafficLensManager().deleteLiveSessionStorageItem(input as any);
+    },
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_CLEAR_LIVE_SESSION_STORAGE_CHANNEL);
+  ipcMain.handle(
+    TRAFFIC_LENS_CLEAR_LIVE_SESSION_STORAGE_CHANNEL,
+    async (_event, input: unknown) => {
+      if (typeof input !== "object" || input === null) {
+        throw new Error("Invalid live sessionStorage clear input.");
+      }
+      await ensureTrafficLensManager().clearLiveSessionStorage(input as any);
+    },
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_LIST_SESSION_STORAGE_SNAPSHOTS_CHANNEL);
+  ipcMain.handle(
+    TRAFFIC_LENS_LIST_SESSION_STORAGE_SNAPSHOTS_CHANNEL,
+    async (_event, input: unknown) => {
+      if (
+        typeof input !== "object" ||
+        input === null ||
+        typeof (input as any).profileId !== "string" ||
+        typeof (input as any).origin !== "string"
+      ) {
+        throw new Error("Invalid sessionStorage snapshot list input.");
+      }
+      return ensureTrafficLensManager().listSessionStorageSnapshots(
+        (input as any).profileId,
+        (input as any).origin,
+      );
+    },
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_GET_SESSION_STORAGE_SNAPSHOT_CHANNEL);
+  ipcMain.handle(
+    TRAFFIC_LENS_GET_SESSION_STORAGE_SNAPSHOT_CHANNEL,
+    async (_event, input: unknown) => {
+      if (typeof input !== "object" || input === null) {
+        throw new Error("Invalid sessionStorage snapshot input.");
+      }
+      return ensureTrafficLensManager().getSessionStorageSnapshot(input as any);
+    },
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_UPDATE_SESSION_STORAGE_SNAPSHOT_CHANNEL);
+  ipcMain.handle(
+    TRAFFIC_LENS_UPDATE_SESSION_STORAGE_SNAPSHOT_CHANNEL,
+    async (_event, input: unknown) => {
+      if (typeof input !== "object" || input === null) {
+        throw new Error("Invalid sessionStorage snapshot update input.");
+      }
+      ensureTrafficLensManager().updateSessionStorageSnapshot(input as any);
+    },
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_REHYDRATE_SESSION_STORAGE_SNAPSHOT_CHANNEL);
+  ipcMain.handle(
+    TRAFFIC_LENS_REHYDRATE_SESSION_STORAGE_SNAPSHOT_CHANNEL,
+    async (_event, input: unknown) => {
+      if (typeof input !== "object" || input === null) {
+        throw new Error("Invalid sessionStorage snapshot rehydrate input.");
+      }
+      return ensureTrafficLensManager().rehydrateSessionStorageSnapshot(input as any);
+    },
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_LIST_OVERRIDES_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_LIST_OVERRIDES_CHANNEL, async () =>
+    ensureTrafficLensManager().listOverrides(),
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_CREATE_OVERRIDE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_CREATE_OVERRIDE_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid override input.");
+    }
+    return ensureTrafficLensManager().createOverride(input as any);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_UPDATE_OVERRIDE_CHANNEL);
+  ipcMain.handle(
+    TRAFFIC_LENS_UPDATE_OVERRIDE_CHANNEL,
+    async (_event, id: unknown, input: unknown) => {
+      if (typeof id !== "string" || typeof input !== "object" || input === null) {
+        throw new Error("Invalid override update input.");
+      }
+      return ensureTrafficLensManager().updateOverride(id, input as any);
+    },
+  );
+
+  ipcMain.removeHandler(TRAFFIC_LENS_DELETE_OVERRIDE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_DELETE_OVERRIDE_CHANNEL, async (_event, id: unknown) => {
+    if (typeof id !== "string") {
+      throw new Error("Invalid override ID.");
+    }
+    ensureTrafficLensManager().deleteOverride(id);
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_SET_OVERRIDE_ENABLED_CHANNEL);
+  ipcMain.handle(
+    TRAFFIC_LENS_SET_OVERRIDE_ENABLED_CHANNEL,
+    async (_event, id: unknown, enabled: unknown) => {
+      if (typeof id !== "string" || typeof enabled !== "boolean") {
+        throw new Error("Invalid override enabled payload.");
+      }
+      ensureTrafficLensManager().setOverrideEnabled(id, enabled);
+    },
+  );
 
   // ---- Neovim ----
 
@@ -2449,6 +2933,7 @@ function createWindow(): BrowserWindow {
 
   window.on("closed", () => {
     if (mainWindow === window) {
+      stopTrafficLensManager();
       mainWindow = null;
     }
   });
@@ -2519,6 +3004,7 @@ async function bootstrap(): Promise<void> {
 
   if (isDevelopment) {
     mainWindow = createWindow();
+    ensureTrafficLensManager();
     writeDesktopLogHeader("bootstrap main window created");
     void waitForBackendHttpReady(backendHttpUrl)
       .then(() => {
@@ -2539,6 +3025,7 @@ async function bootstrap(): Promise<void> {
   await waitForBackendHttpReady(backendHttpUrl);
   writeDesktopLogHeader("bootstrap backend ready");
   mainWindow = createWindow();
+  ensureTrafficLensManager();
   writeDesktopLogHeader("bootstrap main window created");
 }
 
@@ -2548,7 +3035,7 @@ app.on("before-quit", () => {
   writeDesktopLogHeader("before-quit received");
   clearUpdatePollTimer();
   cancelBackendReadinessWait();
-  trafficLensManager?.stop();
+  stopTrafficLensManager();
   stopVpn();
   stopBackend();
   // Fire-and-forget: nullifies nvimSession synchronously and walks the quit
@@ -2583,6 +3070,7 @@ app
         return;
       }
       mainWindow = createWindow();
+      ensureTrafficLensManager();
     });
   })
   .catch((error) => {
@@ -2602,7 +3090,7 @@ if (process.platform !== "win32") {
     writeDesktopLogHeader("SIGINT received");
     clearUpdatePollTimer();
     cancelBackendReadinessWait();
-    trafficLensManager?.stop();
+    stopTrafficLensManager();
     stopVpn();
     stopBackend();
     restoreStdIoCapture?.();
@@ -2614,7 +3102,7 @@ if (process.platform !== "win32") {
     isQuitting = true;
     writeDesktopLogHeader("SIGTERM received");
     clearUpdatePollTimer();
-    trafficLensManager?.stop();
+    stopTrafficLensManager();
     stopVpn();
     stopBackend();
     restoreStdIoCapture?.();

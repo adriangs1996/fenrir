@@ -53,7 +53,7 @@ export const PROVIDER_DRIVER_DEFINITIONS: ReadonlyArray<ProviderDriverDefinition
         key: "binaryPath",
         label: "Binary path",
         description: "Path to the Cursor agent binary.",
-        placeholder: "cursor-agent",
+        placeholder: "agent",
       },
       {
         key: "apiEndpoint",

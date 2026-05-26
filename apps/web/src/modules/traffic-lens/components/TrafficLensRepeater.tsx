@@ -4,6 +4,13 @@ import { Input } from "~/components/ui/input";
 import { cn } from "../../../lib/utils";
 import { BodyViewer } from "./BodyViewer";
 import { getPrimaryEnvironmentConnection } from "../../../environments/runtime/service";
+import {
+  decodeBase64ToText,
+  encodeTextToBase64,
+  headersToText,
+  parseHeadersJson,
+  parseHeadersText,
+} from "../httpSerialization";
 import type { TrafficLensDetail, TrafficLensReplayResponse } from "@fenrir/contracts";
 
 interface TrafficLensRepeaterProps {
@@ -31,64 +38,6 @@ function statusColor(code: number | null): string {
   if (code >= 400 && code < 500) return "text-orange-500";
   if (code >= 500) return "text-red-500";
   return "text-muted-foreground";
-}
-
-function decodeBase64ToText(b64: string): string {
-  if (!b64) return "";
-  try {
-    const binary = atob(b64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i) & 0xff;
-    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-  } catch {
-    return "";
-  }
-}
-
-function encodeTextToBase64(text: string): string {
-  if (!text) return "";
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-  return btoa(binary);
-}
-
-function parseHeadersJson(json: string | null): Record<string, string> {
-  if (!json) return {};
-  try {
-    const parsed = JSON.parse(json);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const out: Record<string, string> = {};
-      for (const [k, v] of Object.entries(parsed)) {
-        out[k] = typeof v === "string" ? v : String(v);
-      }
-      return out;
-    }
-    return {};
-  } catch {
-    return {};
-  }
-}
-
-function headersToText(headers: Record<string, string>): string {
-  return Object.entries(headers)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join("\n");
-}
-
-function parseHeadersText(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const idx = line.indexOf(":");
-    if (idx <= 0) continue;
-    const key = line.slice(0, idx).trim();
-    const value = line.slice(idx + 1).trim();
-    if (!key) continue;
-    out[key] = value;
-  }
-  return out;
 }
 
 function normalizeMethod(method: string): Method {

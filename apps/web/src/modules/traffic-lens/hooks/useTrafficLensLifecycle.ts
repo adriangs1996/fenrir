@@ -29,16 +29,35 @@ export function useTrafficLensLifecycle() {
     return () => unsubscribe?.();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = window.desktopBridge?.onTrafficLensPausedEvent((event) => {
+      useTrafficLensStore.getState().applyPausedEvent(event as any);
+    });
+    return () => unsubscribe?.();
+  }, []);
+
   // Restore tabs on mount
   useEffect(() => {
-    const loadTabs = async () => {
-      const tabs = await window.desktopBridge?.trafficLensGetTabs();
+    const loadDesktopState = async () => {
+      const bridge = window.desktopBridge;
+      if (!bridge) {
+        return;
+      }
+      const [tabs, paused] = await Promise.all([
+        bridge.trafficLensGetTabs(),
+        bridge.trafficLensListPaused(),
+      ]);
       if (tabs) {
         for (const tab of tabs) {
           useTrafficLensStore.getState().upsertTab(tab);
         }
       }
+      if (paused) {
+        for (const request of paused) {
+          useTrafficLensStore.getState().upsertPausedRequest(request);
+        }
+      }
     };
-    void loadTabs();
+    void loadDesktopState();
   }, []);
 }

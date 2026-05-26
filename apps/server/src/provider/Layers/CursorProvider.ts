@@ -42,7 +42,7 @@ function cursorGlobalArgs(cursorSettings: Pick<CursorSettings, "apiEndpoint">): 
 }
 
 function formatCursorAuthMessage(detail: string): string {
-  return `${detail} Run \`cursor-agent login\` or set \`CURSOR_API_KEY\` and try again.`;
+  return `${detail} Run \`agent login\` or set \`CURSOR_API_KEY\` and try again.`;
 }
 
 export function parseCursorAuthStatusFromOutput(result: CommandResult): {
@@ -54,8 +54,8 @@ export function parseCursorAuthStatusFromOutput(result: CommandResult): {
 
   if (
     combined.includes("not authenticated") ||
-    combined.includes("run `cursor-agent login`") ||
-    combined.includes("run cursor-agent login") ||
+    combined.includes("run `agent login`") ||
+    combined.includes("run agent login") ||
     combined.includes("missing api key") ||
     combined.includes("cursor_api_key")
   ) {
@@ -212,7 +212,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
         status: "error",
         auth: { status: "unknown" },
         message: isCommandMissingCause(cause)
-          ? "Cursor CLI (`cursor-agent`) is not installed or not on PATH."
+          ? "Cursor agent (`agent`) is not installed or not on PATH."
           : `Failed to execute Cursor CLI health check: ${cause instanceof Error ? cause.message : "unknown error"}`,
       },
     });

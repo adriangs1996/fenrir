@@ -50,6 +50,60 @@ const TRAFFIC_LENS_SET_BOUNDS_CHANNEL = "desktop:traffic-lens-set-bounds";
 const TRAFFIC_LENS_SHOW_TAB_CHANNEL = "desktop:traffic-lens-show-tab";
 const TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL = "desktop:traffic-lens-hide-all-tabs";
 const TRAFFIC_LENS_TAB_EVENT_CHANNEL = "desktop:traffic-lens-tab-event";
+const TRAFFIC_LENS_CREATE_TAB_IN_PROFILE_CHANNEL = "desktop:traffic-lens-create-tab-in-profile";
+const TRAFFIC_LENS_LIST_RULES_CHANNEL = "desktop:traffic-lens-list-rules";
+const TRAFFIC_LENS_CREATE_RULE_CHANNEL = "desktop:traffic-lens-create-rule";
+const TRAFFIC_LENS_UPDATE_RULE_CHANNEL = "desktop:traffic-lens-update-rule";
+const TRAFFIC_LENS_DELETE_RULE_CHANNEL = "desktop:traffic-lens-delete-rule";
+const TRAFFIC_LENS_SET_RULE_ENABLED_CHANNEL = "desktop:traffic-lens-set-rule-enabled";
+const TRAFFIC_LENS_LIST_PAUSED_CHANNEL = "desktop:traffic-lens-list-paused";
+const TRAFFIC_LENS_CONTINUE_PAUSED_CHANNEL = "desktop:traffic-lens-continue-paused";
+const TRAFFIC_LENS_DROP_PAUSED_CHANNEL = "desktop:traffic-lens-drop-paused";
+const TRAFFIC_LENS_LIST_PROFILES_CHANNEL = "desktop:traffic-lens-list-profiles";
+const TRAFFIC_LENS_CREATE_PROFILE_CHANNEL = "desktop:traffic-lens-create-profile";
+const TRAFFIC_LENS_UPDATE_PROFILE_CHANNEL = "desktop:traffic-lens-update-profile";
+const TRAFFIC_LENS_DELETE_PROFILE_CHANNEL = "desktop:traffic-lens-delete-profile";
+const TRAFFIC_LENS_GET_COOKIES_CHANNEL = "desktop:traffic-lens-get-cookies";
+const TRAFFIC_LENS_SET_COOKIE_CHANNEL = "desktop:traffic-lens-set-cookie";
+const TRAFFIC_LENS_DELETE_COOKIE_CHANNEL = "desktop:traffic-lens-delete-cookie";
+const TRAFFIC_LENS_GET_STORAGE_CHANNEL = "desktop:traffic-lens-get-storage";
+const TRAFFIC_LENS_SET_STORAGE_ENTRY_CHANNEL = "desktop:traffic-lens-set-storage-entry";
+const TRAFFIC_LENS_DELETE_STORAGE_ENTRY_CHANNEL = "desktop:traffic-lens-delete-storage-entry";
+const TRAFFIC_LENS_LIST_STORAGE_ORIGINS_CHANNEL = "desktop:traffic-lens-list-storage-origins";
+const TRAFFIC_LENS_CAPTURE_STORAGE_ORIGIN_CHANNEL = "desktop:traffic-lens-capture-storage-origin";
+const TRAFFIC_LENS_GET_APPLICABLE_COOKIES_CHANNEL = "desktop:traffic-lens-get-applicable-cookies";
+const TRAFFIC_LENS_SET_COOKIE_FOR_ORIGIN_CHANNEL = "desktop:traffic-lens-set-cookie-for-origin";
+const TRAFFIC_LENS_DELETE_COOKIE_FOR_ORIGIN_CHANNEL =
+  "desktop:traffic-lens-delete-cookie-for-origin";
+const TRAFFIC_LENS_GET_LOCAL_STORAGE_CHANNEL = "desktop:traffic-lens-get-local-storage";
+const TRAFFIC_LENS_SET_LOCAL_STORAGE_ITEM_CHANNEL = "desktop:traffic-lens-set-local-storage-item";
+const TRAFFIC_LENS_DELETE_LOCAL_STORAGE_ITEM_CHANNEL =
+  "desktop:traffic-lens-delete-local-storage-item";
+const TRAFFIC_LENS_CLEAR_LOCAL_STORAGE_CHANNEL = "desktop:traffic-lens-clear-local-storage";
+const TRAFFIC_LENS_GET_LIVE_SESSION_STORAGE_CHANNEL =
+  "desktop:traffic-lens-get-live-session-storage";
+const TRAFFIC_LENS_SET_LIVE_SESSION_STORAGE_ITEM_CHANNEL =
+  "desktop:traffic-lens-set-live-session-storage-item";
+const TRAFFIC_LENS_DELETE_LIVE_SESSION_STORAGE_ITEM_CHANNEL =
+  "desktop:traffic-lens-delete-live-session-storage-item";
+const TRAFFIC_LENS_CLEAR_LIVE_SESSION_STORAGE_CHANNEL =
+  "desktop:traffic-lens-clear-live-session-storage";
+const TRAFFIC_LENS_LIST_SESSION_STORAGE_SNAPSHOTS_CHANNEL =
+  "desktop:traffic-lens-list-session-storage-snapshots";
+const TRAFFIC_LENS_GET_SESSION_STORAGE_SNAPSHOT_CHANNEL =
+  "desktop:traffic-lens-get-session-storage-snapshot";
+const TRAFFIC_LENS_UPDATE_SESSION_STORAGE_SNAPSHOT_CHANNEL =
+  "desktop:traffic-lens-update-session-storage-snapshot";
+const TRAFFIC_LENS_REHYDRATE_SESSION_STORAGE_SNAPSHOT_CHANNEL =
+  "desktop:traffic-lens-rehydrate-session-storage-snapshot";
+const TRAFFIC_LENS_LIST_OVERRIDES_CHANNEL = "desktop:traffic-lens-list-overrides";
+const TRAFFIC_LENS_CREATE_OVERRIDE_CHANNEL = "desktop:traffic-lens-create-override";
+const TRAFFIC_LENS_UPDATE_OVERRIDE_CHANNEL = "desktop:traffic-lens-update-override";
+const TRAFFIC_LENS_DELETE_OVERRIDE_CHANNEL = "desktop:traffic-lens-delete-override";
+const TRAFFIC_LENS_SET_OVERRIDE_ENABLED_CHANNEL = "desktop:traffic-lens-set-override-enabled";
+const TRAFFIC_LENS_PAUSED_EVENT_CHANNEL = "desktop:traffic-lens-paused-event";
+const TRAFFIC_LENS_STORAGE_CHANGED_CHANNEL = "desktop:traffic-lens-storage-changed";
+const TRAFFIC_LENS_STORAGE_EVENT_CHANNEL = "desktop:traffic-lens-storage-event";
 const NEOVIM_ATTACH_CHANNEL = "desktop:neovim-attach";
 const NEOVIM_DETACH_CHANNEL = "desktop:neovim-detach";
 const NEOVIM_INPUT_CHANNEL = "desktop:neovim-input";
@@ -195,6 +249,75 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   ) => ipcRenderer.invoke(TRAFFIC_LENS_SET_BOUNDS_CHANNEL, tabId, bounds),
   trafficLensShowTab: (tabId: string) => ipcRenderer.invoke(TRAFFIC_LENS_SHOW_TAB_CHANNEL, tabId),
   trafficLensHideAllTabs: () => ipcRenderer.invoke(TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL),
+  trafficLensCreateTabInProfile: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_CREATE_TAB_IN_PROFILE_CHANNEL, input),
+  trafficLensListRules: () => ipcRenderer.invoke(TRAFFIC_LENS_LIST_RULES_CHANNEL),
+  trafficLensCreateRule: (input) => ipcRenderer.invoke(TRAFFIC_LENS_CREATE_RULE_CHANNEL, input),
+  trafficLensUpdateRule: (id, input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_UPDATE_RULE_CHANNEL, id, input),
+  trafficLensDeleteRule: (id) => ipcRenderer.invoke(TRAFFIC_LENS_DELETE_RULE_CHANNEL, id),
+  trafficLensSetRuleEnabled: (id, enabled) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_SET_RULE_ENABLED_CHANNEL, id, enabled),
+  trafficLensListPaused: () => ipcRenderer.invoke(TRAFFIC_LENS_LIST_PAUSED_CHANNEL),
+  trafficLensContinuePaused: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_CONTINUE_PAUSED_CHANNEL, input),
+  trafficLensDropPaused: (input) => ipcRenderer.invoke(TRAFFIC_LENS_DROP_PAUSED_CHANNEL, input),
+  trafficLensListProfiles: () => ipcRenderer.invoke(TRAFFIC_LENS_LIST_PROFILES_CHANNEL),
+  trafficLensCreateProfile: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_CREATE_PROFILE_CHANNEL, input),
+  trafficLensUpdateProfile: (id, input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_UPDATE_PROFILE_CHANNEL, id, input),
+  trafficLensDeleteProfile: (id) => ipcRenderer.invoke(TRAFFIC_LENS_DELETE_PROFILE_CHANNEL, id),
+  trafficLensGetCookies: (tabId) => ipcRenderer.invoke(TRAFFIC_LENS_GET_COOKIES_CHANNEL, tabId),
+  trafficLensSetCookie: (input) => ipcRenderer.invoke(TRAFFIC_LENS_SET_COOKIE_CHANNEL, input),
+  trafficLensDeleteCookie: (input) => ipcRenderer.invoke(TRAFFIC_LENS_DELETE_COOKIE_CHANNEL, input),
+  trafficLensGetStorage: (tabId) => ipcRenderer.invoke(TRAFFIC_LENS_GET_STORAGE_CHANNEL, tabId),
+  trafficLensSetStorageEntry: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_SET_STORAGE_ENTRY_CHANNEL, input),
+  trafficLensDeleteStorageEntry: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_DELETE_STORAGE_ENTRY_CHANNEL, input),
+  trafficLensListStorageOrigins: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_LIST_STORAGE_ORIGINS_CHANNEL, input),
+  trafficLensCaptureStorageOrigin: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_CAPTURE_STORAGE_ORIGIN_CHANNEL, input),
+  trafficLensGetApplicableCookies: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_GET_APPLICABLE_COOKIES_CHANNEL, input),
+  trafficLensSetCookieForOrigin: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_SET_COOKIE_FOR_ORIGIN_CHANNEL, input),
+  trafficLensDeleteCookieForOrigin: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_DELETE_COOKIE_FOR_ORIGIN_CHANNEL, input),
+  trafficLensGetLocalStorage: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_GET_LOCAL_STORAGE_CHANNEL, input),
+  trafficLensSetLocalStorageItem: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_SET_LOCAL_STORAGE_ITEM_CHANNEL, input),
+  trafficLensDeleteLocalStorageItem: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_DELETE_LOCAL_STORAGE_ITEM_CHANNEL, input),
+  trafficLensClearLocalStorage: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_CLEAR_LOCAL_STORAGE_CHANNEL, input),
+  trafficLensGetLiveSessionStorage: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_GET_LIVE_SESSION_STORAGE_CHANNEL, input),
+  trafficLensSetLiveSessionStorageItem: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_SET_LIVE_SESSION_STORAGE_ITEM_CHANNEL, input),
+  trafficLensDeleteLiveSessionStorageItem: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_DELETE_LIVE_SESSION_STORAGE_ITEM_CHANNEL, input),
+  trafficLensClearLiveSessionStorage: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_CLEAR_LIVE_SESSION_STORAGE_CHANNEL, input),
+  trafficLensListSessionStorageSnapshots: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_LIST_SESSION_STORAGE_SNAPSHOTS_CHANNEL, input),
+  trafficLensGetSessionStorageSnapshot: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_GET_SESSION_STORAGE_SNAPSHOT_CHANNEL, input),
+  trafficLensUpdateSessionStorageSnapshot: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_UPDATE_SESSION_STORAGE_SNAPSHOT_CHANNEL, input),
+  trafficLensRehydrateSessionStorageSnapshot: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_REHYDRATE_SESSION_STORAGE_SNAPSHOT_CHANNEL, input),
+  trafficLensListOverrides: () => ipcRenderer.invoke(TRAFFIC_LENS_LIST_OVERRIDES_CHANNEL),
+  trafficLensCreateOverride: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_CREATE_OVERRIDE_CHANNEL, input),
+  trafficLensUpdateOverride: (id, input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_UPDATE_OVERRIDE_CHANNEL, id, input),
+  trafficLensDeleteOverride: (id) => ipcRenderer.invoke(TRAFFIC_LENS_DELETE_OVERRIDE_CHANNEL, id),
+  trafficLensSetOverrideEnabled: (id, enabled) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_SET_OVERRIDE_ENABLED_CHANNEL, id, enabled),
   onTrafficLensTabEvent: (listener: (event: any) => void) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, data: unknown) => {
       if (typeof data !== "object" || data === null) return;
@@ -203,6 +326,36 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(TRAFFIC_LENS_TAB_EVENT_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(TRAFFIC_LENS_TAB_EVENT_CHANNEL, wrappedListener);
+    };
+  },
+  onTrafficLensPausedEvent: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, data: unknown) => {
+      if (typeof data !== "object" || data === null) return;
+      listener(data as Parameters<typeof listener>[0]);
+    };
+    ipcRenderer.on(TRAFFIC_LENS_PAUSED_EVENT_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(TRAFFIC_LENS_PAUSED_EVENT_CHANNEL, wrappedListener);
+    };
+  },
+  onTrafficLensStorageChanged: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, data: unknown) => {
+      if (typeof data !== "string") return;
+      listener(data);
+    };
+    ipcRenderer.on(TRAFFIC_LENS_STORAGE_CHANGED_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(TRAFFIC_LENS_STORAGE_CHANGED_CHANNEL, wrappedListener);
+    };
+  },
+  onTrafficLensStorageEvent: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, data: unknown) => {
+      if (typeof data !== "object" || data === null) return;
+      listener(data as Parameters<typeof listener>[0]);
+    };
+    ipcRenderer.on(TRAFFIC_LENS_STORAGE_EVENT_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(TRAFFIC_LENS_STORAGE_EVENT_CHANNEL, wrappedListener);
     };
   },
 

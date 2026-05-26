@@ -45,6 +45,8 @@ import Migration0029 from "./Migrations/029_ProjectionThreadSessionProviderInsta
 import Migration0030 from "./Migrations/030_ReviewSharedPersistence.ts";
 import Migration0031 from "./Migrations/031_ReviewSessionPullRequestOverride.ts";
 import Migration0032 from "./Migrations/032_ReviewSessionModeScope.ts";
+import Migration0033 from "./Migrations/033_TrafficLensWorkbench.ts";
+import Migration0034 from "./Migrations/034_TrafficLensStoragePersistence.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -89,6 +91,8 @@ export const migrationEntries = [
   [30, "ReviewSharedPersistence", Migration0030],
   [31, "ReviewSessionPullRequestOverride", Migration0031],
   [32, "ReviewSessionModeScope", Migration0032],
+  [33, "TrafficLensWorkbench", Migration0033],
+  [34, "TrafficLensStoragePersistence", Migration0034],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

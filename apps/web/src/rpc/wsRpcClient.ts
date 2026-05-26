@@ -205,6 +205,34 @@ export interface WsRpcClient {
     readonly getTrafficDetail: RpcUnaryMethod<typeof WS_METHODS.trafficLensGetTrafficDetail>;
     readonly clearTraffic: RpcUnaryMethod<typeof WS_METHODS.trafficLensClearTraffic>;
     readonly replayRequest: RpcUnaryMethod<typeof WS_METHODS.trafficLensReplayRequest>;
+    readonly listFindings: RpcUnaryMethod<typeof WS_METHODS.trafficLensListFindings>;
+    readonly listRules: RpcUnaryNoArgMethod<typeof WS_METHODS.trafficLensListRules>;
+    readonly upsertRule: RpcUnaryMethod<typeof WS_METHODS.trafficLensUpsertRule>;
+    readonly deleteRule: RpcUnaryMethod<typeof WS_METHODS.trafficLensDeleteRule>;
+    readonly listOverrides: RpcUnaryNoArgMethod<typeof WS_METHODS.trafficLensListOverrides>;
+    readonly upsertOverride: RpcUnaryMethod<typeof WS_METHODS.trafficLensUpsertOverride>;
+    readonly deleteOverride: RpcUnaryMethod<typeof WS_METHODS.trafficLensDeleteOverride>;
+    readonly listProfiles: RpcUnaryNoArgMethod<typeof WS_METHODS.trafficLensListProfiles>;
+    readonly upsertProfile: RpcUnaryMethod<typeof WS_METHODS.trafficLensUpsertProfile>;
+    readonly deleteProfile: RpcUnaryMethod<typeof WS_METHODS.trafficLensDeleteProfile>;
+    readonly listStorageOrigins: RpcUnaryMethod<typeof WS_METHODS.trafficLensListStorageOrigins>;
+    readonly getCookieSnapshot: RpcUnaryMethod<typeof WS_METHODS.trafficLensGetCookieSnapshot>;
+    readonly getLocalStorageSnapshot: RpcUnaryMethod<
+      typeof WS_METHODS.trafficLensGetLocalStorageSnapshot
+    >;
+    readonly listSessionStorageSnapshots: RpcUnaryMethod<
+      typeof WS_METHODS.trafficLensListSessionStorageSnapshots
+    >;
+    readonly getSessionStorageSnapshot: RpcUnaryMethod<
+      typeof WS_METHODS.trafficLensGetSessionStorageSnapshot
+    >;
+    readonly updateSessionStorageSnapshot: RpcUnaryMethod<
+      typeof WS_METHODS.trafficLensUpdateSessionStorageSnapshot
+    >;
+    readonly getStorageVersions: RpcUnaryMethod<typeof WS_METHODS.trafficLensGetStorageVersions>;
+    readonly clearPersistedOrigin: RpcUnaryMethod<
+      typeof WS_METHODS.trafficLensClearPersistedOrigin
+    >;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeTrafficLensEvents>;
   };
   readonly planRunner: {
@@ -499,6 +527,47 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.trafficLensClearTraffic](input)),
       replayRequest: (input) =>
         transport.request((client) => client[WS_METHODS.trafficLensReplayRequest](input)),
+      listFindings: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensListFindings](input)),
+      listRules: () => transport.request((client) => client[WS_METHODS.trafficLensListRules]({})),
+      upsertRule: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensUpsertRule](input)),
+      deleteRule: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensDeleteRule](input)),
+      listOverrides: () =>
+        transport.request((client) => client[WS_METHODS.trafficLensListOverrides]({})),
+      upsertOverride: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensUpsertOverride](input)),
+      deleteOverride: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensDeleteOverride](input)),
+      listProfiles: () =>
+        transport.request((client) => client[WS_METHODS.trafficLensListProfiles]({})),
+      upsertProfile: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensUpsertProfile](input)),
+      deleteProfile: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensDeleteProfile](input)),
+      listStorageOrigins: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensListStorageOrigins](input)),
+      getCookieSnapshot: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensGetCookieSnapshot](input)),
+      getLocalStorageSnapshot: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensGetLocalStorageSnapshot](input)),
+      listSessionStorageSnapshots: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.trafficLensListSessionStorageSnapshots](input),
+        ),
+      getSessionStorageSnapshot: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.trafficLensGetSessionStorageSnapshot](input),
+        ),
+      updateSessionStorageSnapshot: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.trafficLensUpdateSessionStorageSnapshot](input),
+        ),
+      getStorageVersions: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensGetStorageVersions](input)),
+      clearPersistedOrigin: (input) =>
+        transport.request((client) => client[WS_METHODS.trafficLensClearPersistedOrigin](input)),
       onEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeTrafficLensEvents]({}),

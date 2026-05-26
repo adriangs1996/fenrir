@@ -5,6 +5,7 @@ import {
   CloudIcon,
   FileTextIcon,
   FolderIcon,
+  GlobeIcon,
   GitPullRequestIcon,
   PlusIcon,
   SettingsIcon,
@@ -2133,6 +2134,14 @@ const SidebarChromeHeader = memo(function SidebarChromeHeader({
 
 const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   const navigate = useNavigate();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const isBrowserLabRoute = pathname === "/browser-lab";
+  const isSettingsRoute = pathname.startsWith("/settings");
+
+  const handleBrowserLabClick = useCallback(() => {
+    void navigate({ to: "/browser-lab" });
+  }, [navigate]);
+
   const handleSettingsClick = useCallback(() => {
     void navigate({ to: "/settings" });
   }, [navigate]);
@@ -2143,6 +2152,18 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton
+            isActive={isBrowserLabRoute}
+            size="sm"
+            className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+            onClick={handleBrowserLabClick}
+          >
+            <GlobeIcon className="size-3.5" />
+            <span className="text-xs">Browser Lab</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            isActive={isSettingsRoute}
             size="sm"
             className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
             onClick={handleSettingsClick}

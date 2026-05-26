@@ -1,6 +1,55 @@
-import { WebContentsView, type BrowserWindow, session } from "electron";
+import { WebContentsView, type BrowserWindow, session, type Session } from "electron";
 import { randomUUID } from "node:crypto";
-import type { TrafficLensTabSnapshot, TrafficLensTabEvent } from "@fenrir/contracts";
+import type {
+  TrafficLensArchivedSessionStorageSummary,
+  TrafficLensCaptureStorageOriginInput,
+  TrafficLensClearLiveSessionStorageInput,
+  TrafficLensClearLocalStorageInput,
+  TrafficLensContinueInput,
+  TrafficLensCookieEntry,
+  TrafficLensDeleteCookieForOriginInput,
+  TrafficLensDeleteCookieInput,
+  TrafficLensDeleteLiveSessionStorageItemInput,
+  TrafficLensDeleteLocalStorageItemInput,
+  TrafficLensDeleteStorageEntryInput,
+  TrafficLensDomStorageEntry,
+  TrafficLensGetApplicableCookiesInput,
+  TrafficLensGetLiveSessionStorageInput,
+  TrafficLensGetLocalStorageInput,
+  TrafficLensGetSessionStorageSnapshotInput,
+  TrafficLensOverride,
+  TrafficLensOverrideInput,
+  TrafficLensPausedEvent,
+  TrafficLensPausedRequest,
+  TrafficLensProfile,
+  TrafficLensProfileInput,
+  TrafficLensRehydrateSessionStorageSnapshotInput,
+  TrafficLensRule,
+  TrafficLensRuleInput,
+  TrafficLensSetCookieForOriginInput,
+  TrafficLensSetCookieInput,
+  TrafficLensSetLiveSessionStorageItemInput,
+  TrafficLensSetLocalStorageItemInput,
+  TrafficLensSetStorageEntryInput,
+  TrafficLensStorageEvent,
+  TrafficLensStorageIngestPayload,
+  TrafficLensStorageOriginSummary,
+  TrafficLensStorageEntry,
+  TrafficLensTabEvent,
+  TrafficLensTabSnapshot,
+  TrafficLensUpdateSessionStorageSnapshotInput,
+} from "@fenrir/contracts";
+import {
+  addLiveSessionTab,
+  listStorageOriginSummaries,
+  removeLiveSessionTab,
+  storageOriginCatalogKey,
+  type StorageOriginCatalogEntry,
+  upsertStorageOriginCatalogEntry,
+} from "./trafficLens/storageCatalog";
+import { buildCookieSnapshot, buildDomStorageSnapshot } from "./trafficLens/storageSnapshot";
+import { scriptLiteral, toOriginUrl } from "./trafficLens/storageMutation";
+import { createStorageUtilityTarget } from "./trafficLens/storageUtilityTarget";
 
 export interface TrafficLensManagerConfig {
   window: BrowserWindow;
@@ -10,6 +59,7 @@ export interface TrafficLensManagerConfig {
 
 export interface TrafficLensManager {
   createTab(url?: string): TrafficLensTabSnapshot;
+  createTabInProfile(input: { url?: string; profileId: string }): TrafficLensTabSnapshot;
   navigateTab(tabId: string, url: string): void;
   goBack(tabId: string): void;
   goForward(tabId: string): void;
@@ -22,38 +72,212 @@ export interface TrafficLensManager {
   showTab(tabId: string): void;
   hideAllTabs(): void;
   getTabs(): TrafficLensTabSnapshot[];
+  listRules(): readonly TrafficLensRule[];
+  createRule(input: TrafficLensRuleInput): TrafficLensRule;
+  updateRule(id: string, input: TrafficLensRuleInput): TrafficLensRule;
+  deleteRule(id: string): void;
+  setRuleEnabled(id: string, enabled: boolean): void;
+  listPaused(): readonly TrafficLensPausedRequest[];
+  continuePaused(input: TrafficLensContinueInput): Promise<void>;
+  dropPaused(input: { pauseId: string }): Promise<void>;
+  listProfiles(): readonly TrafficLensProfile[];
+  createProfile(input: TrafficLensProfileInput): TrafficLensProfile;
+  updateProfile(id: string, input: TrafficLensProfileInput): TrafficLensProfile;
+  deleteProfile(id: string): void;
+  getCookies(tabId: string): Promise<readonly TrafficLensCookieEntry[]>;
+  setCookie(input: TrafficLensSetCookieInput): Promise<void>;
+  deleteCookie(input: TrafficLensDeleteCookieInput): Promise<void>;
+  getStorage(tabId: string): Promise<readonly TrafficLensStorageEntry[]>;
+  setStorageEntry(input: TrafficLensSetStorageEntryInput): Promise<void>;
+  deleteStorageEntry(input: TrafficLensDeleteStorageEntryInput): Promise<void>;
+  listStorageOrigins(profileId: string): readonly TrafficLensStorageOriginSummary[];
+  captureStorageOrigin(input: TrafficLensCaptureStorageOriginInput): Promise<void>;
+  getApplicableCookies(
+    input: TrafficLensGetApplicableCookiesInput,
+  ): Promise<readonly TrafficLensCookieEntry[]>;
+  setCookieForOrigin(input: TrafficLensSetCookieForOriginInput): Promise<void>;
+  deleteCookieForOrigin(input: TrafficLensDeleteCookieForOriginInput): Promise<void>;
+  getLocalStorage(
+    input: TrafficLensGetLocalStorageInput,
+  ): Promise<readonly TrafficLensDomStorageEntry[]>;
+  setLocalStorageItem(input: TrafficLensSetLocalStorageItemInput): Promise<void>;
+  deleteLocalStorageItem(input: TrafficLensDeleteLocalStorageItemInput): Promise<void>;
+  clearLocalStorage(input: TrafficLensClearLocalStorageInput): Promise<void>;
+  getLiveSessionStorage(
+    input: TrafficLensGetLiveSessionStorageInput,
+  ): Promise<readonly TrafficLensDomStorageEntry[]>;
+  setLiveSessionStorageItem(input: TrafficLensSetLiveSessionStorageItemInput): Promise<void>;
+  deleteLiveSessionStorageItem(input: TrafficLensDeleteLiveSessionStorageItemInput): Promise<void>;
+  clearLiveSessionStorage(input: TrafficLensClearLiveSessionStorageInput): Promise<void>;
+  listSessionStorageSnapshots(
+    profileId: string,
+    origin: string,
+  ): readonly TrafficLensArchivedSessionStorageSummary[];
+  getSessionStorageSnapshot(
+    input: TrafficLensGetSessionStorageSnapshotInput,
+  ): readonly TrafficLensDomStorageEntry[];
+  updateSessionStorageSnapshot(input: TrafficLensUpdateSessionStorageSnapshotInput): void;
+  rehydrateSessionStorageSnapshot(
+    input: TrafficLensRehydrateSessionStorageSnapshotInput,
+  ): Promise<{ tabId: string }>;
+  listOverrides(): readonly TrafficLensOverride[];
+  createOverride(input: TrafficLensOverrideInput): TrafficLensOverride;
+  updateOverride(id: string, input: TrafficLensOverrideInput): TrafficLensOverride;
+  deleteOverride(id: string): void;
+  setOverrideEnabled(id: string, enabled: boolean): void;
   onTabEvent(listener: (event: TrafficLensTabEvent) => void): () => void;
+  onPausedEvent(listener: (event: TrafficLensPausedEvent) => void): () => void;
+  onStorageChanged(listener: (tabId: string) => void): () => void;
+  onStorageEvent(listener: (event: TrafficLensStorageEvent) => void): () => void;
   stop(): void;
 }
 
 interface TabEntry {
   view: WebContentsView;
   tabId: string;
+  profileId: string;
+}
+
+interface RequestContext {
+  tabId: string;
+  profileId: string;
+  requestId: string;
+  networkId: string;
+  method: string;
+  url: string;
+  host: string;
+  path: string;
+  headers: Record<string, string>;
+  resourceType?: string;
+  body: string | null;
+}
+
+interface ResponseContext extends RequestContext {
+  statusCode: number;
+  responseHeaders: Record<string, string>;
+}
+
+interface PausedRequestInternal {
+  snapshot: TrafficLensPausedRequest;
+  debugger: Electron.Debugger;
+  phase: "beforeRequest" | "beforeResponse";
+  requestId: string;
+}
+
+interface ArchivedSessionSnapshotInternal {
+  summary: TrafficLensArchivedSessionStorageSummary;
+  entries: TrafficLensDomStorageEntry[];
 }
 
 const MAX_CAPTURE_BODY_BYTES = 10 * 1024 * 1024; // 10MB
+const DEFAULT_PROFILE_ID = "default";
+const DEFAULT_PROFILE_NAME = "Default";
+const DEFAULT_PROFILE_PARTITION_KEY = "persist:traffic-lens:default";
+const DEFAULT_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function normalizeHeaders(
+  rawHeaders: Record<string, unknown> | Array<{ name: string; value: string }> | undefined,
+): Record<string, string> {
+  if (!rawHeaders) {
+    return {};
+  }
+
+  if (Array.isArray(rawHeaders)) {
+    return Object.fromEntries(rawHeaders.map((header) => [header.name, header.value]));
+  }
+
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(rawHeaders)) {
+    headers[key] = typeof value === "string" ? value : String(value);
+  }
+  return headers;
+}
+
+function toCdpHeaders(headers: Record<string, string>): Array<{ name: string; value: string }> {
+  return Object.entries(headers).map(([name, value]) => ({ name, value }));
+}
+
+function wildcardMatches(pattern: string | undefined, value: string): boolean {
+  if (!pattern) {
+    return true;
+  }
+
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`, "i").test(value);
+}
+
+function delay(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+function isHttpUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
+function mergeHeaders(
+  current: Record<string, string>,
+  setHeaders: Record<string, string>,
+  removeHeaders: readonly string[],
+): Record<string, string> {
+  const next = { ...current };
+  for (const key of removeHeaders) {
+    const lowerKey = key.toLowerCase();
+    for (const existingKey of Object.keys(next)) {
+      if (existingKey.toLowerCase() === lowerKey) {
+        delete next[existingKey];
+      }
+    }
+  }
+  for (const [key, value] of Object.entries(setHeaders)) {
+    next[key] = value;
+  }
+  return next;
+}
+
+function parseUrl(value: string): URL {
+  try {
+    return new URL(value);
+  } catch {
+    return new URL(isHttpUrl(value) ? value : `http://${value}`);
+  }
+}
 
 export function createTrafficLensManager(config: TrafficLensManagerConfig): TrafficLensManager {
-  const parentWindow: BrowserWindow = config.window;
+  const parentWindow = config.window;
   const activeTabs = new Map<string, TabEntry>();
-  let stateListeners: Array<(event: TrafficLensTabEvent) => void> = [];
+  const pausedRequests = new Map<string, PausedRequestInternal>();
+  const originCatalog = new Map<string, StorageOriginCatalogEntry>();
+  const utilityTargets = new Map<string, WebContentsView>();
+  const archivedSessionSnapshots = new Map<number, ArchivedSessionSnapshotInternal>();
+  let nextArchivedSessionSnapshotId = 1;
+  const configuredSessions = new Set<string>();
+  const profileSessions = new Map<string, Session>();
+  const rules = new Map<string, TrafficLensRule>();
+  const overrides = new Map<string, TrafficLensOverride>();
+  const profiles = new Map<string, TrafficLensProfile>();
+  let tabListeners: Array<(event: TrafficLensTabEvent) => void> = [];
+  let pausedListeners: Array<(event: TrafficLensPausedEvent) => void> = [];
+  let storageListeners: Array<(tabId: string) => void> = [];
+  let storageEventListeners: Array<(event: TrafficLensStorageEvent) => void> = [];
   const backendUrl = config.backendHttpUrl ?? "";
   const backendToken = config.bootstrapToken ?? "";
 
-  const targetSession = session.fromPartition("persist:target-browsing");
+  const defaultProfile: TrafficLensProfile = {
+    id: DEFAULT_PROFILE_ID as any,
+    name: DEFAULT_PROFILE_NAME,
+    partitionKey: DEFAULT_PROFILE_PARTITION_KEY,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  profiles.set(defaultProfile.id, defaultProfile);
 
-  // Accept self-signed certs in target session (CTF boxes use them)
-  targetSession.setCertificateVerifyProc((_request, callback) => {
-    callback(0);
-  });
-
-  // Set a pentesting-appropriate user agent
-  targetSession.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-  );
-
-  function emit(event: TrafficLensTabEvent): void {
-    for (const listener of stateListeners) {
+  function emitTab(event: TrafficLensTabEvent): void {
+    for (const listener of tabListeners) {
       try {
         listener(event);
       } catch {
@@ -62,10 +286,101 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     }
   }
 
-  function getTabSnapshot(tabId: string): TrafficLensTabSnapshot {
-    const entry = activeTabs.get(tabId);
-    if (!entry) throw new Error(`Tab not found: ${tabId}`);
+  function emitPaused(event: TrafficLensPausedEvent): void {
+    for (const listener of pausedListeners) {
+      try {
+        listener(event);
+      } catch {
+        // listener errors must not crash the manager
+      }
+    }
+  }
 
+  function emitStorage(tabId: string): void {
+    for (const listener of storageListeners) {
+      try {
+        listener(tabId);
+      } catch {
+        // listener errors must not crash the manager
+      }
+    }
+  }
+
+  function emitStorageEvent(event: TrafficLensStorageEvent): void {
+    for (const listener of storageEventListeners) {
+      try {
+        listener(event);
+      } catch {
+        // listener errors must not crash the manager
+      }
+    }
+  }
+
+  function getProfile(profileId: string): TrafficLensProfile {
+    return profiles.get(profileId) ?? defaultProfile;
+  }
+
+  function ensureSession(profileId: string): Session {
+    const profile = getProfile(profileId);
+    const existing = profileSessions.get(profile.id);
+    if (existing) {
+      return existing;
+    }
+
+    const targetSession = session.fromPartition(profile.partitionKey);
+    profileSessions.set(profile.id, targetSession);
+
+    if (!configuredSessions.has(profile.partitionKey)) {
+      configuredSessions.add(profile.partitionKey);
+      targetSession.setCertificateVerifyProc((_request, callback) => {
+        callback(0);
+      });
+      targetSession.setUserAgent(profile.userAgentPreset ?? DEFAULT_USER_AGENT);
+      targetSession.cookies.on?.("changed", (_event, cookie) => {
+        const domain = String(cookie.domain ?? "").replace(/^\./, "");
+        void Promise.all(
+          [...originCatalog.values()]
+            .filter(
+              (entry) =>
+                entry.profileId === profile.id &&
+                entry.origin.includes(domain) &&
+                entry.origin !== "null",
+            )
+            .map((entry) =>
+              persistCookieSnapshot(
+                entry.profileId,
+                entry.origin,
+                "mutation",
+                undefined,
+                entry.lastDocumentUrl ?? undefined,
+              ).then(() =>
+                emitStorageEvent({
+                  type: "cookies.updated",
+                  profileId: entry.profileId as any,
+                  origin: entry.origin,
+                  areaKind: "cookies",
+                  timestamp: nowIso(),
+                }),
+              ),
+            ),
+        );
+      });
+    }
+
+    return targetSession;
+  }
+
+  function getTabEntry(tabId: string): TabEntry {
+    const entry = activeTabs.get(tabId);
+    if (!entry) {
+      throw new Error(`Tab not found: ${tabId}`);
+    }
+    return entry;
+  }
+
+  function getTabSnapshot(tabId: string): TrafficLensTabSnapshot {
+    const entry = getTabEntry(tabId);
+    const profile = getProfile(entry.profileId);
     const wc = entry.view.webContents;
     return {
       tabId: tabId as any,
@@ -74,7 +389,362 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       loading: wc.isLoading(),
       canGoBack: wc.navigationHistory.canGoBack(),
       canGoForward: wc.navigationHistory.canGoForward(),
+      profileId: profile.id as any,
+      profileName: profile.name,
     };
+  }
+
+  function noteOrigin(
+    profileId: string,
+    url: string,
+    tabId?: string,
+  ): StorageOriginCatalogEntry | null {
+    const parsedUrl = parseUrl(url);
+    if (parsedUrl.origin === "null") {
+      return null;
+    }
+    const entry = upsertStorageOriginCatalogEntry(originCatalog, {
+      profileId,
+      origin: parsedUrl.origin,
+      lastDocumentUrl: parsedUrl.toString(),
+      timestamp: nowIso(),
+    });
+    if (tabId) {
+      addLiveSessionTab(originCatalog, profileId, parsedUrl.origin, tabId);
+    }
+    emitStorageEvent({
+      type: "origin.discovered",
+      profileId: profileId as any,
+      origin: parsedUrl.origin,
+      areaKind: "localStorage",
+      ...(tabId ? { tabId } : {}),
+      timestamp: entry.lastSeenAt,
+    });
+    return entry;
+  }
+
+  function listOriginsForProfile(profileId: string): readonly TrafficLensStorageOriginSummary[] {
+    return listStorageOriginSummaries(originCatalog, profileId);
+  }
+
+  async function forwardStorageSnapshot(payload: TrafficLensStorageIngestPayload): Promise<void> {
+    if (!backendUrl || !backendToken) {
+      return;
+    }
+    try {
+      const response = await fetch(`${backendUrl}/api/traffic-lens/storage/ingest`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${backendToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const responseBody = await response.text().catch(() => "");
+        console.error("[trafficLensManager] Storage snapshot forward rejected:", {
+          status: response.status,
+          statusText: response.statusText,
+          responseBody,
+        });
+        emitStorageEvent({
+          type: "origin.persistenceSyncFailed",
+          profileId: payload.profileId,
+          origin: payload.origin,
+          areaKind: payload.areaKind,
+          ...(payload.sourceTabId ? { tabId: payload.sourceTabId } : {}),
+          timestamp: nowIso(),
+          message: responseBody || response.statusText,
+        });
+      }
+    } catch (error) {
+      console.error("[trafficLensManager] Storage snapshot forward failed:", error);
+      emitStorageEvent({
+        type: "origin.persistenceSyncFailed",
+        profileId: payload.profileId,
+        origin: payload.origin,
+        areaKind: payload.areaKind,
+        ...(payload.sourceTabId ? { tabId: payload.sourceTabId } : {}),
+        timestamp: nowIso(),
+        message: error instanceof Error ? error.message : "Unknown persistence error",
+      });
+    }
+  }
+
+  function findOpenTabForOrigin(
+    profileId: string,
+    origin: string,
+    preferredTabId?: string,
+  ): TabEntry | null {
+    if (preferredTabId) {
+      const preferred = activeTabs.get(preferredTabId);
+      if (preferred && preferred.profileId === profileId) {
+        const preferredUrl = preferred.view.webContents.getURL();
+        if (preferredUrl && parseUrl(preferredUrl).origin === origin) {
+          return preferred;
+        }
+      }
+    }
+
+    for (const entry of activeTabs.values()) {
+      if (entry.profileId !== profileId) {
+        continue;
+      }
+      const url = entry.view.webContents.getURL();
+      if (url && parseUrl(url).origin === origin) {
+        return entry;
+      }
+    }
+
+    return null;
+  }
+
+  function resolveUtilityTargetUrl(profileId: string, origin: string): string {
+    const catalogEntry = originCatalog.get(storageOriginCatalogKey(profileId, origin));
+    if (catalogEntry?.lastDocumentUrl) {
+      return catalogEntry.lastDocumentUrl;
+    }
+    const openTab = findOpenTabForOrigin(profileId, origin);
+    if (openTab) {
+      return openTab.view.webContents.getURL();
+    }
+    return toOriginUrl(origin);
+  }
+
+  function ensureUtilityTarget(profileId: string): WebContentsView {
+    const existing = utilityTargets.get(profileId);
+    if (existing) {
+      return existing;
+    }
+    const profile = getProfile(profileId);
+    const target = createStorageUtilityTarget(profile.partitionKey);
+    utilityTargets.set(profileId, target);
+    return target;
+  }
+
+  async function executeScriptForOrigin<T>(input: {
+    profileId: string;
+    origin: string;
+    preferredTabId: string | undefined;
+    script: string;
+    allowUtilityTarget: boolean;
+  }): Promise<T> {
+    const openTab = findOpenTabForOrigin(input.profileId, input.origin, input.preferredTabId);
+    if (openTab) {
+      return openTab.view.webContents.executeJavaScript(input.script, true) as Promise<T>;
+    }
+    if (!input.allowUtilityTarget) {
+      throw new Error(`No live tab available for origin ${input.origin}.`);
+    }
+    const target = ensureUtilityTarget(input.profileId);
+    const targetUrl = resolveUtilityTargetUrl(input.profileId, input.origin);
+    await target.webContents.loadURL(targetUrl);
+    noteOrigin(input.profileId, targetUrl);
+    return target.webContents.executeJavaScript(input.script, true) as Promise<T>;
+  }
+
+  async function readDomStorageEntries(input: {
+    profileId: string;
+    origin: string;
+    preferredTabId: string | undefined;
+    kind: "localStorage" | "sessionStorage";
+    allowUtilityTarget: boolean;
+  }): Promise<TrafficLensDomStorageEntry[]> {
+    const payload = await executeScriptForOrigin<{
+      origin: string;
+      entries: Array<{ key: string; value: string | null }>;
+    }>({
+      ...input,
+      script: `(() => {
+        if (window.location.origin !== ${scriptLiteral(input.origin)}) {
+          throw new Error("Storage origin mismatch.");
+        }
+        const storage = window.${input.kind};
+        return {
+          origin: window.location.origin,
+          entries: Array.from({ length: storage.length }, (_, index) => {
+            const key = storage.key(index);
+            return key === null ? null : { key, value: storage.getItem(key) };
+          }).filter(Boolean),
+        };
+      })()`,
+    });
+    if (payload.origin !== input.origin) {
+      throw new Error("Storage origin changed while reading browser state.");
+    }
+    return payload.entries.map((entry) => ({ key: entry.key, value: entry.value }));
+  }
+
+  async function writeDomStorage(input: {
+    profileId: string;
+    origin: string;
+    preferredTabId: string | undefined;
+    kind: "localStorage" | "sessionStorage";
+    mode: "set" | "delete" | "clear";
+    key?: string;
+    value?: string;
+    allowUtilityTarget: boolean;
+  }): Promise<void> {
+    const operationScript =
+      input.mode === "set"
+        ? `window.${input.kind}.setItem(${scriptLiteral(input.key ?? "")}, ${scriptLiteral(input.value ?? "")});`
+        : input.mode === "delete"
+          ? `window.${input.kind}.removeItem(${scriptLiteral(input.key ?? "")});`
+          : `window.${input.kind}.clear();`;
+    await executeScriptForOrigin<void>({
+      ...input,
+      script: `(() => {
+        if (window.location.origin !== ${scriptLiteral(input.origin)}) {
+          throw new Error("Storage origin mismatch.");
+        }
+        ${operationScript}
+      })()`,
+    });
+  }
+
+  async function readApplicableCookies(
+    profileId: string,
+    origin: string,
+  ): Promise<readonly TrafficLensCookieEntry[]> {
+    const profile = getProfile(profileId);
+    const targetSession = ensureSession(profile.id);
+    const cookies = await targetSession.cookies.get({ url: toOriginUrl(origin) });
+    return cookies.map((cookie) => {
+      const entry = {
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain ?? "",
+        path: cookie.path ?? "/",
+        secure: cookie.secure ?? false,
+        httpOnly: cookie.httpOnly ?? false,
+      };
+      if (cookie.sameSite) {
+        Object.assign(entry, { sameSite: cookie.sameSite });
+      }
+      if (cookie.expirationDate !== undefined) {
+        Object.assign(entry, { expirationDate: cookie.expirationDate });
+      }
+      if (cookie.session !== undefined) {
+        Object.assign(entry, { session: cookie.session });
+      }
+      if (cookie.hostOnly !== undefined) {
+        Object.assign(entry, { hostOnly: cookie.hostOnly });
+      }
+      return entry;
+    });
+  }
+
+  async function persistCookieSnapshot(
+    profileId: string,
+    origin: string,
+    reason: TrafficLensStorageIngestPayload["snapshotReason"],
+    sourceTabId?: string,
+    sourceUrl?: string,
+  ): Promise<void> {
+    const cookies = await readApplicableCookies(profileId, origin);
+    await forwardStorageSnapshot({
+      profileId: profileId as any,
+      origin,
+      areaKind: "cookies",
+      scopeKey: "",
+      snapshotReason: reason,
+      ...(sourceTabId ? { sourceTabId } : {}),
+      ...(sourceUrl ? { sourceUrl } : {}),
+      payloadJson: JSON.stringify(buildCookieSnapshot(origin, cookies)),
+      capturedAt: nowIso(),
+    });
+  }
+
+  async function persistLocalStorageSnapshot(
+    profileId: string,
+    origin: string,
+    reason: TrafficLensStorageIngestPayload["snapshotReason"],
+    preferredTabId?: string,
+    sourceUrl?: string,
+  ): Promise<void> {
+    const entries = await readDomStorageEntries({
+      profileId,
+      origin,
+      preferredTabId,
+      kind: "localStorage",
+      allowUtilityTarget: true,
+    });
+    await forwardStorageSnapshot({
+      profileId: profileId as any,
+      origin,
+      areaKind: "localStorage",
+      scopeKey: "",
+      snapshotReason: reason,
+      ...(preferredTabId ? { sourceTabId: preferredTabId } : {}),
+      ...(sourceUrl ? { sourceUrl } : {}),
+      payloadJson: JSON.stringify(buildDomStorageSnapshot(origin, "localStorage", entries)),
+      capturedAt: nowIso(),
+    });
+  }
+
+  async function archiveSessionStorageSnapshot(
+    tabId: string,
+    reason: TrafficLensStorageIngestPayload["snapshotReason"],
+  ): Promise<void> {
+    const entry = activeTabs.get(tabId);
+    if (!entry) {
+      return;
+    }
+    const sourceUrl = entry.view.webContents.getURL();
+    if (!sourceUrl) {
+      return;
+    }
+    const parsedUrl = parseUrl(sourceUrl);
+    if (parsedUrl.origin === "null") {
+      return;
+    }
+
+    const entries = await readDomStorageEntries({
+      profileId: entry.profileId,
+      origin: parsedUrl.origin,
+      preferredTabId: tabId,
+      kind: "sessionStorage",
+      allowUtilityTarget: false,
+    }).catch(() => []);
+
+    const capturedAt = nowIso();
+    const snapshotSummary: TrafficLensArchivedSessionStorageSummary = {
+      versionId: nextArchivedSessionSnapshotId++,
+      profileId: entry.profileId as any,
+      origin: parsedUrl.origin,
+      sourceTabId: tabId,
+      sourceUrl,
+      capturedAt,
+      snapshotReason: reason,
+    };
+    archivedSessionSnapshots.set(snapshotSummary.versionId, {
+      summary: snapshotSummary,
+      entries,
+    });
+
+    await forwardStorageSnapshot({
+      profileId: entry.profileId as any,
+      origin: parsedUrl.origin,
+      areaKind: "sessionStorage",
+      scopeKey: `tab:${tabId}`,
+      snapshotReason: reason,
+      sourceTabId: tabId,
+      sourceUrl,
+      payloadJson: JSON.stringify(
+        buildDomStorageSnapshot(parsedUrl.origin, "sessionStorage", entries),
+      ),
+      capturedAt,
+    });
+
+    emitStorageEvent({
+      type: "sessionStorage.snapshotCaptured",
+      profileId: entry.profileId as any,
+      origin: parsedUrl.origin,
+      areaKind: "sessionStorage",
+      tabId,
+      versionId: snapshotSummary.versionId,
+      timestamp: capturedAt,
+    });
   }
 
   async function forwardTraffic(payload: {
@@ -95,9 +765,15 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     bodyTruncated?: boolean;
     timestamp: string;
   }): Promise<void> {
-    if (!backendUrl) return;
+    if (!backendUrl) {
+      return;
+    }
+    if (!backendToken) {
+      console.error("[trafficLensManager] Traffic forward skipped: missing backend auth token.");
+      return;
+    }
     try {
-      await fetch(`${backendUrl}/api/traffic-lens/ingest`, {
+      const response = await fetch(`${backendUrl}/api/traffic-lens/ingest`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -105,30 +781,267 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         },
         body: JSON.stringify(payload),
       });
-    } catch (err) {
-      console.error("[trafficLensManager] Traffic forward failed:", err);
+      if (!response.ok) {
+        const responseBody = await response.text().catch(() => "");
+        console.error("[trafficLensManager] Traffic forward rejected:", {
+          status: response.status,
+          statusText: response.statusText,
+          responseBody,
+        });
+      }
+    } catch (error) {
+      console.error("[trafficLensManager] Traffic forward failed:", error);
     }
+  }
+
+  async function fulfillMockResponse(
+    debuggerClient: Electron.Debugger,
+    requestId: string,
+    response: TrafficLensOverride["response"],
+  ): Promise<void> {
+    await debuggerClient.sendCommand("Fetch.fulfillRequest", {
+      requestId,
+      responseCode: response.statusCode,
+      responseHeaders: toCdpHeaders(response.headers),
+      body: response.body ?? undefined,
+    });
+  }
+
+  function scopeMatches(
+    scope: TrafficLensRule["scope"] | TrafficLensOverride["match"],
+    context: RequestContext | ResponseContext,
+  ): boolean {
+    if (scope.tabId && scope.tabId !== context.tabId) {
+      return false;
+    }
+    if (scope.profileId && scope.profileId !== context.profileId) {
+      return false;
+    }
+    if (scope.method && scope.method.toUpperCase() !== context.method.toUpperCase()) {
+      return false;
+    }
+    if (scope.resourceType && scope.resourceType !== context.resourceType) {
+      return false;
+    }
+    if (!wildcardMatches(scope.hostPattern, context.host)) {
+      return false;
+    }
+    if (!wildcardMatches(scope.urlPattern, context.url)) {
+      return false;
+    }
+    return true;
+  }
+
+  async function pauseRequest(
+    internal: PausedRequestInternal,
+    snapshot: TrafficLensPausedRequest,
+  ): Promise<void> {
+    pausedRequests.set(snapshot.pauseId, internal);
+    emitPaused({
+      type: "paused.created",
+      paused: snapshot,
+    });
+  }
+
+  function removePausedRequest(pauseId: string): void {
+    if (!pausedRequests.has(pauseId)) {
+      return;
+    }
+    pausedRequests.delete(pauseId);
+    emitPaused({ type: "paused.resolved", pauseId: pauseId as any });
+  }
+
+  async function maybeApplyOverride(
+    context: RequestContext,
+    debuggerClient: Electron.Debugger,
+    requestId: string,
+  ): Promise<boolean> {
+    const match = Array.from(overrides.values()).find(
+      (override) => override.enabled && scopeMatches(override.match, context),
+    );
+    if (!match) {
+      return false;
+    }
+
+    if (match.latencyMs) {
+      await delay(match.latencyMs);
+    }
+
+    if (match.offline) {
+      await debuggerClient.sendCommand("Fetch.failRequest", {
+        requestId,
+        errorReason: "InternetDisconnected",
+      });
+      return true;
+    }
+
+    await forwardTraffic({
+      tabId: context.tabId,
+      requestId: context.networkId,
+      stage: "request",
+      method: context.method,
+      url: context.url,
+      host: context.host,
+      path: context.path,
+      requestHeadersJson: JSON.stringify(context.headers),
+      requestBody: context.body,
+      timestamp: nowIso(),
+    });
+
+    await fulfillMockResponse(debuggerClient, requestId, match.response);
+
+    void forwardTraffic({
+      tabId: context.tabId,
+      requestId: context.networkId,
+      stage: "response",
+      method: context.method,
+      url: context.url,
+      host: context.host,
+      path: context.path,
+      statusCode: match.response.statusCode,
+      responseHeadersJson: JSON.stringify(match.response.headers),
+      responseBody: match.response.body,
+      bodyTruncated: false,
+      timestamp: nowIso(),
+      ...((match.response.headers["content-type"] ?? match.response.headers["Content-Type"])
+        ? {
+            contentType:
+              match.response.headers["content-type"] ?? match.response.headers["Content-Type"],
+          }
+        : {}),
+      ...(match.response.body
+        ? {
+            contentLength: Buffer.byteLength(match.response.body, "base64"),
+          }
+        : {}),
+    });
+
+    return true;
+  }
+
+  async function maybeApplyRule(
+    phase: "beforeRequest" | "beforeResponse",
+    context: RequestContext | ResponseContext,
+    debuggerClient: Electron.Debugger,
+    requestId: string,
+  ): Promise<boolean> {
+    const matchingRules = Array.from(rules.values()).filter(
+      (rule) => rule.enabled && rule.phase === phase && scopeMatches(rule.scope, context),
+    );
+
+    const actionableRule = matchingRules.find((rule) => rule.action !== "observe");
+    if (!actionableRule) {
+      return false;
+    }
+
+    if (actionableRule.action === "drop") {
+      await debuggerClient.sendCommand("Fetch.failRequest", {
+        requestId,
+        errorReason: "Aborted",
+      });
+      return true;
+    }
+
+    if (actionableRule.action === "mockResponse" && phase === "beforeRequest") {
+      if (actionableRule.mockResponse) {
+        await fulfillMockResponse(debuggerClient, requestId, actionableRule.mockResponse);
+        return true;
+      }
+      return false;
+    }
+
+    if (actionableRule.action === "modify") {
+      if (phase === "beforeRequest") {
+        const nextHeaders = actionableRule.headerMutation
+          ? mergeHeaders(
+              context.headers,
+              actionableRule.headerMutation.set,
+              actionableRule.headerMutation.remove,
+            )
+          : context.headers;
+        await debuggerClient.sendCommand("Fetch.continueRequest", {
+          requestId,
+          url: actionableRule.urlRewrite ?? context.url,
+          headers: toCdpHeaders(nextHeaders),
+          postData: actionableRule.bodyReplace ?? context.body ?? undefined,
+        });
+        return true;
+      }
+
+      const responseContext = context as ResponseContext;
+      const nextHeaders = actionableRule.headerMutation
+        ? mergeHeaders(
+            responseContext.responseHeaders,
+            actionableRule.headerMutation.set,
+            actionableRule.headerMutation.remove,
+          )
+        : responseContext.responseHeaders;
+      await debuggerClient.sendCommand("Fetch.continueResponse", {
+        requestId,
+        responseCode: responseContext.statusCode,
+        responseHeaders: toCdpHeaders(nextHeaders),
+      });
+      return true;
+    }
+
+    if (actionableRule.action === "pause") {
+      const pausedRequest: TrafficLensPausedRequest = {
+        pauseId: randomUUID() as any,
+        tabId: context.tabId,
+        requestId: context.networkId,
+        phase,
+        method: context.method,
+        url: context.url,
+        headers:
+          phase === "beforeRequest"
+            ? context.headers
+            : (context as ResponseContext).responseHeaders,
+        body: context.body,
+        ...(phase === "beforeResponse"
+          ? {
+              statusCode: (context as ResponseContext).statusCode,
+              responseHeaders: (context as ResponseContext).responseHeaders,
+            }
+          : {}),
+        createdAt: nowIso(),
+      };
+
+      await pauseRequest(
+        {
+          snapshot: pausedRequest,
+          debugger: debuggerClient,
+          phase,
+          requestId,
+        },
+        pausedRequest,
+      );
+      return true;
+    }
+
+    return false;
   }
 
   async function handleFetchPaused(
     tabId: string,
-    cdp: Electron.Debugger,
+    profileId: string,
+    debuggerClient: Electron.Debugger,
     params: any,
   ): Promise<void> {
     const { requestId, request, responseStatusCode, responseHeaders } = params;
+    const networkId = String(params.networkId ?? requestId);
 
     try {
       if (responseStatusCode !== undefined) {
-        // ---- RESPONSE STAGE ----
         let responseBody: string | null = null;
         let bodyTruncated = false;
 
         try {
-          const bodyResult = await cdp.sendCommand("Fetch.getResponseBody", { requestId });
+          const bodyResult = await debuggerClient.sendCommand("Fetch.getResponseBody", {
+            requestId,
+          });
           responseBody = bodyResult.base64Encoded
             ? bodyResult.body
             : Buffer.from(bodyResult.body).toString("base64");
-
           const bodyBytes = Buffer.byteLength(
             bodyResult.body,
             bodyResult.base64Encoded ? "base64" : "utf-8",
@@ -138,99 +1051,140 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
             bodyTruncated = true;
           }
         } catch {
-          // Body might not be available (streaming, redirect, etc.)
+          // body not always available (streaming, redirect, opaque response)
         }
 
-        const contentType = responseHeaders?.find(
-          (h: any) => h.name.toLowerCase() === "content-type",
-        )?.value;
-        const contentLength = responseHeaders?.find(
-          (h: any) => h.name.toLowerCase() === "content-length",
-        )?.value;
-
-        const parsedUrl = new URL(request.url);
-
-        void forwardTraffic({
+        const parsedUrl = parseUrl(request.url);
+        const normalizedResponseHeaders = normalizeHeaders(responseHeaders);
+        const responseContext: ResponseContext = {
           tabId,
-          requestId: params.networkId ?? requestId,
-          stage: "response",
+          profileId,
+          requestId: String(requestId),
+          networkId,
           method: request.method,
           url: request.url,
           host: parsedUrl.host,
           path: parsedUrl.pathname + parsedUrl.search,
+          headers: normalizeHeaders(request.headers),
+          body: responseBody,
           statusCode: responseStatusCode,
-          contentType,
-          ...(contentLength ? { contentLength: parseInt(String(contentLength), 10) } : {}),
-          responseHeadersJson: JSON.stringify(
-            Object.fromEntries((responseHeaders ?? []).map((h: any) => [h.name, h.value])),
-          ),
+          responseHeaders: normalizedResponseHeaders,
+        };
+
+        void forwardTraffic({
+          tabId,
+          requestId: networkId,
+          stage: "response",
+          method: responseContext.method,
+          url: responseContext.url,
+          host: responseContext.host,
+          path: responseContext.path,
+          statusCode: responseStatusCode,
+          responseHeadersJson: JSON.stringify(normalizedResponseHeaders),
           responseBody,
           bodyTruncated,
-          timestamp: new Date().toISOString(),
+          timestamp: nowIso(),
+          ...((normalizedResponseHeaders["content-type"] ??
+          normalizedResponseHeaders["Content-Type"])
+            ? {
+                contentType:
+                  normalizedResponseHeaders["content-type"] ??
+                  normalizedResponseHeaders["Content-Type"],
+              }
+            : {}),
+          ...(normalizedResponseHeaders["content-length"]
+            ? {
+                contentLength: parseInt(normalizedResponseHeaders["content-length"]!, 10),
+              }
+            : {}),
         });
 
-        await cdp.sendCommand("Fetch.continueResponse", { requestId });
-      } else {
-        // ---- REQUEST STAGE ----
-        let requestBody: string | null = null;
-
-        if (request.hasPostData) {
-          try {
-            const postData = await cdp.sendCommand("Fetch.getRequestPostData", { requestId });
-            requestBody = Buffer.from(postData.postData).toString("base64");
-          } catch {
-            // POST data might not be available
-          }
+        if (
+          await maybeApplyRule("beforeResponse", responseContext, debuggerClient, String(requestId))
+        ) {
+          return;
         }
 
-        const parsedUrl = new URL(request.url);
-
-        void forwardTraffic({
-          tabId,
-          requestId: params.networkId ?? requestId,
-          stage: "request",
-          method: request.method,
-          url: request.url,
-          host: parsedUrl.host,
-          path: parsedUrl.pathname + parsedUrl.search,
-          requestHeadersJson: JSON.stringify(request.headers ?? {}),
-          requestBody,
-          timestamp: new Date().toISOString(),
-        });
-
-        await cdp.sendCommand("Fetch.continueRequest", { requestId });
+        await debuggerClient.sendCommand("Fetch.continueResponse", { requestId });
+        return;
       }
-    } catch (err) {
+
+      let requestBody: string | null = null;
+      if (request.hasPostData) {
+        try {
+          const postData = await debuggerClient.sendCommand("Fetch.getRequestPostData", {
+            requestId,
+          });
+          requestBody = Buffer.from(postData.postData).toString("base64");
+        } catch {
+          // POST data is not always available
+        }
+      }
+
+      const parsedUrl = parseUrl(request.url);
+      const requestContext: RequestContext = {
+        tabId,
+        profileId,
+        requestId: String(requestId),
+        networkId,
+        method: request.method,
+        url: request.url,
+        host: parsedUrl.host,
+        path: parsedUrl.pathname + parsedUrl.search,
+        headers: normalizeHeaders(request.headers),
+        resourceType: params.resourceType,
+        body: requestBody,
+      };
+
+      if (await maybeApplyOverride(requestContext, debuggerClient, String(requestId))) {
+        return;
+      }
+
+      void forwardTraffic({
+        tabId,
+        requestId: networkId,
+        stage: "request",
+        method: requestContext.method,
+        url: requestContext.url,
+        host: requestContext.host,
+        path: requestContext.path,
+        requestHeadersJson: JSON.stringify(requestContext.headers),
+        requestBody,
+        timestamp: nowIso(),
+      });
+
+      if (
+        await maybeApplyRule("beforeRequest", requestContext, debuggerClient, String(requestId))
+      ) {
+        return;
+      }
+
+      await debuggerClient.sendCommand("Fetch.continueRequest", { requestId });
+    } catch (error) {
       try {
-        await cdp.sendCommand("Fetch.continueRequest", { requestId });
+        if (responseStatusCode !== undefined) {
+          await debuggerClient.sendCommand("Fetch.continueResponse", { requestId });
+        } else {
+          await debuggerClient.sendCommand("Fetch.continueRequest", { requestId });
+        }
       } catch {
         // debugger might be detached
       }
-      console.error("[trafficLensManager] handleFetchPaused error:", err);
+      console.error("[trafficLensManager] handleFetchPaused error:", error);
     }
   }
 
-  function createTab(url?: string): TrafficLensTabSnapshot {
-    const tabId = randomUUID();
-    const view = new WebContentsView({
-      webPreferences: {
-        partition: "persist:target-browsing",
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        webSecurity: false, // disable same-origin for pentesting
-        allowRunningInsecureContent: true,
-      },
+  function wireWebContents(entry: TabEntry): void {
+    const wc = entry.view.webContents;
+    const tabId = entry.tabId;
+
+    wc.on("will-navigate", () => {
+      void archiveSessionStorageSnapshot(tabId, "navigation");
     });
 
-    const entry: TabEntry = { view, tabId };
-    activeTabs.set(tabId, entry);
-
-    // Wire navigation events
-    const wc = view.webContents;
-
     wc.on("did-navigate", (_event, navUrl) => {
-      emit({
+      noteOrigin(entry.profileId, navUrl, tabId);
+      emitTab({
         type: "tab.navigated",
         tabId: tabId as any,
         url: navUrl,
@@ -238,7 +1192,8 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     });
 
     wc.on("did-navigate-in-page", (_event, navUrl) => {
-      emit({
+      noteOrigin(entry.profileId, navUrl, tabId);
+      emitTab({
         type: "tab.navigated",
         tabId: tabId as any,
         url: navUrl,
@@ -246,7 +1201,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     });
 
     wc.on("page-title-updated", (_event, title) => {
-      emit({
+      emitTab({
         type: "tab.titleUpdated",
         tabId: tabId as any,
         title,
@@ -254,7 +1209,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     });
 
     wc.on("did-start-loading", () => {
-      emit({
+      emitTab({
         type: "tab.loadingChanged",
         tabId: tabId as any,
         loading: true,
@@ -262,162 +1217,933 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     });
 
     wc.on("did-stop-loading", () => {
-      emit({
+      const currentUrl = wc.getURL();
+      if (currentUrl) {
+        const catalogEntry = noteOrigin(entry.profileId, currentUrl, tabId);
+        if (catalogEntry) {
+          void persistCookieSnapshot(
+            entry.profileId,
+            catalogEntry.origin,
+            "navigation",
+            tabId,
+            currentUrl,
+          );
+          void persistLocalStorageSnapshot(
+            entry.profileId,
+            catalogEntry.origin,
+            "navigation",
+            tabId,
+            currentUrl,
+          );
+        }
+      }
+      emitTab({
         type: "tab.loadingChanged",
         tabId: tabId as any,
         loading: false,
       });
     });
 
-    // Attach CDP debugger for traffic interception
-    const cdp = wc.debugger;
+    const debuggerClient = wc.debugger;
     try {
-      cdp.attach("1.3");
+      debuggerClient.attach("1.3");
+      void debuggerClient.sendCommand("Fetch.enable", {
+        patterns: [
+          { urlPattern: "*", requestStage: "Request" },
+          { urlPattern: "*", requestStage: "Response" },
+        ],
+        handleAuthRequests: true,
+      });
 
-      cdp
-        .sendCommand("Fetch.enable", {
-          patterns: [
-            { urlPattern: "*", requestStage: "Request" },
-            { urlPattern: "*", requestStage: "Response" },
-          ],
-          handleAuthRequests: true,
-        })
-        .catch((err: unknown) => {
-          console.error("[trafficLensManager] Fetch.enable failed:", err);
-        });
-
-      cdp.on("message", (_event: Electron.Event, method: string, params: any) => {
+      debuggerClient.on("message", (_event: Electron.Event, method: string, params: any) => {
         if (method === "Fetch.requestPaused") {
-          void handleFetchPaused(tabId, cdp, params);
+          void handleFetchPaused(entry.tabId, entry.profileId, debuggerClient, params);
         }
       });
-    } catch (err) {
-      console.error("[trafficLensManager] Debugger attach failed:", err);
+    } catch (error) {
+      console.error("[trafficLensManager] Debugger attach failed:", error);
     }
+  }
 
-    // Load initial URL or blank page
-    const initialUrl = url || "about:blank";
-    void wc.loadURL(initialUrl);
-
+  function createTabForProfile(profileId: string, url?: string): TrafficLensTabSnapshot {
+    const profile = getProfile(profileId);
+    ensureSession(profile.id);
+    const tabId = randomUUID();
+    const view = new WebContentsView({
+      webPreferences: {
+        partition: profile.partitionKey,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: false,
+        allowRunningInsecureContent: true,
+      },
+    });
+    const entry: TabEntry = {
+      view,
+      tabId,
+      profileId: profile.id,
+    };
+    activeTabs.set(tabId, entry);
+    wireWebContents(entry);
+    void view.webContents.loadURL(url || "about:blank");
     const snapshot = getTabSnapshot(tabId);
-    emit({ type: "tab.created", snapshot });
+    emitTab({ type: "tab.created", snapshot });
     return snapshot;
   }
 
-  function navigateTab(tabId: string, url: string): void {
-    const entry = activeTabs.get(tabId);
-    if (!entry) throw new Error(`Tab not found: ${tabId}`);
-    void entry.view.webContents.loadURL(url);
+  async function runStorageScript<T>(tabId: string, script: string): Promise<T> {
+    const entry = getTabEntry(tabId);
+    return entry.view.webContents.executeJavaScript(script, true) as Promise<T>;
   }
 
-  function goBack(tabId: string): void {
-    const entry = activeTabs.get(tabId);
-    if (!entry) throw new Error(`Tab not found: ${tabId}`);
-    entry.view.webContents.navigationHistory.goBack();
+  function getOriginForTab(tabId: string): string {
+    const url = getTabEntry(tabId).view.webContents.getURL();
+    const parsedUrl = parseUrl(url || "about:blank");
+    return parsedUrl.origin;
   }
 
-  function goForward(tabId: string): void {
-    const entry = activeTabs.get(tabId);
-    if (!entry) throw new Error(`Tab not found: ${tabId}`);
-    entry.view.webContents.navigationHistory.goForward();
-  }
-
-  function reloadTab(tabId: string): void {
-    const entry = activeTabs.get(tabId);
-    if (!entry) throw new Error(`Tab not found: ${tabId}`);
-    entry.view.webContents.reload();
-  }
-
-  function closeTab(tabId: string): void {
-    const entry = activeTabs.get(tabId);
-    if (!entry) return;
-
-    try {
-      parentWindow.contentView.removeChildView(entry.view);
-    } catch {
-      // view might not be attached
+  async function getStorage(tabId: string): Promise<readonly TrafficLensStorageEntry[]> {
+    const origin = getOriginForTab(tabId);
+    if (origin === "null") {
+      return [];
     }
 
-    entry.view.webContents.close();
-    activeTabs.delete(tabId);
-    emit({ type: "tab.closed", tabId: tabId as any });
+    const payload = await runStorageScript<{
+      origin: string;
+      localStorage: Array<{ key: string; value: string | null }>;
+      sessionStorage: Array<{ key: string; value: string | null }>;
+      indexedDb: Array<{ key: string; value: string | null }>;
+    }>(
+      tabId,
+      `(() => {
+        const collect = (storage) =>
+          Array.from({ length: storage.length }, (_, index) => {
+            const key = storage.key(index);
+            return key === null ? null : { key, value: storage.getItem(key) };
+          }).filter(Boolean);
+        const indexedDbEntries = typeof indexedDB.databases === "function"
+          ? indexedDB.databases().then((dbs) =>
+              dbs.map((db) => ({
+                key: db.name ?? "unnamed",
+                value: db.version === undefined ? null : String(db.version),
+              })),
+            )
+          : Promise.resolve([]);
+        return indexedDbEntries.then((indexedDbList) => ({
+          origin: window.location.origin,
+          localStorage: collect(window.localStorage),
+          sessionStorage: collect(window.sessionStorage),
+          indexedDb: indexedDbList,
+        }));
+      })()`,
+    );
+
+    if (payload.origin !== origin) {
+      throw new Error("Storage origin changed while reading browser state.");
+    }
+
+    return [
+      ...payload.localStorage.map((entry) => ({
+        tabId,
+        origin,
+        kind: "localStorage" as const,
+        key: entry.key,
+        value: entry.value,
+      })),
+      ...payload.sessionStorage.map((entry) => ({
+        tabId,
+        origin,
+        kind: "sessionStorage" as const,
+        key: entry.key,
+        value: entry.value,
+      })),
+      ...payload.indexedDb.map((entry) => ({
+        tabId,
+        origin,
+        kind: "indexedDb" as const,
+        key: entry.key,
+        value: entry.value,
+      })),
+    ];
   }
 
-  function setTabBounds(
-    tabId: string,
-    bounds: { x: number; y: number; width: number; height: number },
-  ): void {
-    const entry = activeTabs.get(tabId);
-    if (!entry) return;
-    entry.view.setBounds(bounds);
-  }
+  const manager: TrafficLensManager = {
+    createTab: (url) => createTabForProfile(DEFAULT_PROFILE_ID, url),
 
-  function showTab(tabId: string): void {
-    const entry = activeTabs.get(tabId);
-    if (!entry) return;
+    createTabInProfile: ({ url, profileId }) => createTabForProfile(profileId, url),
 
-    // Hide all other tabs first
-    for (const [id, other] of activeTabs) {
-      if (id !== tabId) {
-        try {
-          parentWindow.contentView.removeChildView(other.view);
-        } catch {
-          // not attached
+    navigateTab: (tabId, url) => {
+      const entry = getTabEntry(tabId);
+      void entry.view.webContents.loadURL(url);
+    },
+
+    goBack: (tabId) => {
+      getTabEntry(tabId).view.webContents.navigationHistory.goBack();
+    },
+
+    goForward: (tabId) => {
+      getTabEntry(tabId).view.webContents.navigationHistory.goForward();
+    },
+
+    reloadTab: (tabId) => {
+      getTabEntry(tabId).view.webContents.reload();
+    },
+
+    closeTab: (tabId) => {
+      const entry = activeTabs.get(tabId);
+      if (!entry) {
+        return;
+      }
+
+      void archiveSessionStorageSnapshot(tabId, "tabClose");
+
+      for (const [pauseId, paused] of pausedRequests.entries()) {
+        if (paused.snapshot.tabId === tabId) {
+          removePausedRequest(pauseId);
         }
       }
-    }
 
-    // Show the target tab
-    try {
-      parentWindow.contentView.addChildView(entry.view);
-    } catch {
-      // already attached — re-add to bring to front
-      parentWindow.contentView.removeChildView(entry.view);
-      parentWindow.contentView.addChildView(entry.view);
-    }
-  }
-
-  function hideAllTabs(): void {
-    for (const entry of activeTabs.values()) {
       try {
         parentWindow.contentView.removeChildView(entry.view);
       } catch {
-        // not attached
+        // view might already be detached
       }
-    }
-  }
 
-  function getTabs(): TrafficLensTabSnapshot[] {
-    return Array.from(activeTabs.keys()).map(getTabSnapshot);
-  }
+      entry.view.webContents.close();
+      activeTabs.delete(tabId);
+      removeLiveSessionTab(originCatalog, tabId);
+      emitTab({ type: "tab.closed", tabId: tabId as any });
+    },
 
-  function onTabEvent(listener: (event: TrafficLensTabEvent) => void): () => void {
-    stateListeners.push(listener);
-    return () => {
-      stateListeners = stateListeners.filter((l) => l !== listener);
-    };
-  }
+    setTabBounds: (tabId, bounds) => {
+      const entry = activeTabs.get(tabId);
+      if (!entry) {
+        return;
+      }
+      entry.view.setBounds(bounds);
+    },
 
-  function stop(): void {
-    for (const [tabId] of activeTabs) {
-      closeTab(tabId);
-    }
-    activeTabs.clear();
-    stateListeners = [];
-  }
+    showTab: (tabId) => {
+      const entry = activeTabs.get(tabId);
+      if (!entry) {
+        return;
+      }
 
-  return {
-    createTab,
-    navigateTab,
-    goBack,
-    goForward,
-    reloadTab,
-    closeTab,
-    setTabBounds,
-    showTab,
-    hideAllTabs,
-    getTabs,
-    onTabEvent,
-    stop,
+      for (const [id, other] of activeTabs) {
+        if (id !== tabId) {
+          try {
+            parentWindow.contentView.removeChildView(other.view);
+          } catch {
+            // view may already be detached
+          }
+        }
+      }
+
+      try {
+        parentWindow.contentView.addChildView(entry.view);
+      } catch {
+        try {
+          parentWindow.contentView.removeChildView(entry.view);
+        } catch {
+          // ignore
+        }
+        parentWindow.contentView.addChildView(entry.view);
+      }
+    },
+
+    hideAllTabs: () => {
+      for (const entry of activeTabs.values()) {
+        try {
+          parentWindow.contentView.removeChildView(entry.view);
+        } catch {
+          // view may already be detached
+        }
+      }
+    },
+
+    getTabs: () => Array.from(activeTabs.keys()).map(getTabSnapshot),
+
+    listRules: () => Array.from(rules.values()),
+
+    createRule: (input) => {
+      const { id: providedId, ...ruleInput } = input as TrafficLensRuleInput & { id?: string };
+      const timestamp = nowIso();
+      const rule: TrafficLensRule = {
+        ...ruleInput,
+        id: (providedId ?? randomUUID()) as any,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      rules.set(rule.id, rule);
+      return rule;
+    },
+
+    updateRule: (id, input) => {
+      const existing = rules.get(id);
+      if (!existing) {
+        throw new Error(`Rule not found: ${id}`);
+      }
+      const updated: TrafficLensRule = {
+        ...existing,
+        ...input,
+        id: existing.id,
+        createdAt: existing.createdAt,
+        updatedAt: nowIso(),
+      };
+      rules.set(id, updated);
+      return updated;
+    },
+
+    deleteRule: (id) => {
+      rules.delete(id);
+    },
+
+    setRuleEnabled: (id, enabled) => {
+      const existing = rules.get(id);
+      if (!existing) {
+        throw new Error(`Rule not found: ${id}`);
+      }
+      rules.set(id, { ...existing, enabled, updatedAt: nowIso() });
+    },
+
+    listPaused: () => Array.from(pausedRequests.values()).map((entry) => entry.snapshot),
+
+    continuePaused: async (input) => {
+      const paused = pausedRequests.get(input.pauseId);
+      if (!paused) {
+        throw new Error(`Paused request not found: ${input.pauseId}`);
+      }
+
+      if (paused.phase === "beforeRequest") {
+        await paused.debugger.sendCommand("Fetch.continueRequest", {
+          requestId: paused.requestId,
+          url: input.url ?? paused.snapshot.url,
+          headers: toCdpHeaders(input.headers ?? paused.snapshot.headers),
+          postData:
+            input.body !== undefined
+              ? (input.body ?? undefined)
+              : (paused.snapshot.body ?? undefined),
+        });
+      } else {
+        await paused.debugger.sendCommand("Fetch.continueResponse", {
+          requestId: paused.requestId,
+          responseCode: input.statusCode ?? paused.snapshot.statusCode,
+          responseHeaders: toCdpHeaders(
+            input.headers ?? paused.snapshot.responseHeaders ?? paused.snapshot.headers,
+          ),
+        });
+      }
+
+      removePausedRequest(input.pauseId);
+    },
+
+    dropPaused: async ({ pauseId }) => {
+      const paused = pausedRequests.get(pauseId);
+      if (!paused) {
+        throw new Error(`Paused request not found: ${pauseId}`);
+      }
+      await paused.debugger.sendCommand("Fetch.failRequest", {
+        requestId: paused.requestId,
+        errorReason: "Aborted",
+      });
+      removePausedRequest(pauseId);
+    },
+
+    listProfiles: () => Array.from(profiles.values()),
+
+    createProfile: (input) => {
+      const { id: providedId, ...profileInput } = input as TrafficLensProfileInput & {
+        id?: string;
+      };
+      const timestamp = nowIso();
+      const profile: TrafficLensProfile = {
+        ...profileInput,
+        id: (providedId ?? randomUUID()) as any,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      profiles.set(profile.id, profile);
+      return profile;
+    },
+
+    updateProfile: (id, input) => {
+      const existing = profiles.get(id);
+      if (!existing) {
+        throw new Error(`Profile not found: ${id}`);
+      }
+      const updated: TrafficLensProfile = {
+        ...existing,
+        ...input,
+        id: existing.id,
+        createdAt: existing.createdAt,
+        updatedAt: nowIso(),
+      };
+      profiles.set(id, updated);
+      const existingSession = profileSessions.get(id);
+      if (existingSession) {
+        existingSession.setUserAgent(updated.userAgentPreset ?? DEFAULT_USER_AGENT);
+      }
+      return updated;
+    },
+
+    deleteProfile: (id) => {
+      if (id === DEFAULT_PROFILE_ID) {
+        throw new Error("The default profile cannot be deleted.");
+      }
+      if (Array.from(activeTabs.values()).some((entry) => entry.profileId === id)) {
+        throw new Error("Cannot delete a profile with open tabs.");
+      }
+      profiles.delete(id);
+      profileSessions.delete(id);
+    },
+
+    getCookies: async (tabId) => {
+      const entry = getTabEntry(tabId);
+      const cookies = await entry.view.webContents.session.cookies.get({});
+      return cookies.map((cookie) => {
+        const entry = {
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain ?? "",
+          path: cookie.path ?? "/",
+          secure: cookie.secure ?? false,
+          httpOnly: cookie.httpOnly ?? false,
+        };
+        if (cookie.sameSite) {
+          Object.assign(entry, { sameSite: cookie.sameSite });
+        }
+        if (cookie.expirationDate !== undefined) {
+          Object.assign(entry, { expirationDate: cookie.expirationDate });
+        }
+        if (cookie.session !== undefined) {
+          Object.assign(entry, { session: cookie.session });
+        }
+        if (cookie.hostOnly !== undefined) {
+          Object.assign(entry, { hostOnly: cookie.hostOnly });
+        }
+        return entry;
+      });
+    },
+
+    setCookie: async (input) => {
+      const entry = getTabEntry(input.tabId);
+      await manager.setCookieForOrigin({
+        profileId: entry.profileId as any,
+        url: input.url,
+        name: input.name,
+        value: input.value,
+        ...(input.domain ? { domain: input.domain } : {}),
+        ...(input.path ? { path: input.path } : {}),
+        ...(input.secure !== undefined ? { secure: input.secure } : {}),
+        ...(input.httpOnly !== undefined ? { httpOnly: input.httpOnly } : {}),
+        ...(input.sameSite ? { sameSite: input.sameSite } : {}),
+        ...(input.expirationDate !== undefined ? { expirationDate: input.expirationDate } : {}),
+      });
+      emitStorage(input.tabId);
+    },
+
+    deleteCookie: async (input) => {
+      const entry = getTabEntry(input.tabId);
+      await manager.deleteCookieForOrigin({
+        profileId: entry.profileId as any,
+        url: `https://${input.domain.replace(/^\./, "")}${input.path}`,
+        name: input.name,
+        domain: input.domain,
+        path: input.path,
+      });
+      emitStorage(input.tabId);
+    },
+
+    getStorage,
+
+    setStorageEntry: async (input) => {
+      if (input.kind === "indexedDb") {
+        throw new Error("IndexedDB entries are read-only in this browser workbench version.");
+      }
+      if (input.kind === "localStorage") {
+        await manager.setLocalStorageItem({
+          profileId: getTabEntry(input.tabId).profileId as any,
+          origin: input.origin,
+          tabId: input.tabId,
+          key: input.key,
+          value: input.value,
+        });
+      } else {
+        await manager.setLiveSessionStorageItem({
+          tabId: input.tabId,
+          origin: input.origin,
+          key: input.key,
+          value: input.value,
+        });
+      }
+      emitStorage(input.tabId);
+    },
+
+    deleteStorageEntry: async (input) => {
+      if (input.kind === "indexedDb") {
+        throw new Error("IndexedDB entries are read-only in this browser workbench version.");
+      }
+      if (input.kind === "localStorage") {
+        await manager.deleteLocalStorageItem({
+          profileId: getTabEntry(input.tabId).profileId as any,
+          origin: input.origin,
+          tabId: input.tabId,
+          key: input.key,
+        });
+      } else {
+        await manager.deleteLiveSessionStorageItem({
+          tabId: input.tabId,
+          origin: input.origin,
+          key: input.key,
+        });
+      }
+      emitStorage(input.tabId);
+    },
+
+    listStorageOrigins: (profileId) => listOriginsForProfile(profileId),
+
+    captureStorageOrigin: async (input) => {
+      const catalogEntry =
+        originCatalog.get(storageOriginCatalogKey(input.profileId, input.origin)) ??
+        upsertStorageOriginCatalogEntry(originCatalog, {
+          profileId: input.profileId,
+          origin: input.origin,
+          lastDocumentUrl:
+            findOpenTabForOrigin(
+              input.profileId,
+              input.origin,
+              input.tabId,
+            )?.view.webContents.getURL() ?? toOriginUrl(input.origin),
+          timestamp: nowIso(),
+        });
+      await persistCookieSnapshot(
+        input.profileId,
+        input.origin,
+        "manual",
+        input.tabId,
+        catalogEntry.lastDocumentUrl ?? undefined,
+      );
+      await persistLocalStorageSnapshot(
+        input.profileId,
+        input.origin,
+        "manual",
+        input.tabId,
+        catalogEntry.lastDocumentUrl ?? undefined,
+      );
+      if (input.tabId) {
+        await archiveSessionStorageSnapshot(input.tabId, "manual");
+      }
+    },
+
+    getApplicableCookies: async (input) => readApplicableCookies(input.profileId, input.origin),
+
+    setCookieForOrigin: async (input) => {
+      const targetSession = ensureSession(input.profileId);
+      const details: Electron.CookiesSetDetails = {
+        url: input.url,
+        name: input.name,
+        value: input.value,
+      };
+      if (input.domain) {
+        details.domain = input.domain;
+      }
+      if (input.path) {
+        details.path = input.path;
+      }
+      if (input.secure !== undefined) {
+        details.secure = input.secure;
+      }
+      if (input.httpOnly !== undefined) {
+        details.httpOnly = input.httpOnly;
+      }
+      if (
+        input.sameSite === "unspecified" ||
+        input.sameSite === "no_restriction" ||
+        input.sameSite === "lax" ||
+        input.sameSite === "strict"
+      ) {
+        details.sameSite = input.sameSite;
+      }
+      if (input.expirationDate !== undefined) {
+        details.expirationDate = input.expirationDate;
+      }
+      await targetSession.cookies.set(details);
+      const catalogEntry = noteOrigin(input.profileId, input.url);
+      const origin = parseUrl(input.url).origin;
+      await persistCookieSnapshot(
+        input.profileId,
+        origin,
+        "mutation",
+        undefined,
+        catalogEntry?.lastDocumentUrl ?? input.url,
+      );
+      emitStorageEvent({
+        type: "cookies.updated",
+        profileId: input.profileId,
+        origin,
+        areaKind: "cookies",
+        timestamp: nowIso(),
+      });
+    },
+
+    deleteCookieForOrigin: async (input) => {
+      const targetSession = ensureSession(input.profileId);
+      await targetSession.cookies.remove(input.url, input.name);
+      const origin = parseUrl(input.url).origin;
+      await persistCookieSnapshot(input.profileId, origin, "mutation", undefined, input.url);
+      emitStorageEvent({
+        type: "cookies.updated",
+        profileId: input.profileId,
+        origin,
+        areaKind: "cookies",
+        timestamp: nowIso(),
+      });
+    },
+
+    getLocalStorage: async (input) =>
+      readDomStorageEntries({
+        profileId: input.profileId,
+        origin: input.origin,
+        preferredTabId: input.tabId,
+        kind: "localStorage",
+        allowUtilityTarget: true,
+      }),
+
+    setLocalStorageItem: async (input) => {
+      await writeDomStorage({
+        profileId: input.profileId,
+        origin: input.origin,
+        preferredTabId: input.tabId,
+        kind: "localStorage",
+        mode: "set",
+        key: input.key,
+        value: input.value,
+        allowUtilityTarget: true,
+      });
+      await persistLocalStorageSnapshot(
+        input.profileId,
+        input.origin,
+        "mutation",
+        input.tabId,
+        findOpenTabForOrigin(input.profileId, input.origin, input.tabId)?.view.webContents.getURL(),
+      );
+      emitStorageEvent({
+        type: "localStorage.updated",
+        profileId: input.profileId,
+        origin: input.origin,
+        areaKind: "localStorage",
+        ...(input.tabId ? { tabId: input.tabId } : {}),
+        timestamp: nowIso(),
+      });
+    },
+
+    deleteLocalStorageItem: async (input) => {
+      await writeDomStorage({
+        profileId: input.profileId,
+        origin: input.origin,
+        preferredTabId: input.tabId,
+        kind: "localStorage",
+        mode: "delete",
+        key: input.key,
+        allowUtilityTarget: true,
+      });
+      await persistLocalStorageSnapshot(
+        input.profileId,
+        input.origin,
+        "mutation",
+        input.tabId,
+        findOpenTabForOrigin(input.profileId, input.origin, input.tabId)?.view.webContents.getURL(),
+      );
+      emitStorageEvent({
+        type: "localStorage.updated",
+        profileId: input.profileId,
+        origin: input.origin,
+        areaKind: "localStorage",
+        ...(input.tabId ? { tabId: input.tabId } : {}),
+        timestamp: nowIso(),
+      });
+    },
+
+    clearLocalStorage: async (input) => {
+      await writeDomStorage({
+        profileId: input.profileId,
+        origin: input.origin,
+        preferredTabId: input.tabId,
+        kind: "localStorage",
+        mode: "clear",
+        allowUtilityTarget: true,
+      });
+      await persistLocalStorageSnapshot(
+        input.profileId,
+        input.origin,
+        "mutation",
+        input.tabId,
+        findOpenTabForOrigin(input.profileId, input.origin, input.tabId)?.view.webContents.getURL(),
+      );
+      emitStorageEvent({
+        type: "localStorage.updated",
+        profileId: input.profileId,
+        origin: input.origin,
+        areaKind: "localStorage",
+        ...(input.tabId ? { tabId: input.tabId } : {}),
+        timestamp: nowIso(),
+      });
+    },
+
+    getLiveSessionStorage: async (input) =>
+      readDomStorageEntries({
+        profileId: getTabEntry(input.tabId).profileId,
+        origin: input.origin,
+        preferredTabId: input.tabId,
+        kind: "sessionStorage",
+        allowUtilityTarget: false,
+      }),
+
+    setLiveSessionStorageItem: async (input) => {
+      const profileId = getTabEntry(input.tabId).profileId;
+      await writeDomStorage({
+        profileId,
+        origin: input.origin,
+        preferredTabId: input.tabId,
+        kind: "sessionStorage",
+        mode: "set",
+        key: input.key,
+        value: input.value,
+        allowUtilityTarget: false,
+      });
+      await archiveSessionStorageSnapshot(input.tabId, "mutation");
+      emitStorageEvent({
+        type: "sessionStorage.liveUpdated",
+        profileId: profileId as any,
+        origin: input.origin,
+        areaKind: "sessionStorage",
+        tabId: input.tabId,
+        timestamp: nowIso(),
+      });
+    },
+
+    deleteLiveSessionStorageItem: async (input) => {
+      const profileId = getTabEntry(input.tabId).profileId;
+      await writeDomStorage({
+        profileId,
+        origin: input.origin,
+        preferredTabId: input.tabId,
+        kind: "sessionStorage",
+        mode: "delete",
+        key: input.key,
+        allowUtilityTarget: false,
+      });
+      await archiveSessionStorageSnapshot(input.tabId, "mutation");
+      emitStorageEvent({
+        type: "sessionStorage.liveUpdated",
+        profileId: profileId as any,
+        origin: input.origin,
+        areaKind: "sessionStorage",
+        tabId: input.tabId,
+        timestamp: nowIso(),
+      });
+    },
+
+    clearLiveSessionStorage: async (input) => {
+      const profileId = getTabEntry(input.tabId).profileId;
+      await writeDomStorage({
+        profileId,
+        origin: input.origin,
+        preferredTabId: input.tabId,
+        kind: "sessionStorage",
+        mode: "clear",
+        allowUtilityTarget: false,
+      });
+      await archiveSessionStorageSnapshot(input.tabId, "mutation");
+      emitStorageEvent({
+        type: "sessionStorage.liveUpdated",
+        profileId: profileId as any,
+        origin: input.origin,
+        areaKind: "sessionStorage",
+        tabId: input.tabId,
+        timestamp: nowIso(),
+      });
+    },
+
+    listSessionStorageSnapshots: (profileId, origin) =>
+      [...archivedSessionSnapshots.values()]
+        .map((snapshot) => snapshot.summary)
+        .filter((snapshot) => snapshot.profileId === profileId && snapshot.origin === origin)
+        .toSorted((left, right) => right.capturedAt.localeCompare(left.capturedAt)),
+
+    getSessionStorageSnapshot: (input) =>
+      archivedSessionSnapshots.get(input.versionId)?.entries ?? [],
+
+    updateSessionStorageSnapshot: (input) => {
+      const existing = archivedSessionSnapshots.get(input.versionId);
+      if (!existing) {
+        throw new Error(`Session storage snapshot not found: ${input.versionId}`);
+      }
+      existing.entries = [...input.entries];
+      existing.summary = {
+        ...existing.summary,
+        capturedAt: nowIso(),
+        snapshotReason: "mutation",
+      };
+      emitStorageEvent({
+        type: "sessionStorage.snapshotUpdated",
+        profileId: existing.summary.profileId,
+        origin: existing.summary.origin,
+        areaKind: "sessionStorage",
+        ...(existing.summary.sourceTabId ? { tabId: existing.summary.sourceTabId } : {}),
+        versionId: input.versionId,
+        timestamp: nowIso(),
+      });
+    },
+
+    rehydrateSessionStorageSnapshot: async (input) => {
+      const snapshot = archivedSessionSnapshots.get(input.versionId);
+      if (!snapshot) {
+        throw new Error(`Session storage snapshot not found: ${input.versionId}`);
+      }
+      const destinationTabId =
+        input.destinationTabId ??
+        createTabForProfile(
+          snapshot.summary.profileId,
+          snapshot.summary.sourceUrl ?? snapshot.summary.origin,
+        ).tabId;
+      await writeDomStorage({
+        profileId: snapshot.summary.profileId,
+        origin: snapshot.summary.origin,
+        preferredTabId: destinationTabId,
+        kind: "sessionStorage",
+        mode: "clear",
+        allowUtilityTarget: false,
+      });
+      for (const entry of snapshot.entries) {
+        await writeDomStorage({
+          profileId: snapshot.summary.profileId,
+          origin: snapshot.summary.origin,
+          preferredTabId: destinationTabId,
+          kind: "sessionStorage",
+          mode: "set",
+          key: entry.key,
+          value: entry.value ?? "",
+          allowUtilityTarget: false,
+        });
+      }
+      getTabEntry(destinationTabId).view.webContents.reload();
+      void archiveSessionStorageSnapshot(destinationTabId, "rehydrate");
+      return { tabId: destinationTabId };
+    },
+
+    listOverrides: () => Array.from(overrides.values()),
+
+    createOverride: (input) => {
+      const { id: providedId, ...overrideInput } = input as TrafficLensOverrideInput & {
+        id?: string;
+      };
+      const timestamp = nowIso();
+      const override: TrafficLensOverride = {
+        ...overrideInput,
+        id: (providedId ?? randomUUID()) as any,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      overrides.set(override.id, override);
+      return override;
+    },
+
+    updateOverride: (id, input) => {
+      const existing = overrides.get(id);
+      if (!existing) {
+        throw new Error(`Override not found: ${id}`);
+      }
+      const updated: TrafficLensOverride = {
+        ...existing,
+        ...input,
+        id: existing.id,
+        createdAt: existing.createdAt,
+        updatedAt: nowIso(),
+      };
+      overrides.set(id, updated);
+      return updated;
+    },
+
+    deleteOverride: (id) => {
+      overrides.delete(id);
+    },
+
+    setOverrideEnabled: (id, enabled) => {
+      const existing = overrides.get(id);
+      if (!existing) {
+        throw new Error(`Override not found: ${id}`);
+      }
+      overrides.set(id, { ...existing, enabled, updatedAt: nowIso() });
+    },
+
+    onTabEvent: (listener) => {
+      tabListeners.push(listener);
+      return () => {
+        tabListeners = tabListeners.filter((candidate) => candidate !== listener);
+      };
+    },
+
+    onPausedEvent: (listener) => {
+      pausedListeners.push(listener);
+      return () => {
+        pausedListeners = pausedListeners.filter((candidate) => candidate !== listener);
+      };
+    },
+
+    onStorageChanged: (listener) => {
+      storageListeners.push(listener);
+      return () => {
+        storageListeners = storageListeners.filter((candidate) => candidate !== listener);
+      };
+    },
+
+    onStorageEvent: (listener) => {
+      storageEventListeners.push(listener);
+      return () => {
+        storageEventListeners = storageEventListeners.filter((candidate) => candidate !== listener);
+      };
+    },
+
+    stop: () => {
+      for (const pauseId of pausedRequests.keys()) {
+        removePausedRequest(pauseId);
+      }
+      for (const tabId of Array.from(activeTabs.keys())) {
+        try {
+          const entry = activeTabs.get(tabId);
+          if (!entry) {
+            continue;
+          }
+          try {
+            parentWindow.contentView.removeChildView(entry.view);
+          } catch {
+            // view may already be detached
+          }
+          entry.view.webContents.close();
+        } catch {
+          // ignore shutdown races
+        }
+      }
+      activeTabs.clear();
+      pausedRequests.clear();
+      originCatalog.clear();
+      archivedSessionSnapshots.clear();
+      tabListeners = [];
+      pausedListeners = [];
+      storageListeners = [];
+      storageEventListeners = [];
+      for (const target of utilityTargets.values()) {
+        try {
+          target.webContents.close();
+        } catch {
+          // ignore shutdown races
+        }
+      }
+      utilityTargets.clear();
+    },
   };
+
+  return manager;
 }

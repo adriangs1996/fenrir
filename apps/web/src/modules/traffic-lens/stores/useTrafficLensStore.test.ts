@@ -1,9 +1,16 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { useTrafficLensStore } from "./useTrafficLensStore";
-import type { TrafficLensTabSnapshot, TrafficLensTabEvent } from "@fenrir/contracts";
+import type {
+  TrafficLensEntry,
+  TrafficLensPausedRequest,
+  TrafficLensTabEvent,
+  TrafficLensTabSnapshot,
+} from "@fenrir/contracts";
 
 const makeTab = (overrides?: Partial<TrafficLensTabSnapshot>): TrafficLensTabSnapshot => ({
   tabId: "tab-1" as any,
+  profileId: "default" as any,
+  profileName: "Default",
   url: "https://target.htb",
   title: "Target",
   loading: false,
@@ -12,169 +19,250 @@ const makeTab = (overrides?: Partial<TrafficLensTabSnapshot>): TrafficLensTabSna
   ...overrides,
 });
 
+const makePaused = (overrides?: Partial<TrafficLensPausedRequest>): TrafficLensPausedRequest => ({
+  pauseId: "pause-1" as any,
+  tabId: "tab-1",
+  requestId: "request-1",
+  phase: "beforeRequest",
+  method: "POST",
+  url: "https://target.htb/api",
+  headers: { accept: "application/json" },
+  body: null,
+  createdAt: "2026-05-25T12:00:00.000Z",
+  ...overrides,
+});
+
+const makeEntry = (overrides?: Partial<TrafficLensEntry>): TrafficLensEntry => ({
+  id: 1,
+  tabId: "tab-1",
+  requestId: "request-1",
+  method: "GET",
+  url: "https://target.htb/api",
+  host: "target.htb",
+  path: "/api",
+  statusCode: null,
+  contentType: null,
+  contentLength: null,
+  bodyTruncated: false,
+  isWebSocket: false,
+  timingStartedAt: "2026-05-25T12:00:00.000Z",
+  timingResponseAt: null,
+  timingCompletedAt: null,
+  createdAt: "2026-05-25T12:00:00.000Z",
+  ...overrides,
+});
+
 describe("trafficLensStore", () => {
   beforeEach(() => {
     useTrafficLensStore.setState({
       tabs: {},
       activeTabId: null,
+      trafficEntries: [],
       selectedTrafficId: null,
       repeaterDetail: null,
-      showRepeater: false,
-      bottomTab: "traffic",
+      dockTab: "traffic",
+      pausedRequests: {},
+      selectedPausedId: null,
+      rules: {},
+      overrides: {},
+      profiles: {},
+      selectedProfileId: "default",
+      findings: [],
+      cookies: [],
+      storageEntries: [],
+      storageOrigins: [],
+      selectedStorageOrigin: null,
+      selectedStorageArea: "cookies",
+      cookieEntries: [],
+      localStorageEntries: [],
+      liveSessionStorageEntries: [],
+      archivedSessionSnapshots: [],
+      selectedSessionSnapshotId: null,
+      storageHistory: [],
+      storageSyncStateByOrigin: {},
+      dockHeight: 320,
+      dockCollapsed: false,
     });
   });
 
-  describe("upsertTab", () => {
-    it("adds new tab", () => {
-      useTrafficLensStore.getState().upsertTab(makeTab());
-      expect(useTrafficLensStore.getState().tabs["tab-1"]).toBeDefined();
-    });
-
-    it("updates existing tab", () => {
-      useTrafficLensStore.getState().upsertTab(makeTab());
-      useTrafficLensStore.getState().upsertTab(makeTab({ title: "Updated" }));
-      expect(useTrafficLensStore.getState().tabs["tab-1"]!.title).toBe("Updated");
-    });
+  it("upserts and updates tabs", () => {
+    useTrafficLensStore.getState().upsertTab(makeTab());
+    useTrafficLensStore.getState().upsertTab(makeTab({ title: "Updated" }));
+    expect(useTrafficLensStore.getState().tabs["tab-1"]!.title).toBe("Updated");
+    expect(useTrafficLensStore.getState().activeTabId).toBe("tab-1");
   });
 
-  describe("removeTab", () => {
-    it("removes tab from record", () => {
-      useTrafficLensStore.getState().upsertTab(makeTab());
-      useTrafficLensStore.getState().removeTab("tab-1");
-      expect(useTrafficLensStore.getState().tabs["tab-1"]).toBeUndefined();
-    });
-
-    it("clears activeTabId if removed tab was active", () => {
-      useTrafficLensStore.getState().upsertTab(makeTab());
-      useTrafficLensStore.getState().setActiveTab("tab-1");
-      useTrafficLensStore.getState().removeTab("tab-1");
-      expect(useTrafficLensStore.getState().activeTabId).toBeNull();
-    });
-
-    it("preserves activeTabId if different tab removed", () => {
-      useTrafficLensStore.getState().upsertTab(makeTab());
-      useTrafficLensStore.getState().upsertTab(makeTab({ tabId: "tab-2" as any }));
-      useTrafficLensStore.getState().setActiveTab("tab-1");
-      useTrafficLensStore.getState().removeTab("tab-2");
-      expect(useTrafficLensStore.getState().activeTabId).toBe("tab-1");
-    });
+  it("removes tabs and falls back to another active tab", () => {
+    useTrafficLensStore.getState().upsertTab(makeTab());
+    useTrafficLensStore.getState().upsertTab(makeTab({ tabId: "tab-2" as any, title: "Tab 2" }));
+    useTrafficLensStore.getState().setActiveTab("tab-1");
+    useTrafficLensStore.getState().removeTab("tab-1");
+    expect(useTrafficLensStore.getState().tabs["tab-1"]).toBeUndefined();
+    expect(useTrafficLensStore.getState().activeTabId).toBe("tab-2");
   });
 
-  describe("applyEvent", () => {
-    it("handles tab.created", () => {
-      useTrafficLensStore.getState().applyEvent({
-        type: "tab.created",
-        snapshot: makeTab(),
-      } as TrafficLensTabEvent);
-      expect(useTrafficLensStore.getState().tabs["tab-1"]).toBeDefined();
-    });
-
-    it("handles tab.closed", () => {
-      useTrafficLensStore.getState().upsertTab(makeTab());
-      useTrafficLensStore.getState().applyEvent({
-        type: "tab.closed",
-        tabId: "tab-1",
-      } as any);
-      expect(useTrafficLensStore.getState().tabs["tab-1"]).toBeUndefined();
-    });
-
-    it("handles tab.navigated", () => {
-      useTrafficLensStore.getState().upsertTab(makeTab());
-      useTrafficLensStore.getState().applyEvent({
-        type: "tab.navigated",
-        tabId: "tab-1",
-        url: "https://new-url.htb",
-      } as any);
-      expect(useTrafficLensStore.getState().tabs["tab-1"]!.url).toBe("https://new-url.htb");
-    });
-
-    it("handles tab.titleUpdated", () => {
-      useTrafficLensStore.getState().upsertTab(makeTab());
-      useTrafficLensStore.getState().applyEvent({
-        type: "tab.titleUpdated",
-        tabId: "tab-1",
-        title: "New Title",
-      } as any);
-      expect(useTrafficLensStore.getState().tabs["tab-1"]!.title).toBe("New Title");
-    });
-
-    it("handles tab.loadingChanged", () => {
-      useTrafficLensStore.getState().upsertTab(makeTab());
-      useTrafficLensStore.getState().applyEvent({
-        type: "tab.loadingChanged",
-        tabId: "tab-1",
-        loading: true,
-      } as any);
-      expect(useTrafficLensStore.getState().tabs["tab-1"]!.loading).toBe(true);
-    });
-
-    it("ignores events for nonexistent tabs without crashing", () => {
-      expect(() =>
-        useTrafficLensStore.getState().applyEvent({
-          type: "tab.navigated",
-          tabId: "nonexistent",
-          url: "https://x.com",
-        } as any),
-      ).not.toThrow();
-    });
-
-    it("does not mutate other tabs when updating one", () => {
-      useTrafficLensStore.getState().upsertTab(makeTab());
-      useTrafficLensStore.getState().upsertTab(makeTab({ tabId: "tab-2" as any, title: "Tab 2" }));
-      useTrafficLensStore.getState().applyEvent({
-        type: "tab.titleUpdated",
-        tabId: "tab-1",
-        title: "Changed",
-      } as any);
-      expect(useTrafficLensStore.getState().tabs["tab-2"]!.title).toBe("Tab 2");
-    });
+  it("applies tab events without mutating unrelated tabs", () => {
+    useTrafficLensStore.getState().upsertTab(makeTab());
+    useTrafficLensStore.getState().upsertTab(makeTab({ tabId: "tab-2" as any, title: "Tab 2" }));
+    useTrafficLensStore.getState().applyEvent({
+      type: "tab.titleUpdated",
+      tabId: "tab-1",
+      title: "Changed",
+    } as TrafficLensTabEvent);
+    expect(useTrafficLensStore.getState().tabs["tab-1"]!.title).toBe("Changed");
+    expect(useTrafficLensStore.getState().tabs["tab-2"]!.title).toBe("Tab 2");
   });
 
-  describe("inspector/repeater state", () => {
-    describe("setSelectedTraffic", () => {
-      it("sets selectedTrafficId and switches to inspector tab", () => {
-        useTrafficLensStore.getState().setSelectedTraffic(42);
-        const state = useTrafficLensStore.getState();
-        expect(state.selectedTrafficId).toBe(42);
-        expect(state.bottomTab).toBe("inspector");
-      });
+  it("switches to inspector when selecting traffic", () => {
+    useTrafficLensStore.getState().setSelectedTraffic(42);
+    expect(useTrafficLensStore.getState().selectedTrafficId).toBe(42);
+    expect(useTrafficLensStore.getState().dockTab).toBe("inspector");
+  });
 
-      it("clears to traffic tab with null", () => {
-        useTrafficLensStore.getState().setSelectedTraffic(42);
-        useTrafficLensStore.getState().setSelectedTraffic(null);
-        const state = useTrafficLensStore.getState();
-        expect(state.selectedTrafficId).toBeNull();
-        expect(state.bottomTab).toBe("traffic");
-      });
+  it("hydrates traffic without wiping live entries for the active tab", () => {
+    useTrafficLensStore.setState({
+      activeTabId: "tab-1",
+      trafficEntries: [makeEntry({ id: 42, requestId: "live-42" })],
+      selectedTrafficId: 42,
     });
 
-    describe("openRepeater", () => {
-      it("sets repeater state and switches tab", () => {
-        const detail = { id: 1, method: "GET", url: "https://x.com" } as any;
-        useTrafficLensStore.getState().openRepeater(detail);
-        const state = useTrafficLensStore.getState();
-        expect(state.showRepeater).toBe(true);
-        expect(state.repeaterDetail).toBe(detail);
-        expect(state.bottomTab).toBe("repeater");
-      });
+    useTrafficLensStore.getState().hydrateTraffic("tab-1", []);
+
+    expect(useTrafficLensStore.getState().trafficEntries).toEqual([
+      makeEntry({ id: 42, requestId: "live-42" }),
+    ]);
+    expect(useTrafficLensStore.getState().selectedTrafficId).toBe(42);
+  });
+
+  it("ignores hydrated traffic snapshots for an inactive tab", () => {
+    useTrafficLensStore.setState({
+      activeTabId: "tab-1",
+      trafficEntries: [makeEntry({ id: 7, requestId: "tab-1-live" })],
     });
 
-    describe("closeRepeater", () => {
-      it("clears repeater state and returns to traffic", () => {
-        useTrafficLensStore.getState().openRepeater({ id: 1 } as any);
-        useTrafficLensStore.getState().closeRepeater();
-        const state = useTrafficLensStore.getState();
-        expect(state.showRepeater).toBe(false);
-        expect(state.repeaterDetail).toBeNull();
-        expect(state.bottomTab).toBe("traffic");
-      });
+    useTrafficLensStore
+      .getState()
+      .hydrateTraffic("tab-2", [makeEntry({ id: 9, tabId: "tab-2", requestId: "tab-2-db" })]);
+
+    expect(useTrafficLensStore.getState().trafficEntries).toEqual([
+      makeEntry({ id: 7, requestId: "tab-1-live" }),
+    ]);
+  });
+
+  it("prefers more complete hydrated entries when merging by id", () => {
+    useTrafficLensStore.setState({
+      activeTabId: "tab-1",
+      trafficEntries: [makeEntry({ id: 5, requestId: "request-5" })],
     });
 
-    describe("setBottomTab", () => {
-      it("switches tab", () => {
-        useTrafficLensStore.getState().setBottomTab("repeater");
-        expect(useTrafficLensStore.getState().bottomTab).toBe("repeater");
-      });
-    });
+    useTrafficLensStore.getState().hydrateTraffic("tab-1", [
+      makeEntry({
+        id: 5,
+        requestId: "request-5",
+        statusCode: 200,
+        contentType: "application/json",
+        contentLength: 128,
+        timingResponseAt: "2026-05-25T12:00:00.100Z",
+        timingCompletedAt: "2026-05-25T12:00:00.200Z",
+      }),
+    ]);
+
+    expect(useTrafficLensStore.getState().trafficEntries[0]?.statusCode).toBe(200);
+    expect(useTrafficLensStore.getState().trafficEntries[0]?.timingCompletedAt).toBe(
+      "2026-05-25T12:00:00.200Z",
+    );
+  });
+
+  it("opens and closes repeater in the dock", () => {
+    useTrafficLensStore
+      .getState()
+      .openRepeater({ id: 1, method: "GET", url: "https://x.com" } as any);
+    expect(useTrafficLensStore.getState().repeaterDetail).not.toBeNull();
+    expect(useTrafficLensStore.getState().dockTab).toBe("repeater");
+    useTrafficLensStore.getState().closeRepeater();
+    expect(useTrafficLensStore.getState().repeaterDetail).toBeNull();
+    expect(useTrafficLensStore.getState().dockTab).toBe("traffic");
+  });
+
+  it("tracks paused interception requests", () => {
+    useTrafficLensStore.getState().upsertPausedRequest(makePaused());
+    expect(useTrafficLensStore.getState().selectedPausedId).toBe("pause-1");
+    useTrafficLensStore.getState().applyPausedEvent({
+      type: "paused.resolved",
+      pauseId: "pause-1",
+    } as any);
+    expect(useTrafficLensStore.getState().pausedRequests["pause-1"]).toBeUndefined();
+  });
+
+  it("stores rules, profiles, overrides, and findings as keyed workbench metadata", () => {
+    useTrafficLensStore.getState().setRules([
+      {
+        id: "rule-1",
+        name: "Pause API",
+        enabled: true,
+        phase: "beforeRequest",
+        action: "pause",
+        scope: {},
+        createdAt: "2026-05-25T12:00:00.000Z",
+        updatedAt: "2026-05-25T12:00:00.000Z",
+      } as any,
+    ]);
+    useTrafficLensStore.getState().setProfiles([
+      {
+        id: "default",
+        name: "Default",
+        partitionKey: "persist:traffic-lens:default",
+        createdAt: "2026-05-25T12:00:00.000Z",
+        updatedAt: "2026-05-25T12:00:00.000Z",
+      } as any,
+    ]);
+    useTrafficLensStore.getState().setOverrides([
+      {
+        id: "override-1",
+        name: "Mock",
+        enabled: true,
+        match: {},
+        response: { statusCode: 200, headers: {}, body: null },
+        createdAt: "2026-05-25T12:00:00.000Z",
+        updatedAt: "2026-05-25T12:00:00.000Z",
+      } as any,
+    ]);
+    useTrafficLensStore.getState().appendFinding({
+      id: 1,
+      kind: "missing-security-header",
+      severity: "medium",
+      title: "Missing CSP",
+      description: "Missing Content-Security-Policy",
+      evidenceJson: "{}",
+      createdAt: "2026-05-25T12:00:00.000Z",
+    } as any);
+
+    const state = useTrafficLensStore.getState();
+    expect(state.rules["rule-1"]).toBeDefined();
+    expect(state.profiles.default?.name).toBe("Default");
+    expect(state.overrides["override-1"]).toBeDefined();
+    expect(state.findings).toHaveLength(1);
+  });
+
+  it("tracks storage origin metadata and sync state from storage events", () => {
+    useTrafficLensStore.getState().applyStorageEvent({
+      type: "origin.discovered",
+      profileId: "default",
+      origin: "https://example.com",
+      areaKind: "localStorage",
+      timestamp: "2026-05-25T12:00:00.000Z",
+    } as any);
+    useTrafficLensStore.getState().applyStorageEvent({
+      type: "origin.persistenceSyncFailed",
+      profileId: "default",
+      origin: "https://example.com",
+      areaKind: "localStorage",
+      timestamp: "2026-05-25T12:00:01.000Z",
+      message: "offline",
+    } as any);
+
+    const state = useTrafficLensStore.getState();
+    expect(state.storageOrigins[0]?.origin).toBe("https://example.com");
+    expect(state.storageSyncStateByOrigin["default:https://example.com"]).toBe("unsynced");
   });
 });

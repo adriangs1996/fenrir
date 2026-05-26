@@ -103,6 +103,7 @@ import { ManagedProcessManager } from "./managedProcess/Services/Manager";
 import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager";
 import { RawTcpListenerService } from "./raw-tcp/Services/RawTcpListenerService";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService";
+import { TrafficLensStorageService } from "./traffic-lens-storage/Services/TrafficLensStorageService";
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner";
 import type { TrafficLensEvent } from "@fenrir/contracts";
 import { resolveManagedProcessCwd } from "@fenrir/shared/projectScripts";
@@ -184,6 +185,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const tmuxSessionManager = yield* TmuxSessionManager;
       const rawTcpListenerService = yield* RawTcpListenerService;
       const trafficLensService = yield* TrafficLensService;
+      const trafficLensStorageService = yield* TrafficLensStorageService;
       const planRunnerService = yield* PlanRunnerService;
       const skillService = yield* SkillService;
       const managedProcessManager = yield* ManagedProcessManager;
@@ -1384,6 +1386,124 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(
             WS_METHODS.trafficLensReplayRequest,
             trafficLensService.replayRequest(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensListFindings]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensListFindings,
+            trafficLensService.listFindings(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensListRules]: (_input) =>
+          observeRpcEffect(WS_METHODS.trafficLensListRules, trafficLensService.listRules(), {
+            "rpc.aggregate": "trafficLens",
+          }),
+
+        [WS_METHODS.trafficLensUpsertRule]: (input) =>
+          observeRpcEffect(WS_METHODS.trafficLensUpsertRule, trafficLensService.upsertRule(input), {
+            "rpc.aggregate": "trafficLens",
+          }),
+
+        [WS_METHODS.trafficLensDeleteRule]: (input) =>
+          observeRpcEffect(WS_METHODS.trafficLensDeleteRule, trafficLensService.deleteRule(input), {
+            "rpc.aggregate": "trafficLens",
+          }),
+
+        [WS_METHODS.trafficLensListOverrides]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensListOverrides,
+            trafficLensService.listOverrides(),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensUpsertOverride]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensUpsertOverride,
+            trafficLensService.upsertOverride(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensDeleteOverride]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensDeleteOverride,
+            trafficLensService.deleteOverride(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensListProfiles]: (_input) =>
+          observeRpcEffect(WS_METHODS.trafficLensListProfiles, trafficLensService.listProfiles(), {
+            "rpc.aggregate": "trafficLens",
+          }),
+
+        [WS_METHODS.trafficLensUpsertProfile]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensUpsertProfile,
+            trafficLensService.upsertProfile(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensDeleteProfile]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensDeleteProfile,
+            trafficLensService.deleteProfile(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensListStorageOrigins]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensListStorageOrigins,
+            trafficLensStorageService.listOrigins(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensGetCookieSnapshot]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensGetCookieSnapshot,
+            trafficLensStorageService.getCookieSnapshot(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensGetLocalStorageSnapshot]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensGetLocalStorageSnapshot,
+            trafficLensStorageService.getLocalStorageSnapshot(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensListSessionStorageSnapshots]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensListSessionStorageSnapshots,
+            trafficLensStorageService.listSessionStorageSnapshots(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensGetSessionStorageSnapshot]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensGetSessionStorageSnapshot,
+            trafficLensStorageService.getSessionStorageSnapshot(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensUpdateSessionStorageSnapshot]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensUpdateSessionStorageSnapshot,
+            trafficLensStorageService.updateSessionStorageSnapshot(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensGetStorageVersions]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensGetStorageVersions,
+            trafficLensStorageService.getStorageVersions(input),
+            { "rpc.aggregate": "trafficLens" },
+          ),
+
+        [WS_METHODS.trafficLensClearPersistedOrigin]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.trafficLensClearPersistedOrigin,
+            trafficLensStorageService.clearPersistedOrigin(input),
             { "rpc.aggregate": "trafficLens" },
           ),
 

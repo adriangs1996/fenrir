@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { cn } from "../../../lib/utils";
 import { BodyViewer } from "./BodyViewer";
 import { getPrimaryEnvironmentConnection } from "../../../environments/runtime/service";
+import { parseHeadersJson } from "../httpSerialization";
 import type { TrafficLensDetail } from "@fenrir/contracts";
 
 interface TrafficLensInspectorProps {
@@ -28,23 +29,6 @@ function statusColor(code: number | null): string {
   if (code >= 400 && code < 500) return "text-orange-500";
   if (code >= 500) return "text-red-500";
   return "text-muted-foreground";
-}
-
-function parseHeaders(json: string | null): Record<string, string> {
-  if (!json) return {};
-  try {
-    const parsed = JSON.parse(json);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const out: Record<string, string> = {};
-      for (const [k, v] of Object.entries(parsed)) {
-        out[k] = typeof v === "string" ? v : String(v);
-      }
-      return out;
-    }
-    return {};
-  } catch {
-    return {};
-  }
 }
 
 interface TabButtonProps {
@@ -140,8 +124,8 @@ export function TrafficLensInspector({ trafficId, onSendToRepeater }: TrafficLen
     );
   }
 
-  const requestHeaders = parseHeaders(detail.requestHeadersJson);
-  const responseHeaders = parseHeaders(detail.responseHeadersJson);
+  const requestHeaders = parseHeadersJson(detail.requestHeadersJson);
+  const responseHeaders = parseHeadersJson(detail.responseHeadersJson);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

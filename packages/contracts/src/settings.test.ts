@@ -119,7 +119,7 @@ describe("additional provider settings schemas", () => {
     const decoded = Schema.decodeSync(CursorSettings)({});
     expect(decoded).toEqual({
       enabled: false,
-      binaryPath: "cursor-agent",
+      binaryPath: "agent",
       apiEndpoint: "",
       customModels: [],
     });

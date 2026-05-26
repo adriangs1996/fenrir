@@ -246,6 +246,9 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     trafficLensCreateTab: async () => {
       throw new Error("trafficLensCreateTab not implemented in test");
     },
+    trafficLensCreateTabInProfile: async () => {
+      throw new Error("trafficLensCreateTabInProfile not implemented in test");
+    },
     trafficLensCloseTab: async () => undefined,
     trafficLensNavigate: async () => undefined,
     trafficLensGoBack: async () => undefined,
@@ -255,7 +258,62 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     trafficLensSetBounds: async () => undefined,
     trafficLensShowTab: async () => undefined,
     trafficLensHideAllTabs: async () => undefined,
+    trafficLensListRules: async () => [],
+    trafficLensCreateRule: async () => {
+      throw new Error("trafficLensCreateRule not implemented in test");
+    },
+    trafficLensUpdateRule: async () => {
+      throw new Error("trafficLensUpdateRule not implemented in test");
+    },
+    trafficLensDeleteRule: async () => undefined,
+    trafficLensSetRuleEnabled: async () => undefined,
+    trafficLensListPaused: async () => [],
+    trafficLensContinuePaused: async () => undefined,
+    trafficLensDropPaused: async () => undefined,
+    trafficLensListProfiles: async () => [],
+    trafficLensCreateProfile: async () => {
+      throw new Error("trafficLensCreateProfile not implemented in test");
+    },
+    trafficLensUpdateProfile: async () => {
+      throw new Error("trafficLensUpdateProfile not implemented in test");
+    },
+    trafficLensDeleteProfile: async () => undefined,
+    trafficLensGetCookies: async () => [],
+    trafficLensSetCookie: async () => undefined,
+    trafficLensDeleteCookie: async () => undefined,
+    trafficLensGetStorage: async () => [],
+    trafficLensSetStorageEntry: async () => undefined,
+    trafficLensDeleteStorageEntry: async () => undefined,
+    trafficLensListStorageOrigins: async () => [],
+    trafficLensCaptureStorageOrigin: async () => undefined,
+    trafficLensGetApplicableCookies: async () => [],
+    trafficLensSetCookieForOrigin: async () => undefined,
+    trafficLensDeleteCookieForOrigin: async () => undefined,
+    trafficLensGetLocalStorage: async () => [],
+    trafficLensSetLocalStorageItem: async () => undefined,
+    trafficLensDeleteLocalStorageItem: async () => undefined,
+    trafficLensClearLocalStorage: async () => undefined,
+    trafficLensGetLiveSessionStorage: async () => [],
+    trafficLensSetLiveSessionStorageItem: async () => undefined,
+    trafficLensDeleteLiveSessionStorageItem: async () => undefined,
+    trafficLensClearLiveSessionStorage: async () => undefined,
+    trafficLensListSessionStorageSnapshots: async () => [],
+    trafficLensGetSessionStorageSnapshot: async () => [],
+    trafficLensUpdateSessionStorageSnapshot: async () => undefined,
+    trafficLensRehydrateSessionStorageSnapshot: async () => ({ tabId: "tab-1" }),
+    trafficLensListOverrides: async () => [],
+    trafficLensCreateOverride: async () => {
+      throw new Error("trafficLensCreateOverride not implemented in test");
+    },
+    trafficLensUpdateOverride: async () => {
+      throw new Error("trafficLensUpdateOverride not implemented in test");
+    },
+    trafficLensDeleteOverride: async () => undefined,
+    trafficLensSetOverrideEnabled: async () => undefined,
     onTrafficLensTabEvent: () => () => undefined,
+    onTrafficLensPausedEvent: () => () => undefined,
+    onTrafficLensStorageChanged: () => () => undefined,
+    onTrafficLensStorageEvent: () => () => undefined,
     neovimAttach: async () => undefined,
     neovimDetach: async () => undefined,
     neovimInput: async () => undefined,

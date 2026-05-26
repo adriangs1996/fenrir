@@ -9,6 +9,11 @@ export function useTrafficLensSync(rpcClient: WsRpcClient | null) {
     const unsubscribe = rpcClient.trafficLens.onEvent((event) => {
       if (event.type === "traffic.captured") {
         useTrafficLensStore.getState().appendTraffic(event.entry);
+        return;
+      }
+
+      if (event.type === "finding.created") {
+        useTrafficLensStore.getState().appendFinding(event.finding);
       }
     });
 

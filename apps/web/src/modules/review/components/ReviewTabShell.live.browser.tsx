@@ -154,6 +154,9 @@ function createLiveDesktopBridgeStub(config: LiveReviewBrowserConfig): DesktopBr
     pickFile: vi.fn().mockResolvedValue(null),
     onVpnStateChange: () => () => {},
     trafficLensCreateTab: vi.fn().mockRejectedValue(new Error("Traffic Lens unavailable in test")),
+    trafficLensCreateTabInProfile: vi
+      .fn()
+      .mockRejectedValue(new Error("Traffic Lens unavailable in test")),
     trafficLensCloseTab: vi.fn().mockResolvedValue(undefined),
     trafficLensNavigate: vi.fn().mockResolvedValue(undefined),
     trafficLensGoBack: vi.fn().mockResolvedValue(undefined),
@@ -163,7 +166,60 @@ function createLiveDesktopBridgeStub(config: LiveReviewBrowserConfig): DesktopBr
     trafficLensSetBounds: vi.fn().mockResolvedValue(undefined),
     trafficLensShowTab: vi.fn().mockResolvedValue(undefined),
     trafficLensHideAllTabs: vi.fn().mockResolvedValue(undefined),
+    trafficLensListRules: vi.fn().mockResolvedValue([]),
+    trafficLensCreateRule: vi.fn().mockRejectedValue(new Error("Traffic Lens unavailable in test")),
+    trafficLensUpdateRule: vi.fn().mockRejectedValue(new Error("Traffic Lens unavailable in test")),
+    trafficLensDeleteRule: vi.fn().mockResolvedValue(undefined),
+    trafficLensSetRuleEnabled: vi.fn().mockResolvedValue(undefined),
+    trafficLensListPaused: vi.fn().mockResolvedValue([]),
+    trafficLensContinuePaused: vi.fn().mockResolvedValue(undefined),
+    trafficLensDropPaused: vi.fn().mockResolvedValue(undefined),
+    trafficLensListProfiles: vi.fn().mockResolvedValue([]),
+    trafficLensCreateProfile: vi
+      .fn()
+      .mockRejectedValue(new Error("Traffic Lens unavailable in test")),
+    trafficLensUpdateProfile: vi
+      .fn()
+      .mockRejectedValue(new Error("Traffic Lens unavailable in test")),
+    trafficLensDeleteProfile: vi.fn().mockResolvedValue(undefined),
+    trafficLensGetCookies: vi.fn().mockResolvedValue([]),
+    trafficLensSetCookie: vi.fn().mockResolvedValue(undefined),
+    trafficLensDeleteCookie: vi.fn().mockResolvedValue(undefined),
+    trafficLensGetStorage: vi.fn().mockResolvedValue([]),
+    trafficLensSetStorageEntry: vi.fn().mockResolvedValue(undefined),
+    trafficLensDeleteStorageEntry: vi.fn().mockResolvedValue(undefined),
+    trafficLensListStorageOrigins: vi.fn().mockResolvedValue([]),
+    trafficLensCaptureStorageOrigin: vi.fn().mockResolvedValue(undefined),
+    trafficLensGetApplicableCookies: vi.fn().mockResolvedValue([]),
+    trafficLensSetCookieForOrigin: vi.fn().mockResolvedValue(undefined),
+    trafficLensDeleteCookieForOrigin: vi.fn().mockResolvedValue(undefined),
+    trafficLensGetLocalStorage: vi.fn().mockResolvedValue([]),
+    trafficLensSetLocalStorageItem: vi.fn().mockResolvedValue(undefined),
+    trafficLensDeleteLocalStorageItem: vi.fn().mockResolvedValue(undefined),
+    trafficLensClearLocalStorage: vi.fn().mockResolvedValue(undefined),
+    trafficLensGetLiveSessionStorage: vi.fn().mockResolvedValue([]),
+    trafficLensSetLiveSessionStorageItem: vi.fn().mockResolvedValue(undefined),
+    trafficLensDeleteLiveSessionStorageItem: vi.fn().mockResolvedValue(undefined),
+    trafficLensClearLiveSessionStorage: vi.fn().mockResolvedValue(undefined),
+    trafficLensListSessionStorageSnapshots: vi.fn().mockResolvedValue([]),
+    trafficLensGetSessionStorageSnapshot: vi.fn().mockResolvedValue([]),
+    trafficLensUpdateSessionStorageSnapshot: vi.fn().mockResolvedValue(undefined),
+    trafficLensRehydrateSessionStorageSnapshot: vi
+      .fn()
+      .mockResolvedValue({ tabId: "traffic-lens-tab-1" }),
+    trafficLensListOverrides: vi.fn().mockResolvedValue([]),
+    trafficLensCreateOverride: vi
+      .fn()
+      .mockRejectedValue(new Error("Traffic Lens unavailable in test")),
+    trafficLensUpdateOverride: vi
+      .fn()
+      .mockRejectedValue(new Error("Traffic Lens unavailable in test")),
+    trafficLensDeleteOverride: vi.fn().mockResolvedValue(undefined),
+    trafficLensSetOverrideEnabled: vi.fn().mockResolvedValue(undefined),
     onTrafficLensTabEvent: () => () => {},
+    onTrafficLensPausedEvent: () => () => {},
+    onTrafficLensStorageChanged: () => () => {},
+    onTrafficLensStorageEvent: () => () => {},
     neovimAttach: vi.fn().mockResolvedValue(undefined),
     neovimDetach: vi.fn().mockResolvedValue(undefined),
     neovimInput: vi.fn().mockResolvedValue(undefined),

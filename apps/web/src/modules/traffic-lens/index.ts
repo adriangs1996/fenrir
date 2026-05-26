@@ -14,3 +14,8 @@ export { TrafficLensTable } from "./components/TrafficLensTable";
 // Public components (Phase 3)
 export { TrafficLensInspector } from "./components/TrafficLensInspector";
 export { TrafficLensRepeater } from "./components/TrafficLensRepeater";
+export { InterceptPanel } from "./components/InterceptPanel";
+export { OverridesPanel } from "./components/OverridesPanel";
+export { StoragePanel } from "./components/StoragePanel";
+export { ProfilePanel } from "./components/ProfilePanel";
+export { FindingsPanel } from "./components/FindingsPanel";
