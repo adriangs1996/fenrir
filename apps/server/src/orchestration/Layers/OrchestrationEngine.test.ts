@@ -140,15 +140,54 @@ describe("OrchestrationEngine", () => {
       ],
       managedProcessInstances: [],
     };
+    const bootstrapSnapshot = {
+      snapshotSequence: projectionSnapshot.snapshotSequence,
+      updatedAt: projectionSnapshot.updatedAt,
+      projects: projectionSnapshot.projects,
+      threads: [
+        {
+          id: ThreadId.makeUnsafe("thread-bootstrap"),
+          projectId: asProjectId("project-bootstrap"),
+          title: "Bootstrap Thread",
+          modelSelection: {
+            provider: "codex" as const,
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "full-access" as const,
+          branch: null,
+          worktreePath: null,
+          latestTurn: null,
+          createdAt: "2026-03-03T00:00:02.000Z",
+          updatedAt: "2026-03-03T00:00:03.000Z",
+          archivedAt: null,
+          session: null,
+          latestUserMessageAt: null,
+          hasPendingApprovals: false,
+          hasPendingUserInput: false,
+          hasActionableProposedPlan: false,
+        },
+      ],
+      managedProcessInstances: [],
+    };
+    const archivedShellSnapshot = {
+      snapshotSequence: projectionSnapshot.snapshotSequence,
+      updatedAt: projectionSnapshot.updatedAt,
+      projects: [],
+      threads: [],
+    };
 
     const layer = OrchestrationEngineLive.pipe(
       Layer.provide(
         Layer.succeed(ProjectionSnapshotQuery, {
-          getBootstrapSnapshot: () => Effect.succeed(projectionSnapshot),
+          getBootstrapSnapshot: () => Effect.succeed(bootstrapSnapshot),
+          getArchivedShellSnapshot: () => Effect.succeed(archivedShellSnapshot),
           getSnapshot: () => Effect.succeed(projectionSnapshot),
           getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+          getProjectShellById: () => Effect.succeed(Option.none()),
+          getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadSnapshot: () => Effect.succeed(Option.some(projectionSnapshot.threads[0]!)),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
         }),

@@ -8,6 +8,7 @@ import { getFallbackThreadIdAfterDelete } from "../components/Sidebar.logic";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { ensureEnvironmentApi, readEnvironmentApi } from "../environmentApi";
+import { refreshArchivedThreadsForEnvironment } from "../lib/archivedThreadsState";
 import { invalidateGitQueries } from "../lib/gitReactQuery";
 import { newCommandId } from "../lib/utils";
 import { readLocalApi } from "../localApi";
@@ -67,6 +68,7 @@ export function useThreadActions() {
         commandId: newCommandId(),
         threadId: threadRef.threadId,
       });
+      refreshArchivedThreadsForEnvironment(threadRef.environmentId);
       const currentRouteThreadRef = getCurrentRouteThreadRef();
 
       if (
@@ -87,6 +89,13 @@ export function useThreadActions() {
       commandId: newCommandId(),
       threadId: target.threadId,
     });
+    refreshArchivedThreadsForEnvironment(target.environmentId);
+    const thread = await api.orchestration.getThreadSnapshot({
+      threadId: target.threadId,
+    });
+    if (thread) {
+      useStore.getState().syncThreadSnapshot(thread, target.environmentId);
+    }
   }, []);
 
   const deleteThread = useCallback(
@@ -94,8 +103,11 @@ export function useThreadActions() {
       const api = readEnvironmentApi(target.environmentId);
       if (!api) return;
       const resolved = resolveThreadTarget(target);
-      if (!resolved) return;
-      const { thread, threadRef } = resolved;
+      const thread =
+        resolved?.thread ??
+        (await api.orchestration.getThreadSnapshot({ threadId: target.threadId }));
+      if (!thread) return;
+      const threadRef = resolved?.threadRef ?? target;
       const state = useStore.getState();
       const threads = selectThreadsForEnvironment(state, threadRef.environmentId);
       const threadProject = selectProjectByRef(state, {
@@ -169,6 +181,7 @@ export function useThreadActions() {
         commandId: newCommandId(),
         threadId: threadRef.threadId,
       });
+      refreshArchivedThreadsForEnvironment(threadRef.environmentId);
       clearComposerDraftForThread(threadRef);
       clearProjectDraftThreadById(
         scopeProjectRef(threadRef.environmentId, thread.projectId),
@@ -244,8 +257,10 @@ export function useThreadActions() {
       if (!api) return;
       const localApi = readLocalApi();
       const resolved = resolveThreadTarget(target);
-      if (!resolved) return;
-      const { thread } = resolved;
+      const thread =
+        resolved?.thread ??
+        (await api.orchestration.getThreadSnapshot({ threadId: target.threadId }));
+      if (!thread) return;
 
       if (confirmThreadDelete && localApi) {
         const confirmed = await localApi.dialogs.confirm(

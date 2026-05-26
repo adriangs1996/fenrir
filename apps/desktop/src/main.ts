@@ -132,6 +132,8 @@ const TRAFFIC_LENS_GO_BACK_CHANNEL = "desktop:traffic-lens-go-back";
 const TRAFFIC_LENS_GO_FORWARD_CHANNEL = "desktop:traffic-lens-go-forward";
 const TRAFFIC_LENS_RELOAD_CHANNEL = "desktop:traffic-lens-reload";
 const TRAFFIC_LENS_GET_TABS_CHANNEL = "desktop:traffic-lens-get-tabs";
+const TRAFFIC_LENS_SET_TAB_VIEW_MODE_CHANNEL = "desktop:traffic-lens-set-tab-view-mode";
+const TRAFFIC_LENS_SET_TAB_MOBILE_PRESET_CHANNEL = "desktop:traffic-lens-set-tab-mobile-preset";
 const TRAFFIC_LENS_SET_BOUNDS_CHANNEL = "desktop:traffic-lens-set-bounds";
 const TRAFFIC_LENS_SHOW_TAB_CHANNEL = "desktop:traffic-lens-show-tab";
 const TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL = "desktop:traffic-lens-hide-all-tabs";
@@ -1974,6 +1976,44 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(TRAFFIC_LENS_GET_TABS_CHANNEL);
   ipcMain.handle(TRAFFIC_LENS_GET_TABS_CHANNEL, async () => ensureTrafficLensManager().getTabs());
+
+  ipcMain.removeHandler(TRAFFIC_LENS_SET_TAB_VIEW_MODE_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_SET_TAB_VIEW_MODE_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid tab view mode payload.");
+    }
+    const payload = input as Record<string, unknown>;
+    if (
+      typeof payload.tabId !== "string" ||
+      (payload.viewMode !== "desktop" && payload.viewMode !== "mobile")
+    ) {
+      throw new Error("Invalid tab view mode payload.");
+    }
+    return ensureTrafficLensManager().setTabViewMode({
+      tabId: payload.tabId as any,
+      viewMode: payload.viewMode,
+    });
+  });
+
+  ipcMain.removeHandler(TRAFFIC_LENS_SET_TAB_MOBILE_PRESET_CHANNEL);
+  ipcMain.handle(TRAFFIC_LENS_SET_TAB_MOBILE_PRESET_CHANNEL, async (_event, input: unknown) => {
+    if (typeof input !== "object" || input === null) {
+      throw new Error("Invalid tab mobile preset payload.");
+    }
+    const payload = input as Record<string, unknown>;
+    if (
+      typeof payload.tabId !== "string" ||
+      (payload.mobilePreset !== "iphone-15-pro" &&
+        payload.mobilePreset !== "pixel-8" &&
+        payload.mobilePreset !== "ipad-mini")
+    ) {
+      throw new Error("Invalid tab mobile preset payload.");
+    }
+    return ensureTrafficLensManager().setTabMobilePreset({
+      tabId: payload.tabId as any,
+      mobilePreset: payload.mobilePreset,
+    });
+  });
 
   ipcMain.removeHandler(TRAFFIC_LENS_SET_BOUNDS_CHANNEL);
   ipcMain.handle(

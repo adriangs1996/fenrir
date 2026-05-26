@@ -16,6 +16,8 @@ const makeTab = (overrides?: Partial<TrafficLensTabSnapshot>): TrafficLensTabSna
   loading: false,
   canGoBack: false,
   canGoForward: false,
+  viewMode: "desktop",
+  mobilePreset: "iphone-15-pro",
   ...overrides,
 });
 
@@ -111,6 +113,30 @@ describe("trafficLensStore", () => {
     } as TrafficLensTabEvent);
     expect(useTrafficLensStore.getState().tabs["tab-1"]!.title).toBe("Changed");
     expect(useTrafficLensStore.getState().tabs["tab-2"]!.title).toBe("Tab 2");
+  });
+
+  it("applies tab view mode events to the active tab snapshot", () => {
+    useTrafficLensStore.getState().upsertTab(makeTab());
+
+    useTrafficLensStore.getState().applyEvent({
+      type: "tab.viewModeChanged",
+      tabId: "tab-1",
+      viewMode: "mobile",
+    } as TrafficLensTabEvent);
+
+    expect(useTrafficLensStore.getState().tabs["tab-1"]!.viewMode).toBe("mobile");
+  });
+
+  it("applies tab mobile preset events to the active tab snapshot", () => {
+    useTrafficLensStore.getState().upsertTab(makeTab());
+
+    useTrafficLensStore.getState().applyEvent({
+      type: "tab.mobilePresetChanged",
+      tabId: "tab-1",
+      mobilePreset: "pixel-8",
+    } as TrafficLensTabEvent);
+
+    expect(useTrafficLensStore.getState().tabs["tab-1"]!.mobilePreset).toBe("pixel-8");
   });
 
   it("switches to inspector when selecting traffic", () => {

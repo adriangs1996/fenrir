@@ -294,7 +294,7 @@ export function resolveThreadRowClassName(input: {
   if (input.isSelected && input.isActive) {
     return cn(
       baseClassName,
-      "bg-primary/22 text-foreground font-medium ring-1 ring-inset ring-info/35 hover:bg-primary/26 hover:text-foreground dark:bg-primary/30 dark:hover:bg-primary/36 dark:ring-info/45",
+      "bg-primary/22 text-foreground font-medium hover:bg-primary/26 hover:text-foreground dark:bg-primary/30 dark:hover:bg-primary/36",
     );
   }
 
@@ -306,10 +306,7 @@ export function resolveThreadRowClassName(input: {
   }
 
   if (input.isActive) {
-    return cn(
-      baseClassName,
-      "bg-info/10 text-foreground font-medium ring-1 ring-inset ring-info/35 hover:bg-info/14 hover:text-foreground dark:bg-info/16 dark:hover:bg-info/22 dark:ring-info/45",
-    );
+    return cn(baseClassName, "text-foreground");
   }
 
   return cn(baseClassName, "text-muted-foreground hover:bg-accent hover:text-foreground");

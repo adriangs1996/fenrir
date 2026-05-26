@@ -620,6 +620,22 @@ export const WsOrchestrationGetBootstrapSnapshotRpc = Rpc.make(
   },
 );
 
+export const WsOrchestrationGetArchivedShellSnapshotRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot,
+  {
+    payload: OrchestrationRpcSchemas.getArchivedShellSnapshot.input,
+    success: OrchestrationRpcSchemas.getArchivedShellSnapshot.output,
+    error: OrchestrationGetSnapshotError,
+  },
+);
+
+export const WsOrchestrationSubscribeShellRpc = Rpc.make(ORCHESTRATION_WS_METHODS.subscribeShell, {
+  payload: OrchestrationRpcSchemas.subscribeShell.input,
+  success: OrchestrationRpcSchemas.subscribeShell.output,
+  error: OrchestrationGetSnapshotError,
+  stream: true,
+});
+
 export const WsOrchestrationGetSnapshotRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getSnapshot, {
   payload: OrchestrationGetSnapshotInput,
   success: OrchestrationRpcSchemas.getSnapshot.output,
@@ -1356,6 +1372,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerLifecycleRpc,
   WsSubscribeAuthAccessRpc,
   WsOrchestrationGetBootstrapSnapshotRpc,
+  WsOrchestrationGetArchivedShellSnapshotRpc,
+  WsOrchestrationSubscribeShellRpc,
   WsOrchestrationGetSnapshotRpc,
   WsOrchestrationGetThreadSnapshotRpc,
   WsOrchestrationDispatchCommandRpc,
@@ -1423,6 +1441,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsManagedProcessDeleteDefinitionRpc,
   WsManagedProcessSubscribeLogRpc,
   WsManagedProcessProposedImportsRpc,
+  WsOrchestrationSubscribeShellRpc,
   WsServerListSkillsRpc,
   WsServerGetSkillDetailsRpc,
   WsServerCreateSkillRpc,

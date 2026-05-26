@@ -43,6 +43,7 @@ import { useTheme } from "../../hooks/useTheme";
 import { useFonts } from "../../hooks/useFonts";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
+import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import {
   setDesktopUpdateStateQueryData,
   useDesktopUpdateState,
@@ -56,11 +57,7 @@ import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { getProviderSnapshot } from "../../providerModels";
 import { THEME_OPTIONS, isTheme } from "../../lib/theme";
 import { useShallow } from "zustand/react/shallow";
-import {
-  selectProjectsAcrossEnvironments,
-  selectThreadShellsAcrossEnvironments,
-  useStore,
-} from "../../store";
+import { selectProjectsAcrossEnvironments, useStore } from "../../store";
 import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -2254,30 +2251,79 @@ export function GeneralSettingsPanel() {
 
 export function ArchivedThreadsPanel() {
   const projects = useStore(useShallow(selectProjectsAcrossEnvironments));
-  const threads = useStore(useShallow(selectThreadShellsAcrossEnvironments));
   const { unarchiveThread, confirmAndDeleteThread } = useThreadActions();
   // Internal plan-runner threads are persisted but never user-browsable —
   // hide them from the archive panel even if archivedAt is non-null.
   const internalPlanRunnerThreadIds = useInternalPlanRunnerThreadIds();
+  const environmentIds = useMemo(
+    () => [...new Set(projects.map((project) => project.environmentId))],
+    [projects],
+  );
+  const {
+    snapshots: archivedSnapshots,
+    error: archivedThreadsError,
+    isLoading: archivedThreadsLoading,
+    refresh: refreshArchivedThreads,
+  } = useArchivedThreadSnapshots(environmentIds);
   const archivedGroups = useMemo(() => {
-    return projects
-      .map((project) => ({
+    const projectByKey = new Map<string, (typeof projects)[number]>(
+      projects.map((project) => [`${project.environmentId}:${project.id}`, project] as const),
+    );
+    const threadsByProjectKey = new Map<
+      string,
+      Array<
+        (typeof archivedSnapshots)[number]["snapshot"]["threads"][number] & {
+          readonly environmentId: (typeof archivedSnapshots)[number]["environmentId"];
+        }
+      >
+    >();
+
+    for (const entry of archivedSnapshots) {
+      for (const project of entry.snapshot.projects) {
+        const key = `${entry.environmentId}:${project.id}`;
+        if (projectByKey.has(key)) {
+          continue;
+        }
+        projectByKey.set(key, {
+          id: project.id,
+          environmentId: entry.environmentId,
+          name: project.title,
+          cwd: project.workspaceRoot,
+          repositoryIdentity: project.repositoryIdentity ?? null,
+          defaultModelSelection: project.defaultModelSelection,
+          createdAt: project.createdAt,
+          updatedAt: project.updatedAt,
+          scripts: [...project.scripts],
+          managedProcesses: [...(project.managedProcesses ?? [])],
+          globalScriptDefaults: [...(project.globalScriptDefaults ?? [])],
+        });
+      }
+
+      for (const thread of entry.snapshot.threads) {
+        if (internalPlanRunnerThreadIds.has(thread.id)) {
+          continue;
+        }
+        const key = `${entry.environmentId}:${thread.projectId}`;
+        const projectThreads = threadsByProjectKey.get(key) ?? [];
+        projectThreads.push({
+          ...thread,
+          environmentId: entry.environmentId,
+        });
+        threadsByProjectKey.set(key, projectThreads);
+      }
+    }
+
+    return [...projectByKey.entries()]
+      .map(([key, project]) => ({
         project,
-        threads: threads
-          .filter(
-            (thread) =>
-              thread.projectId === project.id &&
-              thread.archivedAt !== null &&
-              !internalPlanRunnerThreadIds.has(thread.id),
-          )
-          .toSorted((left, right) => {
-            const leftKey = left.archivedAt ?? left.createdAt;
-            const rightKey = right.archivedAt ?? right.createdAt;
-            return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
-          }),
+        threads: [...(threadsByProjectKey.get(key) ?? [])].toSorted((left, right) => {
+          const leftKey = left.archivedAt ?? left.createdAt;
+          const rightKey = right.archivedAt ?? right.createdAt;
+          return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
+        }),
       }))
       .filter((group) => group.threads.length > 0);
-  }, [projects, threads, internalPlanRunnerThreadIds]);
+  }, [archivedSnapshots, internalPlanRunnerThreadIds, projects]);
 
   const handleArchivedThreadContextMenu = useCallback(
     async (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {
@@ -2313,6 +2359,16 @@ export function ArchivedThreadsPanel() {
 
   return (
     <SettingsPageContainer>
+      {archivedThreadsError ? (
+        <SettingsSection title="Archived threads">
+          <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-4 first:border-t-0 sm:px-5">
+            <p className="text-sm text-destructive">{archivedThreadsError}</p>
+            <Button type="button" size="sm" variant="outline" onClick={refreshArchivedThreads}>
+              Retry
+            </Button>
+          </div>
+        </SettingsSection>
+      ) : null}
       {archivedGroups.length === 0 ? (
         <SettingsSection title="Archived threads">
           <Empty className="min-h-88">
@@ -2321,7 +2377,11 @@ export function ArchivedThreadsPanel() {
             </EmptyMedia>
             <EmptyHeader>
               <EmptyTitle>No archived threads</EmptyTitle>
-              <EmptyDescription>Archived threads will appear here.</EmptyDescription>
+              <EmptyDescription>
+                {archivedThreadsLoading
+                  ? "Loading archived threads..."
+                  : "Archived threads will appear here."}
+              </EmptyDescription>
             </EmptyHeader>
           </Empty>
         </SettingsSection>

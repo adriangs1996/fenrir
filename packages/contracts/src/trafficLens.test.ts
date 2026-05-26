@@ -15,7 +15,11 @@ import {
   TrafficLensStorageEntry,
   TrafficLensStorageOriginSummary,
   TrafficLensTabEvent,
+  TrafficLensSetTabMobilePresetInput,
   TrafficLensTabSnapshot,
+  TrafficLensMobilePreset,
+  TrafficLensSetTabViewModeInput,
+  TrafficLensViewMode,
   TrafficLensOverride,
   TrafficLensFinding,
 } from "./trafficLens";
@@ -39,6 +43,10 @@ const decodeArchivedSessionStorageSummary = Schema.decodeUnknownSync(
   TrafficLensArchivedSessionStorageSummary,
 );
 const decodeStorageEvent = Schema.decodeUnknownSync(TrafficLensStorageEvent);
+const decodeSetTabViewModeInput = Schema.decodeUnknownSync(TrafficLensSetTabViewModeInput);
+const decodeSetTabMobilePresetInput = Schema.decodeUnknownSync(TrafficLensSetTabMobilePresetInput);
+const decodeMobilePreset = Schema.decodeUnknownSync(TrafficLensMobilePreset);
+const decodeViewMode = Schema.decodeUnknownSync(TrafficLensViewMode);
 
 describe("TrafficLensTabSnapshot", () => {
   it("accepts a valid tab snapshot", () => {
@@ -51,9 +59,12 @@ describe("TrafficLensTabSnapshot", () => {
       canGoForward: false,
       profileId: "default",
       profileName: "Default",
+      viewMode: "desktop",
+      mobilePreset: "iphone-15-pro",
     });
     expect(parsed.tabId).toBe("abc-123");
     expect(parsed.profileName).toBe("Default");
+    expect(parsed.viewMode).toBe("desktop");
   });
 
   it("rejects snapshot missing required fields", () => {
@@ -86,6 +97,8 @@ describe("TrafficLensTabEvent", () => {
         canGoForward: false,
         profileId: "default",
         profileName: "Default",
+        viewMode: "desktop",
+        mobilePreset: "iphone-15-pro",
       },
     });
     expect(event.type).toBe("tab.created");
@@ -94,6 +107,59 @@ describe("TrafficLensTabEvent", () => {
   it("decodes tab.closed event", () => {
     const event = decodeTabEvent({ type: "tab.closed", tabId: "t1" });
     expect(event.type).toBe("tab.closed");
+  });
+
+  it("decodes tab.viewModeChanged event", () => {
+    const event = decodeTabEvent({
+      type: "tab.viewModeChanged",
+      tabId: "t1",
+      viewMode: "mobile",
+    });
+    expect(event.type).toBe("tab.viewModeChanged");
+  });
+
+  it("decodes tab.mobilePresetChanged event", () => {
+    const event = decodeTabEvent({
+      type: "tab.mobilePresetChanged",
+      tabId: "t1",
+      mobilePreset: "pixel-8",
+    });
+    expect(event.type).toBe("tab.mobilePresetChanged");
+  });
+});
+
+describe("TrafficLensViewMode", () => {
+  it("accepts valid view modes", () => {
+    expect(decodeViewMode("desktop")).toBe("desktop");
+    expect(decodeViewMode("mobile")).toBe("mobile");
+  });
+});
+
+describe("TrafficLensMobilePreset", () => {
+  it("accepts valid mobile presets", () => {
+    expect(decodeMobilePreset("iphone-15-pro")).toBe("iphone-15-pro");
+    expect(decodeMobilePreset("pixel-8")).toBe("pixel-8");
+    expect(decodeMobilePreset("ipad-mini")).toBe("ipad-mini");
+  });
+});
+
+describe("TrafficLensSetTabViewModeInput", () => {
+  it("accepts valid tab view mode input", () => {
+    const input = decodeSetTabViewModeInput({
+      tabId: "tab-1",
+      viewMode: "mobile",
+    });
+    expect(input.viewMode).toBe("mobile");
+  });
+});
+
+describe("TrafficLensSetTabMobilePresetInput", () => {
+  it("accepts valid tab mobile preset input", () => {
+    const input = decodeSetTabMobilePresetInput({
+      tabId: "tab-1",
+      mobilePreset: "ipad-mini",
+    });
+    expect(input.mobilePreset).toBe("ipad-mini");
   });
 });
 

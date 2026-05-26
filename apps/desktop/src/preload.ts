@@ -46,6 +46,8 @@ const TRAFFIC_LENS_GO_BACK_CHANNEL = "desktop:traffic-lens-go-back";
 const TRAFFIC_LENS_GO_FORWARD_CHANNEL = "desktop:traffic-lens-go-forward";
 const TRAFFIC_LENS_RELOAD_CHANNEL = "desktop:traffic-lens-reload";
 const TRAFFIC_LENS_GET_TABS_CHANNEL = "desktop:traffic-lens-get-tabs";
+const TRAFFIC_LENS_SET_TAB_VIEW_MODE_CHANNEL = "desktop:traffic-lens-set-tab-view-mode";
+const TRAFFIC_LENS_SET_TAB_MOBILE_PRESET_CHANNEL = "desktop:traffic-lens-set-tab-mobile-preset";
 const TRAFFIC_LENS_SET_BOUNDS_CHANNEL = "desktop:traffic-lens-set-bounds";
 const TRAFFIC_LENS_SHOW_TAB_CHANNEL = "desktop:traffic-lens-show-tab";
 const TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL = "desktop:traffic-lens-hide-all-tabs";
@@ -243,6 +245,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(TRAFFIC_LENS_GO_FORWARD_CHANNEL, tabId),
   trafficLensReload: (tabId: string) => ipcRenderer.invoke(TRAFFIC_LENS_RELOAD_CHANNEL, tabId),
   trafficLensGetTabs: () => ipcRenderer.invoke(TRAFFIC_LENS_GET_TABS_CHANNEL),
+  trafficLensSetTabViewMode: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_SET_TAB_VIEW_MODE_CHANNEL, input),
+  trafficLensSetTabMobilePreset: (input) =>
+    ipcRenderer.invoke(TRAFFIC_LENS_SET_TAB_MOBILE_PRESET_CHANNEL, input),
   trafficLensSetBounds: (
     tabId: string,
     bounds: { x: number; y: number; width: number; height: number },

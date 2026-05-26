@@ -34,6 +34,7 @@ function registerListener<T>(listeners: Set<(event: T) => void>, listener: (even
 
 const terminalEventListeners = new Set<(event: TerminalEvent) => void>();
 const orchestrationEventListeners = new Set<(event: OrchestrationEvent) => void>();
+const orchestrationShellListeners = new Set<(item: unknown) => void>();
 const gitStatusListeners = new Set<(event: GitStatusResult) => void>();
 
 const rpcClientMock = {
@@ -105,6 +106,11 @@ const rpcClientMock = {
     subscribeAuthAccess: vi.fn(),
   },
   orchestration: {
+    getArchivedShellSnapshot: vi.fn(),
+    subscribeShell: vi.fn((listener: (item: unknown) => void) =>
+      registerListener(orchestrationShellListeners, listener),
+    ),
+    getThreadSnapshot: vi.fn(),
     getSnapshot: vi.fn(),
     dispatchCommand: vi.fn(),
     getTurnDiff: vi.fn(),
@@ -255,6 +261,12 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     trafficLensGoForward: async () => undefined,
     trafficLensReload: async () => undefined,
     trafficLensGetTabs: async () => [],
+    trafficLensSetTabViewMode: async () => {
+      throw new Error("trafficLensSetTabViewMode not implemented in test");
+    },
+    trafficLensSetTabMobilePreset: async () => {
+      throw new Error("trafficLensSetTabMobilePreset not implemented in test");
+    },
     trafficLensSetBounds: async () => undefined,
     trafficLensShowTab: async () => undefined,
     trafficLensHideAllTabs: async () => undefined,

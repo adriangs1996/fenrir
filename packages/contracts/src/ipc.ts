@@ -58,12 +58,16 @@ import type { ServerRemoveKeybindingInput, ServerUpsertKeybindingInput } from ".
 import type {
   ClientOrchestrationCommand,
   GlobalScript,
+  OrchestrationGetThreadSnapshotInput,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
   OrchestrationGetTurnDiffResult,
   OrchestrationEvent,
   OrchestrationReadModel,
+  OrchestrationShellSnapshot,
+  OrchestrationShellStreamItem,
+  OrchestrationThread,
   ProjectScriptIcon,
 } from "./orchestration";
 import type { EnvironmentId } from "./baseSchemas";
@@ -106,6 +110,8 @@ import type {
   TrafficLensStorageEvent,
   TrafficLensStorageEntry,
   TrafficLensStorageOriginSummary,
+  TrafficLensSetTabMobilePresetInput,
+  TrafficLensSetTabViewModeInput,
   TrafficLensTabEvent,
   TrafficLensTabSnapshot,
   TrafficLensUpdateSessionStorageSnapshotInput,
@@ -311,6 +317,12 @@ export interface DesktopBridge {
   trafficLensGoForward: (tabId: string) => Promise<void>;
   trafficLensReload: (tabId: string) => Promise<void>;
   trafficLensGetTabs: () => Promise<readonly TrafficLensTabSnapshot[]>;
+  trafficLensSetTabViewMode: (
+    input: TrafficLensSetTabViewModeInput,
+  ) => Promise<TrafficLensTabSnapshot>;
+  trafficLensSetTabMobilePreset: (
+    input: TrafficLensSetTabMobilePresetInput,
+  ) => Promise<TrafficLensTabSnapshot>;
   trafficLensSetBounds: (
     tabId: string,
     bounds: { x: number; y: number; width: number; height: number },
@@ -705,6 +717,16 @@ export interface EnvironmentApi {
     ) => () => void;
   };
   orchestration: {
+    getArchivedShellSnapshot: () => Promise<OrchestrationShellSnapshot>;
+    subscribeShell: (
+      callback: (item: OrchestrationShellStreamItem) => void,
+      options?: {
+        onResubscribe?: () => void;
+      },
+    ) => () => void;
+    getThreadSnapshot: (
+      input: OrchestrationGetThreadSnapshotInput,
+    ) => Promise<OrchestrationThread | null>;
     getSnapshot: () => Promise<OrchestrationReadModel>;
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;

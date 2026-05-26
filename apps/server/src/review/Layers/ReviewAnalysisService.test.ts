@@ -179,10 +179,13 @@ function makeDependencies(state: {
 }): ReviewAnalysisDependencies {
   const projection: ProjectionSnapshotQueryShape = {
     getBootstrapSnapshot: () => Effect.die("unused"),
+    getArchivedShellSnapshot: () => Effect.die("unused"),
     getSnapshot: () => Effect.die("unused"),
     getCounts: () => Effect.die("unused"),
     getActiveProjectByWorkspaceRoot: () => Effect.die("unused"),
     getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
+    getProjectShellById: () => Effect.die("unused"),
+    getThreadShellById: () => Effect.die("unused"),
     getThreadSnapshot: () => Effect.succeed(Option.some(makeThread())),
     getThreadCheckpointContext: () => Effect.die("unused"),
   };

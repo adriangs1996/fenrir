@@ -184,6 +184,23 @@ export const useTrafficLensStore = create<TrafficLensState>((set) => ({
             tabs: { ...state.tabs, [event.tabId]: { ...existing, loading: event.loading } },
           };
         }
+        case "tab.viewModeChanged": {
+          const existing = state.tabs[event.tabId];
+          if (!existing) return state;
+          return {
+            tabs: { ...state.tabs, [event.tabId]: { ...existing, viewMode: event.viewMode } },
+          };
+        }
+        case "tab.mobilePresetChanged": {
+          const existing = state.tabs[event.tabId];
+          if (!existing) return state;
+          return {
+            tabs: {
+              ...state.tabs,
+              [event.tabId]: { ...existing, mobilePreset: event.mobilePreset },
+            },
+          };
+        }
         default:
           return state;
       }

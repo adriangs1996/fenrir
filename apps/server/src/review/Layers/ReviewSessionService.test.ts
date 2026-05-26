@@ -132,10 +132,13 @@ function makeServiceLayer(state: TestState, persistenceLayer: any) {
 
   const projectionLayer = Layer.mock(ProjectionSnapshotQuery)({
     getBootstrapSnapshot: () => Effect.succeed(makeReadModel(state.project, state.thread)),
+    getArchivedShellSnapshot: () => Effect.succeed(makeReadModel(state.project, state.thread)),
     getSnapshot: () => Effect.succeed(makeReadModel(state.project, state.thread)),
     getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),
     getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
     getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+    getProjectShellById: () => Effect.succeed(Option.none()),
+    getThreadShellById: () => Effect.succeed(Option.none()),
     getThreadSnapshot: (threadId) =>
       Effect.succeed(threadId === state.thread.id ? Option.some(state.thread) : Option.none()),
     getThreadCheckpointContext: () => Effect.succeed(Option.none()),
@@ -580,10 +583,13 @@ describe("ReviewSessionService", () => {
 
     const projectionLayer = Layer.mock(ProjectionSnapshotQuery)({
       getBootstrapSnapshot: () => Effect.succeed(makeReadModel(state.project, state.thread)),
+      getArchivedShellSnapshot: () => Effect.succeed(makeReadModel(state.project, state.thread)),
       getSnapshot: () => Effect.succeed(makeReadModel(state.project, state.thread)),
       getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),
       getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
       getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+      getProjectShellById: () => Effect.succeed(Option.none()),
+      getThreadShellById: () => Effect.succeed(Option.none()),
       getThreadSnapshot: (threadId) =>
         Effect.succeed(threadId === state.thread.id ? Option.some(state.thread) : Option.none()),
       getThreadCheckpointContext: () => Effect.succeed(Option.none()),

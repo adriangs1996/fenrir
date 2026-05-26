@@ -47,7 +47,7 @@ const BROWSER_LAB_DEFAULT_URL = "https://example.com";
 const BROWSER_LAB_DOCK_HEIGHT_KEY = "fenrir:browser-lab:dock-height";
 const BROWSER_LAB_DOCK_COLLAPSED_KEY = "fenrir:browser-lab:dock-collapsed";
 const MIN_DOCK_HEIGHT = 220;
-const MAX_DOCK_HEIGHT = 520;
+const MIN_BROWSER_STAGE_HEIGHT = 220;
 
 type BrowserLabBootstrapState = "booting" | "ready" | "error";
 
@@ -68,8 +68,9 @@ function ensureTrafficLensTabSnapshot(snapshot: unknown): {
   return snapshot as { tabId: string; url: string; title: string; loading: boolean };
 }
 
-function clampDockHeight(height: number): number {
-  return Math.max(MIN_DOCK_HEIGHT, Math.min(MAX_DOCK_HEIGHT, Math.round(height)));
+function clampDockHeight(height: number, maxHeight: number): number {
+  const safeMaxHeight = Math.max(MIN_DOCK_HEIGHT, Math.round(maxHeight));
+  return Math.max(MIN_DOCK_HEIGHT, Math.min(safeMaxHeight, Math.round(height)));
 }
 
 export function BrowserLabRouteView() {
@@ -108,6 +109,8 @@ export function BrowserLabRouteView() {
         : null,
   );
   const resizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const workbenchBodyRef = useRef<HTMLDivElement>(null);
+  const [maxDockHeight, setMaxDockHeight] = useState<number>(1024);
   const rpcClient = useMemo(() => {
     try {
       return getPrimaryEnvironmentConnection().client;
@@ -120,7 +123,7 @@ export function BrowserLabRouteView() {
   useEffect(() => {
     const storedHeight = getLocalStorageItem(BROWSER_LAB_DOCK_HEIGHT_KEY, Schema.Number);
     if (storedHeight !== null) {
-      setDockHeight(clampDockHeight(storedHeight));
+      setDockHeight(Math.max(MIN_DOCK_HEIGHT, Math.round(storedHeight)));
     }
     const storedCollapsed = getLocalStorageItem(BROWSER_LAB_DOCK_COLLAPSED_KEY, Schema.Boolean);
     if (storedCollapsed !== null) {
@@ -135,6 +138,33 @@ export function BrowserLabRouteView() {
   useEffect(() => {
     setLocalStorageItem(BROWSER_LAB_DOCK_COLLAPSED_KEY, dockCollapsed, Schema.Boolean);
   }, [dockCollapsed]);
+
+  useEffect(() => {
+    const element = workbenchBodyRef.current;
+    if (!element) {
+      return;
+    }
+
+    const updateMaxDockHeight = () => {
+      const nextMaxDockHeight = Math.max(
+        MIN_DOCK_HEIGHT,
+        Math.round(element.clientHeight - MIN_BROWSER_STAGE_HEIGHT),
+      );
+      setMaxDockHeight(nextMaxDockHeight);
+
+      const currentDockHeight = useTrafficLensStore.getState().dockHeight;
+      const clampedDockHeight = clampDockHeight(currentDockHeight, nextMaxDockHeight);
+      if (currentDockHeight !== clampedDockHeight) {
+        useTrafficLensStore.getState().setDockHeight(clampedDockHeight);
+      }
+    };
+
+    updateMaxDockHeight();
+
+    const observer = new ResizeObserver(updateMaxDockHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const handleCreateTab = useCallback(async () => {
     const bridge = window.desktopBridge;
@@ -390,6 +420,7 @@ export function BrowserLabRouteView() {
       }
       const nextHeight = clampDockHeight(
         resizeState.startHeight - (moveEvent.clientY - resizeState.startY),
+        maxDockHeight,
       );
       useTrafficLensStore.getState().setDockHeight(nextHeight);
     };
@@ -438,44 +469,51 @@ export function BrowserLabRouteView() {
 
         <div className="min-h-0 flex-1 overflow-hidden">
           {desktopBridgeAvailable && isMainWindow ? (
-            <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+            <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
               <TrafficLensTabBar onCreateTab={() => void handleCreateTab()} />
               <TrafficLensAddressBar onOpenExternal={handleOpenExternal} />
-              <div className="min-h-0 flex-1 bg-background">
-                {bootstrapState === "error" ? (
-                  <BrowserLabStateCard
-                    actionLabel="Try Again"
-                    description={bootstrapError ?? "The embedded browser could not be initialized."}
-                    onAction={() => void handleCreateTab()}
-                    title="Embedded browser unavailable"
-                  />
-                ) : bootstrapState === "booting" ? (
-                  <BrowserLabStateCard
-                    description="Initializing the Electron browser surface and restoring any existing tabs."
-                    title="Starting browser lab"
-                  />
-                ) : activeTabId === null ? (
-                  <BrowserLabStateCard
-                    actionLabel="Open First Tab"
-                    description="No embedded tab is active right now."
-                    onAction={() => void handleCreateTab()}
-                    title="No active browser tab"
-                  />
-                ) : (
-                  <TrafficLensViewContainer />
-                )}
+              <div
+                ref={workbenchBodyRef}
+                className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
+              >
+                <div className="relative z-0 min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
+                  {bootstrapState === "error" ? (
+                    <BrowserLabStateCard
+                      actionLabel="Try Again"
+                      description={
+                        bootstrapError ?? "The embedded browser could not be initialized."
+                      }
+                      onAction={() => void handleCreateTab()}
+                      title="Embedded browser unavailable"
+                    />
+                  ) : bootstrapState === "booting" ? (
+                    <BrowserLabStateCard
+                      description="Initializing the Electron browser surface and restoring any existing tabs."
+                      title="Starting browser lab"
+                    />
+                  ) : activeTabId === null ? (
+                    <BrowserLabStateCard
+                      actionLabel="Open First Tab"
+                      description="No embedded tab is active right now."
+                      onAction={() => void handleCreateTab()}
+                      title="No active browser tab"
+                    />
+                  ) : (
+                    <TrafficLensViewContainer />
+                  )}
+                </div>
+                <TrafficLensWorkbenchDock
+                  dockTab={dockTab}
+                  dockHeight={dockHeight}
+                  dockCollapsed={dockCollapsed}
+                  findingCount={findingCount}
+                  pausedCount={pausedCount}
+                  repeaterDetail={repeaterDetail}
+                  repeaterOpen={Boolean(repeaterDetail)}
+                  selectedTrafficId={selectedTrafficId}
+                  onResizeStart={startDockResize}
+                />
               </div>
-              <TrafficLensWorkbenchDock
-                dockTab={dockTab}
-                dockHeight={dockHeight}
-                dockCollapsed={dockCollapsed}
-                findingCount={findingCount}
-                pausedCount={pausedCount}
-                repeaterDetail={repeaterDetail}
-                repeaterOpen={Boolean(repeaterDetail)}
-                selectedTrafficId={selectedTrafficId}
-                onResizeStart={startDockResize}
-              />
             </section>
           ) : (
             <BrowserLabStateCard
@@ -509,7 +547,7 @@ function TrafficLensWorkbenchDock(props: {
 
   return (
     <div
-      className="shrink-0 border-t border-border bg-background/95 backdrop-blur-sm"
+      className="relative z-20 shrink-0 border-t border-border bg-background/95 shadow-[0_-18px_48px_rgba(0,0,0,0.24)] backdrop-blur-sm"
       style={{ height: props.dockCollapsed ? 44 : props.dockHeight }}
     >
       <button

@@ -163,6 +163,12 @@ function createLiveDesktopBridgeStub(config: LiveReviewBrowserConfig): DesktopBr
     trafficLensGoForward: vi.fn().mockResolvedValue(undefined),
     trafficLensReload: vi.fn().mockResolvedValue(undefined),
     trafficLensGetTabs: vi.fn().mockResolvedValue([]),
+    trafficLensSetTabViewMode: vi
+      .fn()
+      .mockRejectedValue(new Error("Traffic Lens unavailable in test")),
+    trafficLensSetTabMobilePreset: vi
+      .fn()
+      .mockRejectedValue(new Error("Traffic Lens unavailable in test")),
     trafficLensSetBounds: vi.fn().mockResolvedValue(undefined),
     trafficLensShowTab: vi.fn().mockResolvedValue(undefined),
     trafficLensHideAllTabs: vi.fn().mockResolvedValue(undefined),

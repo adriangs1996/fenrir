@@ -269,6 +269,10 @@ export interface WsRpcClient {
     readonly getBootstrapSnapshot: RpcUnaryNoArgMethod<
       typeof ORCHESTRATION_WS_METHODS.getBootstrapSnapshot
     >;
+    readonly getArchivedShellSnapshot: RpcUnaryNoArgMethod<
+      typeof ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot
+    >;
+    readonly subscribeShell: RpcStreamMethod<typeof ORCHESTRATION_WS_METHODS.subscribeShell>;
     readonly getSnapshot: RpcUnaryNoArgMethod<typeof ORCHESTRATION_WS_METHODS.getSnapshot>;
     readonly getThreadSnapshot: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getThreadSnapshot>;
     readonly dispatchCommand: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.dispatchCommand>;
@@ -636,6 +640,16 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
     orchestration: {
       getBootstrapSnapshot: () =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getBootstrapSnapshot]({})),
+      getArchivedShellSnapshot: () =>
+        transport.request((client) =>
+          client[ORCHESTRATION_WS_METHODS.getArchivedShellSnapshot]({}),
+        ),
+      subscribeShell: (listener, options) =>
+        transport.subscribe(
+          (client) => client[ORCHESTRATION_WS_METHODS.subscribeShell]({}),
+          listener,
+          options,
+        ),
       getSnapshot: () =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getSnapshot]({})),
       getThreadSnapshot: (input) =>

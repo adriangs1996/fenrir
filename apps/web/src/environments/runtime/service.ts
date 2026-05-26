@@ -1,8 +1,11 @@
 import {
   type AuthSessionRole,
   type EnvironmentId,
+  type OrchestrationBootstrapSnapshot,
   type OrchestrationEvent,
   type OrchestrationReadModel,
+  type OrchestrationShellSnapshot,
+  type OrchestrationShellStreamEvent,
   type ServerConfig,
   type TerminalEvent,
   ThreadId,
@@ -103,9 +106,12 @@ function compareAppliedProjectionVersion(
   return leftUpdatedAt < rightUpdatedAt ? -1 : 1;
 }
 
-function toAppliedProjectionVersion(
-  snapshot: Pick<OrchestrationReadModel, "snapshotSequence" | "updatedAt">,
-): {
+type ProjectionSnapshotVersion = Pick<
+  OrchestrationBootstrapSnapshot | OrchestrationReadModel | OrchestrationShellSnapshot,
+  "snapshotSequence" | "updatedAt"
+>;
+
+function toAppliedProjectionVersion(snapshot: ProjectionSnapshotVersion): {
   readonly sequence: number;
   readonly updatedAt: string;
 } {
@@ -120,7 +126,7 @@ export function shouldApplyProjectionSnapshot(input: {
     readonly sequence: number;
     readonly updatedAt: string | null;
   } | null;
-  readonly next: Pick<OrchestrationReadModel, "snapshotSequence" | "updatedAt">;
+  readonly next: ProjectionSnapshotVersion;
 }): boolean {
   if (input.current === null) {
     return true;
@@ -152,7 +158,7 @@ function readLastAppliedProjectionVersion(environmentId: EnvironmentId): {
 
 function markAppliedProjectionSnapshot(
   environmentId: EnvironmentId,
-  snapshot: Pick<OrchestrationReadModel, "snapshotSequence" | "updatedAt">,
+  snapshot: ProjectionSnapshotVersion,
 ): void {
   const nextVersion = toAppliedProjectionVersion(snapshot);
   const currentVersion = readLastAppliedProjectionVersion(environmentId);
@@ -381,8 +387,65 @@ function applyRecoveredEventBatch(
   }
 }
 
+function applyShellEvent(event: OrchestrationShellStreamEvent, environmentId: EnvironmentId) {
+  if (
+    !shouldApplyProjectionEvent({
+      current: readLastAppliedProjectionVersion(environmentId),
+      sequence: event.sequence,
+    })
+  ) {
+    return;
+  }
+
+  const threadId =
+    event.kind === "thread-upserted"
+      ? event.thread.id
+      : event.kind === "thread-removed"
+        ? event.threadId
+        : null;
+  const threadRef = threadId ? scopeThreadRef(environmentId, threadId) : null;
+  const previousThread = threadRef ? selectThreadByRef(useStore.getState(), threadRef) : undefined;
+
+  useStore.getState().applyShellEvent(event, environmentId);
+  markAppliedProjectionEvent(environmentId, event.sequence);
+
+  switch (event.kind) {
+    case "thread-upserted":
+      if (!previousThread && threadRef) {
+        markPromotedDraftThreadByRef(threadRef);
+      }
+      reconcileSnapshotDerivedState();
+      return;
+    case "thread-removed":
+      if (threadRef) {
+        useComposerDraftStore.getState().clearDraftThread(threadRef);
+        useUiStateStore.getState().clearThreadUi(scopedThreadKey(threadRef));
+        useTerminalStateStore.getState().removeTerminalState(threadRef);
+      }
+      reconcileSnapshotDerivedState();
+      return;
+    default:
+      reconcileSnapshotDerivedState();
+      return;
+  }
+}
+
 function createEnvironmentConnectionHandlers() {
   return {
+    syncShellSnapshot: (snapshot: OrchestrationShellSnapshot, environmentId: EnvironmentId) => {
+      if (
+        !shouldApplyProjectionSnapshot({
+          current: readLastAppliedProjectionVersion(environmentId),
+          next: snapshot,
+        })
+      ) {
+        return;
+      }
+      useStore.getState().syncServerShellSnapshot(snapshot, environmentId);
+      markAppliedProjectionSnapshot(environmentId, snapshot);
+      reconcileSnapshotDerivedState();
+    },
+    applyShellEvent,
     applyEventBatch: (events: ReadonlyArray<OrchestrationEvent>, environmentId: EnvironmentId) => {
       const filtered = events.filter((event) =>
         shouldApplyProjectionEvent({
@@ -398,7 +461,7 @@ function createEnvironmentConnectionHandlers() {
       }
     },
     syncSnapshot: (
-      snapshot: OrchestrationReadModel,
+      snapshot: OrchestrationBootstrapSnapshot | OrchestrationReadModel,
       environmentId: EnvironmentId,
       detailLevel: "bootstrap" | "full",
     ) => {
@@ -411,8 +474,15 @@ function createEnvironmentConnectionHandlers() {
         return;
       }
       const store = useStore.getState();
-      store.syncServerReadModel(snapshot, environmentId);
-      store.setEnvironmentThreadDetailsHydrated(environmentId, detailLevel === "full");
+      if (detailLevel === "bootstrap") {
+        store.syncServerBootstrapSnapshot(
+          snapshot as OrchestrationBootstrapSnapshot,
+          environmentId,
+        );
+      } else {
+        store.syncServerReadModel(snapshot as OrchestrationReadModel, environmentId);
+        store.setEnvironmentThreadDetailsHydrated(environmentId, true);
+      }
       markAppliedProjectionSnapshot(environmentId, snapshot);
       reconcileSnapshotDerivedState();
     },

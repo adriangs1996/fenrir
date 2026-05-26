@@ -5,6 +5,7 @@ const { fakeSession, fakeWebContents, mockWebContentsView } = vi.hoisted(() => {
   const fakeWebContents = {
     loadURL: vi.fn(),
     executeJavaScript: vi.fn(() => Promise.resolve([])),
+    setUserAgent: vi.fn(),
     getURL: vi.fn(() => "about:blank"),
     getTitle: vi.fn(() => ""),
     isLoading: vi.fn(() => false),
@@ -108,6 +109,8 @@ describe("trafficLensManager", () => {
       expect(typeof snapshot.tabId).toBe("string");
       expect(snapshot.url).toBe("about:blank");
       expect(snapshot.profileId).toBe("default");
+      expect(snapshot.viewMode).toBe("desktop");
+      expect(snapshot.mobilePreset).toBe("iphone-15-pro");
     });
 
     it("creates WebContentsView with correct preferences", () => {
@@ -205,6 +208,76 @@ describe("trafficLensManager", () => {
       const snapshot = manager.createTab();
       manager.reloadTab(snapshot.tabId);
       expect(fakeWebContents.reload).toHaveBeenCalled();
+    });
+  });
+
+  describe("setTabViewMode", () => {
+    it("switches the tab snapshot to mobile and reloads the page", () => {
+      const snapshot = manager.createTab("https://target.htb");
+      fakeWebContents.reload.mockClear();
+      fakeWebContents.setUserAgent.mockClear();
+
+      const updated = manager.setTabViewMode({ tabId: snapshot.tabId, viewMode: "mobile" });
+
+      expect(updated.viewMode).toBe("mobile");
+      expect(fakeWebContents.setUserAgent).toHaveBeenCalledWith(expect.stringContaining("iPhone"));
+      expect(fakeWebContents.reload).toHaveBeenCalledTimes(1);
+    });
+
+    it("switches back to desktop mode and emits a tab event", () => {
+      const listener = vi.fn();
+      manager.onTabEvent(listener);
+      const snapshot = manager.createTab("https://target.htb");
+      listener.mockClear();
+      manager.setTabViewMode({ tabId: snapshot.tabId, viewMode: "mobile" });
+      fakeWebContents.setUserAgent.mockClear();
+      listener.mockClear();
+
+      const updated = manager.setTabViewMode({ tabId: snapshot.tabId, viewMode: "desktop" });
+
+      expect(updated.viewMode).toBe("desktop");
+      expect(fakeWebContents.setUserAgent).toHaveBeenCalledWith(expect.stringContaining("Chrome"));
+      expect(listener).toHaveBeenCalledWith({
+        type: "tab.viewModeChanged",
+        tabId: snapshot.tabId,
+        viewMode: "desktop",
+      });
+    });
+  });
+
+  describe("setTabMobilePreset", () => {
+    it("switches the mobile preset, updates UA, and reloads while mobile", () => {
+      const snapshot = manager.createTab("https://target.htb");
+      manager.setTabViewMode({ tabId: snapshot.tabId, viewMode: "mobile" });
+      fakeWebContents.reload.mockClear();
+      fakeWebContents.setUserAgent.mockClear();
+
+      const updated = manager.setTabMobilePreset({
+        tabId: snapshot.tabId,
+        mobilePreset: "pixel-8",
+      });
+
+      expect(updated.mobilePreset).toBe("pixel-8");
+      expect(fakeWebContents.setUserAgent).toHaveBeenCalledWith(expect.stringContaining("Pixel 8"));
+      expect(fakeWebContents.reload).toHaveBeenCalledTimes(1);
+    });
+
+    it("emits a mobile preset change event", () => {
+      const listener = vi.fn();
+      manager.onTabEvent(listener);
+      const snapshot = manager.createTab("https://target.htb");
+      listener.mockClear();
+
+      manager.setTabMobilePreset({
+        tabId: snapshot.tabId,
+        mobilePreset: "ipad-mini",
+      });
+
+      expect(listener).toHaveBeenCalledWith({
+        type: "tab.mobilePresetChanged",
+        tabId: snapshot.tabId,
+        mobilePreset: "ipad-mini",
+      });
     });
   });
 

@@ -241,7 +241,6 @@ const makeAcpSessionRuntime = (
   EffectAcpErrors.AcpError,
   ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
 > =>
-  // @effect-diagnostics-next-line anyUnknownInErrorContext:off
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const runtimeScope = yield* Scope.Scope;

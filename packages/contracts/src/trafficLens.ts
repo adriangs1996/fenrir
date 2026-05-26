@@ -532,6 +532,12 @@ export type TrafficLensStorageIngestPayload = typeof TrafficLensStorageIngestPay
 
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
+export const TrafficLensViewMode = Schema.Literals(["desktop", "mobile"]);
+export type TrafficLensViewMode = typeof TrafficLensViewMode.Type;
+
+export const TrafficLensMobilePreset = Schema.Literals(["iphone-15-pro", "pixel-8", "ipad-mini"]);
+export type TrafficLensMobilePreset = typeof TrafficLensMobilePreset.Type;
+
 export const TrafficLensTabSnapshot = Schema.Struct({
   tabId: TrafficLensTabId,
   url: Schema.String,
@@ -541,6 +547,8 @@ export const TrafficLensTabSnapshot = Schema.Struct({
   canGoForward: Schema.Boolean,
   profileId: Schema.NullOr(TrafficLensProfileId),
   profileName: Schema.NullOr(Schema.String),
+  viewMode: TrafficLensViewMode,
+  mobilePreset: TrafficLensMobilePreset,
 });
 export type TrafficLensTabSnapshot = typeof TrafficLensTabSnapshot.Type;
 
@@ -570,6 +578,18 @@ export const TrafficLensBoundsInput = Schema.Struct({
   height: Schema.Number,
 });
 export type TrafficLensBoundsInput = typeof TrafficLensBoundsInput.Type;
+
+export const TrafficLensSetTabViewModeInput = Schema.Struct({
+  tabId: TrafficLensTabId,
+  viewMode: TrafficLensViewMode,
+});
+export type TrafficLensSetTabViewModeInput = typeof TrafficLensSetTabViewModeInput.Type;
+
+export const TrafficLensSetTabMobilePresetInput = Schema.Struct({
+  tabId: TrafficLensTabId,
+  mobilePreset: TrafficLensMobilePreset,
+});
+export type TrafficLensSetTabMobilePresetInput = typeof TrafficLensSetTabMobilePresetInput.Type;
 
 export const TrafficLensPausedRequest = Schema.Struct({
   pauseId: TrafficLensPauseId,
@@ -630,12 +650,26 @@ export const TrafficLensTabLoadingChangedEvent = Schema.Struct({
   loading: Schema.Boolean,
 });
 
+export const TrafficLensTabViewModeChangedEvent = Schema.Struct({
+  type: Schema.Literal("tab.viewModeChanged"),
+  tabId: TrafficLensTabId,
+  viewMode: TrafficLensViewMode,
+});
+
+export const TrafficLensTabMobilePresetChangedEvent = Schema.Struct({
+  type: Schema.Literal("tab.mobilePresetChanged"),
+  tabId: TrafficLensTabId,
+  mobilePreset: TrafficLensMobilePreset,
+});
+
 export const TrafficLensTabEvent = Schema.Union([
   TrafficLensTabCreatedEvent,
   TrafficLensTabClosedEvent,
   TrafficLensTabNavigatedEvent,
   TrafficLensTabTitleUpdatedEvent,
   TrafficLensTabLoadingChangedEvent,
+  TrafficLensTabViewModeChangedEvent,
+  TrafficLensTabMobilePresetChangedEvent,
 ]);
 export type TrafficLensTabEvent = typeof TrafficLensTabEvent.Type;
 

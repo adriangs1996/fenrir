@@ -519,13 +519,12 @@ describe("resolveThreadStatusPill", () => {
 });
 
 describe("resolveThreadRowClassName", () => {
-  it("keeps the selected fill and adds the blue active outline when a thread is both selected and active", () => {
+  it("keeps the selected fill without adding the blue active outline when a thread is both selected and active", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: true });
     expect(className).toContain("bg-primary/22");
-    expect(className).toContain("ring-info/35");
     expect(className).toContain("hover:bg-primary/26");
     expect(className).toContain("dark:bg-primary/30");
-    expect(className).not.toContain("bg-accent/85");
+    expect(className).not.toContain("ring-info/35");
   });
 
   it("uses selected hover colors for selected threads", () => {
@@ -536,12 +535,12 @@ describe("resolveThreadRowClassName", () => {
     expect(className).not.toContain("hover:bg-accent");
   });
 
-  it("uses the blue info palette for active-only threads", () => {
+  it("defers active-only threads to the shared sidebar active styling", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: false });
-    expect(className).toContain("bg-info/10");
-    expect(className).toContain("ring-info/35");
-    expect(className).toContain("hover:bg-info/14");
-    expect(className).not.toContain("bg-accent/85");
+    expect(className).toContain("text-foreground");
+    expect(className).not.toContain("bg-info/10");
+    expect(className).not.toContain("ring-info/35");
+    expect(className).not.toContain("hover:bg-info/14");
   });
 });
 

@@ -28,6 +28,8 @@ import type {
   TrafficLensRuleInput,
   TrafficLensSetCookieForOriginInput,
   TrafficLensSetCookieInput,
+  TrafficLensSetTabMobilePresetInput,
+  TrafficLensSetTabViewModeInput,
   TrafficLensSetLiveSessionStorageItemInput,
   TrafficLensSetLocalStorageItemInput,
   TrafficLensSetStorageEntryInput,
@@ -35,9 +37,11 @@ import type {
   TrafficLensStorageIngestPayload,
   TrafficLensStorageOriginSummary,
   TrafficLensStorageEntry,
+  TrafficLensMobilePreset,
   TrafficLensTabEvent,
   TrafficLensTabSnapshot,
   TrafficLensUpdateSessionStorageSnapshotInput,
+  TrafficLensViewMode,
 } from "@fenrir/contracts";
 import {
   addLiveSessionTab,
@@ -65,6 +69,8 @@ export interface TrafficLensManager {
   goForward(tabId: string): void;
   reloadTab(tabId: string): void;
   closeTab(tabId: string): void;
+  setTabViewMode(input: TrafficLensSetTabViewModeInput): TrafficLensTabSnapshot;
+  setTabMobilePreset(input: TrafficLensSetTabMobilePresetInput): TrafficLensTabSnapshot;
   setTabBounds(
     tabId: string,
     bounds: { x: number; y: number; width: number; height: number },
@@ -136,6 +142,8 @@ interface TabEntry {
   view: WebContentsView;
   tabId: string;
   profileId: string;
+  viewMode: TrafficLensViewMode;
+  mobilePreset: TrafficLensMobilePreset;
 }
 
 interface RequestContext {
@@ -173,8 +181,17 @@ const MAX_CAPTURE_BODY_BYTES = 10 * 1024 * 1024; // 10MB
 const DEFAULT_PROFILE_ID = "default";
 const DEFAULT_PROFILE_NAME = "Default";
 const DEFAULT_PROFILE_PARTITION_KEY = "persist:traffic-lens:default";
-const DEFAULT_USER_AGENT =
+const DEFAULT_MOBILE_PRESET: TrafficLensMobilePreset = "iphone-15-pro";
+const DESKTOP_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
+const MOBILE_USER_AGENTS: Record<TrafficLensMobilePreset, string> = {
+  "iphone-15-pro":
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+  "pixel-8":
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36",
+  "ipad-mini":
+    "Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+};
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -320,6 +337,14 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     return profiles.get(profileId) ?? defaultProfile;
   }
 
+  function getEffectiveUserAgent(entry: TabEntry): string {
+    if (entry.viewMode === "mobile") {
+      return MOBILE_USER_AGENTS[entry.mobilePreset];
+    }
+    const profile = getProfile(entry.profileId);
+    return profile.userAgentPreset ?? DESKTOP_USER_AGENT;
+  }
+
   function ensureSession(profileId: string): Session {
     const profile = getProfile(profileId);
     const existing = profileSessions.get(profile.id);
@@ -335,7 +360,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       targetSession.setCertificateVerifyProc((_request, callback) => {
         callback(0);
       });
-      targetSession.setUserAgent(profile.userAgentPreset ?? DEFAULT_USER_AGENT);
+      targetSession.setUserAgent(profile.userAgentPreset ?? DESKTOP_USER_AGENT);
       targetSession.cookies.on?.("changed", (_event, cookie) => {
         const domain = String(cookie.domain ?? "").replace(/^\./, "");
         void Promise.all(
@@ -391,6 +416,8 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       canGoForward: wc.navigationHistory.canGoForward(),
       profileId: profile.id as any,
       profileName: profile.name,
+      viewMode: entry.viewMode,
+      mobilePreset: entry.mobilePreset,
     };
   }
 
@@ -1283,8 +1310,11 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       view,
       tabId,
       profileId: profile.id,
+      viewMode: "desktop",
+      mobilePreset: DEFAULT_MOBILE_PRESET,
     };
     activeTabs.set(tabId, entry);
+    view.webContents.setUserAgent(getEffectiveUserAgent(entry));
     wireWebContents(entry);
     void view.webContents.loadURL(url || "about:blank");
     const snapshot = getTabSnapshot(tabId);
@@ -1414,6 +1444,42 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       activeTabs.delete(tabId);
       removeLiveSessionTab(originCatalog, tabId);
       emitTab({ type: "tab.closed", tabId: tabId as any });
+    },
+
+    setTabViewMode: (input) => {
+      const entry = getTabEntry(input.tabId);
+      if (entry.viewMode === input.viewMode) {
+        return getTabSnapshot(input.tabId);
+      }
+
+      entry.viewMode = input.viewMode;
+      entry.view.webContents.setUserAgent(getEffectiveUserAgent(entry));
+      emitTab({
+        type: "tab.viewModeChanged",
+        tabId: input.tabId,
+        viewMode: input.viewMode,
+      });
+      entry.view.webContents.reload();
+      return getTabSnapshot(input.tabId);
+    },
+
+    setTabMobilePreset: (input) => {
+      const entry = getTabEntry(input.tabId);
+      if (entry.mobilePreset === input.mobilePreset) {
+        return getTabSnapshot(input.tabId);
+      }
+
+      entry.mobilePreset = input.mobilePreset;
+      entry.view.webContents.setUserAgent(getEffectiveUserAgent(entry));
+      emitTab({
+        type: "tab.mobilePresetChanged",
+        tabId: input.tabId,
+        mobilePreset: input.mobilePreset,
+      });
+      if (entry.viewMode === "mobile") {
+        entry.view.webContents.reload();
+      }
+      return getTabSnapshot(input.tabId);
     },
 
     setTabBounds: (tabId, bounds) => {
@@ -1582,7 +1648,13 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       profiles.set(id, updated);
       const existingSession = profileSessions.get(id);
       if (existingSession) {
-        existingSession.setUserAgent(updated.userAgentPreset ?? DEFAULT_USER_AGENT);
+        existingSession.setUserAgent(updated.userAgentPreset ?? DESKTOP_USER_AGENT);
+      }
+      for (const entry of activeTabs.values()) {
+        if (entry.profileId !== id) {
+          continue;
+        }
+        entry.view.webContents.setUserAgent(getEffectiveUserAgent(entry));
       }
       return updated;
     },

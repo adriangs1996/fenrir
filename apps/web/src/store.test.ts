@@ -5,6 +5,8 @@ import {
   EnvironmentId,
   EventId,
   MessageId,
+  type OrchestrationBootstrapSnapshot,
+  type OrchestrationShellSnapshot,
   ProjectId,
   ThreadId,
   TurnId,
@@ -22,7 +24,9 @@ import {
   selectThreadExistsByRef,
   setThreadBranch,
   selectThreadsAcrossEnvironments,
+  syncServerBootstrapSnapshot,
   syncServerReadModel,
+  syncServerShellSnapshot,
   type AppState,
   type EnvironmentState,
 } from "./store";
@@ -432,6 +436,71 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
   };
 }
 
+function makeBootstrapSnapshot(
+  thread: OrchestrationBootstrapSnapshot["threads"][number],
+): OrchestrationBootstrapSnapshot {
+  return {
+    snapshotSequence: 1,
+    updatedAt: "2026-02-27T00:00:00.000Z",
+    projects: [
+      {
+        id: ProjectId.makeUnsafe("project-1"),
+        title: "Project",
+        workspaceRoot: "/tmp/project",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5.3-codex",
+        },
+        createdAt: "2026-02-27T00:00:00.000Z",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+        deletedAt: null,
+        scripts: [],
+        managedProcesses: [],
+        globalScriptDefaults: [],
+      },
+    ],
+    threads: [thread],
+    managedProcessInstances: [],
+  };
+}
+
+function toShellSnapshot(snapshot: OrchestrationBootstrapSnapshot): OrchestrationShellSnapshot {
+  return {
+    snapshotSequence: snapshot.snapshotSequence,
+    updatedAt: snapshot.updatedAt,
+    projects: snapshot.projects,
+    threads: snapshot.threads,
+  };
+}
+
+function makeBootstrapThread(
+  overrides: Partial<OrchestrationBootstrapSnapshot["threads"][number]>,
+): OrchestrationBootstrapSnapshot["threads"][number] {
+  return {
+    id: ThreadId.makeUnsafe("thread-1"),
+    projectId: ProjectId.makeUnsafe("project-1"),
+    title: "Thread",
+    modelSelection: {
+      provider: "codex",
+      model: "gpt-5.3-codex",
+    },
+    runtimeMode: DEFAULT_RUNTIME_MODE,
+    interactionMode: DEFAULT_INTERACTION_MODE,
+    branch: null,
+    worktreePath: null,
+    latestTurn: null,
+    createdAt: "2026-02-27T00:00:00.000Z",
+    updatedAt: "2026-02-27T00:00:00.000Z",
+    archivedAt: null,
+    session: null,
+    latestUserMessageAt: null,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    hasActionableProposedPlan: false,
+    ...overrides,
+  };
+}
+
 function makeReadModelProject(
   overrides: Partial<OrchestrationReadModel["projects"][number]>,
 ): OrchestrationReadModel["projects"][number] {
@@ -509,6 +578,92 @@ describe("store read model sync", () => {
     );
 
     expect(localEnvironmentStateOf(next).bootstrapComplete).toBe(true);
+  });
+
+  it("hydrates bootstrap thread shells without marking thread details hydrated", () => {
+    const initialState = makeEmptyState({
+      bootstrapComplete: false,
+    });
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const next = syncServerBootstrapSnapshot(
+      initialState,
+      makeBootstrapSnapshot(
+        makeBootstrapThread({
+          id: threadId,
+          latestUserMessageAt: "2026-02-27T00:04:00.000Z",
+          hasPendingApprovals: true,
+          hasPendingUserInput: true,
+          hasActionableProposedPlan: true,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: TurnId.makeUnsafe("turn-1"),
+            lastError: null,
+            updatedAt: "2026-02-27T00:05:00.000Z",
+          },
+        }),
+      ),
+      localEnvironmentId,
+    );
+
+    expect(localEnvironmentStateOf(next).bootstrapComplete).toBe(true);
+    expect(localEnvironmentStateOf(next).threadDetailsHydratedById?.[threadId]).toBe(false);
+    expect(localEnvironmentStateOf(next).messageIdsByThreadId[threadId]).toEqual([]);
+    expect(localEnvironmentStateOf(next).threadSessionById[threadId]?.activeTurnId).toBe(
+      TurnId.makeUnsafe("turn-1"),
+    );
+    expect(localEnvironmentStateOf(next).sidebarThreadSummaryById[threadId]).toMatchObject({
+      latestUserMessageAt: "2026-02-27T00:04:00.000Z",
+      hasPendingApprovals: true,
+      hasPendingUserInput: true,
+      hasActionableProposedPlan: true,
+    });
+  });
+
+  it("syncs shell snapshots without dropping hydrated thread detail for retained threads", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const initialState = syncServerReadModel(
+      makeEmptyState({ bootstrapComplete: false }),
+      makeReadModel(
+        makeReadModelThread({
+          id: threadId,
+          messages: [
+            {
+              id: MessageId.makeUnsafe("message-1"),
+              turnId: null,
+              role: "user",
+              text: "hello",
+              streaming: false,
+              createdAt: "2026-02-27T00:02:00.000Z",
+              updatedAt: "2026-02-27T00:02:00.000Z",
+            },
+          ],
+        }),
+      ),
+      localEnvironmentId,
+    );
+
+    const next = syncServerShellSnapshot(
+      initialState,
+      toShellSnapshot(
+        makeBootstrapSnapshot(
+          makeBootstrapThread({
+            id: threadId,
+            title: "Renamed Thread",
+            latestUserMessageAt: "2026-02-27T00:02:00.000Z",
+          }),
+        ),
+      ),
+      localEnvironmentId,
+    );
+
+    expect(localEnvironmentStateOf(next).threadShellById[threadId]?.title).toBe("Renamed Thread");
+    expect(localEnvironmentStateOf(next).threadDetailsHydratedById?.[threadId]).toBe(true);
+    expect(localEnvironmentStateOf(next).messageIdsByThreadId[threadId]).toEqual([
+      MessageId.makeUnsafe("message-1"),
+    ]);
   });
 
   it("preserves claude model slugs without an active session", () => {

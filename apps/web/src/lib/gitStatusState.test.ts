@@ -128,6 +128,11 @@ function createRegisteredGitStatusClient(environmentId: EnvironmentId) {
       subscribeAuthAccess: vi.fn(() => () => undefined),
     },
     orchestration: {
+      getArchivedShellSnapshot: vi.fn(
+        async () => ({ snapshotSequence: 1, projects: [], threads: [] }) as any,
+      ),
+      subscribeShell: vi.fn(() => () => undefined),
+      getThreadSnapshot: vi.fn(async () => null),
       getSnapshot: vi.fn(async () => ({ snapshotSequence: 1, projects: [], threads: [] }) as any),
       dispatchCommand: vi.fn(async () => undefined),
       getTurnDiff: vi.fn(async () => undefined),

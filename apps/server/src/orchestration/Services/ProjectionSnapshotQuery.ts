@@ -7,10 +7,13 @@
  * @module ProjectionSnapshotQuery
  */
 import type {
+  OrchestrationBootstrapSnapshot,
+  OrchestrationShellSnapshot,
   OrchestrationCheckpointSummary,
   OrchestrationProject,
   OrchestrationReadModel,
   OrchestrationThread,
+  OrchestrationThreadShell,
   ProjectId,
   ThreadId,
 } from "@fenrir/contracts";
@@ -44,7 +47,16 @@ export interface ProjectionSnapshotQueryShape {
    * startup on large datasets.
    */
   readonly getBootstrapSnapshot: () => Effect.Effect<
-    OrchestrationReadModel,
+    OrchestrationBootstrapSnapshot,
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * Read archived thread shell summaries without hydrating them into the
+   * normal bootstrap snapshot.
+   */
+  readonly getArchivedShellSnapshot: () => Effect.Effect<
+    OrchestrationShellSnapshot,
     ProjectionRepositoryError
   >;
 
@@ -74,6 +86,20 @@ export interface ProjectionSnapshotQueryShape {
   readonly getFirstActiveThreadIdByProjectId: (
     projectId: ProjectId,
   ) => Effect.Effect<Option.Option<ThreadId>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single active project shell row by id.
+   */
+  readonly getProjectShellById: (
+    projectId: ProjectId,
+  ) => Effect.Effect<Option.Option<OrchestrationProject>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single active thread shell row by id.
+   */
+  readonly getThreadShellById: (
+    threadId: ThreadId,
+  ) => Effect.Effect<Option.Option<OrchestrationThreadShell>, ProjectionRepositoryError>;
 
   /**
    * Read a single active thread with full projected detail collections.

@@ -12,7 +12,9 @@ function createTestClient(options?: {
   const lifecycleListeners = new Set<(event: any) => void>();
   const configListeners = new Set<(event: any) => void>();
   const terminalListeners = new Set<(event: any) => void>();
+  const shellListeners = new Set<(item: any) => void>();
   let domainResubscribe: (() => void) | undefined;
+  let shellResubscribe: (() => void) | undefined;
 
   const getBootstrapSnapshot = vi.fn(
     options?.getBootstrapSnapshot ??
@@ -64,7 +66,33 @@ function createTestClient(options?: {
     },
     orchestration: {
       getBootstrapSnapshot,
+      getArchivedShellSnapshot: vi.fn(async () => ({
+        snapshotSequence: 1,
+        projects: [],
+        threads: [],
+      })),
       getSnapshot,
+      subscribeShell: vi.fn(
+        (listener: (item: any) => void, options?: { onResubscribe?: () => void }) => {
+          shellListeners.add(listener);
+          shellResubscribe = options?.onResubscribe;
+          listener({
+            kind: "snapshot",
+            snapshot: {
+              snapshotSequence: 1,
+              projects: [],
+              threads: [],
+              updatedAt: "2026-04-22T10:00:00.000Z",
+            },
+          });
+          return () => {
+            shellListeners.delete(listener);
+            if (shellResubscribe === options?.onResubscribe) {
+              shellResubscribe = undefined;
+            }
+          };
+        },
+      ),
       dispatchCommand: vi.fn(async () => undefined),
       getTurnDiff: vi.fn(async () => undefined),
       getFullThreadDiff: vi.fn(async () => undefined),
@@ -145,6 +173,22 @@ function createTestClient(options?: {
     triggerDomainResubscribe: () => {
       domainResubscribe?.();
     },
+    emitShellSnapshot: (snapshotSequence: number) => {
+      for (const listener of shellListeners) {
+        listener({
+          kind: "snapshot",
+          snapshot: {
+            snapshotSequence,
+            projects: [],
+            threads: [],
+            updatedAt: "2026-04-22T10:00:00.000Z",
+          },
+        });
+      }
+    },
+    triggerShellResubscribe: () => {
+      shellResubscribe?.();
+    },
   };
 }
 
@@ -167,6 +211,8 @@ describe("createEnvironmentConnection", () => {
         environmentId,
       },
       client,
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
       applyEventBatch: vi.fn(),
       syncSnapshot,
       applyTerminalEvent: vi.fn(),
@@ -202,6 +248,8 @@ describe("createEnvironmentConnection", () => {
         environmentId,
       },
       client,
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
       applyEventBatch: vi.fn(),
       syncSnapshot: vi.fn(),
       applyTerminalEvent: vi.fn(),
@@ -236,6 +284,8 @@ describe("createEnvironmentConnection", () => {
         environmentId,
       },
       client,
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
       applyEventBatch: vi.fn(),
       syncSnapshot: vi.fn(),
       applyTerminalEvent: vi.fn(),
@@ -280,6 +330,8 @@ describe("createEnvironmentConnection", () => {
         environmentId,
       },
       client,
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
       applyEventBatch,
       syncSnapshot: vi.fn(),
       applyTerminalEvent: vi.fn(),
@@ -339,6 +391,8 @@ describe("createEnvironmentConnection", () => {
         environmentId,
       },
       client,
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
       applyEventBatch: vi.fn(),
       syncSnapshot: vi.fn(),
       applyTerminalEvent: vi.fn(),
@@ -359,6 +413,53 @@ describe("createEnvironmentConnection", () => {
     }
 
     expect(onUnhandledRejection).not.toHaveBeenCalled();
+
+    await connection.dispose();
+  });
+
+  it("waits for a fresh shell snapshot after reconnect", async () => {
+    const environmentId = EnvironmentId.makeUnsafe("env-1");
+    const { client, emitShellSnapshot, triggerShellResubscribe } = createTestClient();
+
+    const connection = createEnvironmentConnection({
+      kind: "saved",
+      knownEnvironment: {
+        id: "env-1",
+        label: "Remote env",
+        source: "manual",
+        target: {
+          httpBaseUrl: "http://example.test",
+          wsBaseUrl: "ws://example.test",
+        },
+        environmentId,
+      },
+      client,
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
+      applyEventBatch: vi.fn(),
+      syncSnapshot: vi.fn(),
+      applyTerminalEvent: vi.fn(),
+    });
+
+    await connection.ensureBootstrapped();
+
+    const reconnectPromise = connection.reconnect();
+    await Promise.resolve();
+    triggerShellResubscribe();
+    await Promise.resolve();
+
+    let settled = false;
+    void reconnectPromise.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+
+    emitShellSnapshot(2);
+    await reconnectPromise;
+
+    expect(client.reconnect).toHaveBeenCalledTimes(1);
 
     await connection.dispose();
   });

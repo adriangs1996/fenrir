@@ -1,8 +1,7 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef, type RefObject } from "react";
 import { useTrafficLensStore } from "../stores/useTrafficLensStore";
 
-export function useTrafficLensBounds() {
-  const containerRef = useRef<HTMLDivElement>(null);
+export function useTrafficLensBounds(containerRef: RefObject<HTMLDivElement | null>) {
   const activeTabId = useTrafficLensStore((s) => s.activeTabId);
   const rafRef = useRef<number>(0);
 
@@ -22,7 +21,7 @@ export function useTrafficLensBounds() {
     if (bounds.width > 0 && bounds.height > 0) {
       void window.desktopBridge?.trafficLensSetBounds(activeTabId, bounds);
     }
-  }, [activeTabId]);
+  }, [activeTabId, containerRef]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -43,7 +42,7 @@ export function useTrafficLensBounds() {
       observer.disconnect();
       cancelAnimationFrame(rafRef.current);
     };
-  }, [activeTabId, updateBounds]);
+  }, [activeTabId, containerRef, updateBounds]);
 
   // Hide all tabs on unmount
   useEffect(() => {
@@ -51,6 +50,4 @@ export function useTrafficLensBounds() {
       void window.desktopBridge?.trafficLensHideAllTabs();
     };
   }, []);
-
-  return containerRef;
 }

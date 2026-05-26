@@ -1,7 +1,10 @@
 import type {
   EnvironmentId,
+  OrchestrationBootstrapSnapshot,
   OrchestrationEvent,
   OrchestrationReadModel,
+  OrchestrationShellSnapshot,
+  OrchestrationShellStreamEvent,
   ServerConfig,
   ServerLifecycleWelcomePayload,
   TerminalEvent,
@@ -35,12 +38,20 @@ export interface EnvironmentConnection {
 }
 
 interface OrchestrationHandlers {
+  readonly syncShellSnapshot: (
+    snapshot: OrchestrationShellSnapshot,
+    environmentId: EnvironmentId,
+  ) => void;
+  readonly applyShellEvent: (
+    event: OrchestrationShellStreamEvent,
+    environmentId: EnvironmentId,
+  ) => void;
   readonly applyEventBatch: (
     events: ReadonlyArray<OrchestrationEvent>,
     environmentId: EnvironmentId,
   ) => void;
   readonly syncSnapshot: (
-    snapshot: OrchestrationReadModel,
+    snapshot: OrchestrationBootstrapSnapshot | OrchestrationReadModel,
     environmentId: EnvironmentId,
     detailLevel: "bootstrap" | "full",
   ) => void;
@@ -54,6 +65,35 @@ interface EnvironmentConnectionInput extends OrchestrationHandlers {
   readonly refreshMetadata?: () => Promise<void>;
   readonly onConfigSnapshot?: (config: ServerConfig) => void;
   readonly onWelcome?: (payload: ServerLifecycleWelcomePayload) => void;
+}
+
+function createSnapshotGate() {
+  let resolve: (() => void) | null = null;
+  let reject: ((error: unknown) => void) | null = null;
+  let promise = new Promise<void>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+
+  return {
+    wait: () => promise,
+    resolve: () => {
+      resolve?.();
+      resolve = null;
+      reject = null;
+    },
+    reject: (error: unknown) => {
+      reject?.(error);
+      resolve = null;
+      reject = null;
+    },
+    reset: () => {
+      promise = new Promise<void>((nextResolve, nextReject) => {
+        resolve = nextResolve;
+        reject = nextReject;
+      });
+    },
+  };
 }
 
 function createSnapshotBootstrapController(input: {
@@ -103,6 +143,7 @@ export function createEnvironmentConnection(
   }
 
   let disposed = false;
+  const shellSnapshotGate = createSnapshotGate();
 
   const observeEnvironmentIdentity = (nextEnvironmentId: EnvironmentId, source: string) => {
     if (environmentId !== nextEnvironmentId) {
@@ -234,11 +275,12 @@ export function createEnvironmentConnection(
     }
 
     try {
-      const snapshot = await retryTransportRecoveryOperation(() =>
+      const snapshot: OrchestrationBootstrapSnapshot | OrchestrationReadModel =
         reason === "bootstrap"
-          ? input.client.orchestration.getBootstrapSnapshot()
-          : input.client.orchestration.getSnapshot(),
-      );
+          ? await retryTransportRecoveryOperation(() =>
+              input.client.orchestration.getBootstrapSnapshot(),
+            )
+          : await retryTransportRecoveryOperation(() => input.client.orchestration.getSnapshot());
       if (!disposed) {
         input.syncSnapshot(snapshot, environmentId, reason === "bootstrap" ? "bootstrap" : "full");
         if (recovery.completeSnapshotRecovery(snapshot.snapshotSequence)) {
@@ -279,6 +321,27 @@ export function createEnvironmentConnection(
     },
   );
 
+  const unsubShell = input.client.orchestration.subscribeShell(
+    (item: Parameters<Parameters<WsRpcClient["orchestration"]["subscribeShell"]>[0]>[0]) => {
+      if (item.kind === "snapshot") {
+        if (recovery.getState().bootstrapped) {
+          input.syncShellSnapshot(item.snapshot, environmentId);
+        }
+        shellSnapshotGate.resolve();
+        return;
+      }
+      input.applyShellEvent(item, environmentId);
+    },
+    {
+      onResubscribe: () => {
+        if (disposed) {
+          return;
+        }
+        shellSnapshotGate.reset();
+      },
+    },
+  );
+
   const unsubDomainEvent = input.client.orchestration.onDomainEvent(
     (event: Parameters<Parameters<WsRpcClient["orchestration"]["onDomainEvent"]>[0]>[0]) => {
       const action = recovery.classifyDomainEvent(event.sequence);
@@ -315,6 +378,7 @@ export function createEnvironmentConnection(
     disposed = true;
     flushPendingDomainEventsScheduled = false;
     pendingDomainEvents.length = 0;
+    unsubShell();
     unsubDomainEvent();
     unsubTerminalEvent();
     unsubLifecycle();
@@ -328,8 +392,15 @@ export function createEnvironmentConnection(
     client: input.client,
     ensureBootstrapped: () => snapshotBootstrap.ensureSnapshotRecovery("bootstrap"),
     reconnect: async () => {
+      shellSnapshotGate.reset();
       await input.client.reconnect();
       await input.refreshMetadata?.();
+      try {
+        await shellSnapshotGate.wait();
+      } catch (error) {
+        shellSnapshotGate.reject(error);
+        throw error;
+      }
       await snapshotBootstrap.ensureSnapshotRecovery("bootstrap");
     },
     dispose: async () => {

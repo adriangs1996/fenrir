@@ -179,6 +179,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.status, "ready");
           assert.strictEqual(status.installed, true);
           assert.strictEqual(status.auth.status, "authenticated");
+          assert.deepStrictEqual(
+            status.models.some((model) => model.slug === "gpt-5.5"),
+            true,
+          );
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {

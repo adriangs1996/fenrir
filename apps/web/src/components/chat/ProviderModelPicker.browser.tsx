@@ -50,6 +50,18 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
           promptInjectedEffortLevels: [],
         },
       },
+      {
+        slug: "gpt-5.5",
+        name: "GPT-5.5",
+        isCustom: false,
+        capabilities: {
+          reasoningEffortLevels: [effort("low"), effort("medium", true), effort("high")],
+          supportsFastMode: true,
+          supportsThinkingToggle: false,
+          contextWindowOptions: [],
+          promptInjectedEffortLevels: [],
+        },
+      },
     ],
   },
   {

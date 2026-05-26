@@ -19,6 +19,8 @@ import { ProviderInstanceId } from "./providerInstance";
 
 export const ORCHESTRATION_WS_METHODS = {
   getBootstrapSnapshot: "orchestration.getBootstrapSnapshot",
+  getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
+  subscribeShell: "orchestration.subscribeShell",
   getSnapshot: "orchestration.getSnapshot",
   getThreadSnapshot: "orchestration.getThreadSnapshot",
   dispatchCommand: "orchestration.dispatchCommand",
@@ -402,6 +404,29 @@ export const OrchestrationThread = Schema.Struct({
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
 
+export const OrchestrationThreadShell = Schema.Struct({
+  id: ThreadId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  latestTurn: Schema.NullOr(OrchestrationLatestTurn),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  session: Schema.NullOr(OrchestrationSession),
+  latestUserMessageAt: Schema.NullOr(IsoDateTime),
+  hasPendingApprovals: Schema.Boolean,
+  hasPendingUserInput: Schema.Boolean,
+  hasActionableProposedPlan: Schema.Boolean,
+});
+export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
+
 // ---------- Managed process instance (runtime read-model) ----------
 
 export const ManagedProcessInstanceStatus = Schema.Literals([
@@ -453,6 +478,58 @@ export const OrchestrationReadModel = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
+
+export const OrchestrationBootstrapSnapshot = Schema.Struct({
+  snapshotSequence: NonNegativeInt,
+  projects: Schema.Array(OrchestrationProject),
+  threads: Schema.Array(OrchestrationThreadShell),
+  managedProcessInstances: Schema.Array(ManagedProcessInstance).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationBootstrapSnapshot = typeof OrchestrationBootstrapSnapshot.Type;
+
+export const OrchestrationShellSnapshot = Schema.Struct({
+  snapshotSequence: NonNegativeInt,
+  projects: Schema.Array(OrchestrationProject),
+  threads: Schema.Array(OrchestrationThreadShell),
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationShellSnapshot = typeof OrchestrationShellSnapshot.Type;
+
+export const OrchestrationShellStreamEvent = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("project-upserted"),
+    sequence: NonNegativeInt,
+    project: OrchestrationProject,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("project-removed"),
+    sequence: NonNegativeInt,
+    projectId: ProjectId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("thread-upserted"),
+    sequence: NonNegativeInt,
+    thread: OrchestrationThreadShell,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("thread-removed"),
+    sequence: NonNegativeInt,
+    threadId: ThreadId,
+  }),
+]);
+export type OrchestrationShellStreamEvent = typeof OrchestrationShellStreamEvent.Type;
+
+export const OrchestrationShellStreamItem = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("snapshot"),
+    snapshot: OrchestrationShellSnapshot,
+  }),
+  OrchestrationShellStreamEvent,
+]);
+export type OrchestrationShellStreamItem = typeof OrchestrationShellStreamItem.Type;
 
 export const ProjectCreateCommand = Schema.Struct({
   type: Schema.Literal("project.create"),
@@ -1281,9 +1358,17 @@ export type OrchestrationGetSnapshotResult = typeof OrchestrationGetSnapshotResu
 export const OrchestrationGetBootstrapSnapshotInput = Schema.Struct({});
 export type OrchestrationGetBootstrapSnapshotInput =
   typeof OrchestrationGetBootstrapSnapshotInput.Type;
-const OrchestrationGetBootstrapSnapshotResult = OrchestrationReadModel;
+const OrchestrationGetBootstrapSnapshotResult = OrchestrationBootstrapSnapshot;
 export type OrchestrationGetBootstrapSnapshotResult =
   typeof OrchestrationGetBootstrapSnapshotResult.Type;
+
+const OrchestrationGetArchivedShellSnapshotInput = Schema.Struct({});
+export type OrchestrationGetArchivedShellSnapshotInput =
+  typeof OrchestrationGetArchivedShellSnapshotInput.Type;
+
+const OrchestrationGetArchivedShellSnapshotResult = OrchestrationShellSnapshot;
+export type OrchestrationGetArchivedShellSnapshotResult =
+  typeof OrchestrationGetArchivedShellSnapshotResult.Type;
 
 export const OrchestrationGetThreadSnapshotInput = Schema.Struct({
   threadId: ThreadId,
@@ -1326,6 +1411,14 @@ export const OrchestrationRpcSchemas = {
   getBootstrapSnapshot: {
     input: OrchestrationGetBootstrapSnapshotInput,
     output: OrchestrationGetBootstrapSnapshotResult,
+  },
+  getArchivedShellSnapshot: {
+    input: OrchestrationGetArchivedShellSnapshotInput,
+    output: OrchestrationGetArchivedShellSnapshotResult,
+  },
+  subscribeShell: {
+    input: Schema.Struct({}),
+    output: OrchestrationShellStreamItem,
   },
   getSnapshot: {
     input: OrchestrationGetSnapshotInput,
