@@ -28,6 +28,7 @@ import {
   getProviderOptionBooleanSelectionValue,
   getProviderOptionStringSelectionValue,
 } from "@fenrir/shared/model";
+import * as EffectCodexSchema from "effect-codex-app-server/schema";
 
 import {
   ProviderAdapterProcessError,
@@ -52,6 +53,10 @@ const PROVIDER = "codex" as const;
 
 const getCodexSelection = (selection: ProviderSendTurnInput["modelSelection"] | undefined) =>
   selection && isCodexModelSelection(selection) ? selection : undefined;
+
+type CodexToolUserInputQuestion =
+  | EffectCodexSchema.ServerRequest__ToolRequestUserInputQuestion
+  | EffectCodexSchema.ToolRequestUserInputParams__ToolRequestUserInputQuestion;
 
 export interface CodexAdapterLiveOptions {
   readonly manager?: CodexAppServerManager;
@@ -113,12 +118,25 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function trimText(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
 function asArray(value: unknown): unknown[] | undefined {
   return Array.isArray(value) ? value : undefined;
 }
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readPayload<A>(
+  schema: Schema.Schema<A>,
+  payload: ProviderEvent["payload"],
+): A | undefined {
+  const isPayload = Schema.is(schema);
+  return isPayload(payload) ? payload : undefined;
 }
 
 const FATAL_CODEX_STDERR_SNIPPETS = ["failed to connect to websocket"];
@@ -328,6 +346,57 @@ function toRequestTypeFromResolvedPayload(
   return "unknown";
 }
 
+function requestDetailFromPayload(
+  method: string,
+  eventPayload: ProviderEvent["payload"],
+  payload: Record<string, unknown> | undefined,
+): string | undefined {
+  switch (method) {
+    case "item/commandExecution/requestApproval": {
+      const decoded = readPayload(
+        EffectCodexSchema.ServerRequest__CommandExecutionRequestApprovalParams,
+        eventPayload,
+      );
+      return trimText(decoded?.command) ?? trimText(decoded?.reason);
+    }
+    case "item/fileChange/requestApproval": {
+      const decoded = readPayload(
+        EffectCodexSchema.ServerRequest__FileChangeRequestApprovalParams,
+        eventPayload,
+      );
+      return trimText(decoded?.reason);
+    }
+    case "applyPatchApproval": {
+      const decoded = readPayload(
+        EffectCodexSchema.ServerRequest__ApplyPatchApprovalParams,
+        eventPayload,
+      );
+      return trimText(decoded?.reason);
+    }
+    case "execCommandApproval": {
+      const decoded = readPayload(
+        EffectCodexSchema.ServerRequest__ExecCommandApprovalParams,
+        eventPayload,
+      );
+      return trimText(decoded?.reason) ?? trimText(decoded?.command.join(" "));
+    }
+    case "item/tool/call": {
+      const decoded = readPayload(
+        EffectCodexSchema.ServerRequest__DynamicToolCallParams,
+        eventPayload,
+      );
+      return trimText(decoded?.tool);
+    }
+    default:
+      return (
+        asString(payload?.command) ??
+        asString(payload?.reason) ??
+        asString(payload?.prompt) ??
+        asString(payload?.tool)
+      );
+  }
+}
+
 function toCanonicalUserInputAnswers(
   answers: ProviderUserInputAnswers | undefined,
 ): ProviderUserInputAnswers {
@@ -391,7 +460,53 @@ function toUserInputQuestions(payload: Record<string, unknown> | undefined) {
         header,
         question: prompt,
         options,
-        multiSelect: question.multiSelect === true,
+        multiSelect: (question as { multiSelect?: unknown }).multiSelect === true,
+      };
+    })
+    .filter(
+      (
+        question,
+      ): question is {
+        id: string;
+        header: string;
+        question: string;
+        options: Array<{ label: string; description: string }>;
+        multiSelect: boolean;
+      } => question !== undefined,
+    );
+
+  return parsedQuestions.length > 0 ? parsedQuestions : undefined;
+}
+
+function toTypedUserInputQuestions(questions: ReadonlyArray<CodexToolUserInputQuestion>) {
+  const parsedQuestions = questions
+    .map((question) => {
+      const options =
+        question.options
+          ?.map((option) => {
+            const label = trimText(option.label);
+            const description = trimText(option.description);
+            if (!label || !description) {
+              return undefined;
+            }
+            return { label, description };
+          })
+          .filter(
+            (option): option is { label: string; description: string } => option !== undefined,
+          ) ?? [];
+
+      const id = trimText(question.id);
+      const header = trimText(question.header);
+      const prompt = trimText(question.question);
+      if (!id || !header || !prompt || options.length === 0) {
+        return undefined;
+      }
+      return {
+        id,
+        header,
+        question: prompt,
+        options,
+        multiSelect: (question as { multiSelect?: unknown }).multiSelect === true,
       };
     })
     .filter(
@@ -412,6 +527,32 @@ function toUserInputQuestions(payload: Record<string, unknown> | undefined) {
 function toThreadState(
   value: unknown,
 ): "active" | "idle" | "archived" | "closed" | "compacted" | "error" {
+  const typedStatus = readPayload(
+    EffectCodexSchema.V2ThreadStatusChangedNotification__ThreadStatus,
+    value,
+  );
+  if (typedStatus) {
+    switch (typedStatus.type) {
+      case "idle":
+        return "idle";
+      case "systemError":
+        return "error";
+      default:
+        return "active";
+    }
+  }
+
+  const statusRecord = asObject(value);
+  switch (statusRecord?.type) {
+    case "idle":
+      return "idle";
+    case "systemError":
+      return "error";
+    case "notLoaded":
+    case "active":
+      return "active";
+  }
+
   switch (value) {
     case "idle":
       return "idle";
@@ -613,7 +754,12 @@ function mapToRuntimeEvents(
 
   if (event.kind === "request") {
     if (event.method === "item/tool/requestUserInput") {
-      const questions = toUserInputQuestions(payload);
+      const decodedPayload =
+        readPayload(EffectCodexSchema.ServerRequest__ToolRequestUserInputParams, event.payload) ??
+        readPayload(EffectCodexSchema.ToolRequestUserInputParams, event.payload);
+      const questions = decodedPayload
+        ? toTypedUserInputQuestions(decodedPayload.questions)
+        : toUserInputQuestions(payload);
       if (!questions) {
         return [];
       }
@@ -628,8 +774,7 @@ function mapToRuntimeEvents(
       ];
     }
 
-    const detail =
-      asString(payload?.command) ?? asString(payload?.reason) ?? asString(payload?.prompt);
+    const detail = requestDetailFromPayload(event.method, event.payload, payload);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -750,7 +895,9 @@ function mapToRuntimeEvents(
                 ? "closed"
                 : event.method === "thread/compacted"
                   ? "compacted"
-                  : toThreadState(asObject(payload?.thread)?.state ?? payload?.state),
+                  : toThreadState(
+                      asObject(payload?.thread)?.state ?? payload?.state ?? payload?.status,
+                    ),
           ...(event.payload !== undefined ? { detail: event.payload } : {}),
         },
       },
@@ -972,6 +1119,10 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "item/mcpToolCall/progress") {
+    const decodedPayload = readPayload(
+      EffectCodexSchema.V2McpToolCallProgressNotification,
+      event.payload,
+    );
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -979,7 +1130,9 @@ function mapToRuntimeEvents(
         payload: {
           ...(asString(payload?.toolUseId) ? { toolUseId: asString(payload?.toolUseId) } : {}),
           ...(asString(payload?.toolName) ? { toolName: asString(payload?.toolName) } : {}),
-          ...(asString(payload?.summary) ? { summary: asString(payload?.summary) } : {}),
+          ...((trimText(decodedPayload?.message) ?? asString(payload?.summary))
+            ? { summary: trimText(decodedPayload?.message) ?? asString(payload?.summary) }
+            : {}),
           ...(asNumber(payload?.elapsedSeconds) !== undefined
             ? { elapsedSeconds: asNumber(payload?.elapsedSeconds) }
             : {}),
@@ -1428,6 +1581,9 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         ...(homePath ? { homePath } : {}),
         ...(modelSelection ? { model: modelSelection.model } : {}),
         ...(fastMode ? { serviceTier: "fast" } : {}),
+        ...(input.mcpServers !== undefined ? { mcpServers: input.mcpServers } : {}),
+        ...(input.mcpServerIds !== undefined ? { mcpServerIds: input.mcpServerIds } : {}),
+        ...(input.mcpConfigHash !== undefined ? { mcpConfigHash: input.mcpConfigHash } : {}),
       };
 
       return yield* Effect.tryPromise({
@@ -1632,6 +1788,10 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      mcp: {
+        supported: true,
+        transports: { stdio: true, http: true, sse: false },
+      },
     },
     startSession,
     sendTurn,

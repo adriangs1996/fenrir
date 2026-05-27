@@ -82,6 +82,7 @@ describe("orchestration projector", () => {
         },
         runtimeMode: "full-access",
         interactionMode: "default",
+        mcpServerIds: [],
         branch: null,
         worktreePath: null,
         latestTurn: null,

@@ -28,7 +28,13 @@ export const EDITORS = [
   { id: "antigravity", label: "Antigravity", commands: ["agy"], launchStyle: "goto" },
   { id: "idea", label: "IntelliJ IDEA", commands: ["idea"], launchStyle: "line-column" },
   { id: "file-manager", label: "File Manager", commands: null, launchStyle: "direct-path" },
-  { id: "fenrir-embedded", label: "Embedded Editor", commands: null, launchStyle: "direct-path" },
+  {
+    id: "fenrir-embedded-vscode",
+    label: "Embedded VS Code",
+    commands: ["code-server", "openvscode-server"],
+    launchStyle: "direct-path",
+  },
+  { id: "fenrir-embedded", label: "Embedded Neovim", commands: null, launchStyle: "direct-path" },
 ] as const satisfies ReadonlyArray<EditorDefinition>;
 
 export const EditorId = Schema.Literals(EDITORS.map((e) => e.id));

@@ -122,6 +122,13 @@ const RENDER_FRAME_PORT_CHANNEL = "desktop:render-frame-port";
 const RENDER_SET_EDITOR_FONT_METRICS_CHANNEL = "desktop:render-set-editor-font-metrics";
 const NVIM_AVAILABLE_CHANNEL = "desktop:nvim-available";
 const NVIM_PROBE_DETAIL_CHANNEL = "desktop:nvim-probe-detail";
+const VSCODE_AVAILABLE_CHANNEL = "desktop:vscode-available";
+const VSCODE_PROBE_DETAIL_CHANNEL = "desktop:vscode-probe-detail";
+const VSCODE_START_CHANNEL = "desktop:vscode-start";
+const VSCODE_OPEN_FILE_CHANNEL = "desktop:vscode-open-file";
+const VSCODE_SET_BOUNDS_CHANNEL = "desktop:vscode-set-bounds";
+const VSCODE_SHOW_CHANNEL = "desktop:vscode-show";
+const VSCODE_HIDE_CHANNEL = "desktop:vscode-hide";
 const EDITOR_OPEN_FILE_CHANNEL = "fenrir:editor:openFile";
 const EDITOR_EVENT_CHANNEL = "fenrir:editor:event";
 const EDITOR_SEND_TO_COMPOSER_CHANNEL = "fenrir:editor:sendToComposer";
@@ -406,6 +413,15 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   isMainWindow: () => isMainWindow,
   nvimAvailable: () => ipcRenderer.invoke(NVIM_AVAILABLE_CHANNEL) as Promise<boolean>,
   nvimProbeDetail: () => ipcRenderer.invoke(NVIM_PROBE_DETAIL_CHANNEL),
+  vscodeAvailable: () => ipcRenderer.invoke(VSCODE_AVAILABLE_CHANNEL) as Promise<boolean>,
+  vscodeProbeDetail: () => ipcRenderer.invoke(VSCODE_PROBE_DETAIL_CHANNEL),
+  vscodeStart: (cwd: string) => ipcRenderer.invoke(VSCODE_START_CHANNEL, cwd),
+  vscodeOpenFile: (input: EditorOpenFileInput) =>
+    ipcRenderer.invoke(VSCODE_OPEN_FILE_CHANNEL, input),
+  vscodeSetBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
+    ipcRenderer.invoke(VSCODE_SET_BOUNDS_CHANNEL, bounds),
+  vscodeShow: () => ipcRenderer.invoke(VSCODE_SHOW_CHANNEL),
+  vscodeHide: () => ipcRenderer.invoke(VSCODE_HIDE_CHANNEL),
 
   // Editor IPC (nvim ↔ renderer)
   editor: {

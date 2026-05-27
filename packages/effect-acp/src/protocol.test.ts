@@ -315,8 +315,8 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       const lateResponse = yield* Deferred.make<unknown>();
 
       yield* transport.clientProtocol
-        .run(0, (message) => Deferred.succeed(lateResponse, message).pipe(Effect.asVoid))
-        .pipe(Effect.forkScoped);
+        .run((message) => Deferred.succeed(lateResponse, message).pipe(Effect.asVoid))
+        .pipe(Effect.forkScoped({ startImmediately: true }));
 
       const response = yield* transport
         .request("x/test", { hello: "world" })
@@ -371,8 +371,8 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       });
 
       yield* transport.clientProtocol
-        .run(0, (message) => Deferred.succeed(firstMessage, message).pipe(Effect.asVoid))
-        .pipe(Effect.forkScoped);
+        .run((message) => Deferred.succeed(firstMessage, message).pipe(Effect.asVoid))
+        .pipe(Effect.forkScoped({ startImmediately: true }));
 
       const message = yield* Deferred.await(firstMessage);
       const exitError = yield* Deferred.await(termination);
@@ -405,8 +405,8 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       });
 
       yield* transport.clientProtocol
-        .run(0, (message) => Deferred.succeed(firstMessage, message).pipe(Effect.asVoid))
-        .pipe(Effect.forkScoped);
+        .run((message) => Deferred.succeed(firstMessage, message).pipe(Effect.asVoid))
+        .pipe(Effect.forkScoped({ startImmediately: true }));
 
       const message = yield* Deferred.await(firstMessage);
       assert.equal(yield* Ref.get(terminationCalls), 1);

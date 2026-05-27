@@ -1,5 +1,6 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
 import { ProviderOptionSelections } from "./model";
+import { McpServerId } from "./mcp";
 import { RepositoryIdentity } from "./environment";
 import {
   ApprovalRequestId,
@@ -390,6 +391,7 @@ export const OrchestrationThread = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
+  mcpServerIds: Schema.optionalKey(Schema.Array(McpServerId)),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
@@ -414,6 +416,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
+  mcpServerIds: Schema.optionalKey(Schema.Array(McpServerId)),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
@@ -599,6 +602,7 @@ const ThreadCreateCommand = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
+  mcpServerIds: Schema.optionalKey(Schema.Array(McpServerId)),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
@@ -632,6 +636,14 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
 });
 
+const ThreadMcpServersSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.mcp-servers.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  mcpServerIds: Schema.Array(McpServerId),
+  createdAt: IsoDateTime,
+});
+
 const ThreadRuntimeModeSetCommand = Schema.Struct({
   type: Schema.Literal("thread.runtime-mode.set"),
   commandId: CommandId,
@@ -654,6 +666,7 @@ const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
+  mcpServerIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(() => [])),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
@@ -769,6 +782,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
   ThreadMetaUpdateCommand,
+  ThreadMcpServersSetCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ThreadTurnStartCommand,
@@ -792,6 +806,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
   ThreadMetaUpdateCommand,
+  ThreadMcpServersSetCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ClientThreadTurnStartCommand,
@@ -894,6 +909,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.archived",
   "thread.unarchived",
   "thread.meta-updated",
+  "thread.mcp-servers-set",
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
   "thread.message-sent",
@@ -958,6 +974,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
+  mcpServerIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(() => [])),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
@@ -986,6 +1003,12 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadMcpServersSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  mcpServerIds: Schema.Array(McpServerId),
   updatedAt: IsoDateTime,
 });
 
@@ -1196,6 +1219,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.meta-updated"),
     payload: ThreadMetaUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.mcp-servers-set"),
+    payload: ThreadMcpServersSetPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

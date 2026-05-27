@@ -84,6 +84,10 @@ import {
   BrowserTraceCollector,
   type BrowserTraceCollectorShape,
 } from "./observability/Services/BrowserTraceCollector.ts";
+import {
+  BrowserLabControlService,
+  type BrowserLabControlServiceShape,
+} from "./browserLab/Services/BrowserLabControlService.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
 import {
   ProjectSetupScriptRunner,
@@ -349,6 +353,7 @@ const buildAppUnderTest = (options?: {
     globalActions?: Partial<GlobalActionsShape>;
     skillService?: Partial<SkillServiceShape>;
     importResolver?: Partial<ImportResolverShape>;
+    browserLabControlService?: Partial<BrowserLabControlServiceShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -514,9 +519,17 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(Open)({
-          ...options?.layers?.open,
-        }),
+        Layer.mergeAll(
+          Layer.mock(Open)({
+            ...options?.layers?.open,
+          }),
+          Layer.mock(BrowserLabControlService)({
+            isConnected: Effect.succeed(false),
+            registerSocket: () => Effect.void,
+            call: () => Effect.die(new Error("not available in test")),
+            ...options?.layers?.browserLabControlService,
+          }),
+        ),
       ),
       Layer.provide(gitCoreLayer),
       Layer.provide(gitManagerLayer),
@@ -3559,6 +3572,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   interactionMode: "default",
                   branch: "main",
                   worktreePath: null,
+                  mcpServerIds: [],
                   createdAt,
                 },
                 prepareWorktree: {
@@ -3675,6 +3689,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 interactionMode: "default",
                 branch: "main",
                 worktreePath: null,
+                mcpServerIds: [],
                 createdAt,
               },
               prepareWorktree: {
@@ -3791,6 +3806,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 interactionMode: "default",
                 branch: "main",
                 worktreePath: null,
+                mcpServerIds: [],
                 createdAt,
               },
               prepareWorktree: {
@@ -3874,6 +3890,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 interactionMode: "default",
                 branch: "main",
                 worktreePath: null,
+                mcpServerIds: [],
                 createdAt,
               },
               prepareWorktree: {

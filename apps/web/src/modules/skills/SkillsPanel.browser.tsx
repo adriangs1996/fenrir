@@ -139,6 +139,7 @@ const LOCAL_API = {
   server: {
     getConfig: vi.fn(async () => ({ availableEditors: ["vscode"] })),
     refreshProviders: vi.fn(async () => undefined),
+    updateProvider: vi.fn(async () => undefined),
     upsertKeybinding: vi.fn(async () => undefined),
     removeKeybinding: vi.fn(async () => undefined),
     getTraceDiagnostics: vi.fn(async () => undefined),

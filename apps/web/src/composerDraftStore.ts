@@ -3,6 +3,7 @@ import {
   getDefaultModelByProvider,
   type EnvironmentId,
   isBuiltInProviderKind,
+  McpServerId,
   ModelSelection,
   ProjectId,
   ProviderInteractionMode,
@@ -134,6 +135,7 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   activeProvider: Schema.optionalKey(Schema.NullOr(Schema.String)),
   runtimeMode: Schema.optionalKey(RuntimeMode),
   interactionMode: Schema.optionalKey(ProviderInteractionMode),
+  mcpServerIds: Schema.optionalKey(Schema.NullOr(Schema.Array(McpServerId))),
 });
 type PersistedComposerThreadDraftState = typeof PersistedComposerThreadDraftState.Type;
 
@@ -240,6 +242,7 @@ export interface ComposerThreadDraftState {
   activeProvider: ProviderSelectionKind | null;
   runtimeMode: RuntimeMode | null;
   interactionMode: ProviderInteractionMode | null;
+  mcpServerIds: McpServerId[] | null;
 }
 
 /**
@@ -415,6 +418,10 @@ interface ComposerDraftStoreState {
     threadRef: ComposerThreadTarget,
     interactionMode: ProviderInteractionMode | null | undefined,
   ) => void;
+  setMcpServerIds: (
+    threadRef: ComposerThreadTarget,
+    mcpServerIds: ReadonlyArray<McpServerId> | null | undefined,
+  ) => void;
   addImage: (threadRef: ComposerThreadTarget, image: ComposerImageAttachment) => void;
   addImages: (threadRef: ComposerThreadTarget, images: ComposerImageAttachment[]) => void;
   removeImage: (threadRef: ComposerThreadTarget, imageId: string) => void;
@@ -511,6 +518,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   activeProvider: null,
   runtimeMode: null,
   interactionMode: null,
+  mcpServerIds: null,
 });
 
 function createEmptyThreadDraft(): ComposerThreadDraftState {
@@ -526,6 +534,7 @@ function createEmptyThreadDraft(): ComposerThreadDraftState {
     activeProvider: null,
     runtimeMode: null,
     interactionMode: null,
+    mcpServerIds: null,
   };
 }
 
@@ -604,7 +613,8 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     Object.keys(draft.providerInstanceIdByProvider).length === 0 &&
     draft.activeProvider === null &&
     draft.runtimeMode === null &&
-    draft.interactionMode === null
+    draft.interactionMode === null &&
+    draft.mcpServerIds === null
   );
 }
 
@@ -1691,7 +1701,8 @@ function partializeComposerDraftStoreState(
       draft.reviewContexts.length === 0 &&
       !hasModelData &&
       draft.runtimeMode === null &&
-      draft.interactionMode === null
+      draft.interactionMode === null &&
+      draft.mcpServerIds === null
     ) {
       continue;
     }
@@ -1728,6 +1739,7 @@ function partializeComposerDraftStoreState(
         : {}),
       ...(draft.runtimeMode ? { runtimeMode: draft.runtimeMode } : {}),
       ...(draft.interactionMode ? { interactionMode: draft.interactionMode } : {}),
+      ...(draft.mcpServerIds !== null ? { mcpServerIds: draft.mcpServerIds } : {}),
     } as DeepMutable<PersistedComposerThreadDraftState>;
     persistedDraftsByThreadKey[threadKey] = persistedDraft;
   }
@@ -1968,6 +1980,7 @@ function toHydratedThreadDraft(
     activeProvider,
     runtimeMode: persistedDraft.runtimeMode ?? null,
     interactionMode: persistedDraft.interactionMode ?? null,
+    mcpServerIds: persistedDraft.mcpServerIds ? [...persistedDraft.mcpServerIds] : null,
   };
 }
 
@@ -2869,6 +2882,35 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const nextDraft: ComposerThreadDraftState = {
               ...base,
               interactionMode: nextInteractionMode,
+            };
+            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+            if (shouldRemoveDraft(nextDraft)) {
+              delete nextDraftsByThreadKey[threadKey];
+            } else {
+              nextDraftsByThreadKey[threadKey] = nextDraft;
+            }
+            return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        setMcpServerIds: (threadRef, mcpServerIds) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return;
+          }
+          const nextMcpServerIds =
+            mcpServerIds === undefined || mcpServerIds === null ? null : [...mcpServerIds];
+          set((state) => {
+            const existing = state.draftsByThreadKey[threadKey];
+            if (!existing && nextMcpServerIds === null) {
+              return state;
+            }
+            const base = existing ?? createEmptyThreadDraft();
+            if (Equal.equals(base.mcpServerIds, nextMcpServerIds)) {
+              return state;
+            }
+            const nextDraft: ComposerThreadDraftState = {
+              ...base,
+              mcpServerIds: nextMcpServerIds,
             };
             const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
             if (shouldRemoveDraft(nextDraft)) {

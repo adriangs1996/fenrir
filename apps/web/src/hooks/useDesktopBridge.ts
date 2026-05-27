@@ -37,3 +37,31 @@ export function useNvimAvailable(): boolean {
 
   return available;
 }
+
+/**
+ * Async probe: resolves to true when a supported VS Code web server binary
+ * (code-server or openvscode-server) is found on PATH.
+ */
+export function useVSCodeWebAvailable(): boolean {
+  const bridgeAvailable = useDesktopBridgeAvailable();
+  const [available, setAvailable] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!bridgeAvailable) return;
+    const probe = window.desktopBridge?.vscodeAvailable;
+    if (!probe) return;
+    let cancelled = false;
+    void probe()
+      .then((value) => {
+        if (!cancelled) setAvailable(value);
+      })
+      .catch(() => {
+        if (!cancelled) setAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bridgeAvailable]);
+
+  return available;
+}

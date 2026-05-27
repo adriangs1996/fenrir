@@ -19,6 +19,7 @@ import {
   WebSocketConnectionCoordinator,
   WebSocketConnectionSurface,
 } from "../components/WebSocketConnectionSurface";
+import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
@@ -135,6 +136,7 @@ function RootRouteView() {
         <EventRouter />
         <WebSocketConnectionCoordinator />
         <SlowRpcAckToastCoordinator />
+        <ProviderUpdateLaunchNotification />
         <WebSocketConnectionSurface>
           <CommandPalette>
             <AppSidebarLayout>
@@ -337,7 +339,9 @@ function EventRouter() {
 
             void Promise.resolve(serverConfig ?? api.server.getConfig())
               .then((config) => {
-                const editor = resolveAndPersistPreferredEditor(config.availableEditors);
+                const editor = resolveAndPersistPreferredEditor(config.availableEditors, {
+                  allowEmbedded: false,
+                });
                 if (!editor) {
                   throw new Error("No available editors found.");
                 }

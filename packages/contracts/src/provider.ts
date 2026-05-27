@@ -22,6 +22,7 @@ import {
   ProviderUserInputAnswers,
   RuntimeMode,
 } from "./orchestration";
+import { McpServerId, ResolvedMcpServerConfig } from "./mcp";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance";
 
 const ProviderRuntimeProviderKind = Schema.Union([ProviderKind, ProviderDriverKind]);
@@ -61,6 +62,9 @@ export const ProviderSessionStartInput = Schema.Struct({
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   runtimeMode: RuntimeMode,
+  mcpServers: Schema.optional(Schema.Array(ResolvedMcpServerConfig)),
+  mcpConfigHash: Schema.optional(TrimmedNonEmptyString),
+  mcpServerIds: Schema.optional(Schema.Array(McpServerId)),
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 

@@ -111,8 +111,28 @@ const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
-  { shortcut: modShortcut("[", { shiftKey: true }), command: "thread.previous" },
-  { shortcut: modShortcut("]", { shiftKey: true }), command: "thread.next" },
+  {
+    shortcut: {
+      key: "k",
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: true,
+      modKey: false,
+    },
+    command: "thread.previous",
+  },
+  {
+    shortcut: {
+      key: "j",
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: true,
+      modKey: false,
+    },
+    command: "thread.next",
+  },
   {
     shortcut: { ...modShortcut("o"), modKey: false },
     command: "review.openChange" as KeybindingCommand,
@@ -300,7 +320,7 @@ describe("shortcutLabelForCommand", () => {
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.previous", "Linux"),
-      "Ctrl+Shift+[",
+      "Alt+K",
     );
     assert.strictEqual(
       shortcutLabelForCommand(
@@ -373,6 +393,40 @@ describe("thread navigation helpers", () => {
     assert.strictEqual(threadTraversalDirectionFromCommand("thread.next"), "next");
     assert.isNull(threadTraversalDirectionFromCommand("thread.jump.1"));
     assert.isNull(threadTraversalDirectionFromCommand(null));
+  });
+
+  it("resolves Alt+K and Alt+J as thread traversal shortcuts", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "k", altKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+      }),
+      "thread.previous",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "j", altKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+      }),
+      "thread.next",
+    );
+  });
+
+  it("resolves Alt+K and Alt+J from physical key codes when Option changes event.key", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "Dead", code: "KeyK", altKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+      "thread.previous",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "\u2206", code: "KeyJ", altKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "MacIntel",
+        },
+      ),
+      "thread.next",
+    );
   });
 
   it("shows jump hints only when configured modifiers match", () => {
@@ -525,10 +579,15 @@ describe("resolveShortcutCommand", () => {
   });
 
   it("matches bracket shortcuts using the physical key code", () => {
+    const bracketBindings = compile([
+      { shortcut: modShortcut("[", { shiftKey: true }), command: "thread.previous" },
+      { shortcut: modShortcut("]", { shiftKey: true }), command: "thread.next" },
+    ]);
+
     assert.strictEqual(
       resolveShortcutCommand(
         event({ key: "{", code: "BracketLeft", metaKey: true, shiftKey: true }),
-        DEFAULT_BINDINGS,
+        bracketBindings,
         {
           platform: "MacIntel",
         },
@@ -538,7 +597,7 @@ describe("resolveShortcutCommand", () => {
     assert.strictEqual(
       resolveShortcutCommand(
         event({ key: "}", code: "BracketRight", ctrlKey: true, shiftKey: true }),
-        DEFAULT_BINDINGS,
+        bracketBindings,
         {
           platform: "Linux",
         },

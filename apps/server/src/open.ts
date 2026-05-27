@@ -35,6 +35,7 @@ interface CommandAvailabilityOptions {
 }
 
 const TARGET_WITH_POSITION_PATTERN = /^(.*?):(\d+)(?::(\d+))?$/;
+const CLIENT_SIDE_EDITOR_IDS = new Set<EditorId>(["fenrir-embedded", "fenrir-embedded-vscode"]);
 
 function parseTargetPathAndPosition(target: string): {
   path: string;
@@ -283,9 +284,9 @@ export const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
     return yield* new OpenError({ message: `Unknown editor: ${input.editor}` });
   }
 
-  if (editorDef.id === "fenrir-embedded") {
+  if (CLIENT_SIDE_EDITOR_IDS.has(editorDef.id)) {
     return yield* new OpenError({
-      message: "fenrir-embedded is handled client-side via desktopBridge",
+      message: `${editorDef.id} is handled client-side via desktopBridge`,
     });
   }
 

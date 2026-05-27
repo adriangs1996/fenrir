@@ -224,8 +224,9 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
       },
     });
 
-  const respondWithError = (requestId: string, error: AcpError.AcpRequestError) =>
-    offerOutgoing({
+  const respondWithError = (requestId: string, error: AcpError.AcpRequestError) => {
+    const protocolError = error.toProtocolError();
+    return offerOutgoing({
       _tag: "Exit",
       requestId,
       exit: {
@@ -233,11 +234,13 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
         cause: [
           {
             _tag: "Fail",
-            error: error.toProtocolError(),
+            ...protocolError,
+            error: protocolError,
           },
         ],
       },
     });
+  };
 
   const handleExtRequest = (message: RpcMessage.RequestEncoded) => {
     if (!options.onExtRequest) {
@@ -432,18 +435,21 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
             ),
         ),
     }),
-    Effect.forkScoped,
+    Effect.forkScoped({ startImmediately: true }),
   );
 
-  yield* Stream.fromQueue(outgoing).pipe(Stream.run(options.stdio.stdout()), Effect.forkScoped);
+  yield* Stream.fromQueue(outgoing).pipe(
+    Stream.run(options.stdio.stdout()),
+    Effect.forkScoped({ startImmediately: true }),
+  );
 
   const clientProtocol = RpcClient.Protocol.of({
-    run: (_clientId, f) =>
+    run: (f) =>
       Stream.fromQueue(clientQueue).pipe(
         Stream.runForEach((message) => f(message)),
         Effect.forever,
       ),
-    send: (_clientId, request) => offerOutgoing(request).pipe(Effect.mapError(toRpcClientError)),
+    send: (request) => offerOutgoing(request).pipe(Effect.mapError(toRpcClientError)),
     supportsAck: true,
     supportsTransferables: false,
   });

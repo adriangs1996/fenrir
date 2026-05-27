@@ -1000,6 +1000,7 @@ describe("incremental orchestration updates", () => {
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
         interactionMode: DEFAULT_INTERACTION_MODE,
+        mcpServerIds: [],
         branch: null,
         worktreePath: null,
         createdAt: "2026-02-27T00:00:01.000Z",

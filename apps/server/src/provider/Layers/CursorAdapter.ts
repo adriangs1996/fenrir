@@ -502,6 +502,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
             ...(options?.environment ? { environment: options.environment } : {}),
             childProcessSpawner,
             cwd,
+            ...(input.mcpServers !== undefined ? { mcpServers: input.mcpServers } : {}),
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "fenrir", version: "0.0.0" },
             ...acpNativeLoggers,
@@ -1069,7 +1070,13 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "in-session" },
+      capabilities: {
+        sessionModelSwitch: "in-session",
+        mcp: {
+          supported: true,
+          transports: { stdio: true, http: true, sse: true },
+        },
+      },
       startSession,
       sendTurn,
       interruptTurn,

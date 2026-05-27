@@ -222,7 +222,7 @@ describe("editorStore", () => {
   });
 
   describe("persistence partialize", () => {
-    it("only includes activeChatTab in persisted state", () => {
+    it("only includes persisted editor preferences", () => {
       const store = useEditorStore.getState();
       store.setActiveChatTab("editor");
       store.setCurrentFile("/src/main.rs");
@@ -241,7 +241,9 @@ describe("editorStore", () => {
       const persistOptions = useEditorStore.persist.getOptions();
       const partialized = persistOptions.partialize?.(useEditorStore.getState());
 
-      expect(partialized).toEqual({ activeChatTab: "editor" });
+      expect(partialized).toEqual({
+        activeChatTab: "editor",
+      });
       expect(partialized).not.toHaveProperty("currentFile");
       expect(partialized).not.toHaveProperty("dirtyFiles");
       expect(partialized).not.toHaveProperty("pendingContexts");

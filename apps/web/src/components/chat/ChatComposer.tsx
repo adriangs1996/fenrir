@@ -1,6 +1,8 @@
 import type {
   ApprovalRequestId,
   EnvironmentId,
+  McpServerDefinition,
+  McpServerId,
   ModelSelection,
   ProviderInstanceId,
   ProjectEntry,
@@ -98,12 +100,15 @@ import { cn, randomUUID } from "~/lib/utils";
 import { Separator } from "../ui/separator";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Switch } from "../ui/switch";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import {
   BotIcon,
   CircleAlertIcon,
   DiffIcon,
+  PlugIcon,
   ListTodoIcon,
   type LucideIcon,
   LockIcon,
@@ -274,6 +279,126 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   );
 });
 
+const ComposerMcpPicker = memo(function ComposerMcpPicker(props: {
+  servers: ReadonlyArray<McpServerDefinition>;
+  selectedIds: ReadonlyArray<McpServerId>;
+  compatibilityMessage: string | null;
+  changeNotice: string | null;
+  onChange: (ids: McpServerId[]) => void;
+}) {
+  const selectedSet = useMemo(() => new Set(props.selectedIds), [props.selectedIds]);
+  const selectedCount = props.selectedIds.length;
+  const setServerSelected = (serverId: McpServerId, selected: boolean) => {
+    props.onChange(
+      selected
+        ? Array.from(new Set([...props.selectedIds, serverId]))
+        : props.selectedIds.filter((id) => id !== serverId),
+    );
+  };
+  const toggleServer = (serverId: McpServerId) => {
+    setServerSelected(serverId, !selectedSet.has(serverId));
+  };
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <PopoverTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "shrink-0 gap-1 px-2 text-muted-foreground/75 hover:text-foreground/85",
+                    props.compatibilityMessage ? "text-destructive hover:text-destructive" : null,
+                  )}
+                  aria-label="MCP servers"
+                >
+                  <PlugIcon />
+                  <span className="sr-only sm:not-sr-only">
+                    MCP{selectedCount > 0 ? ` ${selectedCount}` : ""}
+                  </span>
+                </Button>
+              }
+            />
+          }
+        />
+        <TooltipPopup side="top">
+          {props.compatibilityMessage ?? "Select MCP servers for this thread"}
+        </TooltipPopup>
+      </Tooltip>
+      <PopoverPopup align="start" className="w-72 p-2">
+        <div className="grid gap-1">
+          <div className="px-2 py-1 text-xs font-medium text-muted-foreground">MCP servers</div>
+          {props.servers.length === 0 ? (
+            <div className="rounded border border-dashed border-border/70 px-3 py-2 text-xs text-muted-foreground">
+              No enabled MCP servers.
+            </div>
+          ) : (
+            props.servers.map((server) => {
+              const selected = selectedSet.has(server.id);
+              return (
+                <div
+                  key={server.id}
+                  role="checkbox"
+                  aria-checked={selected}
+                  tabIndex={0}
+                  className={cn(
+                    "flex min-w-0 cursor-pointer items-center justify-between gap-3 rounded px-2 py-2 text-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+                    selected ? "bg-accent text-accent-foreground" : null,
+                  )}
+                  onClick={() => toggleServer(server.id)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    toggleServer(server.id);
+                  }}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{server.name}</div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {server.transport.type}
+                      {server.source === "fenrir" ? " · Fenrir" : ""}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={selected}
+                    aria-label={`${selected ? "Deselect" : "Select"} ${server.name}`}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                    onCheckedChange={(checked) => setServerSelected(server.id, Boolean(checked))}
+                  />
+                </div>
+              );
+            })
+          )}
+          {props.selectedIds.length > 0 ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              className="mt-1 justify-start"
+              onClick={() => props.onChange([])}
+            >
+              Clear selection
+            </Button>
+          ) : null}
+          {props.compatibilityMessage ? (
+            <div className="mt-1 rounded border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+              {props.compatibilityMessage}
+            </div>
+          ) : null}
+          {props.changeNotice ? (
+            <div className="mt-1 rounded border border-border/70 bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
+              {props.changeNotice}
+            </div>
+          ) : null}
+        </div>
+      </PopoverPopup>
+    </Popover>
+  );
+});
+
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
   activeContextWindow: ReturnType<typeof deriveLatestContextWindowSnapshot>;
@@ -353,6 +478,7 @@ export interface ChatComposerHandle {
     selectedProviderInstanceId: ProviderInstanceId;
     selectedModel: string;
     selectedProviderModels: ReadonlyArray<ServerProvider["models"][number]>;
+    selectedMcpServerIds: ReadonlyArray<McpServerId>;
   };
 }
 
@@ -411,6 +537,11 @@ export interface ChatComposerProps {
   providerStatuses: ServerProvider[];
   activeProjectDefaultModelSelection: ModelSelection | null | undefined;
   activeThreadModelSelection: ModelSelection | null | undefined;
+  mcpServers: ReadonlyArray<McpServerDefinition>;
+  selectedMcpServerIds: ReadonlyArray<McpServerId>;
+  mcpCompatibilityMessage: string | null;
+  mcpChangeNotice: string | null;
+  onMcpServerIdsChange: (ids: McpServerId[]) => void;
 
   // Context window
   activeThreadActivities: Thread["activities"] | undefined;
@@ -1776,6 +1907,7 @@ export const ChatComposer = memo(
           selectedProviderInstanceId,
           selectedModel,
           selectedProviderModels,
+          selectedMcpServerIds: props.selectedMcpServerIds,
         }),
       }),
       [
@@ -1796,6 +1928,7 @@ export const ChatComposer = memo(
         selectedProvider,
         selectedProviderInstanceId,
         selectedProviderModels,
+        props.selectedMcpServerIds,
       ],
     );
 
@@ -2021,7 +2154,7 @@ export const ChatComposer = memo(
                 data-chat-composer-footer="true"
                 data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
                 className={cn(
-                  "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-2.5 pb-2.5 sm:px-3 sm:pb-3",
+                  "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-hidden px-2.5 pb-2.5 sm:px-3 sm:pb-3",
                   isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                 )}
               >
@@ -2031,7 +2164,7 @@ export const ChatComposer = memo(
                     "-m-1 flex min-w-0 flex-1 items-center p-1",
                     isComposerFooterCompact
                       ? "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                      : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
+                      : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
                   )}
                 >
                   <ProviderModelPicker
@@ -2087,6 +2220,14 @@ export const ChatComposer = memo(
                       </SelectPopup>
                     </Select>
                   ) : null}
+
+                  <ComposerMcpPicker
+                    servers={props.mcpServers}
+                    selectedIds={props.selectedMcpServerIds}
+                    compatibilityMessage={props.mcpCompatibilityMessage}
+                    changeNotice={props.mcpChangeNotice}
+                    onChange={props.onMcpServerIdsChange}
+                  />
 
                   {isComposerFooterCompact ? (
                     <CompactComposerControlsMenu
@@ -2144,7 +2285,9 @@ export const ChatComposer = memo(
                     isSendBusy={isSendBusy}
                     isConnecting={isConnecting}
                     isPreparingWorktree={isPreparingWorktree}
-                    hasSendableContent={composerSendState.hasSendableContent}
+                    hasSendableContent={
+                      composerSendState.hasSendableContent && props.mcpCompatibilityMessage === null
+                    }
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}

@@ -8,6 +8,7 @@
  */
 import {
   IsoDateTime,
+  McpServerId,
   ModelSelection,
   ProjectId,
   ProviderInteractionMode,
@@ -27,6 +28,7 @@ export const ProjectionThread = Schema.Struct({
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
+  mcpServerIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(() => [])),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   latestTurnId: Schema.NullOr(TurnId),

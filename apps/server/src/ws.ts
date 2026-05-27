@@ -76,6 +76,10 @@ import {
   observeRpcStreamEffect,
 } from "./observability/RpcInstrumentation";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
+import {
+  ProviderMaintenanceRunner,
+  ProviderMaintenanceRunnerLive,
+} from "./provider/providerMaintenanceRunner";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { GlobalActionsService } from "./globalActions";
@@ -553,6 +557,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 interactionMode: bootstrap.createThread.interactionMode,
                 branch: bootstrap.createThread.branch,
                 worktreePath: bootstrap.createThread.worktreePath,
+                mcpServerIds: bootstrap.createThread.mcpServerIds ?? [],
                 createdAt: bootstrap.createThread.createdAt,
               });
               createdThread = true;
@@ -1030,10 +1035,22 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {
             "rpc.aggregate": "server",
           }),
-        [WS_METHODS.serverRefreshProviders]: (_input) =>
+        [WS_METHODS.serverRefreshProviders]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverRefreshProviders,
-            providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
+            (input.instanceId
+              ? providerRegistry.refreshInstance(input.instanceId)
+              : providerRegistry.refresh()
+            ).pipe(Effect.map((providers) => ({ providers }))),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverUpdateProvider]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverUpdateProvider,
+            Effect.gen(function* () {
+              const providerMaintenanceRunner = yield* ProviderMaintenanceRunner;
+              return yield* providerMaintenanceRunner.updateProvider(input);
+            }),
             { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverUpsertKeybinding]: (rule) =>
@@ -2291,7 +2308,10 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           },
         }).pipe(
           Effect.provide(
-            makeWsRpcLayer(session.sessionId).pipe(Layer.provideMerge(RpcSerialization.layerJson)),
+            makeWsRpcLayer(session.sessionId).pipe(
+              Layer.provideMerge(RpcSerialization.layerJson),
+              Layer.provideMerge(ProviderMaintenanceRunnerLive),
+            ),
           ),
         );
         return yield* Effect.acquireUseRelease(

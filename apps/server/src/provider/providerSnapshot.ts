@@ -5,6 +5,7 @@ import {
   ProviderInstanceId,
   ServerProvider,
   ServerProviderAuth,
+  type ServerProviderMcpCapabilities,
   ServerProviderModel,
   ServerProviderState,
 } from "@fenrir/contracts";
@@ -143,6 +144,7 @@ export function buildServerProvider(input: {
   checkedAt: string;
   models: ReadonlyArray<ServerProviderModel>;
   probe: ProviderProbeResult;
+  mcpCapabilities?: ServerProviderMcpCapabilities;
 }): ServerProvider {
   const fallbackProvider = input.provider;
   const fallbackDriver =
@@ -151,6 +153,7 @@ export function buildServerProvider(input: {
   const fallbackInstanceId =
     input.instanceId ??
     (fallbackProvider ? ProviderInstanceId.makeUnsafe(fallbackProvider) : undefined);
+  const mcpCapabilities = input.mcpCapabilities ?? defaultMcpCapabilities(input);
   return {
     ...(fallbackProvider ? { provider: fallbackProvider } : {}),
     ...(fallbackInstanceId ? { instanceId: fallbackInstanceId } : {}),
@@ -167,7 +170,25 @@ export function buildServerProvider(input: {
     ...(input.availability ? { availability: input.availability } : {}),
     ...(input.unavailableReason ? { unavailableReason: input.unavailableReason } : {}),
     models: input.models,
+    ...(mcpCapabilities ? { mcpCapabilities } : {}),
   };
+}
+
+function defaultMcpCapabilities(input: {
+  readonly provider?: ProviderKind;
+  readonly driver?: ProviderDriverKind;
+}): ServerProviderMcpCapabilities | undefined {
+  const kind = input.driver ?? input.provider;
+  if (kind === "codex") {
+    return { supported: true, transports: { stdio: true, http: true, sse: false } };
+  }
+  if (kind === "claudeAgent" || kind === "cursor") {
+    return { supported: true, transports: { stdio: true, http: true, sse: true } };
+  }
+  if (kind === "opencode") {
+    return { supported: false, transports: { stdio: false, http: false, sse: false } };
+  }
+  return undefined;
 }
 
 export const collectStreamAsString = <E>(

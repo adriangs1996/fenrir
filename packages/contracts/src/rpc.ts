@@ -64,6 +64,7 @@ import {
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "./project";
+import { ProviderInstanceId } from "./providerInstance";
 import {
   TerminalClearInput,
   TerminalCloseInput,
@@ -165,6 +166,8 @@ import {
   ServerProcessDiagnosticsResult,
   ServerProcessResourceHistoryInput,
   ServerProcessResourceHistoryResult,
+  ServerProviderUpdateError,
+  ServerProviderUpdateInput,
   ServerRemoveKeybindingInput,
   ServerRemoveKeybindingResult,
   ServerLifecycleStreamEvent,
@@ -263,6 +266,7 @@ export const WS_METHODS = {
   // Server meta
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
+  serverUpdateProvider: "server.updateProvider",
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverRemoveKeybinding: "server.removeKeybinding",
   serverGetTraceDiagnostics: "server.getTraceDiagnostics",
@@ -436,8 +440,16 @@ export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
-  payload: Schema.Struct({}),
+  payload: Schema.Struct({
+    instanceId: Schema.optional(ProviderInstanceId),
+  }),
   success: ServerProviderUpdatedPayload,
+});
+
+export const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
+  payload: ServerProviderUpdateInput,
+  success: ServerProviderUpdatedPayload,
+  error: ServerProviderUpdateError,
 });
 
 export const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
@@ -1382,6 +1394,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerLifecycleRpc,
   WsSubscribeAuthAccessRpc,
   WsOrchestrationGetBootstrapSnapshotRpc,
+  WsServerUpdateProviderRpc,
   WsOrchestrationGetArchivedShellSnapshotRpc,
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationSubscribeManagedProcessesRpc,

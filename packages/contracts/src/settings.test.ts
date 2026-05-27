@@ -16,6 +16,15 @@ describe("ClientSettings font defaults", () => {
     expect(DEFAULT_CLIENT_SETTINGS.favorites).toEqual([]);
   });
 
+  it("defaults embeddedEditor to neovim", () => {
+    expect(DEFAULT_CLIENT_SETTINGS.embeddedEditor).toBe("neovim");
+  });
+
+  it("decodes embeddedEditor when provided", () => {
+    const result = Schema.decodeSync(ClientSettingsSchema)({ embeddedEditor: "vscode" });
+    expect(result.embeddedEditor).toBe("vscode");
+  });
+
   it("has correct default uiFontFamily", () => {
     expect(DEFAULT_CLIENT_SETTINGS.uiFontFamily).toBe("Geist Mono");
   });

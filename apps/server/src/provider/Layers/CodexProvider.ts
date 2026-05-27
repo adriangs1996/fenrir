@@ -19,7 +19,10 @@ import {
   Result,
   Stream,
 } from "effect";
+import * as CodexClient from "effect-codex-app-server/client";
+import * as CodexSchema from "effect-codex-app-server/schema";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { normalizeModelSlug } from "@fenrir/shared/model";
 
 import {
   AUTH_PROBE_TIMEOUT_MS,
@@ -43,9 +46,10 @@ import {
   adjustCodexModelsForAccount,
   codexAuthSubLabel,
   codexAuthSubType,
+  readCodexAccountSnapshot,
   type CodexAccountSnapshot,
 } from "../codexAccount";
-import { probeCodexAccount } from "../codexAppServer";
+import { buildCodexInitializeParams } from "../codexAppServer";
 import { resolveEffectiveCodexSettings } from "../providerSettings";
 import { CodexProvider } from "../Services/CodexProvider";
 import { expandHomePath } from "../../pathExpansion.ts";
@@ -76,6 +80,15 @@ const DEFAULT_CODEX_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilit
     currentValue: false,
   }),
 ]);
+
+const REASONING_EFFORT_LABELS: Record<CodexSchema.V2ModelListResponse__ReasoningEffort, string> = {
+  none: "None",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra High",
+};
 
 const PROVIDER = "codex" as const;
 const OPENAI_AUTH_PROVIDERS = new Set(["openai"]);
@@ -230,17 +243,159 @@ export const hasCustomModelProvider = readCodexConfigModelProvider().pipe(
 
 const CAPABILITIES_PROBE_TIMEOUT_MS = 8_000;
 
+interface CodexAppServerCapabilitiesSnapshot {
+  readonly account?: CodexAccountSnapshot;
+  readonly models?: ReadonlyArray<ServerProviderModel>;
+}
+
+function isCodexAppServerCapabilitiesSnapshot(
+  value: CodexAccountSnapshot | CodexAppServerCapabilitiesSnapshot | undefined,
+): value is CodexAppServerCapabilitiesSnapshot {
+  return !!value && typeof value === "object" && ("account" in value || "models" in value);
+}
+
+function createCodexModelCapabilities(
+  model: CodexSchema.V2ModelListResponse__Model,
+): ModelCapabilities {
+  const reasoningOptions = model.supportedReasoningEfforts.map(({ reasoningEffort }) => ({
+    value: reasoningEffort,
+    label: REASONING_EFFORT_LABELS[reasoningEffort],
+    ...(reasoningEffort === model.defaultReasoningEffort ? { isDefault: true } : {}),
+  }));
+  const supportsFastMode = (model.additionalSpeedTiers ?? []).includes("fast");
+
+  return createModelCapabilitiesFromDescriptors([
+    ...(reasoningOptions.length > 0
+      ? [
+          selectModelOptionDescriptor({
+            id: "reasoningEffort",
+            label: "Effort",
+            options: reasoningOptions,
+          }),
+        ]
+      : []),
+    ...(supportsFastMode
+      ? [
+          booleanModelOptionDescriptor({
+            id: "fastMode",
+            label: "Fast Mode",
+            currentValue: false,
+          }),
+        ]
+      : []),
+  ]);
+}
+
+function formatCodexModelDisplayName(model: CodexSchema.V2ModelListResponse__Model): string {
+  return model.displayName
+    .replace(/^gpt/iu, "GPT")
+    .replace(/-([a-z])/giu, (_, letter: string) => `-${letter.toUpperCase()}`);
+}
+
+function parseCodexModelListResponse(
+  response: CodexSchema.V2ModelListResponse,
+): ReadonlyArray<ServerProviderModel> {
+  return response.data.map((model) => ({
+    slug: model.model,
+    name: formatCodexModelDisplayName(model),
+    isCustom: false,
+    capabilities: createCodexModelCapabilities(model),
+  }));
+}
+
+function appendCustomCodexModels(
+  models: ReadonlyArray<ServerProviderModel>,
+  customModels: ReadonlyArray<string>,
+): ReadonlyArray<ServerProviderModel> {
+  if (customModels.length === 0) {
+    return models;
+  }
+
+  const seen = new Set(models.map((model) => model.slug));
+  const customEntries: ServerProviderModel[] = [];
+
+  for (const customModel of customModels) {
+    const slug = normalizeModelSlug(customModel, PROVIDER);
+    if (!slug || seen.has(slug)) {
+      continue;
+    }
+    seen.add(slug);
+    customEntries.push({
+      slug,
+      name: slug,
+      isCustom: true,
+      capabilities: DEFAULT_CODEX_MODEL_CAPABILITIES,
+    });
+  }
+
+  return customEntries.length > 0 ? [...models, ...customEntries] : models;
+}
+
+const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
+  client: CodexClient.CodexAppServerClientShape,
+) {
+  const models: ServerProviderModel[] = [];
+  let cursor: string | null | undefined;
+
+  do {
+    const response = yield* client.request("model/list", cursor ? { cursor } : {});
+    models.push(...parseCodexModelListResponse(response));
+    cursor = response.nextCursor;
+  } while (cursor);
+
+  return models;
+});
+
+function processEnvForChild(input: { readonly homePath?: string }): Record<string, string> {
+  return {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter((entry): entry is [string, string] => {
+        const [, value] = entry;
+        return typeof value === "string";
+      }),
+    ),
+    ...(input.homePath ? { CODEX_HOME: expandHomePath(input.homePath) } : {}),
+  };
+}
+
+const probeCodexAppServerCapabilities = Effect.fn("probeCodexAppServerCapabilities")(
+  function* (input: { readonly binaryPath: string; readonly homePath?: string }) {
+    const clientContext = yield* Layer.build(
+      CodexClient.layerCommand({
+        command: input.binaryPath,
+        args: ["app-server"],
+        env: processEnvForChild(input.homePath ? { homePath: input.homePath } : {}),
+      }),
+    );
+    const client = yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
+      Effect.provide(clientContext),
+    );
+
+    yield* client.request("initialize", buildCodexInitializeParams());
+    yield* client.notify("initialized", undefined);
+
+    const accountResponse = yield* client.request("account/read", {});
+    const account = readCodexAccountSnapshot(accountResponse);
+    const models =
+      accountResponse.account || !accountResponse.requiresOpenaiAuth
+        ? yield* requestAllCodexModels(client)
+        : undefined;
+
+    return {
+      account,
+      ...(models ? { models } : {}),
+    } satisfies CodexAppServerCapabilitiesSnapshot;
+  },
+);
+
 const probeCodexCapabilities = (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
 }) =>
-  Effect.tryPromise((signal) => probeCodexAccount({ ...input, signal })).pipe(
+  probeCodexAppServerCapabilities(input).pipe(
     Effect.timeoutOption(CAPABILITIES_PROBE_TIMEOUT_MS),
-    Effect.result,
-    Effect.map((result) => {
-      if (Result.isFailure(result)) return undefined;
-      return Option.isSome(result.success) ? result.success.value : undefined;
-    }),
+    Effect.catchCause(() => Effect.succeed(Option.none<CodexAppServerCapabilitiesSnapshot>())),
+    Effect.map((snapshot) => (Option.isSome(snapshot) ? snapshot.value : undefined)),
   );
 
 const runCodexCommand = Effect.fn("runCodexCommand")(function* (args: ReadonlyArray<string>) {
@@ -259,10 +414,10 @@ const runCodexCommand = Effect.fn("runCodexCommand")(function* (args: ReadonlyAr
 });
 
 export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(function* (
-  resolveAccount?: (input: {
+  resolveCapabilities?: (input: {
     readonly binaryPath: string;
     readonly homePath?: string;
-  }) => Effect.Effect<CodexAccountSnapshot | undefined>,
+  }) => Effect.Effect<CodexAccountSnapshot | CodexAppServerCapabilitiesSnapshot | undefined>,
 ): Effect.fn.Return<
   ServerProvider,
   ServerSettingsError,
@@ -398,13 +553,24 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     Effect.timeoutOption(AUTH_PROBE_TIMEOUT_MS),
     Effect.result,
   );
-  const account = resolveAccount
-    ? yield* resolveAccount({
+  const capabilitiesResult = resolveCapabilities
+    ? yield* resolveCapabilities({
         binaryPath: codexSettings.binaryPath,
         homePath: codexSettings.homePath,
       })
     : undefined;
-  const resolvedModels = adjustCodexModelsForAccount(models, account);
+  const capabilities: CodexAppServerCapabilitiesSnapshot | undefined =
+    isCodexAppServerCapabilitiesSnapshot(capabilitiesResult)
+      ? capabilitiesResult
+      : capabilitiesResult
+        ? { account: capabilitiesResult }
+        : undefined;
+  const resolvedModels = adjustCodexModelsForAccount(
+    capabilities?.models
+      ? appendCustomCodexModels(capabilities.models, codexSettings.customModels)
+      : models,
+    capabilities?.account,
+  );
 
   if (Result.isFailure(authProbe)) {
     const error = authProbe.failure;
@@ -443,8 +609,8 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   }
 
   const parsed = parseAuthStatusFromOutput(authProbe.success.value);
-  const authType = codexAuthSubType(account);
-  const authLabel = codexAuthSubLabel(account);
+  const authType = codexAuthSubType(capabilities?.account);
+  const authLabel = codexAuthSubLabel(capabilities?.account);
   return buildServerProvider({
     provider: PROVIDER,
     enabled: codexSettings.enabled,

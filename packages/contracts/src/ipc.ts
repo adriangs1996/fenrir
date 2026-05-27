@@ -31,6 +31,7 @@ import type {
   ServerProcessDiagnosticsResult,
   ServerProcessResourceHistoryInput,
   ServerProcessResourceHistoryResult,
+  ServerProviderUpdateInput,
   ServerProviderUpdatedPayload,
   ServerRemoveKeybindingResult,
   ServerSignalProcessInput,
@@ -55,6 +56,7 @@ import type {
 
 import type { TmuxSessionSnapshot } from "./terminal";
 import type { ServerRemoveKeybindingInput, ServerUpsertKeybindingInput } from "./server";
+import type { ProviderInstanceId } from "./providerInstance";
 import type {
   ClientOrchestrationCommand,
   GlobalScript,
@@ -266,6 +268,30 @@ export interface NvimProbeResult {
   error: string | null;
 }
 
+export type VSCodeWebServerKind = "code-server" | "openvscode-server";
+
+export interface VSCodeProbeResult {
+  available: boolean;
+  serverKind: VSCodeWebServerKind | null;
+  command: string | null;
+  version: string | null;
+  error: string | null;
+}
+
+export interface VSCodeWebSession {
+  cwd: string;
+  url: string;
+  serverKind: VSCodeWebServerKind;
+  command: string;
+}
+
+export interface EmbeddedViewBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface DesktopBridge {
   getLocalEnvironmentBootstrap: () => DesktopEnvironmentBootstrap | null;
   getClientSettings: () => Promise<ClientSettings | null>;
@@ -434,6 +460,19 @@ export interface DesktopBridge {
   nvimAvailable: () => Promise<boolean>;
   /** Full probe result with version, binary path, and error detail. */
   nvimProbeDetail: () => Promise<NvimProbeResult>;
+
+  // Embedded VS Code
+  /** Resolves to true when a supported local VS Code web server binary is found on PATH. */
+  vscodeAvailable?: () => Promise<boolean>;
+  /** Full probe result with selected server command and error detail. */
+  vscodeProbeDetail?: () => Promise<VSCodeProbeResult>;
+  /** Start or reuse the embedded VS Code web session for a workspace cwd. */
+  vscodeStart?: (cwd: string) => Promise<VSCodeWebSession>;
+  /** Start/reuse embedded VS Code for a file or folder target. */
+  vscodeOpenFile?: (input: EditorOpenFileInput) => Promise<VSCodeWebSession>;
+  vscodeSetBounds?: (bounds: EmbeddedViewBounds) => Promise<void>;
+  vscodeShow?: () => Promise<void>;
+  vscodeHide?: () => Promise<void>;
 
   // Render loop (backend-agnostic frame pipeline)
   renderStart: () => Promise<void>;
@@ -631,7 +670,10 @@ export interface LocalApi {
   };
   server: {
     getConfig: () => Promise<ServerConfig>;
-    refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
+    refreshProviders: (input?: {
+      readonly instanceId?: ProviderInstanceId;
+    }) => Promise<ServerProviderUpdatedPayload>;
+    updateProvider: (input: ServerProviderUpdateInput) => Promise<ServerProviderUpdatedPayload>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
     removeKeybinding: (input: ServerRemoveKeybindingInput) => Promise<ServerRemoveKeybindingResult>;
     getTraceDiagnostics: () => Promise<ServerTraceDiagnosticsResult>;

@@ -291,6 +291,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
           interactionMode: "default",
           runtimeMode: "full-access",
+          mcpServerIds: [],
           branch: "feature/bootstrap",
           worktreePath: "/tmp/bootstrap-project/.worktrees/bootstrap",
           latestTurn: {
@@ -702,6 +703,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
           interactionMode: "default",
           runtimeMode: "full-access",
+          mcpServerIds: [],
           branch: null,
           worktreePath: null,
           latestTurn: {

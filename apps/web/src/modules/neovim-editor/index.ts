@@ -4,6 +4,12 @@
 export const MODULE_ID = "neovim-editor" as const;
 
 export { useEditorStore, type ChatTab } from "./stores/editorStore";
+export {
+  EMBEDDED_EDITOR_LABELS,
+  EMBEDDED_EDITOR_OPTIONS,
+  isEmbeddedEditorKind,
+  resolveActiveEmbeddedEditor,
+} from "./embeddedEditor";
 export { useActiveEditorCwd } from "./hooks/useActiveEditorCwd";
 export { useEditorCwdSync } from "./hooks/useEditorCwdSync";
 export { useEditorEventListener } from "./hooks/useEditorEventListener";

@@ -359,7 +359,7 @@ export const make = Effect.fn("effect-acp/AcpAgent.make")(function* (
   yield* RpcServer.make(AcpRpcs.AgentRpcs).pipe(
     Effect.provideService(RpcServer.Protocol, transport.serverProtocol),
     Effect.provide(agentHandlerLayer),
-    Effect.forkScoped,
+    Effect.forkScoped({ startImmediately: true }),
   );
 
   let nextRpcRequestId = 1n << 32n;

@@ -51,8 +51,10 @@ import {
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
   isTerminalToggleShortcut,
+  resolveShortcutCommand,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
+  threadTraversalDirectionFromCommand,
 } from "~/keybindings";
 import {
   getDefaultThreadTerminalHeight,
@@ -477,7 +479,10 @@ export function TerminalViewport({
         isTerminalSplitShortcut(event, currentKeybindings, options) ||
         isTerminalNewShortcut(event, currentKeybindings, options) ||
         isTerminalCloseShortcut(event, currentKeybindings, options) ||
-        isDiffToggleShortcut(event, currentKeybindings, options)
+        isDiffToggleShortcut(event, currentKeybindings, options) ||
+        threadTraversalDirectionFromCommand(
+          resolveShortcutCommand(event, currentKeybindings, options),
+        ) !== null
       ) {
         return false;
       }

@@ -62,6 +62,9 @@ export interface TrafficLensManagerConfig {
 }
 
 export interface TrafficLensManager {
+  getActiveTab(): TrafficLensTabSnapshot | null;
+  ensureActiveTab(url?: string): TrafficLensTabSnapshot;
+  setActiveTab(tabId: string): TrafficLensTabSnapshot;
   createTab(url?: string): TrafficLensTabSnapshot;
   createTabInProfile(input: { url?: string; profileId: string }): TrafficLensTabSnapshot;
   navigateTab(tabId: string, url: string): void;
@@ -78,6 +81,12 @@ export interface TrafficLensManager {
   showTab(tabId: string): void;
   hideAllTabs(): void;
   getTabs(): TrafficLensTabSnapshot[];
+  capturePageSnapshot(tabId?: string): Promise<unknown>;
+  captureScreenshot(tabId?: string): Promise<{ data: string; mimeType: string }>;
+  clickPage(input: { tabId?: string; x?: number; y?: number; selector?: string }): Promise<void>;
+  typeIntoPage(input: { tabId?: string; text: string; selector?: string }): Promise<void>;
+  pressPage(input: { tabId?: string; key: string }): Promise<void>;
+  waitForTabLoad(input?: { tabId?: string; timeoutMs?: number }): Promise<TrafficLensTabSnapshot>;
   listRules(): readonly TrafficLensRule[];
   createRule(input: TrafficLensRuleInput): TrafficLensRule;
   updateRule(id: string, input: TrafficLensRuleInput): TrafficLensRule;
@@ -277,6 +286,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
   const rules = new Map<string, TrafficLensRule>();
   const overrides = new Map<string, TrafficLensOverride>();
   const profiles = new Map<string, TrafficLensProfile>();
+  let activeTabId: string | null = null;
   let tabListeners: Array<(event: TrafficLensTabEvent) => void> = [];
   let pausedListeners: Array<(event: TrafficLensPausedEvent) => void> = [];
   let storageListeners: Array<(tabId: string) => void> = [];
@@ -419,6 +429,24 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       viewMode: entry.viewMode,
       mobilePreset: entry.mobilePreset,
     };
+  }
+
+  function getActiveTabEntry(): TabEntry {
+    if (activeTabId && activeTabs.has(activeTabId)) {
+      return getTabEntry(activeTabId);
+    }
+    const first = activeTabs.values().next().value as TabEntry | undefined;
+    if (first) {
+      activeTabId = first.tabId;
+      return first;
+    }
+    const created = createTabForProfile(DEFAULT_PROFILE_ID, "about:blank");
+    activeTabId = created.tabId;
+    return getTabEntry(created.tabId);
+  }
+
+  function resolveTabId(tabId?: string): string {
+    return tabId ?? getActiveTabEntry().tabId;
   }
 
   function noteOrigin(
@@ -1314,6 +1342,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       mobilePreset: DEFAULT_MOBILE_PRESET,
     };
     activeTabs.set(tabId, entry);
+    activeTabId = tabId;
     view.webContents.setUserAgent(getEffectiveUserAgent(entry));
     wireWebContents(entry);
     void view.webContents.loadURL(url || "about:blank");
@@ -1399,6 +1428,21 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
   }
 
   const manager: TrafficLensManager = {
+    getActiveTab: () =>
+      activeTabId && activeTabs.has(activeTabId) ? getTabSnapshot(activeTabId) : null,
+
+    ensureActiveTab: (url) => {
+      if (activeTabId && activeTabs.has(activeTabId)) {
+        return getTabSnapshot(activeTabId);
+      }
+      return createTabForProfile(DEFAULT_PROFILE_ID, url ?? "about:blank");
+    },
+
+    setActiveTab: (tabId) => {
+      activeTabId = tabId;
+      return getTabSnapshot(tabId);
+    },
+
     createTab: (url) => createTabForProfile(DEFAULT_PROFILE_ID, url),
 
     createTabInProfile: ({ url, profileId }) => createTabForProfile(profileId, url),
@@ -1442,6 +1486,9 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
 
       entry.view.webContents.close();
       activeTabs.delete(tabId);
+      if (activeTabId === tabId) {
+        activeTabId = activeTabs.keys().next().value ?? null;
+      }
       removeLiveSessionTab(originCatalog, tabId);
       emitTab({ type: "tab.closed", tabId: tabId as any });
     },
@@ -1495,6 +1542,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       if (!entry) {
         return;
       }
+      activeTabId = tabId;
 
       for (const [id, other] of activeTabs) {
         if (id !== tabId) {
@@ -1529,6 +1577,121 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     },
 
     getTabs: () => Array.from(activeTabs.keys()).map(getTabSnapshot),
+
+    capturePageSnapshot: async (tabId) => {
+      const entry = getTabEntry(resolveTabId(tabId));
+      return entry.view.webContents.executeJavaScript(
+        `(() => {
+          const visible = (el) => {
+            const style = window.getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            return style && style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+          };
+          const describe = (el, index) => {
+            const rect = el.getBoundingClientRect();
+            const tag = el.tagName.toLowerCase();
+            const text = (el.innerText || el.value || el.getAttribute("aria-label") || el.getAttribute("title") || "").trim().slice(0, 200);
+            const id = el.id ? "#" + CSS.escape(el.id) : "";
+            const selector = id || tag + ":nth-of-type(" + (index + 1) + ")";
+            return { tag, selector, text, role: el.getAttribute("role"), href: el.href || undefined, x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) };
+          };
+          const interactive = Array.from(document.querySelectorAll("a,button,input,textarea,select,[role=button],[contenteditable=true]")).filter(visible).slice(0, 80).map(describe);
+          const focused = document.activeElement && document.activeElement !== document.body ? describe(document.activeElement, 0) : null;
+          return {
+            url: location.href,
+            title: document.title,
+            viewport: { width: window.innerWidth, height: window.innerHeight, devicePixelRatio: window.devicePixelRatio },
+            focused,
+            text: (document.body?.innerText || "").trim().replace(/\\s+/g, " ").slice(0, 12000),
+            interactive,
+          };
+        })()`,
+        true,
+      );
+    },
+
+    captureScreenshot: async (tabId) => {
+      const image = await getTabEntry(resolveTabId(tabId)).view.webContents.capturePage();
+      return { data: image.toPNG().toString("base64"), mimeType: "image/png" };
+    },
+
+    clickPage: async (input) => {
+      const entry = getTabEntry(resolveTabId(input.tabId));
+      let x = input.x;
+      let y = input.y;
+      if (input.selector) {
+        const point = await entry.view.webContents.executeJavaScript(
+          `(() => {
+            const el = document.querySelector(${JSON.stringify(input.selector)});
+            if (!el) throw new Error("Selector not found.");
+            const rect = el.getBoundingClientRect();
+            return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+          })()`,
+          true,
+        );
+        x = point.x;
+        y = point.y;
+      }
+      if (typeof x !== "number" || typeof y !== "number") {
+        throw new Error("clickPage requires x/y coordinates or selector.");
+      }
+      entry.view.webContents.sendInputEvent({
+        type: "mouseDown",
+        x,
+        y,
+        button: "left",
+        clickCount: 1,
+      });
+      entry.view.webContents.sendInputEvent({
+        type: "mouseUp",
+        x,
+        y,
+        button: "left",
+        clickCount: 1,
+      });
+    },
+
+    typeIntoPage: async (input) => {
+      const entry = getTabEntry(resolveTabId(input.tabId));
+      if (input.selector) {
+        await entry.view.webContents.executeJavaScript(
+          `(() => {
+            const el = document.querySelector(${JSON.stringify(input.selector)});
+            if (!el) throw new Error("Selector not found.");
+            el.focus();
+          })()`,
+          true,
+        );
+      }
+      entry.view.webContents.sendInputEvent({ type: "char", keyCode: input.text });
+    },
+
+    pressPage: async (input) => {
+      const entry = getTabEntry(resolveTabId(input.tabId));
+      entry.view.webContents.sendInputEvent({ type: "keyDown", keyCode: input.key });
+      entry.view.webContents.sendInputEvent({ type: "keyUp", keyCode: input.key });
+    },
+
+    waitForTabLoad: async (input) => {
+      const tabId = resolveTabId(input?.tabId);
+      const entry = getTabEntry(tabId);
+      if (!entry.view.webContents.isLoading()) {
+        return getTabSnapshot(tabId);
+      }
+      const timeoutMs = input?.timeoutMs ?? 15_000;
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          entry.view.webContents.off("did-stop-loading", onStop);
+          reject(new Error("Timed out waiting for tab load."));
+        }, timeoutMs);
+        const onStop = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        entry.view.webContents.once("did-stop-loading", onStop);
+      });
+      return getTabSnapshot(tabId);
+    },
 
     listRules: () => Array.from(rules.values()),
 

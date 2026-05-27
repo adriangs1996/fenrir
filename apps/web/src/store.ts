@@ -245,6 +245,7 @@ function mapThreadShellRecord(
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    mcpServerIds: [...(thread.mcpServerIds ?? [])],
   };
 }
 
@@ -274,6 +275,7 @@ function buildSidebarThreadSummaryFromShell(
     latestTurn: thread.latestTurn,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    mcpServerIds: [...(thread.mcpServerIds ?? [])],
     latestUserMessageAt: thread.latestUserMessageAt,
     hasPendingApprovals: thread.hasPendingApprovals,
     hasPendingUserInput: thread.hasPendingUserInput,
@@ -302,6 +304,7 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    mcpServerIds: [...(thread.mcpServerIds ?? [])],
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -1707,6 +1710,7 @@ function applyEnvironmentOrchestrationEvent(
           activities: [],
           checkpoints: [],
           session: null,
+          mcpServerIds: event.payload.mcpServerIds ?? [],
         },
         environmentId,
       );
@@ -1745,6 +1749,13 @@ function applyEnvironmentOrchestrationEvent(
         ...(event.payload.worktreePath !== undefined
           ? { worktreePath: event.payload.worktreePath }
           : {}),
+        updatedAt: event.payload.updatedAt,
+      }));
+
+    case "thread.mcp-servers-set":
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        mcpServerIds: [...event.payload.mcpServerIds],
         updatedAt: event.payload.updatedAt,
       }));
 

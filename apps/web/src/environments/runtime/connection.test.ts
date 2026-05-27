@@ -57,6 +57,7 @@ function createTestClient(options?: {
       },
       subscribeAuthAccess: () => () => undefined,
       refreshProviders: vi.fn(async () => undefined),
+      updateProvider: vi.fn(async () => undefined),
       upsertKeybinding: vi.fn(async () => undefined),
       removeKeybinding: vi.fn(async () => undefined),
       getTraceDiagnostics: vi.fn(async () => undefined),

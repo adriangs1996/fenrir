@@ -7,6 +7,7 @@ export * from "./provider";
 export * from "./providerInstance";
 export * from "./providerRuntime";
 export * from "./model";
+export * from "./mcp";
 export * from "./keybindings";
 export * from "./server";
 export * from "./settings";

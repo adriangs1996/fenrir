@@ -1327,6 +1327,10 @@ export function makeOpenCodeAdapter(options?: OpenCodeAdapterLiveOptions) {
       provider: PROVIDER,
       capabilities: {
         sessionModelSwitch: "in-session",
+        mcp: {
+          supported: false,
+          transports: { stdio: false, http: false, sse: false },
+        },
       },
       startSession,
       sendTurn,

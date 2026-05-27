@@ -119,7 +119,7 @@ function normalizeWorkspacePath(pathValue: string | null | undefined) {
   if (!pathValue) {
     return pathValue ?? null;
   }
-  return pathValue.replace(/^\/private(?=\/var\/)/, "");
+  return pathValue.replace(/^\/private(?=\/(?:tmp|var)(?:\/|$))/, "");
 }
 
 function writeRepoFile(repoDir: string, relativePath: string, contents: string) {

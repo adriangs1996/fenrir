@@ -3,6 +3,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   type ClaudeAgentEffort,
   type EnvironmentId,
+  type McpServerId,
   type MessageId,
   type ModelSelection,
   type ProviderSelectionKind,
@@ -27,6 +28,7 @@ import { applyClaudePromptEffortPrefix } from "@fenrir/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@fenrir/shared/projectScripts";
 import { truncate } from "@fenrir/shared/String";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Equal } from "effect";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
 import { useGitStatus } from "~/lib/gitStatusState";
@@ -107,7 +109,13 @@ import { toastManager } from "./ui/toast";
 import PlaceholderInputDialog from "./PlaceholderInputDialog";
 import { globalScriptIdFromCommand, projectScriptIdFromCommand } from "~/projectScripts";
 import { newCommandId, newDraftId, newMessageId, newThreadId } from "~/lib/utils";
-import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
+import {
+  getProviderModelCapabilities,
+  getProviderSnapshot,
+  resolveSelectableProvider,
+} from "../providerModels";
+import { getProviderMcpCompatibility } from "../mcp";
+import { getSelectableMcpServers } from "@fenrir/shared/mcpBuiltIns";
 import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "~/modules/terminal";
@@ -138,11 +146,13 @@ import {
   formatEditorContextLabel,
   useEditorStore,
 } from "~/modules/neovim-editor";
+import { resolveActiveEmbeddedEditor } from "~/modules/neovim-editor/embeddedEditor";
 import { resolveTerminalCloseFocusTarget } from "~/modules/neovim-editor/focus";
 import {
   useDesktopBridgeAvailable,
   useIsMainWindow,
   useNvimAvailable,
+  useVSCodeWebAvailable,
 } from "~/hooks/useDesktopBridge";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { ManagedProcessStatusBar } from "./managedProcess/ManagedProcessStatusBar";
@@ -672,6 +682,9 @@ export default function ChatView(props: ChatViewProps) {
   const composerActiveProvider = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.activeProvider ?? null,
   );
+  const composerMcpServerIds = useComposerDraftStore(
+    (store) => store.getComposerDraft(composerDraftTarget)?.mcpServerIds ?? null,
+  );
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const setComposerDraftTerminalContexts = useComposerDraftStore(
@@ -683,6 +696,7 @@ export default function ChatView(props: ChatViewProps) {
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
   );
+  const setComposerDraftMcpServerIds = useComposerDraftStore((store) => store.setMcpServerIds);
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const getDraftSessionByLogicalProjectKey = useComposerDraftStore(
@@ -816,7 +830,13 @@ export default function ChatView(props: ChatViewProps) {
   const desktopBridgeAvailable = useDesktopBridgeAvailable();
   const isMainWindow = useIsMainWindow();
   const nvimReady = useNvimAvailable();
-  const editorAvailable = desktopBridgeAvailable && isMainWindow && nvimReady;
+  const vscodeReady = useVSCodeWebAvailable();
+  const editorAvailable = desktopBridgeAvailable && isMainWindow && (nvimReady || vscodeReady);
+  const activeEmbeddedEditor = resolveActiveEmbeddedEditor({
+    preferredEditor: settings.embeddedEditor,
+    nvimReady,
+    vscodeReady,
+  });
   const {
     activeChatTab,
     activeReviewRouteState,
@@ -1181,7 +1201,39 @@ export default function ChatView(props: ChatViewProps) {
     selectedProviderByThreadId ?? threadProvider ?? "codex",
   );
   const selectedProvider: ProviderSelectionKind = lockedProvider ?? unlockedSelectedProvider;
+  const selectedProviderStatus = getProviderSnapshot(providerStatuses, selectedProvider) ?? null;
+  const selectableMcpServers = useMemo(() => getSelectableMcpServers(settings), [settings]);
+  const selectableMcpServerIds = useMemo(
+    () => new Set(selectableMcpServers.map((server) => server.id)),
+    [selectableMcpServers],
+  );
+  const selectedMcpServerIds = useMemo(() => {
+    const sourceIds =
+      composerMcpServerIds ??
+      (isServerThread ? (activeThread?.mcpServerIds ?? []) : settings.defaultMcpServerIds);
+    return sourceIds.filter((serverId) => selectableMcpServerIds.has(serverId));
+  }, [
+    activeThread?.mcpServerIds,
+    composerMcpServerIds,
+    isServerThread,
+    selectableMcpServerIds,
+    settings.defaultMcpServerIds,
+  ]);
+  const mcpCompatibilityMessage = useMemo(
+    () =>
+      getProviderMcpCompatibility({
+        provider: selectedProvider,
+        capabilities: selectedProviderStatus?.mcpCapabilities,
+        servers: selectableMcpServers,
+        selectedIds: selectedMcpServerIds,
+      }),
+    [selectableMcpServers, selectedMcpServerIds, selectedProvider, selectedProviderStatus],
+  );
   const phase = derivePhase(activeThread?.session ?? null);
+  const mcpChangeNotice =
+    isServerThread && phase === "running" && composerMcpServerIds !== null
+      ? "Changes apply on the next turn; the provider session may restart."
+      : null;
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
     () => deriveWorkLogEntries(threadActivities, activeLatestTurn ?? undefined),
@@ -1897,6 +1949,7 @@ export default function ChatView(props: ChatViewProps) {
       modelSelection?: ModelSelection;
       runtimeMode: RuntimeMode;
       interactionMode: ProviderInteractionMode;
+      mcpServerIds?: ReadonlyArray<McpServerId>;
     }) => {
       if (!serverThread) {
         return;
@@ -1940,8 +1993,63 @@ export default function ChatView(props: ChatViewProps) {
           createdAt: input.createdAt,
         });
       }
+
+      if (
+        input.mcpServerIds !== undefined &&
+        !Equal.equals(input.mcpServerIds, serverThread.mcpServerIds ?? [])
+      ) {
+        await api.orchestration.dispatchCommand({
+          type: "thread.mcp-servers.set",
+          commandId: newCommandId(),
+          threadId: input.threadId,
+          mcpServerIds: [...input.mcpServerIds],
+          createdAt: input.createdAt,
+        });
+      }
     },
     [environmentId, serverThread],
+  );
+
+  const handleMcpServerIdsChange = useCallback(
+    (ids: McpServerId[]) => {
+      const nextIds = ids.filter((serverId) => selectableMcpServerIds.has(serverId));
+      setComposerDraftMcpServerIds(composerDraftTarget, nextIds);
+
+      if (!isServerThread || !activeThread) {
+        return;
+      }
+      if (Equal.equals(nextIds, activeThread.mcpServerIds ?? [])) {
+        return;
+      }
+      const api = readEnvironmentApi(environmentId);
+      if (!api) {
+        return;
+      }
+      void api.orchestration
+        .dispatchCommand({
+          type: "thread.mcp-servers.set",
+          commandId: newCommandId(),
+          threadId: activeThread.id,
+          mcpServerIds: nextIds,
+          createdAt: new Date().toISOString(),
+        })
+        .catch((err: unknown) => {
+          toastManager.add({
+            type: "error",
+            title: "Could not update MCP servers",
+            description:
+              err instanceof Error ? err.message : "The thread MCP selection was not saved.",
+          });
+        });
+    },
+    [
+      activeThread,
+      composerDraftTarget,
+      environmentId,
+      isServerThread,
+      selectableMcpServerIds,
+      setComposerDraftMcpServerIds,
+    ],
   );
 
   // Auto-scroll on new messages
@@ -2480,6 +2588,7 @@ export default function ChatView(props: ChatViewProps) {
 
       if (command === "editor.sendSelection") {
         if (activeChatTab !== "editor") return;
+        if (activeEmbeddedEditor !== "neovim") return;
         event.preventDefault();
         event.stopPropagation();
         void window.desktopBridge?.editor.invokeBridge("send_selection");
@@ -2530,6 +2639,7 @@ export default function ChatView(props: ChatViewProps) {
     toggleSkillsPanel,
     toggleTerminalVisibility,
     editorAvailable,
+    activeEmbeddedEditor,
   ]);
 
   const onRevertToTurnCount = useCallback(
@@ -2602,7 +2712,22 @@ export default function ChatView(props: ChatViewProps) {
       selectedProviderModels: ctxSelectedProviderModels,
       selectedPromptEffort: ctxSelectedPromptEffort,
       selectedModelSelection: ctxSelectedModelSelection,
+      selectedMcpServerIds: ctxSelectedMcpServerIds,
     } = sendCtx;
+    const ctxMcpCompatibilityMessage = getProviderMcpCompatibility({
+      provider: ctxSelectedProvider,
+      capabilities: getProviderSnapshot(providerStatuses, ctxSelectedProvider)?.mcpCapabilities,
+      servers: selectableMcpServers,
+      selectedIds: ctxSelectedMcpServerIds,
+    });
+    if (ctxMcpCompatibilityMessage) {
+      toastManager.add({
+        type: "error",
+        title: "Selected provider cannot use these MCP servers",
+        description: ctxMcpCompatibilityMessage,
+      });
+      return;
+    }
     const promptForSend = promptRef.current;
     const {
       trimmedPrompt: trimmed,
@@ -2816,6 +2941,7 @@ export default function ChatView(props: ChatViewProps) {
           ...(ctxSelectedModel ? { modelSelection: ctxSelectedModelSelection } : {}),
           runtimeMode,
           interactionMode,
+          mcpServerIds: ctxSelectedMcpServerIds,
         });
       }
 
@@ -2831,6 +2957,7 @@ export default function ChatView(props: ChatViewProps) {
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
                       interactionMode,
+                      mcpServerIds: [...ctxSelectedMcpServerIds],
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
@@ -3123,7 +3250,22 @@ export default function ChatView(props: ChatViewProps) {
         selectedProviderModels: ctxSelectedProviderModels,
         selectedPromptEffort: ctxSelectedPromptEffort,
         selectedModelSelection: ctxSelectedModelSelection,
+        selectedMcpServerIds: ctxSelectedMcpServerIds,
       } = sendCtx;
+      const ctxMcpCompatibilityMessage = getProviderMcpCompatibility({
+        provider: ctxSelectedProvider,
+        capabilities: getProviderSnapshot(providerStatuses, ctxSelectedProvider)?.mcpCapabilities,
+        servers: selectableMcpServers,
+        selectedIds: ctxSelectedMcpServerIds,
+      });
+      if (ctxMcpCompatibilityMessage) {
+        toastManager.add({
+          type: "error",
+          title: "Selected provider cannot use these MCP servers",
+          description: ctxMcpCompatibilityMessage,
+        });
+        return;
+      }
 
       const threadIdForSend = activeThread.id;
       const messageIdForSend = newMessageId();
@@ -3159,6 +3301,7 @@ export default function ChatView(props: ChatViewProps) {
           modelSelection: ctxSelectedModelSelection,
           runtimeMode,
           interactionMode: nextInteractionMode,
+          mcpServerIds: ctxSelectedMcpServerIds,
         });
 
         // Keep the mode toggle and plan-follow-up banner in sync immediately
@@ -3225,6 +3368,8 @@ export default function ChatView(props: ChatViewProps) {
       resetLocalDispatch,
       rightPanel,
       runtimeMode,
+      selectableMcpServers,
+      providerStatuses,
       setComposerDraftInteractionMode,
       setThreadError,
       environmentId,
@@ -3257,7 +3402,22 @@ export default function ChatView(props: ChatViewProps) {
       selectedProviderModels: ctxSelectedProviderModels,
       selectedPromptEffort: ctxSelectedPromptEffort,
       selectedModelSelection: ctxSelectedModelSelection,
+      selectedMcpServerIds: ctxSelectedMcpServerIds,
     } = sendCtx;
+    const ctxMcpCompatibilityMessage = getProviderMcpCompatibility({
+      provider: ctxSelectedProvider,
+      capabilities: getProviderSnapshot(providerStatuses, ctxSelectedProvider)?.mcpCapabilities,
+      servers: selectableMcpServers,
+      selectedIds: ctxSelectedMcpServerIds,
+    });
+    if (ctxMcpCompatibilityMessage) {
+      toastManager.add({
+        type: "error",
+        title: "Selected provider cannot use these MCP servers",
+        description: ctxMcpCompatibilityMessage,
+      });
+      return;
+    }
 
     const createdAt = new Date().toISOString();
     const nextThreadId = newThreadId();
@@ -3290,6 +3450,7 @@ export default function ChatView(props: ChatViewProps) {
         modelSelection: nextThreadModelSelection,
         runtimeMode,
         interactionMode: "default",
+        mcpServerIds: [...ctxSelectedMcpServerIds],
         branch: activeThreadBranch,
         worktreePath: activeThread.worktreePath,
         createdAt,
@@ -3359,6 +3520,8 @@ export default function ChatView(props: ChatViewProps) {
     navigate,
     resetLocalDispatch,
     runtimeMode,
+    selectableMcpServers,
+    providerStatuses,
     environmentId,
   ]);
 
@@ -3652,6 +3815,11 @@ export default function ChatView(props: ChatViewProps) {
                 providerStatuses={providerStatuses as ServerProvider[]}
                 activeProjectDefaultModelSelection={activeProject?.defaultModelSelection}
                 activeThreadModelSelection={activeThread?.modelSelection}
+                mcpServers={selectableMcpServers}
+                selectedMcpServerIds={selectedMcpServerIds}
+                mcpCompatibilityMessage={mcpCompatibilityMessage}
+                mcpChangeNotice={mcpChangeNotice}
+                onMcpServerIdsChange={handleMcpServerIdsChange}
                 activeThreadActivities={activeThread?.activities}
                 resolvedTheme={resolvedTheme}
                 settings={settings}
@@ -3801,6 +3969,7 @@ export default function ChatView(props: ChatViewProps) {
               focusRequestId={editorFocusRequestId}
               keybindings={keybindings}
               terminalOpen={Boolean(terminalState.terminalOpen)}
+              cwd={gitCwd}
             />
           )}
         </div>

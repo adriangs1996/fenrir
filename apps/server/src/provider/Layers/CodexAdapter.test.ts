@@ -982,6 +982,111 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       });
     }),
   );
+
+  it.effect("maps typed exec command approval requests to canonical opened requests", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-exec-approval-request"),
+        kind: "request",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        createdAt: new Date().toISOString(),
+        method: "execCommandApproval",
+        requestId: ApprovalRequestId.makeUnsafe("req-exec-1"),
+        payload: {
+          callId: "call-1",
+          command: ["bun", "typecheck"],
+          conversationId: "thread-1",
+          cwd: process.cwd(),
+          parsedCmd: [],
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "request.opened");
+      if (firstEvent.value.type !== "request.opened") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.requestType, "exec_command_approval");
+      assert.equal(firstEvent.value.payload.detail, "bun typecheck");
+    }),
+  );
+
+  it.effect("maps typed thread system errors to canonical thread error state", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-thread-system-error"),
+        kind: "notification",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        createdAt: new Date().toISOString(),
+        method: "thread/status/changed",
+        payload: {
+          threadId: "thread-1",
+          status: {
+            type: "systemError",
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "thread.state.changed");
+      if (firstEvent.value.type !== "thread.state.changed") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.state, "error");
+    }),
+  );
+
+  it.effect("maps typed MCP progress messages to canonical tool progress summaries", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-mcp-progress"),
+        kind: "notification",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("tool-1"),
+        createdAt: new Date().toISOString(),
+        method: "item/mcpToolCall/progress",
+        payload: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "tool-1",
+          message: "Reading repository metadata",
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "tool.progress");
+      if (firstEvent.value.type !== "tool.progress") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.summary, "Reading repository metadata");
+    }),
+  );
 });
 
 afterAll(() => {

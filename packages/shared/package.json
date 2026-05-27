@@ -80,6 +80,10 @@
       "types": "./src/managedProcess.ts",
       "import": "./src/managedProcess.ts"
     },
+    "./mcpBuiltIns": {
+      "types": "./src/mcpBuiltIns.ts",
+      "import": "./src/mcpBuiltIns.ts"
+    },
     "./toolActivity": {
       "types": "./src/toolActivity.ts",
       "import": "./src/toolActivity.ts"

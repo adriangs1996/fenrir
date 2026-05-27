@@ -3,6 +3,7 @@ import {
   CommandId,
   EventId,
   type ModelSelection,
+  type McpServerId,
   type OrchestrationEvent,
   type ProviderInstanceId,
   ProviderKind,
@@ -29,6 +30,9 @@ import {
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { McpConfigResolver } from "../../mcp/Services/McpConfigResolver.ts";
+import { McpConfigResolverLive } from "../../mcp/Layers/McpConfigResolver.ts";
+import type { ResolvedMcpServerConfig } from "@fenrir/contracts";
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -178,6 +182,7 @@ const make = Effect.gen(function* () {
   const sourceControlWorkflows = yield* SourceControlWorkflows;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
+  const mcpConfigResolver = yield* McpConfigResolver;
   const handledTurnStartKeys = yield* Cache.make<string, true>({
     capacity: HANDLED_TURN_START_KEY_MAX,
     timeToLive: HANDLED_TURN_START_KEY_TTL,
@@ -192,6 +197,7 @@ const make = Effect.gen(function* () {
     );
 
   const threadModelSelections = new Map<string, ModelSelection>();
+  const threadMcpConfigHashes = new Map<string, string | undefined>();
   let pendingIntentEventCount = 0;
 
   const appendProviderFailureActivity = (input: {
@@ -256,6 +262,28 @@ const make = Effect.gen(function* () {
     return readModel.threads.find((entry) => entry.id === threadId);
   });
 
+  const resolveThreadMcpServers = Effect.fn("resolveThreadMcpServers")(function* (input: {
+    readonly selectedServerIds: ReadonlyArray<McpServerId>;
+  }) {
+    if (input.selectedServerIds.length === 0) {
+      return {
+        serverIds: [] as ReadonlyArray<McpServerId>,
+        servers: [] as ReadonlyArray<ResolvedMcpServerConfig>,
+        configHash: undefined as string | undefined,
+      };
+    }
+    const settings = yield* serverSettingsService.getSettings;
+    const resolved = yield* mcpConfigResolver.resolve({
+      settings,
+      selectedServerIds: input.selectedServerIds,
+    });
+    return {
+      serverIds: resolved.serverIds,
+      servers: resolved.servers,
+      configHash: resolved.configHash,
+    };
+  });
+
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
     threadId: ThreadId,
     createdAt: string,
@@ -296,6 +324,10 @@ const make = Effect.gen(function* () {
       thread,
       projects: readModel.projects,
     });
+    const selectedMcpServerIds = thread.mcpServerIds ?? [];
+    const resolvedMcp = yield* resolveThreadMcpServers({
+      selectedServerIds: selectedMcpServerIds,
+    });
 
     const resolveActiveSession = (threadId: ThreadId) =>
       providerService
@@ -316,6 +348,9 @@ const make = Effect.gen(function* () {
           modelProvider: desiredModelSelection.provider,
           model: desiredModelSelection.model,
           hasResumeCursor: input?.resumeCursor !== undefined,
+          "mcp.server_count": resolvedMcp.servers.length,
+          "mcp.server_ids": resolvedMcp.serverIds.join(","),
+          "mcp.config_hash": resolvedMcp.configHash ?? "",
         });
         const session = yield* providerService.startSession(threadId, {
           threadId,
@@ -325,6 +360,15 @@ const make = Effect.gen(function* () {
             : {}),
           ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
           modelSelection: desiredModelSelection,
+          ...(resolvedMcp.servers.length > 0
+            ? {
+                mcpServers: resolvedMcp.servers,
+                mcpServerIds: resolvedMcp.serverIds,
+                ...(resolvedMcp.configHash !== undefined
+                  ? { mcpConfigHash: resolvedMcp.configHash }
+                  : {}),
+              }
+            : {}),
           ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
           runtimeMode: desiredRuntimeMode,
         });
@@ -362,6 +406,7 @@ const make = Effect.gen(function* () {
     const existingSessionThreadId =
       thread.session && thread.session.status !== "stopped" && activeSession ? thread.id : null;
     if (existingSessionThreadId) {
+      const currentMcpConfigHash = threadMcpConfigHashes.get(threadId);
       const runtimeModeChanged = thread.runtimeMode !== thread.session?.runtimeMode;
       const providerChanged =
         requestedModelSelection !== undefined &&
@@ -384,6 +429,7 @@ const make = Effect.gen(function* () {
         currentProvider === "claudeAgent" &&
         requestedModelSelection !== undefined &&
         !Equal.equals(previousModelSelection, requestedModelSelection);
+      const mcpConfigHashChanged = resolvedMcp.configHash !== currentMcpConfigHash;
 
       if (
         !runtimeModeChanged &&
@@ -391,7 +437,8 @@ const make = Effect.gen(function* () {
         !providerInstanceChanged &&
         !cwdChanged &&
         !shouldRestartForModelChange &&
-        !shouldRestartForModelSelectionChange
+        !shouldRestartForModelSelectionChange &&
+        !mcpConfigHashChanged
       ) {
         return existingSessionThreadId;
       }
@@ -419,11 +466,16 @@ const make = Effect.gen(function* () {
         modelChanged,
         shouldRestartForModelChange,
         shouldRestartForModelSelectionChange,
+        mcpConfigHashChanged,
+        currentMcpConfigHash: currentMcpConfigHash ?? "",
+        desiredMcpConfigHash: resolvedMcp.configHash ?? "",
+        mcpServerIds: resolvedMcp.serverIds.join(","),
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession(
         resumeCursor !== undefined ? { resumeCursor } : undefined,
       );
+      threadMcpConfigHashes.set(threadId, resolvedMcp.configHash);
       yield* Effect.logInfo("provider command reactor restarted provider session", {
         threadId,
         previousSessionId: existingSessionThreadId,
@@ -437,6 +489,7 @@ const make = Effect.gen(function* () {
     }
 
     const startedSession = yield* startProviderSession(undefined);
+    threadMcpConfigHashes.set(threadId, resolvedMcp.configHash);
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
   });
@@ -1011,4 +1064,6 @@ const make = Effect.gen(function* () {
   } satisfies ProviderCommandReactorShape;
 });
 
-export const ProviderCommandReactorLive = Layer.effect(ProviderCommandReactor, make);
+export const ProviderCommandReactorLive = Layer.effect(ProviderCommandReactor, make).pipe(
+  Layer.provide(McpConfigResolverLive),
+);

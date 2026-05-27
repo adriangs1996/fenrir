@@ -12,6 +12,7 @@
 import {
   defaultInstanceIdForDriver,
   ModelSelection,
+  McpServerId,
   NonNegativeInt,
   type ProviderDriverKind,
   type ProviderInstanceId,
@@ -25,6 +26,7 @@ import {
   ProviderStopSessionInput,
   type ProviderRuntimeEvent,
   type ProviderSession,
+  type ResolvedMcpServerConfig,
 } from "@fenrir/contracts";
 import { Effect, Layer, Option, PubSub, Schema, SchemaIssue, Stream } from "effect";
 
@@ -49,6 +51,8 @@ import {
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { McpConfigResolver } from "../../mcp/Services/McpConfigResolver.ts";
+import { McpConfigResolverLive } from "../../mcp/Layers/McpConfigResolver.ts";
 
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogPath?: string;
@@ -107,6 +111,8 @@ function toRuntimePayloadFromSession(
   session: ProviderSession,
   extra?: {
     readonly modelSelection?: unknown;
+    readonly mcpServerIds?: ReadonlyArray<McpServerId>;
+    readonly mcpConfigHash?: string;
     readonly lastRuntimeEvent?: string;
     readonly lastRuntimeEventAt?: string;
   },
@@ -117,10 +123,22 @@ function toRuntimePayloadFromSession(
     activeTurnId: session.activeTurnId ?? null,
     lastError: session.lastError ?? null,
     ...(extra?.modelSelection !== undefined ? { modelSelection: extra.modelSelection } : {}),
+    ...(extra?.mcpServerIds !== undefined ? { mcpServerIds: extra.mcpServerIds } : {}),
+    ...(extra?.mcpConfigHash !== undefined ? { mcpConfigHash: extra.mcpConfigHash } : {}),
     ...(extra?.lastRuntimeEvent !== undefined ? { lastRuntimeEvent: extra.lastRuntimeEvent } : {}),
     ...(extra?.lastRuntimeEventAt !== undefined
       ? { lastRuntimeEventAt: extra.lastRuntimeEventAt }
       : {}),
+  };
+}
+
+function mergeRuntimePayload(
+  previous: unknown,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    ...(previous && typeof previous === "object" && !Array.isArray(previous) ? previous : {}),
+    ...next,
   };
 }
 
@@ -144,6 +162,52 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readPersistedMcpServerIds(
+  runtimePayload: ProviderRuntimeBinding["runtimePayload"],
+): ReadonlyArray<McpServerId> {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return [];
+  }
+  const raw = "mcpServerIds" in runtimePayload ? runtimePayload.mcpServerIds : undefined;
+  return Schema.is(Schema.Array(McpServerId))(raw) ? raw : [];
+}
+
+function validateMcpCapability(input: {
+  readonly operation: string;
+  readonly provider: ProviderKind | ProviderDriverKind;
+  readonly servers: ReadonlyArray<ResolvedMcpServerConfig> | undefined;
+  readonly capabilities: {
+    readonly mcp?: {
+      readonly supported: boolean;
+      readonly transports: {
+        readonly stdio: boolean;
+        readonly http: boolean;
+        readonly sse: boolean;
+      };
+    };
+  };
+}): ProviderValidationError | undefined {
+  const servers = input.servers ?? [];
+  if (servers.length === 0) return undefined;
+
+  const mcp = input.capabilities.mcp;
+  if (!mcp?.supported) {
+    const selectedNames = servers.map((server) => `"${server.name}"`).join(", ");
+    return new ProviderValidationError({
+      operation: input.operation,
+      issue: `Selected MCP server${servers.length === 1 ? "" : "s"} ${selectedNames} require MCP support, but provider '${input.provider}' does not currently support MCP servers in Fenrir.`,
+    });
+  }
+
+  const unsupported = servers.find((server) => !mcp.transports[server.transport.type]);
+  if (unsupported) {
+    return new ProviderValidationError({
+      operation: input.operation,
+      issue: `Selected MCP server "${unsupported.name}" requires MCP ${unsupported.transport.type} support, but provider '${input.provider}' does not support that transport in Fenrir.`,
+    });
+  }
 }
 
 function resolveBindingInstanceId(binding: ProviderRuntimeBinding): ProviderInstanceId {
@@ -171,6 +235,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 ) {
   const analytics = yield* Effect.service(AnalyticsService);
   const serverSettings = yield* ServerSettingsService;
+  const mcpConfigResolver = yield* McpConfigResolver;
   const canonicalEventLogger =
     options?.canonicalEventLogger ??
     (options?.canonicalEventLogPath !== undefined
@@ -198,6 +263,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     extra?: {
       readonly providerInstanceId?: ProviderInstanceId;
       readonly modelSelection?: unknown;
+      readonly mcpServerIds?: ReadonlyArray<McpServerId>;
+      readonly mcpConfigHash?: string;
       readonly lastRuntimeEvent?: string;
       readonly lastRuntimeEventAt?: string;
     },
@@ -305,6 +372,34 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
       const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
+      const persistedMcpServerIds = readPersistedMcpServerIds(input.binding.runtimePayload);
+      const resolvedMcp =
+        persistedMcpServerIds.length > 0
+          ? yield* serverSettings.getSettings.pipe(
+              Effect.flatMap((settings) =>
+                mcpConfigResolver.resolve({
+                  settings,
+                  selectedServerIds: persistedMcpServerIds,
+                }),
+              ),
+              Effect.mapError((error) =>
+                toValidationError(
+                  input.operation,
+                  `Failed to resolve MCP servers while recovering thread '${input.binding.threadId}': ${error.message}`,
+                  error,
+                ),
+              ),
+            )
+          : undefined;
+      const capabilityError = validateMcpCapability({
+        operation: input.operation,
+        provider: input.binding.provider,
+        servers: resolvedMcp?.servers,
+        capabilities: adapter.capabilities,
+      });
+      if (capabilityError) {
+        return yield* capabilityError;
+      }
 
       const resumed = yield* adapter.startSession({
         threadId: input.binding.threadId,
@@ -312,6 +407,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         providerInstanceId,
         ...(persistedCwd ? { cwd: persistedCwd } : {}),
         ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
+        ...(resolvedMcp
+          ? {
+              mcpServers: resolvedMcp.servers,
+              mcpServerIds: resolvedMcp.serverIds,
+              mcpConfigHash: resolvedMcp.configHash,
+            }
+          : {}),
         ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
         runtimeMode: input.binding.runtimeMode ?? "full-access",
       });
@@ -324,6 +426,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
       yield* upsertSessionBinding(resumed, input.binding.threadId, {
         providerInstanceId,
+        ...(resolvedMcp
+          ? {
+              mcpServerIds: resolvedMcp.serverIds,
+              mcpConfigHash: resolvedMcp.configHash,
+            }
+          : {}),
       });
       yield* analytics.record("provider.session.recovered", {
         provider: resumed.provider,
@@ -473,7 +581,19 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
                 ? "persisted"
                 : "none",
           "provider.cwd.effective": effectiveCwd ?? "",
+          "mcp.server_count": input.mcpServers?.length ?? 0,
+          "mcp.server_ids": input.mcpServerIds?.join(",") ?? "",
+          "mcp.config_hash": input.mcpConfigHash ?? "",
         });
+        const capabilityError = validateMcpCapability({
+          operation: "ProviderService.startSession",
+          provider: input.provider,
+          servers: input.mcpServers,
+          capabilities: adapter.capabilities,
+        });
+        if (capabilityError) {
+          return yield* capabilityError;
+        }
         const session = yield* adapter.startSession({
           ...input,
           ...(effectiveCwd !== undefined ? { cwd: effectiveCwd } : {}),
@@ -494,6 +614,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         yield* upsertSessionBinding(session, threadId, {
           providerInstanceId: input.providerInstanceId,
           modelSelection: input.modelSelection,
+          ...(input.mcpServerIds !== undefined ? { mcpServerIds: input.mcpServerIds } : {}),
+          ...(input.mcpConfigHash !== undefined ? { mcpConfigHash: input.mcpConfigHash } : {}),
         });
         yield* analytics.record("provider.session.started", {
           provider: session.provider,
@@ -555,18 +677,19 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         ...(input.modelSelection?.model ? { "provider.model": input.modelSelection.model } : {}),
       });
       const turn = yield* routed.adapter.sendTurn(input);
+      const bindingBeforeTurn = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
       yield* directory.upsert({
         threadId: input.threadId,
         provider: routed.adapter.provider,
         providerInstanceId: routed.providerInstanceId,
         status: "running",
         ...(turn.resumeCursor !== undefined ? { resumeCursor: turn.resumeCursor } : {}),
-        runtimePayload: {
+        runtimePayload: mergeRuntimePayload(bindingBeforeTurn?.runtimePayload, {
           ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
           activeTurnId: turn.turnId,
           lastRuntimeEvent: "provider.sendTurn",
           lastRuntimeEventAt: new Date().toISOString(),
-        },
+        }),
       });
       yield* analytics.record("provider.turn.sent", {
         provider: routed.adapter.provider,
@@ -724,14 +847,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         if (routed.isActive) {
           yield* routed.adapter.stopSession(routed.threadId);
         }
+        const bindingBeforeStop = Option.getOrUndefined(
+          yield* directory.getBinding(input.threadId),
+        );
         yield* directory.upsert({
           threadId: input.threadId,
           provider: routed.adapter.provider,
           providerInstanceId: routed.providerInstanceId,
           status: "stopped",
-          runtimePayload: {
+          runtimePayload: mergeRuntimePayload(bindingBeforeStop?.runtimePayload, {
             activeTurnId: null,
-          },
+          }),
         });
         yield* analytics.record("provider.session.stopped", {
           provider: routed.adapter.provider,
@@ -872,11 +998,11 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
                   ? { providerInstanceId: binding.providerInstanceId }
                   : {}),
                 status: "stopped",
-                runtimePayload: {
+                runtimePayload: mergeRuntimePayload(binding?.runtimePayload, {
                   activeTurnId: null,
                   lastRuntimeEvent: "provider.stopAll",
                   lastRuntimeEventAt: new Date().toISOString(),
-                },
+                }),
               });
             }),
           ),
@@ -914,8 +1040,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   } satisfies ProviderServiceShape;
 });
 
-export const ProviderServiceLive = Layer.effect(ProviderService, makeProviderService());
+export const ProviderServiceLive = Layer.effect(ProviderService, makeProviderService()).pipe(
+  Layer.provide(McpConfigResolverLive),
+);
 
 export function makeProviderServiceLive(options?: ProviderServiceLiveOptions) {
-  return Layer.effect(ProviderService, makeProviderService(options));
+  return Layer.effect(ProviderService, makeProviderService(options)).pipe(
+    Layer.provide(McpConfigResolverLive),
+  );
 }

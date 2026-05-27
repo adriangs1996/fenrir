@@ -1,5 +1,7 @@
 import * as OS from "node:os";
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 const PATH_CAPTURE_START = "__FENRIR_PATH_START__";
 const PATH_CAPTURE_END = "__FENRIR_PATH_END__";
@@ -178,3 +180,47 @@ export const readEnvironmentFromLoginShell: ShellEnvironmentReader = (
 
   return environment;
 };
+
+export function resolveCommandPath(
+  command: string,
+  options?: {
+    readonly env?: NodeJS.ProcessEnv;
+    readonly platform?: NodeJS.Platform;
+  },
+): string | null {
+  const trimmed = trimNonEmpty(command);
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.includes("/") || trimmed.includes("\\")) {
+    return existsSync(trimmed) ? trimmed : null;
+  }
+
+  const platform = options?.platform ?? process.platform;
+  const delimiter = platform === "win32" ? ";" : ":";
+  const pathValue = options?.env?.PATH ?? options?.env?.Path ?? process.env.PATH;
+  if (!pathValue) {
+    return null;
+  }
+
+  const executableNames =
+    platform === "win32" && !/\.[a-z0-9]+$/i.test(trimmed)
+      ? [trimmed, `${trimmed}.exe`, `${trimmed}.cmd`, `${trimmed}.bat`]
+      : [trimmed];
+
+  for (const directory of pathValue.split(delimiter)) {
+    const trimmedDirectory = directory.trim();
+    if (!trimmedDirectory) {
+      continue;
+    }
+    for (const executableName of executableNames) {
+      const candidate = join(trimmedDirectory, executableName);
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
+}

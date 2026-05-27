@@ -4,6 +4,7 @@ import {
   createThreadJumpHintVisibilityController,
   getVisibleSidebarThreadIds,
   resolveAdjacentThreadId,
+  resolveActiveProjectThreadKeys,
   getFallbackThreadIdAfterDelete,
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
@@ -340,6 +341,66 @@ describe("resolveAdjacentThreadId", () => {
         direction: "previous",
       }),
     ).toBeNull();
+  });
+});
+
+describe("resolveActiveProjectThreadKeys", () => {
+  it("returns sorted non-archived thread keys only for the active project", () => {
+    const projectThreads = [
+      makeThread({
+        id: ThreadId.makeUnsafe("thread-a"),
+        createdAt: "2026-03-09T10:30:00.000Z",
+      }),
+      makeThread({
+        id: ThreadId.makeUnsafe("thread-c"),
+        createdAt: "2026-03-09T10:10:00.000Z",
+      }),
+      makeThread({
+        id: ThreadId.makeUnsafe("thread-archived"),
+        createdAt: "2026-03-09T10:40:00.000Z",
+        archivedAt: "2026-03-09T10:45:00.000Z",
+      }),
+      makeThread({
+        id: ThreadId.makeUnsafe("thread-b"),
+        createdAt: "2026-03-09T10:20:00.000Z",
+      }),
+    ];
+    const otherProjectThreads = [
+      makeThread({
+        id: ThreadId.makeUnsafe("thread-x"),
+        projectId: ProjectId.makeUnsafe("project-2"),
+        createdAt: "2026-03-09T11:00:00.000Z",
+      }),
+    ];
+    const activeThreadKeys = resolveActiveProjectThreadKeys({
+      activeProjectKey: "project-1",
+      threadsByProjectKey: new Map([
+        ["project-1", projectThreads],
+        ["project-2", otherProjectThreads],
+      ]),
+      sortOrder: "created_at",
+      getThreadKey: (thread) => thread.id,
+    });
+
+    expect(activeThreadKeys).toEqual([
+      ThreadId.makeUnsafe("thread-a"),
+      ThreadId.makeUnsafe("thread-b"),
+      ThreadId.makeUnsafe("thread-c"),
+    ]);
+    expect(
+      resolveAdjacentThreadId({
+        threadIds: activeThreadKeys,
+        currentThreadId: ThreadId.makeUnsafe("thread-b"),
+        direction: "next",
+      }),
+    ).toBe(ThreadId.makeUnsafe("thread-c"));
+    expect(
+      resolveAdjacentThreadId({
+        threadIds: activeThreadKeys,
+        currentThreadId: ThreadId.makeUnsafe("thread-b"),
+        direction: "previous",
+      }),
+    ).toBe(ThreadId.makeUnsafe("thread-a"));
   });
 });
 

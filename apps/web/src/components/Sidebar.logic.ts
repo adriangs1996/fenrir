@@ -275,6 +275,26 @@ export function resolveAdjacentThreadId<T>(input: {
   return currentIndex < threadIds.length - 1 ? (threadIds[currentIndex + 1] ?? null) : null;
 }
 
+export function resolveActiveProjectThreadKeys<
+  TThread extends Pick<Thread, "id" | "createdAt" | "updatedAt" | "archivedAt"> &
+    SidebarThreadSortInput,
+>(input: {
+  activeProjectKey: string | null;
+  threadsByProjectKey: ReadonlyMap<string, readonly TThread[]>;
+  sortOrder: SidebarThreadSortOrder;
+  getThreadKey: (thread: TThread) => string;
+}): string[] {
+  if (input.activeProjectKey === null) {
+    return [];
+  }
+
+  const projectThreads = input.threadsByProjectKey.get(input.activeProjectKey) ?? [];
+  return sortThreadsForSidebar(
+    projectThreads.filter((thread) => thread.archivedAt === null),
+    input.sortOrder,
+  ).map(input.getThreadKey);
+}
+
 export function isContextMenuPointerDown(input: {
   button: number;
   ctrlKey: boolean;

@@ -77,13 +77,44 @@ export const ServerProviderVersionAdvisory = Schema.Struct({
   status: ServerProviderVersionAdvisoryStatus,
   currentVersion: Schema.NullOr(TrimmedNonEmptyString),
   latestVersion: Schema.NullOr(TrimmedNonEmptyString),
+  updateCommand: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  canUpdate: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   checkedAt: Schema.NullOr(IsoDateTime),
   message: Schema.NullOr(TrimmedNonEmptyString),
 });
 export type ServerProviderVersionAdvisory = typeof ServerProviderVersionAdvisory.Type;
 
+export const ServerProviderUpdateStatus = Schema.Literals([
+  "idle",
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "unchanged",
+]);
+export type ServerProviderUpdateStatus = typeof ServerProviderUpdateStatus.Type;
+
+export const ServerProviderUpdateState = Schema.Struct({
+  status: ServerProviderUpdateStatus,
+  startedAt: Schema.NullOr(IsoDateTime),
+  finishedAt: Schema.NullOr(IsoDateTime),
+  message: Schema.NullOr(TrimmedNonEmptyString),
+  output: Schema.NullOr(Schema.String.check(Schema.isMaxLength(10_000))),
+});
+export type ServerProviderUpdateState = typeof ServerProviderUpdateState.Type;
+
 export const ServerProviderAvailability = Schema.Literals(["available", "unavailable"]);
 export type ServerProviderAvailability = typeof ServerProviderAvailability.Type;
+
+export const ServerProviderMcpCapabilities = Schema.Struct({
+  supported: Schema.Boolean,
+  transports: Schema.Struct({
+    stdio: Schema.Boolean,
+    http: Schema.Boolean,
+    sse: Schema.Boolean,
+  }),
+});
+export type ServerProviderMcpCapabilities = typeof ServerProviderMcpCapabilities.Type;
 
 export const ServerProvider = Schema.Struct({
   provider: Schema.optional(ProviderKind),
@@ -102,6 +133,8 @@ export const ServerProvider = Schema.Struct({
   unavailableReason: Schema.optional(TrimmedNonEmptyString),
   models: Schema.Array(ServerProviderModel),
   versionAdvisory: Schema.optional(ServerProviderVersionAdvisory),
+  updateState: Schema.optional(ServerProviderUpdateState),
+  mcpCapabilities: Schema.optional(ServerProviderMcpCapabilities),
 });
 export type ServerProvider = typeof ServerProvider.Type;
 
@@ -473,3 +506,22 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
   providers: ServerProviders,
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
+
+export const ServerProviderUpdateInput = Schema.Struct({
+  provider: ProviderDriverKind,
+  instanceId: Schema.optionalKey(ProviderInstanceId),
+});
+export type ServerProviderUpdateInput = typeof ServerProviderUpdateInput.Type;
+
+export class ServerProviderUpdateError extends Schema.TaggedErrorClass<ServerProviderUpdateError>()(
+  "ServerProviderUpdateError",
+  {
+    provider: ProviderDriverKind,
+    reason: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Provider update failed for ${this.provider}: ${this.reason}`;
+  }
+}

@@ -1,4 +1,7 @@
 import {
+  type McpServerDefinition,
+  type McpServerTransport,
+  type McpValueRef,
   ServerSettings,
   type ProviderOptionSelection,
   type ProviderOptionSelections,
@@ -107,6 +110,61 @@ function normalizeClaudeProviderPatch(
   };
 }
 
+function normalizeMcpValueRef(value: McpValueRef): McpValueRef {
+  switch (value.type) {
+    case "literal":
+      return value;
+    case "env":
+      return { ...value, name: value.name.trim() };
+    case "secret":
+      return { ...value, secretId: value.secretId.trim() };
+  }
+}
+
+function normalizeMcpValueMap(values: Record<string, McpValueRef>): Record<string, McpValueRef> {
+  return Object.fromEntries(
+    Object.entries(values).map(([key, value]) => [key.trim(), normalizeMcpValueRef(value)]),
+  );
+}
+
+function normalizeMcpTransport(transport: McpServerTransport): McpServerTransport {
+  switch (transport.type) {
+    case "stdio":
+      return {
+        ...transport,
+        command: transport.command.trim(),
+        args: transport.args.map((arg) => arg.trim()),
+        env: normalizeMcpValueMap(transport.env),
+        ...(transport.cwd !== undefined ? { cwd: transport.cwd.trim() } : {}),
+      };
+    case "http":
+    case "sse":
+      return {
+        ...transport,
+        url: transport.url.trim(),
+        headers: normalizeMcpValueMap(transport.headers),
+      };
+  }
+}
+
+function normalizeMcpServersPatch(
+  servers: Record<string, McpServerDefinition> | undefined,
+): Record<string, McpServerDefinition> | undefined {
+  if (!servers) return undefined;
+  return Object.fromEntries(
+    Object.entries(servers).map(([key, server]) => [
+      key.trim(),
+      {
+        ...server,
+        id: server.id.trim() as McpServerDefinition["id"],
+        name: server.name.trim(),
+        ...(server.description !== undefined ? { description: server.description.trim() } : {}),
+        transport: normalizeMcpTransport(server.transport),
+      },
+    ]),
+  );
+}
+
 function normalizeServerSettingsPatch(patch: ServerSettingsPatch): ServerSettingsPatch {
   const providersPatch = patch.providers;
   const observabilityPatch = patch.observability;
@@ -130,6 +188,8 @@ function normalizeServerSettingsPatch(patch: ServerSettingsPatch): ServerSetting
           : {}),
       }
     : undefined;
+  const normalizedMcpServers =
+    patch.mcpServers !== undefined ? normalizeMcpServersPatch(patch.mcpServers) : undefined;
 
   return {
     ...patch,
@@ -138,6 +198,7 @@ function normalizeServerSettingsPatch(patch: ServerSettingsPatch): ServerSetting
       : {}),
     ...(normalizedObservability ? { observability: normalizedObservability } : {}),
     ...(normalizedProviders ? { providers: normalizedProviders } : {}),
+    ...(normalizedMcpServers !== undefined ? { mcpServers: normalizedMcpServers } : {}),
   };
 }
 
@@ -151,10 +212,20 @@ export function applyServerSettingsPatch(
   patch: ServerSettingsPatch,
 ): ServerSettings {
   const normalizedPatch = normalizeServerSettingsPatch(patch);
-  const { automaticGitFetchInterval, providerInstances, ...restPatch } = normalizedPatch;
+  const {
+    automaticGitFetchInterval,
+    defaultMcpServerIds,
+    disabledBuiltInMcpServerIds,
+    mcpServers,
+    providerInstances,
+    ...restPatch
+  } = normalizedPatch;
   const next = {
     ...deepMerge(current, restPatch),
     ...(automaticGitFetchInterval !== undefined ? { automaticGitFetchInterval } : {}),
+    ...(defaultMcpServerIds !== undefined ? { defaultMcpServerIds } : {}),
+    ...(disabledBuiltInMcpServerIds !== undefined ? { disabledBuiltInMcpServerIds } : {}),
+    ...(mcpServers !== undefined ? { mcpServers } : {}),
     ...(providerInstances !== undefined ? { providerInstances } : {}),
   };
   const selectionPatch = normalizedPatch.textGenerationModelSelection;

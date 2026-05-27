@@ -5,8 +5,12 @@ import {
   useDesktopBridgeAvailable,
   useIsMainWindow,
   useNvimAvailable,
+  useVSCodeWebAvailable,
 } from "~/hooks/useDesktopBridge";
+import { useSettings } from "~/hooks/useSettings";
+import { resolveActiveEmbeddedEditor } from "../embeddedEditor";
 import { NvimMissingCard } from "./NvimMissingCard";
+import { VSCodePane } from "./VSCodePane";
 
 interface Props {
   /**
@@ -17,6 +21,7 @@ interface Props {
   focusRequestId?: number;
   keybindings: ResolvedKeybindingsConfig;
   terminalOpen?: boolean;
+  cwd: string | null;
 }
 
 /**
@@ -32,10 +37,13 @@ export function EditorPane({
   focusRequestId = 0,
   keybindings,
   terminalOpen = false,
+  cwd,
 }: Props) {
   const bridge = useDesktopBridgeAvailable();
   const main = useIsMainWindow();
   const nvimReady = useNvimAvailable();
+  const vscodeReady = useVSCodeWebAvailable();
+  const preferredEmbeddedEditor = useSettings((state) => state.embeddedEditor);
   const [probeError, setProbeError] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
 
@@ -59,7 +67,7 @@ export function EditorPane({
     return null;
   }
 
-  if (!nvimReady) {
+  if (!nvimReady && !vscodeReady) {
     return (
       <div
         className="min-h-0 flex-1"
@@ -71,20 +79,32 @@ export function EditorPane({
     );
   }
 
+  const selectedEditor = resolveActiveEmbeddedEditor({
+    preferredEditor: preferredEmbeddedEditor,
+    nvimReady,
+    vscodeReady,
+  });
+
   return (
     <div
-      className="min-h-0 flex-1"
-      style={{ display: visible ? "block" : "none" }}
+      className="min-h-0 flex-1 flex-col"
+      style={{ display: visible ? "flex" : "none" }}
       data-testid="editor-pane"
     >
-      <RenderSurface
-        fps={120}
-        keybindings={keybindings}
-        terminalOpen={terminalOpen}
-        visible={visible}
-        focusRequestId={focusRequestId}
-        style={{ width: "100%", height: "100%" }}
-      />
+      {selectedEditor === "neovim" ? (
+        <div className="min-h-0 flex-1">
+          <RenderSurface
+            fps={120}
+            keybindings={keybindings}
+            terminalOpen={terminalOpen}
+            visible={visible}
+            focusRequestId={focusRequestId}
+            style={{ width: "100%", height: "100%" }}
+          />
+        </div>
+      ) : (
+        <VSCodePane cwd={cwd} visible={visible} />
+      )}
     </div>
   );
 }

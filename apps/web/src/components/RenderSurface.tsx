@@ -8,7 +8,7 @@ import {
 } from "@fenrir/contracts";
 import { useSettings } from "~/hooks/useSettings";
 import { ensureNerdFontLoaded } from "~/lib/nerdFont";
-import { resolveShortcutCommand } from "~/keybindings";
+import { resolveShortcutCommand, threadTraversalDirectionFromCommand } from "~/keybindings";
 import { isMacPlatform } from "~/lib/utils";
 import { GLRenderer } from "./render/glRenderer";
 
@@ -27,9 +27,20 @@ export function isAppShortcut(
     platform?: string;
   },
 ): boolean {
-  // Alt is reserved for nvim. On macOS especially, Option modifies `event.key`
-  // into dead keys / symbols; the editor translator handles that via `event.code`.
-  if (e.altKey) return false;
+  const resolvedCommand = resolveShortcutCommand(e, keybindings, {
+    ...(options?.platform ? { platform: options.platform } : {}),
+    context: {
+      terminalFocus: false,
+      terminalOpen: options?.terminalOpen ?? false,
+    },
+  });
+
+  // Alt is reserved for nvim except for explicitly bound app thread traversal.
+  // On macOS especially, Option modifies `event.key` into dead keys / symbols;
+  // the editor translator handles unrelated Alt chords via `event.code`.
+  if (e.altKey) {
+    return threadTraversalDirectionFromCommand(resolvedCommand) !== null;
+  }
 
   // Let the browser emit a native paste event instead of converting paste into
   // a synthetic key chord. The paste listener forwards the clipboard text.
@@ -37,15 +48,7 @@ export function isAppShortcut(
     return false;
   }
 
-  return (
-    resolveShortcutCommand(e, keybindings, {
-      ...(options?.platform ? { platform: options.platform } : {}),
-      context: {
-        terminalFocus: false,
-        terminalOpen: options?.terminalOpen ?? false,
-      },
-    }) !== null
-  );
+  return resolvedCommand !== null;
 }
 
 export function isNativePasteShortcut(

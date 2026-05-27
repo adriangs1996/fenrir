@@ -132,6 +132,7 @@ import {
   resolveSidebarNewThreadEnvMode,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
+  resolveActiveProjectThreadKeys,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
@@ -140,6 +141,7 @@ import {
   ThreadStatusPill,
 } from "./Sidebar.logic";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
+import { SidebarProviderUpdatePill } from "./sidebar/SidebarProviderUpdatePill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import {
   PlanRunnerProjectSection,
@@ -2148,6 +2150,7 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
 
   return (
     <SidebarFooter className="p-2">
+      <SidebarProviderUpdatePill />
       <SidebarUpdatePill />
       <SidebarMenu>
         <SidebarMenuItem>
@@ -3112,6 +3115,16 @@ export default function Sidebar() {
       threadsByProjectKey,
     ],
   );
+  const activeProjectThreadKeys = useMemo(
+    () =>
+      resolveActiveProjectThreadKeys({
+        activeProjectKey: activeRouteProjectKey,
+        threadsByProjectKey,
+        sortOrder: sidebarThreadSortOrder,
+        getThreadKey: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      }),
+    [activeRouteProjectKey, sidebarThreadSortOrder, threadsByProjectKey],
+  );
   const threadJumpCommandByKey = useMemo(() => {
     const mapping = new Map<string, NonNullable<ReturnType<typeof threadJumpCommandForIndex>>>();
     for (const [visibleThreadIndex, threadKey] of visibleSidebarThreadKeys.entries()) {
@@ -3137,7 +3150,6 @@ export default function Sidebar() {
   const visibleThreadJumpLabelByKey = showThreadJumpHints
     ? threadJumpLabelByKey
     : EMPTY_THREAD_JUMP_LABELS;
-  const orderedSidebarThreadKeys = visibleSidebarThreadKeys;
 
   useEffect(() => {
     const clearThreadJumpHints = () => {
@@ -3202,7 +3214,7 @@ export default function Sidebar() {
       const traversalDirection = threadTraversalDirectionFromCommand(command);
       if (traversalDirection !== null) {
         const targetThreadKey = resolveAdjacentThreadId({
-          threadIds: orderedSidebarThreadKeys,
+          threadIds: activeProjectThreadKeys,
           currentThreadId: routeThreadKey,
           direction: traversalDirection,
         });
@@ -3268,12 +3280,12 @@ export default function Sidebar() {
       clearThreadJumpHints();
     };
 
-    window.addEventListener("keydown", onWindowKeyDown);
+    window.addEventListener("keydown", onWindowKeyDown, true);
     window.addEventListener("keyup", onWindowKeyUp);
     window.addEventListener("blur", onWindowBlur);
 
     return () => {
-      window.removeEventListener("keydown", onWindowKeyDown);
+      window.removeEventListener("keydown", onWindowKeyDown, true);
       window.removeEventListener("keyup", onWindowKeyUp);
       window.removeEventListener("blur", onWindowBlur);
     };
@@ -3281,7 +3293,7 @@ export default function Sidebar() {
     getCurrentSidebarShortcutContext,
     keybindings,
     navigateToThread,
-    orderedSidebarThreadKeys,
+    activeProjectThreadKeys,
     platform,
     routeThreadKey,
     sidebarThreadByKey,

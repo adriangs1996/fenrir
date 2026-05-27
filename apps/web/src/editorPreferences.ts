@@ -2,8 +2,10 @@ import { EDITORS, EditorId, LocalApi } from "@fenrir/contracts";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "./hooks/useLocalStorage";
 import { useMemo } from "react";
 import { useEditorStore } from "~/modules/neovim-editor";
+import { updateClientSettings } from "./hooks/useSettings";
 
 const LAST_EDITOR_KEY = "fenrir:last-editor";
+const EMBEDDED_EDITOR_IDS = new Set<EditorId>(["fenrir-embedded", "fenrir-embedded-vscode"]);
 
 interface PreferredEditorOptions {
   readonly allowEmbedded?: boolean;
@@ -27,7 +29,7 @@ export function resolveAndPersistPreferredEditor(
   const allowEmbedded = options.allowEmbedded ?? true;
   const filteredEditors = allowEmbedded
     ? availableEditors
-    : availableEditors.filter((editorId) => editorId !== "fenrir-embedded");
+    : availableEditors.filter((editorId) => !EMBEDDED_EDITOR_IDS.has(editorId));
   const availableEditorIds = new Set(filteredEditors);
   const stored = getLocalStorageItem(LAST_EDITOR_KEY, EditorId);
   if (stored && availableEditorIds.has(stored)) return stored;
@@ -47,6 +49,11 @@ export async function openInPreferredEditor(
 
   if (editor === "fenrir-embedded") {
     await openInEmbeddedEditor(targetPath);
+    return editor;
+  }
+
+  if (editor === "fenrir-embedded-vscode") {
+    await openInEmbeddedVSCode(targetPath);
     return editor;
   }
 
@@ -71,8 +78,25 @@ export async function openInEmbeddedEditor(target: string): Promise<void> {
     ...(col !== null && { col }),
   });
 
-  // Auto-switch to editor tab (Q11.2 = A).
-  useEditorStore.getState().setActiveChatTab("editor");
+  const store = useEditorStore.getState();
+  updateClientSettings({ embeddedEditor: "neovim" });
+  store.setActiveChatTab("editor");
+}
+
+export async function openInEmbeddedVSCode(target: string): Promise<void> {
+  const bridge = window.desktopBridge;
+  if (!bridge?.vscodeOpenFile) throw new Error("embedded VS Code bridge unavailable");
+
+  const { path, line, col } = parseTargetPath(target);
+  await bridge.vscodeOpenFile({
+    path,
+    ...(line !== null && { line }),
+    ...(col !== null && { col }),
+  });
+
+  const store = useEditorStore.getState();
+  updateClientSettings({ embeddedEditor: "vscode" });
+  store.setActiveChatTab("editor");
 }
 
 /**

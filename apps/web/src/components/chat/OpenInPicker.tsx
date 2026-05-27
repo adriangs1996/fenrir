@@ -1,7 +1,11 @@
 import { EditorId, type ResolvedKeybindingsConfig } from "@fenrir/contracts";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { isOpenFavoriteEditorShortcut, shortcutLabelForCommand } from "../../keybindings";
-import { openInEmbeddedEditor, usePreferredEditor } from "../../editorPreferences";
+import {
+  openInEmbeddedEditor,
+  openInEmbeddedVSCode,
+  usePreferredEditor,
+} from "../../editorPreferences";
 import { ChevronDownIcon, FolderClosedIcon, SquareTerminalIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { Group, GroupSeparator } from "../ui/group";
@@ -20,13 +24,20 @@ import {
 } from "../Icons";
 import { isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
-import { useDesktopBridgeAvailable, useIsMainWindow } from "~/hooks/useDesktopBridge";
+import {
+  useDesktopBridgeAvailable,
+  useIsMainWindow,
+  useNvimAvailable,
+  useVSCodeWebAvailable,
+} from "~/hooks/useDesktopBridge";
 
 const resolveOptions = (
   platform: string,
   availableEditors: ReadonlyArray<EditorId>,
   bridgeAvailable: boolean,
   isMainWindow: boolean,
+  nvimReady: boolean,
+  vscodeReady: boolean,
 ) => {
   const baseOptions: ReadonlyArray<{ label: string; Icon: Icon; value: EditorId }> = [
     {
@@ -84,15 +95,22 @@ const resolveOptions = (
       value: "file-manager",
     },
     {
-      label: "Embedded Editor",
+      label: "Embedded Neovim",
       Icon: SquareTerminalIcon,
       value: "fenrir-embedded",
+    },
+    {
+      label: "Embedded VS Code",
+      Icon: VisualStudioCode,
+      value: "fenrir-embedded-vscode",
     },
   ];
   return baseOptions.filter(
     (option) =>
       availableEditors.includes(option.value) &&
-      (option.value !== "fenrir-embedded" || (bridgeAvailable && isMainWindow)),
+      (option.value !== "fenrir-embedded" || (bridgeAvailable && isMainWindow && nvimReady)) &&
+      (option.value !== "fenrir-embedded-vscode" ||
+        (bridgeAvailable && isMainWindow && vscodeReady)),
   );
 };
 
@@ -107,20 +125,34 @@ export const OpenInPicker = memo(function OpenInPicker({
 }) {
   const bridgeAvailable = useDesktopBridgeAvailable();
   const isMain = useIsMainWindow();
+  const nvimReady = useNvimAvailable();
+  const vscodeReady = useVSCodeWebAvailable();
   const [preferredEditor, setPreferredEditor] = usePreferredEditor(availableEditors);
   const options = useMemo(
-    () => resolveOptions(navigator.platform, availableEditors, bridgeAvailable, isMain),
-    [availableEditors, bridgeAvailable, isMain],
+    () =>
+      resolveOptions(
+        navigator.platform,
+        availableEditors,
+        bridgeAvailable,
+        isMain,
+        nvimReady,
+        vscodeReady,
+      ),
+    [availableEditors, bridgeAvailable, isMain, nvimReady, vscodeReady],
   );
-  const primaryOption = options.find(({ value }) => value === preferredEditor) ?? null;
+  const primaryOption =
+    options.find(({ value }) => value === preferredEditor) ?? options[0] ?? null;
 
   const openInEditor = useCallback(
     (editorId: EditorId | null) => {
-      const editor = editorId ?? preferredEditor;
+      const editor = editorId ?? primaryOption?.value ?? null;
       if (!editor || !openInCwd) return;
+      if (!options.some((option) => option.value === editor)) return;
 
       if (editor === "fenrir-embedded") {
         void openInEmbeddedEditor(openInCwd);
+      } else if (editor === "fenrir-embedded-vscode") {
+        void openInEmbeddedVSCode(openInCwd);
       } else {
         const api = readLocalApi();
         if (!api) return;
@@ -128,7 +160,7 @@ export const OpenInPicker = memo(function OpenInPicker({
       }
       setPreferredEditor(editor);
     },
-    [preferredEditor, openInCwd, setPreferredEditor],
+    [openInCwd, options, primaryOption?.value, setPreferredEditor],
   );
 
   const openFavoriteEditorShortcutLabel = useMemo(
@@ -139,30 +171,39 @@ export const OpenInPicker = memo(function OpenInPicker({
   useEffect(() => {
     const handler = (e: globalThis.KeyboardEvent) => {
       if (!isOpenFavoriteEditorShortcut(e, keybindings)) return;
-      if (!openInCwd || !preferredEditor) return;
+      const favoriteEditor =
+        options.find(({ value }) => value === preferredEditor)?.value ??
+        primaryOption?.value ??
+        null;
+      if (!openInCwd || !favoriteEditor) return;
 
       e.preventDefault();
 
-      if (preferredEditor === "fenrir-embedded") {
+      if (favoriteEditor === "fenrir-embedded") {
         void openInEmbeddedEditor(openInCwd);
+        return;
+      }
+
+      if (favoriteEditor === "fenrir-embedded-vscode") {
+        void openInEmbeddedVSCode(openInCwd);
         return;
       }
 
       const api = readLocalApi();
       if (!api) return;
-      void api.shell.openInEditor(openInCwd, preferredEditor);
+      void api.shell.openInEditor(openInCwd, favoriteEditor);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [preferredEditor, keybindings, openInCwd]);
+  }, [keybindings, openInCwd, options, preferredEditor, primaryOption?.value]);
 
   return (
     <Group aria-label="Subscription actions">
       <Button
         size="xs"
         variant="outline"
-        disabled={!preferredEditor || !openInCwd}
-        onClick={() => openInEditor(preferredEditor)}
+        disabled={!primaryOption || !openInCwd}
+        onClick={() => openInEditor(primaryOption?.value ?? null)}
       >
         {primaryOption?.Icon && <primaryOption.Icon aria-hidden="true" className="size-3.5" />}
         <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">

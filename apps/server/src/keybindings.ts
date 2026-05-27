@@ -122,6 +122,78 @@ function hasSameShortcutContext(left: KeybindingRule, right: KeybindingRule): bo
   return leftContext === rightContext;
 }
 
+const THREAD_TRAVERSAL_DEFAULT_MIGRATIONS = [
+  {
+    command: "thread.previous",
+    oldKey: "mod+shift+[",
+    nextKey: "alt+k",
+  },
+  {
+    command: "thread.next",
+    oldKey: "mod+shift+]",
+    nextKey: "alt+j",
+  },
+] as const satisfies ReadonlyArray<{
+  command: KeybindingRule["command"];
+  oldKey: string;
+  nextKey: string;
+}>;
+
+function migrateThreadTraversalDefaultKeybindings(rules: readonly KeybindingRule[]): {
+  keybindings: readonly KeybindingRule[];
+  changed: boolean;
+  conflicts: ReadonlyArray<{
+    command: KeybindingRule["command"];
+    oldKey: string;
+    nextKey: string;
+    conflictingCommand: KeybindingRule["command"];
+  }>;
+} {
+  let nextRules = [...rules];
+  let changed = false;
+  const conflicts: Array<{
+    command: KeybindingRule["command"];
+    oldKey: string;
+    nextKey: string;
+    conflictingCommand: KeybindingRule["command"];
+  }> = [];
+
+  for (const migration of THREAD_TRAVERSAL_DEFAULT_MIGRATIONS) {
+    const oldRule: KeybindingRule = {
+      key: migration.oldKey,
+      command: migration.command,
+    };
+    const nextRule: KeybindingRule = {
+      key: migration.nextKey,
+      command: migration.command,
+    };
+    const oldRuleIndex = nextRules.findIndex((rule) => isSameKeybindingRule(rule, oldRule));
+    if (oldRuleIndex === -1) {
+      continue;
+    }
+
+    const conflictingRule = nextRules.find((rule) => hasSameShortcutContext(rule, nextRule));
+    if (conflictingRule) {
+      conflicts.push({
+        command: migration.command,
+        oldKey: migration.oldKey,
+        nextKey: migration.nextKey,
+        conflictingCommand: conflictingRule.command,
+      });
+      continue;
+    }
+
+    nextRules = nextRules.map((rule, index) => (index === oldRuleIndex ? nextRule : rule));
+    changed = true;
+  }
+
+  return {
+    keybindings: nextRules,
+    changed,
+    conflicts,
+  };
+}
+
 function keybindingRuleFromUpsertInput(input: ServerUpsertKeybindingInput): KeybindingRule {
   return input.when === undefined
     ? { key: input.key, command: input.command }
@@ -502,7 +574,18 @@ const makeKeybindings = Effect.gen(function* () {
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }
-      const customConfig = runtimeConfig.keybindings;
+      const migratedConfig = migrateThreadTraversalDefaultKeybindings(runtimeConfig.keybindings);
+      const customConfig = migratedConfig.keybindings;
+      for (const conflict of migratedConfig.conflicts) {
+        yield* Effect.logWarning("skipping thread traversal keybinding migration due to conflict", {
+          path: keybindingsConfigPath,
+          command: conflict.command,
+          oldKey: conflict.oldKey,
+          nextKey: conflict.nextKey,
+          conflictingCommand: conflict.conflictingCommand,
+          reason: "new shortcut context already used by existing rule",
+        });
+      }
       const existingCommands = new Set(customConfig.map((entry) => entry.command));
       const missingDefaults: KeybindingRule[] = [];
       const shortcutConflictWarnings: Array<{
@@ -539,7 +622,7 @@ const makeKeybindings = Effect.gen(function* () {
           reason: "shortcut context already used by existing rule",
         });
       }
-      if (missingDefaults.length === 0) {
+      if (missingDefaults.length === 0 && !migratedConfig.changed) {
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }

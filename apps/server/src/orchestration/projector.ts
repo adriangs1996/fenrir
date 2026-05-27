@@ -25,6 +25,7 @@ import {
   ThreadDeletedPayload,
   ThreadInteractionModeSetPayload,
   ThreadMetaUpdatedPayload,
+  ThreadMcpServersSetPayload,
   ThreadProposedPlanUpsertedPayload,
   ThreadRuntimeModeSetPayload,
   ThreadUnarchivedPayload,
@@ -269,6 +270,7 @@ export function projectEvent(
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
             interactionMode: payload.interactionMode,
+            mcpServerIds: payload.mcpServerIds ?? [],
             branch: payload.branch,
             worktreePath: payload.worktreePath,
             latestTurn: null,
@@ -337,6 +339,17 @@ export function projectEvent(
               : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "thread.mcp-servers-set":
+      return decodeForEvent(ThreadMcpServersSetPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            mcpServerIds: payload.mcpServerIds,
             updatedAt: payload.updatedAt,
           }),
         })),

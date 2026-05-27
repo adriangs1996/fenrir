@@ -93,6 +93,7 @@ import { createTrafficLensManager, type TrafficLensManager } from "./trafficLens
 import { RenderLoop } from "./render/RenderLoop";
 import { FENRIR_EXIT_LUA, FENRIR_INIT_LUA, NeovimSource } from "./neovim";
 import { probeNvim } from "./neovim/probe";
+import { createVSCodeWebManager, probeVSCodeWeb, type VSCodeWebManager } from "./vscode";
 
 syncShellEnvironment();
 
@@ -206,6 +207,13 @@ const RENDER_INPUT_CHANNEL = "desktop:render-input";
 const RENDER_FRAME_PORT_CHANNEL = "desktop:render-frame-port";
 const RENDER_SET_EDITOR_FONT_METRICS_CHANNEL = "desktop:render-set-editor-font-metrics";
 const NVIM_AVAILABLE_CHANNEL = "desktop:nvim-available";
+const VSCODE_AVAILABLE_CHANNEL = "desktop:vscode-available";
+const VSCODE_PROBE_DETAIL_CHANNEL = "desktop:vscode-probe-detail";
+const VSCODE_START_CHANNEL = "desktop:vscode-start";
+const VSCODE_OPEN_FILE_CHANNEL = "desktop:vscode-open-file";
+const VSCODE_SET_BOUNDS_CHANNEL = "desktop:vscode-set-bounds";
+const VSCODE_SHOW_CHANNEL = "desktop:vscode-show";
+const VSCODE_HIDE_CHANNEL = "desktop:vscode-hide";
 const BASE_DIR = process.env.FENRIR_HOME?.trim() || Path.join(OS.homedir(), ".fenrir");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
@@ -271,6 +279,11 @@ let trafficLensManagerOwner: BrowserWindow | null = null;
 let stopTrafficLensTabEventForwarding: (() => void) | null = null;
 let stopTrafficLensPausedEventForwarding: (() => void) | null = null;
 let stopTrafficLensStorageEventForwarding: (() => void) | null = null;
+let vscodeWebManager: VSCodeWebManager | null = null;
+let vscodeWebManagerOwner: BrowserWindow | null = null;
+let browserLabControlSocket: WebSocket | null = null;
+let browserLabControlReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let browserLabControlReconnectAttempt = 0;
 let nvimSession: {
   client: any;
   proc: ChildProcess.ChildProcessWithoutNullStreams;
@@ -639,6 +652,274 @@ function ensureTrafficLensManager(): TrafficLensManager {
   trafficLensManager = nextManager;
   trafficLensManagerOwner = mainWindow;
   return nextManager;
+}
+
+function stopVSCodeWebManager(): void {
+  vscodeWebManager?.stop();
+  vscodeWebManager = null;
+  vscodeWebManagerOwner = null;
+}
+
+function ensureVSCodeWebManager(): VSCodeWebManager {
+  if (mainWindow === null || mainWindow.isDestroyed()) {
+    stopVSCodeWebManager();
+    throw new Error("Embedded VS Code manager is unavailable.");
+  }
+
+  if (vscodeWebManager !== null && vscodeWebManagerOwner === mainWindow) {
+    return vscodeWebManager;
+  }
+
+  stopVSCodeWebManager();
+  vscodeWebManager = createVSCodeWebManager({ window: mainWindow });
+  vscodeWebManagerOwner = mainWindow;
+  return vscodeWebManager;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+function activeTabStorageScope(manager: TrafficLensManager, input: Record<string, unknown>) {
+  const activeTab = manager.ensureActiveTab();
+  const url = typeof input.origin === "string" ? input.origin : activeTab.url || "about:blank";
+  const origin = URL.canParse(url) ? new URL(url).origin : url;
+  return {
+    profileId: typeof input.profileId === "string" ? input.profileId : activeTab.profileId,
+    origin,
+    tabId: typeof input.tabId === "string" ? input.tabId : activeTab.tabId,
+  };
+}
+
+async function handleBrowserLabControlMethod(method: string, params: unknown): Promise<unknown> {
+  const manager = ensureTrafficLensManager();
+  const input = asRecord(params);
+
+  switch (method) {
+    case "browser_lab_list_tabs":
+      return manager.getTabs();
+    case "browser_lab_get_active_tab":
+      return manager.getActiveTab() ?? manager.ensureActiveTab();
+    case "browser_lab_create_tab":
+      return manager.createTab(typeof input.url === "string" ? input.url : undefined);
+    case "browser_lab_select_tab": {
+      if (typeof input.tabId !== "string") throw new Error("tabId is required.");
+      const tab = manager.setActiveTab(input.tabId);
+      manager.showTab(input.tabId);
+      return tab;
+    }
+    case "browser_lab_close_tab": {
+      if (typeof input.tabId !== "string") throw new Error("tabId is required.");
+      manager.closeTab(input.tabId);
+      return { closed: true };
+    }
+    case "browser_lab_navigate": {
+      const tab = typeof input.tabId === "string" ? input.tabId : manager.ensureActiveTab().tabId;
+      const url = typeof input.url === "string" ? input.url : "";
+      if (!url) throw new Error("url is required.");
+      manager.navigateTab(tab, url);
+      return manager.getActiveTab();
+    }
+    case "browser_lab_back": {
+      manager.goBack(
+        typeof input.tabId === "string" ? input.tabId : manager.ensureActiveTab().tabId,
+      );
+      return { ok: true };
+    }
+    case "browser_lab_forward": {
+      manager.goForward(
+        typeof input.tabId === "string" ? input.tabId : manager.ensureActiveTab().tabId,
+      );
+      return { ok: true };
+    }
+    case "browser_lab_reload": {
+      manager.reloadTab(
+        typeof input.tabId === "string" ? input.tabId : manager.ensureActiveTab().tabId,
+      );
+      return { ok: true };
+    }
+    case "browser_lab_wait_for_load":
+      return manager.waitForTabLoad(input as any);
+    case "browser_lab_snapshot":
+      return manager.capturePageSnapshot(typeof input.tabId === "string" ? input.tabId : undefined);
+    case "browser_lab_screenshot":
+      return manager.captureScreenshot(typeof input.tabId === "string" ? input.tabId : undefined);
+    case "browser_lab_click":
+      await manager.clickPage(input as any);
+      return { ok: true };
+    case "browser_lab_type":
+      if (typeof input.text !== "string") throw new Error("text is required.");
+      await manager.typeIntoPage(input as any);
+      return { ok: true };
+    case "browser_lab_press":
+      if (typeof input.key !== "string") throw new Error("key is required.");
+      await manager.pressPage(input as any);
+      return { ok: true };
+    case "browser_lab_get_cookies":
+      return manager.getCookies(
+        typeof input.tabId === "string" ? input.tabId : manager.ensureActiveTab().tabId,
+      );
+    case "browser_lab_get_local_storage": {
+      const scope = activeTabStorageScope(manager, input);
+      return manager.getLocalStorage(scope as any);
+    }
+    case "browser_lab_set_local_storage_item": {
+      const scope = activeTabStorageScope(manager, input);
+      await manager.setLocalStorageItem({ ...scope, ...input } as any);
+      return { ok: true };
+    }
+    case "browser_lab_delete_local_storage_item": {
+      const scope = activeTabStorageScope(manager, input);
+      await manager.deleteLocalStorageItem({ ...scope, ...input } as any);
+      return { ok: true };
+    }
+    case "browser_lab_get_session_storage": {
+      const scope = activeTabStorageScope(manager, input);
+      return manager.getLiveSessionStorage(scope as any);
+    }
+    case "browser_lab_set_session_storage_item": {
+      const scope = activeTabStorageScope(manager, input);
+      await manager.setLiveSessionStorageItem({ ...scope, ...input } as any);
+      return { ok: true };
+    }
+    case "browser_lab_delete_session_storage_item": {
+      const scope = activeTabStorageScope(manager, input);
+      await manager.deleteLiveSessionStorageItem({ ...scope, ...input } as any);
+      return { ok: true };
+    }
+    case "traffic_lens_list_paused_requests":
+      return manager.listPaused();
+    case "traffic_lens_continue_paused_request":
+      await manager.continuePaused(input as any);
+      return { ok: true };
+    case "traffic_lens_drop_paused_request":
+      await manager.dropPaused(input as any);
+      return { ok: true };
+    case "traffic_lens_list_rules":
+      return manager.listRules();
+    case "traffic_lens_upsert_rule": {
+      const ruleInput = asRecord(input.input ?? input);
+      return typeof input.id === "string"
+        ? manager.updateRule(input.id, ruleInput as any)
+        : manager.createRule(ruleInput as any);
+    }
+    case "traffic_lens_delete_rule":
+      if (typeof input.id !== "string") throw new Error("id is required.");
+      manager.deleteRule(input.id);
+      return { ok: true };
+    case "traffic_lens_set_rule_enabled":
+      if (typeof input.id !== "string" || typeof input.enabled !== "boolean") {
+        throw new Error("id and enabled are required.");
+      }
+      manager.setRuleEnabled(input.id, input.enabled);
+      return { ok: true };
+    case "traffic_lens_list_overrides":
+      return manager.listOverrides();
+    case "traffic_lens_upsert_override": {
+      const overrideInput = asRecord(input.input ?? input);
+      return typeof input.id === "string"
+        ? manager.updateOverride(input.id, overrideInput as any)
+        : manager.createOverride(overrideInput as any);
+    }
+    case "traffic_lens_delete_override":
+      if (typeof input.id !== "string") throw new Error("id is required.");
+      manager.deleteOverride(input.id);
+      return { ok: true };
+    case "traffic_lens_set_override_enabled":
+      if (typeof input.id !== "string" || typeof input.enabled !== "boolean") {
+        throw new Error("id and enabled are required.");
+      }
+      manager.setOverrideEnabled(input.id, input.enabled);
+      return { ok: true };
+    default:
+      throw new Error(`Unsupported Browser Lab control method: ${method}`);
+  }
+}
+
+function stopBrowserLabControlClient(): void {
+  if (browserLabControlReconnectTimer) {
+    clearTimeout(browserLabControlReconnectTimer);
+    browserLabControlReconnectTimer = null;
+  }
+  const socket = browserLabControlSocket;
+  browserLabControlSocket = null;
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.close();
+  }
+}
+
+function scheduleBrowserLabControlReconnect(): void {
+  if (isQuitting || browserLabControlReconnectTimer || !backendWsUrl || !backendBootstrapToken) {
+    return;
+  }
+  const delayMs = Math.min(500 * 2 ** browserLabControlReconnectAttempt, 10_000);
+  browserLabControlReconnectAttempt += 1;
+  browserLabControlReconnectTimer = setTimeout(() => {
+    browserLabControlReconnectTimer = null;
+    startBrowserLabControlClient();
+  }, delayMs);
+  browserLabControlReconnectTimer.unref?.();
+}
+
+function startBrowserLabControlClient(): void {
+  if (isQuitting || !backendWsUrl || !backendBootstrapToken) return;
+  if (
+    browserLabControlSocket &&
+    (browserLabControlSocket.readyState === WebSocket.CONNECTING ||
+      browserLabControlSocket.readyState === WebSocket.OPEN)
+  ) {
+    return;
+  }
+
+  const url = `${backendWsUrl}/api/browser-lab/control/ws?token=${encodeURIComponent(
+    backendBootstrapToken,
+  )}`;
+  const socket = new WebSocket(url);
+  browserLabControlSocket = socket;
+
+  socket.addEventListener("open", () => {
+    browserLabControlReconnectAttempt = 0;
+  });
+  socket.addEventListener("message", (event) => {
+    void (async () => {
+      const request = JSON.parse(String(event.data)) as {
+        id?: unknown;
+        method?: unknown;
+        params?: unknown;
+      };
+      if (typeof request.id !== "number" || typeof request.method !== "string") {
+        return;
+      }
+      try {
+        const result = await handleBrowserLabControlMethod(request.method, request.params);
+        socket.send(JSON.stringify({ id: request.id, result }));
+      } catch (error) {
+        socket.send(
+          JSON.stringify({
+            id: request.id,
+            error: { message: formatErrorMessage(error) },
+          }),
+        );
+      }
+    })().catch(() => undefined);
+  });
+  socket.addEventListener("close", () => {
+    if (browserLabControlSocket === socket) {
+      browserLabControlSocket = null;
+    }
+    scheduleBrowserLabControlReconnect();
+  });
+  socket.addEventListener("error", () => {
+    if (browserLabControlSocket === socket) {
+      browserLabControlSocket = null;
+    }
+    try {
+      socket.close();
+    } catch {
+      // Ignore close failures from already-closed sockets.
+    }
+    scheduleBrowserLabControlReconnect();
+  });
 }
 
 function initializePackagedLogging(): void {
@@ -1483,9 +1764,15 @@ function startBackend(): void {
 
   child.once("spawn", () => {
     restartAttempt = 0;
+    void waitForBackendHttpReady(backendHttpUrl)
+      .then(() => {
+        startBrowserLabControlClient();
+      })
+      .catch(() => undefined);
   });
 
   child.on("error", (error) => {
+    stopBrowserLabControlClient();
     const wasExpected = expectedBackendExitChildren.has(child);
     if (backendProcess === child) {
       backendProcess = null;
@@ -1498,6 +1785,7 @@ function startBackend(): void {
   });
 
   child.on("exit", (code, signal) => {
+    stopBrowserLabControlClient();
     const wasExpected = expectedBackendExitChildren.has(child);
     if (backendProcess === child) {
       backendProcess = null;
@@ -1513,6 +1801,7 @@ function startBackend(): void {
 
 function stopBackend(): void {
   cancelBackendReadinessWait();
+  stopBrowserLabControlClient();
   if (restartTimer) {
     clearTimeout(restartTimer);
     restartTimer = null;
@@ -1535,6 +1824,7 @@ function stopBackend(): void {
 
 async function stopBackendAndWaitForExit(timeoutMs = 5_000): Promise<void> {
   cancelBackendReadinessWait();
+  stopBrowserLabControlClient();
   if (restartTimer) {
     clearTimeout(restartTimer);
     restartTimer = null;
@@ -2562,6 +2852,73 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(NVIM_PROBE_DETAIL_CHANNEL);
   ipcMain.handle(NVIM_PROBE_DETAIL_CHANNEL, async () => probeNvim());
 
+  // ---- Embedded VS Code ----
+
+  ipcMain.removeHandler(VSCODE_AVAILABLE_CHANNEL);
+  ipcMain.handle(VSCODE_AVAILABLE_CHANNEL, async () => {
+    const result = await probeVSCodeWeb();
+    return result.available;
+  });
+
+  ipcMain.removeHandler(VSCODE_PROBE_DETAIL_CHANNEL);
+  ipcMain.handle(VSCODE_PROBE_DETAIL_CHANNEL, async () => probeVSCodeWeb());
+
+  ipcMain.removeHandler(VSCODE_START_CHANNEL);
+  ipcMain.handle(VSCODE_START_CHANNEL, async (_event, cwd: unknown) => {
+    if (typeof cwd !== "string" || cwd.length === 0) {
+      throw new Error("Invalid VS Code cwd.");
+    }
+    return ensureVSCodeWebManager().ensureStarted(cwd);
+  });
+
+  ipcMain.removeHandler(VSCODE_OPEN_FILE_CHANNEL);
+  ipcMain.handle(VSCODE_OPEN_FILE_CHANNEL, async (_event, payload: unknown) => {
+    if (typeof payload !== "object" || payload === null) {
+      throw new Error("Invalid VS Code file payload.");
+    }
+    const input = payload as { path?: unknown; line?: unknown; col?: unknown };
+    if (typeof input.path !== "string" || input.path.length === 0) {
+      throw new Error("VS Code file path is required.");
+    }
+    return ensureVSCodeWebManager().openFile({
+      path: input.path,
+      ...(typeof input.line === "number" ? { line: input.line } : {}),
+      ...(typeof input.col === "number" ? { col: input.col } : {}),
+    });
+  });
+
+  ipcMain.removeHandler(VSCODE_SET_BOUNDS_CHANNEL);
+  ipcMain.handle(VSCODE_SET_BOUNDS_CHANNEL, async (_event, bounds: unknown) => {
+    if (typeof bounds !== "object" || bounds === null) {
+      throw new Error("Invalid VS Code bounds.");
+    }
+    const b = bounds as Record<string, unknown>;
+    if (
+      typeof b.x !== "number" ||
+      typeof b.y !== "number" ||
+      typeof b.width !== "number" ||
+      typeof b.height !== "number"
+    ) {
+      throw new Error("Invalid VS Code bounds shape.");
+    }
+    ensureVSCodeWebManager().setBounds({
+      x: b.x,
+      y: b.y,
+      width: b.width,
+      height: b.height,
+    });
+  });
+
+  ipcMain.removeHandler(VSCODE_SHOW_CHANNEL);
+  ipcMain.handle(VSCODE_SHOW_CHANNEL, async () => {
+    ensureVSCodeWebManager().show();
+  });
+
+  ipcMain.removeHandler(VSCODE_HIDE_CHANNEL);
+  ipcMain.handle(VSCODE_HIDE_CHANNEL, async () => {
+    vscodeWebManager?.hide();
+  });
+
   // ---- Editor IPC (nvim ↔ renderer) ----
 
   ipcMain.removeHandler(EDITOR_OPEN_FILE_CHANNEL);
@@ -2974,6 +3331,7 @@ function createWindow(): BrowserWindow {
   window.on("closed", () => {
     if (mainWindow === window) {
       stopTrafficLensManager();
+      stopVSCodeWebManager();
       mainWindow = null;
     }
   });
@@ -3076,6 +3434,7 @@ app.on("before-quit", () => {
   clearUpdatePollTimer();
   cancelBackendReadinessWait();
   stopTrafficLensManager();
+  stopVSCodeWebManager();
   stopVpn();
   stopBackend();
   // Fire-and-forget: nullifies nvimSession synchronously and walks the quit
@@ -3131,6 +3490,7 @@ if (process.platform !== "win32") {
     clearUpdatePollTimer();
     cancelBackendReadinessWait();
     stopTrafficLensManager();
+    stopVSCodeWebManager();
     stopVpn();
     stopBackend();
     restoreStdIoCapture?.();
@@ -3143,6 +3503,7 @@ if (process.platform !== "win32") {
     writeDesktopLogHeader("SIGTERM received");
     clearUpdatePollTimer();
     stopTrafficLensManager();
+    stopVSCodeWebManager();
     stopVpn();
     stopBackend();
     restoreStdIoCapture?.();

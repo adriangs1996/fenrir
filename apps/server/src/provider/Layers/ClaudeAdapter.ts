@@ -18,6 +18,7 @@ import {
   type SettingSource,
   type SDKUserMessage,
   ModelUsage,
+  type McpServerConfig,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   ApprovalRequestId,
@@ -41,6 +42,7 @@ import {
   TurnId,
   type UserInputQuestion,
   ClaudeAgentEffort,
+  type ResolvedMcpServerConfig,
 } from "@fenrir/contracts";
 import {
   applyClaudePromptEffortPrefix,
@@ -584,6 +586,48 @@ function buildPromptText(input: ProviderSendTurnInput): string {
       ? (trimmedEffort as ClaudeAgentEffort)
       : null;
   return applyClaudePromptEffortPrefix(input.input?.trim() ?? "", promptEffort);
+}
+
+function toClaudeMcpServers(
+  servers: ReadonlyArray<ResolvedMcpServerConfig> | undefined,
+): Record<string, McpServerConfig> | undefined {
+  if (!servers || servers.length === 0) {
+    return undefined;
+  }
+  return Object.fromEntries(
+    servers.map((server) => {
+      switch (server.transport.type) {
+        case "stdio":
+          return [
+            server.id,
+            {
+              type: "stdio",
+              command: server.transport.command,
+              args: [...server.transport.args],
+              env: server.transport.env,
+            } satisfies McpServerConfig,
+          ] as const;
+        case "http":
+          return [
+            server.id,
+            {
+              type: "http",
+              url: server.transport.url,
+              headers: server.transport.headers,
+            } satisfies McpServerConfig,
+          ] as const;
+        case "sse":
+          return [
+            server.id,
+            {
+              type: "sse",
+              url: server.transport.url,
+              headers: server.transport.headers,
+            } satisfies McpServerConfig,
+          ] as const;
+      }
+    }),
+  );
 }
 
 function buildUserMessage(input: {
@@ -2820,9 +2864,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(fastMode ? { fastMode: true } : {}),
       };
 
+      const mcpServers = toClaudeMcpServers(input.mcpServers);
       const queryOptions: ClaudeQueryOptions = {
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(apiModelId ? { model: apiModelId } : {}),
+        ...(mcpServers !== undefined ? { mcpServers } : {}),
         pathToClaudeCodeExecutable: claudeBinaryPath,
         settingSources: [...CLAUDE_SETTING_SOURCES],
         ...(effectiveEffort ? { effort: effectiveEffort } : {}),
@@ -3186,6 +3232,10 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      mcp: {
+        supported: true,
+        transports: { stdio: true, http: true, sse: true },
+      },
     },
     startSession,
     sendTurn,

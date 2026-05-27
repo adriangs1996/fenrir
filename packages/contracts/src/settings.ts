@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas";
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER, ProviderOptionSelections } from "./model";
+import { McpServerDefinition, McpServerId } from "./mcp";
 import { ModelSelection, ProviderSelectionKind } from "./orchestration";
 import { ProviderInstanceConfigMap } from "./providerInstance";
 
@@ -19,6 +20,10 @@ export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "upda
 export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
+
+export const EmbeddedEditorKind = Schema.Literals(["neovim", "vscode"]);
+export type EmbeddedEditorKind = typeof EmbeddedEditorKind.Type;
+export const DEFAULT_EMBEDDED_EDITOR_KIND: EmbeddedEditorKind = "neovim";
 
 export const MIN_SIDEBAR_THREAD_PREVIEW_COUNT = 1;
 export const MAX_SIDEBAR_THREAD_PREVIEW_COUNT = 15;
@@ -63,6 +68,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   favorites: Schema.Array(ModelFavorite).pipe(Schema.withDecodingDefault(() => [])),
   timestampFormat: TimestampFormat.pipe(Schema.withDecodingDefault(() => DEFAULT_TIMESTAMP_FORMAT)),
+  embeddedEditor: EmbeddedEditorKind.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_EMBEDDED_EDITOR_KIND),
+  ),
   uiFontFamily: Schema.String.pipe(Schema.withDecodingDefault(() => "Geist Mono")),
   uiFontSize: Schema.Number.pipe(
     Schema.decodeTo(
@@ -355,6 +363,11 @@ export const ServerSettings = Schema.Struct({
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   }).pipe(Schema.withDecodingDefault(() => ({}))),
   providerInstances: ProviderInstanceConfigMap.pipe(Schema.withDecodingDefault(() => ({}))),
+  mcpServers: Schema.Record(McpServerId, McpServerDefinition).pipe(
+    Schema.withDecodingDefault(() => ({})),
+  ),
+  defaultMcpServerIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(() => [])),
+  disabledBuiltInMcpServerIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(() => [])),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(() => ({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
@@ -438,6 +451,9 @@ export const ServerSettingsPatch = Schema.Struct({
     }),
   ),
   providerInstances: Schema.optionalKey(ProviderInstanceConfigMap),
+  mcpServers: Schema.optionalKey(Schema.Record(McpServerId, McpServerDefinition)),
+  defaultMcpServerIds: Schema.optionalKey(Schema.Array(McpServerId)),
+  disabledBuiltInMcpServerIds: Schema.optionalKey(Schema.Array(McpServerId)),
   providers: Schema.optionalKey(
     Schema.Struct({
       codex: Schema.optionalKey(CodexSettingsPatch),

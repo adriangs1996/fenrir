@@ -6,9 +6,19 @@
  *
  * @module ProviderRegistry
  */
-import type { ProviderKind, ServerProvider } from "@fenrir/contracts";
+import type {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ProviderKind,
+  ServerProvider,
+  ServerProviderUpdateState,
+} from "@fenrir/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
+
+import type { ProviderMaintenanceCapabilities } from "../providerMaintenance";
+
+export type ProviderMaintenanceActionKind = "update";
 
 export interface ProviderRegistryShape {
   /**
@@ -20,6 +30,24 @@ export interface ProviderRegistryShape {
    * Refresh all providers, or a single provider when specified.
    */
   readonly refresh: (provider?: ProviderKind) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+  /**
+   * Refresh one provider instance by instance id.
+   */
+  readonly refreshInstance: (
+    instanceId: ProviderInstanceId,
+  ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+  readonly getProviderMaintenanceCapabilitiesForInstance: (
+    instanceId: ProviderInstanceId,
+    provider: ProviderDriverKind,
+  ) => Effect.Effect<ProviderMaintenanceCapabilities>;
+
+  readonly setProviderMaintenanceActionState: (input: {
+    readonly instanceId: ProviderInstanceId;
+    readonly action: ProviderMaintenanceActionKind;
+    readonly state: ServerProviderUpdateState | null;
+  }) => Effect.Effect<ReadonlyArray<ServerProvider>>;
 
   /**
    * Stream of provider snapshot updates.

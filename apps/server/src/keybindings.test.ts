@@ -186,8 +186,8 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         DEFAULT_KEYBINDINGS.map((binding) => [binding.command, binding.key] as const),
       );
 
-      assert.equal(defaultsByCommand.get("thread.previous"), "mod+shift+[");
-      assert.equal(defaultsByCommand.get("thread.next"), "mod+shift+]");
+      assert.equal(defaultsByCommand.get("thread.previous"), "alt+k");
+      assert.equal(defaultsByCommand.get("thread.next"), "alt+j");
       assert.equal(defaultsByCommand.get("thread.jump.1"), "mod+1");
       assert.equal(defaultsByCommand.get("thread.jump.9"), "mod+9");
     }),
@@ -286,6 +286,86 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         assert.isTrue(byCommand.has("script.run-tests.run"));
       }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
+
+  it.effect("migrates exact old thread traversal defaults on startup", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+shift+[", command: "thread.previous" },
+        { key: "mod+shift+]", command: "thread.next" },
+      ]);
+
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      const byCommand = new Map(persisted.map((entry) => [entry.command, entry.key] as const));
+      assert.equal(byCommand.get("thread.previous"), "alt+k");
+      assert.equal(byCommand.get("thread.next"), "alt+j");
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("does not migrate custom thread traversal bindings", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "ctrl+u", command: "thread.previous" },
+        { key: "ctrl+d", command: "thread.next" },
+      ]);
+
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      const byCommand = new Map(persisted.map((entry) => [entry.command, entry.key] as const));
+      assert.equal(byCommand.get("thread.previous"), "ctrl+u");
+      assert.equal(byCommand.get("thread.next"), "ctrl+d");
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("keeps old thread traversal defaults when the new shortcut conflicts", () => {
+    const messages: string[] = [];
+    const logger = Logger.make(({ message }) => {
+      messages.push(String(message));
+    });
+
+    return Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+shift+[", command: "thread.previous" },
+        { key: "alt+k", command: "script.custom-action.run" },
+      ]);
+
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        persisted.some(
+          (entry) => entry.command === "thread.previous" && entry.key === "mod+shift+[",
+        ),
+      );
+      assert.isTrue(persisted.some((entry) => entry.command === "script.custom-action.run"));
+      assert.isTrue(
+        messages.some((message) =>
+          message.includes("skipping thread traversal keybinding migration due to conflict"),
+        ),
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          makeKeybindingsLayer(),
+          Logger.layer([logger], { mergeWithExisting: false }),
+        ),
+      ),
+    );
+  });
 
   it.effect("skips conflicting default keybindings on startup and logs a detailed warning", () => {
     const messages: string[] = [];

@@ -54,6 +54,8 @@ import { TmuxSessionManagerLive } from "./terminal/Layers/TmuxSessionManager";
 import { RawTcpListenerServiceLive } from "./raw-tcp/Layers/RawTcpListenerService";
 import { TrafficLensServiceLive } from "./traffic-lens/Layers/TrafficLensService";
 import { TrafficLensStorageServiceLive } from "./traffic-lens-storage/Layers/TrafficLensStorageService";
+import { BrowserLabControlHttpLive } from "./browserLab/browserLabControlHttp";
+import { BrowserLabControlServiceLive } from "./browserLab/Layers/BrowserLabControlService";
 import { PlanRunnerLive } from "./plan-runner/Layers/PlanRunner";
 import { GitManagerLive } from "./git/Layers/GitManager";
 import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster";
@@ -67,6 +69,7 @@ import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor"
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor";
 import { SkillProjectReactorLive } from "./orchestration/Layers/SkillProjectReactor";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
+import { ProviderMaintenanceRunnerLive } from "./provider/providerMaintenanceRunner";
 import { GlobalActionsLive } from "./globalActions";
 import { ServerSettingsLive } from "./serverSettings";
 import { SkillServiceLive } from "./skill/SkillService";
@@ -197,6 +200,11 @@ const OrchestrationLayerLive = Layer.mergeAll(
 const CheckpointingLayerLive = Layer.empty.pipe(
   Layer.provideMerge(CheckpointDiffQueryLive),
   Layer.provideMerge(CheckpointStoreLive),
+);
+
+const ProviderRegistryLayerLive = ProviderRegistryLive.pipe(Layer.provideMerge(ServerSettingsLive));
+const ProviderMaintenanceRunnerLayerLive = ProviderMaintenanceRunnerLive.pipe(
+  Layer.provide(ProviderRegistryLayerLive),
 );
 
 const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
@@ -417,6 +425,7 @@ const CoreInfrastructureLive = ReactorLayerLive.pipe(
   Layer.provideMerge(RawTcpListenerServiceLive),
   Layer.provideMerge(TrafficLensServiceLive),
   Layer.provideMerge(TrafficLensStorageServiceLive),
+  Layer.provideMerge(BrowserLabControlServiceLive),
   Layer.provideMerge(
     PlanRunnerLive.pipe(
       Layer.provideMerge(SourceControlQueryLayerLive),
@@ -432,8 +441,9 @@ const CoreInfrastructureLive = ReactorLayerLive.pipe(
 );
 
 const CoreDependenciesLive = CoreInfrastructureLive.pipe(
-  Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(ServerSettingsLive),
+  Layer.provideMerge(ProviderRegistryLayerLive),
+  Layer.provideMerge(ProviderMaintenanceRunnerLayerLive),
   Layer.provideMerge(GlobalActionsLive),
   Layer.provideMerge(SkillServiceLive),
   Layer.provideMerge(WorkspaceLayerLive),
@@ -483,6 +493,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   fontsRouteLayer,
   trafficLensIngestRouteLayer,
   trafficLensStorageIngestRouteLayer,
+  BrowserLabControlHttpLive,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,
 ).pipe(Layer.provide(trafficLensApiCorsLayer));

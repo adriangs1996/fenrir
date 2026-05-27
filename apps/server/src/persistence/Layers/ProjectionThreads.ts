@@ -11,11 +11,12 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection } from "@fenrir/contracts";
+import { McpServerId, ModelSelection } from "@fenrir/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    mcpServerIds: Schema.fromJsonString(Schema.Array(McpServerId)),
   }),
 );
 type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
@@ -34,6 +35,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           model_selection_json,
           runtime_mode,
           interaction_mode,
+          mcp_server_ids_json,
           branch,
           worktree_path,
           latest_turn_id,
@@ -49,6 +51,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${JSON.stringify(row.modelSelection)},
           ${row.runtimeMode},
           ${row.interactionMode},
+          ${JSON.stringify(row.mcpServerIds)},
           ${row.branch},
           ${row.worktreePath},
           ${row.latestTurnId},
@@ -64,6 +67,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           model_selection_json = excluded.model_selection_json,
           runtime_mode = excluded.runtime_mode,
           interaction_mode = excluded.interaction_mode,
+          mcp_server_ids_json = excluded.mcp_server_ids_json,
           branch = excluded.branch,
           worktree_path = excluded.worktree_path,
           latest_turn_id = excluded.latest_turn_id,
@@ -86,6 +90,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
+          mcp_server_ids_json AS "mcpServerIds",
           branch,
           worktree_path AS "worktreePath",
           latest_turn_id AS "latestTurnId",
@@ -110,6 +115,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
           interaction_mode AS "interactionMode",
+          mcp_server_ids_json AS "mcpServerIds",
           branch,
           worktree_path AS "worktreePath",
           latest_turn_id AS "latestTurnId",

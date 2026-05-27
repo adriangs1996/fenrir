@@ -67,7 +67,9 @@ export const useEditorStore = create<EditorState>()(
       storage: createJSONStorage(createEditorStorage),
       // Persist only the tab choice. currentFile / dirtyFiles are nvim-runtime
       // and rebuild from autocmd events on next attach.
-      partialize: (s) => ({ activeChatTab: s.activeChatTab }),
+      partialize: (s) => ({
+        activeChatTab: s.activeChatTab,
+      }),
     },
   ),
 );

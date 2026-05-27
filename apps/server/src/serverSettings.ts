@@ -165,6 +165,9 @@ function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings
 // Values under these keys are compared as a whole — never stripped field-by-field.
 const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
   "automaticGitFetchInterval",
+  "defaultMcpServerIds",
+  "disabledBuiltInMcpServerIds",
+  "mcpServers",
   "providerInstances",
   "textGenerationModelSelection",
 ]);

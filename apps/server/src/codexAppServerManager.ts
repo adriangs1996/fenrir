@@ -6,6 +6,7 @@ import readline from "node:readline";
 import {
   ApprovalRequestId,
   EventId,
+  type McpServerId,
   ProviderItemId,
   ProviderRequestKind,
   type ProviderUserInputAnswers,
@@ -15,6 +16,7 @@ import {
   type ProviderEvent,
   type ProviderSession,
   type ProviderTurnStartResult,
+  type ResolvedMcpServerConfig,
   RuntimeMode,
   ProviderInteractionMode,
 } from "@fenrir/contracts";
@@ -32,6 +34,7 @@ import {
   type CodexAccountSnapshot,
 } from "./provider/codexAccount";
 import { buildCodexInitializeParams, killCodexChildProcess } from "./provider/codexAppServer";
+import { toCodexMcpConfig } from "./provider/codexMcpConfig";
 import { expandHomePath } from "./pathExpansion.ts";
 
 export { buildCodexInitializeParams } from "./provider/codexAppServer";
@@ -126,6 +129,9 @@ export interface CodexAppServerStartSessionInput {
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly runtimeMode: RuntimeMode;
+  readonly mcpServers?: ReadonlyArray<ResolvedMcpServerConfig>;
+  readonly mcpServerIds?: ReadonlyArray<McpServerId>;
+  readonly mcpConfigHash?: string;
 }
 
 export interface CodexThreadTurnSnapshot {
@@ -530,11 +536,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         normalizeCodexModelSlug(input.model),
         context.account,
       );
+      const codexMcpConfig = toCodexMcpConfig(input.mcpServers);
       const sessionOverrides = {
         model: normalizedModel ?? null,
         ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
         cwd: input.cwd ?? null,
         ...mapCodexRuntimeMode(input.runtimeMode ?? "full-access"),
+        ...(codexMcpConfig ? { config: codexMcpConfig } : {}),
       };
 
       const threadStartParams = {
@@ -611,6 +619,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         throw new Error(`${threadOpenMethod} response did not include a thread id.`);
       }
       const providerThreadId = threadIdRaw;
+
+      if (input.mcpServers && input.mcpServers.length > 0) {
+        try {
+          await this.sendRequest(context, "mcpServerStatus/list", {});
+        } catch (error) {
+          this.emitErrorEvent(
+            context,
+            "mcpServerStatus/list",
+            error instanceof Error ? error.message : "Codex MCP server status check failed.",
+          );
+        }
+      }
 
       this.updateSession(context, {
         status: "ready",

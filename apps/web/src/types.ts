@@ -2,6 +2,7 @@ import type {
   EnvironmentId,
   GlobalScriptProjectDefaults,
   ManagedProcess,
+  McpServerId,
   ModelSelection,
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
@@ -127,6 +128,7 @@ export interface Thread {
   worktreePath: string | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
+  mcpServerIds?: McpServerId[];
 }
 
 export interface ThreadShell {
@@ -144,6 +146,7 @@ export interface ThreadShell {
   updatedAt?: string | undefined;
   branch: string | null;
   worktreePath: string | null;
+  mcpServerIds?: McpServerId[];
 }
 
 export interface ThreadTurnState {
@@ -164,6 +167,7 @@ export interface SidebarThreadSummary {
   latestTurn: OrchestrationLatestTurn | null;
   branch: string | null;
   worktreePath: string | null;
+  mcpServerIds?: McpServerId[];
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;

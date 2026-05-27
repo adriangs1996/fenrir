@@ -98,10 +98,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(next.textGenerationModelSelection, {
         provider: "codex",
         model: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.model,
-        options: {
-          reasoningEffort: "high",
-          fastMode: false,
-        },
+        options: [
+          { id: "reasoningEffort", value: "high" },
+          { id: "fastMode", value: false },
+        ],
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );

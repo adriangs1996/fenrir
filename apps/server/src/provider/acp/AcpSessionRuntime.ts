@@ -10,6 +10,7 @@ import {
   ServiceMap,
   Stream,
 } from "effect";
+import type { ResolvedMcpServerConfig } from "@fenrir/contracts";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import * as EffectAcpClient from "effect-acp/client";
 import * as EffectAcpErrors from "effect-acp/errors";
@@ -38,6 +39,7 @@ export interface AcpSpawnInput {
 export interface AcpSessionRuntimeOptions {
   readonly spawn: AcpSpawnInput;
   readonly cwd: string;
+  readonly mcpServers?: ReadonlyArray<ResolvedMcpServerConfig>;
   readonly resumeSessionId?: string;
   readonly clientCapabilities?: EffectAcpSchema.InitializeRequest["clientCapabilities"];
   readonly clientInfo: {
@@ -51,6 +53,33 @@ export interface AcpSessionRuntimeOptions {
     readonly logOutgoing?: boolean;
     readonly logger?: (event: EffectAcpProtocol.AcpProtocolLogEvent) => Effect.Effect<void, never>;
   };
+}
+
+function toAcpMcpServers(
+  servers: ReadonlyArray<ResolvedMcpServerConfig> | undefined,
+): ReadonlyArray<unknown> {
+  return (servers ?? []).map((server) => {
+    switch (server.transport.type) {
+      case "http":
+      case "sse":
+        return {
+          type: server.transport.type,
+          name: server.name,
+          url: server.transport.url,
+          headers: Object.entries(server.transport.headers).map(([name, value]) => ({
+            name,
+            value,
+          })),
+        };
+      case "stdio":
+        return {
+          name: server.name,
+          command: server.transport.command,
+          args: server.transport.args,
+          env: Object.entries(server.transport.env).map(([name, value]) => ({ name, value })),
+        };
+    }
+  });
 }
 
 export interface AcpSessionRequestLogEvent {
@@ -491,11 +520,12 @@ const makeAcpSessionRuntime = (
         | EffectAcpSchema.LoadSessionResponse
         | EffectAcpSchema.NewSessionResponse
         | EffectAcpSchema.ResumeSessionResponse;
+      const mcpServers = toAcpMcpServers(options.mcpServers);
       if (options.resumeSessionId && initializeResult.agentCapabilities?.loadSession === true) {
         const loadPayload = {
           sessionId: options.resumeSessionId,
           cwd: options.cwd,
-          mcpServers: [],
+          mcpServers,
         } satisfies EffectAcpSchema.LoadSessionRequest;
         const resumed = yield* runLoggedRequest(
           "session/load",
@@ -508,7 +538,7 @@ const makeAcpSessionRuntime = (
         } else {
           const createPayload = {
             cwd: options.cwd,
-            mcpServers: [],
+            mcpServers,
           } satisfies EffectAcpSchema.NewSessionRequest;
           const created = yield* runLoggedRequest(
             "session/new",
@@ -521,7 +551,7 @@ const makeAcpSessionRuntime = (
       } else {
         const createPayload = {
           cwd: options.cwd,
-          mcpServers: [],
+          mcpServers,
         } satisfies EffectAcpSchema.NewSessionRequest;
         const created = yield* runLoggedRequest(
           "session/new",

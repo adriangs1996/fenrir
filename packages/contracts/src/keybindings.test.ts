@@ -60,10 +60,16 @@ it.effect("parses keybinding rules", () =>
     assert.strictEqual(parsedLocal.command, "chat.newLocal");
 
     const parsedThreadPrevious = yield* decode(KeybindingRule, {
-      key: "mod+shift+[",
+      key: "alt+k",
       command: "thread.previous",
     });
     assert.strictEqual(parsedThreadPrevious.command, "thread.previous");
+
+    const parsedThreadNext = yield* decode(KeybindingRule, {
+      key: "alt+j",
+      command: "thread.next",
+    });
+    assert.strictEqual(parsedThreadNext.command, "thread.next");
 
     const parsedReviewOpenChange = yield* decode(KeybindingRule, {
       key: "o",

@@ -105,11 +105,22 @@ async function hydrateClientSettings(): Promise<void> {
 
 function persistClientSettings(settings: ClientSettings): void {
   replaceClientSettingsSnapshot(settings);
-  void ensureLocalApi()
-    .persistence.setClientSettings(settings)
-    .catch((error) => {
-      console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} persist failed`, error);
-    });
+  try {
+    void ensureLocalApi()
+      .persistence.setClientSettings(settings)
+      .catch((error) => {
+        console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} persist failed`, error);
+      });
+  } catch (error) {
+    console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} persist failed`, error);
+  }
+}
+
+export function updateClientSettings(patch: Partial<ClientSettings>): void {
+  persistClientSettings({
+    ...getClientSettingsSnapshot(),
+    ...patch,
+  });
 }
 
 // ── Key sets for routing patches ─────────────────────────────────────
@@ -189,10 +200,7 @@ export function useUpdateSettings() {
     }
 
     if (Object.keys(clientPatch).length > 0) {
-      persistClientSettings({
-        ...getClientSettingsSnapshot(),
-        ...clientPatch,
-      });
+      updateClientSettings(clientPatch);
     }
   }, []);
 

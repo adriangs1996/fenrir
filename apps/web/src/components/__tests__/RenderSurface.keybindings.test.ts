@@ -56,6 +56,28 @@ const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("n"), command: "chat.new" },
   { shortcut: modShortcut("c", { shiftKey: true }), command: "editor.sendSelection" },
   { shortcut: modShortcut("e"), command: "editor.toggleChatTab" },
+  {
+    shortcut: {
+      key: "k",
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: true,
+      modKey: false,
+    },
+    command: "thread.previous",
+  },
+  {
+    shortcut: {
+      key: "j",
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: true,
+      modKey: false,
+    },
+    command: "thread.next",
+  },
   { shortcut: modShortcut("1"), command: "thread.jump.1" },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
 ]);
@@ -102,6 +124,11 @@ describe("isAppShortcut", () => {
 
     it("forwards Alt+key to nvim", () => {
       expect(isAppShortcut(kbd({ key: "v", altKey: true }), DEFAULT_BINDINGS)).toBe(false);
+    });
+
+    it("treats bound Alt+J and Alt+K thread traversal as app shortcuts", () => {
+      expect(isAppShortcut(kbd({ key: "j", altKey: true }), DEFAULT_BINDINGS)).toBe(true);
+      expect(isAppShortcut(kbd({ key: "k", altKey: true }), DEFAULT_BINDINGS)).toBe(true);
     });
 
     it("forwards plain key to nvim", () => {
