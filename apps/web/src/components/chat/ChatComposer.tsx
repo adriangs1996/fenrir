@@ -98,6 +98,7 @@ import { formatSkillReferenceToken } from "../../skillReferences";
 import { cn, randomUUID } from "~/lib/utils";
 import { Separator } from "../ui/separator";
 import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
@@ -287,6 +288,8 @@ const ComposerMcpPicker = memo(function ComposerMcpPicker(props: {
 }) {
   const selectedSet = useMemo(() => new Set(props.selectedIds), [props.selectedIds]);
   const selectedCount = props.selectedIds.length;
+  const selectedCountLabel =
+    selectedCount === 0 ? "No servers selected" : `${selectedCount} selected`;
   const setServerSelected = (serverId: McpServerId, selected: boolean) => {
     props.onChange(
       selected
@@ -309,15 +312,21 @@ const ComposerMcpPicker = memo(function ComposerMcpPicker(props: {
                   variant="ghost"
                   size="sm"
                   className={cn(
-                    "shrink-0 gap-1 px-2 text-muted-foreground/75 hover:text-foreground/85",
+                    "shrink-0 gap-1.5 px-2 text-muted-foreground/75 hover:text-foreground/85",
+                    selectedCount > 0
+                      ? "bg-accent/70 text-foreground hover:bg-accent hover:text-foreground"
+                      : null,
                     props.compatibilityMessage ? "text-destructive hover:text-destructive" : null,
                   )}
-                  aria-label="MCP servers"
+                  aria-label={`MCP servers, ${selectedCountLabel}`}
                 >
                   <PlugIcon />
-                  <span className="sr-only sm:not-sr-only">
-                    MCP{selectedCount > 0 ? ` ${selectedCount}` : ""}
-                  </span>
+                  <span className="sr-only sm:not-sr-only">MCP</span>
+                  {selectedCount > 0 ? (
+                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/14 px-1 text-[10px] font-semibold leading-none text-primary">
+                      {selectedCount}
+                    </span>
+                  ) : null}
                 </Button>
               }
             />
@@ -327,69 +336,112 @@ const ComposerMcpPicker = memo(function ComposerMcpPicker(props: {
           {props.compatibilityMessage ?? "Select MCP servers for this thread"}
         </TooltipPopup>
       </Tooltip>
-      <PopoverPopup align="start" className="w-72 p-2">
-        <div className="grid gap-1">
-          <div className="px-2 py-1 text-xs font-medium text-muted-foreground">MCP servers</div>
+      <PopoverPopup
+        align="start"
+        className="w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden [&>[data-slot=popover-viewport]]:p-0"
+        sideOffset={8}
+      >
+        <div className="grid">
+          <div className="flex items-start gap-3 border-border/70 border-b px-4 py-3">
+            <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <PlugIcon className="size-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <div className="truncate font-semibold text-foreground text-sm">MCP servers</div>
+                <Badge variant={selectedCount > 0 ? "default" : "outline"} size="sm">
+                  {selectedCountLabel}
+                </Badge>
+              </div>
+              <div className="mt-0.5 text-muted-foreground text-xs leading-4">
+                Choose the tools available to this thread.
+              </div>
+            </div>
+          </div>
+
           {props.servers.length === 0 ? (
-            <div className="rounded border border-dashed border-border/70 px-3 py-2 text-xs text-muted-foreground">
-              No enabled MCP servers.
+            <div className="m-3 rounded-md border border-dashed border-border/70 bg-muted/20 px-3 py-4 text-center text-muted-foreground text-sm">
+              No enabled MCP servers
             </div>
           ) : (
-            props.servers.map((server) => {
-              const selected = selectedSet.has(server.id);
-              return (
-                <div
-                  key={server.id}
-                  role="checkbox"
-                  aria-checked={selected}
-                  tabIndex={0}
-                  className={cn(
-                    "flex min-w-0 cursor-pointer items-center justify-between gap-3 rounded px-2 py-2 text-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
-                    selected ? "bg-accent text-accent-foreground" : null,
-                  )}
-                  onClick={() => toggleServer(server.id)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    toggleServer(server.id);
-                  }}
-                >
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{server.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {server.transport.type}
-                      {server.source === "fenrir" ? " · Fenrir" : ""}
+            <div className="max-h-72 overflow-y-auto p-2">
+              {props.servers.map((server) => {
+                const selected = selectedSet.has(server.id);
+                return (
+                  <div
+                    key={server.id}
+                    role="checkbox"
+                    aria-checked={selected}
+                    tabIndex={0}
+                    className={cn(
+                      "group flex min-w-0 cursor-pointer items-center justify-between gap-3 rounded-md border border-transparent px-2.5 py-2.5 text-sm outline-none transition-colors hover:border-border/70 hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+                      selected
+                        ? "border-primary/20 bg-primary/8 text-foreground hover:border-primary/30 hover:bg-primary/12"
+                        : null,
+                    )}
+                    onClick={() => toggleServer(server.id)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      toggleServer(server.id);
+                    }}
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-foreground">{server.name}</div>
+                      {server.description ? (
+                        <div className="mt-0.5 line-clamp-2 text-muted-foreground text-xs leading-4">
+                          {server.description}
+                        </div>
+                      ) : null}
+                      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
+                        <Badge variant="outline" size="sm" className="uppercase">
+                          {server.transport.type}
+                        </Badge>
+                        <Badge
+                          variant={server.source === "fenrir" ? "info" : "secondary"}
+                          size="sm"
+                        >
+                          {server.source === "fenrir" ? "Fenrir" : "Custom"}
+                        </Badge>
+                      </div>
                     </div>
+                    <Switch
+                      checked={selected}
+                      aria-label={`${selected ? "Deselect" : "Select"} ${server.name}`}
+                      className="data-checked:bg-primary data-unchecked:bg-muted-foreground/30"
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => event.stopPropagation()}
+                      onCheckedChange={(checked) => setServerSelected(server.id, Boolean(checked))}
+                    />
                   </div>
-                  <Switch
-                    checked={selected}
-                    aria-label={`${selected ? "Deselect" : "Select"} ${server.name}`}
-                    onClick={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => event.stopPropagation()}
-                    onCheckedChange={(checked) => setServerSelected(server.id, Boolean(checked))}
-                  />
-                </div>
-              );
-            })
-          )}
-          {props.selectedIds.length > 0 ? (
-            <Button
-              size="xs"
-              variant="ghost"
-              className="mt-1 justify-start"
-              onClick={() => props.onChange([])}
-            >
-              Clear selection
-            </Button>
-          ) : null}
-          {props.compatibilityMessage ? (
-            <div className="mt-1 rounded border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
-              {props.compatibilityMessage}
+                );
+              })}
             </div>
-          ) : null}
-          {props.changeNotice ? (
-            <div className="mt-1 rounded border border-border/70 bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
-              {props.changeNotice}
+          )}
+
+          {props.selectedIds.length > 0 || props.compatibilityMessage || props.changeNotice ? (
+            <div className="grid gap-2 border-border/70 border-t bg-muted/20 px-3 py-2.5">
+              {props.compatibilityMessage ? (
+                <div className="flex gap-2 rounded-md border border-destructive/25 bg-destructive/10 px-2.5 py-2 text-destructive text-xs leading-4">
+                  <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+                  <span>{props.compatibilityMessage}</span>
+                </div>
+              ) : null}
+              {props.changeNotice ? (
+                <div className="rounded-md border border-border/70 bg-background/70 px-2.5 py-2 text-muted-foreground text-xs leading-4">
+                  {props.changeNotice}
+                </div>
+              ) : null}
+              {props.selectedIds.length > 0 ? (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  className="w-fit justify-start text-muted-foreground hover:text-foreground"
+                  onClick={() => props.onChange([])}
+                >
+                  Clear selection
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </div>

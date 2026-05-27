@@ -338,7 +338,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
 });
 
 function WorkGroupSection({ row }: { row: Extract<TimelineRow, { kind: "work" }> }) {
-  const { workspaceRoot } = useTimelineRowCtx();
+  const { timestampFormat, workspaceRoot } = useTimelineRowCtx();
   const groupedEntries = row.groupedEntries;
   const [isExpanded, setExpanded] = useState(false);
   const hasOverflow = groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
@@ -352,16 +352,16 @@ function WorkGroupSection({ row }: { row: Extract<TimelineRow, { kind: "work" }>
   const groupLabel = onlyToolEntries ? "Tool calls" : "Work log";
 
   return (
-    <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
+    <div className="rounded-lg border border-border/55 bg-card/35 px-2.5 py-2">
       {showHeader && (
-        <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
-          <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground/55">
+        <div className="mb-2 flex items-center justify-between gap-2 px-0.5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/65">
             {groupLabel} ({groupedEntries.length})
           </p>
           {hasOverflow && (
             <button
               type="button"
-              className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/55 transition-colors duration-150 hover:text-foreground/75"
+              className="rounded-sm px-1 text-[9px] uppercase tracking-[0.12em] text-muted-foreground/65 transition-colors duration-150 hover:bg-muted/45 hover:text-foreground/80"
               onClick={() => setExpanded((current) => !current)}
             >
               {isExpanded ? "Show less" : `Show ${hiddenCount} more`}
@@ -374,6 +374,7 @@ function WorkGroupSection({ row }: { row: Extract<TimelineRow, { kind: "work" }>
           <SimpleWorkEntryRow
             key={`work-row:${workEntry.id}`}
             workEntry={workEntry}
+            timestampFormat={timestampFormat}
             workspaceRoot={workspaceRoot}
           />
         ))}
@@ -1016,32 +1017,32 @@ function workToneIcon(tone: TimelineWorkEntry["tone"]): {
   if (tone === "error") {
     return {
       icon: CircleAlertIcon,
-      className: "text-foreground/92",
+      className: "bg-rose-500/10 text-rose-300/80 ring-1 ring-rose-400/20",
     };
   }
   if (tone === "thinking") {
     return {
       icon: BotIcon,
-      className: "text-foreground/92",
+      className: "bg-blue-500/10 text-blue-300/75 ring-1 ring-blue-400/15",
     };
   }
   if (tone === "info") {
     return {
       icon: CheckIcon,
-      className: "text-foreground/92",
+      className: "bg-emerald-500/10 text-emerald-300/75 ring-1 ring-emerald-400/15",
     };
   }
   return {
     icon: ZapIcon,
-    className: "text-foreground/92",
+    className: "bg-muted/45 text-muted-foreground/78 ring-1 ring-border/45",
   };
 }
 
 function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
-  if (tone === "error") return "text-rose-300/50 dark:text-rose-300/50";
-  if (tone === "tool") return "text-muted-foreground/70";
-  if (tone === "thinking") return "text-muted-foreground/50";
-  return "text-muted-foreground/40";
+  if (tone === "error") return "text-rose-200/82 dark:text-rose-200/82";
+  if (tone === "tool") return "text-muted-foreground/82";
+  if (tone === "thinking") return "text-muted-foreground/76";
+  return "text-muted-foreground/72";
 }
 
 function workEntryPreview(
@@ -1111,9 +1112,10 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
 
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
+  timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
 }) {
-  const { workEntry, workspaceRoot } = props;
+  const { workEntry, timestampFormat, workspaceRoot } = props;
   const iconConfig = workToneIcon(workEntry.tone);
   const EntryIcon = workEntryIcon(workEntry);
   const heading = toolWorkEntryHeading(workEntry);
@@ -1122,60 +1124,70 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const displayText = preview ? `${heading} - ${preview}` : heading;
   const hasChangedFiles = (workEntry.changedFiles?.length ?? 0) > 0;
   const previewIsChangedFiles = hasChangedFiles && !workEntry.command && !workEntry.detail;
+  const timestamp = formatTimestamp(workEntry.createdAt, timestampFormat);
 
   return (
-    <div className="rounded-lg px-1 py-1">
-      <div className="flex items-center gap-2 transition-[opacity,translate] duration-200">
+    <div className="rounded-md px-1.5 py-1.5 transition-colors duration-150 hover:bg-muted/25">
+      <div className="flex items-start gap-2.5 transition-[opacity,translate] duration-200">
         <span
-          className={cn("flex size-5 shrink-0 items-center justify-center", iconConfig.className)}
+          className={cn(
+            "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full",
+            iconConfig.className,
+          )}
         >
           <EntryIcon className="size-3" />
         </span>
         <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="max-w-full">
+          <div className="flex min-w-0 items-baseline justify-between gap-2">
             <p
               className={cn(
-                "truncate text-xs leading-5",
+                "min-w-0 truncate text-xs font-medium leading-5",
                 workToneClass(workEntry.tone),
-                preview ? "text-muted-foreground/70" : "",
               )}
               title={rawCommand ? undefined : displayText}
             >
-              <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
-                {heading}
-              </span>
-              {preview &&
-                (rawCommand ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      closeDelay={0}
-                      delay={75}
-                      render={
-                        <span className="max-w-full cursor-default text-muted-foreground/55 transition-colors hover:text-muted-foreground/75 focus-visible:text-muted-foreground/75">
-                          {" "}
-                          - {preview}
-                        </span>
-                      }
-                    />
-                    <TooltipPopup
-                      align="start"
-                      className="max-w-[min(56rem,calc(100vw-2rem))] px-0 py-0"
-                      side="top"
-                    >
-                      <div className="max-w-[min(56rem,calc(100vw-2rem))] overflow-x-auto px-1.5 py-1 font-mono text-[11px] leading-4 whitespace-nowrap">
-                        {rawCommand}
-                      </div>
-                    </TooltipPopup>
-                  </Tooltip>
-                ) : (
-                  <span className="text-muted-foreground/55"> - {preview}</span>
-                ))}
+              {heading}
             </p>
+            <span className="shrink-0 text-[10px] text-muted-foreground/42">{timestamp}</span>
           </div>
+          {preview ? (
+            <p
+              className={cn(
+                "mt-0.5 min-w-0 truncate text-[11px] leading-4 text-muted-foreground/66",
+                workEntry.command || rawCommand ? "font-mono" : "",
+              )}
+              title={rawCommand ? undefined : preview}
+            >
+              {rawCommand ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    closeDelay={0}
+                    delay={75}
+                    render={
+                      <span className="max-w-full cursor-default text-muted-foreground/65 transition-colors hover:text-muted-foreground/82 focus-visible:text-muted-foreground/82">
+                        {preview}
+                      </span>
+                    }
+                  />
+                  <TooltipPopup
+                    align="start"
+                    className="max-w-[min(56rem,calc(100vw-2rem))] px-0 py-0"
+                    side="top"
+                  >
+                    <div className="max-w-[min(56rem,calc(100vw-2rem))] overflow-x-auto px-1.5 py-1 font-mono text-[11px] leading-4 whitespace-nowrap">
+                      {rawCommand}
+                    </div>
+                  </TooltipPopup>
+                </Tooltip>
+              ) : (
+                preview
+              )}
+            </p>
+          ) : null}
         </div>
       </div>
       {hasChangedFiles && !previewIsChangedFiles && (
-        <div className="mt-1 flex flex-wrap gap-1 pl-6">
+        <div className="mt-1.5 flex flex-wrap gap-1 pl-7">
           {workEntry.changedFiles?.slice(0, 4).map((filePath) => {
             const displayPath = formatWorkspaceRelativePath(filePath, workspaceRoot);
             return (

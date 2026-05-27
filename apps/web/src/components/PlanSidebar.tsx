@@ -29,26 +29,34 @@ import { readEnvironmentApi } from "~/environmentApi";
 import { toastManager } from "./ui/toast";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 
+type PlanStep = ActivePlanState["steps"][number];
+
 function stepStatusIcon(status: string): React.ReactNode {
   if (status === "completed") {
     return (
-      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500">
+      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/18 text-emerald-400 ring-1 ring-emerald-500/20">
         <CheckIcon className="size-3" />
       </span>
     );
   }
   if (status === "inProgress") {
     return (
-      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-blue-500/15 text-blue-400">
+      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-blue-500/18 text-blue-300 ring-1 ring-blue-400/25">
         <LoaderIcon className="size-3 animate-spin" />
       </span>
     );
   }
   return (
-    <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/30">
-      <span className="size-1.5 rounded-full bg-muted-foreground/30" />
+    <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-border/80 bg-background/60">
+      <span className="size-1.5 rounded-full bg-muted-foreground/55" />
     </span>
   );
+}
+
+function stepStatusLabel(status: PlanStep["status"]): string {
+  if (status === "completed") return "Done";
+  if (status === "inProgress") return "Now";
+  return "Next";
 }
 
 function keyedPlanSteps(
@@ -64,6 +72,23 @@ function keyedPlanSteps(
       step,
     };
   });
+}
+
+function summarizePlanSteps(steps: ActivePlanState["steps"]) {
+  const completed = steps.filter((step) => step.status === "completed").length;
+  const inProgress = steps.filter((step) => step.status === "inProgress").length;
+  const pending = steps.length - completed - inProgress;
+  const percent = steps.length === 0 ? 0 : Math.round((completed / steps.length) * 100);
+  const activeStep = steps.find((step) => step.status === "inProgress") ?? null;
+
+  return {
+    activeStep,
+    completed,
+    inProgress,
+    pending,
+    percent,
+    total: steps.length,
+  };
 }
 
 interface PlanSidebarProps {
@@ -94,6 +119,7 @@ const PlanSidebar = memo(function PlanSidebar({
   const planMarkdown = activeProposedPlan?.planMarkdown ?? null;
   const displayedPlanMarkdown = planMarkdown ? stripDisplayedPlanMarkdown(planMarkdown) : null;
   const planTitle = planMarkdown ? proposedPlanTitle(planMarkdown) : null;
+  const stepSummary = activePlan ? summarizePlanSteps(activePlan.steps) : null;
 
   const handleCopyPlan = useCallback(() => {
     if (!planMarkdown) return;
@@ -197,42 +223,85 @@ const PlanSidebar = memo(function PlanSidebar({
 
       {/* Content */}
       <ScrollArea className="min-h-0 flex-1">
-        <div className="p-3 space-y-4">
+        <div className="mx-auto w-full max-w-3xl space-y-4 p-3">
           {/* Explanation */}
           {activePlan?.explanation ? (
-            <p className="text-[13px] leading-relaxed text-muted-foreground/80">
+            <p className="rounded-md border border-border/55 bg-background/45 px-3 py-2 text-[13px] leading-relaxed text-muted-foreground/85">
               {activePlan.explanation}
             </p>
           ) : null}
 
           {/* Plan Steps */}
           {activePlan && activePlan.steps.length > 0 ? (
-            <div className="space-y-1">
-              <p className="mb-2 text-[10px] font-semibold tracking-widest text-muted-foreground/40 uppercase">
-                Steps
-              </p>
+            <div className="space-y-2.5">
+              <div className="rounded-lg border border-border/60 bg-background/45 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold tracking-widest text-muted-foreground/60 uppercase">
+                      Steps
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground/75">
+                      {stepSummary?.activeStep
+                        ? stepSummary.activeStep.step
+                        : stepSummary?.completed === stepSummary?.total
+                          ? "All steps completed"
+                          : "Waiting for the next step"}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-sm font-medium text-foreground/90">
+                      {stepSummary?.completed ?? 0}/{stepSummary?.total ?? 0}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/55">
+                      {stepSummary?.pending ?? 0} pending
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted/70">
+                  <div
+                    className="h-full rounded-full bg-blue-400/80 transition-[width] duration-300"
+                    style={{ width: `${stepSummary?.percent ?? 0}%` }}
+                  />
+                </div>
+              </div>
               {keyedPlanSteps(activePlan.steps).map(({ key, step }) => (
                 <div
                   key={key}
                   className={cn(
-                    "flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-200",
-                    step.status === "inProgress" && "bg-blue-500/5",
-                    step.status === "completed" && "bg-emerald-500/5",
+                    "flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors duration-200",
+                    step.status === "inProgress" &&
+                      "border-blue-400/25 bg-blue-500/10 shadow-[inset_3px_0_0_rgb(96_165_250_/_0.55)]",
+                    step.status === "completed" && "border-emerald-500/18 bg-emerald-500/6",
+                    step.status === "pending" && "border-border/55 bg-background/35",
                   )}
                 >
                   <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
-                  <p
-                    className={cn(
-                      "text-[13px] leading-snug",
-                      step.status === "completed"
-                        ? "text-muted-foreground/50 line-through decoration-muted-foreground/20"
-                        : step.status === "inProgress"
-                          ? "text-foreground/90"
-                          : "text-muted-foreground/70",
-                    )}
-                  >
-                    {step.step}
-                  </p>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span
+                        className={cn(
+                          "rounded-sm px-1.5 py-0.5 text-[9px] font-semibold tracking-[0.12em] uppercase",
+                          step.status === "completed" && "bg-emerald-500/12 text-emerald-300/85",
+                          step.status === "inProgress" && "bg-blue-500/18 text-blue-200",
+                          step.status === "pending" && "bg-muted/55 text-muted-foreground/75",
+                        )}
+                      >
+                        {stepStatusLabel(step.status)}
+                      </span>
+                    </div>
+                    <p
+                      className={cn(
+                        "wrap-break-word text-[13px] leading-snug",
+                        step.status === "completed"
+                          ? "text-muted-foreground/62 line-through decoration-muted-foreground/25"
+                          : step.status === "inProgress"
+                            ? "text-foreground/95"
+                            : "text-muted-foreground/82",
+                      )}
+                    >
+                      {step.step}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>
