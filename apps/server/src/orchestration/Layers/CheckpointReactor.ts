@@ -23,7 +23,7 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { RuntimeReceiptBus } from "../Services/RuntimeReceiptBus.ts";
 import { CheckpointStoreError } from "../../checkpointing/Errors.ts";
 import { OrchestrationDispatchError } from "../Errors.ts";
-import { SourceControlLive } from "../../sourceControl/Layers/SourceControl.ts";
+import { SourceControlWorkspaceLive } from "../../sourceControl/SourceControlModule.ts";
 import { SourceControl } from "../../sourceControl/Services/SourceControl.ts";
 import { SourceControlStatus } from "../../sourceControl/Services/SourceControlStatus.ts";
 import { WorkspaceEntries } from "../../workspace/Services/WorkspaceEntries.ts";
@@ -828,5 +828,5 @@ const make = Effect.gen(function* () {
 });
 
 export const CheckpointReactorLive = Layer.effect(CheckpointReactor, make).pipe(
-  Layer.provide(SourceControlLive),
+  Layer.provide(SourceControlWorkspaceLive),
 );

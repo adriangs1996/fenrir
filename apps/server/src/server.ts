@@ -74,10 +74,7 @@ import { GlobalActionsLive } from "./globalActions";
 import { ServerSettingsLive } from "./serverSettings";
 import { SkillServiceLive } from "./skill/SkillService";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
-import { SourceControlQueryLive } from "./sourceControl/Layers/SourceControlQuery";
-import { SourceControlLive } from "./sourceControl/Layers/SourceControl";
-import { SourceControlStatusLive } from "./sourceControl/Layers/SourceControlStatus";
-import { SourceControlWorkflowsLive } from "./sourceControl/Layers/SourceControlWorkflows";
+import { SourceControlModuleLive } from "./sourceControl/SourceControlModule";
 import { ReviewDiffServiceLive } from "./review/Layers/ReviewDiffService";
 import { ReviewAnalysisServiceLive } from "./review/Layers/ReviewAnalysisService";
 import { ReviewMutationServiceLive } from "./review/Layers/ReviewMutationService";
@@ -276,13 +273,7 @@ const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitCoreLive),
 );
 
-const SourceControlStatusLayerLive = SourceControlStatusLive.pipe(
-  Layer.provide(GitManagerLayerLive),
-);
-
-const SourceControlQueryLayerLive = SourceControlQueryLive.pipe(Layer.provideMerge(GitCoreLive));
-
-const SourceControlWorkflowsLayerLive = SourceControlWorkflowsLive.pipe(
+const SourceControlLayerLive = SourceControlModuleLive.pipe(
   Layer.provideMerge(GitManagerLayerLive),
   Layer.provideMerge(GitCoreLive),
 );
@@ -313,7 +304,7 @@ const ReviewMutationLayerLive = ReviewMutationServiceLive.pipe(
   Layer.provideMerge(ReviewSessionRepositoryLayerLive),
   Layer.provideMerge(ReviewIgnoreRuleRepositoryLayerLive),
   Layer.provideMerge(ReviewDiffLayerLive),
-  Layer.provideMerge(SourceControlStatusLayerLive),
+  Layer.provideMerge(SourceControlLayerLive),
   Layer.provideMerge(GitCoreLive),
 );
 
@@ -346,7 +337,7 @@ const ReviewAnalysisLayerLive = ReviewAnalysisServiceLive.pipe(
 
 const ReviewSessionServiceLayerLive = ReviewSessionServiceLive.pipe(
   Layer.provideMerge(ReviewSessionRepositoryLayerLive),
-  Layer.provideMerge(SourceControlLive),
+  Layer.provideMerge(SourceControlLayerLive),
   Layer.provideMerge(GitManagerLayerLive),
   Layer.provideMerge(GitCoreLive),
   Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
@@ -361,7 +352,7 @@ const ReviewRpcLayerLive = ReviewRpcServiceLive.pipe(
   Layer.provideMerge(ReviewAnalysisLayerLive),
   Layer.provideMerge(ReviewSessionServiceLayerLive),
   Layer.provideMerge(ReviewWriteLayerLive),
-  Layer.provideMerge(SourceControlStatusLayerLive),
+  Layer.provideMerge(SourceControlLayerLive),
 );
 
 const ReviewLayerLive = Layer.mergeAll(ReviewWriteLayerLive, ReviewRpcLayerLive);
@@ -428,8 +419,7 @@ const CoreInfrastructureLive = ReactorLayerLive.pipe(
   Layer.provideMerge(BrowserLabControlServiceLive),
   Layer.provideMerge(
     PlanRunnerLive.pipe(
-      Layer.provideMerge(SourceControlQueryLayerLive),
-      Layer.provideMerge(SourceControlWorkflowsLayerLive),
+      Layer.provideMerge(SourceControlLayerLive),
       Layer.provide(OrchestrationLayerLive),
       Layer.provide(ServerSettingsLive),
       Layer.provide(RoutingTextGenerationLive),
@@ -448,10 +438,7 @@ const CoreDependenciesLive = CoreInfrastructureLive.pipe(
   Layer.provideMerge(SkillServiceLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
-  Layer.provideMerge(SourceControlLive),
-  Layer.provideMerge(SourceControlQueryLayerLive),
-  Layer.provideMerge(SourceControlStatusLayerLive),
-  Layer.provideMerge(SourceControlWorkflowsLayerLive),
+  Layer.provideMerge(SourceControlLayerLive),
   Layer.provideMerge(ReviewLayerLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),

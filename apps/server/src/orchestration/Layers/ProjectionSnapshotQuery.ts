@@ -44,7 +44,7 @@ import { ProjectionThreadMessage } from "../../persistence/Services/ProjectionTh
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
-import { SourceControlLive } from "../../sourceControl/Layers/SourceControl.ts";
+import { SourceControlWorkspaceLive } from "../../sourceControl/SourceControlModule.ts";
 import { SourceControl } from "../../sourceControl/Services/SourceControl.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
@@ -1752,4 +1752,4 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 export const OrchestrationProjectionSnapshotQueryLive = Layer.effect(
   ProjectionSnapshotQuery,
   makeProjectionSnapshotQuery,
-).pipe(Layer.provide(SourceControlLive));
+).pipe(Layer.provide(SourceControlWorkspaceLive));

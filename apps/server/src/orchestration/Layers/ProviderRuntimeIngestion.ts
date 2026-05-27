@@ -20,7 +20,7 @@ import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
-import { SourceControlLive } from "../../sourceControl/Layers/SourceControl.ts";
+import { SourceControlWorkspaceLive } from "../../sourceControl/SourceControlModule.ts";
 import { SourceControl } from "../../sourceControl/Services/SourceControl.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
@@ -1285,4 +1285,4 @@ const make = Effect.fn("make")(function* () {
 export const ProviderRuntimeIngestionLive = Layer.effect(
   ProviderRuntimeIngestionService,
   make(),
-).pipe(Layer.provide(ProjectionTurnRepositoryLive), Layer.provide(SourceControlLive));
+).pipe(Layer.provide(ProjectionTurnRepositoryLive), Layer.provide(SourceControlWorkspaceLive));
