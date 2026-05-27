@@ -2491,7 +2491,23 @@ export default function ChatView(props: ChatViewProps) {
       }
 
       if (command === "editor.toggleChatTab" && editorAvailable) {
-        useEditorStore.getState().toggleChatTab();
+        const editorStore = useEditorStore.getState();
+        if (editorStore.activeChatTab === "editor") {
+          editorStore.setActiveChatTab("thread");
+          const hideEmbeddedVSCode = window.desktopBridge?.vscodeHide?.();
+          if (hideEmbeddedVSCode) {
+            void hideEmbeddedVSCode
+              .catch(() => undefined)
+              .then(() => {
+                scheduleComposerFocus();
+              });
+            return;
+          }
+          scheduleComposerFocus();
+          return;
+        }
+
+        editorStore.toggleChatTab();
       }
     });
   }, [
@@ -2502,6 +2518,7 @@ export default function ChatView(props: ChatViewProps) {
     commandPaletteOpen,
     createNewTerminal,
     editorAvailable,
+    scheduleComposerFocus,
     splitTerminal,
     terminalState.activeTerminalId,
     terminalState.terminalOpen,
