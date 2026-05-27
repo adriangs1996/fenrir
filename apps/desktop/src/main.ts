@@ -63,6 +63,7 @@ import {
   writeSavedEnvironmentSecret,
 } from "./clientPersistence";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
+import { createBackendReadinessWaiter } from "./backendReadinessWait";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { resolveDesktopServerExposure } from "./serverExposure";
 import { syncShellEnvironment } from "./syncShellEnvironment";
@@ -267,7 +268,9 @@ let backendHttpUrl = "";
 let backendWsUrl = "";
 let backendEndpointUrl: string | null = null;
 let backendAdvertisedHost: string | null = null;
-let backendReadinessAbortController: AbortController | null = null;
+const backendReadinessWaiter = createBackendReadinessWaiter((baseUrl, signal) =>
+  waitForHttpReady(baseUrl, { signal }),
+);
 let restartAttempt = 0;
 let restartTimer: ReturnType<typeof setTimeout> | null = null;
 let isQuitting = false;
@@ -516,24 +519,11 @@ function getSafeTheme(rawTheme: unknown): DesktopTheme | null {
 }
 
 async function waitForBackendHttpReady(baseUrl: string): Promise<void> {
-  cancelBackendReadinessWait();
-  const controller = new AbortController();
-  backendReadinessAbortController = controller;
-
-  try {
-    await waitForHttpReady(baseUrl, {
-      signal: controller.signal,
-    });
-  } finally {
-    if (backendReadinessAbortController === controller) {
-      backendReadinessAbortController = null;
-    }
-  }
+  await backendReadinessWaiter.wait(baseUrl);
 }
 
 function cancelBackendReadinessWait(): void {
-  backendReadinessAbortController?.abort();
-  backendReadinessAbortController = null;
+  backendReadinessWaiter.cancel();
 }
 
 function writeDesktopStreamChunk(
