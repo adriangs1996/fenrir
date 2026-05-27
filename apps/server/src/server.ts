@@ -19,23 +19,16 @@ import { OpenLive } from "./open";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite";
 import { ServerLifecycleEventsLive } from "./serverLifecycleEvents";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
-import { makeEventNdjsonLogger } from "./provider/Layers/EventNdjsonLogger";
-import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory";
-import { ProviderSessionRuntimeRepositoryLive } from "./persistence/Layers/ProviderSessionRuntime";
 import { PlanRunnerRepositoryLive } from "./persistence/Layers/PlanRunnerRepository";
 import { ReviewSessionRepositoryLive } from "./persistence/Layers/ReviewSessions";
 import { ReviewIgnoreRuleRepositoryLive } from "./persistence/Layers/ReviewIgnoreRules";
 import { ReviewAnnotationRepositoryLive } from "./persistence/Layers/ReviewAnnotations";
 import { ReviewProgressRepositoryLive } from "./persistence/Layers/ReviewProgress";
 import { ReviewAnalysisRepositoryLive } from "./persistence/Layers/ReviewAnalysis";
-import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
-import { makeClaudeAdapterLive } from "./provider/Layers/ClaudeAdapter";
-import { makeCursorAdapterLive } from "./provider/Layers/CursorAdapter";
-import { makeOpenCodeAdapterLive } from "./provider/Layers/OpenCodeAdapter";
-import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRegistry";
-import { ProviderInstanceRegistryLive } from "./provider/Layers/ProviderInstanceRegistry";
-import { makeProviderServiceLive } from "./provider/Layers/ProviderService";
-import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper";
+import {
+  ProviderRuntimeLifecycleLive,
+  ProviderRuntimeServiceLive,
+} from "./provider/ProviderRuntimeModule";
 import { OrchestrationEngineLive } from "./orchestration/Layers/OrchestrationEngine";
 import { OrchestrationProjectionPipelineLive } from "./orchestration/Layers/ProjectionPipeline";
 import { OrchestrationEventStoreLive } from "./persistence/Layers/OrchestrationEventStore";
@@ -204,51 +197,7 @@ const ProviderMaintenanceRunnerLayerLive = ProviderMaintenanceRunnerLive.pipe(
   Layer.provide(ProviderRegistryLayerLive),
 );
 
-const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
-  Layer.provide(ProviderSessionRuntimeRepositoryLive),
-);
-
-const ProviderLayerLive = Layer.unwrap(
-  Effect.gen(function* () {
-    const { providerEventLogPath } = yield* ServerConfig;
-    const nativeEventLogger = yield* makeEventNdjsonLogger(providerEventLogPath, {
-      stream: "native",
-    });
-    const canonicalEventLogger = yield* makeEventNdjsonLogger(providerEventLogPath, {
-      stream: "canonical",
-    });
-    const codexAdapterLayer = makeCodexAdapterLive(
-      nativeEventLogger ? { nativeEventLogger } : undefined,
-    );
-    const claudeAdapterLayer = makeClaudeAdapterLive(
-      nativeEventLogger ? { nativeEventLogger } : undefined,
-    );
-    const cursorAdapterLayer = makeCursorAdapterLive(
-      nativeEventLogger ? { nativeEventLogger } : undefined,
-    );
-    const openCodeAdapterLayer = makeOpenCodeAdapterLive(
-      nativeEventLogger ? { nativeEventLogger } : undefined,
-    );
-    const adapterRegistryLayer = ProviderAdapterRegistryLive.pipe(
-      Layer.provide(codexAdapterLayer),
-      Layer.provide(claudeAdapterLayer),
-      Layer.provide(cursorAdapterLayer),
-      Layer.provide(openCodeAdapterLayer),
-      Layer.provideMerge(ProviderSessionDirectoryLayerLive),
-      Layer.provideMerge(ProviderInstanceRegistryLive),
-    );
-    return makeProviderServiceLive(
-      canonicalEventLogger ? { canonicalEventLogger } : undefined,
-    ).pipe(
-      Layer.provide(adapterRegistryLayer),
-      Layer.provideMerge(ProviderSessionDirectoryLayerLive),
-    );
-  }),
-);
-
-const ProviderRuntimeLifecycleLayerLive = ProviderSessionReaperLive.pipe(
-  Layer.provideMerge(ProviderLayerLive.pipe(Layer.provideMerge(AnalyticsServiceLayerLive))),
-  Layer.provideMerge(ProviderSessionDirectoryLayerLive),
+const ProviderRuntimeLifecycleLayerLive = ProviderRuntimeLifecycleLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
@@ -411,7 +360,7 @@ const CoreInfrastructureLive = ReactorLayerLive.pipe(
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(OrchestrationLayerLive),
-  Layer.provideMerge(ProviderLayerLive),
+  Layer.provideMerge(ProviderRuntimeServiceLive),
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(RawTcpListenerServiceLive),
   Layer.provideMerge(TrafficLensServiceLive),
