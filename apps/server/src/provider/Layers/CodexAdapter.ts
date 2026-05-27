@@ -269,11 +269,61 @@ function itemTitle(itemType: CanonicalItemType): string | undefined {
   }
 }
 
+function formatUnknownDetail(value: unknown): string | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    return trimText(value);
+  }
+  if (Array.isArray(value) && value.length === 0) {
+    return undefined;
+  }
+  if (typeof value === "object" && Object.keys(value).length === 0) {
+    return undefined;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function mcpToolCallTitle(item: Record<string, unknown>): string | undefined {
+  const server = asString(item.server);
+  const tool = asString(item.tool) ?? asString(item.name);
+  if (server && tool) {
+    return `MCP ${server}.${tool}`;
+  }
+  if (tool) {
+    return `MCP ${tool}`;
+  }
+  if (server) {
+    return `MCP ${server}`;
+  }
+  return undefined;
+}
+
+function itemTitleForSource(
+  itemType: CanonicalItemType,
+  item: Record<string, unknown>,
+): string | undefined {
+  if (itemType === "mcp_tool_call") {
+    return mcpToolCallTitle(item) ?? itemTitle(itemType);
+  }
+  return itemTitle(itemType);
+}
+
 function itemDetail(
   item: Record<string, unknown>,
   payload: Record<string, unknown>,
 ): string | undefined {
   const nestedResult = asObject(item.result);
+  const itemType = toCanonicalItemType(item.type ?? item.kind);
+  const mcpArguments =
+    itemType === "mcp_tool_call"
+      ? formatUnknownDetail(item.arguments ?? item.input ?? item.args)
+      : undefined;
   const candidates = [
     asString(item.command),
     asString(item.title),
@@ -281,6 +331,7 @@ function itemDetail(
     asString(item.text),
     asString(item.path),
     asString(item.prompt),
+    mcpArguments ? `Arguments: ${mcpArguments}` : undefined,
     asString(nestedResult?.command),
     asString(payload.command),
     asString(payload.message),
@@ -714,6 +765,7 @@ function mapItemLifecycle(
       : lifecycle === "item.completed"
         ? "completed"
         : undefined;
+  const title = itemTitleForSource(itemType, source);
 
   return {
     ...runtimeEventBase(event, canonicalThreadId),
@@ -721,7 +773,7 @@ function mapItemLifecycle(
     payload: {
       itemType,
       ...(status ? { status } : {}),
-      ...(itemTitle(itemType) ? { title: itemTitle(itemType) } : {}),
+      ...(title ? { title } : {}),
       ...(detail ? { detail } : {}),
       ...(event.payload !== undefined ? { data: event.payload } : {}),
     },

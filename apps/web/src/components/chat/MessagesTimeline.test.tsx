@@ -1,6 +1,31 @@
 import { MessageId } from "@fenrir/contracts";
+import { createRef, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import type { LegendListRef } from "@legendapp/list/react";
+
+function MockLegendList(props: {
+  data: Array<{ id: string }>;
+  keyExtractor: (item: { id: string }) => string;
+  renderItem: (args: { item: { id: string } }) => ReactNode;
+  ListHeaderComponent?: ReactNode;
+  ListFooterComponent?: ReactNode;
+  ref?: Ref<LegendListRef>;
+}) {
+  return (
+    <div data-testid="legend-list">
+      {props.ListHeaderComponent}
+      {props.data.map((item) => (
+        <div key={props.keyExtractor(item)}>{props.renderItem({ item })}</div>
+      ))}
+      {props.ListFooterComponent}
+    </div>
+  );
+}
+
+vi.mock("@legendapp/list/react", async () => {
+  return { LegendList: MockLegendList };
+});
 
 function matchMedia() {
   return {
@@ -49,15 +74,13 @@ function buildProps() {
   return {
     isWorking: false,
     activeTurnInProgress: false,
+    activeTurnId: null,
     activeTurnStartedAt: null,
-    scrollContainer: null,
+    listRef: createRef<LegendListRef | null>(),
     completionDividerBeforeEntryId: null,
     completionSummary: null,
     turnDiffSummaryByAssistantMessageId: new Map(),
-    expandedWorkGroups: {},
-    onToggleWorkGroup: () => {},
-    changedFilesExpandedByTurnId: {},
-    onSetChangedFilesExpanded: () => {},
+    routeThreadKey: "environment-local:thread-1",
     onOpenTurnDiff: () => {},
     revertTurnCountByUserMessageId: new Map(),
     onRevertUserMessage: () => {},
@@ -68,6 +91,7 @@ function buildProps() {
     resolvedTheme: "light" as const,
     timestampFormat: "locale" as const,
     workspaceRoot: undefined,
+    onIsAtEndChange: () => {},
   };
 }
 

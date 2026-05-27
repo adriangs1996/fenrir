@@ -396,8 +396,8 @@ interface ComposerDraftStoreState {
   applyStickyState: (threadRef: ComposerThreadTarget) => void;
   setProviderModelOptions: (
     threadRef: ComposerThreadTarget,
-    provider: ProviderKind,
-    nextProviderOptions: ProviderModelOptions[ProviderKind] | null | undefined,
+    provider: ProviderSelectionKind,
+    nextProviderOptions: ProviderOptionSelections | null | undefined,
     options?: {
       persistSticky?: boolean;
     },
@@ -456,7 +456,7 @@ interface ComposerDraftModelState {
 function providerModelOptionsFromSelection(
   modelSelection: ModelSelection | null | undefined,
 ): ProviderModelOptions | null {
-  if (!modelSelection?.options || !isBuiltInProviderKind(modelSelection.provider)) {
+  if (!modelSelection?.options) {
     return null;
   }
 
@@ -471,7 +471,7 @@ function modelSelectionByProviderToOptions(
   if (!map) return null;
   const result: Record<string, unknown> = {};
   for (const [provider, selection] of Object.entries(map)) {
-    if (selection?.options && isBuiltInProviderKind(provider)) {
+    if (selection?.options) {
       result[provider] = selection.options;
     }
   }
@@ -710,13 +710,13 @@ function normalizeProviderSelectionMap(
 }
 
 function normalizeProviderSpecificModelOptions(
-  provider: ProviderKind,
-  nextProviderOptions: ProviderModelOptions[ProviderKind] | null | undefined,
+  provider: ProviderSelectionKind,
+  nextProviderOptions: ProviderOptionSelections | null | undefined,
 ): ProviderModelOptions | null {
   return normalizeProviderModelOptions({ [provider]: nextProviderOptions }, provider);
 }
 
-function getDefaultModelForBuiltInProvider(provider: ProviderKind): string {
+function getDefaultModelForProvider(provider: ProviderSelectionKind): string {
   return getDefaultModelByProvider(provider);
 }
 
@@ -773,18 +773,21 @@ function normalizeModelSelection(
 }
 function normalizeProviderModelOptions(
   value: unknown,
-  provider?: ProviderKind | null,
+  provider?: ProviderSelectionKind | null,
   legacy?: LegacyCodexFields,
 ): ProviderModelOptions | null {
   const candidate = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
   if (!candidate) return null;
 
   const result: Record<string, ReadonlyArray<ProviderOptionSelection>> = {};
-  for (const providerKey of ["codex", "claudeAgent"] as const) {
-    const rawProviderOptions = candidate[providerKey];
+  for (const [providerKey, rawProviderOptions] of Object.entries(candidate)) {
+    const normalizedProvider = normalizeProviderKind(providerKey);
+    if (normalizedProvider === null) {
+      continue;
+    }
     const decoded = decodeProviderOptionSelections(rawProviderOptions);
     if (decoded) {
-      result[providerKey] = decoded;
+      result[normalizedProvider] = decoded;
     }
   }
 
@@ -890,15 +893,19 @@ function legacyToModelSelectionByProvider(
   const result: Partial<Record<ProviderSelectionKind, ModelSelection>> = {};
   // Add entries from the options bag (for non-active providers)
   if (modelOptions) {
-    for (const provider of ["codex", "claudeAgent"] as const) {
+    for (const provider of Object.keys(modelOptions) as ProviderSelectionKind[]) {
       const options = modelOptions[provider];
       if (options && Object.keys(options).length > 0) {
+        const model =
+          modelSelection?.provider === provider
+            ? modelSelection.model
+            : getDefaultModelForProvider(provider);
+        if (model.length === 0) {
+          continue;
+        }
         result[provider] = {
           provider,
-          model:
-            modelSelection?.provider === provider
-              ? modelSelection.model
-              : getDefaultModelForBuiltInProvider(provider),
+          model,
           options,
         };
       }
@@ -936,12 +943,11 @@ export function deriveEffectiveComposerModelState(input: {
         activeSelection.model,
       )
     : baseModel;
-  const modelOptions = isBuiltInProviderKind(input.selectedProvider)
-    ? (modelSelectionByProviderToOptions(input.draft?.modelSelectionByProvider) ??
-      providerModelOptionsFromSelection(input.threadModelSelection) ??
-      providerModelOptionsFromSelection(input.projectModelSelection) ??
-      null)
-    : null;
+  const modelOptions =
+    modelSelectionByProviderToOptions(input.draft?.modelSelectionByProvider) ??
+    providerModelOptionsFromSelection(input.threadModelSelection) ??
+    providerModelOptionsFromSelection(input.projectModelSelection) ??
+    null;
 
   return {
     selectedModel,
@@ -2644,7 +2650,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               if (opts) {
                 nextMap[provider] = {
                   provider,
-                  model: current?.model ?? getDefaultModelForBuiltInProvider(provider),
+                  model: current?.model ?? getDefaultModelForProvider(provider),
                   options: opts,
                 };
               } else if (current?.options) {
@@ -2676,7 +2682,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             return;
           }
           const normalizedProvider = normalizeProviderKind(provider);
-          if (normalizedProvider === null || !isBuiltInProviderKind(normalizedProvider)) {
+          if (normalizedProvider === null) {
             return;
           }
           // Normalize just this provider's options
@@ -2694,11 +2700,14 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const nextMap = { ...base.modelSelectionByProvider };
             const currentForProvider = nextMap[normalizedProvider];
             if (providerOpts) {
+              const model =
+                currentForProvider?.model ?? getDefaultModelForProvider(normalizedProvider);
+              if (model.length === 0) {
+                return state;
+              }
               nextMap[normalizedProvider] = {
                 provider: normalizedProvider,
-                model:
-                  currentForProvider?.model ??
-                  getDefaultModelForBuiltInProvider(normalizedProvider),
+                model,
                 options: providerOpts,
               };
             } else if (currentForProvider?.options) {
@@ -2717,9 +2726,12 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                 base.modelSelectionByProvider[normalizedProvider] ??
                 ({
                   provider: normalizedProvider,
-                  model: getDefaultModelForBuiltInProvider(normalizedProvider),
+                  model: getDefaultModelForProvider(normalizedProvider),
                 } as ModelSelection);
               if (providerOpts) {
+                if (stickyBase.model.length === 0) {
+                  return state;
+                }
                 nextStickyMap[normalizedProvider] = {
                   ...stickyBase,
                   provider: normalizedProvider,

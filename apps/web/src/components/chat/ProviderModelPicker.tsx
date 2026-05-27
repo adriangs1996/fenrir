@@ -98,7 +98,15 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   model: string;
   lockedProvider: ProviderSelectionKind | null;
   providers?: ReadonlyArray<ServerProvider>;
-  modelOptionsByProvider: Record<string, ReadonlyArray<{ slug: string; name: string }>>;
+  modelOptionsByProvider: Record<
+    string,
+    ReadonlyArray<{
+      slug: string;
+      name: string;
+      shortName?: string | undefined;
+      subProvider?: string | undefined;
+    }>
+  >;
   activeProviderIconClassName?: string;
   compact?: boolean;
   disabled?: boolean;
@@ -114,8 +122,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
 
   const activeProvider = props.lockedProvider ?? props.provider;
   const selectedProviderOptions = props.modelOptionsByProvider[activeProvider] ?? [];
+  const selectedModelOption = selectedProviderOptions.find((option) => option.slug === props.model);
   const selectedModelLabel =
-    selectedProviderOptions.find((option) => option.slug === props.model)?.name ?? props.model;
+    selectedModelOption?.shortName ?? selectedModelOption?.name ?? props.model;
+  const selectedModelSubtitle = selectedModelOption?.subProvider;
   const ProviderIcon = getProviderIcon(activeProvider);
 
   const [selectedSection, setSelectedSection] = useState<ModelPickerSection>(
@@ -181,13 +191,22 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       if (liveProvider && describeProviderAvailability(liveProvider) !== null) {
         return [];
       }
-      return (props.modelOptionsByProvider[provider] ?? []).map((modelOption) => ({
-        provider,
-        providerLabel: getProviderOptionLabel(props.providers ?? [], provider),
-        slug: modelOption.slug,
-        name: modelOption.name,
-        isFavorite: favoriteKeySet.has(providerModelKey(provider, modelOption.slug)),
-      }));
+      return (props.modelOptionsByProvider[provider] ?? []).map((modelOption) => {
+        const item: ProviderModelPickerItem = {
+          provider,
+          providerLabel: getProviderOptionLabel(props.providers ?? [], provider),
+          slug: modelOption.slug,
+          name: modelOption.name,
+          isFavorite: favoriteKeySet.has(providerModelKey(provider, modelOption.slug)),
+        };
+        if (modelOption.shortName) {
+          item.shortName = modelOption.shortName;
+        }
+        if (modelOption.subProvider) {
+          item.subProvider = modelOption.subProvider;
+        }
+        return item;
+      });
     });
   }, [availableProviders, favoriteKeySet, props.modelOptionsByProvider, props.providers]);
 
@@ -284,7 +303,14 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               props.activeProviderIconClassName,
             )}
           />
-          <span className="min-w-0 flex-1 truncate">{selectedModelLabel}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate">{selectedModelLabel}</span>
+            {selectedModelSubtitle && !props.compact ? (
+              <span className="block truncate text-[11px] leading-tight text-muted-foreground/65">
+                {selectedModelSubtitle}
+              </span>
+            ) : null}
+          </span>
           <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
         </span>
       </PopoverTrigger>
@@ -535,8 +561,12 @@ const ModelPickerRow = memo(function ModelPickerRow(props: {
           <span className="block truncate text-sm text-foreground">{props.item.name}</span>
           <span className="block truncate text-xs text-muted-foreground/75">
             {props.showProviderMeta
-              ? `${props.item.providerLabel} · ${props.item.slug}`
-              : props.item.slug}
+              ? [props.item.providerLabel, props.item.subProvider, props.item.slug]
+                  .filter(Boolean)
+                  .join(" · ")
+              : props.item.subProvider
+                ? `${props.item.subProvider} · ${props.item.slug}`
+                : props.item.slug}
           </span>
         </span>
       </button>

@@ -12,6 +12,7 @@ import { UnifiedSettings } from "@fenrir/contracts/settings";
 import {
   getDefaultServerModel,
   getProviderModels,
+  getSelectableProviderKinds,
   resolveSelectableProvider,
 } from "./providerModels";
 
@@ -29,6 +30,8 @@ export type ProviderCustomModelConfig = {
 export interface AppModelOption {
   slug: string;
   name: string;
+  shortName?: string | undefined;
+  subProvider?: string | undefined;
   isCustom: boolean;
 }
 
@@ -87,11 +90,16 @@ export function getAppModelOptions(
   selectedModel?: string | null,
 ): AppModelOption[] {
   const options: AppModelOption[] = getProviderModels(providers, provider).map(
-    ({ slug, name, isCustom }) => ({
-      slug,
-      name,
-      isCustom,
-    }),
+    ({ slug, name, shortName, subProvider, isCustom }) => {
+      const option: AppModelOption = { slug, name, isCustom };
+      if (shortName) {
+        option.shortName = shortName;
+      }
+      if (subProvider) {
+        option.subProvider = subProvider;
+      }
+      return option;
+    },
   );
   const seen = new Set(options.map((option) => option.slug));
   const trimmedSelectedModel = selectedModel?.trim().toLowerCase();
@@ -153,23 +161,20 @@ export function resolveAppModelSelection(
 export function getCustomModelOptionsByProvider(
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
-  selectedProvider?: ProviderKind | null,
+  selectedProvider?: ProviderSelectionKind | null,
   selectedModel?: string | null,
-): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
-  return {
-    codex: getAppModelOptions(
-      settings,
-      providers,
-      "codex",
-      selectedProvider === "codex" ? selectedModel : undefined,
-    ),
-    claudeAgent: getAppModelOptions(
-      settings,
-      providers,
-      "claudeAgent",
-      selectedProvider === "claudeAgent" ? selectedModel : undefined,
-    ),
-  };
+): Record<ProviderSelectionKind, ReadonlyArray<AppModelOption>> {
+  return Object.fromEntries(
+    getSelectableProviderKinds(providers).map((provider) => [
+      provider,
+      getAppModelOptions(
+        settings,
+        providers,
+        provider,
+        selectedProvider === provider ? selectedModel : undefined,
+      ),
+    ]),
+  ) as Record<ProviderSelectionKind, ReadonlyArray<AppModelOption>>;
 }
 
 export function resolveAppModelSelectionState(
@@ -186,18 +191,16 @@ export function resolveAppModelSelectionState(
   // don't carry over the old provider's model — use the fallback provider's default.
   const selectedModel = provider === selection.provider ? selection.model : null;
   const model = resolveAppModelSelection(provider, settings, providers, selectedModel);
-  const modelOptionsForDispatch = isBuiltInProviderKind(provider)
-    ? getComposerProviderState({
-        provider,
-        model,
-        models: getProviderModels(providers, provider),
-        prompt: "",
-        modelOptions:
-          provider === selection.provider && selection.options
-            ? { [provider]: selection.options }
-            : undefined,
-      }).modelOptionsForDispatch
-    : undefined;
+  const modelOptionsForDispatch = getComposerProviderState({
+    provider,
+    model,
+    models: getProviderModels(providers, provider),
+    prompt: "",
+    modelOptions:
+      provider === selection.provider && selection.options
+        ? { [provider]: selection.options }
+        : undefined,
+  }).modelOptionsForDispatch;
 
   return {
     provider,

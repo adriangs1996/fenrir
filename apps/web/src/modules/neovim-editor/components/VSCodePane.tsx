@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ResolvedKeybindingsConfig } from "@fenrir/contracts";
 import { Spinner } from "~/components/ui/spinner";
 import { VSCodeMissingCard } from "./VSCodeMissingCard";
 
 interface Props {
   cwd: string | null;
+  keybindings: ResolvedKeybindingsConfig;
+  terminalOpen?: boolean;
   visible: boolean;
 }
 
 type PaneStatus = "idle" | "starting" | "ready" | "error";
 
-export function VSCodePane({ cwd, visible }: Props) {
+export function VSCodePane({ cwd, keybindings, terminalOpen = false, visible }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number>(0);
   const [status, setStatus] = useState<PaneStatus>("idle");
@@ -54,6 +57,19 @@ export function VSCodePane({ cwd, visible }: Props) {
       cancelled = true;
     };
   }, [retryToken]);
+
+  useEffect(() => {
+    if (!visible) return;
+    void window.desktopBridge?.vscodeSetShortcutState?.({
+      keybindings,
+      platform: navigator.platform,
+      context: {
+        terminalFocus: false,
+        terminalOpen,
+        reviewFocus: false,
+      },
+    });
+  }, [keybindings, terminalOpen, visible]);
 
   useEffect(() => {
     const bridge = window.desktopBridge;

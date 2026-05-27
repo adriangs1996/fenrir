@@ -7,6 +7,8 @@ export interface ProviderModelPickerItem {
   providerLabel: string;
   slug: string;
   name: string;
+  shortName?: string | undefined;
+  subProvider?: string | undefined;
   isFavorite: boolean;
 }
 
@@ -48,6 +50,8 @@ function scoreProviderModelPickerItem(item: ProviderModelPickerItem, query: stri
   const score =
     scoreField(item.name, normalizedQuery, 5) +
     scoreField(item.slug, normalizedQuery, 4) +
+    (item.shortName ? scoreField(item.shortName, normalizedQuery, 5) : 0) +
+    (item.subProvider ? scoreField(item.subProvider, normalizedQuery, 3) : 0) +
     scoreField(item.providerLabel, normalizedQuery, 2);
 
   return score > 0 ? score : null;

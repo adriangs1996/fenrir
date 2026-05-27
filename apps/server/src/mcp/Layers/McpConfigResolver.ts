@@ -15,6 +15,7 @@ import {
 } from "../Services/McpConfigResolver";
 import {
   getBrowserLabMcpBackendUrl,
+  getBrowserLabMcpRunnerEnv,
   getBrowserLabMcpToken,
   resolveBrowserLabMcpRunnerPath,
 } from "../browserLabMcpRuntime.ts";
@@ -88,6 +89,7 @@ function resolveServer(
         command: process.execPath,
         args: [runtime.browserLabRunnerPath],
         env: {
+          ...getBrowserLabMcpRunnerEnv(),
           FENRIR_MCP_BACKEND_URL: runtime.browserLabBackendUrl,
           FENRIR_MCP_TOKEN: runtime.browserLabToken,
         },

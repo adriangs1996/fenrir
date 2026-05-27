@@ -91,7 +91,6 @@ import {
   getProviderSnapshotByInstanceId,
   getProviderSnapshotsForKind,
   getSelectableProviderKinds,
-  hasProviderTraits,
   resolveSelectableProvider,
 } from "../../providerModels";
 import { searchProviderSkills } from "../../skillSearch";
@@ -771,22 +770,13 @@ export const ChatComposer = memo(
 
     const composerProviderState = useMemo(
       () =>
-        hasProviderTraits(selectedProvider)
-          ? getComposerProviderState({
-              provider: selectedProvider,
-              model: selectedModel,
-              models: selectedProviderModels,
-              prompt,
-              modelOptions: composerModelOptions,
-            })
-          : {
-              provider: selectedProvider,
-              promptEffort: null,
-              modelOptionsForDispatch: undefined,
-              composerFrameClassName: undefined,
-              composerSurfaceClassName: undefined,
-              modelPickerIconClassName: undefined,
-            },
+        getComposerProviderState({
+          provider: selectedProvider,
+          model: selectedModel,
+          models: selectedProviderModels,
+          prompt,
+          modelOptions: composerModelOptions,
+        }),
       [composerModelOptions, prompt, selectedModel, selectedProvider, selectedProviderModels],
     );
 
@@ -1105,33 +1095,26 @@ export const ChatComposer = memo(
       [composerDraftTarget, promptRef, scheduleComposerFocus, setComposerDraftPrompt],
     );
 
-    const selectedBuiltInProvider = hasProviderTraits(selectedProvider) ? selectedProvider : null;
-    const providerTraitsMenuContent =
-      selectedBuiltInProvider === null
-        ? null
-        : renderProviderTraitsMenuContent({
-            provider: selectedBuiltInProvider,
-            ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-            ...(routeKind === "draft" && draftId ? { draftId } : {}),
-            model: selectedModel,
-            models: selectedProviderModels,
-            modelOptions: composerModelOptions?.[selectedBuiltInProvider],
-            prompt,
-            onPromptChange: setPromptFromTraits,
-          });
-    const providerTraitsPicker =
-      selectedBuiltInProvider === null
-        ? null
-        : renderProviderTraitsPicker({
-            provider: selectedBuiltInProvider,
-            ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-            ...(routeKind === "draft" && draftId ? { draftId } : {}),
-            model: selectedModel,
-            models: selectedProviderModels,
-            modelOptions: composerModelOptions?.[selectedBuiltInProvider],
-            prompt,
-            onPromptChange: setPromptFromTraits,
-          });
+    const providerTraitsMenuContent = renderProviderTraitsMenuContent({
+      provider: selectedProvider,
+      ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
+      ...(routeKind === "draft" && draftId ? { draftId } : {}),
+      model: selectedModel,
+      models: selectedProviderModels,
+      modelOptions: composerModelOptions?.[selectedProvider],
+      prompt,
+      onPromptChange: setPromptFromTraits,
+    });
+    const providerTraitsPicker = renderProviderTraitsPicker({
+      provider: selectedProvider,
+      ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
+      ...(routeKind === "draft" && draftId ? { draftId } : {}),
+      model: selectedModel,
+      models: selectedProviderModels,
+      modelOptions: composerModelOptions?.[selectedProvider],
+      prompt,
+      onPromptChange: setPromptFromTraits,
+    });
     const pendingPrimaryAction = useMemo(
       () =>
         activePendingProgress

@@ -1,7 +1,7 @@
 import {
-  type ProviderKind,
   type ProviderOptionDescriptor,
   type ProviderOptionSelections,
+  type ProviderSelectionKind,
   type ScopedThreadRef,
   type ServerProviderModel,
 } from "@fenrir/contracts";
@@ -78,7 +78,7 @@ function getDescriptorStringValue(
 }
 
 function getSelectedTraits(
-  provider: ProviderKind,
+  provider: ProviderSelectionKind,
   models: ReadonlyArray<ServerProviderModel>,
   model: string | null | undefined,
   prompt: string,
@@ -144,7 +144,7 @@ function getSelectedTraits(
 }
 
 export interface TraitsMenuContentProps {
-  provider: ProviderKind;
+  provider: ProviderSelectionKind;
   models: ReadonlyArray<ServerProviderModel>;
   model: string | null | undefined;
   prompt: string;

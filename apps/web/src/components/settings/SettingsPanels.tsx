@@ -62,7 +62,7 @@ import {
   resolveAppModelSelectionState,
 } from "../../modelSelection";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
-import { getProviderSnapshot } from "../../providerModels";
+import { getProviderModels, getProviderSnapshot } from "../../providerModels";
 import { THEME_OPTIONS, isTheme } from "../../lib/theme";
 import { useShallow } from "zustand/react/shallow";
 import { selectProjectsAcrossEnvironments, useStore } from "../../store";
@@ -1314,13 +1314,13 @@ export function GeneralSettingsPanel() {
 
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenProvider = textGenerationModelSelection.provider;
-  const textGenBuiltInProvider = isBuiltInProviderKind(textGenProvider) ? textGenProvider : null;
   const textGenModel = textGenerationModelSelection.model;
   const textGenModelOptions = textGenerationModelSelection.options;
+  const textGenProviderModels = getProviderModels(serverProviders, textGenProvider);
   const gitModelOptionsByProvider = getCustomModelOptionsByProvider(
     settings,
     serverProviders,
-    textGenBuiltInProvider,
+    textGenProvider,
     textGenModel,
   );
   const isGitWritingModelDirty = !Equal.equals(
@@ -1966,39 +1966,32 @@ export function GeneralSettingsPanel() {
                   });
                 }}
               />
-              {textGenBuiltInProvider ? (
-                <TraitsPicker
-                  provider={textGenBuiltInProvider}
-                  models={
-                    serverProviders.find((provider) => provider.provider === textGenBuiltInProvider)
-                      ?.models ?? []
-                  }
-                  model={textGenModel}
-                  prompt=""
-                  onPromptChange={() => {}}
-                  modelOptions={
-                    textGenModelOptions as Parameters<typeof TraitsPicker>[0]["modelOptions"]
-                  }
-                  allowPromptInjectedEffort={false}
-                  triggerVariant="outline"
-                  triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                  onModelOptionsChange={(nextOptions) => {
-                    updateSettings({
-                      textGenerationModelSelection: resolveAppModelSelectionState(
-                        {
-                          ...settings,
-                          textGenerationModelSelection: {
-                            provider: textGenBuiltInProvider,
-                            model: textGenModel,
-                            ...(nextOptions ? { options: nextOptions } : {}),
-                          },
+              <TraitsPicker
+                provider={textGenProvider}
+                models={textGenProviderModels}
+                model={textGenModel}
+                prompt=""
+                onPromptChange={() => {}}
+                modelOptions={textGenModelOptions}
+                allowPromptInjectedEffort={false}
+                triggerVariant="outline"
+                triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                onModelOptionsChange={(nextOptions) => {
+                  updateSettings({
+                    textGenerationModelSelection: resolveAppModelSelectionState(
+                      {
+                        ...settings,
+                        textGenerationModelSelection: {
+                          provider: textGenProvider,
+                          model: textGenModel,
+                          ...(nextOptions ? { options: nextOptions } : {}),
                         },
-                        serverProviders,
-                      ),
-                    });
-                  }}
-                />
-              ) : null}
+                      },
+                      serverProviders,
+                    ),
+                  });
+                }}
+              />
             </div>
           }
         />

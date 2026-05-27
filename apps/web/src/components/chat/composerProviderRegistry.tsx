@@ -3,10 +3,13 @@ import {
   type ProviderModelOptions,
   type ProviderOptionSelection,
   type ProviderOptionSelections,
+  type ProviderSelectionKind,
   type ScopedThreadRef,
   type ServerProviderModel,
 } from "@fenrir/contracts";
 import {
+  buildProviderOptionSelectionsFromDescriptors,
+  getProviderOptionDescriptors,
   getProviderOptionStringSelectionValue,
   isClaudeUltrathinkPrompt,
   resolveEffort,
@@ -21,7 +24,7 @@ import {
 } from "@fenrir/shared/model";
 
 export type ComposerProviderStateInput = {
-  provider: ProviderKind;
+  provider: ProviderSelectionKind;
   model: string;
   models: ReadonlyArray<ServerProviderModel>;
   prompt: string;
@@ -29,7 +32,7 @@ export type ComposerProviderStateInput = {
 };
 
 export type ComposerProviderState = {
-  provider: ProviderKind;
+  provider: ProviderSelectionKind;
   promptEffort: string | null;
   modelOptionsForDispatch: ReadonlyArray<ProviderOptionSelection> | undefined;
   composerFrameClassName?: string;
@@ -60,8 +63,8 @@ type ProviderRegistryEntry = {
 };
 
 function hasComposerTraitsTarget(input: {
-  threadRef: ScopedThreadRef | undefined;
-  draftId: DraftId | undefined;
+  threadRef?: ScopedThreadRef | undefined;
+  draftId?: DraftId | undefined;
 }): boolean {
   return input.threadRef !== undefined || input.draftId !== undefined;
 }
@@ -84,7 +87,15 @@ function getProviderStateFromCapabilities(
   const normalizedOptions =
     provider === "codex"
       ? normalizeCodexModelOptionsWithCapabilities(caps, providerOptions)
-      : normalizeClaudeModelOptionsWithCapabilities(caps, providerOptions);
+      : provider === "claudeAgent"
+        ? normalizeClaudeModelOptionsWithCapabilities(caps, providerOptions)
+        : buildProviderOptionSelectionsFromDescriptors(
+            getProviderOptionDescriptors({
+              caps,
+              selections: providerOptions,
+              provider,
+            }),
+          );
 
   // Ultrathink styling (driven by capabilities data, not provider identity)
   const ultrathinkActive =
@@ -196,11 +207,14 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
 };
 
 export function getComposerProviderState(input: ComposerProviderStateInput): ComposerProviderState {
-  return composerProviderRegistry[input.provider].getState(input);
+  return (
+    composerProviderRegistry[input.provider as ProviderKind]?.getState(input) ??
+    getProviderStateFromCapabilities(input)
+  );
 }
 
 export function renderProviderTraitsMenuContent(input: {
-  provider: ProviderKind;
+  provider: ProviderSelectionKind;
   threadRef?: ScopedThreadRef;
   draftId?: DraftId;
   model: string;
@@ -209,19 +223,37 @@ export function renderProviderTraitsMenuContent(input: {
   prompt: string;
   onPromptChange: (prompt: string) => void;
 }): ReactNode {
-  return composerProviderRegistry[input.provider].renderTraitsMenuContent({
-    ...(input.threadRef ? { threadRef: input.threadRef } : {}),
-    ...(input.draftId ? { draftId: input.draftId } : {}),
-    model: input.model,
-    models: input.models,
-    modelOptions: input.modelOptions,
-    prompt: input.prompt,
-    onPromptChange: input.onPromptChange,
-  });
+  const entry = composerProviderRegistry[input.provider as ProviderKind];
+  if (entry) {
+    return entry.renderTraitsMenuContent({
+      ...(input.threadRef ? { threadRef: input.threadRef } : {}),
+      ...(input.draftId ? { draftId: input.draftId } : {}),
+      model: input.model,
+      models: input.models,
+      modelOptions: input.modelOptions,
+      prompt: input.prompt,
+      onPromptChange: input.onPromptChange,
+    });
+  }
+  if (!hasComposerTraitsTarget(input)) {
+    return null;
+  }
+  return (
+    <TraitsMenuContent
+      provider={input.provider}
+      models={input.models}
+      {...(input.threadRef ? { threadRef: input.threadRef } : {})}
+      {...(input.draftId ? { draftId: input.draftId } : {})}
+      model={input.model}
+      modelOptions={input.modelOptions}
+      prompt={input.prompt}
+      onPromptChange={input.onPromptChange}
+    />
+  );
 }
 
 export function renderProviderTraitsPicker(input: {
-  provider: ProviderKind;
+  provider: ProviderSelectionKind;
   threadRef?: ScopedThreadRef;
   draftId?: DraftId;
   model: string;
@@ -230,13 +262,31 @@ export function renderProviderTraitsPicker(input: {
   prompt: string;
   onPromptChange: (prompt: string) => void;
 }): ReactNode {
-  return composerProviderRegistry[input.provider].renderTraitsPicker({
-    ...(input.threadRef ? { threadRef: input.threadRef } : {}),
-    ...(input.draftId ? { draftId: input.draftId } : {}),
-    model: input.model,
-    models: input.models,
-    modelOptions: input.modelOptions,
-    prompt: input.prompt,
-    onPromptChange: input.onPromptChange,
-  });
+  const entry = composerProviderRegistry[input.provider as ProviderKind];
+  if (entry) {
+    return entry.renderTraitsPicker({
+      ...(input.threadRef ? { threadRef: input.threadRef } : {}),
+      ...(input.draftId ? { draftId: input.draftId } : {}),
+      model: input.model,
+      models: input.models,
+      modelOptions: input.modelOptions,
+      prompt: input.prompt,
+      onPromptChange: input.onPromptChange,
+    });
+  }
+  if (!hasComposerTraitsTarget(input)) {
+    return null;
+  }
+  return (
+    <TraitsPicker
+      provider={input.provider}
+      models={input.models}
+      {...(input.threadRef ? { threadRef: input.threadRef } : {})}
+      {...(input.draftId ? { draftId: input.draftId } : {})}
+      model={input.model}
+      modelOptions={input.modelOptions}
+      prompt={input.prompt}
+      onPromptChange={input.onPromptChange}
+    />
+  );
 }

@@ -5,8 +5,11 @@ const { mockWebContentsView } = vi.hoisted(() => ({
     return {
       webContents: {
         close: vi.fn(),
+        copy: vi.fn(),
         focus: vi.fn(),
+        getTitle: vi.fn(() => "VS Code"),
         loadURL: vi.fn(),
+        on: vi.fn(),
       },
       setBounds: vi.fn(),
     };
@@ -14,6 +17,10 @@ const { mockWebContentsView } = vi.hoisted(() => ({
 }));
 
 vi.mock("electron", () => ({
+  clipboard: {
+    readText: vi.fn(() => ""),
+    writeText: vi.fn(),
+  },
   WebContentsView: mockWebContentsView,
 }));
 
@@ -23,6 +30,7 @@ import {
   extractVSCodeServerUrl,
   isPortBindInUseError,
   isVSCodeServerReadyOutput,
+  resolveVSCodeFenrirShortcutCommand,
   resolveVSCodeWorkspacePath,
 } from "./VSCodeWebManager";
 
@@ -140,5 +148,72 @@ describe("createVSCodeServerEnv", () => {
     ).toEqual({
       PATH: "/opt/homebrew/bin:/usr/bin",
     });
+  });
+});
+
+describe("resolveVSCodeFenrirShortcutCommand", () => {
+  const keybindings = [
+    {
+      command: "terminal.toggle",
+      shortcut: {
+        key: "j",
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+        modKey: true,
+      },
+    },
+    {
+      command: "chat.new",
+      shortcut: {
+        key: "n",
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+        modKey: true,
+      },
+    },
+  ] as const;
+
+  it("captures Fenrir editor-owned shortcuts inside VS Code", () => {
+    expect(
+      resolveVSCodeFenrirShortcutCommand(
+        {
+          key: "j",
+          code: "KeyJ",
+          metaKey: true,
+          ctrlKey: false,
+          shiftKey: false,
+          altKey: false,
+        },
+        {
+          keybindings,
+          platform: "MacIntel",
+          context: { terminalFocus: false, terminalOpen: false, reviewFocus: false },
+        },
+      ),
+    ).toBe("terminal.toggle");
+  });
+
+  it("leaves non-editor-owned app shortcuts to VS Code", () => {
+    expect(
+      resolveVSCodeFenrirShortcutCommand(
+        {
+          key: "n",
+          code: "KeyN",
+          metaKey: true,
+          ctrlKey: false,
+          shiftKey: false,
+          altKey: false,
+        },
+        {
+          keybindings,
+          platform: "MacIntel",
+          context: { terminalFocus: false, terminalOpen: false, reviewFocus: false },
+        },
+      ),
+    ).toBeNull();
   });
 });

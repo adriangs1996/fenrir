@@ -1,6 +1,6 @@
-#!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { BROWSER_LAB_MCP_TOOLS, truncateBrowserLabToolResult } from "./browserLabTools.ts";
 
 const backendUrl = process.env.FENRIR_MCP_BACKEND_URL?.trim();
@@ -45,7 +45,7 @@ for (const tool of BROWSER_LAB_MCP_TOOLS) {
     tool.name,
     {
       description: tool.description,
-      inputSchema: {},
+      inputSchema: tool.inputSchema as unknown as ZodRawShapeCompat,
     },
     async (input: unknown) => {
       const result = await callTool(tool.name, input);
@@ -58,7 +58,7 @@ for (const tool of BROWSER_LAB_MCP_TOOLS) {
         return {
           content: [
             {
-              type: "image",
+              type: "image" as const,
               data: (result as { data: string }).data,
               mimeType:
                 typeof (result as { mimeType?: unknown }).mimeType === "string"
@@ -69,10 +69,17 @@ for (const tool of BROWSER_LAB_MCP_TOOLS) {
         };
       }
       return {
-        content: [{ type: "text", text: truncateBrowserLabToolResult(result) }],
+        content: [{ type: "text" as const, text: truncateBrowserLabToolResult(result) }],
       };
     },
   );
 }
 
-await server.connect(new StdioServerTransport());
+async function main(): Promise<void> {
+  await server.connect(new StdioServerTransport());
+}
+
+void main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});

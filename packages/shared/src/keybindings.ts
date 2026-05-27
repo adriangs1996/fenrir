@@ -1,4 +1,5 @@
 import {
+  type KeybindingCommand,
   GLOBAL_SCRIPT_RUN_COMMAND_PATTERN,
   type KeybindingRule,
   type KeybindingShortcut,
@@ -18,6 +19,69 @@ type WhenToken =
   | { type: "or" }
   | { type: "lparen" }
   | { type: "rparen" };
+
+export interface ShortcutEventLike {
+  readonly type?: string;
+  readonly code?: string;
+  readonly key: string;
+  readonly metaKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly shiftKey: boolean;
+  readonly altKey: boolean;
+}
+
+export interface ShortcutMatchContext {
+  readonly terminalFocus: boolean;
+  readonly terminalOpen: boolean;
+  readonly reviewFocus: boolean;
+  readonly [key: string]: boolean;
+}
+
+export interface ShortcutMatchOptions {
+  readonly platform?: string;
+  readonly context?: Partial<ShortcutMatchContext>;
+}
+
+const EVENT_CODE_KEY_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  BracketLeft: ["["],
+  BracketRight: ["]"],
+  KeyA: ["a"],
+  KeyB: ["b"],
+  KeyC: ["c"],
+  KeyD: ["d"],
+  KeyE: ["e"],
+  KeyF: ["f"],
+  KeyG: ["g"],
+  KeyH: ["h"],
+  KeyI: ["i"],
+  KeyJ: ["j"],
+  KeyK: ["k"],
+  KeyL: ["l"],
+  KeyM: ["m"],
+  KeyN: ["n"],
+  KeyO: ["o"],
+  KeyP: ["p"],
+  KeyQ: ["q"],
+  KeyR: ["r"],
+  KeyS: ["s"],
+  KeyT: ["t"],
+  KeyU: ["u"],
+  KeyV: ["v"],
+  KeyW: ["w"],
+  KeyX: ["x"],
+  KeyY: ["y"],
+  KeyZ: ["z"],
+  Digit0: ["0"],
+  Digit1: ["1"],
+  Digit2: ["2"],
+  Digit3: ["3"],
+  Digit4: ["4"],
+  Digit5: ["5"],
+  Digit6: ["6"],
+  Digit7: ["7"],
+  Digit8: ["8"],
+  Digit9: ["9"],
+};
 
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+j", command: "terminal.toggle" },
@@ -300,6 +364,106 @@ export function compileResolvedKeybindingsConfig(
 }
 
 export const DEFAULT_RESOLVED_KEYBINDINGS = compileResolvedKeybindingsConfig(DEFAULT_KEYBINDINGS);
+
+function isMacPlatform(platform: string): boolean {
+  return /Mac|iPhone|iPad|iPod|darwin/i.test(platform);
+}
+
+function normalizeEventKey(key: string): string {
+  const normalized = key.toLowerCase();
+  if (normalized === "esc") return "escape";
+  return normalized;
+}
+
+function resolveEventKeys(event: ShortcutEventLike): Set<string> {
+  const keys = new Set([normalizeEventKey(event.key)]);
+  const aliases = event.code ? EVENT_CODE_KEY_ALIASES[event.code] : undefined;
+  if (!aliases) return keys;
+
+  for (const alias of aliases) {
+    keys.add(alias);
+  }
+  return keys;
+}
+
+function resolvePlatform(options: ShortcutMatchOptions | undefined): string {
+  return options?.platform ?? (typeof process !== "undefined" ? process.platform : "");
+}
+
+function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatchContext {
+  return {
+    terminalFocus: false,
+    terminalOpen: false,
+    reviewFocus: false,
+    ...options?.context,
+  };
+}
+
+function matchesShortcutModifiers(
+  event: ShortcutEventLike,
+  shortcut: KeybindingShortcut,
+  platform: string,
+): boolean {
+  const useMetaForMod = isMacPlatform(platform);
+  const expectedMeta = shortcut.metaKey || (shortcut.modKey && useMetaForMod);
+  const expectedCtrl = shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod);
+  return (
+    event.metaKey === expectedMeta &&
+    event.ctrlKey === expectedCtrl &&
+    event.shiftKey === shortcut.shiftKey &&
+    event.altKey === shortcut.altKey
+  );
+}
+
+function matchesShortcut(
+  event: ShortcutEventLike,
+  shortcut: KeybindingShortcut,
+  platform: string,
+): boolean {
+  if (!matchesShortcutModifiers(event, shortcut, platform)) return false;
+  return resolveEventKeys(event).has(shortcut.key);
+}
+
+function evaluateWhenNode(node: KeybindingWhenNode, context: ShortcutMatchContext): boolean {
+  switch (node.type) {
+    case "identifier":
+      if (node.name === "true") return true;
+      if (node.name === "false") return false;
+      return Boolean(context[node.name]);
+    case "not":
+      return !evaluateWhenNode(node.node, context);
+    case "and":
+      return evaluateWhenNode(node.left, context) && evaluateWhenNode(node.right, context);
+    case "or":
+      return evaluateWhenNode(node.left, context) || evaluateWhenNode(node.right, context);
+  }
+}
+
+function matchesWhenClause(
+  whenAst: KeybindingWhenNode | undefined,
+  context: ShortcutMatchContext,
+): boolean {
+  if (!whenAst) return true;
+  return evaluateWhenNode(whenAst, context);
+}
+
+export function resolveShortcutCommand(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): KeybindingCommand | null {
+  const platform = resolvePlatform(options);
+  const context = resolveContext(options);
+
+  for (let index = keybindings.length - 1; index >= 0; index -= 1) {
+    const binding = keybindings[index];
+    if (!binding) continue;
+    if (!matchesWhenClause(binding.whenAst, context)) continue;
+    if (!matchesShortcut(event, binding.shortcut, platform)) continue;
+    return binding.command;
+  }
+  return null;
+}
 
 export function isProjectScriptKeybindingCommand(command: string): boolean {
   return command.startsWith("script.") && command.endsWith(".run");

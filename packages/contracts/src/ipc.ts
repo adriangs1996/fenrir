@@ -137,6 +137,7 @@ import type {
   ResolveSkillConflictInput,
   ServerSkillDetails,
 } from "./skill";
+import type { KeybindingCommand, ResolvedKeybindingsConfig } from "./keybindings";
 
 // ── Editor IPC channels ──────────────────────────────────────
 export const EDITOR_OPEN_FILE_CHANNEL = "fenrir:editor:openFile";
@@ -144,6 +145,7 @@ export const EDITOR_EVENT_CHANNEL = "fenrir:editor:event";
 export const EDITOR_SEND_TO_COMPOSER_CHANNEL = "fenrir:editor:sendToComposer";
 export const EDITOR_CMD_CHANNEL = "fenrir:editor:cmd";
 export const EDITOR_INVOKE_BRIDGE_CHANNEL = "fenrir:editor:invokeBridge";
+export const VSCODE_SHORTCUT_COMMAND_CHANNEL = "fenrir:vscode:shortcutCommand";
 
 // ── Editor IPC payloads ──────────────────────────────────────
 export const EditorOpenFileInput = Schema.Struct({
@@ -178,6 +180,19 @@ export const EditorSendToComposer = Schema.Struct({
   text: Schema.String,
 });
 export type EditorSendToComposer = typeof EditorSendToComposer.Type;
+
+export interface VSCodeShortcutContext {
+  readonly terminalFocus: boolean;
+  readonly terminalOpen: boolean;
+  readonly reviewFocus: boolean;
+  readonly [key: string]: boolean;
+}
+
+export interface VSCodeShortcutState {
+  readonly keybindings: ResolvedKeybindingsConfig;
+  readonly platform: string;
+  readonly context: Partial<VSCodeShortcutContext>;
+}
 
 export const EditorCmd = Schema.Struct({
   subcommand: Schema.Literals(["focus-chat", "new-thread", "submit"]),
@@ -473,6 +488,8 @@ export interface DesktopBridge {
   vscodeSetBounds?: (bounds: EmbeddedViewBounds) => Promise<void>;
   vscodeShow?: () => Promise<void>;
   vscodeHide?: () => Promise<void>;
+  vscodeSetShortcutState?: (state: VSCodeShortcutState) => Promise<void>;
+  vscodeOnShortcutCommand?: (cb: (command: KeybindingCommand) => void) => () => void;
 
   // Render loop (backend-agnostic frame pipeline)
   renderStart: () => Promise<void>;

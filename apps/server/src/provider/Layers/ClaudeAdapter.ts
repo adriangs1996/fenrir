@@ -535,14 +535,14 @@ function summarizeToolRequest(toolName: string, input: Record<string, unknown>):
   return `${toolName}: ${serialized.slice(0, 397)}...`;
 }
 
-function titleForTool(itemType: CanonicalItemType): string {
+function titleForTool(itemType: CanonicalItemType, toolName?: string): string {
   switch (itemType) {
     case "command_execution":
       return "Command run";
     case "file_change":
       return "File change";
     case "mcp_tool_call":
-      return "MCP tool call";
+      return toolName && toolName.trim().length > 0 ? `MCP ${toolName.trim()}` : "MCP tool call";
     case "collab_agent_tool_call":
       return "Subagent task";
     case "web_search":
@@ -1783,7 +1783,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         itemId,
         itemType,
         toolName,
-        title: titleForTool(itemType),
+        title: titleForTool(itemType, toolName),
         detail,
         input: toolInput,
         partialInputJson: "",

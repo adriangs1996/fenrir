@@ -1,4 +1,5 @@
 import * as ChildProcess from "node:child_process";
+import { clipboard } from "electron";
 import * as FS from "node:fs";
 import * as Http from "node:http";
 import * as Net from "node:net";
@@ -8,9 +9,16 @@ import { WebContentsView, type BrowserWindow } from "electron";
 import type {
   EmbeddedViewBounds,
   EditorOpenFileInput,
+  KeybindingCommand,
+  VSCodeShortcutState,
   VSCodeWebServerKind,
   VSCodeWebSession,
 } from "@fenrir/contracts";
+import {
+  EDITOR_SEND_TO_COMPOSER_CHANNEL,
+  VSCODE_SHORTCUT_COMMAND_CHANNEL,
+} from "@fenrir/contracts";
+import { resolveShortcutCommand, type ShortcutEventLike } from "@fenrir/shared/keybindings";
 
 import { probeVSCodeWeb } from "./probe";
 
@@ -32,6 +40,7 @@ export interface VSCodeWebManager {
   ensureStarted(cwd: string): Promise<VSCodeWebSession>;
   openFile(input: EditorOpenFileInput): Promise<VSCodeWebSession>;
   setBounds(bounds: EmbeddedViewBounds): void;
+  setShortcutState(state: VSCodeShortcutState): void;
   show(): void;
   hide(): void;
   stop(): void;
@@ -42,6 +51,15 @@ const STARTUP_TIMEOUT_MS = 20_000;
 const SHUTDOWN_KILL_DELAY_MS = 2_000;
 const STARTUP_LOG_TAIL_LINES = 20;
 const PORT_BIND_RETRY_LIMIT = 3;
+const VSCODE_FENRIR_SHORTCUT_COMMANDS = new Set<KeybindingCommand>([
+  "terminal.toggle",
+  "terminal.split",
+  "terminal.new",
+  "terminal.close",
+  "diff.toggle",
+  "editor.toggleChatTab",
+  "editor.sendSelection",
+]);
 
 export function resolveVSCodeWorkspacePath(targetPath: string): string {
   const resolvedPath = Path.resolve(targetPath);
@@ -76,6 +94,18 @@ export function createVSCodeServerEnv(env: NodeJS.ProcessEnv = process.env): Nod
   delete nextEnv.VITE_HTTP_URL;
   delete nextEnv.VITE_WS_URL;
   return nextEnv;
+}
+
+export function resolveVSCodeFenrirShortcutCommand(
+  event: ShortcutEventLike,
+  state: VSCodeShortcutState | null,
+): KeybindingCommand | null {
+  if (!state) return null;
+  const command = resolveShortcutCommand(event, state.keybindings, {
+    platform: state.platform,
+    context: state.context,
+  });
+  return command && VSCODE_FENRIR_SHORTCUT_COMMANDS.has(command) ? command : null;
 }
 
 function trimStartupLogLines(lines: string[]): string[] {
@@ -204,6 +234,7 @@ export function createVSCodeWebManager(config: VSCodeWebManagerConfig): VSCodeWe
   const parentWindow = config.window;
   let activeSession: ActiveVSCodeWebSession | null = null;
   let activeBounds: EmbeddedViewBounds | null = null;
+  let shortcutState: VSCodeShortcutState | null = null;
   let startPromise: Promise<VSCodeWebSession> | null = null;
 
   function detachView(view: WebContentsView): void {
@@ -233,6 +264,50 @@ export function createVSCodeWebManager(config: VSCodeWebManagerConfig): VSCodeWe
       }
     }, SHUTDOWN_KILL_DELAY_MS);
     killTimer.unref();
+  }
+
+  async function sendVSCodeSelectionToComposer(session: ActiveVSCodeWebSession): Promise<void> {
+    const previousClipboardText = clipboard.readText();
+    session.view.webContents.copy();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const text = clipboard.readText();
+    clipboard.writeText(previousClipboardText);
+    const normalizedText = text.replace(/\r\n/g, "\n").replace(/^\n+|\n+$/g, "");
+    if (!normalizedText) return;
+
+    parentWindow.webContents.send(EDITOR_SEND_TO_COMPOSER_CHANNEL, {
+      file: session.view.webContents.getTitle() || "VS Code selection",
+      lineStart: 1,
+      lineEnd: Math.max(1, normalizedText.split("\n").length),
+      text: normalizedText,
+    });
+  }
+
+  function attachShortcutBridge(session: ActiveVSCodeWebSession): void {
+    session.view.webContents.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown") return;
+
+      const command = resolveVSCodeFenrirShortcutCommand(
+        {
+          key: input.key,
+          code: input.code,
+          metaKey: input.meta,
+          ctrlKey: input.control,
+          shiftKey: input.shift,
+          altKey: input.alt,
+        },
+        shortcutState,
+      );
+      if (!command) return;
+
+      event.preventDefault();
+      if (command === "editor.sendSelection") {
+        void sendVSCodeSelectionToComposer(session);
+        return;
+      }
+      parentWindow.webContents.send(VSCODE_SHORTCUT_COMMAND_CHANNEL, command);
+    });
   }
 
   async function startOnce(input: {
@@ -273,6 +348,7 @@ export function createVSCodeWebManager(config: VSCodeWebManagerConfig): VSCodeWe
       proc,
       view,
     };
+    attachShortcutBridge(session);
     activeSession = session;
     const stdoutLines: string[] = [];
     const stderrLines: string[] = [];
@@ -477,6 +553,9 @@ export function createVSCodeWebManager(config: VSCodeWebManagerConfig): VSCodeWe
         height: Math.round(bounds.height),
       };
       activeSession?.view.setBounds(activeBounds);
+    },
+    setShortcutState: (state) => {
+      shortcutState = state;
     },
 
     show: () => {

@@ -8,6 +8,8 @@ import type {
   EditorSendToComposer,
   Frame,
   InputEvent,
+  KeybindingCommand,
+  VSCodeShortcutState,
 } from "@fenrir/contracts";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
@@ -129,6 +131,8 @@ const VSCODE_OPEN_FILE_CHANNEL = "desktop:vscode-open-file";
 const VSCODE_SET_BOUNDS_CHANNEL = "desktop:vscode-set-bounds";
 const VSCODE_SHOW_CHANNEL = "desktop:vscode-show";
 const VSCODE_HIDE_CHANNEL = "desktop:vscode-hide";
+const VSCODE_SET_SHORTCUT_STATE_CHANNEL = "desktop:vscode-set-shortcut-state";
+const VSCODE_SHORTCUT_COMMAND_CHANNEL = "fenrir:vscode:shortcutCommand";
 const EDITOR_OPEN_FILE_CHANNEL = "fenrir:editor:openFile";
 const EDITOR_EVENT_CHANNEL = "fenrir:editor:event";
 const EDITOR_SEND_TO_COMPOSER_CHANNEL = "fenrir:editor:sendToComposer";
@@ -422,6 +426,15 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(VSCODE_SET_BOUNDS_CHANNEL, bounds),
   vscodeShow: () => ipcRenderer.invoke(VSCODE_SHOW_CHANNEL),
   vscodeHide: () => ipcRenderer.invoke(VSCODE_HIDE_CHANNEL),
+  vscodeSetShortcutState: (state: VSCodeShortcutState) =>
+    ipcRenderer.invoke(VSCODE_SET_SHORTCUT_STATE_CHANNEL, state),
+  vscodeOnShortcutCommand: (cb: (command: KeybindingCommand) => void) => {
+    const wrap = (_e: Electron.IpcRendererEvent, command: KeybindingCommand) => cb(command);
+    ipcRenderer.on(VSCODE_SHORTCUT_COMMAND_CHANNEL, wrap);
+    return () => {
+      ipcRenderer.removeListener(VSCODE_SHORTCUT_COMMAND_CHANNEL, wrap);
+    };
+  },
 
   // Editor IPC (nvim ↔ renderer)
   editor: {

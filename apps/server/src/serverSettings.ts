@@ -13,6 +13,7 @@
 import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
+  defaultInstanceIdForDriver,
   isBuiltInProviderKind,
   type ModelSelection,
   type ProviderKind,
@@ -145,6 +146,14 @@ function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings
   const selection = settings.textGenerationModelSelection;
   if (isBuiltInProviderKind(selection.provider) && settings.providers[selection.provider].enabled) {
     return settings;
+  }
+
+  if (!isBuiltInProviderKind(selection.provider)) {
+    const defaultInstance =
+      settings.providerInstances[defaultInstanceIdForDriver(selection.provider)];
+    if (defaultInstance?.driver === selection.provider && defaultInstance.enabled !== false) {
+      return settings;
+    }
   }
 
   const fallback = PROVIDER_ORDER.find((p) => settings.providers[p].enabled);

@@ -1582,21 +1582,44 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       const entry = getTabEntry(resolveTabId(tabId));
       return entry.view.webContents.executeJavaScript(
         `(() => {
+          const cssString = (value) => JSON.stringify(String(value)).replace(/\\u0000/g, "\\uFFFD");
           const visible = (el) => {
             const style = window.getComputedStyle(el);
             const rect = el.getBoundingClientRect();
             return style && style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
           };
-          const describe = (el, index) => {
+          const selectorFor = (el) => {
+            if (el.id) return "#" + CSS.escape(el.id);
+            const testId = el.getAttribute("data-testid") || el.getAttribute("data-test");
+            if (testId) return "[" + (el.hasAttribute("data-testid") ? "data-testid" : "data-test") + "=" + cssString(testId) + "]";
+            const ariaLabel = el.getAttribute("aria-label");
+            if (ariaLabel) return el.tagName.toLowerCase() + "[aria-label=" + cssString(ariaLabel) + "]";
+            const href = el.getAttribute("href");
+            if (el.tagName.toLowerCase() === "a" && href) return "a[href=" + cssString(href) + "]";
+            const segments = [];
+            let current = el;
+            while (current && current.nodeType === Node.ELEMENT_NODE && current !== document.body) {
+              const tag = current.tagName.toLowerCase();
+              if (current.id) {
+                segments.unshift("#" + CSS.escape(current.id));
+                break;
+              }
+              const siblings = Array.from(current.parentElement?.children || []).filter((candidate) => candidate.tagName === current.tagName);
+              const index = siblings.indexOf(current) + 1;
+              segments.unshift(tag + ":nth-of-type(" + Math.max(index, 1) + ")");
+              current = current.parentElement;
+            }
+            return segments.join(" > ");
+          };
+          const describe = (el) => {
             const rect = el.getBoundingClientRect();
             const tag = el.tagName.toLowerCase();
             const text = (el.innerText || el.value || el.getAttribute("aria-label") || el.getAttribute("title") || "").trim().slice(0, 200);
-            const id = el.id ? "#" + CSS.escape(el.id) : "";
-            const selector = id || tag + ":nth-of-type(" + (index + 1) + ")";
-            return { tag, selector, text, role: el.getAttribute("role"), href: el.href || undefined, x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) };
+            const rawHref = el.getAttribute("href") || undefined;
+            return { tag, selector: selectorFor(el), text, role: el.getAttribute("role"), href: el.href || undefined, rawHref, x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) };
           };
           const interactive = Array.from(document.querySelectorAll("a,button,input,textarea,select,[role=button],[contenteditable=true]")).filter(visible).slice(0, 80).map(describe);
-          const focused = document.activeElement && document.activeElement !== document.body ? describe(document.activeElement, 0) : null;
+          const focused = document.activeElement && document.activeElement !== document.body ? describe(document.activeElement) : null;
           return {
             url: location.href,
             title: document.title,
@@ -1622,8 +1645,27 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       if (input.selector) {
         const point = await entry.view.webContents.executeJavaScript(
           `(() => {
-            const el = document.querySelector(${JSON.stringify(input.selector)});
-            if (!el) throw new Error("Selector not found.");
+            const selector = ${JSON.stringify(input.selector)};
+            const extractHrefSelectorValue = (value) => {
+              const match = /^a\\[href=(["'])(.*)\\1\\]$/.exec(value.trim());
+              return match ? match[2] : null;
+            };
+            const resolveElement = () => {
+              try {
+                const selected = document.querySelector(selector);
+                if (selected) return selected;
+              } catch (error) {
+                throw new Error("Invalid selector: " + selector);
+              }
+              const href = extractHrefSelectorValue(selector);
+              if (!href) return null;
+              return Array.from(document.querySelectorAll("a[href]")).find((anchor) => {
+                const rawHref = anchor.getAttribute("href");
+                return rawHref === href || anchor.href === href || (rawHref && new URL(rawHref, location.href).href === href);
+              }) || null;
+            };
+            const el = resolveElement();
+            if (!el) throw new Error("Selector not found: " + selector);
             const rect = el.getBoundingClientRect();
             return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
           })()`,

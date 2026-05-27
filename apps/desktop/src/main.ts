@@ -32,6 +32,7 @@ import type {
   DesktopUpdateActionResult,
   DesktopUpdateCheckResult,
   DesktopUpdateState,
+  VSCodeShortcutState,
 } from "@fenrir/contracts";
 import { autoUpdater } from "electron-updater";
 
@@ -214,6 +215,7 @@ const VSCODE_OPEN_FILE_CHANNEL = "desktop:vscode-open-file";
 const VSCODE_SET_BOUNDS_CHANNEL = "desktop:vscode-set-bounds";
 const VSCODE_SHOW_CHANNEL = "desktop:vscode-show";
 const VSCODE_HIDE_CHANNEL = "desktop:vscode-hide";
+const VSCODE_SET_SHORTCUT_STATE_CHANNEL = "desktop:vscode-set-shortcut-state";
 const BASE_DIR = process.env.FENRIR_HOME?.trim() || Path.join(OS.homedir(), ".fenrir");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
@@ -2917,6 +2919,14 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(VSCODE_HIDE_CHANNEL);
   ipcMain.handle(VSCODE_HIDE_CHANNEL, async () => {
     vscodeWebManager?.hide();
+  });
+
+  ipcMain.removeHandler(VSCODE_SET_SHORTCUT_STATE_CHANNEL);
+  ipcMain.handle(VSCODE_SET_SHORTCUT_STATE_CHANNEL, async (_event, state: unknown) => {
+    if (typeof state !== "object" || state === null) {
+      throw new Error("Invalid VS Code shortcut state.");
+    }
+    ensureVSCodeWebManager().setShortcutState(state as VSCodeShortcutState);
   });
 
   // ---- Editor IPC (nvim ↔ renderer) ----

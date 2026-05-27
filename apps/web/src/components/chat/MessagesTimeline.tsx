@@ -10,19 +10,13 @@ import {
   useCallback,
   useEffect,
   useContext,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-import {
-  measureElement as measureVirtualElement,
-  type VirtualItem,
-  useVirtualizer,
-} from "@tanstack/react-virtual";
+import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { deriveTimelineEntries, formatElapsed } from "../../session-logic";
-import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX } from "../../chat-scroll";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
@@ -41,7 +35,6 @@ import {
   ZapIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
-import { clamp } from "effect/Number";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
@@ -51,7 +44,6 @@ import {
   MAX_VISIBLE_WORK_LOG_ENTRIES,
   computeStableMessagesTimelineRows,
   deriveMessagesTimelineRows,
-  estimateMessagesTimelineRowHeight,
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
   type MessagesTimelineRow,
@@ -70,6 +62,7 @@ import {
   EditorContextInlineChip,
 } from "~/modules/neovim-editor";
 import { cn } from "~/lib/utils";
+import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@fenrir/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
 
@@ -81,23 +74,17 @@ import {
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import { SkillInlineText } from "./SkillInlineText";
 
-const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
-
 interface TimelineRowSharedState {
   timestampFormat: TimestampFormat;
+  routeThreadKey: string;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
   workspaceRoot: string | undefined;
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   activeThreadEnvironmentId: EnvironmentId;
-  expandedWorkGroups: Record<string, boolean>;
-  changedFilesExpandedByTurnId: Record<string, boolean>;
-  onToggleWorkGroup: (groupId: string) => void;
-  onSetChangedFilesExpanded: (turnId: TurnId, expanded: boolean) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onRevertUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
-  onTimelineImageLoad: () => void;
 }
 
 interface TimelineRowActivityState {
@@ -107,21 +94,20 @@ interface TimelineRowActivityState {
 
 const TimelineRowCtx = createContext<TimelineRowSharedState | null>(null);
 const TimelineRowActivityCtx = createContext<TimelineRowActivityState | null>(null);
+const TIMELINE_LIST_HEADER = <div className="h-3 sm:h-4" />;
+const TIMELINE_LIST_FOOTER = <div className="h-3 sm:h-4" />;
 
 interface MessagesTimelineProps {
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnId?: TurnId | null;
   activeTurnStartedAt: string | null;
-  scrollContainer: HTMLDivElement | null;
+  listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
-  expandedWorkGroups: Record<string, boolean>;
-  onToggleWorkGroup: (groupId: string) => void;
-  changedFilesExpandedByTurnId: Record<string, boolean>;
-  onSetChangedFilesExpanded: (turnId: TurnId, expanded: boolean) => void;
+  routeThreadKey: string;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onRevertUserMessage: (messageId: MessageId) => void;
@@ -133,17 +119,7 @@ interface MessagesTimelineProps {
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
-  onVirtualizerSnapshot?: (snapshot: {
-    totalSize: number;
-    measurements: ReadonlyArray<{
-      id: string;
-      kind: MessagesTimelineRow["kind"];
-      index: number;
-      size: number;
-      start: number;
-      end: number;
-    }>;
-  }) => void;
+  onIsAtEndChange: (isAtEnd: boolean) => void;
 }
 
 const EMPTY_TIMELINE_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
@@ -153,15 +129,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   activeTurnInProgress,
   activeTurnId,
   activeTurnStartedAt,
-  scrollContainer,
+  listRef,
   timelineEntries,
   completionDividerBeforeEntryId,
   completionSummary,
   turnDiffSummaryByAssistantMessageId,
-  expandedWorkGroups,
-  onToggleWorkGroup,
-  changedFilesExpandedByTurnId,
-  onSetChangedFilesExpanded,
+  routeThreadKey,
   onOpenTurnDiff,
   revertTurnCountByUserMessageId,
   onRevertUserMessage,
@@ -173,36 +146,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
   skills = EMPTY_TIMELINE_SKILLS,
-  onVirtualizerSnapshot,
+  onIsAtEndChange,
 }: MessagesTimelineProps) {
-  const timelineRootRef = useRef<HTMLDivElement | null>(null);
-  const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
-
-  useLayoutEffect(() => {
-    const timelineRoot = timelineRootRef.current;
-    if (!timelineRoot) return;
-
-    const updateWidth = (nextWidth: number) => {
-      setTimelineWidthPx((previousWidth) => {
-        if (previousWidth !== null && Math.abs(previousWidth - nextWidth) < 0.5) {
-          return previousWidth;
-        }
-        return nextWidth;
-      });
-    };
-
-    updateWidth(timelineRoot.getBoundingClientRect().width);
-
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      updateWidth(timelineRoot.getBoundingClientRect().width);
-    });
-    observer.observe(timelineRoot);
-    return () => {
-      observer.disconnect();
-    };
-  }, [isWorking, timelineEntries.length]);
-
   const rawRows = useMemo(
     () =>
       deriveMessagesTimelineRows({
@@ -230,168 +175,55 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   const rows = useStableRows(rawRows);
 
-  const firstUnvirtualizedRowIndex = useMemo(() => {
-    const firstTailRowIndex = Math.max(rows.length - ALWAYS_UNVIRTUALIZED_TAIL_ROWS, 0);
-    if (!activeTurnInProgress) return firstTailRowIndex;
-
-    const turnStartedAtMs =
-      typeof activeTurnStartedAt === "string" ? Date.parse(activeTurnStartedAt) : Number.NaN;
-    let firstCurrentTurnRowIndex = -1;
-    if (!Number.isNaN(turnStartedAtMs)) {
-      firstCurrentTurnRowIndex = rows.findIndex((row) => {
-        if (row.kind === "working") return true;
-        if (!row.createdAt) return false;
-        const rowCreatedAtMs = Date.parse(row.createdAt);
-        return !Number.isNaN(rowCreatedAtMs) && rowCreatedAtMs >= turnStartedAtMs;
-      });
+  const handleScroll = useCallback(() => {
+    const state = listRef.current?.getState?.();
+    if (state) {
+      onIsAtEndChange(state.isAtEnd);
     }
+  }, [listRef, onIsAtEndChange]);
 
-    if (firstCurrentTurnRowIndex < 0) {
-      firstCurrentTurnRowIndex = rows.findIndex(
-        (row) => row.kind === "message" && row.message.streaming,
-      );
-    }
-
-    if (firstCurrentTurnRowIndex < 0) return firstTailRowIndex;
-
-    for (let index = firstCurrentTurnRowIndex - 1; index >= 0; index -= 1) {
-      const previousRow = rows[index];
-      if (!previousRow || previousRow.kind !== "message") continue;
-      if (previousRow.message.role === "user") {
-        return Math.min(index, firstTailRowIndex);
-      }
-      if (previousRow.message.role === "assistant" && !previousRow.message.streaming) {
-        break;
-      }
-    }
-
-    return Math.min(firstCurrentTurnRowIndex, firstTailRowIndex);
-  }, [activeTurnInProgress, activeTurnStartedAt, rows]);
-
-  const virtualizedRowCount = clamp(firstUnvirtualizedRowIndex, {
-    minimum: 0,
-    maximum: rows.length,
-  });
-  const virtualMeasurementScopeKey =
-    timelineWidthPx === null ? "width:unknown" : `width:${Math.round(timelineWidthPx)}`;
-
-  const rowVirtualizer = useVirtualizer({
-    count: virtualizedRowCount,
-    getScrollElement: () => scrollContainer,
-    // Scope cached row measurements to the current timeline width so offscreen
-    // rows do not keep stale heights after wrapping changes.
-    getItemKey: (index: number) => {
-      const rowId = rows[index]?.id ?? String(index);
-      return `${virtualMeasurementScopeKey}:${rowId}`;
-    },
-    estimateSize: (index: number) => {
-      const row = rows[index];
-      if (!row) return 96;
-      return estimateMessagesTimelineRowHeight(row, {
-        expandedWorkGroups,
-        timelineWidthPx,
-        turnDiffSummaryByAssistantMessageId,
-      });
-    },
-    measureElement: measureVirtualElement,
-    useAnimationFrameWithResizeObserver: true,
-    overscan: 8,
-  });
+  const previousRowCountRef = useRef(rows.length);
   useEffect(() => {
-    if (timelineWidthPx === null) return;
-    rowVirtualizer.measure();
-  }, [rowVirtualizer, timelineWidthPx]);
-  useEffect(() => {
-    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
-      const viewportHeight = instance.scrollRect?.height ?? 0;
-      const scrollOffset = instance.scrollOffset ?? 0;
-      const itemIntersectsViewport =
-        item.end > scrollOffset && item.start < scrollOffset + viewportHeight;
-      if (itemIntersectsViewport) {
-        return false;
-      }
-      const remainingDistance = instance.getTotalSize() - (scrollOffset + viewportHeight);
-      return remainingDistance > AUTO_SCROLL_BOTTOM_THRESHOLD_PX;
-    };
-    return () => {
-      rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = undefined;
-    };
-  }, [rowVirtualizer]);
-  const pendingMeasureFrameRef = useRef<number | null>(null);
-  const onTimelineImageLoad = useCallback(() => {
-    if (pendingMeasureFrameRef.current !== null) return;
-    pendingMeasureFrameRef.current = window.requestAnimationFrame(() => {
-      pendingMeasureFrameRef.current = null;
-      rowVirtualizer.measure();
-    });
-  }, [rowVirtualizer]);
-  useEffect(() => {
-    return () => {
-      const frame = pendingMeasureFrameRef.current;
-      if (frame !== null) {
-        window.cancelAnimationFrame(frame);
-      }
-    };
-  }, []);
-  useLayoutEffect(() => {
-    if (!onVirtualizerSnapshot) {
+    const previousRowCount = previousRowCountRef.current;
+    previousRowCountRef.current = rows.length;
+
+    if (previousRowCount > 0 || rows.length === 0) {
       return;
     }
-    onVirtualizerSnapshot({
-      totalSize: rowVirtualizer.getTotalSize(),
-      measurements: rowVirtualizer.measurementsCache
-        .slice(0, virtualizedRowCount)
-        .flatMap((measurement) => {
-          const row = rows[measurement.index];
-          if (!row) {
-            return [];
-          }
-          return [
-            {
-              id: row.id,
-              kind: row.kind,
-              index: measurement.index,
-              size: measurement.size,
-              start: measurement.start,
-              end: measurement.end,
-            },
-          ];
-        }),
+
+    onIsAtEndChange(true);
+    const frameId = window.requestAnimationFrame(() => {
+      void listRef.current?.scrollToEnd?.({ animated: false });
     });
-  }, [onVirtualizerSnapshot, rowVirtualizer, rows, virtualizedRowCount]);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [listRef, onIsAtEndChange, rows.length]);
 
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
       timestampFormat,
+      routeThreadKey,
       markdownCwd,
       resolvedTheme,
       workspaceRoot,
       skills,
       activeThreadEnvironmentId,
-      expandedWorkGroups,
-      changedFilesExpandedByTurnId,
-      onToggleWorkGroup,
-      onSetChangedFilesExpanded,
       onOpenTurnDiff,
       onRevertUserMessage,
       onImageExpand,
-      onTimelineImageLoad,
     }),
     [
       timestampFormat,
+      routeThreadKey,
       markdownCwd,
       resolvedTheme,
       workspaceRoot,
       skills,
       activeThreadEnvironmentId,
-      expandedWorkGroups,
-      changedFilesExpandedByTurnId,
-      onToggleWorkGroup,
-      onSetChangedFilesExpanded,
       onOpenTurnDiff,
       onRevertUserMessage,
       onImageExpand,
-      onTimelineImageLoad,
     ],
   );
   const activityState = useMemo<TimelineRowActivityState>(
@@ -401,8 +233,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }),
     [isRevertingCheckpoint, isWorking],
   );
-  const virtualRows = rowVirtualizer.getVirtualItems();
-  const nonVirtualizedRows = rows.slice(virtualizedRowCount);
+
+  const renderItem = useCallback(
+    ({ item }: { item: MessagesTimelineRow }) => (
+      <div className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip" data-timeline-root="true">
+        <TimelineRowContent row={item} />
+      </div>
+    ),
+    [],
+  );
 
   if (rows.length === 0 && !isWorking) {
     return (
@@ -417,46 +256,29 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   return (
     <TimelineRowCtx.Provider value={sharedState}>
       <TimelineRowActivityCtx.Provider value={activityState}>
-        <div
-          ref={timelineRootRef}
-          data-timeline-root="true"
-          className="mx-auto w-full min-w-0 max-w-3xl overflow-x-clip"
-        >
-          {virtualizedRowCount > 0 && (
-            <div className="relative" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-              {virtualRows.map((virtualRow: VirtualItem) => {
-                const row = rows[virtualRow.index];
-                if (!row) return null;
-
-                return (
-                  <div
-                    key={`virtual-row:${row.id}`}
-                    data-index={virtualRow.index}
-                    data-virtual-row-id={row.id}
-                    data-virtual-row-kind={row.kind}
-                    data-virtual-row-size={virtualRow.size}
-                    data-virtual-row-start={virtualRow.start}
-                    ref={rowVirtualizer.measureElement}
-                    className="absolute left-0 top-0 w-full"
-                    style={{ transform: `translateY(${virtualRow.start}px)` }}
-                  >
-                    <TimelineRowContent row={row} />
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {nonVirtualizedRows.map((row) => (
-            <div key={`non-virtual-row:${row.id}`}>
-              <TimelineRowContent row={row} />
-            </div>
-          ))}
-        </div>
+        <LegendList<MessagesTimelineRow>
+          ref={listRef}
+          data={rows}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          estimatedItemSize={90}
+          initialScrollAtEnd
+          maintainScrollAtEnd
+          maintainScrollAtEndThreshold={0.1}
+          maintainVisibleContentPosition
+          onScroll={handleScroll}
+          className="h-full overflow-x-hidden overscroll-y-contain px-3 sm:px-5"
+          ListHeaderComponent={TIMELINE_LIST_HEADER}
+          ListFooterComponent={TIMELINE_LIST_FOOTER}
+        />
       </TimelineRowActivityCtx.Provider>
     </TimelineRowCtx.Provider>
   );
 });
+
+function keyExtractor(item: MessagesTimelineRow) {
+  return item.id;
+}
 
 type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
 type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
@@ -516,10 +338,9 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
 });
 
 function WorkGroupSection({ row }: { row: Extract<TimelineRow, { kind: "work" }> }) {
-  const { expandedWorkGroups, onToggleWorkGroup, workspaceRoot } = useTimelineRowCtx();
-  const groupId = row.id;
+  const { workspaceRoot } = useTimelineRowCtx();
   const groupedEntries = row.groupedEntries;
-  const isExpanded = expandedWorkGroups[groupId] ?? false;
+  const [isExpanded, setExpanded] = useState(false);
   const hasOverflow = groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
   const visibleEntries =
     hasOverflow && !isExpanded
@@ -541,7 +362,7 @@ function WorkGroupSection({ row }: { row: Extract<TimelineRow, { kind: "work" }>
             <button
               type="button"
               className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/55 transition-colors duration-150 hover:text-foreground/75"
-              onClick={() => onToggleWorkGroup(groupId)}
+              onClick={() => setExpanded((current) => !current)}
             >
               {isExpanded ? "Show less" : `Show ${hiddenCount} more`}
             </button>
@@ -595,8 +416,6 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
                       src={image.previewUrl}
                       alt={image.name}
                       className="block h-auto max-h-[220px] w-full object-cover"
-                      onLoad={ctx.onTimelineImageLoad}
-                      onError={ctx.onTimelineImageLoad}
                     />
                   </button>
                 ) : (
@@ -719,7 +538,13 @@ function AssistantChangedFilesSection({
 
   const summaryStat = summarizeTurnDiffStats(checkpointFiles);
   const changedFileCountLabel = String(checkpointFiles.length);
-  const allDirectoriesExpanded = ctx.changedFilesExpandedByTurnId[turnSummary.turnId] ?? true;
+  const allDirectoriesExpanded = useUiStateStore(
+    (store) =>
+      store.threadChangedFilesExpandedById[ctx.routeThreadKey]?.[turnSummary.turnId] ?? true,
+  );
+  const setThreadChangedFilesExpanded = useUiStateStore(
+    (store) => store.setThreadChangedFilesExpanded,
+  );
 
   return (
     <div className="mt-2 rounded-lg border border-border/80 bg-card/45 p-2.5">
@@ -740,7 +565,11 @@ function AssistantChangedFilesSection({
             variant="outline"
             data-scroll-anchor-ignore
             onClick={() =>
-              ctx.onSetChangedFilesExpanded(turnSummary.turnId, !allDirectoriesExpanded)
+              setThreadChangedFilesExpanded(
+                ctx.routeThreadKey,
+                turnSummary.turnId,
+                !allDirectoriesExpanded,
+              )
             }
           >
             {allDirectoriesExpanded ? "Collapse all" : "Expand all"}

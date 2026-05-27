@@ -103,7 +103,12 @@ export function EditorPane({
           />
         </div>
       ) : (
-        <VSCodePane cwd={cwd} visible={visible} />
+        <VSCodePane
+          cwd={cwd}
+          keybindings={keybindings}
+          terminalOpen={terminalOpen}
+          visible={visible}
+        />
       )}
     </div>
   );
