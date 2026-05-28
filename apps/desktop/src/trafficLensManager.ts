@@ -1,5 +1,7 @@
 import { WebContentsView, type BrowserWindow, session, type Session } from "electron";
 import { randomUUID } from "node:crypto";
+import * as FS from "node:fs";
+import * as Path from "node:path";
 import type {
   TrafficLensArchivedSessionStorageSummary,
   TrafficLensCaptureStorageOriginInput,
@@ -59,6 +61,7 @@ export interface TrafficLensManagerConfig {
   window: BrowserWindow;
   backendHttpUrl?: string;
   bootstrapToken?: string;
+  tabSessionPath?: string;
 }
 
 export interface TrafficLensManager {
@@ -153,6 +156,32 @@ interface TabEntry {
   profileId: string;
   viewMode: TrafficLensViewMode;
   mobilePreset: TrafficLensMobilePreset;
+  lastKnownUrl: string;
+}
+
+interface PersistedTrafficLensProfile {
+  readonly id: string;
+  readonly name: string;
+  readonly partitionKey: string;
+  readonly userAgentPreset?: string;
+  readonly proxyPreset?: string | null;
+  readonly notes?: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+interface PersistedTrafficLensTab {
+  readonly tabId: string;
+  readonly url: string;
+  readonly profile: PersistedTrafficLensProfile;
+  readonly viewMode: TrafficLensViewMode;
+  readonly mobilePreset: TrafficLensMobilePreset;
+}
+
+interface PersistedTrafficLensTabSession {
+  readonly version: 1;
+  readonly activeTabId: string | null;
+  readonly tabs: readonly PersistedTrafficLensTab[];
 }
 
 interface RequestContext {
@@ -201,6 +230,121 @@ const MOBILE_USER_AGENTS: Record<TrafficLensMobilePreset, string> = {
   "ipad-mini":
     "Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
 };
+
+function isTrafficLensViewMode(value: unknown): value is TrafficLensViewMode {
+  return value === "desktop" || value === "mobile";
+}
+
+function isTrafficLensMobilePreset(value: unknown): value is TrafficLensMobilePreset {
+  return value === "iphone-15-pro" || value === "pixel-8" || value === "ipad-mini";
+}
+
+function readJsonFile(filePath: string): unknown {
+  try {
+    if (!FS.existsSync(filePath)) {
+      return null;
+    }
+    return JSON.parse(FS.readFileSync(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function writeJsonFile(filePath: string, value: unknown): void {
+  const directory = Path.dirname(filePath);
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  FS.mkdirSync(directory, { recursive: true });
+  FS.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  FS.renameSync(tempPath, filePath);
+}
+
+function toPersistedProfile(profile: TrafficLensProfile): PersistedTrafficLensProfile {
+  return {
+    id: profile.id,
+    name: profile.name,
+    partitionKey: profile.partitionKey,
+    ...(profile.userAgentPreset ? { userAgentPreset: profile.userAgentPreset } : {}),
+    ...(profile.proxyPreset !== undefined ? { proxyPreset: profile.proxyPreset } : {}),
+    ...(profile.notes !== undefined ? { notes: profile.notes } : {}),
+    createdAt: profile.createdAt,
+    updatedAt: profile.updatedAt,
+  };
+}
+
+function decodePersistedProfile(value: unknown): PersistedTrafficLensProfile | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.id !== "string" ||
+    typeof candidate.name !== "string" ||
+    typeof candidate.partitionKey !== "string" ||
+    typeof candidate.createdAt !== "string" ||
+    typeof candidate.updatedAt !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: candidate.id,
+    name: candidate.name,
+    partitionKey: candidate.partitionKey,
+    ...(typeof candidate.userAgentPreset === "string"
+      ? { userAgentPreset: candidate.userAgentPreset }
+      : {}),
+    ...(candidate.proxyPreset === null || typeof candidate.proxyPreset === "string"
+      ? { proxyPreset: candidate.proxyPreset }
+      : {}),
+    ...(candidate.notes === null || typeof candidate.notes === "string"
+      ? { notes: candidate.notes }
+      : {}),
+    createdAt: candidate.createdAt,
+    updatedAt: candidate.updatedAt,
+  };
+}
+
+function decodePersistedTabSession(filePath: string): PersistedTrafficLensTabSession | null {
+  const parsed = readJsonFile(filePath);
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+  const candidate = parsed as Record<string, unknown>;
+  if (candidate.version !== 1 || !Array.isArray(candidate.tabs)) {
+    return null;
+  }
+
+  const tabs = candidate.tabs.flatMap((rawTab): PersistedTrafficLensTab[] => {
+    if (typeof rawTab !== "object" || rawTab === null) {
+      return [];
+    }
+    const tab = rawTab as Record<string, unknown>;
+    const profile = decodePersistedProfile(tab.profile);
+    if (
+      typeof tab.tabId !== "string" ||
+      typeof tab.url !== "string" ||
+      !profile ||
+      !isTrafficLensViewMode(tab.viewMode) ||
+      !isTrafficLensMobilePreset(tab.mobilePreset)
+    ) {
+      return [];
+    }
+    return [
+      {
+        tabId: tab.tabId,
+        url: tab.url,
+        profile,
+        viewMode: tab.viewMode,
+        mobilePreset: tab.mobilePreset,
+      },
+    ];
+  });
+
+  return {
+    version: 1,
+    activeTabId: typeof candidate.activeTabId === "string" ? candidate.activeTabId : null,
+    tabs,
+  };
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -293,6 +437,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
   let storageEventListeners: Array<(event: TrafficLensStorageEvent) => void> = [];
   const backendUrl = config.backendHttpUrl ?? "";
   const backendToken = config.bootstrapToken ?? "";
+  const tabSessionPath = config.tabSessionPath;
 
   const defaultProfile: TrafficLensProfile = {
     id: DEFAULT_PROFILE_ID as any,
@@ -417,9 +562,13 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     const entry = getTabEntry(tabId);
     const profile = getProfile(entry.profileId);
     const wc = entry.view.webContents;
+    const currentUrl = wc.getURL();
     return {
       tabId: tabId as any,
-      url: wc.getURL(),
+      url:
+        currentUrl && (currentUrl !== "about:blank" || entry.lastKnownUrl === "about:blank")
+          ? currentUrl
+          : entry.lastKnownUrl,
       title: wc.getTitle(),
       loading: wc.isLoading(),
       canGoBack: wc.navigationHistory.canGoBack(),
@@ -429,6 +578,44 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       viewMode: entry.viewMode,
       mobilePreset: entry.mobilePreset,
     };
+  }
+
+  function getTabsInDisplayOrder(): TrafficLensTabSnapshot[] {
+    const snapshots = Array.from(activeTabs.keys()).map(getTabSnapshot);
+    if (!activeTabId) {
+      return snapshots;
+    }
+    return snapshots.toSorted((left, right) => {
+      if (left.tabId === activeTabId) {
+        return -1;
+      }
+      if (right.tabId === activeTabId) {
+        return 1;
+      }
+      return 0;
+    });
+  }
+
+  function persistTabSession(): void {
+    if (!tabSessionPath) {
+      return;
+    }
+
+    try {
+      writeJsonFile(tabSessionPath, {
+        version: 1,
+        activeTabId: activeTabId && activeTabs.has(activeTabId) ? activeTabId : null,
+        tabs: Array.from(activeTabs.values()).map((entry) => ({
+          tabId: entry.tabId,
+          url: getTabSnapshot(entry.tabId).url,
+          profile: toPersistedProfile(getProfile(entry.profileId)),
+          viewMode: entry.viewMode,
+          mobilePreset: entry.mobilePreset,
+        })),
+      } satisfies PersistedTrafficLensTabSession);
+    } catch (error) {
+      console.error("[trafficLensManager] Could not persist browser lab tabs:", error);
+    }
   }
 
   function getActiveTabEntry(): TabEntry {
@@ -1238,21 +1425,25 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     });
 
     wc.on("did-navigate", (_event, navUrl) => {
+      entry.lastKnownUrl = navUrl;
       noteOrigin(entry.profileId, navUrl, tabId);
       emitTab({
         type: "tab.navigated",
         tabId: tabId as any,
         url: navUrl,
       });
+      persistTabSession();
     });
 
     wc.on("did-navigate-in-page", (_event, navUrl) => {
+      entry.lastKnownUrl = navUrl;
       noteOrigin(entry.profileId, navUrl, tabId);
       emitTab({
         type: "tab.navigated",
         tabId: tabId as any,
         url: navUrl,
       });
+      persistTabSession();
     });
 
     wc.on("page-title-updated", (_event, title) => {
@@ -1274,6 +1465,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     wc.on("did-stop-loading", () => {
       const currentUrl = wc.getURL();
       if (currentUrl) {
+        entry.lastKnownUrl = currentUrl;
         const catalogEntry = noteOrigin(entry.profileId, currentUrl, tabId);
         if (catalogEntry) {
           void persistCookieSnapshot(
@@ -1297,6 +1489,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         tabId: tabId as any,
         loading: false,
       });
+      persistTabSession();
     });
 
     const debuggerClient = wc.debugger;
@@ -1320,10 +1513,20 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     }
   }
 
-  function createTabForProfile(profileId: string, url?: string): TrafficLensTabSnapshot {
+  function createTabForProfile(
+    profileId: string,
+    url?: string,
+    options?: {
+      readonly tabId?: string;
+      readonly viewMode?: TrafficLensViewMode;
+      readonly mobilePreset?: TrafficLensMobilePreset;
+      readonly persist?: boolean;
+    },
+  ): TrafficLensTabSnapshot {
     const profile = getProfile(profileId);
     ensureSession(profile.id);
-    const tabId = randomUUID();
+    const tabId = options?.tabId ?? randomUUID();
+    const initialUrl = url || "about:blank";
     const view = new WebContentsView({
       webPreferences: {
         partition: profile.partitionKey,
@@ -1338,17 +1541,63 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       view,
       tabId,
       profileId: profile.id,
-      viewMode: "desktop",
-      mobilePreset: DEFAULT_MOBILE_PRESET,
+      viewMode: options?.viewMode ?? "desktop",
+      mobilePreset: options?.mobilePreset ?? DEFAULT_MOBILE_PRESET,
+      lastKnownUrl: initialUrl,
     };
     activeTabs.set(tabId, entry);
     activeTabId = tabId;
     view.webContents.setUserAgent(getEffectiveUserAgent(entry));
     wireWebContents(entry);
-    void view.webContents.loadURL(url || "about:blank");
+    void view.webContents.loadURL(initialUrl);
     const snapshot = getTabSnapshot(tabId);
     emitTab({ type: "tab.created", snapshot });
+    if (options?.persist !== false) {
+      persistTabSession();
+    }
     return snapshot;
+  }
+
+  function restorePersistedTabSession(): void {
+    if (!tabSessionPath) {
+      return;
+    }
+
+    const persisted = decodePersistedTabSession(tabSessionPath);
+    if (!persisted || persisted.tabs.length === 0) {
+      return;
+    }
+
+    for (const tab of persisted.tabs) {
+      profiles.set(tab.profile.id as any, {
+        id: tab.profile.id as any,
+        name: tab.profile.name,
+        partitionKey: tab.profile.partitionKey,
+        ...(tab.profile.userAgentPreset ? { userAgentPreset: tab.profile.userAgentPreset } : {}),
+        ...(tab.profile.proxyPreset !== undefined ? { proxyPreset: tab.profile.proxyPreset } : {}),
+        ...(tab.profile.notes !== undefined ? { notes: tab.profile.notes } : {}),
+        createdAt: tab.profile.createdAt,
+        updatedAt: tab.profile.updatedAt,
+      });
+    }
+
+    for (const tab of persisted.tabs) {
+      try {
+        createTabForProfile(tab.profile.id, tab.url, {
+          tabId: tab.tabId,
+          viewMode: tab.viewMode,
+          mobilePreset: tab.mobilePreset,
+          persist: false,
+        });
+      } catch (error) {
+        console.error("[trafficLensManager] Could not restore browser lab tab:", error);
+      }
+    }
+
+    if (persisted.activeTabId && activeTabs.has(persisted.activeTabId)) {
+      activeTabId = persisted.activeTabId;
+    }
+    persistTabSession();
   }
 
   async function runStorageScript<T>(tabId: string, script: string): Promise<T> {
@@ -1427,6 +1676,8 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     ];
   }
 
+  restorePersistedTabSession();
+
   const manager: TrafficLensManager = {
     getActiveTab: () =>
       activeTabId && activeTabs.has(activeTabId) ? getTabSnapshot(activeTabId) : null,
@@ -1440,6 +1691,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
 
     setActiveTab: (tabId) => {
       activeTabId = tabId;
+      persistTabSession();
       return getTabSnapshot(tabId);
     },
 
@@ -1449,6 +1701,8 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
 
     navigateTab: (tabId, url) => {
       const entry = getTabEntry(tabId);
+      entry.lastKnownUrl = url;
+      persistTabSession();
       void entry.view.webContents.loadURL(url);
     },
 
@@ -1490,6 +1744,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         activeTabId = activeTabs.keys().next().value ?? null;
       }
       removeLiveSessionTab(originCatalog, tabId);
+      persistTabSession();
       emitTab({ type: "tab.closed", tabId: tabId as any });
     },
 
@@ -1506,6 +1761,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         tabId: input.tabId,
         viewMode: input.viewMode,
       });
+      persistTabSession();
       entry.view.webContents.reload();
       return getTabSnapshot(input.tabId);
     },
@@ -1523,6 +1779,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         tabId: input.tabId,
         mobilePreset: input.mobilePreset,
       });
+      persistTabSession();
       if (entry.viewMode === "mobile") {
         entry.view.webContents.reload();
       }
@@ -1543,6 +1800,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         return;
       }
       activeTabId = tabId;
+      persistTabSession();
 
       for (const [id, other] of activeTabs) {
         if (id !== tabId) {
@@ -1576,7 +1834,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       }
     },
 
-    getTabs: () => Array.from(activeTabs.keys()).map(getTabSnapshot),
+    getTabs: () => getTabsInDisplayOrder(),
 
     capturePageSnapshot: async (tabId) => {
       const entry = getTabEntry(resolveTabId(tabId));
@@ -1835,6 +2093,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         updatedAt: timestamp,
       };
       profiles.set(profile.id, profile);
+      persistTabSession();
       return profile;
     },
 
@@ -1861,6 +2120,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         }
         entry.view.webContents.setUserAgent(getEffectiveUserAgent(entry));
       }
+      persistTabSession();
       return updated;
     },
 
@@ -1873,6 +2133,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       }
       profiles.delete(id);
       profileSessions.delete(id);
+      persistTabSession();
     },
 
     getCookies: async (tabId) => {
@@ -2384,6 +2645,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     },
 
     stop: () => {
+      persistTabSession();
       for (const pauseId of pausedRequests.keys()) {
         removePausedRequest(pauseId);
       }

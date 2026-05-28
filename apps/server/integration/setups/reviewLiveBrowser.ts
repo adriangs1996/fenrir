@@ -495,13 +495,13 @@ function createProjectAndThreadForRepo(
     const provider = "codex";
     const defaultModel = DEFAULT_MODEL_BY_PROVIDER[provider];
     const idSuffix = randomUUID();
-    const projectId = ProjectId.makeUnsafe(`review-live-project-${idSuffix}`);
-    const threadId = ThreadId.makeUnsafe(`review-live-thread-${idSuffix}`);
+    const projectId = ProjectId.make(`review-live-project-${idSuffix}`);
+    const threadId = ThreadId.make(`review-live-thread-${idSuffix}`);
     const createdAt = new Date().toISOString();
 
     yield* dispatchOrchestrationCommand(session, {
       type: "project.create",
-      commandId: CommandId.makeUnsafe(`cmd-review-live-project-create-${idSuffix}`),
+      commandId: CommandId.make(`cmd-review-live-project-create-${idSuffix}`),
       projectId,
       title: "Review Live Browser Project",
       workspaceRoot: workspace.repoDir,
@@ -514,7 +514,7 @@ function createProjectAndThreadForRepo(
 
     yield* dispatchOrchestrationCommand(session, {
       type: "thread.create",
-      commandId: CommandId.makeUnsafe(`cmd-review-live-thread-create-${idSuffix}`),
+      commandId: CommandId.make(`cmd-review-live-thread-create-${idSuffix}`),
       threadId,
       projectId,
       title: "Review Live Browser Thread",

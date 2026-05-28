@@ -10,7 +10,7 @@ import {
   ReviewAnalysisRepository,
   type ReviewAnalysisRepositoryShape,
 } from "../Services/ReviewAnalysis.ts";
-import { ReviewAnalysisArtifact } from "../../../../../packages/contracts/src/review.ts";
+import { ReviewAnalysisArtifact } from "@fenrir/contracts/sourceControlReview";
 
 const ReviewAnalysisDbRow = ReviewAnalysisRecord.mapFields(
   Struct.assign({

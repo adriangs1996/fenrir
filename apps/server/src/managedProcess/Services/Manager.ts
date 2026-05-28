@@ -14,7 +14,7 @@ import type {
   ProjectId,
 } from "@fenrir/contracts";
 import type { Effect, Stream } from "effect";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 
 // ---------------------------------------------------------------------------
 // Lifecycle events (emitted for fan-out to orchestration domain channel)
@@ -92,7 +92,7 @@ export interface ManagedProcessManagerShape {
 // Service tag
 // ---------------------------------------------------------------------------
 
-export class ManagedProcessManager extends ServiceMap.Service<
+export class ManagedProcessManager extends Context.Service<
   ManagedProcessManager,
   ManagedProcessManagerShape
 >()("t3/managedProcess/Manager") {}

@@ -35,8 +35,8 @@ import {
 import { ServerSettingsService } from "../../serverSettings.ts";
 
 type SnapshotSource = CodexProviderShape | ClaudeProviderShape;
-const OPENCODE_DRIVER = ProviderDriverKind.makeUnsafe("opencode");
-const CURSOR_DRIVER = ProviderDriverKind.makeUnsafe("cursor");
+const OPENCODE_DRIVER = ProviderDriverKind.make("opencode");
+const CURSOR_DRIVER = ProviderDriverKind.make("cursor");
 
 function toProviderInstanceConfigMap(
   settings: ServerSettings,
@@ -57,7 +57,7 @@ function withProviderInstancePresentation(input: {
   return {
     ...input.snapshot,
     instanceId: input.instanceId,
-    driver: ProviderDriverKind.makeUnsafe(input.driverKind),
+    driver: ProviderDriverKind.make(input.driverKind),
     ...(input.displayName ? { displayName: input.displayName } : {}),
   };
 }
@@ -343,7 +343,7 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
             continue;
           }
 
-          const instanceId = ProviderInstanceId.makeUnsafe(rawInstanceId);
+          const instanceId = ProviderInstanceId.make(rawInstanceId);
           if (rawInstanceId === explicitEntry.driver && driverByKind.has(explicitEntry.driver)) {
             continue;
           }

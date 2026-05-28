@@ -50,8 +50,8 @@ describe("ProviderInstanceConfigMap", () => {
         config: { endpoint: "http://localhost:4096" },
       },
     });
-    const codexPersonalId = ProviderInstanceId.makeUnsafe("codex_personal");
-    const openCodeLocalId = ProviderInstanceId.makeUnsafe("opencode_local");
+    const codexPersonalId = ProviderInstanceId.make("codex_personal");
+    const openCodeLocalId = ProviderInstanceId.make("opencode_local");
 
     expect(configMap[codexPersonalId]).toEqual({
       driver: "codex",

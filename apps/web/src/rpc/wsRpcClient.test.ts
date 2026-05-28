@@ -1,7 +1,7 @@
 import type {
-  GitStatusLocalResult,
-  GitStatusRemoteResult,
-  GitStatusStreamEvent,
+  VcsStatusLocalResult,
+  VcsStatusRemoteResult,
+  VcsStatusStreamEvent,
 } from "@fenrir/contracts";
 import { describe, expect, it, vi } from "vitest";
 
@@ -18,19 +18,20 @@ vi.mock("./wsTransport", () => ({
 import { createWsRpcClient } from "./wsRpcClient";
 import { type WsTransport } from "./wsTransport";
 
-const baseLocalStatus: GitStatusLocalResult = {
+const baseLocalStatus: VcsStatusLocalResult = {
   isRepo: true,
-  hasOriginRemote: true,
-  isDefaultBranch: false,
-  branch: "feature/demo",
+  hasPrimaryRemote: true,
+  isDefaultRef: false,
+  refName: "feature/demo",
   hasWorkingTreeChanges: false,
   workingTree: { files: [], insertions: 0, deletions: 0 },
 };
 
-const baseRemoteStatus: GitStatusRemoteResult = {
+const baseRemoteStatus: VcsStatusRemoteResult = {
   hasUpstream: true,
   aheadCount: 0,
   behindCount: 0,
+  aheadOfDefaultCount: 0,
   pr: null,
 };
 
@@ -54,7 +55,7 @@ describe("wsRpcClient", () => {
             hasWorkingTreeChanges: true,
           },
         },
-      ] satisfies GitStatusStreamEvent[]) {
+      ] satisfies VcsStatusStreamEvent[]) {
         listener(event as TValue);
       }
       return () => undefined;
@@ -74,7 +75,7 @@ describe("wsRpcClient", () => {
     const client = createWsRpcClient(transport as unknown as WsTransport);
     const listener = vi.fn();
 
-    client.git.onStatus({ cwd: "/repo" }, listener);
+    client.vcs.onStatus({ cwd: "/repo" }, listener);
 
     expect(listener.mock.calls).toEqual([
       [
@@ -102,7 +103,7 @@ describe("wsRpcClient", () => {
     ]);
   });
 
-  it("passes review stream subscriptions through the transport with reconnect hooks intact", () => {
+  it("passes source-control review stream subscriptions through the transport with reconnect hooks intact", () => {
     const subscribe = vi.fn(
       (..._args: any[]) =>
         () =>
@@ -123,7 +124,7 @@ describe("wsRpcClient", () => {
     const listener = vi.fn();
     const onResubscribe = vi.fn();
 
-    client.review.onEvent({ sessionId: "review-session-1" } as never, listener, {
+    client.sourceControl.review.onEvent({ sessionId: "review-session-1" } as never, listener, {
       onResubscribe,
     });
 

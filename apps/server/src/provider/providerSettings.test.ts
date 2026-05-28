@@ -18,8 +18,8 @@ describe("providerSettings", () => {
     const settings: ServerSettings = {
       ...DEFAULT_SERVER_SETTINGS,
       providerInstances: {
-        [ProviderInstanceId.makeUnsafe("codex")]: {
-          driver: ProviderDriverKind.makeUnsafe("codex"),
+        [ProviderInstanceId.make("codex")]: {
+          driver: ProviderDriverKind.make("codex"),
           config: {
             binaryPath: "/tmp/codex-custom",
             homePath: "~/.codex-custom",
@@ -37,8 +37,8 @@ describe("providerSettings", () => {
     const settings: ServerSettings = {
       ...DEFAULT_SERVER_SETTINGS,
       providerInstances: {
-        [ProviderInstanceId.makeUnsafe("claudeAgent")]: {
-          driver: ProviderDriverKind.makeUnsafe("claudeAgent"),
+        [ProviderInstanceId.make("claudeAgent")]: {
+          driver: ProviderDriverKind.make("claudeAgent"),
           enabled: false,
           config: {
             binaryPath: "/tmp/claude-custom",
@@ -63,8 +63,8 @@ describe("providerSettings", () => {
         },
       },
       providerInstances: {
-        [ProviderInstanceId.makeUnsafe("codex")]: {
-          driver: ProviderDriverKind.makeUnsafe("codex"),
+        [ProviderInstanceId.make("codex")]: {
+          driver: ProviderDriverKind.make("codex"),
           config: {
             customModels: "not-an-array",
           },
@@ -81,8 +81,8 @@ describe("providerSettings", () => {
     const settings: ServerSettings = {
       ...DEFAULT_SERVER_SETTINGS,
       providerInstances: {
-        [ProviderInstanceId.makeUnsafe("codex_work")]: {
-          driver: ProviderDriverKind.makeUnsafe("codex"),
+        [ProviderInstanceId.make("codex_work")]: {
+          driver: ProviderDriverKind.make("codex"),
           config: {
             binaryPath: "/tmp/codex-work",
           },
@@ -91,7 +91,7 @@ describe("providerSettings", () => {
     };
 
     const resolved = Effect.runSync(
-      resolveEffectiveCodexSettings(settings, ProviderInstanceId.makeUnsafe("codex_work")),
+      resolveEffectiveCodexSettings(settings, ProviderInstanceId.make("codex_work")),
     );
     expect(resolved.binaryPath).toBe("/tmp/codex-work");
   });
@@ -100,8 +100,8 @@ describe("providerSettings", () => {
     const settings: ServerSettings = {
       ...DEFAULT_SERVER_SETTINGS,
       providerInstances: {
-        [ProviderInstanceId.makeUnsafe("cursor_work")]: {
-          driver: ProviderDriverKind.makeUnsafe("cursor"),
+        [ProviderInstanceId.make("cursor_work")]: {
+          driver: ProviderDriverKind.make("cursor"),
           enabled: true,
           config: {
             binaryPath: "/tmp/cursor-agent",
@@ -113,7 +113,7 @@ describe("providerSettings", () => {
     };
 
     const resolved = Effect.runSync(
-      resolveCursorInstanceSettings(settings, ProviderInstanceId.makeUnsafe("cursor_work")),
+      resolveCursorInstanceSettings(settings, ProviderInstanceId.make("cursor_work")),
     );
     expect(resolved.enabled).toBe(true);
     expect(resolved.binaryPath).toBe("/tmp/cursor-agent");

@@ -13,7 +13,7 @@ import type {
   ServerProvider,
   ServerProviderUpdateState,
 } from "@fenrir/contracts";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect, Stream } from "effect";
 
 import type { ProviderMaintenanceCapabilities } from "../providerMaintenance";
@@ -55,6 +55,6 @@ export interface ProviderRegistryShape {
   readonly streamChanges: Stream.Stream<ReadonlyArray<ServerProvider>>;
 }
 
-export class ProviderRegistry extends ServiceMap.Service<ProviderRegistry, ProviderRegistryShape>()(
+export class ProviderRegistry extends Context.Service<ProviderRegistry, ProviderRegistryShape>()(
   "t3/provider/Services/ProviderRegistry",
 ) {}

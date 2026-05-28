@@ -35,4 +35,4 @@ export type ProviderInstanceConfigMap = typeof ProviderInstanceConfigMap.Type;
 
 export const defaultInstanceIdForDriver = (
   driver: ProviderDriverKind | string,
-): ProviderInstanceId => ProviderInstanceId.makeUnsafe(driver);
+): ProviderInstanceId => ProviderInstanceId.make(driver);

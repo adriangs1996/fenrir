@@ -25,7 +25,7 @@ import {
   PubSub,
   Ref,
   Scope,
-  ServiceMap,
+  Context,
   Stream,
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
@@ -136,7 +136,7 @@ export interface SkillServiceShape {
   readonly streamChanges: Stream.Stream<readonly ServerProviderSkill[]>;
 }
 
-export class SkillService extends ServiceMap.Service<SkillService, SkillServiceShape>()(
+export class SkillService extends Context.Service<SkillService, SkillServiceShape>()(
   "t3/skill/SkillService",
 ) {}
 

@@ -25,7 +25,7 @@ import {
 import { scopedSafeTeardown } from "./scopedSafeTeardown.ts";
 import { createModelCapabilitiesFromDescriptors } from "../modelCapabilities.ts";
 
-const DRIVER = ProviderDriverKind.makeUnsafe("opencode");
+const DRIVER = ProviderDriverKind.make("opencode");
 const MINIMUM_OPENCODE_VERSION = "1.14.19";
 const DEFAULT_OPENCODE_MODEL_CAPABILITIES: ModelCapabilities =
   createModelCapabilitiesFromDescriptors([]);

@@ -6,7 +6,7 @@ import { FENRIR_BROWSER_LAB_MCP_ID } from "@fenrir/shared/mcpBuiltIns";
 import { McpConfigResolver } from "../Services/McpConfigResolver.ts";
 import { McpConfigResolverLive } from "./McpConfigResolver.ts";
 
-const serverId = (value: string): McpServerId => McpServerId.makeUnsafe(value);
+const serverId = (value: string): McpServerId => McpServerId.make(value);
 
 function makeSettings(overrides: Partial<ServerSettings>): ServerSettings {
   return {

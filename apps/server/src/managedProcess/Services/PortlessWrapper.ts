@@ -6,7 +6,7 @@
  *
  * @module ManagedProcess/PortlessWrapper
  */
-import { Effect, ServiceMap } from "effect";
+import { Effect, Context } from "effect";
 import type { ManagedProcess } from "@fenrir/contracts";
 
 // ---------------------------------------------------------------------------
@@ -59,6 +59,6 @@ export interface PortlessWrapperShape {
   observeUrlConfirmation(input: { definition: ManagedProcess }): PortlessUrlObserver;
 }
 
-export class PortlessWrapper extends ServiceMap.Service<PortlessWrapper, PortlessWrapperShape>()(
+export class PortlessWrapper extends Context.Service<PortlessWrapper, PortlessWrapperShape>()(
   "t3/managedProcess/PortlessWrapper",
 ) {}

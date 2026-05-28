@@ -444,12 +444,14 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
   );
 
   const clientProtocol = RpcClient.Protocol.of({
-    run: (f) =>
-      Stream.fromQueue(clientQueue).pipe(
+    run: (clientIdOrF, maybeF) => {
+      const f = typeof clientIdOrF === "function" ? clientIdOrF : maybeF;
+      return Stream.fromQueue(clientQueue).pipe(
         Stream.runForEach((message) => f(message)),
         Effect.forever,
-      ),
-    send: (request) => offerOutgoing(request).pipe(Effect.mapError(toRpcClientError)),
+      );
+    },
+    send: (_clientId, request) => offerOutgoing(request).pipe(Effect.mapError(toRpcClientError)),
     supportsAck: true,
     supportsTransferables: false,
   });

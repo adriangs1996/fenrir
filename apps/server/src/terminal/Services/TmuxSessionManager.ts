@@ -1,4 +1,4 @@
-import { Effect, ServiceMap } from "effect";
+import { Effect, Context } from "effect";
 import { PtyProcess, PtySpawnError } from "./PTY";
 
 export class TmuxNotFoundError extends Error {
@@ -59,7 +59,7 @@ export interface TmuxSessionManagerShape {
   readonly sessionName: (projectId: string) => string;
 }
 
-export class TmuxSessionManager extends ServiceMap.Service<
+export class TmuxSessionManager extends Context.Service<
   TmuxSessionManager,
   TmuxSessionManagerShape
 >()("t3/terminal/Services/TmuxSessionManager") {}

@@ -59,7 +59,7 @@ vi.mock("../lib/gitStatusState", () => ({
 const THREAD_ID = "thread-browser-test" as ThreadId;
 const THREAD_TITLE = "Browser test thread";
 const PROJECT_ID = "project-1" as ProjectId;
-const LOCAL_ENVIRONMENT_ID = EnvironmentId.makeUnsafe("environment-local");
+const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const THREAD_REF = scopeThreadRef(LOCAL_ENVIRONMENT_ID, THREAD_ID);
 const THREAD_KEY = scopedThreadKey(THREAD_REF);
 const UUID_ROUTE_RE = /^\/draft\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -144,7 +144,7 @@ function isoAt(offsetSeconds: number): string {
 function createBaseServerConfig(): ServerConfig {
   return {
     environment: {
-      environmentId: EnvironmentId.makeUnsafe("environment-local"),
+      environmentId: EnvironmentId.make("environment-local"),
       label: "Local environment",
       platform: { os: "darwin" as const, arch: "arm64" as const },
       serverVersion: "0.0.0-test",
@@ -348,7 +348,7 @@ function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
     serverConfig: createBaseServerConfig(),
     welcome: {
       environment: {
-        environmentId: EnvironmentId.makeUnsafe("environment-local"),
+        environmentId: EnvironmentId.make("environment-local"),
         label: "Local environment",
         platform: { os: "darwin" as const, arch: "arm64" as const },
         serverVersion: "0.0.0-test",
@@ -410,7 +410,7 @@ function addThreadToSnapshot(
 function createThreadCreatedEvent(threadId: ThreadId, sequence: number): OrchestrationEvent {
   return {
     sequence,
-    eventId: EventId.makeUnsafe(`event-thread-created-${sequence}`),
+    eventId: EventId.make(`event-thread-created-${sequence}`),
     aggregateKind: "thread",
     aggregateId: threadId,
     occurredAt: NOW_ISO,
@@ -441,7 +441,7 @@ function createThreadCreatedEvent(threadId: ThreadId, sequence: number): Orchest
 function createThreadSessionSetEvent(threadId: ThreadId, sequence: number): OrchestrationEvent {
   return {
     sequence,
-    eventId: EventId.makeUnsafe(`event-thread-session-set-${sequence}`),
+    eventId: EventId.make(`event-thread-session-set-${sequence}`),
     aggregateKind: "thread",
     aggregateId: threadId,
     occurredAt: NOW_ISO,
@@ -507,7 +507,7 @@ function draftIdFromPath(pathname: string) {
   if (!draftId) {
     throw new Error(`Expected thread path, received "${pathname}".`);
   }
-  return DraftId.makeUnsafe(draftId);
+  return DraftId.make(draftId);
 }
 
 function draftThreadIdFor(draftId: ReturnType<typeof draftIdFromPath>): ThreadId {
@@ -675,7 +675,7 @@ function createSnapshotWithPendingUserInput(): OrchestrationReadModel {
             interactionMode: "plan",
             activities: [
               {
-                id: EventId.makeUnsafe("activity-user-input-requested"),
+                id: EventId.make("activity-user-input-requested"),
                 tone: "info",
                 kind: "user-input.requested",
                 summary: "User input requested",
@@ -781,7 +781,7 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
-  if (tag === WS_METHODS.gitListBranches) {
+  if (tag === WS_METHODS.vcsListRefs) {
     return {
       isRepo: true,
       hasOriginRemote: true,
@@ -2421,7 +2421,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      expect(wsRequests.some((request) => request._tag === WS_METHODS.gitCreateWorktree)).toBe(
+      expect(wsRequests.some((request) => request._tag === WS_METHODS.vcsCreateWorktree)).toBe(
         false,
       );
       expect(
@@ -2616,7 +2616,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       snapshot: createDraftOnlySnapshot(),
       initialPath: `/draft/${activeDraftId}`,
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.gitListBranches) {
+        if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
             hasOriginRemote: true,

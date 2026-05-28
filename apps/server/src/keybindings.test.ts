@@ -193,6 +193,45 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }),
   );
 
+  it.effect("migrates legacy review keybinding commands before validating startup config", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const { keybindingsConfigPath } = yield* ServerConfig;
+      yield* fs.writeFileString(
+        keybindingsConfigPath,
+        JSON.stringify([
+          { key: "a", command: "review.askAgent", when: "reviewFocus" },
+          { key: "r", command: "review.markReviewed", when: "reviewFocus" },
+          { key: "f", command: "review.markNeedsFollowUp", when: "reviewFocus" },
+          { key: "tab", command: "review.toggleMode", when: "reviewFocus" },
+          { key: "g", command: "review.refreshAnalysis", when: "reviewFocus" },
+          { key: "s", command: "review.openSubmitReviewTray", when: "reviewFocus" },
+        ]),
+      );
+
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+      });
+
+      const configState = yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        return yield* keybindings.loadConfigState;
+      });
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      const persistedCommands = new Set(persisted.map((entry) => entry.command));
+
+      assert.deepEqual(configState.issues, []);
+      assert.isFalse(persistedCommands.has("review.askAgent" as never));
+      assert.isTrue(persistedCommands.has("sourceControl.review.askAgent"));
+      assert.isTrue(persistedCommands.has("sourceControl.review.markReviewed"));
+      assert.isTrue(persistedCommands.has("sourceControl.review.markNeedsFollowUp"));
+      assert.isTrue(persistedCommands.has("sourceControl.review.toggleMode"));
+      assert.isTrue(persistedCommands.has("sourceControl.review.refreshAnalysis"));
+      assert.isTrue(persistedCommands.has("sourceControl.review.openSubmitReviewTray"));
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
   it.effect("uses defaults in runtime when config is malformed without overriding file", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

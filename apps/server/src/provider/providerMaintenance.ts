@@ -60,14 +60,14 @@ interface LatestVersionCacheEntry {
 const latestVersionCache = new Map<string, LatestVersionCacheEntry>();
 
 export const CODEX_MAINTENANCE = makePackageManagedProviderMaintenanceResolver({
-  provider: ProviderDriverKind.makeUnsafe("codex"),
+  provider: ProviderDriverKind.make("codex"),
   npmPackageName: "@openai/codex",
   homebrewFormula: "codex",
   nativeUpdate: null,
 });
 
 export const CLAUDE_MAINTENANCE = makePackageManagedProviderMaintenanceResolver({
-  provider: ProviderDriverKind.makeUnsafe("claudeAgent"),
+  provider: ProviderDriverKind.make("claudeAgent"),
   npmPackageName: "@anthropic-ai/claude-code",
   homebrewFormula: "claude-code",
   nativeUpdate: {
@@ -86,7 +86,7 @@ export const CLAUDE_MAINTENANCE = makePackageManagedProviderMaintenanceResolver(
 });
 
 export const OPENCODE_MAINTENANCE = makePackageManagedProviderMaintenanceResolver({
-  provider: ProviderDriverKind.makeUnsafe("opencode"),
+  provider: ProviderDriverKind.make("opencode"),
   npmPackageName: "opencode-ai",
   homebrewFormula: "anomalyco/tap/opencode",
   nativeUpdate: {
@@ -105,7 +105,7 @@ export const OPENCODE_MAINTENANCE = makePackageManagedProviderMaintenanceResolve
 
 export const CURSOR_MAINTENANCE = makeStaticProviderMaintenanceResolver(
   makeProviderMaintenanceCapabilities({
-    provider: ProviderDriverKind.makeUnsafe("cursor"),
+    provider: ProviderDriverKind.make("cursor"),
     packageName: null,
     updateExecutable: "agent",
     updateArgs: ["update"],
@@ -426,7 +426,7 @@ export function createProviderVersionAdvisory(input: {
   readonly checkedAt?: string | null;
   readonly maintenanceCapabilities?: ProviderMaintenanceCapabilities;
 }): ServerProviderVersionAdvisory {
-  const driver = input.driver ?? ProviderDriverKind.makeUnsafe("codex");
+  const driver = input.driver ?? ProviderDriverKind.make("codex");
   const capabilities =
     input.maintenanceCapabilities ?? makeManualProviderMaintenanceCapabilities(driver);
   const latestVersion = input.latestVersion ?? null;
@@ -499,7 +499,7 @@ export const resolveLatestProviderVersion = Effect.fn("resolveLatestProviderVers
 export const enrichProviderSnapshotWithVersionAdvisory = Effect.fn(
   "enrichProviderSnapshotWithVersionAdvisory",
 )(function* (snapshot: ServerProvider, maintenanceCapabilities?: ProviderMaintenanceCapabilities) {
-  const driver = snapshot.driver ?? ProviderDriverKind.makeUnsafe(snapshot.provider ?? "codex");
+  const driver = snapshot.driver ?? ProviderDriverKind.make(snapshot.provider ?? "codex");
   const capabilities = maintenanceCapabilities ?? maintenanceCapabilitiesForDriver(driver);
   if (!snapshot.enabled || !snapshot.installed || !snapshot.version) {
     return {

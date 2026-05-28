@@ -8,9 +8,9 @@ import { describe, expect, it } from "vitest";
 
 import { getFeatureRunStatus, isFeatureStartBlocked } from "./featureRunStatus";
 
-const tn = TrimmedNonEmptyString.makeUnsafe;
-const rid = PlanRunId.makeUnsafe;
-const ts = IsoDateTime.makeUnsafe;
+const tn = TrimmedNonEmptyString.make;
+const rid = PlanRunId.make;
+const ts = IsoDateTime.make;
 
 function makeFeature(
   overrides: Partial<FeatureSummary> & { featureName?: string } = {},

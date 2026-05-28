@@ -4,7 +4,7 @@ import type {
   ProviderKind,
   ServerProvider,
 } from "@fenrir/contracts";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect, Stream } from "effect";
 
 import type { ServerProviderShape } from "./ServerProvider.ts";
@@ -26,7 +26,7 @@ export interface ProviderInstanceRegistryShape {
   readonly streamChanges: Stream.Stream<void>;
 }
 
-export class ProviderInstanceRegistry extends ServiceMap.Service<
+export class ProviderInstanceRegistry extends Context.Service<
   ProviderInstanceRegistry,
   ProviderInstanceRegistryShape
 >()("t3/provider/Services/ProviderInstanceRegistry") {}

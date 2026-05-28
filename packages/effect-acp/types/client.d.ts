@@ -1,4 +1,4 @@
-import type { Effect, Layer, ServiceMap } from "effect";
+import type { Effect, Layer, Context } from "effect";
 
 import type * as AcpProtocol from "./protocol";
 import type * as AcpSchema from "./schema";
@@ -90,10 +90,10 @@ export interface AcpClientShape {
   ) => Effect.Effect<void>;
 }
 
-export declare class AcpClient extends ServiceMap.Service<AcpClient, AcpClientShape>()(
+export declare class AcpClient extends Context.Service<AcpClient, AcpClientShape>()(
   "effect-acp/AcpClient",
 ) {}
-export declare const AcpClientTag: ServiceMap.Service<AcpClient, AcpClientShape>;
+export declare const AcpClientTag: Context.Service<AcpClient, AcpClientShape>;
 
 export declare const layerChildProcess: (
   handle: unknown,

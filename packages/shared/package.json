@@ -12,6 +12,10 @@
       "types": "./src/git.ts",
       "import": "./src/git.ts"
     },
+    "./sourceControl": {
+      "types": "./src/sourceControl.ts",
+      "import": "./src/sourceControl.ts"
+    },
     "./keybindings": {
       "types": "./src/keybindings.ts",
       "import": "./src/keybindings.ts"
@@ -68,9 +72,9 @@
       "types": "./src/providerActivityLog.ts",
       "import": "./src/providerActivityLog.ts"
     },
-    "./review": {
-      "types": "./src/review.ts",
-      "import": "./src/review.ts"
+    "./sourceControlReview": {
+      "types": "./src/sourceControlReview.ts",
+      "import": "./src/sourceControlReview.ts"
     },
     "./commandFormat": {
       "types": "./src/commandFormat.ts",

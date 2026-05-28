@@ -10,10 +10,20 @@
   "module": "./dist/index.mjs",
   "types": "./src/index.ts",
   "exports": {
-    "./review": {
-      "types": "./src/review.ts",
-      "import": "./src/review.ts",
-      "require": "./src/review.ts"
+    "./sourceControlReview": {
+      "types": "./src/sourceControlReview.ts",
+      "import": "./src/sourceControlReview.ts",
+      "require": "./src/sourceControlReview.ts"
+    },
+    "./sourceControl": {
+      "types": "./src/sourceControl.ts",
+      "import": "./src/sourceControl.ts",
+      "require": "./src/sourceControl.ts"
+    },
+    "./vcs": {
+      "types": "./src/vcs.ts",
+      "import": "./src/vcs.ts",
+      "require": "./src/vcs.ts"
     },
     "./settings": {
       "types": "./src/settings.ts",

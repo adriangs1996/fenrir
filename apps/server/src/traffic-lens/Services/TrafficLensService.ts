@@ -1,4 +1,4 @@
-import { Effect, ServiceMap } from "effect";
+import { Effect, Context } from "effect";
 import type {
   TrafficLensDeleteOverrideInput,
   TrafficLensDeleteProfileInput,
@@ -59,7 +59,7 @@ export interface TrafficLensServiceShape {
   ) => Effect.Effect<readonly TrafficLensFinding[]>;
 }
 
-export class TrafficLensService extends ServiceMap.Service<
+export class TrafficLensService extends Context.Service<
   TrafficLensService,
   TrafficLensServiceShape
 >()("fenrir/traffic-lens/TrafficLensService") {}

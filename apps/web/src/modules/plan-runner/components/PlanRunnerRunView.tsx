@@ -105,7 +105,7 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
     }
   }, []);
 
-  const brandedRunId = useMemo(() => PlanRunIdSchema.makeUnsafe(runId), [runId]);
+  const brandedRunId = useMemo(() => PlanRunIdSchema.make(runId), [runId]);
 
   // Lifecycle of the cold-fetch path. `notFound` short-circuits the loader
   // so stale/replaced run ids resolve to a generic not-found state instead

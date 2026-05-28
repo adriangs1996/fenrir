@@ -326,7 +326,7 @@ function buildPlanStepRow(
     failureSummary: null,
     startedAt: plan.startedAt as any,
     completedAt: plan.completedAt as any,
-    executionOrder: NonNegativeInt.makeUnsafe(executionOrder),
+    executionOrder: NonNegativeInt.make(executionOrder),
   };
 }
 
@@ -351,7 +351,7 @@ function buildSyntheticStepRow(
     failureSummary: null,
     startedAt: null,
     completedAt: null,
-    executionOrder: NonNegativeInt.makeUnsafe(executionOrder),
+    executionOrder: NonNegativeInt.make(executionOrder),
   };
 }
 
@@ -564,11 +564,11 @@ export const PlanRunnerLive = Layer.effect(
       const title = (row.title ?? fallbackTitle).trim() || fallbackTitle;
       const copy = (row.copyText ?? row.title ?? row.bodyText ?? title).trim() || title;
       return {
-        entryId: PlanRunnerLogEntryId.makeUnsafe(`${row.runId}:${row.stepKey}:syn:${row.sequence}`),
+        entryId: PlanRunnerLogEntryId.make(`${row.runId}:${row.stepKey}:syn:${row.sequence}`),
         runId: row.runId,
         stepKey: row.stepKey,
         kind: row.kind,
-        sequence: NonNegativeInt.makeUnsafe(sequence),
+        sequence: NonNegativeInt.make(sequence),
         createdAt: row.createdAt,
         threadId: null,
         threadRole: null,
@@ -635,15 +635,15 @@ export const PlanRunnerLive = Layer.effect(
       const kind: PlanRunnerLogEntryKind = input.role === "user" ? "prompt" : "assistant";
       const title = kind === "prompt" ? "User prompt" : "Assistant message";
       return {
-        entryId: PlanRunnerLogEntryId.makeUnsafe(
+        entryId: PlanRunnerLogEntryId.make(
           `${input.runId}:${input.stepKey}:msg:${input.messageId}`,
         ),
         runId: input.runId,
         stepKey: input.stepKey as PlanRunnerLogEntry["stepKey"],
         kind,
-        sequence: NonNegativeInt.makeUnsafe(input.sequence),
+        sequence: NonNegativeInt.make(input.sequence),
         createdAt: input.createdAt,
-        threadId: ThreadId.makeUnsafe(input.threadId),
+        threadId: ThreadId.make(input.threadId),
         threadRole: input.threadRole,
         title: title as PlanRunnerLogEntry["title"],
         bodyMarkdown: input.text,
@@ -682,15 +682,15 @@ export const PlanRunnerLive = Layer.effect(
         return null;
       }
       return {
-        entryId: PlanRunnerLogEntryId.makeUnsafe(
+        entryId: PlanRunnerLogEntryId.make(
           `${input.runId}:${input.stepKey}:act:${input.activityId}`,
         ),
         runId: input.runId,
         stepKey: input.stepKey as PlanRunnerLogEntry["stepKey"],
         kind: "activity",
-        sequence: NonNegativeInt.makeUnsafe(input.sequence),
+        sequence: NonNegativeInt.make(input.sequence),
         createdAt: input.createdAt,
-        threadId: ThreadId.makeUnsafe(input.threadId),
+        threadId: ThreadId.make(input.threadId),
         threadRole: input.threadRole,
         title: display.title as PlanRunnerLogEntry["title"],
         bodyMarkdown: null,
@@ -758,7 +758,7 @@ export const PlanRunnerLive = Layer.effect(
             .setStepExecutionOrder({
               runId: run.runId,
               stepKey: plan.stepKey as any,
-              executionOrder: NonNegativeInt.makeUnsafe(nextOrder),
+              executionOrder: NonNegativeInt.make(nextOrder),
               lastUpdatedAt: lastUpdatedAt as any,
             })
             .pipe(Effect.ignoreCause({ log: true }));
@@ -800,7 +800,7 @@ export const PlanRunnerLive = Layer.effect(
           .registerInternalThread({
             runId: run.runId,
             stepKey: stepKey as any,
-            threadId: ThreadId.makeUnsafe(threadId),
+            threadId: ThreadId.make(threadId),
             threadRole,
             createdAt: now() as any,
           })
@@ -1078,8 +1078,8 @@ export const PlanRunnerLive = Layer.effect(
       orchestrationEngine
         .dispatch({
           type: "thread.session.stop",
-          commandId: CommandId.makeUnsafe(`plan-runner:stop:${makeId()}`),
-          threadId: ThreadId.makeUnsafe(threadId),
+          commandId: CommandId.make(`plan-runner:stop:${makeId()}`),
+          threadId: ThreadId.make(threadId),
           createdAt: now(),
         })
         .pipe(Effect.ignore);
@@ -1095,8 +1095,8 @@ export const PlanRunnerLive = Layer.effect(
         yield* orchestrationEngine
           .dispatch({
             type: "thread.archive",
-            commandId: CommandId.makeUnsafe(`plan-runner:archive:${makeId()}`),
-            threadId: ThreadId.makeUnsafe(threadId),
+            commandId: CommandId.make(`plan-runner:archive:${makeId()}`),
+            threadId: ThreadId.make(threadId),
           })
           .pipe(Effect.ignore);
       });
@@ -1132,8 +1132,8 @@ export const PlanRunnerLive = Layer.effect(
       worktreePath?: string | null;
     }) =>
       Effect.gen(function* () {
-        const threadId = ThreadId.makeUnsafe(makeId());
-        const commandId = CommandId.makeUnsafe(`plan-runner:create:${makeId()}`);
+        const threadId = ThreadId.make(makeId());
+        const commandId = CommandId.make(`plan-runner:create:${makeId()}`);
         const createdAt = now();
 
         yield* Effect.logInfo("plan runner bootstrapping internal thread", {
@@ -1161,8 +1161,8 @@ export const PlanRunnerLive = Layer.effect(
         });
 
         // Start turn with prompt
-        const turnCommandId = CommandId.makeUnsafe(`plan-runner:turn:${makeId()}`);
-        const messageId = MessageId.makeUnsafe(makeId());
+        const turnCommandId = CommandId.make(`plan-runner:turn:${makeId()}`);
+        const messageId = MessageId.make(makeId());
 
         yield* Effect.logInfo("plan runner dispatching initial internal thread turn", {
           projectId: input.projectId,
@@ -1202,13 +1202,13 @@ export const PlanRunnerLive = Layer.effect(
           return;
         }
 
-        const turnCommandId = CommandId.makeUnsafe(`plan-runner:turn:${makeId()}`);
-        const messageId = MessageId.makeUnsafe(makeId());
+        const turnCommandId = CommandId.make(`plan-runner:turn:${makeId()}`);
+        const messageId = MessageId.make(makeId());
 
         yield* orchestrationEngine.dispatch({
           type: "thread.turn.start",
           commandId: turnCommandId,
-          threadId: ThreadId.makeUnsafe(input.threadId),
+          threadId: ThreadId.make(input.threadId),
           message: {
             messageId,
             role: "user",
@@ -2784,7 +2784,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           }
 
           // Construct run state
-          const runId = PlanRunIdSchema.makeUnsafe(makeId());
+          const runId = PlanRunIdSchema.make(makeId());
           const startedAt = now();
           const MAX_CONCURRENCY = 3;
 
@@ -2891,8 +2891,8 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             const dispatchResult = yield* orchestrationEngine
               .dispatch({
                 type: "thread.delete",
-                commandId: CommandId.makeUnsafe(`plan-runner:replace-delete:${makeId()}`),
-                threadId: ThreadId.makeUnsafe(oldThreadId),
+                commandId: CommandId.make(`plan-runner:replace-delete:${makeId()}`),
+                threadId: ThreadId.make(oldThreadId),
               })
               .pipe(Effect.exit);
             if (dispatchResult._tag === "Failure") {
@@ -3019,7 +3019,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           );
 
           // 6. Build new run state — preserve done plans, reset failed/skipped
-          const newRunId = PlanRunIdSchema.makeUnsafe(makeId());
+          const newRunId = PlanRunIdSchema.make(makeId());
           const startedAt = now();
           const MAX_CONCURRENCY = 3;
 
@@ -3165,8 +3165,8 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             yield* orchestrationEngine
               .dispatch({
                 type: "thread.delete",
-                commandId: CommandId.makeUnsafe(`plan-runner:rerun-delete:${makeId()}`),
-                threadId: ThreadId.makeUnsafe(oldThreadId),
+                commandId: CommandId.make(`plan-runner:rerun-delete:${makeId()}`),
+                threadId: ThreadId.make(oldThreadId),
               })
               .pipe(Effect.exit);
             // Best-effort — don't abort re-run if thread cleanup fails
@@ -3790,13 +3790,13 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           });
 
           const entries: PlanRunnerLogEntry[] = combined.map((c, i) => ({
-            entryId: PlanRunnerLogEntryId.makeUnsafe(c.entryId),
+            entryId: PlanRunnerLogEntryId.make(c.entryId),
             runId: input.runId,
             stepKey: input.stepKey,
             kind: c.kind,
-            sequence: NonNegativeInt.makeUnsafe(i),
+            sequence: NonNegativeInt.make(i),
             createdAt: c.createdAt,
-            threadId: c.threadId === null ? null : ThreadId.makeUnsafe(c.threadId),
+            threadId: c.threadId === null ? null : ThreadId.make(c.threadId),
             threadRole: c.threadRole,
             title: c.title as PlanRunnerLogEntry["title"],
             bodyMarkdown: c.bodyMarkdown,

@@ -1,12 +1,9 @@
 import { IsoDateTime, TrimmedNonEmptyString } from "@fenrir/contracts";
-import { Schema, ServiceMap } from "effect";
+import { Schema, Context } from "effect";
 import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
-import {
-  ReviewIgnoreRule,
-  ReviewIgnoreRuleKind,
-} from "../../../../../packages/contracts/src/review.ts";
+import { ReviewIgnoreRule, ReviewIgnoreRuleKind } from "@fenrir/contracts/sourceControlReview";
 
 export const ReviewIgnoreRuleRecord = ReviewIgnoreRule;
 export type ReviewIgnoreRuleRecord = typeof ReviewIgnoreRuleRecord.Type;
@@ -44,7 +41,7 @@ export interface ReviewIgnoreRuleRepositoryShape {
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 
-export class ReviewIgnoreRuleRepository extends ServiceMap.Service<
+export class ReviewIgnoreRuleRepository extends Context.Service<
   ReviewIgnoreRuleRepository,
   ReviewIgnoreRuleRepositoryShape
 >()("t3/persistence/Services/ReviewIgnoreRules/ReviewIgnoreRuleRepository") {}

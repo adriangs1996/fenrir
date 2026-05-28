@@ -17,8 +17,8 @@ import {
   type EnvironmentState,
 } from "./store";
 
-const envId = EnvironmentId.makeUnsafe("env-1");
-const projectId = ProjectId.makeUnsafe("project-1");
+const envId = EnvironmentId.make("env-1");
+const projectId = ProjectId.make("project-1");
 
 function makeEmptyState(): AppState {
   const environmentState: EnvironmentState = {
@@ -92,7 +92,7 @@ function makeEvent<T extends OrchestrationEvent["type"]>(
   const sequence = overrides.sequence ?? 1;
   return {
     sequence,
-    eventId: EventId.makeUnsafe(`event-${sequence}`),
+    eventId: EventId.make(`event-${sequence}`),
     aggregateKind: "project",
     aggregateId: projectId,
     occurredAt: "2026-01-01T00:00:01.000Z",
@@ -360,7 +360,7 @@ describe("managed process selectors", () => {
       const instances = selectManagedProcessInstancesForProject(
         makeEmptyState(),
         envId,
-        ProjectId.makeUnsafe("nonexistent"),
+        ProjectId.make("nonexistent"),
       );
       expect(instances).toEqual([]);
     });

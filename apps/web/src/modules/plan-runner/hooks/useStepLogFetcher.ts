@@ -33,7 +33,7 @@ export function useStepLogFetcher(
     let cancelled = false;
     rpcClient.planRunner
       .getStepLog({
-        runId: PlanRunIdSchema.makeUnsafe(runId),
+        runId: PlanRunIdSchema.make(runId),
         stepKey,
       })
       .then((result) => {

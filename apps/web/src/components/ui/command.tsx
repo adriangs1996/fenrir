@@ -90,11 +90,14 @@ function Command({
 
 function CommandInput({
   className,
+  wrapperClassName,
   placeholder = undefined,
   ...props
-}: React.ComponentProps<typeof AutocompleteInput>) {
+}: React.ComponentProps<typeof AutocompleteInput> & {
+  wrapperClassName?: string | undefined;
+}) {
   return (
-    <div className="px-2.5 py-1.5">
+    <div className={cn("px-2.5 py-1.5", wrapperClassName)}>
       <AutocompleteInput
         autoFocus
         className={cn(

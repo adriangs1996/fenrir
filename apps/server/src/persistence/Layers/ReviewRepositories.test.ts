@@ -30,7 +30,7 @@ import {
   ReviewIgnoreRule,
   ReviewLocalAnnotationThreadId,
   ReviewSessionId,
-} from "../../../../../packages/contracts/src/review.ts";
+} from "@fenrir/contracts/sourceControlReview";
 import { ReviewAnalysisRepositoryLive } from "./ReviewAnalysis.ts";
 import { ReviewAnnotationRepositoryLive } from "./ReviewAnnotations.ts";
 import { ReviewGitHubPendingDraftRepositoryLive } from "./ReviewGitHubDrafts.ts";
@@ -39,8 +39,8 @@ import { ReviewProgressRepositoryLive } from "./ReviewProgress.ts";
 import { ReviewSessionRepositoryLive } from "./ReviewSessions.ts";
 import { makeSqlitePersistenceLive, SqlitePersistenceMemory } from "./Sqlite.ts";
 
-const ts = IsoDateTime.makeUnsafe;
-const tn = TrimmedNonEmptyString.makeUnsafe;
+const ts = IsoDateTime.make;
+const tn = TrimmedNonEmptyString.make;
 
 const reviewRepositoriesLayer = it.layer(
   Layer.mergeAll(
@@ -61,15 +61,15 @@ function makeSessionRecord(
   },
 ): ReviewSessionRecord {
   return {
-    sessionId: ReviewSessionId.makeUnsafe(overrides.sessionId),
-    threadId: ThreadId.makeUnsafe(overrides.threadId),
-    projectId: overrides.projectId ?? ProjectId.makeUnsafe("project-review"),
+    sessionId: ReviewSessionId.make(overrides.sessionId),
+    threadId: ThreadId.make(overrides.threadId),
+    projectId: overrides.projectId ?? ProjectId.make("project-review"),
     checkoutPath: overrides.checkoutPath ?? tn("/repo/worktree"),
     mode: overrides.mode ?? "review",
     scope: overrides.scope ?? "combined",
     target: overrides.target ?? {
-      projectId: ProjectId.makeUnsafe("project-review"),
-      threadId: ThreadId.makeUnsafe(overrides.threadId),
+      projectId: ProjectId.make("project-review"),
+      threadId: ThreadId.make(overrides.threadId),
       cwd: "/repo/worktree",
       repositoryRoot: "/repo",
       repositoryName: "Fenrir",
@@ -102,9 +102,9 @@ function makePendingDraft(
   },
 ): ReviewGitHubPendingDraft {
   return {
-    id: GitHubReviewDraftId.makeUnsafe(overrides.id),
-    sessionId: ReviewSessionId.makeUnsafe(overrides.sessionId),
-    authSessionId: AuthSessionId.makeUnsafe(overrides.authSessionId),
+    id: GitHubReviewDraftId.make(overrides.id),
+    sessionId: ReviewSessionId.make(overrides.sessionId),
+    authSessionId: AuthSessionId.make(overrides.authSessionId),
     draftKind: overrides.draftKind ?? "inline-comment",
     anchor: overrides.anchor ?? {
       normalizedPath: "apps/server/src/review.ts",
@@ -177,7 +177,7 @@ reviewRepositoriesLayer("Review repositories — session lifecycle", (it) => {
       });
 
       const active = yield* sessions.findActiveByThread({
-        threadId: ThreadId.makeUnsafe("thread-1"),
+        threadId: ThreadId.make("thread-1"),
         checkoutPath: tn("/repo/worktree"),
       });
       assert.equal(active._tag, "Some");
@@ -187,7 +187,7 @@ reviewRepositoriesLayer("Review repositories — session lifecycle", (it) => {
       }
 
       const listed = yield* sessions.listByThreadId({
-        threadId: ThreadId.makeUnsafe("thread-1"),
+        threadId: ThreadId.make("thread-1"),
         includeArchived: true,
       });
       assert.deepStrictEqual(
@@ -196,19 +196,19 @@ reviewRepositoriesLayer("Review repositories — session lifecycle", (it) => {
       );
 
       yield* sessions.archive({
-        sessionId: ReviewSessionId.makeUnsafe("review-session-1"),
+        sessionId: ReviewSessionId.make("review-session-1"),
         archivedAt: ts("2026-05-20T10:20:00.000Z"),
         updatedAt: ts("2026-05-20T10:20:00.000Z"),
       });
 
       const noLongerActive = yield* sessions.findActiveByThread({
-        threadId: ThreadId.makeUnsafe("thread-1"),
+        threadId: ThreadId.make("thread-1"),
         checkoutPath: tn("/repo/worktree"),
       });
       assert.equal(noLongerActive._tag, "None");
 
       const activeOnly = yield* sessions.listByThreadId({
-        threadId: ThreadId.makeUnsafe("thread-1"),
+        threadId: ThreadId.make("thread-1"),
       });
       assert.deepStrictEqual(
         activeOnly.map((session) => session.sessionId),
@@ -254,11 +254,11 @@ reviewRepositoriesLayer("Review repositories — private drafts and ignore rules
 
       const viewerA = yield* drafts.listForViewer({
         sessionId: session.sessionId,
-        authSessionId: AuthSessionId.makeUnsafe("auth-session-a"),
+        authSessionId: AuthSessionId.make("auth-session-a"),
       });
       const viewerB = yield* drafts.listForViewer({
         sessionId: session.sessionId,
-        authSessionId: AuthSessionId.makeUnsafe("auth-session-b"),
+        authSessionId: AuthSessionId.make("auth-session-b"),
       });
 
       assert.deepStrictEqual(
@@ -276,7 +276,7 @@ reviewRepositoriesLayer("Review repositories — private drafts and ignore rules
       });
       const outdatedViewerA = yield* drafts.listForViewer({
         sessionId: session.sessionId,
-        authSessionId: AuthSessionId.makeUnsafe("auth-session-a"),
+        authSessionId: AuthSessionId.make("auth-session-a"),
       });
       assert.equal(outdatedViewerA[0]?.isOutdated, true);
       assert.equal(outdatedViewerA[0]?.submitAction, "comment");
@@ -386,15 +386,15 @@ it.effect(
 
         yield* sessions.upsert(session);
         yield* annotations.upsert({
-          annotationId: ReviewLocalAnnotationThreadId.makeUnsafe("review-thread-1"),
+          annotationId: ReviewLocalAnnotationThreadId.make("review-thread-1"),
           sessionId: session.sessionId,
           annotationKind: "thread",
           parentAnnotationId: null,
           targetKind: "chunk",
-          targetId: ReviewChunkId.makeUnsafe("review-chunk-1"),
-          groupId: ReviewGroupId.makeUnsafe("review-group-1"),
-          fileId: ReviewFileId.makeUnsafe("review-file-1"),
-          chunkId: ReviewChunkId.makeUnsafe("review-chunk-1"),
+          targetId: ReviewChunkId.make("review-chunk-1"),
+          groupId: ReviewGroupId.make("review-group-1"),
+          fileId: ReviewFileId.make("review-file-1"),
+          chunkId: ReviewChunkId.make("review-chunk-1"),
           anchor: {
             normalizedPath: "apps/server/src/review.ts",
             provenance: {
@@ -411,7 +411,7 @@ it.effect(
           title: null,
           body: tn("Double-check provider fallback behavior."),
           author: {
-            authSessionId: AuthSessionId.makeUnsafe("auth-session-1"),
+            authSessionId: AuthSessionId.make("auth-session-1"),
             subject: "Adrian",
             role: "user",
           },
@@ -425,10 +425,10 @@ it.effect(
         yield* progress.upsert({
           sessionId: session.sessionId,
           targetKind: "chunk",
-          targetId: ReviewChunkId.makeUnsafe("review-chunk-1"),
+          targetId: ReviewChunkId.make("review-chunk-1"),
           progressState: "needs-follow-up",
           author: {
-            authSessionId: AuthSessionId.makeUnsafe("auth-session-1"),
+            authSessionId: AuthSessionId.make("auth-session-1"),
             subject: "Adrian",
             role: "user",
             clientLabel: "Safari",
@@ -438,7 +438,7 @@ it.effect(
         yield* analysis.upsertLatest({
           sessionId: session.sessionId,
           artifact: {
-            id: ReviewAnalysisArtifactId.makeUnsafe("review-artifact-1"),
+            id: ReviewAnalysisArtifactId.make("review-artifact-1"),
             sessionId: session.sessionId,
             provider: "codex",
             status: "completed",
@@ -466,7 +466,7 @@ it.effect(
         yield* analysis.upsertLatest({
           sessionId: session.sessionId,
           artifact: {
-            id: ReviewAnalysisArtifactId.makeUnsafe("review-artifact-2"),
+            id: ReviewAnalysisArtifactId.make("review-artifact-2"),
             sessionId: session.sessionId,
             provider: "codex",
             status: "completed",
@@ -548,7 +548,7 @@ it.effect(
         const persistedProgress = yield* progress.getByTarget({
           sessionId: session.sessionId,
           targetKind: "chunk",
-          targetId: ReviewChunkId.makeUnsafe("review-chunk-1"),
+          targetId: ReviewChunkId.make("review-chunk-1"),
         });
         assert.equal(persistedProgress._tag, "Some");
         if (Option.isSome(persistedProgress)) {
@@ -567,7 +567,7 @@ it.effect(
 
         const persistedDrafts = yield* drafts.listForViewer({
           sessionId: session.sessionId,
-          authSessionId: AuthSessionId.makeUnsafe("auth-session-1"),
+          authSessionId: AuthSessionId.make("auth-session-1"),
         });
         assert.equal(persistedDrafts[0]?.id, "github-review-draft-restart");
         assert.equal(persistedDrafts[0]?.submitAction, "approve");

@@ -1,6 +1,6 @@
 import type { Effect } from "effect";
 
-import type { CheckpointRef, GitCommandError } from "@fenrir/contracts";
+import type { CheckpointRef, GitCommandError, VcsListRemotesResult } from "@fenrir/contracts";
 import type { VcsProcessInput, VcsProcessOutput } from "./VcsProcess.ts";
 
 export type VcsDriverKind = "git";
@@ -78,6 +78,7 @@ export interface VcsDriverShape {
   readonly listWorkspaceFiles: (
     cwd: string,
   ) => Effect.Effect<VcsListWorkspaceFilesResult, GitCommandError>;
+  readonly listRemotes: (cwd: string) => Effect.Effect<VcsListRemotesResult, GitCommandError>;
   readonly filterIgnoredPaths: (
     cwd: string,
     relativePaths: ReadonlyArray<string>,

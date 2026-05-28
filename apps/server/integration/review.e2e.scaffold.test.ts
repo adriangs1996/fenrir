@@ -403,13 +403,13 @@ function createProjectAndThreadForRepo(
     const provider = "codex";
     const defaultModel = DEFAULT_MODEL_BY_PROVIDER[provider];
     const idSuffix = randomUUID();
-    const projectId = ProjectId.makeUnsafe(`review-e2e-project-${idSuffix}`);
-    const threadId = ThreadId.makeUnsafe(`review-e2e-thread-${idSuffix}`);
+    const projectId = ProjectId.make(`review-e2e-project-${idSuffix}`);
+    const threadId = ThreadId.make(`review-e2e-thread-${idSuffix}`);
     const createdAt = new Date().toISOString();
 
     yield* dispatchOrchestrationCommand(session, {
       type: "project.create",
-      commandId: CommandId.makeUnsafe(`cmd-review-e2e-project-create-${idSuffix}`),
+      commandId: CommandId.make(`cmd-review-e2e-project-create-${idSuffix}`),
       projectId,
       title: "Review E2E Project",
       workspaceRoot: workspace.repoDir,
@@ -422,7 +422,7 @@ function createProjectAndThreadForRepo(
 
     yield* dispatchOrchestrationCommand(session, {
       type: "thread.create",
-      commandId: CommandId.makeUnsafe(`cmd-review-e2e-thread-create-${idSuffix}`),
+      commandId: CommandId.make(`cmd-review-e2e-thread-create-${idSuffix}`),
       threadId,
       projectId,
       title: "Review E2E Thread",
@@ -560,23 +560,35 @@ function getBootstrapSnapshot(session: ReviewE2eAuthSession) {
 }
 
 function getOrCreateReviewSession(session: ReviewE2eAuthSession, threadId: string) {
-  return callWsRpcMethod<ReviewSessionSummary>(session, WS_METHODS.reviewGetOrCreateSession, {
-    threadId,
-    mode: "raw",
-    scope: "combined",
-  });
+  return callWsRpcMethod<ReviewSessionSummary>(
+    session,
+    WS_METHODS.sourceControlReviewGetOrCreateSession,
+    {
+      threadId,
+      mode: "raw",
+      scope: "combined",
+    },
+  );
 }
 
 function getReviewSessionSnapshot(session: ReviewE2eAuthSession, sessionId: string) {
-  return callWsRpcMethod<ReviewSessionSnapshot>(session, WS_METHODS.reviewGetSessionSnapshot, {
-    sessionId,
-  });
+  return callWsRpcMethod<ReviewSessionSnapshot>(
+    session,
+    WS_METHODS.sourceControlReviewGetSessionSnapshot,
+    {
+      sessionId,
+    },
+  );
 }
 
 function getReviewDiffSnapshot(session: ReviewE2eAuthSession, sessionId: string) {
-  return callWsRpcMethod<ReviewDiffSnapshot>(session, WS_METHODS.reviewGetDiffSnapshot, {
-    sessionId,
-  });
+  return callWsRpcMethod<ReviewDiffSnapshot>(
+    session,
+    WS_METHODS.sourceControlReviewGetDiffSnapshot,
+    {
+      sessionId,
+    },
+  );
 }
 
 function getReviewFilePatch(
@@ -585,11 +597,15 @@ function getReviewFilePatch(
   lane: ReviewRawLaneKind,
   normalizedPath: string,
 ) {
-  return callWsRpcMethod<ReviewDiffFilePatch | null>(session, WS_METHODS.reviewGetFilePatch, {
-    sessionId,
-    lane,
-    normalizedPath,
-  });
+  return callWsRpcMethod<ReviewDiffFilePatch | null>(
+    session,
+    WS_METHODS.sourceControlReviewGetFilePatch,
+    {
+      sessionId,
+      lane,
+      normalizedPath,
+    },
+  );
 }
 
 function getReviewChunkPayload(
@@ -599,12 +615,16 @@ function getReviewChunkPayload(
   normalizedPath: string,
   chunkId: string,
 ) {
-  return callWsRpcMethod<ReviewChunkPayload | null>(session, WS_METHODS.reviewGetChunkPayload, {
-    sessionId,
-    lane,
-    normalizedPath,
-    chunkId,
-  });
+  return callWsRpcMethod<ReviewChunkPayload | null>(
+    session,
+    WS_METHODS.sourceControlReviewGetChunkPayload,
+    {
+      sessionId,
+      lane,
+      normalizedPath,
+      chunkId,
+    },
+  );
 }
 
 function applyRawChunkMutation(
@@ -615,16 +635,20 @@ function applyRawChunkMutation(
   normalizedPath: string,
   chunkId: string,
 ) {
-  return callWsRpcMethod<ReviewApplyRawMutationResult>(session, WS_METHODS.reviewApplyRawMutation, {
-    sessionId,
-    action,
-    target: {
-      targetKind: "chunk",
-      lane,
-      normalizedPath,
-      chunkId,
+  return callWsRpcMethod<ReviewApplyRawMutationResult>(
+    session,
+    WS_METHODS.sourceControlReviewApplyRawMutation,
+    {
+      sessionId,
+      action,
+      target: {
+        targetKind: "chunk",
+        lane,
+        normalizedPath,
+        chunkId,
+      },
     },
-  });
+  );
 }
 
 function createChunkComment(
@@ -639,19 +663,23 @@ function createChunkComment(
     return Effect.fail(new Error(`Chunk ${chunkId} not found in patch ${patch.normalizedPath}`));
   }
 
-  return callWsRpcMethod<ReviewLocalAnnotationThread>(session, WS_METHODS.reviewCreateLocalThread, {
-    sessionId,
-    groupId: patch.groupId,
-    fileId: patch.fileId,
-    chunkId,
-    anchor: chunk.anchor,
-    body,
-    author: {
-      authSessionId: "review-e2e-user",
-      subject: "Review E2E User",
-      role: "user",
+  return callWsRpcMethod<ReviewLocalAnnotationThread>(
+    session,
+    WS_METHODS.sourceControlReviewCreateLocalThread,
+    {
+      sessionId,
+      groupId: patch.groupId,
+      fileId: patch.fileId,
+      chunkId,
+      anchor: chunk.anchor,
+      body,
+      author: {
+        authSessionId: "review-e2e-user",
+        subject: "Review E2E User",
+        role: "user",
+      },
     },
-  });
+  );
 }
 
 function waitForProjectedThread(session: ReviewE2eAuthSession, threadId: string) {

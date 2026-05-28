@@ -4,7 +4,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
-const SHARED_THREAD_ID = ThreadId.makeUnsafe("thread-shared");
+const SHARED_THREAD_ID = ThreadId.make("thread-shared");
 const ENVIRONMENT_A = "environment-local" as never;
 const ENVIRONMENT_B = "environment-remote" as never;
 const GIT_CWD = "/repo/project";
@@ -97,12 +97,12 @@ vi.mock("~/editorPreferences", () => ({
 }));
 
 vi.mock("~/lib/gitReactQuery", () => ({
-  gitInitMutationOptions: vi.fn(() => ({ __kind: "init" })),
+  vcsInitMutationOptions: vi.fn(() => ({ __kind: "init" })),
   gitMutationKeys: {
     pull: vi.fn(() => ["pull"]),
     runStackedAction: vi.fn(() => ["run-stacked-action"]),
   },
-  gitPullMutationOptions: vi.fn(() => ({ __kind: "pull" })),
+  vcsPullMutationOptions: vi.fn(() => ({ __kind: "pull" })),
   gitRunStackedActionMutationOptions: vi.fn(() => ({ __kind: "run-stacked-action" })),
   invalidateGitQueries: invalidateGitQueriesSpy,
 }));

@@ -39,12 +39,12 @@ import {
 
 // ─── Builders ───────────────────────────────────────────────────────────────
 
-const tn = TrimmedNonEmptyString.makeUnsafe;
-const ts = IsoDateTime.makeUnsafe;
-const nn = NonNegativeInt.makeUnsafe;
-const tid = ThreadId.makeUnsafe;
-const rid = PlanRunId.makeUnsafe;
-const pid = ProjectId.makeUnsafe;
+const tn = TrimmedNonEmptyString.make;
+const ts = IsoDateTime.make;
+const nn = NonNegativeInt.make;
+const tid = ThreadId.make;
+const rid = PlanRunId.make;
+const pid = ProjectId.make;
 
 interface MakeSnapshotOpts {
   readonly runId: string;
@@ -99,7 +99,7 @@ function makeLogEntry(partial: {
   createdAt?: string;
 }): PlanRunnerLogEntry {
   return {
-    entryId: PlanRunnerLogEntryId.makeUnsafe(partial.entryId),
+    entryId: PlanRunnerLogEntryId.make(partial.entryId),
     runId: rid(partial.runId),
     stepKey: tn(partial.stepKey),
     kind: "runner.status",
@@ -392,8 +392,8 @@ describe("usePlanRunnerStore reducer", () => {
     });
     const cache = usePlanRunnerStore.getState().stepLogsByKey[stepLogCacheKey("run-1", "plan:p")];
     expect(cache?.map((e) => e.entryId)).toEqual([
-      PlanRunnerLogEntryId.makeUnsafe("e1"),
-      PlanRunnerLogEntryId.makeUnsafe("e2"),
+      PlanRunnerLogEntryId.make("e1"),
+      PlanRunnerLogEntryId.make("e2"),
     ]);
   });
 

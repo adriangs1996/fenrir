@@ -53,7 +53,7 @@ function resolveMergedSettings<T extends Record<string, unknown>>(input: {
         ? Effect.succeed(result.value)
         : Effect.logWarning("Ignoring invalid default provider instance config override", {
             provider: input.provider,
-            driver: ProviderDriverKind.makeUnsafe(input.provider),
+            driver: ProviderDriverKind.make(input.provider),
             instanceId: input.providerInstanceId ?? defaultInstanceIdForDriver(input.provider),
             cause: result.cause,
           }).pipe(Effect.as(input.base)),

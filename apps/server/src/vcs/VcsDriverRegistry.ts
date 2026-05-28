@@ -1,4 +1,4 @@
-import { Effect, Layer, ServiceMap } from "effect";
+import { Effect, Layer, Context } from "effect";
 
 import { GitCommandError } from "@fenrir/contracts";
 import { GitVcsDriver, GitVcsDriverLive } from "./GitVcsDriver.ts";
@@ -24,10 +24,9 @@ export interface VcsDriverRegistryShape {
   ) => Effect.Effect<VcsDriverHandle, GitCommandError>;
 }
 
-export class VcsDriverRegistry extends ServiceMap.Service<
-  VcsDriverRegistry,
-  VcsDriverRegistryShape
->()("fenrir/vcs/Services/VcsDriverRegistry") {}
+export class VcsDriverRegistry extends Context.Service<VcsDriverRegistry, VcsDriverRegistryShape>()(
+  "fenrir/vcs/Services/VcsDriverRegistry",
+) {}
 
 function registryError(operation: string, cwd: string, detail: string): GitCommandError {
   return new GitCommandError({

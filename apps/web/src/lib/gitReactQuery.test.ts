@@ -11,31 +11,31 @@ vi.mock("../wsRpcClient", () => ({
 }));
 
 import type { InfiniteData } from "@tanstack/react-query";
-import { EnvironmentId, type GitListBranchesResult } from "@fenrir/contracts";
+import { EnvironmentId, type VcsListRefsResult } from "@fenrir/contracts";
 
 import {
-  gitBranchSearchInfiniteQueryOptions,
+  vcsRefSearchInfiniteQueryOptions,
   gitMutationKeys,
   gitPreparePullRequestThreadMutationOptions,
-  gitPullMutationOptions,
+  vcsPullMutationOptions,
   gitRunStackedActionMutationOptions,
   invalidateGitQueries,
 } from "./gitReactQuery";
 
-const BRANCH_QUERY_RESULT: GitListBranchesResult = {
-  branches: [],
+const BRANCH_QUERY_RESULT: VcsListRefsResult = {
+  refs: [],
   isRepo: true,
-  hasOriginRemote: true,
+  hasPrimaryRemote: true,
   nextCursor: null,
   totalCount: 0,
 };
 
-const BRANCH_SEARCH_RESULT: InfiniteData<GitListBranchesResult, number> = {
+const BRANCH_SEARCH_RESULT: InfiniteData<VcsListRefsResult, number> = {
   pages: [BRANCH_QUERY_RESULT],
   pageParams: [0],
 };
-const ENVIRONMENT_A = EnvironmentId.makeUnsafe("environment-a");
-const ENVIRONMENT_B = EnvironmentId.makeUnsafe("environment-b");
+const ENVIRONMENT_A = EnvironmentId.make("environment-a");
+const ENVIRONMENT_B = EnvironmentId.make("environment-b");
 
 describe("gitMutationKeys", () => {
   it("scopes stacked action keys by cwd", () => {
@@ -70,7 +70,7 @@ describe("git mutation options", () => {
   });
 
   it("attaches cwd-scoped mutation key for pull", () => {
-    const options = gitPullMutationOptions({
+    const options = vcsPullMutationOptions({
       environmentId: ENVIRONMENT_A,
       cwd: "/repo/a",
       queryClient,
@@ -95,7 +95,7 @@ describe("invalidateGitQueries", () => {
     const queryClient = new QueryClient();
 
     queryClient.setQueryData(
-      gitBranchSearchInfiniteQueryOptions({
+      vcsRefSearchInfiniteQueryOptions({
         environmentId: ENVIRONMENT_A,
         cwd: "/repo/a",
         query: "feature",
@@ -103,7 +103,7 @@ describe("invalidateGitQueries", () => {
       BRANCH_SEARCH_RESULT,
     );
     queryClient.setQueryData(
-      gitBranchSearchInfiniteQueryOptions({
+      vcsRefSearchInfiniteQueryOptions({
         environmentId: ENVIRONMENT_B,
         cwd: "/repo/b",
         query: "feature",
@@ -115,7 +115,7 @@ describe("invalidateGitQueries", () => {
 
     expect(
       queryClient.getQueryState(
-        gitBranchSearchInfiniteQueryOptions({
+        vcsRefSearchInfiniteQueryOptions({
           environmentId: ENVIRONMENT_A,
           cwd: "/repo/a",
           query: "feature",
@@ -124,7 +124,7 @@ describe("invalidateGitQueries", () => {
     ).toBe(true);
     expect(
       queryClient.getQueryState(
-        gitBranchSearchInfiniteQueryOptions({
+        vcsRefSearchInfiniteQueryOptions({
           environmentId: ENVIRONMENT_B,
           cwd: "/repo/b",
           query: "feature",

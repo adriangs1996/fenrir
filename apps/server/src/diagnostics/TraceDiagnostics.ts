@@ -13,7 +13,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 
 interface TraceRecordLike {
   readonly name?: unknown;
@@ -43,7 +43,7 @@ export interface TraceDiagnosticsShape {
   readonly read: (options: TraceDiagnosticsOptions) => Effect.Effect<ServerTraceDiagnosticsResult>;
 }
 
-export class TraceDiagnostics extends ServiceMap.Service<TraceDiagnostics, TraceDiagnosticsShape>()(
+export class TraceDiagnostics extends Context.Service<TraceDiagnostics, TraceDiagnosticsShape>()(
   "fenrir/diagnostics/TraceDiagnostics",
 ) {}
 

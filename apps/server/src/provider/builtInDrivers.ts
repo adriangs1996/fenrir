@@ -4,7 +4,7 @@ import { Schema } from "effect";
 import type { BuiltInProviderDriver } from "./ProviderDriver.ts";
 
 export const CodexBuiltInDriver = {
-  driverKind: ProviderDriverKind.makeUnsafe("codex"),
+  driverKind: ProviderDriverKind.make("codex"),
   legacyProvider: "codex",
   metadata: {
     displayName: "Codex",
@@ -15,7 +15,7 @@ export const CodexBuiltInDriver = {
 } satisfies BuiltInProviderDriver;
 
 export const ClaudeBuiltInDriver = {
-  driverKind: ProviderDriverKind.makeUnsafe("claudeAgent"),
+  driverKind: ProviderDriverKind.make("claudeAgent"),
   legacyProvider: "claudeAgent",
   metadata: {
     displayName: "Claude",

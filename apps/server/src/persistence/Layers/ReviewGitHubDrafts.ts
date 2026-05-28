@@ -10,7 +10,7 @@ import {
   ReviewGitHubPendingDraftRepository,
   type ReviewGitHubPendingDraftRepositoryShape,
 } from "../Services/ReviewGitHubDrafts.ts";
-import { ReviewStableAnchor } from "../../../../../packages/contracts/src/review.ts";
+import { ReviewStableAnchor } from "@fenrir/contracts/sourceControlReview";
 
 const ReviewGitHubPendingDraftDbRow = ReviewGitHubPendingDraftRecord.mapFields(
   Struct.assign({

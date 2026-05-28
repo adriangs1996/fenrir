@@ -5,7 +5,7 @@
  *
  * @module ManagedProcessReactor
  */
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect, Scope } from "effect";
 
 /**
@@ -25,7 +25,7 @@ export interface ManagedProcessReactorShape {
 /**
  * ManagedProcessReactor - Service tag.
  */
-export class ManagedProcessReactor extends ServiceMap.Service<
+export class ManagedProcessReactor extends Context.Service<
   ManagedProcessReactor,
   ManagedProcessReactorShape
 >()("t3/orchestration/Services/ManagedProcessReactor") {}

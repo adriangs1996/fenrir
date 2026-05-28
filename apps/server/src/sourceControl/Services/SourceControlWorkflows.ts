@@ -1,4 +1,4 @@
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 
 import type { GitCoreShape } from "../../git/Services/GitCore.ts";
 import type { GitManagerShape } from "../../git/Services/GitManager.ts";
@@ -16,7 +16,7 @@ export interface SourceControlWorkflowsShape {
   readonly preparePullRequestThread: GitManagerShape["preparePullRequestThread"];
 }
 
-export class SourceControlWorkflows extends ServiceMap.Service<
+export class SourceControlWorkflows extends Context.Service<
   SourceControlWorkflows,
   SourceControlWorkflowsShape
 >()("fenrir/sourceControl/Services/SourceControlWorkflows") {}

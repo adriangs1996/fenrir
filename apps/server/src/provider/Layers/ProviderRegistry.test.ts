@@ -51,6 +51,7 @@ function mockHandle(result: { stdout: string; stderr: string; code: number }) {
     all: Stream.empty,
     getInputFd: () => Sink.drain,
     getOutputFd: () => Stream.empty,
+    unref: Effect.succeed(Effect.void),
   });
 }
 
@@ -604,7 +605,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               Layer.provideMerge(
                 ServerSettingsService.layerTest({
                   providerInstances: {
-                    [ProviderInstanceId.makeUnsafe("codex_work")]: {
+                    [ProviderInstanceId.make("codex_work")]: {
                       driver: "codex",
                       displayName: "Codex Work",
                     },
@@ -654,7 +655,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               Layer.provideMerge(
                 ServerSettingsService.layerTest({
                   providerInstances: {
-                    [ProviderInstanceId.makeUnsafe("acme_local")]: {
+                    [ProviderInstanceId.make("acme_local")]: {
                       driver: "acme",
                       displayName: "Acme Local",
                     },

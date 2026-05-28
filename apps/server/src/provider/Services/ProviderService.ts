@@ -25,7 +25,7 @@ import type {
   ThreadId,
   ProviderTurnStartResult,
 } from "@fenrir/contracts";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect, Stream } from "effect";
 
 import type { ProviderServiceError } from "../Errors.ts";
@@ -111,6 +111,6 @@ export interface ProviderServiceShape {
 /**
  * ProviderService - Service tag for provider orchestration.
  */
-export class ProviderService extends ServiceMap.Service<ProviderService, ProviderServiceShape>()(
+export class ProviderService extends Context.Service<ProviderService, ProviderServiceShape>()(
   "t3/provider/Services/ProviderService",
 ) {}

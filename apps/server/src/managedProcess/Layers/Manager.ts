@@ -133,7 +133,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
   const executorKind = executor.kind;
 
   // Capture service context so fire-and-forget effects can be spawned from callbacks.
-  const services = yield* Effect.services();
+  const services = yield* Effect.context();
   const runFork = Effect.runForkWith(services);
 
   // ── In-memory state ────────────────────────────────────────────────────

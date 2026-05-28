@@ -41,7 +41,7 @@ export const SidebarThreadPreviewCount = Schema.Number.pipe(
       encode: (value) => Effect.succeed(value),
     }),
   ),
-  Schema.withDecodingDefault(() => 6),
+  Schema.withDecodingDefault(Effect.succeed(6)),
 );
 export type SidebarThreadPreviewCount = typeof SidebarThreadPreviewCount.Type;
 export const DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT: SidebarThreadPreviewCount = 6;
@@ -53,25 +53,27 @@ export const ModelFavorite = Schema.Struct({
 export type ModelFavorite = typeof ModelFavorite.Type;
 
 export const ClientSettingsSchema = Schema.Struct({
-  confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
-  confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
-  diffIgnoreWhitespace: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
-  diffWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  diffIgnoreWhitespace: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  diffWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_PROJECT_SORT_ORDER),
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),
   ),
   sidebarThreadSortOrder: SidebarThreadSortOrder.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_THREAD_SORT_ORDER),
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_SORT_ORDER)),
   ),
   sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT),
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
   ),
-  favorites: Schema.Array(ModelFavorite).pipe(Schema.withDecodingDefault(() => [])),
-  timestampFormat: TimestampFormat.pipe(Schema.withDecodingDefault(() => DEFAULT_TIMESTAMP_FORMAT)),
+  favorites: Schema.Array(ModelFavorite).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  timestampFormat: TimestampFormat.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
+  ),
   embeddedEditor: EmbeddedEditorKind.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_EMBEDDED_EDITOR_KIND),
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_EMBEDDED_EDITOR_KIND)),
   ),
-  uiFontFamily: Schema.String.pipe(Schema.withDecodingDefault(() => "Geist Mono")),
+  uiFontFamily: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed("Geist Mono"))),
   uiFontSize: Schema.Number.pipe(
     Schema.decodeTo(
       Schema.Number,
@@ -80,9 +82,11 @@ export const ClientSettingsSchema = Schema.Struct({
         encode: (n) => Effect.succeed(n),
       }),
     ),
-    Schema.withDecodingDefault(() => 14),
+    Schema.withDecodingDefault(Effect.succeed(14)),
   ),
-  terminalFontFamily: Schema.String.pipe(Schema.withDecodingDefault(() => "GeistMono Nerd Font")),
+  terminalFontFamily: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed("GeistMono Nerd Font")),
+  ),
   terminalFontSize: Schema.Number.pipe(
     Schema.decodeTo(
       Schema.Number,
@@ -91,7 +95,7 @@ export const ClientSettingsSchema = Schema.Struct({
         encode: (n) => Effect.succeed(n),
       }),
     ),
-    Schema.withDecodingDefault(() => 12),
+    Schema.withDecodingDefault(Effect.succeed(12)),
   ),
   terminalLineHeight: Schema.Number.pipe(
     Schema.decodeTo(
@@ -101,9 +105,11 @@ export const ClientSettingsSchema = Schema.Struct({
         encode: (n) => Effect.succeed(n),
       }),
     ),
-    Schema.withDecodingDefault(() => 1.2),
+    Schema.withDecodingDefault(Effect.succeed(1.2)),
   ),
-  editorFontFamily: Schema.String.pipe(Schema.withDecodingDefault(() => "GeistMono Nerd Font")),
+  editorFontFamily: Schema.String.pipe(
+    Schema.withDecodingDefault(Effect.succeed("GeistMono Nerd Font")),
+  ),
   editorFontSize: Schema.Number.pipe(
     Schema.decodeTo(
       Schema.Number,
@@ -112,7 +118,7 @@ export const ClientSettingsSchema = Schema.Struct({
         encode: (n) => Effect.succeed(n),
       }),
     ),
-    Schema.withDecodingDefault(() => 14),
+    Schema.withDecodingDefault(Effect.succeed(14)),
   ),
   editorLineHeight: Schema.Number.pipe(
     Schema.decodeTo(
@@ -122,7 +128,7 @@ export const ClientSettingsSchema = Schema.Struct({
         encode: (n) => Effect.succeed(n),
       }),
     ),
-    Schema.withDecodingDefault(() => 1.2),
+    Schema.withDecodingDefault(Effect.succeed(1.2)),
   ),
   editorFontWeight: Schema.Number.pipe(
     Schema.decodeTo(
@@ -132,9 +138,9 @@ export const ClientSettingsSchema = Schema.Struct({
         encode: (n) => Effect.succeed(n),
       }),
     ),
-    Schema.withDecodingDefault(() => 400),
+    Schema.withDecodingDefault(Effect.succeed(400)),
   ),
-  editorLigatures: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  editorLigatures: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -154,7 +160,7 @@ const makeBinaryPathSetting = (fallback: string) =>
         encode: (value) => Effect.succeed(value),
       }),
     ),
-    Schema.withDecodingDefault(() => fallback),
+    Schema.withDecodingDefault(Effect.succeed(fallback)),
   );
 
 export type ProviderSettingsFormControl = "text" | "password" | "textarea" | "switch";
@@ -201,7 +207,7 @@ export function makeProviderSettingsSchema<const Fields extends Schema.Struct.Fi
 export const CodexSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(() => true),
+      Schema.withDecodingDefault(Effect.succeed(true)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     binaryPath: makeBinaryPathSetting("codex").pipe(
@@ -212,7 +218,7 @@ export const CodexSettings = makeProviderSettingsSchema(
       }),
     ),
     homePath: TrimmedString.pipe(
-      Schema.withDecodingDefault(() => ""),
+      Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "CODEX_HOME path",
         description: "Optional custom Codex home and config directory.",
@@ -220,7 +226,7 @@ export const CodexSettings = makeProviderSettingsSchema(
       }),
     ),
     customModels: Schema.Array(Schema.String).pipe(
-      Schema.withDecodingDefault(() => []),
+      Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
@@ -233,7 +239,7 @@ export type CodexSettings = typeof CodexSettings.Type;
 export const ClaudeSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(() => true),
+      Schema.withDecodingDefault(Effect.succeed(true)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     binaryPath: makeBinaryPathSetting("claude").pipe(
@@ -244,7 +250,7 @@ export const ClaudeSettings = makeProviderSettingsSchema(
       }),
     ),
     customModels: Schema.Array(Schema.String).pipe(
-      Schema.withDecodingDefault(() => []),
+      Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
@@ -257,7 +263,7 @@ export type ClaudeSettings = typeof ClaudeSettings.Type;
 export const CursorSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(() => false),
+      Schema.withDecodingDefault(Effect.succeed(false)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     binaryPath: makeBinaryPathSetting("agent").pipe(
@@ -268,7 +274,7 @@ export const CursorSettings = makeProviderSettingsSchema(
       }),
     ),
     apiEndpoint: TrimmedString.pipe(
-      Schema.withDecodingDefault(() => ""),
+      Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "API endpoint",
         description: "Override the Cursor API endpoint for this instance.",
@@ -276,7 +282,7 @@ export const CursorSettings = makeProviderSettingsSchema(
       }),
     ),
     customModels: Schema.Array(Schema.String).pipe(
-      Schema.withDecodingDefault(() => []),
+      Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
@@ -289,7 +295,7 @@ export type CursorSettings = typeof CursorSettings.Type;
 export const OpenCodeSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(() => true),
+      Schema.withDecodingDefault(Effect.succeed(true)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     binaryPath: makeBinaryPathSetting("opencode").pipe(
@@ -300,7 +306,7 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
       }),
     ),
     serverUrl: TrimmedString.pipe(
-      Schema.withDecodingDefault(() => ""),
+      Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "Server URL",
         description: "Leave blank to let Fenrir spawn the server when needed.",
@@ -311,7 +317,7 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
       }),
     ),
     serverPassword: TrimmedString.pipe(
-      Schema.withDecodingDefault(() => ""),
+      Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "Server password",
         description: "Stored in plain text on disk.",
@@ -323,7 +329,7 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
       }),
     ),
     customModels: Schema.Array(Schema.String).pipe(
-      Schema.withDecodingDefault(() => []),
+      Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
@@ -334,41 +340,49 @@ export const OpenCodeSettings = makeProviderSettingsSchema(
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
 
 export const ObservabilitySettings = Schema.Struct({
-  otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
-  otlpMetricsUrl: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+  otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  otlpMetricsUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
 });
 export type ObservabilitySettings = typeof ObservabilitySettings.Type;
 
 export const DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL = Duration.seconds(30);
 
 export const ServerSettings = Schema.Struct({
-  enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   automaticGitFetchInterval: Schema.DurationFromMillis.pipe(
-    Schema.withDecodingDefault(() => Duration.toMillis(DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL)),
+    Schema.withDecodingDefault(
+      Effect.succeed(Duration.toMillis(DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL)),
+    ),
   ),
   defaultThreadEnvMode: ThreadEnvMode.pipe(
-    Schema.withDecodingDefault(() => "local" as const satisfies ThreadEnvMode),
+    Schema.withDecodingDefault(Effect.succeed("local" as const satisfies ThreadEnvMode)),
   ),
-  addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+  addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   textGenerationModelSelection: ModelSelection.pipe(
-    Schema.withDecodingDefault(() => ({
-      provider: "codex" as const,
-      model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
-    })),
+    Schema.withDecodingDefault(
+      Effect.succeed({
+        provider: "codex" as const,
+        model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
+      }),
+    ),
   ),
 
   // Provider specific settings
   providers: Schema.Struct({
-    codex: CodexSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-    claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-  }).pipe(Schema.withDecodingDefault(() => ({}))),
-  providerInstances: ProviderInstanceConfigMap.pipe(Schema.withDecodingDefault(() => ({}))),
+    codex: CodexSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  providerInstances: ProviderInstanceConfigMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   mcpServers: Schema.Record(McpServerId, McpServerDefinition).pipe(
-    Schema.withDecodingDefault(() => ({})),
+    Schema.withDecodingDefault(Effect.succeed({})),
   ),
-  defaultMcpServerIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(() => [])),
-  disabledBuiltInMcpServerIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(() => [])),
-  observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(() => ({}))),
+  defaultMcpServerIds: Schema.Array(McpServerId).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  disabledBuiltInMcpServerIds: Schema.Array(McpServerId).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 

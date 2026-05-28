@@ -6,7 +6,7 @@
  *
  * @module ManagedProcess/InstanceStore
  */
-import { Effect, ServiceMap } from "effect";
+import { Effect, Context } from "effect";
 import type { ManagedProcess, ManagedProcessExecutorKind, ProjectId } from "@fenrir/contracts";
 
 export interface PersistedInstanceRecord {
@@ -40,6 +40,6 @@ export interface InstanceStoreShape {
   listAll(): Effect.Effect<PersistedInstanceRecord[], InstanceStoreError>;
 }
 
-export class InstanceStore extends ServiceMap.Service<InstanceStore, InstanceStoreShape>()(
+export class InstanceStore extends Context.Service<InstanceStore, InstanceStoreShape>()(
   "t3/managedProcess/InstanceStore",
 ) {}

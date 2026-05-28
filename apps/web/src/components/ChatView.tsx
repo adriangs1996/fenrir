@@ -194,28 +194,11 @@ import {
 import { useChatViewScripts } from "./chatView/useChatViewScripts";
 import { type ChatViewTab, useChatViewTabs } from "./chatView/useChatViewTabs";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
-import {
-  useServerAvailableEditors,
-  useServerConfig,
-  useServerKeybindings,
-  useServerSkills,
-} from "~/rpc/serverState";
+import { useServerConfig, useServerKeybindings, useServerSkills } from "~/rpc/serverState";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
 import { useComposerHandleContext } from "../composerHandleContext";
 import { useCommandPaletteStore } from "../commandPaletteStore";
-import {
-  ReviewRawModeShell,
-  ReviewTabShell,
-  useReviewStore,
-  type ReviewRouteMode,
-  type ReviewRouteScope,
-} from "~/modules/review";
-import {
-  buildReviewContextTrace,
-  formatReviewContextPrompt,
-  isReviewContextAttachmentStale,
-} from "~/modules/review/reviewComposer";
 import { parseThreadRouteSearch } from "~/threadRouteSearch";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
@@ -681,7 +664,6 @@ export default function ChatView(props: ChatViewProps) {
   const setComposerDraftTerminalContexts = useComposerDraftStore(
     (store) => store.setTerminalContexts,
   );
-  const addComposerReviewContext = useComposerDraftStore((store) => store.addReviewContext);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const setComposerDraftInteractionMode = useComposerDraftStore(
@@ -812,21 +794,15 @@ export default function ChatView(props: ChatViewProps) {
     nvimReady,
     vscodeReady,
   });
-  const {
-    activeChatTab,
-    activeReviewRouteState,
-    handleChatTabSelect,
-    lastNonTerminalChatTabRef,
-    setActiveChatTab,
-    updateReviewRouteState,
-  } = useChatViewTabs({
-    desktopBridgeAvailable,
-    draftId,
-    editorAvailable,
-    rawSearch,
-    routeKind,
-    routeThreadRef,
-  });
+  const { activeChatTab, handleChatTabSelect, lastNonTerminalChatTabRef, setActiveChatTab } =
+    useChatViewTabs({
+      desktopBridgeAvailable,
+      draftId,
+      editorAvailable,
+      rawSearch,
+      routeKind,
+      routeThreadRef,
+    });
 
   const terminalState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadKey, routeThreadRef),
@@ -913,11 +889,6 @@ export default function ChatView(props: ChatViewProps) {
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
     [activeThread],
   );
-  const reviewThreadRef = activeThreadRef ?? routeThreadRef;
-  const reviewThreadState = useReviewStore(
-    (state) => state.threads[scopedThreadKey(reviewThreadRef)] ?? null,
-  );
-  const reviewDiffCacheToken = reviewThreadState?.diffCacheToken ?? null;
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const existingOpenTerminalThreadKeys = useMemo(() => {
     const existingThreadKeys = new Set<string>([...serverThreadKeys, ...draftThreadKeys]);
@@ -1578,7 +1549,6 @@ export default function ChatView(props: ChatViewProps) {
     : null;
   const gitStatusQuery = useGitStatus({ environmentId, cwd: gitCwd });
   const keybindings = useServerKeybindings();
-  const availableEditors = useServerAvailableEditors();
   const serverSkills = useServerSkills();
   const activeProviderStatus = useMemo(
     () => providerStatuses.find((status) => status.provider === selectedProvider) ?? null,
@@ -1724,9 +1694,6 @@ export default function ChatView(props: ChatViewProps) {
   }, []);
   const resolveTerminalFallbackChatTab = useCallback(() => {
     const previousTab = lastNonTerminalChatTabRef.current;
-    if (previousTab === "review") {
-      return "review" as const;
-    }
     if (previousTab === "editor" && editorAvailable) {
       return "editor" as const;
     }
@@ -2337,7 +2304,7 @@ export default function ChatView(props: ChatViewProps) {
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
         terminalOpen: Boolean(terminalState.terminalOpen),
-        reviewFocus: activeChatTab === "review",
+        reviewFocus: false,
       };
 
       const command = resolveShortcutCommand(event, keybindings, {
@@ -2589,7 +2556,6 @@ export default function ChatView(props: ChatViewProps) {
     const {
       images: composerImages,
       terminalContexts: composerTerminalContexts,
-      reviewContexts: composerReviewContexts,
       selectedProvider: ctxSelectedProvider,
       selectedProviderInstanceId: ctxSelectedProviderInstanceId,
       selectedModel: ctxSelectedModel,
@@ -2622,11 +2588,7 @@ export default function ChatView(props: ChatViewProps) {
       prompt: promptForSend,
       imageCount: composerImages.length,
       terminalContexts: composerTerminalContexts,
-      reviewContextCount: composerReviewContexts.length,
     });
-    const staleReviewContextCount = composerReviewContexts.filter((attachment) =>
-      isReviewContextAttachmentStale(attachment, reviewDiffCacheToken),
-    ).length;
     if (showPlanFollowUpPrompt && activeProposedPlan) {
       const followUp = resolvePlanFollowUpSubmission({
         draftText: trimmed,
@@ -2666,17 +2628,6 @@ export default function ChatView(props: ChatViewProps) {
       }
       return;
     }
-    if (staleReviewContextCount > 0) {
-      toastManager.add({
-        type: "warning",
-        title: "Refresh stale review attachments before sending",
-        description:
-          staleReviewContextCount === 1
-            ? "One attached review selection is stale."
-            : `${staleReviewContextCount} attached review selections are stale.`,
-      });
-      return;
-    }
     if (!activeProject) return;
     const threadIdForSend = activeThread.id;
     const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
@@ -2699,18 +2650,10 @@ export default function ChatView(props: ChatViewProps) {
 
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
-    const composerReviewContextsSnapshot = [...composerReviewContexts];
     const composerEditorContextsSnapshot = [...useEditorStore.getState().pendingContexts];
     const skillExpandedPrompt = expandSkillReferences(promptForSend, serverSkills).text;
-    const reviewContextPrompt = formatReviewContextPrompt(composerReviewContextsSnapshot);
-    const messageTextWithReview =
-      reviewContextPrompt.length > 0
-        ? [skillExpandedPrompt, reviewContextPrompt]
-            .filter((value) => value.trim().length > 0)
-            .join("\n\n")
-        : skillExpandedPrompt;
     const messageTextWithTerminal = appendTerminalContextsToPrompt(
-      messageTextWithReview,
+      skillExpandedPrompt,
       composerTerminalContextsSnapshot,
     );
     const messageTextForSend = appendEditorContextsToPrompt(
@@ -2877,9 +2820,6 @@ export default function ChatView(props: ChatViewProps) {
         titleSeed: title,
         runtimeMode,
         interactionMode,
-        ...(buildReviewContextTrace(composerReviewContextsSnapshot)
-          ? { reviewContext: buildReviewContextTrace(composerReviewContextsSnapshot) }
-          : {}),
         ...(bootstrap ? { bootstrap } : {}),
         createdAt: messageCreatedAt,
       });
@@ -2906,9 +2846,6 @@ export default function ChatView(props: ChatViewProps) {
         setComposerDraftPrompt(composerDraftTarget, promptForSend);
         addComposerDraftImages(composerDraftTarget, retryComposerImages);
         setComposerDraftTerminalContexts(composerDraftTarget, composerTerminalContextsSnapshot);
-        for (const attachment of composerReviewContextsSnapshot) {
-          addComposerReviewContext(composerDraftTarget, attachment);
-        }
         composerRef.current?.resetCursorState({
           cursor: collapseExpandedComposerCursor(promptForSend, promptForSend.length),
           prompt: promptForSend,
@@ -3535,18 +3472,13 @@ export default function ChatView(props: ChatViewProps) {
           activeThreadId={activeThread.id}
           {...(routeKind === "draft" && draftId ? { draftId } : {})}
           activeThreadTitle={activeThread.title}
-          activeProjectId={activeProject?.id ?? null}
-          activeProjectEnvironmentId={activeProject?.environmentId ?? null}
           activeProjectName={activeProject?.name}
-          activeProjectManagedProcessCount={activeProject?.managedProcesses.length ?? 0}
           isGitRepo={isGitRepo}
-          openInCwd={gitCwd}
           activeProjectScripts={activeProject?.scripts}
           preferredScriptId={
             activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
           }
           keybindings={keybindings}
-          availableEditors={availableEditors}
           terminalAvailable={activeProject !== undefined}
           terminalOpen={terminalState.terminalOpen}
           terminalToggleShortcutLabel={terminalToggleShortcutLabel}
@@ -3649,7 +3581,6 @@ export default function ChatView(props: ChatViewProps) {
                 environmentId={environmentId}
                 routeKind={routeKind}
                 routeThreadRef={routeThreadRef}
-                reviewDiffCacheToken={reviewDiffCacheToken}
                 draftId={draftId}
                 activeThreadId={activeThreadId}
                 activeThreadEnvironmentId={activeThread?.environmentId}
@@ -3758,58 +3689,6 @@ export default function ChatView(props: ChatViewProps) {
               />
             ) : null}
           </div>
-          {activeReviewRouteState ? (
-            <div
-              className="flex min-h-0 min-w-0 flex-1 flex-col"
-              style={{ display: activeChatTab === "review" ? "flex" : "none" }}
-            >
-              {activeReviewRouteState.reviewMode === "raw" ? (
-                <ReviewRawModeShell
-                  environmentId={activeThread.environmentId}
-                  threadId={activeThread.id}
-                  routeKind={routeKind}
-                  active={activeChatTab === "review"}
-                  routeState={activeReviewRouteState}
-                  onModeChange={(reviewMode: ReviewRouteMode) =>
-                    updateReviewRouteState({
-                      ...activeReviewRouteState,
-                      reviewMode,
-                    })
-                  }
-                  onScopeChange={(reviewScope: ReviewRouteScope) =>
-                    updateReviewRouteState({
-                      ...activeReviewRouteState,
-                      reviewScope,
-                    })
-                  }
-                  onRouteStateChange={updateReviewRouteState}
-                />
-              ) : (
-                <ReviewTabShell
-                  environmentId={activeThread.environmentId}
-                  threadId={activeThread.id}
-                  routeKind={routeKind}
-                  active={activeChatTab === "review"}
-                  routeState={activeReviewRouteState}
-                  composerDraftTarget={composerDraftTarget}
-                  onAskAgent={() => void onSend()}
-                  onModeChange={(reviewMode: ReviewRouteMode) =>
-                    updateReviewRouteState({
-                      ...activeReviewRouteState,
-                      reviewMode,
-                    })
-                  }
-                  onScopeChange={(reviewScope: ReviewRouteScope) =>
-                    updateReviewRouteState({
-                      ...activeReviewRouteState,
-                      reviewScope,
-                    })
-                  }
-                  onRouteStateChange={updateReviewRouteState}
-                />
-              )}
-            </div>
-          ) : null}
           {activeThreadKey ? (
             <PersistentThreadTerminalDrawer
               threadRef={routeThreadRef}

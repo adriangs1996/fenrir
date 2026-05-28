@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { Layer } from "effect";
 import { Schema } from "effect";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import { Scope } from "effect";
 import { Stream } from "effect";
 import { Stdio } from "effect";
@@ -207,9 +207,7 @@ export interface AcpAgentShape {
   ) => Effect.Effect<void>;
 }
 
-export class AcpAgent extends ServiceMap.Service<AcpAgent, AcpAgentShape>()(
-  "effect-acp/AcpAgent",
-) {}
+export class AcpAgent extends Context.Service<AcpAgent, AcpAgentShape>()("effect-acp/AcpAgent") {}
 
 interface AcpCoreAgentRequestHandlers {
   initialize?: (

@@ -1,4 +1,4 @@
-import { EnvironmentId, type GitStatusResult } from "@fenrir/contracts";
+import { EnvironmentId, type GitStatusResult, type VcsStatusResult } from "@fenrir/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { WsRpcClient } from "../rpc/wsRpcClient";
@@ -33,9 +33,9 @@ function registerListener<T>(listeners: Set<(event: T) => void>, listener: (even
   };
 }
 
-const gitStatusListeners = new Set<(event: GitStatusResult) => void>();
-const ENVIRONMENT_ID = EnvironmentId.makeUnsafe("environment-local");
-const OTHER_ENVIRONMENT_ID = EnvironmentId.makeUnsafe("environment-remote");
+const gitStatusListeners = new Set<(event: VcsStatusResult) => void>();
+const ENVIRONMENT_ID = EnvironmentId.make("environment-local");
+const OTHER_ENVIRONMENT_ID = EnvironmentId.make("environment-remote");
 const TARGET = { environmentId: ENVIRONMENT_ID, cwd: "/repo" } as const;
 const FRESH_TARGET = { environmentId: ENVIRONMENT_ID, cwd: "/fresh" } as const;
 
@@ -51,25 +51,37 @@ const BASE_STATUS: GitStatusResult = {
   behindCount: 0,
   pr: null,
 };
+const BASE_VCS_STATUS: VcsStatusResult = {
+  isRepo: BASE_STATUS.isRepo,
+  hasPrimaryRemote: BASE_STATUS.hasOriginRemote,
+  isDefaultRef: BASE_STATUS.isDefaultBranch,
+  refName: BASE_STATUS.branch,
+  hasWorkingTreeChanges: BASE_STATUS.hasWorkingTreeChanges,
+  workingTree: BASE_STATUS.workingTree,
+  hasUpstream: BASE_STATUS.hasUpstream,
+  aheadCount: BASE_STATUS.aheadCount,
+  behindCount: BASE_STATUS.behindCount,
+  pr: null,
+};
 
 const gitClient = {
   refreshStatus: vi.fn(async (input: { cwd: string }) => ({
-    ...BASE_STATUS,
-    branch: `${input.cwd}-refreshed`,
+    ...BASE_VCS_STATUS,
+    refName: `${input.cwd}-refreshed`,
   })),
-  onStatus: vi.fn((input: { cwd: string }, listener: (event: GitStatusResult) => void) =>
+  onStatus: vi.fn((input: { cwd: string }, listener: (event: VcsStatusResult) => void) =>
     registerListener(gitStatusListeners, listener),
   ),
 };
 
-function emitGitStatus(event: GitStatusResult) {
+function emitGitStatus(event: VcsStatusResult) {
   for (const listener of gitStatusListeners) {
     listener(event);
   }
 }
 
 function createRegisteredGitStatusClient(environmentId: EnvironmentId) {
-  const listeners = new Set<(event: GitStatusResult) => void>();
+  const listeners = new Set<(event: VcsStatusResult) => void>();
   const client = {
     dispose: vi.fn(async () => undefined),
     reconnect: vi.fn(async () => undefined),
@@ -90,23 +102,25 @@ function createRegisteredGitStatusClient(environmentId: EnvironmentId) {
       openInEditor: vi.fn(async () => undefined),
     },
     git: {
-      pull: vi.fn(async () => undefined),
-      refreshStatus: vi.fn(async (input: { cwd: string }) => ({
-        ...BASE_STATUS,
-        branch: `${input.cwd}-refreshed`,
-      })),
-      onStatus: vi.fn((_: { cwd: string }, listener: (event: GitStatusResult) => void) =>
-        registerListener(listeners, listener),
-      ),
       runStackedAction: vi.fn(async () => ({}) as any),
-      listBranches: vi.fn(async () => []),
-      createWorktree: vi.fn(async () => undefined),
-      removeWorktree: vi.fn(async () => undefined),
-      createBranch: vi.fn(async () => undefined),
-      checkout: vi.fn(async () => undefined),
-      init: vi.fn(async () => undefined),
       resolvePullRequest: vi.fn(async () => undefined),
       preparePullRequestThread: vi.fn(async () => undefined),
+    },
+    vcs: {
+      pull: vi.fn(async () => undefined),
+      refreshStatus: vi.fn(async (input: { cwd: string }) => ({
+        ...BASE_VCS_STATUS,
+        refName: `${input.cwd}-refreshed`,
+      })),
+      onStatus: vi.fn((_: { cwd: string }, listener: (event: VcsStatusResult) => void) =>
+        registerListener(listeners, listener),
+      ),
+      listRefs: vi.fn(async () => []),
+      createWorktree: vi.fn(async () => undefined),
+      removeWorktree: vi.fn(async () => undefined),
+      createRef: vi.fn(async () => undefined),
+      switchRef: vi.fn(async () => undefined),
+      init: vi.fn(async () => undefined),
     },
     server: {
       getConfig: vi.fn(async () => ({
@@ -168,7 +182,7 @@ function createRegisteredGitStatusClient(environmentId: EnvironmentId) {
 
   return {
     client,
-    emit: (event: GitStatusResult) => {
+    emit: (event: VcsStatusResult) => {
       for (const listener of listeners) {
         listener(event);
       }
@@ -208,7 +222,7 @@ describe("gitStatusState", () => {
       isPending: true,
     });
 
-    emitGitStatus(BASE_STATUS);
+    emitGitStatus(BASE_VCS_STATUS);
 
     expect(getGitStatusSnapshot(TARGET)).toEqual({
       data: BASE_STATUS,
@@ -227,7 +241,7 @@ describe("gitStatusState", () => {
   it("refreshes git status through the unary RPC without restarting the stream", async () => {
     const release = watchGitStatus(TARGET, gitClient);
 
-    emitGitStatus(BASE_STATUS);
+    emitGitStatus(BASE_VCS_STATUS);
     const refreshed = await refreshGitStatus(TARGET, gitClient);
 
     expect(gitClient.onStatus).toHaveBeenCalledOnce();
@@ -244,17 +258,17 @@ describe("gitStatusState", () => {
   });
 
   it("keeps git status subscriptions isolated by environment when cwds match", () => {
-    const localListeners = new Set<(event: GitStatusResult) => void>();
-    const remoteListeners = new Set<(event: GitStatusResult) => void>();
+    const localListeners = new Set<(event: VcsStatusResult) => void>();
+    const remoteListeners = new Set<(event: VcsStatusResult) => void>();
     const localClient = {
       refreshStatus: vi.fn(),
-      onStatus: vi.fn((_: { cwd: string }, listener: (event: GitStatusResult) => void) =>
+      onStatus: vi.fn((_: { cwd: string }, listener: (event: VcsStatusResult) => void) =>
         registerListener(localListeners, listener),
       ),
     };
     const remoteClient = {
       refreshStatus: vi.fn(),
-      onStatus: vi.fn((_: { cwd: string }, listener: (event: GitStatusResult) => void) =>
+      onStatus: vi.fn((_: { cwd: string }, listener: (event: VcsStatusResult) => void) =>
         registerListener(remoteListeners, listener),
       ),
     };
@@ -264,10 +278,10 @@ describe("gitStatusState", () => {
     const releaseRemote = watchGitStatus(remoteTarget, remoteClient);
 
     for (const listener of localListeners) {
-      listener(BASE_STATUS);
+      listener(BASE_VCS_STATUS);
     }
     for (const listener of remoteListeners) {
-      listener({ ...BASE_STATUS, branch: "remote-branch" });
+      listener({ ...BASE_VCS_STATUS, refName: "remote-branch" });
     }
 
     expect(getGitStatusSnapshot(TARGET).data?.branch).toBe("feature/push-status");
@@ -288,7 +302,7 @@ describe("gitStatusState", () => {
     });
 
     const registered = createRegisteredGitStatusClient(ENVIRONMENT_ID);
-    registered.emit(BASE_STATUS);
+    registered.emit(BASE_VCS_STATUS);
 
     expect(getGitStatusSnapshot(TARGET)).toEqual({
       data: BASE_STATUS,
@@ -304,7 +318,7 @@ describe("gitStatusState", () => {
     const firstClient = createRegisteredGitStatusClient(ENVIRONMENT_ID);
     const release = watchGitStatus(TARGET);
 
-    firstClient.emit(BASE_STATUS);
+    firstClient.emit(BASE_VCS_STATUS);
     expect(getGitStatusSnapshot(TARGET).data?.branch).toBe("feature/push-status");
 
     serviceHarness.connections.delete(ENVIRONMENT_ID);
@@ -320,7 +334,7 @@ describe("gitStatusState", () => {
     });
 
     const secondClient = createRegisteredGitStatusClient(ENVIRONMENT_ID);
-    secondClient.emit({ ...BASE_STATUS, branch: "reconnected-branch" });
+    secondClient.emit({ ...BASE_VCS_STATUS, refName: "reconnected-branch" });
 
     expect(getGitStatusSnapshot(TARGET)).toEqual({
       data: { ...BASE_STATUS, branch: "reconnected-branch" },

@@ -28,7 +28,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
 
 describe("uiStateStore pure functions", () => {
   it("markThreadUnread moves lastVisitedAt before completion for a completed thread", () => {
-    const threadId = ThreadId.makeUnsafe("thread-1");
+    const threadId = ThreadId.make("thread-1");
     const latestTurnCompletedAt = "2026-02-25T12:30:00.000Z";
     const initialState = makeUiState({
       threadLastVisitedAtById: {
@@ -42,7 +42,7 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("markThreadUnread does not change a thread without a completed turn", () => {
-    const threadId = ThreadId.makeUnsafe("thread-1");
+    const threadId = ThreadId.make("thread-1");
     const initialState = makeUiState({
       threadLastVisitedAtById: {
         [threadId]: "2026-02-25T12:35:00.000Z",
@@ -55,9 +55,9 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("reorderProjects moves a project down to a later position", () => {
-    const project1 = ProjectId.makeUnsafe("project-1");
-    const project2 = ProjectId.makeUnsafe("project-2");
-    const project3 = ProjectId.makeUnsafe("project-3");
+    const project1 = ProjectId.make("project-1");
+    const project2 = ProjectId.make("project-2");
+    const project3 = ProjectId.make("project-3");
     const initialState = makeUiState({
       projectOrder: [project1, project2, project3],
     });
@@ -68,9 +68,9 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("reorderProjects moves a project up to an earlier position", () => {
-    const project1 = ProjectId.makeUnsafe("project-1");
-    const project2 = ProjectId.makeUnsafe("project-2");
-    const project3 = ProjectId.makeUnsafe("project-3");
+    const project1 = ProjectId.make("project-1");
+    const project2 = ProjectId.make("project-2");
+    const project3 = ProjectId.make("project-3");
     const initialState = makeUiState({
       projectOrder: [project1, project2, project3],
     });
@@ -81,9 +81,9 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("reorderProjects swaps adjacent projects", () => {
-    const project1 = ProjectId.makeUnsafe("project-1");
-    const project2 = ProjectId.makeUnsafe("project-2");
-    const project3 = ProjectId.makeUnsafe("project-3");
+    const project1 = ProjectId.make("project-1");
+    const project2 = ProjectId.make("project-2");
+    const project3 = ProjectId.make("project-3");
     const initialState = makeUiState({
       projectOrder: [project1, project2, project3],
     });
@@ -162,9 +162,9 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("syncProjects preserves current project order during snapshot recovery", () => {
-    const project1 = ProjectId.makeUnsafe("project-1");
-    const project2 = ProjectId.makeUnsafe("project-2");
-    const project3 = ProjectId.makeUnsafe("project-3");
+    const project1 = ProjectId.make("project-1");
+    const project2 = ProjectId.make("project-2");
+    const project3 = ProjectId.make("project-3");
     const project1Cwd = "/tmp/project-1";
     const project2Cwd = "/tmp/project-2";
     const project3Cwd = "/tmp/project-3";
@@ -187,7 +187,7 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("syncProjects defaults new projects to collapsed", () => {
-    const project1 = ProjectId.makeUnsafe("project-1");
+    const project1 = ProjectId.make("project-1");
     const project1Cwd = "/tmp/project-1";
 
     const next = syncProjects(makeUiState(), [{ key: project1, cwd: project1Cwd }]);
@@ -196,9 +196,9 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("syncProjects preserves manual order when a project is recreated with the same cwd", () => {
-    const oldProject1 = ProjectId.makeUnsafe("project-1");
-    const oldProject2 = ProjectId.makeUnsafe("project-2");
-    const recreatedProject2 = ProjectId.makeUnsafe("project-2b");
+    const oldProject1 = ProjectId.make("project-1");
+    const oldProject2 = ProjectId.make("project-2");
+    const recreatedProject2 = ProjectId.make("project-2b");
     const project1Cwd = "/tmp/project-1";
     const project2Cwd = "/tmp/project-2";
     const initialState = syncProjects(
@@ -225,7 +225,7 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("syncProjects returns a new state when only project cwd changes", () => {
-    const project1 = ProjectId.makeUnsafe("project-1");
+    const project1 = ProjectId.make("project-1");
     const previousCwd = "/tmp/project-1";
     const renamedCwd = "/tmp/project-1-renamed";
     const initialState = syncProjects(
@@ -246,8 +246,8 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("syncThreads prunes missing thread UI state", () => {
-    const thread1 = ThreadId.makeUnsafe("thread-1");
-    const thread2 = ThreadId.makeUnsafe("thread-2");
+    const thread1 = ThreadId.make("thread-1");
+    const thread2 = ThreadId.make("thread-2");
     const initialState = makeUiState({
       threadLastVisitedAtById: {
         [thread1]: "2026-02-25T12:35:00.000Z",
@@ -276,7 +276,7 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("syncThreads seeds visit state for unseen snapshot threads", () => {
-    const thread1 = ThreadId.makeUnsafe("thread-1");
+    const thread1 = ThreadId.make("thread-1");
     const initialState = makeUiState();
 
     const next = syncThreads(initialState, [
@@ -292,7 +292,7 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("setProjectExpanded updates expansion without touching order", () => {
-    const project1 = ProjectId.makeUnsafe("project-1");
+    const project1 = ProjectId.make("project-1");
     const initialState = makeUiState({
       projectExpandedById: {
         [project1]: true,
@@ -329,7 +329,7 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("clearThreadUi removes visit state for deleted threads", () => {
-    const thread1 = ThreadId.makeUnsafe("thread-1");
+    const thread1 = ThreadId.make("thread-1");
     const initialState = makeUiState({
       threadLastVisitedAtById: {
         [thread1]: "2026-02-25T12:35:00.000Z",
@@ -348,7 +348,7 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("setThreadChangedFilesExpanded stores collapsed turns per thread", () => {
-    const thread1 = ThreadId.makeUnsafe("thread-1");
+    const thread1 = ThreadId.make("thread-1");
     const initialState = makeUiState();
 
     const next = setThreadChangedFilesExpanded(initialState, thread1, "turn-1", false);
@@ -361,7 +361,7 @@ describe("uiStateStore pure functions", () => {
   });
 
   it("setThreadChangedFilesExpanded removes thread overrides when expanded again", () => {
-    const thread1 = ThreadId.makeUnsafe("thread-1");
+    const thread1 = ThreadId.make("thread-1");
     const initialState = makeUiState({
       threadChangedFilesExpandedById: {
         [thread1]: {

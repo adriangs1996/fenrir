@@ -148,11 +148,9 @@ export function buildServerProvider(input: {
 }): ServerProvider {
   const fallbackProvider = input.provider;
   const fallbackDriver =
-    input.driver ??
-    (fallbackProvider ? ProviderDriverKind.makeUnsafe(fallbackProvider) : undefined);
+    input.driver ?? (fallbackProvider ? ProviderDriverKind.make(fallbackProvider) : undefined);
   const fallbackInstanceId =
-    input.instanceId ??
-    (fallbackProvider ? ProviderInstanceId.makeUnsafe(fallbackProvider) : undefined);
+    input.instanceId ?? (fallbackProvider ? ProviderInstanceId.make(fallbackProvider) : undefined);
   const mcpCapabilities = input.mcpCapabilities ?? defaultMcpCapabilities(input);
   return {
     ...(fallbackProvider ? { provider: fallbackProvider } : {}),

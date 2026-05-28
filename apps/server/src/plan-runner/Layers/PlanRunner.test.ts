@@ -168,8 +168,8 @@ describe("isExecutablePlanFile", () => {
 
 // ─── Archive lifecycle integration tests ────────────────────────────────────
 
-const testProjectId = ProjectId.makeUnsafe("test-project");
-const tn = TrimmedNonEmptyString.makeUnsafe;
+const testProjectId = ProjectId.make("test-project");
+const tn = TrimmedNonEmptyString.make;
 
 /**
  * Build a ManagedRuntime with PlanRunnerLive and all deps.
@@ -393,7 +393,7 @@ describe("archiveFeature", () => {
             projectId: testProjectId,
             featureName: tn("foo"),
             run: {
-              runId: PlanRunId.makeUnsafe("run-active"),
+              runId: PlanRunId.make("run-active"),
               projectId: testProjectId,
               featureName: tn("foo"),
               state: "executing",
@@ -663,7 +663,7 @@ describe("listArchivedFeatures", () => {
   it("aggregates across multiple projects when projectId is omitted", async () => {
     const tempDir1 = makeTempProject();
     const tempDir2 = makeTempProject();
-    const project2Id = ProjectId.makeUnsafe("test-project-2");
+    const project2Id = ProjectId.make("test-project-2");
 
     // Build runtime with two projects
     const readModel = {

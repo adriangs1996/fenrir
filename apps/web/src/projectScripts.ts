@@ -23,7 +23,7 @@ function normalizeScriptId(value: string): string {
 }
 
 export const commandForProjectScript = (scriptId: string): KeybindingCommand =>
-  SCRIPT_RUN_COMMAND_PATTERN.makeUnsafe(`script.${scriptId}.run`);
+  SCRIPT_RUN_COMMAND_PATTERN.make(`script.${scriptId}.run`);
 
 export function projectScriptIdFromCommand(command: string): string | null {
   const trimmed = command.trim();
@@ -66,7 +66,7 @@ export function primaryProjectScript(scripts: ProjectScript[]): ProjectScript | 
 // ---------------------------------------------------------------------------
 
 export const commandForGlobalScript = (scriptId: string): KeybindingCommand =>
-  GLOBAL_SCRIPT_RUN_COMMAND_PATTERN.makeUnsafe(`global-script.${scriptId}.run`);
+  GLOBAL_SCRIPT_RUN_COMMAND_PATTERN.make(`global-script.${scriptId}.run`);
 
 export function globalScriptIdFromCommand(command: string): string | null {
   const trimmed = command.trim();

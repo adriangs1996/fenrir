@@ -13,11 +13,6 @@ import {
   stripInlineTerminalContextPlaceholders,
   type TerminalContextDraft,
 } from "~/modules/terminal";
-import {
-  DEFAULT_REVIEW_ROUTE_MODE,
-  DEFAULT_REVIEW_ROUTE_SCOPE,
-  type ReviewRouteState,
-} from "~/modules/review";
 import { randomUUID } from "~/lib/utils";
 import type { RightPanelTab } from "../rightPanelStore";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
@@ -238,35 +233,6 @@ export function createSearchStateKey(search: object): string {
         key,
         searchRecord[key] === undefined ? "__fenrir_undefined__" : searchRecord[key],
       ]),
-  );
-}
-
-export function deriveActiveReviewRouteState(input: {
-  activeChatTab: "thread" | "review" | "terminal" | "editor";
-  reviewRouteState: ReviewRouteState | null;
-}): ReviewRouteState | null {
-  if (input.reviewRouteState !== null) {
-    return input.reviewRouteState;
-  }
-
-  if (input.activeChatTab !== "review") {
-    return null;
-  }
-
-  return {
-    tab: "review",
-    reviewMode: DEFAULT_REVIEW_ROUTE_MODE,
-    reviewScope: DEFAULT_REVIEW_ROUTE_SCOPE,
-  };
-}
-
-export function shouldForceActiveReviewTab(input: {
-  activeChatTab: "thread" | "review" | "terminal" | "editor";
-  hasReviewRouteState: boolean;
-  pendingReviewRouteExit: boolean;
-}): boolean {
-  return (
-    input.hasReviewRouteState && input.activeChatTab !== "review" && !input.pendingReviewRouteExit
   );
 }
 

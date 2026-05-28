@@ -5,13 +5,13 @@ import {
   type DesktopBridge,
   EnvironmentId,
   EventId,
-  type GitStatusResult,
   ProjectId,
   type OrchestrationEvent,
   type ServerConfig,
   type ServerProvider,
   type TerminalEvent,
   ThreadId,
+  type VcsStatusResult,
 } from "@fenrir/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,7 +36,7 @@ const terminalEventListeners = new Set<(event: TerminalEvent) => void>();
 const orchestrationEventListeners = new Set<(event: OrchestrationEvent) => void>();
 const orchestrationShellListeners = new Set<(item: unknown) => void>();
 const orchestrationManagedProcessListeners = new Set<(item: unknown) => void>();
-const gitStatusListeners = new Set<(event: GitStatusResult) => void>();
+const vcsStatusListeners = new Set<(event: VcsStatusResult) => void>();
 
 const rpcClientMock = {
   dispose: vi.fn(),
@@ -72,24 +72,31 @@ const rpcClientMock = {
   filesystem: {
     browse: vi.fn(),
   },
+  sourceControl: {
+    lookupRepository: vi.fn(),
+    cloneRepository: vi.fn(),
+    publishRepository: vi.fn(),
+  },
   shell: {
     openInEditor: vi.fn(),
   },
   git: {
-    pull: vi.fn(),
-    refreshStatus: vi.fn(),
-    onStatus: vi.fn((input: { cwd: string }, listener: (event: GitStatusResult) => void) =>
-      registerListener(gitStatusListeners, listener),
-    ),
     runStackedAction: vi.fn(),
-    listBranches: vi.fn(),
-    createWorktree: vi.fn(),
-    removeWorktree: vi.fn(),
-    createBranch: vi.fn(),
-    checkout: vi.fn(),
-    init: vi.fn(),
     resolvePullRequest: vi.fn(),
     preparePullRequestThread: vi.fn(),
+  },
+  vcs: {
+    pull: vi.fn(),
+    refreshStatus: vi.fn(),
+    onStatus: vi.fn((input: { cwd: string }, listener: (event: VcsStatusResult) => void) =>
+      registerListener(vcsStatusListeners, listener),
+    ),
+    listRefs: vi.fn(),
+    createWorktree: vi.fn(),
+    removeWorktree: vi.fn(),
+    createRef: vi.fn(),
+    switchRef: vi.fn(),
+    init: vi.fn(),
   },
   server: {
     getConfig: vi.fn(),
@@ -138,10 +145,10 @@ vi.mock("./environments/runtime", () => ({
         httpBaseUrl: "http://localhost:3000",
         wsBaseUrl: "ws://localhost:3000",
       },
-      environmentId: EnvironmentId.makeUnsafe("environment-local"),
+      environmentId: EnvironmentId.make("environment-local"),
     },
     client: rpcClientMock,
-    environmentId: EnvironmentId.makeUnsafe("environment-local"),
+    environmentId: EnvironmentId.make("environment-local"),
     ensureBootstrapped: async () => undefined,
     reconnect: async () => undefined,
     dispose: async () => undefined,
@@ -377,7 +384,7 @@ const defaultProviders: ReadonlyArray<ServerProvider> = [
 ];
 
 const baseEnvironment = {
-  environmentId: EnvironmentId.makeUnsafe("environment-local"),
+  environmentId: EnvironmentId.make("environment-local"),
   label: "Local environment",
   platform: {
     os: "darwin" as const,
@@ -414,11 +421,11 @@ const baseServerConfig: ServerConfig = {
   skills: [],
 };
 
-const baseGitStatus: GitStatusResult = {
+const baseGitStatus: VcsStatusResult = {
   isRepo: true,
-  hasOriginRemote: true,
-  isDefaultBranch: false,
-  branch: "feature/streamed",
+  hasPrimaryRemote: true,
+  isDefaultRef: false,
+  refName: "feature/streamed",
   hasWorkingTreeChanges: false,
   workingTree: { files: [], insertions: 0, deletions: 0 },
   hasUpstream: true,
@@ -433,7 +440,7 @@ beforeEach(() => {
   showContextMenuFallbackMock.mockReset();
   terminalEventListeners.clear();
   orchestrationEventListeners.clear();
-  gitStatusListeners.clear();
+  vcsStatusListeners.clear();
   const testWindow = getWindowForTest();
   Reflect.deleteProperty(testWindow, "desktopBridge");
   Object.defineProperty(testWindow, "localStorage", {
@@ -480,9 +487,9 @@ describe("wsApi", () => {
 
     const orchestrationEvent = {
       sequence: 1,
-      eventId: EventId.makeUnsafe("event-1"),
+      eventId: EventId.make("event-1"),
       aggregateKind: "project",
-      aggregateId: ProjectId.makeUnsafe("project-1"),
+      aggregateId: ProjectId.make("project-1"),
       occurredAt: "2026-02-24T00:00:00.000Z",
       commandId: null,
       causationEventId: null,
@@ -490,7 +497,7 @@ describe("wsApi", () => {
       metadata: {},
       type: "project.created",
       payload: {
-        projectId: ProjectId.makeUnsafe("project-1"),
+        projectId: ProjectId.make("project-1"),
         title: "Project",
         workspaceRoot: "/tmp/workspace",
         defaultModelSelection: {
@@ -515,24 +522,24 @@ describe("wsApi", () => {
     const api = createEnvironmentApi(rpcClientMock as never);
     const onStatus = vi.fn();
 
-    api.git.onStatus({ cwd: "/repo" }, onStatus);
+    api.vcs.onStatus({ cwd: "/repo" }, onStatus);
 
     const gitStatus = baseGitStatus;
-    emitEvent(gitStatusListeners, gitStatus);
+    emitEvent(vcsStatusListeners, gitStatus);
 
-    expect(rpcClientMock.git.onStatus).toHaveBeenCalledWith({ cwd: "/repo" }, onStatus, undefined);
+    expect(rpcClientMock.vcs.onStatus).toHaveBeenCalledWith({ cwd: "/repo" }, onStatus, undefined);
     expect(onStatus).toHaveBeenCalledWith(gitStatus);
   });
 
   it("forwards git status refreshes directly to the RPC client", async () => {
-    rpcClientMock.git.refreshStatus.mockResolvedValue(baseGitStatus);
+    rpcClientMock.vcs.refreshStatus.mockResolvedValue(baseGitStatus);
     const { createEnvironmentApi } = await import("./environmentApi");
 
     const api = createEnvironmentApi(rpcClientMock as never);
 
-    await api.git.refreshStatus({ cwd: "/repo" });
+    await api.vcs.refreshStatus({ cwd: "/repo" });
 
-    expect(rpcClientMock.git.refreshStatus).toHaveBeenCalledWith({ cwd: "/repo" });
+    expect(rpcClientMock.vcs.refreshStatus).toHaveBeenCalledWith({ cwd: "/repo" });
   });
 
   it("forwards orchestration stream subscription options to the RPC client", async () => {
@@ -556,8 +563,8 @@ describe("wsApi", () => {
     const api = createEnvironmentApi(rpcClientMock as never);
     const command = {
       type: "project.create",
-      commandId: CommandId.makeUnsafe("cmd-1"),
-      projectId: ProjectId.makeUnsafe("project-1"),
+      commandId: CommandId.make("cmd-1"),
+      projectId: ProjectId.make("project-1"),
       title: "Project",
       workspaceRoot: "/tmp/project",
       defaultModelSelection: {
@@ -595,7 +602,7 @@ describe("wsApi", () => {
 
     const api = createEnvironmentApi(rpcClientMock as never);
     await api.orchestration.getFullThreadDiff({
-      threadId: ThreadId.makeUnsafe("thread-1"),
+      threadId: ThreadId.make("thread-1"),
       toTurnCount: 1,
     });
 
@@ -716,14 +723,12 @@ describe("wsApi", () => {
     });
     await api.persistence.getSavedEnvironmentRegistry();
     await api.persistence.setSavedEnvironmentRegistry([]);
-    await api.persistence.getSavedEnvironmentSecret(EnvironmentId.makeUnsafe("environment-local"));
+    await api.persistence.getSavedEnvironmentSecret(EnvironmentId.make("environment-local"));
     await api.persistence.setSavedEnvironmentSecret(
-      EnvironmentId.makeUnsafe("environment-local"),
+      EnvironmentId.make("environment-local"),
       "bearer-token",
     );
-    await api.persistence.removeSavedEnvironmentSecret(
-      EnvironmentId.makeUnsafe("environment-local"),
-    );
+    await api.persistence.removeSavedEnvironmentSecret(EnvironmentId.make("environment-local"));
 
     expect(getClientSettings).toHaveBeenCalledWith();
     expect(setClientSettings).toHaveBeenCalledWith({
@@ -783,7 +788,7 @@ describe("wsApi", () => {
     });
     await api.persistence.setSavedEnvironmentRegistry([
       {
-        environmentId: EnvironmentId.makeUnsafe("environment-local"),
+        environmentId: EnvironmentId.make("environment-local"),
         label: "Primary",
         httpBaseUrl: "http://localhost:3000",
         wsBaseUrl: "ws://localhost:3000",
@@ -792,7 +797,7 @@ describe("wsApi", () => {
       },
     ]);
     await api.persistence.setSavedEnvironmentSecret(
-      EnvironmentId.makeUnsafe("environment-local"),
+      EnvironmentId.make("environment-local"),
       "bearer-token",
     );
 
@@ -821,7 +826,7 @@ describe("wsApi", () => {
     });
     await expect(api.persistence.getSavedEnvironmentRegistry()).resolves.toEqual([
       {
-        environmentId: EnvironmentId.makeUnsafe("environment-local"),
+        environmentId: EnvironmentId.make("environment-local"),
         label: "Primary",
         httpBaseUrl: "http://localhost:3000",
         wsBaseUrl: "ws://localhost:3000",
@@ -830,15 +835,13 @@ describe("wsApi", () => {
       },
     ]);
     await expect(
-      api.persistence.getSavedEnvironmentSecret(EnvironmentId.makeUnsafe("environment-local")),
+      api.persistence.getSavedEnvironmentSecret(EnvironmentId.make("environment-local")),
     ).resolves.toBe("bearer-token");
 
-    await api.persistence.removeSavedEnvironmentSecret(
-      EnvironmentId.makeUnsafe("environment-local"),
-    );
+    await api.persistence.removeSavedEnvironmentSecret(EnvironmentId.make("environment-local"));
 
     await expect(
-      api.persistence.getSavedEnvironmentSecret(EnvironmentId.makeUnsafe("environment-local")),
+      api.persistence.getSavedEnvironmentSecret(EnvironmentId.make("environment-local")),
     ).resolves.toBeNull();
   });
 });

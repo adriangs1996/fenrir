@@ -22,7 +22,7 @@ export const buildUnavailableProviderSnapshot = (
   Effect.succeed({
     ...buildServerProvider({
       instanceId: input.instanceId,
-      driver: ProviderDriverKind.makeUnsafe(input.driverKind),
+      driver: ProviderDriverKind.make(input.driverKind),
       displayName: input.displayName?.trim() || input.driverKind,
       enabled: false,
       checkedAt: input.checkedAt,

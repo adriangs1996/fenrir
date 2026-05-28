@@ -29,17 +29,13 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         decodePatch({
           automaticGitFetchInterval: 60_000,
           textGenerationModelSelection: {
-            options: {
-              fastMode: false,
-            },
+            options: [{ id: "fastMode", value: false }],
           },
         }),
         {
           automaticGitFetchInterval: Duration.minutes(1),
           textGenerationModelSelection: {
-            options: {
-              fastMode: false,
-            },
+            options: [{ id: "fastMode", value: false }],
           },
         },
       );
@@ -64,10 +60,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         textGenerationModelSelection: {
           provider: "codex",
           model: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.model,
-          options: {
-            reasoningEffort: "high",
-            fastMode: true,
-          },
+          options: [
+            { id: "reasoningEffort", value: "high" },
+            { id: "fastMode", value: true },
+          ],
         },
       });
 
@@ -78,9 +74,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         },
         textGenerationModelSelection: {
-          options: {
-            fastMode: false,
-          },
+          options: [{ id: "fastMode", value: false }],
         },
       });
 
@@ -115,9 +109,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         textGenerationModelSelection: {
           provider: "claudeAgent",
           model: "claude-sonnet-4-6",
-          options: {
-            effort: "high",
-          },
+          options: [{ id: "effort", value: "high" }],
         },
       });
 
@@ -127,18 +119,14 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         textGenerationModelSelection: {
           provider: "codex",
           model: "gpt-5.4",
-          options: {
-            reasoningEffort: "high",
-          },
+          options: [{ id: "reasoningEffort", value: "high" }],
         },
       });
 
       assert.deepEqual(next.textGenerationModelSelection, {
         provider: "codex",
         model: "gpt-5.4",
-        options: {
-          reasoningEffort: "high",
-        },
+        options: [{ id: "reasoningEffort", value: "high" }],
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
@@ -151,10 +139,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         textGenerationModelSelection: {
           provider: "codex",
           model: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.model,
-          options: {
-            reasoningEffort: "high",
-            fastMode: true,
-          },
+          options: [
+            { id: "reasoningEffort", value: "high" },
+            { id: "fastMode", value: true },
+          ],
         },
       });
 

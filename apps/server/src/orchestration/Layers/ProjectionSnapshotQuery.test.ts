@@ -8,11 +8,11 @@ import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
-const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
-const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
-const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsafe(value);
+const asProjectId = (value: string): ProjectId => ProjectId.make(value);
+const asTurnId = (value: string): TurnId => TurnId.make(value);
+const asMessageId = (value: string): MessageId => MessageId.make(value);
+const asEventId = (value: string): EventId => EventId.make(value);
+const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(value);
 
 const projectionSnapshotLayer = it.layer(
   OrchestrationProjectionSnapshotQueryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
@@ -282,7 +282,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.equal(snapshot.updatedAt, "2026-03-03T00:00:10.000Z");
       assert.deepEqual(snapshot.threads, [
         {
-          id: ThreadId.makeUnsafe("thread-bootstrap"),
+          id: ThreadId.make("thread-bootstrap"),
           projectId: asProjectId("project-bootstrap"),
           title: "Bootstrap Thread",
           modelSelection: {
@@ -302,7 +302,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             completedAt: null,
             assistantMessageId: null,
             sourceProposedPlan: {
-              threadId: ThreadId.makeUnsafe("thread-bootstrap"),
+              threadId: ThreadId.make("thread-bootstrap"),
               planId: "plan-bootstrap",
             },
           },
@@ -310,7 +310,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           updatedAt: "2026-03-03T00:00:03.000Z",
           archivedAt: null,
           session: {
-            threadId: ThreadId.makeUnsafe("thread-bootstrap"),
+            threadId: ThreadId.make("thread-bootstrap"),
             status: "running",
             providerName: "codex",
             runtimeMode: "full-access",
@@ -430,11 +430,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       assert.deepStrictEqual(
         bootstrapSnapshot.threads.map((thread) => thread.id),
-        [ThreadId.makeUnsafe("thread-active")],
+        [ThreadId.make("thread-active")],
       );
       assert.deepStrictEqual(
         archivedSnapshot.threads.map((thread) => thread.id),
-        [ThreadId.makeUnsafe("thread-archived")],
+        [ThreadId.make("thread-archived")],
       );
       assert.equal(archivedSnapshot.threads[0]?.archivedAt, "2026-03-04T00:00:06.000Z");
       assert.deepStrictEqual(
@@ -694,7 +694,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       ]);
       assert.deepEqual(snapshot.threads, [
         {
-          id: ThreadId.makeUnsafe("thread-1"),
+          id: ThreadId.make("thread-1"),
           projectId: asProjectId("project-1"),
           title: "Thread 1",
           modelSelection: {
@@ -714,7 +714,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             completedAt: "2026-02-24T00:00:08.000Z",
             assistantMessageId: asMessageId("message-1"),
             sourceProposedPlan: {
-              threadId: ThreadId.makeUnsafe("thread-1"),
+              threadId: ThreadId.make("thread-1"),
               planId: "plan-1",
             },
           },
@@ -739,7 +739,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               turnId: asTurnId("turn-1"),
               planMarkdown: "# Ship it",
               implementedAt: "2026-02-24T00:00:05.500Z",
-              implementationThreadId: ThreadId.makeUnsafe("thread-2"),
+              implementationThreadId: ThreadId.make("thread-2"),
               createdAt: "2026-02-24T00:00:05.000Z",
               updatedAt: "2026-02-24T00:00:05.500Z",
             },
@@ -767,7 +767,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             },
           ],
           session: {
-            threadId: ThreadId.makeUnsafe("thread-1"),
+            threadId: ThreadId.make("thread-1"),
             status: "running",
             providerName: "codex",
             runtimeMode: "approval-required",
@@ -907,7 +907,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         );
         assert.equal(firstThreadId._tag, "Some");
         if (firstThreadId._tag === "Some") {
-          assert.equal(firstThreadId.value, ThreadId.makeUnsafe("thread-first"));
+          assert.equal(firstThreadId.value, ThreadId.make("thread-first"));
         }
       }),
   );
@@ -1028,12 +1028,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
 
       const context = yield* snapshotQuery.getThreadCheckpointContext(
-        ThreadId.makeUnsafe("thread-context"),
+        ThreadId.make("thread-context"),
       );
       assert.equal(context._tag, "Some");
       if (context._tag === "Some") {
         assert.deepEqual(context.value, {
-          threadId: ThreadId.makeUnsafe("thread-context"),
+          threadId: ThreadId.make("thread-context"),
           projectId: asProjectId("project-context"),
           workspaceRoot: "/tmp/context-workspace",
           worktreePath: "/tmp/context-worktree",

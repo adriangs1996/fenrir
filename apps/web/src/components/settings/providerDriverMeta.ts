@@ -9,6 +9,7 @@ import {
   type ProviderSettingsFormSchemaAnnotation,
 } from "@fenrir/contracts";
 import { Schema } from "effect";
+import * as SchemaAST from "effect/SchemaAST";
 
 type ProviderSettingsSchema = {
   readonly fields: Readonly<Record<string, Schema.Top>>;
@@ -39,7 +40,7 @@ function titleizeFieldKey(key: string): string {
 }
 
 function readFieldAnnotations(fieldSchema: Schema.Top) {
-  return fieldSchema.ast.context?.annotations ?? Schema.resolveInto(fieldSchema);
+  return fieldSchema.ast.context?.annotations ?? SchemaAST.resolve(fieldSchema.ast);
 }
 
 function readStringAnnotation(
@@ -60,7 +61,7 @@ function readProviderSettingsFormAnnotation(
 function readProviderSettingsFormSchemaAnnotation(
   settingsSchema: ProviderSettingsSchema,
 ): ProviderSettingsFormSchemaAnnotation {
-  return Schema.resolveInto(settingsSchema)?.providerSettingsFormSchema ?? {};
+  return SchemaAST.resolve(settingsSchema.ast)?.providerSettingsFormSchema ?? {};
 }
 
 export function deriveProviderSettingsFields(

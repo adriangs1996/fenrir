@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { ReviewIgnoreRuleKind } from "../../../../packages/contracts/src/review.ts";
+import type { ReviewIgnoreRuleKind } from "@fenrir/contracts/sourceControlReview";
 
 function toPosixPath(value: string): string {
   return value.replaceAll("\\", "/");

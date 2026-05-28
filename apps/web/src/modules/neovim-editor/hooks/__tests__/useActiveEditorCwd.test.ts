@@ -2,8 +2,8 @@ import { EnvironmentId, ProjectId } from "@fenrir/contracts";
 import { describe, expect, it } from "vitest";
 import { resolveEditorCwd, resolveEditorProjectRef } from "../useActiveEditorCwd";
 
-const ENV_ID = EnvironmentId.makeUnsafe("env-1");
-const PROJECT_ID = ProjectId.makeUnsafe("project-1");
+const ENV_ID = EnvironmentId.make("env-1");
+const PROJECT_ID = ProjectId.make("project-1");
 
 function makeThread(worktreePath: string | null) {
   return { worktreePath, environmentId: ENV_ID, projectId: PROJECT_ID };

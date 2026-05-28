@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "~/lib/storage";
 import type { EditorContextDraft } from "../editorContext";
 
-export type ChatTab = "thread" | "review" | "terminal" | "editor";
+export type ChatTab = "thread" | "terminal" | "editor";
 
 interface EditorState {
   /** Currently active chat tab. Global — same across thread switches. */

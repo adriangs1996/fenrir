@@ -22,6 +22,7 @@ import {
   markPromotedDraftThreads,
   markPromotedDraftThreadsByRef,
   type ComposerImageAttachment,
+  type ReviewContextAttachmentDraft,
   useComposerDraftStore,
   DraftId,
 } from "./composerDraftStore";
@@ -31,7 +32,6 @@ import {
   insertInlineTerminalContextPlaceholder,
   type TerminalContextDraft,
 } from "./modules/terminal";
-import type { ReviewContextAttachmentDraft } from "./modules/review/reviewComposer";
 import { createDebouncedStorage } from "./lib/storage";
 
 function makeImage(input: {
@@ -71,7 +71,7 @@ function makeTerminalContext(input: {
 }): TerminalContextDraft {
   return {
     id: input.id,
-    threadId: ThreadId.makeUnsafe("thread-dedupe"),
+    threadId: ThreadId.make("thread-dedupe"),
     terminalId: input.terminalId ?? "default",
     terminalLabel: input.terminalLabel ?? "Terminal 1",
     lineStart: input.lineStart ?? 4,
@@ -144,9 +144,9 @@ function providerModelOptions(options: ProviderModelOptions): ProviderModelOptio
   return options;
 }
 
-const TEST_ENVIRONMENT_ID = EnvironmentId.makeUnsafe("environment-local");
-const OTHER_TEST_ENVIRONMENT_ID = EnvironmentId.makeUnsafe("environment-remote");
-const LEGACY_TEST_ENVIRONMENT_ID = EnvironmentId.makeUnsafe("__legacy__");
+const TEST_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
+const OTHER_TEST_ENVIRONMENT_ID = EnvironmentId.make("environment-remote");
+const LEGACY_TEST_ENVIRONMENT_ID = EnvironmentId.make("__legacy__");
 
 function threadKeyFor(
   threadId: ThreadId,
@@ -168,7 +168,7 @@ function draftByKey(key: string) {
 }
 
 describe("composerDraftStore addImages", () => {
-  const threadId = ThreadId.makeUnsafe("thread-dedupe");
+  const threadId = ThreadId.make("thread-dedupe");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
   let originalRevokeObjectUrl: typeof URL.revokeObjectURL;
   let revokeSpy: ReturnType<typeof vi.fn<(url: string) => void>>;
@@ -254,7 +254,7 @@ describe("composerDraftStore addImages", () => {
 });
 
 describe("composerDraftStore clearComposerContent", () => {
-  const threadId = ThreadId.makeUnsafe("thread-clear");
+  const threadId = ThreadId.make("thread-clear");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
   let originalRevokeObjectUrl: typeof URL.revokeObjectURL;
   let revokeSpy: ReturnType<typeof vi.fn<(url: string) => void>>;
@@ -286,7 +286,7 @@ describe("composerDraftStore clearComposerContent", () => {
 });
 
 describe("composerDraftStore syncPersistedAttachments", () => {
-  const threadId = ThreadId.makeUnsafe("thread-sync-persisted");
+  const threadId = ThreadId.make("thread-sync-persisted");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
 
   beforeEach(() => {
@@ -342,7 +342,7 @@ describe("composerDraftStore syncPersistedAttachments", () => {
 });
 
 describe("composerDraftStore terminal contexts", () => {
-  const threadId = ThreadId.makeUnsafe("thread-dedupe");
+  const threadId = ThreadId.make("thread-dedupe");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
 
   beforeEach(() => {
@@ -520,7 +520,7 @@ describe("composerDraftStore terminal contexts", () => {
 });
 
 describe("composerDraftStore review contexts", () => {
-  const threadId = ThreadId.makeUnsafe("thread-review-context");
+  const threadId = ThreadId.make("thread-review-context");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
 
   beforeEach(() => {
@@ -577,18 +577,18 @@ describe("composerDraftStore review contexts", () => {
 });
 
 describe("composerDraftStore project draft thread mapping", () => {
-  const projectId = ProjectId.makeUnsafe("project-a");
-  const otherProjectId = ProjectId.makeUnsafe("project-b");
+  const projectId = ProjectId.make("project-a");
+  const otherProjectId = ProjectId.make("project-b");
   const projectRef = scopeProjectRef(TEST_ENVIRONMENT_ID, projectId);
   const otherProjectRef = scopeProjectRef(TEST_ENVIRONMENT_ID, otherProjectId);
   const remoteProjectRef = scopeProjectRef(OTHER_TEST_ENVIRONMENT_ID, projectId);
-  const threadId = ThreadId.makeUnsafe("thread-a");
-  const otherThreadId = ThreadId.makeUnsafe("thread-b");
-  const draftId = DraftId.makeUnsafe("draft-a");
-  const otherDraftId = DraftId.makeUnsafe("draft-b");
-  const sharedDraftId = DraftId.makeUnsafe("draft-shared");
-  const localDraftId = DraftId.makeUnsafe("draft-local");
-  const remoteDraftId = DraftId.makeUnsafe("draft-remote");
+  const threadId = ThreadId.make("thread-a");
+  const otherThreadId = ThreadId.make("thread-b");
+  const draftId = DraftId.make("draft-a");
+  const otherDraftId = DraftId.make("draft-b");
+  const sharedDraftId = DraftId.make("draft-shared");
+  const localDraftId = DraftId.make("draft-local");
+  const remoteDraftId = DraftId.make("draft-remote");
 
   beforeEach(() => {
     resetComposerDraftStore();
@@ -1010,7 +1010,7 @@ describe("composerDraftStore project draft thread mapping", () => {
 });
 
 describe("composerDraftStore modelSelection", () => {
-  const threadId = ThreadId.makeUnsafe("thread-model-options");
+  const threadId = ThreadId.make("thread-model-options");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
 
   beforeEach(() => {
@@ -1247,7 +1247,7 @@ describe("composerDraftStore modelSelection", () => {
 });
 
 describe("composerDraftStore setModelSelection", () => {
-  const threadId = ThreadId.makeUnsafe("thread-model");
+  const threadId = ThreadId.make("thread-model");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
 
   beforeEach(() => {
@@ -1302,7 +1302,7 @@ describe("composerDraftStore sticky composer settings", () => {
 
   it("applies sticky activeProvider to new drafts", () => {
     const store = useComposerDraftStore.getState();
-    const threadId = ThreadId.makeUnsafe("thread-sticky-active-provider");
+    const threadId = ThreadId.make("thread-sticky-active-provider");
     const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
 
     store.setStickyModelSelection(modelSelection("claudeAgent", "claude-opus-4-6"));
@@ -1318,7 +1318,7 @@ describe("composerDraftStore sticky composer settings", () => {
 });
 
 describe("composerDraftStore provider-scoped option updates", () => {
-  const threadId = ThreadId.makeUnsafe("thread-provider");
+  const threadId = ThreadId.make("thread-provider");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
 
   beforeEach(() => {
@@ -1346,7 +1346,7 @@ describe("composerDraftStore provider-scoped option updates", () => {
 });
 
 describe("composerDraftStore runtime and interaction settings", () => {
-  const threadId = ThreadId.makeUnsafe("thread-settings");
+  const threadId = ThreadId.make("thread-settings");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
 
   beforeEach(() => {

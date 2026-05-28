@@ -16,9 +16,7 @@ import {
   ThreadId,
   TurnId,
 } from "@fenrir/contracts";
-import { Option, Schema, ServiceMap } from "effect";
-import type { Effect } from "effect";
-
+import { Effect, Option, Schema, Context } from "effect";
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
 export const ProjectionThread = Schema.Struct({
@@ -28,7 +26,7 @@ export const ProjectionThread = Schema.Struct({
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
-  mcpServerIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(() => [])),
+  mcpServerIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   latestTurnId: Schema.NullOr(TurnId),
@@ -92,7 +90,7 @@ export interface ProjectionThreadRepositoryShape {
 /**
  * ProjectionThreadRepository - Service tag for thread projection persistence.
  */
-export class ProjectionThreadRepository extends ServiceMap.Service<
+export class ProjectionThreadRepository extends Context.Service<
   ProjectionThreadRepository,
   ProjectionThreadRepositoryShape
 >()("t3/persistence/Services/ProjectionThreads/ProjectionThreadRepository") {}

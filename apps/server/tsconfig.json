@@ -28,6 +28,6 @@
     "integration",
     "../../scripts/lib",
     "../../packages/contracts/src",
-    "../../packages/shared/src/review.ts"
+    "../../packages/shared/src/sourceControlReview.ts"
   ]
 }

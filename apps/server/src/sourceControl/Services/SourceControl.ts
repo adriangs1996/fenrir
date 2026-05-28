@@ -1,4 +1,4 @@
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect } from "effect";
 
 import type { RepositoryIdentity } from "@fenrir/contracts";
@@ -17,6 +17,6 @@ export interface SourceControlShape {
   readonly resolveRepositoryIdentity: (cwd: string) => Effect.Effect<RepositoryIdentity | null>;
 }
 
-export class SourceControl extends ServiceMap.Service<SourceControl, SourceControlShape>()(
+export class SourceControl extends Context.Service<SourceControl, SourceControlShape>()(
   "fenrir/sourceControl/Services/SourceControl",
 ) {}

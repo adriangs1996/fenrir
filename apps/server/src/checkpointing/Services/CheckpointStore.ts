@@ -10,7 +10,7 @@
  *
  * @module CheckpointStore
  */
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect } from "effect";
 
 import type { CheckpointStoreError } from "../Errors.ts";
@@ -96,6 +96,6 @@ export interface CheckpointStoreShape {
 /**
  * CheckpointStore - Service tag for checkpoint persistence and restore operations.
  */
-export class CheckpointStore extends ServiceMap.Service<CheckpointStore, CheckpointStoreShape>()(
+export class CheckpointStore extends Context.Service<CheckpointStore, CheckpointStoreShape>()(
   "t3/checkpointing/Services/CheckpointStore",
 ) {}

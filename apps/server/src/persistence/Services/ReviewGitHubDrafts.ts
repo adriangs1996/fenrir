@@ -1,5 +1,5 @@
 import { AuthSessionId, IsoDateTime } from "@fenrir/contracts";
-import { Option, Schema, ServiceMap } from "effect";
+import { Option, Schema, Context } from "effect";
 import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
@@ -7,7 +7,7 @@ import {
   GitHubReviewDraftId,
   ReviewGitHubPendingDraft,
   ReviewSessionId,
-} from "../../../../../packages/contracts/src/review.ts";
+} from "@fenrir/contracts/sourceControlReview";
 
 export const ReviewGitHubPendingDraftRecord = ReviewGitHubPendingDraft;
 export type ReviewGitHubPendingDraftRecord = typeof ReviewGitHubPendingDraftRecord.Type;
@@ -70,7 +70,7 @@ export interface ReviewGitHubPendingDraftRepositoryShape {
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 
-export class ReviewGitHubPendingDraftRepository extends ServiceMap.Service<
+export class ReviewGitHubPendingDraftRepository extends Context.Service<
   ReviewGitHubPendingDraftRepository,
   ReviewGitHubPendingDraftRepositoryShape
 >()("t3/persistence/Services/ReviewGitHubDrafts/ReviewGitHubPendingDraftRepository") {}

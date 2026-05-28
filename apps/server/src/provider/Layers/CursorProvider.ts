@@ -22,7 +22,7 @@ import {
 import { runProcess } from "../../processRunner.ts";
 import { createModelCapabilitiesFromDescriptors } from "../modelCapabilities.ts";
 
-const DRIVER = ProviderDriverKind.makeUnsafe("cursor");
+const DRIVER = ProviderDriverKind.make("cursor");
 
 class CursorProbeCommandError extends Data.TaggedError("CursorProbeCommandError")<{
   readonly cause: unknown;

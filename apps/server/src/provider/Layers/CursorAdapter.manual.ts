@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { Effect, Fiber, Layer, Ref, ServiceMap, Stream } from "effect";
+import { Effect, Fiber, Layer, Ref, Context, Stream } from "effect";
 
 import {
   ApprovalRequestId,
@@ -20,7 +20,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import type { CursorAdapterShape } from "../Services/CursorAdapter.ts";
 import { makeCursorAdapter } from "./CursorAdapter.ts";
 
-class CursorAdapter extends ServiceMap.Service<CursorAdapter, CursorAdapterShape>()(
+class CursorAdapter extends Context.Service<CursorAdapter, CursorAdapterShape>()(
   "test/CursorAdapter",
 ) {}
 
@@ -73,14 +73,14 @@ cursorAdapterTestLayer("CursorAdapter ACP", (it) => {
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const settings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-mock-thread");
-      const cursorInstanceId = ProviderInstanceId.makeUnsafe("cursor");
+      const threadId = ThreadId.make("cursor-mock-thread");
+      const cursorInstanceId = ProviderInstanceId.make("cursor");
 
       const wrapperPath = yield* Effect.promise(() => makeMockAgentWrapper());
       yield* settings.updateSettings({
         providerInstances: {
           [cursorInstanceId]: {
-            driver: ProviderDriverKind.makeUnsafe("cursor"),
+            driver: ProviderDriverKind.make("cursor"),
             enabled: true,
             config: {
               binaryPath: wrapperPath,
@@ -96,7 +96,7 @@ cursorAdapterTestLayer("CursorAdapter ACP", (it) => {
 
       const session = yield* adapter.startSession({
         threadId,
-        provider: ProviderDriverKind.makeUnsafe("cursor"),
+        provider: ProviderDriverKind.make("cursor"),
         cwd: process.cwd(),
         runtimeMode: "full-access",
         modelSelection: { provider: "cursor", model: "default" },
@@ -140,8 +140,8 @@ cursorAdapterTestLayer("CursorAdapter ACP", (it) => {
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const settings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-stop-session-close");
-      const cursorInstanceId = ProviderInstanceId.makeUnsafe("cursor");
+      const threadId = ThreadId.make("cursor-stop-session-close");
+      const cursorInstanceId = ProviderInstanceId.make("cursor");
       const tempDir = yield* Effect.promise(() =>
         mkdtemp(path.join(os.tmpdir(), "fenrir-cursor-exit-log-")),
       );
@@ -155,7 +155,7 @@ cursorAdapterTestLayer("CursorAdapter ACP", (it) => {
       yield* settings.updateSettings({
         providerInstances: {
           [cursorInstanceId]: {
-            driver: ProviderDriverKind.makeUnsafe("cursor"),
+            driver: ProviderDriverKind.make("cursor"),
             enabled: true,
             config: {
               binaryPath: wrapperPath,
@@ -166,7 +166,7 @@ cursorAdapterTestLayer("CursorAdapter ACP", (it) => {
 
       yield* adapter.startSession({
         threadId,
-        provider: ProviderDriverKind.makeUnsafe("cursor"),
+        provider: ProviderDriverKind.make("cursor"),
         cwd: process.cwd(),
         runtimeMode: "full-access",
         modelSelection: { provider: "cursor", model: "default" },
@@ -183,8 +183,8 @@ cursorAdapterTestLayer("CursorAdapter ACP", (it) => {
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const settings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-approval-roundtrip");
-      const cursorInstanceId = ProviderInstanceId.makeUnsafe("cursor");
+      const threadId = ThreadId.make("cursor-approval-roundtrip");
+      const cursorInstanceId = ProviderInstanceId.make("cursor");
       const tempDir = yield* Effect.promise(() =>
         mkdtemp(path.join(os.tmpdir(), "fenrir-cursor-request-log-")),
       );
@@ -199,7 +199,7 @@ cursorAdapterTestLayer("CursorAdapter ACP", (it) => {
       yield* settings.updateSettings({
         providerInstances: {
           [cursorInstanceId]: {
-            driver: ProviderDriverKind.makeUnsafe("cursor"),
+            driver: ProviderDriverKind.make("cursor"),
             enabled: true,
             config: {
               binaryPath: wrapperPath,
@@ -210,7 +210,7 @@ cursorAdapterTestLayer("CursorAdapter ACP", (it) => {
 
       yield* adapter.startSession({
         threadId,
-        provider: ProviderDriverKind.makeUnsafe("cursor"),
+        provider: ProviderDriverKind.make("cursor"),
         cwd: process.cwd(),
         runtimeMode: "approval-required",
         modelSelection: { provider: "cursor", model: "default" },
@@ -235,8 +235,8 @@ cursorAdapterTestLayer("CursorAdapter ACP", (it) => {
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;
       const settings = yield* ServerSettingsService;
-      const threadId = ThreadId.makeUnsafe("cursor-unknown-approval");
-      const cursorInstanceId = ProviderInstanceId.makeUnsafe("cursor");
+      const threadId = ThreadId.make("cursor-unknown-approval");
+      const cursorInstanceId = ProviderInstanceId.make("cursor");
 
       const wrapperPath = yield* Effect.promise(() =>
         makeMockAgentWrapper({
@@ -246,7 +246,7 @@ cursorAdapterTestLayer("CursorAdapter ACP", (it) => {
       yield* settings.updateSettings({
         providerInstances: {
           [cursorInstanceId]: {
-            driver: ProviderDriverKind.makeUnsafe("cursor"),
+            driver: ProviderDriverKind.make("cursor"),
             enabled: true,
             config: {
               binaryPath: wrapperPath,
@@ -257,14 +257,14 @@ cursorAdapterTestLayer("CursorAdapter ACP", (it) => {
 
       yield* adapter.startSession({
         threadId,
-        provider: ProviderDriverKind.makeUnsafe("cursor"),
+        provider: ProviderDriverKind.make("cursor"),
         cwd: process.cwd(),
         runtimeMode: "approval-required",
         modelSelection: { provider: "cursor", model: "default" },
       });
 
       const exit = yield* adapter
-        .respondToRequest(threadId, ApprovalRequestId.makeUnsafe("missing"), "accept")
+        .respondToRequest(threadId, ApprovalRequestId.make("missing"), "accept")
         .pipe(Effect.exit);
       assert.isTrue(exit._tag === "Failure");
 

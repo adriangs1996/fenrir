@@ -1,7 +1,7 @@
 import { EnvironmentId, type PersistedSavedEnvironmentRecord } from "@fenrir/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const testEnvironmentId = EnvironmentId.makeUnsafe("environment-1");
+const testEnvironmentId = EnvironmentId.make("environment-1");
 
 const savedRegistryRecord: PersistedSavedEnvironmentRecord = {
   environmentId: testEnvironmentId,

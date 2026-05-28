@@ -76,8 +76,8 @@ import {
 import { resolveCursorInstanceSettings } from "../providerSettings.ts";
 import { CursorAdapter, type CursorAdapterShape } from "../Services/CursorAdapter.ts";
 
-const PROVIDER = ProviderDriverKind.makeUnsafe("cursor");
-const DEFAULT_INSTANCE_ID = ProviderInstanceId.makeUnsafe("cursor");
+const PROVIDER = ProviderDriverKind.make("cursor");
+const DEFAULT_INSTANCE_ID = ProviderInstanceId.make("cursor");
 const CURSOR_RESUME_VERSION = 1 as const;
 const ACP_PLAN_MODE_ALIASES = ["plan", "architect"];
 const ACP_IMPLEMENT_MODE_ALIASES = ["code", "agent", "default", "chat", "implement"];
@@ -330,7 +330,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
     const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
 
     const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-    const nextEventId = Effect.map(Random.nextUUIDv4, (id) => EventId.makeUnsafe(id));
+    const nextEventId = Effect.map(Random.nextUUIDv4, (id) => EventId.make(id));
     const makeEventStamp = () => Effect.all({ eventId: nextEventId, createdAt: nowIso });
 
     const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
@@ -532,8 +532,8 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
                     params,
                     "acp.cursor.extension",
                   );
-                  const requestId = ApprovalRequestId.makeUnsafe(globalThis.crypto.randomUUID());
-                  const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
+                  const requestId = ApprovalRequestId.make(globalThis.crypto.randomUUID());
+                  const runtimeRequestId = RuntimeRequestId.make(requestId);
                   const answers = yield* Deferred.make<ProviderUserInputAnswers>();
                   pendingUserInputs.set(requestId, { answers });
                   yield* offerRuntimeEvent({
@@ -636,8 +636,8 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
                 }
 
                 const permissionRequest = parsePermissionRequest(params);
-                const requestId = ApprovalRequestId.makeUnsafe(globalThis.crypto.randomUUID());
-                const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
+                const requestId = ApprovalRequestId.make(globalThis.crypto.randomUUID());
+                const runtimeRequestId = RuntimeRequestId.make(requestId);
                 const decision = yield* Deferred.make<ProviderApprovalDecision>();
                 pendingApprovals.set(requestId, { decision });
                 yield* offerRuntimeEvent(
@@ -855,7 +855,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
     const sendTurn: CursorAdapterShape["sendTurn"] = (input) =>
       Effect.gen(function* () {
         const ctx = yield* requireSession(input.threadId);
-        const turnId = TurnId.makeUnsafe(globalThis.crypto.randomUUID());
+        const turnId = TurnId.make(globalThis.crypto.randomUUID());
         const selectedModel =
           input.modelSelection?.provider === PROVIDER
             ? input.modelSelection.model

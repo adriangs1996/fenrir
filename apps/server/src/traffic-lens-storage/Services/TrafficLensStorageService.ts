@@ -1,4 +1,4 @@
-import { Effect, ServiceMap } from "effect";
+import { Effect, Context } from "effect";
 import type {
   TrafficLensArchivedSessionStorageSummary,
   TrafficLensClearPersistedOriginInput,
@@ -48,7 +48,7 @@ export interface TrafficLensStorageServiceShape {
   ) => Effect.Effect<void, TrafficLensError>;
 }
 
-export class TrafficLensStorageService extends ServiceMap.Service<
+export class TrafficLensStorageService extends Context.Service<
   TrafficLensStorageService,
   TrafficLensStorageServiceShape
 >()("fenrir/traffic-lens-storage/TrafficLensStorageService") {}

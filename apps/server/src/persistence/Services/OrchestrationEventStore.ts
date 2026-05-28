@@ -10,7 +10,7 @@
  * @module OrchestrationEventStore
  */
 import { OrchestrationEvent } from "@fenrir/contracts";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect, Stream } from "effect";
 
 import type { OrchestrationEventStoreError } from "../Errors.ts";
@@ -64,7 +64,7 @@ export interface OrchestrationEventStoreShape {
  * })
  * ```
  */
-export class OrchestrationEventStore extends ServiceMap.Service<
+export class OrchestrationEventStore extends Context.Service<
   OrchestrationEventStore,
   OrchestrationEventStoreShape
 >()("t3/persistence/Services/OrchestrationEventStore") {}

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { makeEntityId, TrimmedNonEmptyString } from "./baseSchemas";
 
 export const McpServerId = makeEntityId("McpServerId");
@@ -26,19 +26,19 @@ export const McpServerTransport = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("stdio"),
     command: TrimmedNonEmptyString,
-    args: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
-    env: McpValueMap.pipe(Schema.withDecodingDefault(() => ({}))),
+    args: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+    env: McpValueMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     cwd: Schema.optional(TrimmedNonEmptyString),
   }),
   Schema.Struct({
     type: Schema.Literal("http"),
     url: TrimmedNonEmptyString,
-    headers: McpValueMap.pipe(Schema.withDecodingDefault(() => ({}))),
+    headers: McpValueMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }),
   Schema.Struct({
     type: Schema.Literal("sse"),
     url: TrimmedNonEmptyString,
-    headers: McpValueMap.pipe(Schema.withDecodingDefault(() => ({}))),
+    headers: McpValueMap.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }),
 ]);
 export type McpServerTransport = typeof McpServerTransport.Type;
@@ -47,8 +47,10 @@ export const McpServerDefinition = Schema.Struct({
   id: McpServerId,
   name: TrimmedNonEmptyString,
   description: Schema.optional(Schema.String),
-  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
-  source: Schema.Literals(["user", "fenrir"]).pipe(Schema.withDecodingDefault(() => "user")),
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  source: Schema.Literals(["user", "fenrir"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("user")),
+  ),
   transport: McpServerTransport,
   createdAt: Schema.optional(Schema.String),
   updatedAt: Schema.optional(Schema.String),
@@ -56,7 +58,7 @@ export const McpServerDefinition = Schema.Struct({
 export type McpServerDefinition = typeof McpServerDefinition.Type;
 
 export const ThreadMcpSelection = Schema.Struct({
-  serverIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(() => [])),
+  serverIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type ThreadMcpSelection = typeof ThreadMcpSelection.Type;
 
@@ -64,22 +66,24 @@ export const ResolvedMcpServerTransport = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("stdio"),
     command: TrimmedNonEmptyString,
-    args: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
-    env: Schema.Record(Schema.String, Schema.String).pipe(Schema.withDecodingDefault(() => ({}))),
+    args: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+    env: Schema.Record(Schema.String, Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed({})),
+    ),
     cwd: Schema.optional(TrimmedNonEmptyString),
   }),
   Schema.Struct({
     type: Schema.Literal("http"),
     url: TrimmedNonEmptyString,
     headers: Schema.Record(Schema.String, Schema.String).pipe(
-      Schema.withDecodingDefault(() => ({})),
+      Schema.withDecodingDefault(Effect.succeed({})),
     ),
   }),
   Schema.Struct({
     type: Schema.Literal("sse"),
     url: TrimmedNonEmptyString,
     headers: Schema.Record(Schema.String, Schema.String).pipe(
-      Schema.withDecodingDefault(() => ({})),
+      Schema.withDecodingDefault(Effect.succeed({})),
     ),
   }),
 ]);

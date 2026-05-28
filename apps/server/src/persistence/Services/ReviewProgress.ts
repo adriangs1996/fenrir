@@ -1,5 +1,5 @@
 import { IsoDateTime, TrimmedNonEmptyString } from "@fenrir/contracts";
-import { Option, Schema, ServiceMap } from "effect";
+import { Option, Schema, Context } from "effect";
 import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
@@ -7,7 +7,7 @@ import {
   ReviewLocalNoteAuthorSnapshot,
   ReviewProgressState,
   ReviewSessionId,
-} from "../../../../../packages/contracts/src/review.ts";
+} from "@fenrir/contracts/sourceControlReview";
 
 export const ReviewProgressTargetKind = Schema.Literals([
   "group",
@@ -58,7 +58,7 @@ export interface ReviewProgressRepositoryShape {
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 
-export class ReviewProgressRepository extends ServiceMap.Service<
+export class ReviewProgressRepository extends Context.Service<
   ReviewProgressRepository,
   ReviewProgressRepositoryShape
 >()("t3/persistence/Services/ReviewProgress/ReviewProgressRepository") {}

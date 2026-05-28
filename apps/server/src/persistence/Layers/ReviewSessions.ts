@@ -11,7 +11,7 @@ import {
   ReviewSessionRepository,
   type ReviewSessionRepositoryShape,
 } from "../Services/ReviewSessions.ts";
-import { ReviewSessionTarget } from "../../../../../packages/contracts/src/review.ts";
+import { ReviewSessionTarget } from "@fenrir/contracts/sourceControlReview";
 
 const ReviewSessionDbRow = ReviewSessionRecord.mapFields(
   Struct.assign({

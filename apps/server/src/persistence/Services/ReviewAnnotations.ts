@@ -1,5 +1,5 @@
 import { IsoDateTime, TrimmedNonEmptyString } from "@fenrir/contracts";
-import { Option, Schema, ServiceMap } from "effect";
+import { Option, Schema, Context } from "effect";
 import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
@@ -10,7 +10,7 @@ import {
   ReviewLocalNoteAuthorSnapshot,
   ReviewSessionId,
   ReviewStableAnchor,
-} from "../../../../../packages/contracts/src/review.ts";
+} from "@fenrir/contracts/sourceControlReview";
 
 export const ReviewAnnotationKind = Schema.Literals(["thread", "reply", "overview-note"]);
 export type ReviewAnnotationKind = typeof ReviewAnnotationKind.Type;
@@ -73,7 +73,7 @@ export interface ReviewAnnotationRepositoryShape {
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 
-export class ReviewAnnotationRepository extends ServiceMap.Service<
+export class ReviewAnnotationRepository extends Context.Service<
   ReviewAnnotationRepository,
   ReviewAnnotationRepositoryShape
 >()("t3/persistence/Services/ReviewAnnotations/ReviewAnnotationRepository") {}

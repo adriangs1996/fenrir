@@ -64,7 +64,7 @@ function buildProps() {
     onRevertUserMessage: vi.fn(),
     isRevertingCheckpoint: false,
     onImageExpand: vi.fn(),
-    activeThreadEnvironmentId: EnvironmentId.makeUnsafe("environment-local"),
+    activeThreadEnvironmentId: EnvironmentId.make("environment-local"),
     markdownCwd: undefined,
     resolvedTheme: "dark" as const,
     timestampFormat: "24-hour" as const,

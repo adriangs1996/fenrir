@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Layer, Path, ServiceMap } from "effect";
+import { Effect, FileSystem, Layer, Path, Context } from "effect";
 import { stringify as yamlStringify } from "yaml";
 
 import type { ServerProviderSkill } from "@fenrir/contracts";
@@ -107,10 +107,9 @@ const readProviderSkillFolders = (
     return folders;
   });
 
-export class CodexSkillAdapter extends ServiceMap.Service<
-  CodexSkillAdapter,
-  ProviderSkillAdapter
->()("t3/skill/CodexSkillAdapter") {}
+export class CodexSkillAdapter extends Context.Service<CodexSkillAdapter, ProviderSkillAdapter>()(
+  "t3/skill/CodexSkillAdapter",
+) {}
 
 export const makeCodexSkillAdapter = Effect.fn("makeCodexSkillAdapter")(function* (
   projectRoot: string,

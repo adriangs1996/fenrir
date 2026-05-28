@@ -54,7 +54,7 @@ import {
 } from "../opencodeRuntime.ts";
 import { Layer } from "effect";
 
-const PROVIDER = ProviderDriverKind.makeUnsafe("opencode");
+const PROVIDER = ProviderDriverKind.make("opencode");
 const DEFAULT_OPENCODE_MODEL = "openai/gpt-5";
 
 interface OpenCodeTurnSnapshot {
@@ -130,13 +130,13 @@ const buildEventBase = (input: {
     const uuid = yield* Random.nextUUIDv4;
     const createdAt = input.createdAt ?? (yield* nowIso);
     return {
-      eventId: EventId.makeUnsafe(uuid),
+      eventId: EventId.make(uuid),
       provider: PROVIDER,
       threadId: input.threadId,
       createdAt,
       ...(input.turnId ? { turnId: input.turnId } : {}),
-      ...(input.itemId ? { itemId: RuntimeItemId.makeUnsafe(input.itemId) } : {}),
-      ...(input.requestId ? { requestId: RuntimeRequestId.makeUnsafe(input.requestId) } : {}),
+      ...(input.itemId ? { itemId: RuntimeItemId.make(input.itemId) } : {}),
+      ...(input.requestId ? { requestId: RuntimeRequestId.make(input.requestId) } : {}),
       ...(input.raw !== undefined
         ? {
             raw: {
@@ -943,8 +943,7 @@ export function makeOpenCodeAdapter(options?: OpenCodeAdapterLiveOptions) {
 
     const startSession: OpenCodeAdapterShape["startSession"] = Effect.fn("startSession")(
       function* (input) {
-        const providerInstanceId =
-          input.providerInstanceId ?? ProviderInstanceId.makeUnsafe("opencode");
+        const providerInstanceId = input.providerInstanceId ?? ProviderInstanceId.make("opencode");
         const openCodeSettings = yield* resolveSettingsForInstance(providerInstanceId);
         if (!openCodeSettings.enabled) {
           return yield* new ProviderAdapterValidationError({
@@ -1071,7 +1070,7 @@ export function makeOpenCodeAdapter(options?: OpenCodeAdapterLiveOptions) {
 
     const sendTurn: OpenCodeAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
       const context = ensureSessionContext(sessions, input.threadId);
-      const turnId = TurnId.makeUnsafe(`opencode-turn-${yield* Random.nextUUIDv4}`);
+      const turnId = TurnId.make(`opencode-turn-${yield* Random.nextUUIDv4}`);
       const selectedModel =
         input.modelSelection?.model ?? context.session.model ?? DEFAULT_OPENCODE_MODEL;
       const parsedModel = parseOpenCodeModelSlug(selectedModel);
@@ -1273,7 +1272,7 @@ export function makeOpenCodeAdapter(options?: OpenCodeAdapterLiveOptions) {
         const turns = (messages.data ?? [])
           .filter((entry) => entry.info.role === "assistant")
           .map((entry) => ({
-            id: TurnId.makeUnsafe(entry.info.id),
+            id: TurnId.make(entry.info.id),
             items: [entry.info, ...entry.parts],
           }));
 

@@ -3,6 +3,7 @@ import {
   ArchiveIcon,
   ArrowLeftIcon,
   FolderArchiveIcon,
+  GitBranchIcon,
   KeyboardIcon,
   Link2Icon,
   SignalIcon,
@@ -26,6 +27,7 @@ export type SettingsSectionPath =
   | "/settings/diagnostics"
   | "/settings/keybindings"
   | "/settings/connections"
+  | "/settings/source-control"
   | "/settings/vpn"
   | "/settings/archived"
   | "/settings/archived-plans";
@@ -39,6 +41,7 @@ export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   { label: "Diagnostics", to: "/settings/diagnostics", icon: SignalIcon },
   { label: "Keybindings", to: "/settings/keybindings", icon: KeyboardIcon },
   { label: "Connections", to: "/settings/connections", icon: Link2Icon },
+  { label: "Source Control", to: "/settings/source-control", icon: GitBranchIcon },
   { label: "VPN", to: "/settings/vpn", icon: ShieldIcon },
   { label: "Archived threads", to: "/settings/archived", icon: ArchiveIcon },
   { label: "Archived plans", to: "/settings/archived-plans", icon: FolderArchiveIcon },

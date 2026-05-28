@@ -223,6 +223,7 @@ const DESKTOP_SETTINGS_PATH = Path.join(STATE_DIR, "desktop-settings.json");
 const CLIENT_SETTINGS_PATH = Path.join(STATE_DIR, "client-settings.json");
 const SAVED_ENVIRONMENT_REGISTRY_PATH = Path.join(STATE_DIR, "saved-environments.json");
 const VPN_PROFILES_PATH = Path.join(STATE_DIR, "vpn-profiles.json");
+const BROWSER_LAB_TAB_SESSION_PATH = Path.join(STATE_DIR, "browser-lab-tabs.json");
 const DESKTOP_SCHEME = "t3";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
@@ -609,6 +610,7 @@ function ensureTrafficLensManager(): TrafficLensManager {
     window: mainWindow,
     backendHttpUrl,
     bootstrapToken: backendBootstrapToken,
+    tabSessionPath: BROWSER_LAB_TAB_SESSION_PATH,
   });
 
   stopTrafficLensTabEventForwarding = nextManager.onTabEvent((event) => {

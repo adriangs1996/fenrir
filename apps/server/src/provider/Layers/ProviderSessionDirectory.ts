@@ -28,7 +28,7 @@ function decodeProviderDriverKind(
   operation: string,
 ): Effect.Effect<ProviderDriverKind, ProviderSessionDirectoryPersistenceError> {
   if (Schema.is(ProviderDriverKind)(providerName)) {
-    return Effect.succeed(ProviderDriverKind.makeUnsafe(providerName));
+    return Effect.succeed(ProviderDriverKind.make(providerName));
   }
   return Effect.fail(
     new ProviderSessionDirectoryPersistenceError({
@@ -45,7 +45,7 @@ function resolvePersistedProviderInstanceId(
   adapterKey: string | undefined,
 ): ProviderInstanceId {
   if (typeof adapterKey === "string" && isProviderInstanceId(adapterKey)) {
-    return ProviderInstanceId.makeUnsafe(adapterKey);
+    return ProviderInstanceId.make(adapterKey);
   }
   return defaultInstanceIdForDriver(provider);
 }
@@ -123,13 +123,13 @@ const makeProviderSessionDirectory = Effect.gen(function* () {
       existingRuntime === undefined
         ? undefined
         : resolvePersistedProviderInstanceId(
-            ProviderDriverKind.makeUnsafe(existingRuntime.providerName),
+            ProviderDriverKind.make(existingRuntime.providerName),
             existingRuntime.adapterKey,
           );
     const explicitProviderInstanceId =
       binding.providerInstanceId ??
       (typeof binding.adapterKey === "string" && isProviderInstanceId(binding.adapterKey)
-        ? ProviderInstanceId.makeUnsafe(binding.adapterKey)
+        ? ProviderInstanceId.make(binding.adapterKey)
         : undefined);
     const resolvedProviderInstanceId =
       explicitProviderInstanceId ??

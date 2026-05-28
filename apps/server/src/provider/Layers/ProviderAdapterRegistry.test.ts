@@ -54,7 +54,7 @@ const fakeClaudeAdapter: ClaudeAdapterShape = {
 };
 
 const fakeOpenCodeAdapter: OpenCodeAdapterShape = {
-  provider: ProviderDriverKind.makeUnsafe("opencode"),
+  provider: ProviderDriverKind.make("opencode"),
   capabilities: { sessionModelSwitch: "in-session" },
   startSession: vi.fn(),
   sendTurn: vi.fn(),
@@ -71,7 +71,7 @@ const fakeOpenCodeAdapter: OpenCodeAdapterShape = {
 };
 
 const fakeCursorAdapter: CursorAdapterShape = {
-  provider: ProviderDriverKind.makeUnsafe("cursor"),
+  provider: ProviderDriverKind.make("cursor"),
   capabilities: { sessionModelSwitch: "restart-session" },
   startSession: vi.fn(),
   sendTurn: vi.fn(),
@@ -91,7 +91,7 @@ function makeInstanceRegistryLayer(options?: { includeCodexWork?: boolean }) {
   const instances = [
     {
       provider: "codex" as const,
-      driverKind: ProviderDriverKind.makeUnsafe("codex"),
+      driverKind: ProviderDriverKind.make("codex"),
       instanceId: defaultInstanceIdForDriver("codex"),
       snapshot: {
         getSnapshot: Effect.die("unused"),
@@ -100,8 +100,8 @@ function makeInstanceRegistryLayer(options?: { includeCodexWork?: boolean }) {
       },
     },
     {
-      provider: ProviderDriverKind.makeUnsafe("cursor"),
-      driverKind: ProviderDriverKind.makeUnsafe("cursor"),
+      provider: ProviderDriverKind.make("cursor"),
+      driverKind: ProviderDriverKind.make("cursor"),
       instanceId: defaultInstanceIdForDriver("cursor"),
       snapshot: {
         getSnapshot: Effect.die("unused"),
@@ -111,7 +111,7 @@ function makeInstanceRegistryLayer(options?: { includeCodexWork?: boolean }) {
     },
     {
       provider: "claudeAgent" as const,
-      driverKind: ProviderDriverKind.makeUnsafe("claudeAgent"),
+      driverKind: ProviderDriverKind.make("claudeAgent"),
       instanceId: defaultInstanceIdForDriver("claudeAgent"),
       snapshot: {
         getSnapshot: Effect.die("unused"),
@@ -123,8 +123,8 @@ function makeInstanceRegistryLayer(options?: { includeCodexWork?: boolean }) {
       ? [
           {
             provider: "codex" as const,
-            driverKind: ProviderDriverKind.makeUnsafe("codex"),
-            instanceId: ProviderInstanceId.makeUnsafe("codex_work"),
+            driverKind: ProviderDriverKind.make("codex"),
+            instanceId: ProviderInstanceId.make("codex_work"),
             displayName: "Codex Work",
             snapshot: {
               getSnapshot: Effect.die("unused"),
@@ -201,11 +201,7 @@ layer("ProviderAdapterRegistryLive", (it) => {
         cursorDefaultInstance,
         claudeDefaultInstance,
       ]);
-      assert.deepEqual(providers, [
-        "codex",
-        ProviderDriverKind.makeUnsafe("cursor"),
-        "claudeAgent",
-      ]);
+      assert.deepEqual(providers, ["codex", ProviderDriverKind.make("cursor"), "claudeAgent"]);
     }),
   );
 
@@ -232,7 +228,7 @@ configuredLayer("ProviderAdapterRegistryLive configured instances", (it) => {
         defaultInstanceIdForDriver("codex"),
         defaultInstanceIdForDriver("cursor"),
         defaultInstanceIdForDriver("claudeAgent"),
-        ProviderInstanceId.makeUnsafe("codex_work"),
+        ProviderInstanceId.make("codex_work"),
       ]);
     }),
   );

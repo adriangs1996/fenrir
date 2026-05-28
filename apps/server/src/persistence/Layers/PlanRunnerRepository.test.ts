@@ -24,9 +24,9 @@ import { SqlitePersistenceMemory } from "./Sqlite.ts";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
-const ts = IsoDateTime.makeUnsafe;
-const tn = TrimmedNonEmptyString.makeUnsafe;
-const nn = NonNegativeInt.makeUnsafe;
+const ts = IsoDateTime.make;
+const tn = TrimmedNonEmptyString.make;
+const nn = NonNegativeInt.make;
 
 interface MakeRunOpts {
   readonly runId: string;
@@ -41,8 +41,8 @@ interface MakeRunOpts {
 function makeRunRow(opts: MakeRunOpts): PlanRunnerRunRow {
   const startedAt = ts(opts.startedAt ?? "2026-04-01T00:00:00.000Z");
   return {
-    runId: PlanRunId.makeUnsafe(opts.runId),
-    projectId: ProjectId.makeUnsafe(opts.projectId),
+    runId: PlanRunId.make(opts.runId),
+    projectId: ProjectId.make(opts.projectId),
     featureName: tn(opts.featureName),
     state: opts.state ?? "executing",
     summary: null,
@@ -122,7 +122,7 @@ layer("PlanRunnerRepository — inserts a first run snapshot", (it) => {
       });
       const thread = makeThreadRow({
         runId: run.runId,
-        threadId: ThreadId.makeUnsafe("thread-1"),
+        threadId: ThreadId.make("thread-1"),
       });
 
       yield* repo.insertRunSnapshot({
@@ -159,7 +159,7 @@ layer("PlanRunnerRepository — replaceFeatureRun deletes prior + cascades", (it
       const oldStep = makeStepRow({ runId: oldRun.runId });
       const oldThread = makeThreadRow({
         runId: oldRun.runId,
-        threadId: ThreadId.makeUnsafe("thread-old"),
+        threadId: ThreadId.make("thread-old"),
       });
       yield* repo.insertRunSnapshot({
         run: oldRun,
@@ -285,7 +285,7 @@ layer("PlanRunnerRepository — insertRunSnapshot fails on duplicate (project, f
           }),
           steps: [
             makeStepRow({
-              runId: PlanRunId.makeUnsafe("run-2"),
+              runId: PlanRunId.make("run-2"),
             }),
           ],
           internalThreads: [],
@@ -348,7 +348,7 @@ layer("PlanRunnerRepository — listFeatureSummaries", (it) => {
   it.effect("marks active vs terminal runs correctly", () =>
     Effect.gen(function* () {
       const repo = yield* PlanRunnerRepository;
-      const projectId = ProjectId.makeUnsafe("project-summary");
+      const projectId = ProjectId.make("project-summary");
 
       yield* repo.insertRunSnapshot({
         run: makeRunRow({
@@ -357,7 +357,7 @@ layer("PlanRunnerRepository — listFeatureSummaries", (it) => {
           featureName: "alpha",
           state: "executing",
         }),
-        steps: [makeStepRow({ runId: PlanRunId.makeUnsafe("run-a") })],
+        steps: [makeStepRow({ runId: PlanRunId.make("run-a") })],
         internalThreads: [],
       });
       yield* repo.insertRunSnapshot({
@@ -368,7 +368,7 @@ layer("PlanRunnerRepository — listFeatureSummaries", (it) => {
           state: "completed",
           completedAt: "2026-04-01T01:00:00.000Z",
         }),
-        steps: [makeStepRow({ runId: PlanRunId.makeUnsafe("run-b") })],
+        steps: [makeStepRow({ runId: PlanRunId.make("run-b") })],
         internalThreads: [],
       });
 
@@ -376,7 +376,7 @@ layer("PlanRunnerRepository — listFeatureSummaries", (it) => {
       assert.equal(summaries.length, 2);
       const byName = new Map(summaries.map((s) => [s.featureName, s]));
       assert.equal(byName.get(tn("alpha"))?.hasActiveRun, true);
-      assert.equal(byName.get(tn("alpha"))?.activeRunId, PlanRunId.makeUnsafe("run-a"));
+      assert.equal(byName.get(tn("alpha"))?.activeRunId, PlanRunId.make("run-a"));
       assert.equal(byName.get(tn("bravo"))?.hasActiveRun, false);
       assert.equal(byName.get(tn("bravo"))?.activeRunId, null);
       assert.equal(byName.get(tn("bravo"))?.lastRunState, "completed");
@@ -389,7 +389,7 @@ layer("PlanRunnerRepository — getFeatureRun returns None for unknown feature",
     Effect.gen(function* () {
       const repo = yield* PlanRunnerRepository;
       const result = yield* repo.getFeatureRun({
-        projectId: ProjectId.makeUnsafe("project-x"),
+        projectId: ProjectId.make("project-x"),
         featureName: tn("nonexistent"),
       });
       assert.equal(Option.isNone(result), true);
@@ -530,7 +530,7 @@ layer("PlanRunnerRepository — registerInternalThread is idempotent", (it) => {
       const step = makeStepRow({ runId: run.runId });
       yield* repo.insertRunSnapshot({ run, steps: [step], internalThreads: [] });
 
-      const tid = ThreadId.makeUnsafe("th-idem");
+      const tid = ThreadId.make("th-idem");
       yield* repo.registerInternalThread({
         runId: run.runId,
         stepKey: step.stepKey,
@@ -675,7 +675,7 @@ layer("PlanRunnerRepository — deleteRun cascades to children", (it) => {
         internalThreads: [
           makeThreadRow({
             runId: run.runId,
-            threadId: ThreadId.makeUnsafe("th-c"),
+            threadId: ThreadId.make("th-c"),
             stepKey: step.stepKey,
           }),
         ],

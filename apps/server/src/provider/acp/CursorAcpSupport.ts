@@ -1,5 +1,5 @@
 import type { CursorSettings } from "@fenrir/contracts";
-import { Effect, Layer, Scope, ServiceMap } from "effect";
+import { Effect, Layer, Scope, Context } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import type * as EffectAcpErrors from "effect-acp/errors";
 
@@ -52,8 +52,8 @@ export const makeCursorAcpRuntime = (
           Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, input.childProcessSpawner),
         ),
       ),
-    )) as ServiceMap.ServiceMap<AcpSessionRuntime>;
-    return ServiceMap.get(acpContext, AcpSessionRuntimeTag);
+    )) as Context.Context<AcpSessionRuntime>;
+    return Context.get(acpContext, AcpSessionRuntimeTag);
   });
 
 export function resolveCursorAcpBaseModelId(model: string | null | undefined): string {

@@ -1,4 +1,4 @@
-import { Effect, ServiceMap } from "effect";
+import { Effect, Context } from "effect";
 import {
   type CreateRawTcpListenerInput,
   type RawTcpEvent,
@@ -27,7 +27,7 @@ export interface RawTcpListenerServiceShape {
   readonly subscribe: (callback: (event: RawTcpEvent) => void) => Effect.Effect<() => void>;
 }
 
-export class RawTcpListenerService extends ServiceMap.Service<
+export class RawTcpListenerService extends Context.Service<
   RawTcpListenerService,
   RawTcpListenerServiceShape
 >()("t3/raw-tcp/Services/RawTcpListenerService") {}

@@ -495,7 +495,7 @@ function createEnvironmentConnectionHandlers() {
       reconcileSnapshotDerivedState();
     },
     applyTerminalEvent: (event: TerminalEvent, environmentId: EnvironmentId) => {
-      const threadRef = scopeThreadRef(environmentId, ThreadId.makeUnsafe(event.threadId));
+      const threadRef = scopeThreadRef(environmentId, ThreadId.make(event.threadId));
       const isTmuxEvent = event.threadId.startsWith("tmux:");
       if (!isTmuxEvent) {
         const serverThread = selectThreadByRef(useStore.getState(), threadRef);

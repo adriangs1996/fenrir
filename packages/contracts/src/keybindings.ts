@@ -28,15 +28,15 @@ export const THREAD_KEYBINDING_COMMANDS = [
 export type ThreadKeybindingCommand = (typeof THREAD_KEYBINDING_COMMANDS)[number];
 
 export const REVIEW_KEYBINDING_COMMANDS = [
-  "review.previousItem",
-  "review.nextItem",
-  "review.openChange",
-  "review.askAgent",
-  "review.markReviewed",
-  "review.markNeedsFollowUp",
-  "review.toggleMode",
-  "review.refreshAnalysis",
-  "review.openSubmitReviewTray",
+  "sourceControl.review.previousItem",
+  "sourceControl.review.nextItem",
+  "sourceControl.review.openChange",
+  "sourceControl.review.askAgent",
+  "sourceControl.review.markReviewed",
+  "sourceControl.review.markNeedsFollowUp",
+  "sourceControl.review.toggleMode",
+  "sourceControl.review.refreshAnalysis",
+  "sourceControl.review.openSubmitReviewTray",
 ] as const;
 export type ReviewKeybindingCommand = (typeof REVIEW_KEYBINDING_COMMANDS)[number];
 

@@ -1,4 +1,4 @@
-import { Schema, ServiceMap } from "effect";
+import { Schema, Context } from "effect";
 import type { Effect } from "effect";
 import type * as Socket from "effect/unstable/socket/Socket";
 
@@ -18,7 +18,7 @@ export interface BrowserLabControlServiceShape {
   ) => Effect.Effect<unknown, BrowserLabControlError>;
 }
 
-export class BrowserLabControlService extends ServiceMap.Service<
+export class BrowserLabControlService extends Context.Service<
   BrowserLabControlService,
   BrowserLabControlServiceShape
 >()("fenrir/browserLab/BrowserLabControlService") {}

@@ -1,4 +1,4 @@
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect, Stream } from "effect";
 import type {
   PlanRunId,
@@ -124,7 +124,6 @@ export interface PlanRunnerServiceShape {
   readonly streamEvents: Stream.Stream<PlanRunnerEvent>;
 }
 
-export class PlanRunnerService extends ServiceMap.Service<
-  PlanRunnerService,
-  PlanRunnerServiceShape
->()("t3/plan-runner/Services/PlanRunner") {}
+export class PlanRunnerService extends Context.Service<PlanRunnerService, PlanRunnerServiceShape>()(
+  "t3/plan-runner/Services/PlanRunner",
+) {}

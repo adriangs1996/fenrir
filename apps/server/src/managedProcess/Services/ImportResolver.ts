@@ -8,7 +8,7 @@
  */
 import type { ManagedProcess, ManagedProcessImportProposal, ProjectId } from "@fenrir/contracts";
 import type { Effect } from "effect";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 
 export interface ImportResolverShape {
   /** Proposes managed process definitions from workspace files. */
@@ -19,6 +19,6 @@ export interface ImportResolverShape {
   }): Effect.Effect<ManagedProcessImportProposal[], never, never>;
 }
 
-export class ImportResolver extends ServiceMap.Service<ImportResolver, ImportResolverShape>()(
+export class ImportResolver extends Context.Service<ImportResolver, ImportResolverShape>()(
   "t3/managedProcess/ImportResolver",
 ) {}

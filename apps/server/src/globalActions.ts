@@ -27,7 +27,7 @@ import {
   Ref,
   Schema,
   Scope,
-  ServiceMap,
+  Context,
   Stream,
   Cause,
 } from "effect";
@@ -74,7 +74,7 @@ export interface GlobalActionsShape {
   readonly streamChanges: Stream.Stream<readonly GlobalScript[]>;
 }
 
-export class GlobalActionsService extends ServiceMap.Service<
+export class GlobalActionsService extends Context.Service<
   GlobalActionsService,
   GlobalActionsShape
 >()("t3/globalActions/GlobalActionsService") {}

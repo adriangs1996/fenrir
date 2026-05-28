@@ -7,7 +7,7 @@
  * @module TerminalProcessLifecycle
  * @internal Consumed only by TerminalManager layer.
  */
-import { Effect, Fiber, ServiceMap } from "effect";
+import { Effect, Fiber, Context } from "effect";
 import type { PtyProcess } from "./PTY";
 
 /**
@@ -48,7 +48,7 @@ export interface TerminalProcessLifecycleShape {
 /**
  * TerminalProcessLifecycle - Service tag for process lifecycle management.
  */
-export class TerminalProcessLifecycle extends ServiceMap.Service<
+export class TerminalProcessLifecycle extends Context.Service<
   TerminalProcessLifecycle,
   TerminalProcessLifecycleShape
 >()("t3/terminal/Services/ProcessLifecycle/TerminalProcessLifecycle") {}

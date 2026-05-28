@@ -110,12 +110,12 @@ describe("ServerSettings.providerInstances", () => {
       },
     });
 
-    expect(decoded.providerInstances[ProviderInstanceId.makeUnsafe("codex_personal")]).toEqual({
+    expect(decoded.providerInstances[ProviderInstanceId.make("codex_personal")]).toEqual({
       driver: "codex",
       displayName: "Codex Personal",
       config: { homePath: "~/.codex-personal" },
     });
-    expect(decoded.providerInstances[ProviderInstanceId.makeUnsafe("cursor_local")]).toEqual({
+    expect(decoded.providerInstances[ProviderInstanceId.make("cursor_local")]).toEqual({
       driver: "cursor",
       displayName: "Cursor Local",
       config: { workspace: "/tmp/cursor" },
@@ -158,7 +158,7 @@ describe("ServerSettingsPatch.providerInstances", () => {
     });
 
     expect(replacement.providerInstances).toBeDefined();
-    expect(replacement.providerInstances?.[ProviderInstanceId.makeUnsafe("codex_work")]).toEqual({
+    expect(replacement.providerInstances?.[ProviderInstanceId.make("codex_work")]).toEqual({
       driver: "codex",
       config: { homePath: "~/.codex-work" },
     });

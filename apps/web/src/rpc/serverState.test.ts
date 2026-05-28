@@ -52,7 +52,7 @@ const defaultProviders: ReadonlyArray<ServerProvider> = [
 ];
 
 const baseEnvironment = {
-  environmentId: EnvironmentId.makeUnsafe("environment-local"),
+  environmentId: EnvironmentId.make("environment-local"),
   label: "Local environment",
   platform: {
     os: "darwin" as const,
@@ -219,8 +219,8 @@ describe("serverState", () => {
         environment: baseEnvironment,
         cwd: "/tmp/workspace",
         projectName: "fenrir-code",
-        bootstrapProjectId: ProjectId.makeUnsafe("project-1"),
-        bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
+        bootstrapProjectId: ProjectId.make("project-1"),
+        bootstrapThreadId: ThreadId.make("thread-1"),
       },
     });
 
@@ -228,8 +228,8 @@ describe("serverState", () => {
       environment: baseEnvironment,
       cwd: "/tmp/workspace",
       projectName: "fenrir-code",
-      bootstrapProjectId: ProjectId.makeUnsafe("project-1"),
-      bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
+      bootstrapProjectId: ProjectId.make("project-1"),
+      bootstrapThreadId: ThreadId.make("thread-1"),
     });
 
     const lateListener = vi.fn();
@@ -238,8 +238,8 @@ describe("serverState", () => {
       environment: baseEnvironment,
       cwd: "/tmp/workspace",
       projectName: "fenrir-code",
-      bootstrapProjectId: ProjectId.makeUnsafe("project-1"),
-      bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
+      bootstrapProjectId: ProjectId.make("project-1"),
+      bootstrapThreadId: ThreadId.make("thread-1"),
     });
 
     unsubscribeLate();

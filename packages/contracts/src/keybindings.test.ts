@@ -73,9 +73,9 @@ it.effect("parses keybinding rules", () =>
 
     const parsedReviewOpenChange = yield* decode(KeybindingRule, {
       key: "o",
-      command: "review.openChange",
+      command: "sourceControl.review.openChange",
     });
-    assert.strictEqual(parsedReviewOpenChange.command, "review.openChange");
+    assert.strictEqual(parsedReviewOpenChange.command, "sourceControl.review.openChange");
   }),
 );
 

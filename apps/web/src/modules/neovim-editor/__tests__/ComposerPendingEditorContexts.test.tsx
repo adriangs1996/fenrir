@@ -10,7 +10,7 @@ describe("ComposerPendingEditorContextChip", () => {
       <ComposerPendingEditorContextChip
         context={{
           id: "ctx-1",
-          threadId: ThreadId.makeUnsafe("thread-1"),
+          threadId: ThreadId.make("thread-1"),
           file: "/src/components/App.tsx",
           lineStart: 10,
           lineEnd: 15,
@@ -29,7 +29,7 @@ describe("ComposerPendingEditorContextChip", () => {
       <ComposerPendingEditorContextChip
         context={{
           id: "ctx-expired",
-          threadId: ThreadId.makeUnsafe("thread-1"),
+          threadId: ThreadId.make("thread-1"),
           file: "/src/utils.ts",
           lineStart: 2,
           lineEnd: 4,
@@ -51,7 +51,7 @@ describe("ComposerPendingEditorContextChip", () => {
       <ComposerPendingEditorContextChip
         context={{
           id: "ctx-1",
-          threadId: ThreadId.makeUnsafe("thread-1"),
+          threadId: ThreadId.make("thread-1"),
           file: "/src/main.ts",
           lineStart: 1,
           lineEnd: 1,

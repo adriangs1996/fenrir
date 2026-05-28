@@ -6,7 +6,7 @@
  *
  * @module ManagedProcess/Executor
  */
-import { Effect, ServiceMap } from "effect";
+import { Effect, Context } from "effect";
 import type { ManagedProcessExecutorKind } from "@fenrir/contracts";
 
 // ---------------------------------------------------------------------------
@@ -97,6 +97,6 @@ export interface ExecutorShape {
   }): Effect.Effect<ExecutorHandle, ExecutorError>;
 }
 
-export class Executor extends ServiceMap.Service<Executor, ExecutorShape>()(
+export class Executor extends Context.Service<Executor, ExecutorShape>()(
   "t3/managedProcess/Executor",
 ) {}

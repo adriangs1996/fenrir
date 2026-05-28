@@ -4,10 +4,24 @@ import type {
   GitRunStackedActionResult,
   GitStackedAction,
   GitStatusResult,
+  SourceControlCloneProtocol,
+  SourceControlProviderDiscoveryItem,
+  SourceControlProviderKind,
+  SourceControlPublishRepositoryResult,
+  SourceControlRepositoryVisibility,
 } from "@fenrir/contracts";
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
+import * as Option from "effect/Option";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  CloudUploadIcon,
+  ExternalLinkIcon,
+  GitCommitIcon,
+  InfoIcon,
+} from "lucide-react";
 import { GitHubIcon } from "./Icons";
 import {
   buildGitActionProgressStages,
@@ -41,12 +55,14 @@ import { Textarea } from "~/components/ui/textarea";
 import { toastManager, type ThreadToastData } from "~/components/ui/toast";
 import { openInPreferredEditor } from "~/editorPreferences";
 import {
-  gitInitMutationOptions,
+  vcsInitMutationOptions,
   gitMutationKeys,
-  gitPullMutationOptions,
+  vcsPullMutationOptions,
   gitRunStackedActionMutationOptions,
+  sourceControlPublishRepositoryMutationOptions,
 } from "~/lib/gitReactQuery";
 import { refreshGitStatus, useGitStatus } from "~/lib/gitStatusState";
+import { useSourceControlDiscovery } from "~/lib/sourceControlDiscoveryState";
 import { newCommandId, randomUUID } from "~/lib/utils";
 import { resolvePathLinkTarget } from "~/modules/terminal";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
@@ -69,6 +85,11 @@ interface PendingDefaultBranchAction {
   onConfirmed?: () => void;
   filePaths?: string[];
 }
+
+type PublishProviderKind = Extract<
+  SourceControlProviderKind,
+  "github" | "gitlab" | "bitbucket" | "azure-devops"
+>;
 
 type GitActionToastId = ReturnType<typeof toastManager.add>;
 
@@ -189,6 +210,45 @@ const COMMIT_DIALOG_TITLE = "Commit changes";
 const COMMIT_DIALOG_DESCRIPTION =
   "Review and confirm your commit. Leave the message blank to auto-generate one.";
 
+const PUBLISH_PROVIDER_OPTIONS = [
+  { value: "github", label: "GitHub", placeholder: "owner/repo" },
+  { value: "gitlab", label: "GitLab", placeholder: "group/project" },
+  { value: "bitbucket", label: "Bitbucket", placeholder: "workspace/repository" },
+  { value: "azure-devops", label: "Azure DevOps", placeholder: "project/repository" },
+] as const satisfies ReadonlyArray<{
+  readonly value: PublishProviderKind;
+  readonly label: string;
+  readonly placeholder: string;
+}>;
+
+function publishProviderReadiness(input: {
+  provider: PublishProviderKind;
+  providers: readonly SourceControlProviderDiscoveryItem[];
+}): { readonly ready: boolean; readonly hint: string | null; readonly account: string | null } {
+  const provider = input.providers.find((candidate) => candidate.kind === input.provider);
+  if (!provider) {
+    return {
+      ready: false,
+      hint: "Provider status unavailable. Open Settings -> Source Control and rescan.",
+      account: null,
+    };
+  }
+  if (provider.status !== "available") {
+    return { ready: false, hint: provider.installHint, account: null };
+  }
+  const account = Option.getOrNull(provider.auth.account);
+  if (provider.auth.status === "unauthenticated") {
+    return {
+      ready: false,
+      hint:
+        Option.getOrNull(provider.auth.detail) ??
+        `${provider.label} is not authenticated. Open Settings -> Source Control for setup guidance.`,
+      account,
+    };
+  }
+  return { ready: true, hint: null, account };
+}
+
 function GitActionItemIcon({ icon }: { icon: GitActionIconName }) {
   if (icon === "commit") return <GitCommitIcon />;
   if (icon === "push") return <CloudUploadIcon />;
@@ -198,6 +258,7 @@ function GitActionItemIcon({ icon }: { icon: GitActionIconName }) {
 function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   const iconClassName = "size-3.5";
   if (quickAction.kind === "open_pr") return <GitHubIcon className={iconClassName} />;
+  if (quickAction.kind === "open_publish") return <CloudUploadIcon className={iconClassName} />;
   if (quickAction.kind === "run_pull") return <InfoIcon className={iconClassName} />;
   if (quickAction.kind === "run_action") {
     if (quickAction.action === "commit") return <GitCommitIcon className={iconClassName} />;
@@ -208,6 +269,255 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   }
   if (quickAction.label === "Commit") return <GitCommitIcon className={iconClassName} />;
   return <InfoIcon className={iconClassName} />;
+}
+
+function PublishRepositoryDialog(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  environmentId: ScopedThreadRef["environmentId"] | null;
+  gitCwd: string;
+}) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const discovery = useSourceControlDiscovery(
+    props.environmentId ? { environmentId: props.environmentId } : undefined,
+  );
+  const [provider, setProvider] = useState<PublishProviderKind>("github");
+  const [repository, setRepository] = useState("");
+  const [visibility, setVisibility] = useState<SourceControlRepositoryVisibility>("private");
+  const [remoteName, setRemoteName] = useState("origin");
+  const [protocol, setProtocol] = useState<SourceControlCloneProtocol>("ssh");
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<SourceControlPublishRepositoryResult | null>(null);
+  const mutation = useMutation(
+    sourceControlPublishRepositoryMutationOptions({
+      environmentId: props.environmentId,
+      cwd: props.gitCwd,
+      queryClient,
+    }),
+  );
+  const readinessByProvider = useMemo(() => {
+    const providers = discovery.data?.sourceControlProviders ?? [];
+    return Object.fromEntries(
+      PUBLISH_PROVIDER_OPTIONS.map((option) => [
+        option.value,
+        publishProviderReadiness({ provider: option.value, providers }),
+      ]),
+    ) as Record<PublishProviderKind, ReturnType<typeof publishProviderReadiness>>;
+  }, [discovery.data]);
+  const readiness = readinessByProvider[provider];
+  const providerOption =
+    PUBLISH_PROVIDER_OPTIONS.find((option) => option.value === provider) ??
+    PUBLISH_PROVIDER_OPTIONS[0];
+  const repositoryParts = repository.trim().split("/");
+  const canSubmit =
+    readiness.ready &&
+    !mutation.isPending &&
+    (repositoryParts[0]?.trim().length ?? 0) > 0 &&
+    repositoryParts.slice(1).join("/").trim().length > 0;
+
+  useEffect(() => {
+    if (!props.open) return;
+    const firstReady = PUBLISH_PROVIDER_OPTIONS.find(
+      (option) => readinessByProvider[option.value].ready,
+    );
+    if (firstReady && !readinessByProvider[provider].ready) {
+      setProvider(firstReady.value);
+    }
+  }, [props.open, provider, readinessByProvider]);
+
+  useEffect(() => {
+    if (!props.open || repository.length > 0) return;
+    const account = readinessByProvider[provider].account;
+    if (account) {
+      setRepository(`${account}/`);
+    }
+  }, [props.open, provider, readinessByProvider, repository.length]);
+
+  const reset = () => {
+    setRepository("");
+    setVisibility("private");
+    setRemoteName("origin");
+    setProtocol("ssh");
+    setError(null);
+    setResult(null);
+  };
+
+  const submit = () => {
+    if (!canSubmit) return;
+    setError(null);
+    void mutation
+      .mutateAsync({
+        provider,
+        repository: repository.trim(),
+        visibility,
+        remoteName: remoteName.trim() || "origin",
+        protocol,
+      })
+      .then((nextResult) => {
+        setResult(nextResult);
+        void refreshGitStatus({ environmentId: props.environmentId, cwd: props.gitCwd }).catch(
+          () => undefined,
+        );
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "An error occurred.");
+      });
+  };
+
+  return (
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        props.onOpenChange(open);
+        if (!open) reset();
+      }}
+    >
+      <DialogPopup className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Publish repository</DialogTitle>
+          <DialogDescription>
+            Create or connect a hosted repository, add a remote, and push the current branch.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-4">
+          {result ? (
+            <div className="space-y-3 rounded-md border border-input bg-muted/30 p-3 text-sm">
+              <div className="flex items-center gap-2 font-medium text-foreground">
+                <CheckIcon className="size-4 text-success" />
+                {result.status === "pushed" ? "Repository published" : "Remote added"}
+              </div>
+              <div className="truncate font-mono text-xs text-muted-foreground">
+                {result.repository.nameWithOwner}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const api = readLocalApi();
+                  void api?.shell.openExternal(result.repository.url);
+                }}
+              >
+                <ExternalLinkIcon className="size-3.5" />
+                Open repository
+              </Button>
+            </div>
+          ) : (
+            <>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium">Provider</span>
+                <select
+                  value={provider}
+                  onChange={(event) => setProvider(event.target.value as PublishProviderKind)}
+                  disabled={mutation.isPending}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {PUBLISH_PROVIDER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                      {readinessByProvider[option.value].ready ? "" : " (setup required)"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {!readiness.ready ? (
+                <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
+                  {readiness.hint}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className="ml-2 h-auto px-1"
+                    onClick={() => void navigate({ to: "/settings/source-control" })}
+                  >
+                    Open settings
+                  </Button>
+                </div>
+              ) : null}
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium">Repository</span>
+                <input
+                  value={repository}
+                  onChange={(event) => setRepository(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      submit();
+                    }
+                  }}
+                  placeholder={providerOption.placeholder}
+                  disabled={mutation.isPending}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 font-mono text-sm"
+                />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium">Visibility</span>
+                  <select
+                    value={visibility}
+                    onChange={(event) =>
+                      setVisibility(event.target.value as SourceControlRepositoryVisibility)
+                    }
+                    disabled={mutation.isPending}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="private">Private</option>
+                    <option value="public">Public</option>
+                  </select>
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium">Remote</span>
+                  <input
+                    value={remoteName}
+                    onChange={(event) => setRemoteName(event.target.value)}
+                    disabled={mutation.isPending}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium">Protocol</span>
+                  <select
+                    value={protocol}
+                    onChange={(event) =>
+                      setProtocol(event.target.value as SourceControlCloneProtocol)
+                    }
+                    disabled={mutation.isPending}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="ssh">SSH</option>
+                    <option value="https">HTTPS</option>
+                  </select>
+                </label>
+              </div>
+              {error ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {error}
+                </div>
+              ) : null}
+            </>
+          )}
+        </DialogPanel>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              props.onOpenChange(false);
+              reset();
+            }}
+          >
+            {result ? "Close" : "Cancel"}
+          </Button>
+          {!result ? (
+            <Button size="sm" disabled={!canSubmit} onClick={submit}>
+              {mutation.isPending ? "Publishing..." : "Publish"}
+            </Button>
+          ) : null}
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+  );
 }
 
 export default function GitActionsControl({
@@ -239,6 +549,7 @@ export default function GitActionsControl({
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
   const [isEditingFiles, setIsEditingFiles] = useState(false);
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
   const activeGitActionProgressRef = useRef<ActiveGitActionProgress | null>(null);
@@ -333,7 +644,7 @@ export default function GitActionsControl({
   const noneSelected = selectedFiles.length === 0;
 
   const initMutation = useMutation(
-    gitInitMutationOptions({ environmentId: activeEnvironmentId, cwd: gitCwd, queryClient }),
+    vcsInitMutationOptions({ environmentId: activeEnvironmentId, cwd: gitCwd, queryClient }),
   );
 
   const runImmediateGitActionMutation = useMutation(
@@ -344,7 +655,7 @@ export default function GitActionsControl({
     }),
   );
   const pullMutation = useMutation(
-    gitPullMutationOptions({ environmentId: activeEnvironmentId, cwd: gitCwd, queryClient }),
+    vcsPullMutationOptions({ environmentId: activeEnvironmentId, cwd: gitCwd, queryClient }),
   );
 
   const isRunStackedActionRunning =
@@ -353,7 +664,11 @@ export default function GitActionsControl({
     }) > 0;
   const isPullRunning =
     useIsMutating({ mutationKey: gitMutationKeys.pull(activeEnvironmentId, gitCwd) }) > 0;
-  const isGitActionRunning = isRunStackedActionRunning || isPullRunning;
+  const isPublishRunning =
+    useIsMutating({
+      mutationKey: gitMutationKeys.publishRepository(activeEnvironmentId, gitCwd),
+    }) > 0;
+  const isGitActionRunning = isRunStackedActionRunning || isPullRunning || isPublishRunning;
   const isSelectingWorktreeBase =
     !activeServerThread &&
     activeDraftThread?.envMode === "worktree" &&
@@ -751,6 +1066,10 @@ export default function GitActionsControl({
       void openExistingPr();
       return;
     }
+    if (quickAction.kind === "open_publish") {
+      setIsPublishDialogOpen(true);
+      return;
+    }
     if (quickAction.kind === "run_pull") {
       const promise = pullMutation.mutateAsync();
       toastManager.promise(promise, {
@@ -759,8 +1078,8 @@ export default function GitActionsControl({
           title: result.status === "pulled" ? "Pulled" : "Already up to date",
           description:
             result.status === "pulled"
-              ? `Updated ${result.branch} from ${result.upstreamBranch ?? "upstream"}`
-              : `${result.branch} is already synchronized.`,
+              ? `Updated ${result.refName} from ${result.upstreamRef ?? "upstream"}`
+              : `${result.refName} is already synchronized.`,
           data: threadToastData,
         }),
         error: (err) => ({
@@ -1168,6 +1487,13 @@ export default function GitActionsControl({
           </DialogFooter>
         </DialogPopup>
       </Dialog>
+
+      <PublishRepositoryDialog
+        open={isPublishDialogOpen}
+        onOpenChange={setIsPublishDialogOpen}
+        environmentId={activeEnvironmentId}
+        gitCwd={gitCwd}
+      />
     </>
   );
 }

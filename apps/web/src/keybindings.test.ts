@@ -135,7 +135,7 @@ const DEFAULT_BINDINGS = compile([
   },
   {
     shortcut: { ...modShortcut("o"), modKey: false },
-    command: "review.openChange" as KeybindingCommand,
+    command: "sourceControl.review.openChange" as KeybindingCommand,
     whenAst: whenIdentifier("reviewFocus"),
   },
   { shortcut: modShortcut("1"), command: "thread.jump.1" },
@@ -325,7 +325,7 @@ describe("shortcutLabelForCommand", () => {
     assert.strictEqual(
       shortcutLabelForCommand(
         DEFAULT_BINDINGS,
-        "review.openChange" as KeybindingCommand,
+        "sourceControl.review.openChange" as KeybindingCommand,
         {
           platform: "Linux",
           context: { reviewFocus: true },
@@ -612,7 +612,7 @@ describe("resolveShortcutCommand", () => {
         platform: "Linux",
         context: { reviewFocus: true },
       }),
-      "review.openChange",
+      "sourceControl.review.openChange",
     );
     assert.isNull(
       resolveShortcutCommand(event({ key: "o" }), DEFAULT_BINDINGS, {

@@ -10,7 +10,7 @@
  *
  * @module ClaudeAdapter
  */
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 
 import type { ProviderAdapterError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "./ProviderAdapter.ts";
@@ -25,6 +25,6 @@ export interface ClaudeAdapterShape extends ProviderAdapterShape<ProviderAdapter
 /**
  * ClaudeAdapter - Service tag for Claude Agent provider adapter operations.
  */
-export class ClaudeAdapter extends ServiceMap.Service<ClaudeAdapter, ClaudeAdapterShape>()(
+export class ClaudeAdapter extends Context.Service<ClaudeAdapter, ClaudeAdapterShape>()(
   "t3/provider/Services/ClaudeAdapter",
 ) {}

@@ -6,7 +6,7 @@
  *
  * @module ManagedProcess/ReadinessProbe
  */
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { ManagedProcess } from "@fenrir/contracts";
 
 // ---------------------------------------------------------------------------
@@ -35,6 +35,6 @@ export interface ReadinessProbeShape {
   }): ReadinessProbeHandle;
 }
 
-export class ReadinessProbe extends ServiceMap.Service<ReadinessProbe, ReadinessProbeShape>()(
+export class ReadinessProbe extends Context.Service<ReadinessProbe, ReadinessProbeShape>()(
   "t3/managedProcess/ReadinessProbe",
 ) {}

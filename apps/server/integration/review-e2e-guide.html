@@ -420,14 +420,14 @@ assert.equal(config.environment.label.length &gt; 0, true);
 ) {
   return Effect.gen(function* () {
     const provider = "codex";
-    const projectId = ProjectId.makeUnsafe("review-e2e-project");
-    const threadId = ThreadId.makeUnsafe("review-e2e-thread");
+    const projectId = ProjectId.make("review-e2e-project");
+    const threadId = ThreadId.make("review-e2e-thread");
     const createdAt = new Date().toISOString();
     const defaultModel = DEFAULT_MODEL_BY_PROVIDER[provider];
 
     yield* dispatchOrchestrationCommand(session, {
       type: "project.create",
-      commandId: CommandId.makeUnsafe("cmd-review-e2e-project-create"),
+      commandId: CommandId.make("cmd-review-e2e-project-create"),
       projectId,
       title: "Review E2E Project",
       workspaceRoot: workspace.repoDir,
@@ -440,7 +440,7 @@ assert.equal(config.environment.label.length &gt; 0, true);
 
     yield* dispatchOrchestrationCommand(session, {
       type: "thread.create",
-      commandId: CommandId.makeUnsafe("cmd-review-e2e-thread-create"),
+      commandId: CommandId.make("cmd-review-e2e-thread-create"),
       threadId,
       projectId,
       title: "Review E2E Thread",
@@ -532,7 +532,7 @@ yield* waitForThreadProjection(session, thread.threadId);
   readonly fileCount: number;
   readonly chunkCount: number;
   readonly degradedReasons: readonly string[];
-}&gt;(session, "review.getOrCreateSession", {
+}&gt;(session, "sourceControl.review.getOrCreateSession", {
   threadId: thread.threadId,
   mode: "raw",
   scope: "combined",
@@ -549,7 +549,7 @@ assert.equal(summary.degradedReasons.includes("diff-unavailable"), false);
         <pre><code>const snapshot = yield* callReviewRpc&lt;{
   readonly files: ReadonlyArray&lt;{ readonly normalizedPath: string }&gt;;
   readonly github: unknown;
-}&gt;(session, "review.getSessionSnapshot", {
+}&gt;(session, "sourceControl.review.getSessionSnapshot", {
   sessionId: summary.id,
 });
 
@@ -558,7 +558,7 @@ const diffSnapshot = yield* callReviewRpc&lt;{
     readonly kind: string;
     readonly files: ReadonlyArray&lt;{ readonly normalizedPath: string }&gt;;
   }&gt;;
-}&gt;(session, "review.getDiffSnapshot", {
+}&gt;(session, "sourceControl.review.getDiffSnapshot", {
   sessionId: summary.id,
 });
 </code></pre>

@@ -5,7 +5,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "@fenrir/contracts";
-import { Option, Schema, ServiceMap } from "effect";
+import { Option, Schema, Context } from "effect";
 import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
@@ -15,7 +15,7 @@ import {
   ReviewScope,
   ReviewSessionTarget,
   ReviewTabMode,
-} from "../../../../../packages/contracts/src/review.ts";
+} from "@fenrir/contracts/sourceControlReview";
 
 export const ReviewSessionRecord = Schema.Struct({
   sessionId: ReviewSessionId,
@@ -79,7 +79,7 @@ export interface ReviewSessionRepositoryShape {
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 
-export class ReviewSessionRepository extends ServiceMap.Service<
+export class ReviewSessionRepository extends Context.Service<
   ReviewSessionRepository,
   ReviewSessionRepositoryShape
 >()("t3/persistence/Services/ReviewSessions/ReviewSessionRepository") {}

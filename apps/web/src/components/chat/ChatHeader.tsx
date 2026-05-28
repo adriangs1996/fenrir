@@ -1,9 +1,7 @@
 import {
   type EnvironmentId,
-  type EditorId,
   type GlobalScript,
   type GlobalScriptProjectDefaults,
-  type ProjectId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
@@ -21,25 +19,18 @@ import ProjectScriptsControl, {
 } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
-import { OpenInPicker } from "./OpenInPicker";
 import { VpnToolbarButton } from "../VpnToolbarButton";
-import { ManagedProcessProjectControl } from "../managedProcess/ManagedProcessProjectControl";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
   draftId?: DraftId;
   activeThreadTitle: string;
-  activeProjectId: ProjectId | null;
-  activeProjectEnvironmentId: EnvironmentId | null;
   activeProjectName: string | undefined;
-  activeProjectManagedProcessCount: number;
   isGitRepo: boolean;
-  openInCwd: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
-  availableEditors: ReadonlyArray<EditorId>;
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
@@ -65,16 +56,11 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   draftId,
   activeThreadTitle,
-  activeProjectId,
-  activeProjectEnvironmentId,
   activeProjectName,
-  activeProjectManagedProcessCount,
   isGitRepo,
-  openInCwd,
   activeProjectScripts,
   preferredScriptId,
   keybindings,
-  availableEditors,
   terminalAvailable,
   terminalOpen,
   terminalToggleShortcutLabel,
@@ -132,21 +118,6 @@ export const ChatHeader = memo(function ChatHeader({
             onAddGlobalScript={onAddGlobalScript}
             onUpdateGlobalScript={onUpdateGlobalScript}
             onDeleteGlobalScript={onDeleteGlobalScript}
-          />
-        )}
-        {activeProjectId && activeProjectEnvironmentId && activeProjectName && (
-          <ManagedProcessProjectControl
-            projectId={activeProjectId}
-            environmentId={activeProjectEnvironmentId}
-            projectName={activeProjectName}
-            definitionCount={activeProjectManagedProcessCount}
-          />
-        )}
-        {activeProjectName && (
-          <OpenInPicker
-            keybindings={keybindings}
-            availableEditors={availableEditors}
-            openInCwd={openInCwd}
           />
         )}
         {activeProjectName && (

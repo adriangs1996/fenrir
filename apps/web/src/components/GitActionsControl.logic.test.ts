@@ -642,7 +642,7 @@ describe("when: branch has no upstream configured", () => {
     });
   });
 
-  it("resolveQuickAction disables push-and-pr flows when no origin remote exists", () => {
+  it("resolveQuickAction opens publish flow when no origin remote exists", () => {
     const quick = resolveQuickAction(
       status({
         hasUpstream: false,
@@ -654,10 +654,9 @@ describe("when: branch has no upstream configured", () => {
       false,
     );
     assert.deepEqual(quick, {
-      kind: "show_hint",
-      label: "Push",
-      hint: 'Add an "origin" remote before pushing or creating a PR.',
-      disabled: true,
+      kind: "open_publish",
+      label: "Publish repository",
+      disabled: false,
     });
   });
 

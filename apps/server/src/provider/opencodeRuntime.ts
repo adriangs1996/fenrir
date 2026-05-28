@@ -24,7 +24,7 @@ import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
@@ -632,7 +632,7 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
   } satisfies OpenCodeRuntimeShape;
 });
 
-export class OpenCodeRuntime extends ServiceMap.Service<OpenCodeRuntime, OpenCodeRuntimeShape>()(
+export class OpenCodeRuntime extends Context.Service<OpenCodeRuntime, OpenCodeRuntimeShape>()(
   "t3/provider/OpenCodeRuntime",
 ) {}
 

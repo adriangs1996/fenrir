@@ -165,7 +165,7 @@ function mcpServerIdFromName(name: string): McpServerId {
       .replace(/[^a-z0-9_-]+/g, "-")
       .replace(/-+/g, "-")
       .replace(/^-+|-+$/g, "") || `mcp-${crypto.randomUUID().slice(0, 8)}`;
-  return McpServerId.makeUnsafe(normalized);
+  return McpServerId.make(normalized);
 }
 
 function valueRefToEditorRows(values: Record<string, McpValueRef>): McpEditorValueRow[] {
@@ -1248,7 +1248,7 @@ export function GeneralSettingsPanel() {
       }
 
       updateProviderInstanceEntry(providerCard.instanceId, providerCard.driver, (current) => {
-        const base = current ?? { driver: ProviderDriverKind.makeUnsafe(providerCard.driver) };
+        const base = current ?? { driver: ProviderDriverKind.make(providerCard.driver) };
         const currentConfig = isRecord(base.config) ? { ...base.config } : {};
         if (value.length > 0) {
           currentConfig[fieldKey] = value;
@@ -1279,7 +1279,7 @@ export function GeneralSettingsPanel() {
     const nextProviderInstances: Record<string, ProviderInstanceConfig> = {
       ...providerInstanceMap,
       [instanceId]: {
-        driver: ProviderDriverKind.makeUnsafe(newProviderInstanceDriver),
+        driver: ProviderDriverKind.make(newProviderInstanceDriver),
         ...(newProviderInstanceDisplayName.trim().length > 0
           ? { displayName: newProviderInstanceDisplayName.trim() }
           : {}),
@@ -2574,7 +2574,7 @@ export function GeneralSettingsPanel() {
                           providerCard.driver,
                           (current) => ({
                             ...(current ?? {
-                              driver: ProviderDriverKind.makeUnsafe(providerCard.driver),
+                              driver: ProviderDriverKind.make(providerCard.driver),
                             }),
                             enabled: Boolean(checked),
                           }),
@@ -2610,7 +2610,7 @@ export function GeneralSettingsPanel() {
                               providerCard.driver,
                               (current) => ({
                                 ...(current ?? {
-                                  driver: ProviderDriverKind.makeUnsafe(providerCard.driver),
+                                  driver: ProviderDriverKind.make(providerCard.driver),
                                 }),
                                 displayName: event.target.value,
                               }),

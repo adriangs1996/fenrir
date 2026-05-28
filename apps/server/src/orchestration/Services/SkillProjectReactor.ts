@@ -8,7 +8,7 @@
  *
  * @module SkillProjectReactor
  */
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect, Scope } from "effect";
 
 /**
@@ -32,7 +32,7 @@ export interface SkillProjectReactorShape {
 /**
  * SkillProjectReactor - Service tag for skill ↔ project lifecycle reactor.
  */
-export class SkillProjectReactor extends ServiceMap.Service<
+export class SkillProjectReactor extends Context.Service<
   SkillProjectReactor,
   SkillProjectReactorShape
 >()("t3/orchestration/Services/SkillProjectReactor") {}

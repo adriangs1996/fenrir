@@ -1,4 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import * as FS from "node:fs";
+import * as OS from "node:os";
+import * as Path from "node:path";
 
 // --- Fake WebContentsView and session ---
 const { fakeSession, fakeWebContents, mockWebContentsView } = vi.hoisted(() => {
@@ -60,6 +63,10 @@ vi.mock("electron", () => ({
 }));
 
 import { createTrafficLensManager, type TrafficLensManager } from "./trafficLensManager";
+
+function makeTempPath(fileName: string): string {
+  return Path.join(FS.mkdtempSync(Path.join(OS.tmpdir(), "fenrir-traffic-lens-")), fileName);
+}
 
 describe("trafficLensManager", () => {
   const fakeWindow = {
@@ -153,6 +160,84 @@ describe("trafficLensManager", () => {
       expect(eventNames).toContain("page-title-updated");
       expect(eventNames).toContain("did-start-loading");
       expect(eventNames).toContain("did-stop-loading");
+    });
+  });
+
+  describe("tab session persistence", () => {
+    it("persists open tabs with the latest requested URL", () => {
+      const tabSessionPath = makeTempPath("browser-lab-tabs.json");
+      manager = createTrafficLensManager({ window: fakeWindow, tabSessionPath });
+
+      const snapshot = manager.createTab("https://example.test");
+      manager.navigateTab(snapshot.tabId, "https://target.test/path");
+
+      const persisted = JSON.parse(FS.readFileSync(tabSessionPath, "utf8"));
+      expect(persisted).toMatchObject({
+        version: 1,
+        activeTabId: snapshot.tabId,
+        tabs: [
+          {
+            tabId: snapshot.tabId,
+            url: "https://target.test/path",
+            profile: {
+              id: "default",
+              partitionKey: "persist:traffic-lens:default",
+            },
+            viewMode: "desktop",
+            mobilePreset: "iphone-15-pro",
+          },
+        ],
+      });
+    });
+
+    it("restores persisted tabs and returns the active tab first", () => {
+      const tabSessionPath = makeTempPath("browser-lab-tabs.json");
+      FS.writeFileSync(
+        tabSessionPath,
+        JSON.stringify({
+          version: 1,
+          activeTabId: "tab-two",
+          tabs: [
+            {
+              tabId: "tab-one",
+              url: "https://one.test",
+              profile: {
+                id: "default",
+                name: "Default",
+                partitionKey: "persist:traffic-lens:default",
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              },
+              viewMode: "desktop",
+              mobilePreset: "iphone-15-pro",
+            },
+            {
+              tabId: "tab-two",
+              url: "https://two.test",
+              profile: {
+                id: "default",
+                name: "Default",
+                partitionKey: "persist:traffic-lens:default",
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              },
+              viewMode: "mobile",
+              mobilePreset: "pixel-8",
+            },
+          ],
+        }),
+        "utf8",
+      );
+
+      manager = createTrafficLensManager({ window: fakeWindow, tabSessionPath });
+
+      expect(fakeWebContents.loadURL).toHaveBeenCalledWith("https://one.test");
+      expect(fakeWebContents.loadURL).toHaveBeenCalledWith("https://two.test");
+      expect(manager.getTabs().map((tab) => tab.tabId)).toEqual(["tab-two", "tab-one"]);
+      expect(manager.getTabs().map((tab) => tab.url)).toEqual([
+        "https://two.test",
+        "https://one.test",
+      ]);
     });
   });
 

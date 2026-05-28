@@ -3,7 +3,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stdio from "effect/Stdio";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import * as CodexRpc from "./_generated/meta.gen.ts";
@@ -72,7 +72,7 @@ export interface CodexAppServerClientShape {
   ) => Effect.Effect<void>;
 }
 
-export class CodexAppServerClient extends ServiceMap.Service<
+export class CodexAppServerClient extends Context.Service<
   CodexAppServerClient,
   CodexAppServerClientShape
 >()("effect-codex-app-server/CodexAppServerClient") {}

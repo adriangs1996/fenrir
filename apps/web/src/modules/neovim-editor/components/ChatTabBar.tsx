@@ -1,6 +1,6 @@
 import { memo } from "react";
 import type { ReactNode } from "react";
-import { FileEditIcon, MessageSquareIcon, SearchIcon, TerminalSquareIcon } from "lucide-react";
+import { FileEditIcon, MessageSquareIcon, TerminalSquareIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { ChatTab } from "../stores/editorStore";
 
@@ -12,7 +12,7 @@ interface Props {
 }
 
 /**
- * Tab bar above the chat main area: Thread | Editor | Terminal | Review.
+ * Tab bar above the chat main area: Thread | Editor | Terminal.
  * Terminal remains visible and selection can open the thread terminal on demand.
  * Editor tab remains gated by bridge / main-window / nvim availability.
  */
@@ -48,13 +48,6 @@ export const ChatTabBar = memo(function ChatTabBar({
         onClick={() => onTabSelect("terminal")}
         icon={<TerminalSquareIcon className="size-3.5" />}
         label="Terminal"
-      />
-      <TabButton
-        tab="review"
-        active={activeTab === "review"}
-        onClick={() => onTabSelect("review")}
-        icon={<SearchIcon className="size-3.5" />}
-        label="Review"
       />
     </div>
   );

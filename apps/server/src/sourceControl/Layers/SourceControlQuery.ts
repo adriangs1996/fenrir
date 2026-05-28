@@ -7,11 +7,12 @@ import {
 } from "../Services/SourceControlQuery.ts";
 
 const makeSourceControlQuery = Effect.gen(function* () {
-  const git = yield* GitCore;
+  const gitCore = yield* GitCore;
 
-  const listBranches: SourceControlQueryShape["listBranches"] = (input) => git.listBranches(input);
+  const listBranches: SourceControlQueryShape["listBranches"] = (input) =>
+    gitCore.listBranches(input);
   const listLocalBranchNames: SourceControlQueryShape["listLocalBranchNames"] = (cwd) =>
-    git.listLocalBranchNames(cwd);
+    gitCore.listLocalBranchNames(cwd);
 
   return SourceControlQuery.of({
     listBranches,

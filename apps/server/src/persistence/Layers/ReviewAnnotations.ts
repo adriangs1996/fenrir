@@ -13,7 +13,7 @@ import {
 import {
   ReviewLocalNoteAuthorSnapshot,
   ReviewStableAnchor,
-} from "../../../../../packages/contracts/src/review.ts";
+} from "@fenrir/contracts/sourceControlReview";
 
 const ReviewAnnotationDbRow = ReviewAnnotationRecord.mapFields(
   Struct.assign({

@@ -1,4 +1,4 @@
-import { Effect, Layer, Schema, ServiceMap } from "effect";
+import { Effect, Layer, Schema, Context } from "effect";
 
 import { GitCommandError } from "@fenrir/contracts";
 import { runProcess } from "../processRunner.ts";
@@ -30,7 +30,7 @@ export interface VcsProcessShape {
   readonly run: (input: VcsProcessInput) => Effect.Effect<VcsProcessOutput, GitCommandError>;
 }
 
-export class VcsProcess extends ServiceMap.Service<VcsProcess, VcsProcessShape>()(
+export class VcsProcess extends Context.Service<VcsProcess, VcsProcessShape>()(
   "fenrir/vcs/Services/VcsProcess",
 ) {}
 

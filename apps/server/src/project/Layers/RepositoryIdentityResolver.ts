@@ -115,17 +115,20 @@ export const makeRepositoryIdentityResolver = Effect.fn("makeRepositoryIdentityR
         return remote ? buildRepositoryIdentity(remote) : null;
       });
 
-    const repositoryIdentityCache = yield* Cache.makeWith<string, RepositoryIdentity | null>({
-      capacity: options.cacheCapacity ?? DEFAULT_REPOSITORY_IDENTITY_CACHE_CAPACITY,
-      lookup: resolveRepositoryIdentityFromCacheKey,
-      timeToLive: Exit.match({
-        onSuccess: (value) =>
-          value === null
-            ? (options.negativeCacheTtl ?? DEFAULT_NEGATIVE_CACHE_TTL)
-            : (options.positiveCacheTtl ?? DEFAULT_POSITIVE_CACHE_TTL),
-        onFailure: () => Duration.zero,
-      }),
-    });
+    const repositoryIdentityCache = yield* Cache.makeWith<string, RepositoryIdentity | null>(
+      resolveRepositoryIdentityFromCacheKey,
+      {
+        capacity: options.cacheCapacity ?? DEFAULT_REPOSITORY_IDENTITY_CACHE_CAPACITY,
+        timeToLive: (exit) =>
+          Exit.match(exit, {
+            onSuccess: (value) =>
+              value === null
+                ? (options.negativeCacheTtl ?? DEFAULT_NEGATIVE_CACHE_TTL)
+                : (options.positiveCacheTtl ?? DEFAULT_POSITIVE_CACHE_TTL),
+            onFailure: () => Duration.zero,
+          }),
+      },
+    );
 
     const resolve: RepositoryIdentityResolverShape["resolve"] = Effect.fn(
       "RepositoryIdentityResolver.resolve",

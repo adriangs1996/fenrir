@@ -3,6 +3,7 @@ import {
   type EnvironmentId,
   type GitManagerServiceError,
   type GitStatusResult,
+  type VcsStatusResult,
 } from "@fenrir/contracts";
 import { Cause } from "effect";
 import { Atom } from "effect/unstable/reactivity";
@@ -22,7 +23,7 @@ interface GitStatusState {
   readonly isPending: boolean;
 }
 
-type GitStatusClient = Pick<WsRpcClient["git"], "onStatus" | "refreshStatus">;
+type GitStatusClient = Pick<WsRpcClient["vcs"], "onStatus" | "refreshStatus">;
 interface ResolvedGitStatusClient {
   readonly clientIdentity: string;
   readonly client: GitStatusClient;
@@ -83,7 +84,7 @@ function readResolvedGitStatusClient(target: GitStatusTarget): ResolvedGitStatus
   }
   const connection = readEnvironmentConnection(target.environmentId);
   return connection
-    ? { clientIdentity: connection.environmentId, client: connection.client.git }
+    ? { clientIdentity: connection.environmentId, client: connection.client.vcs }
     : null;
 }
 
@@ -141,9 +142,12 @@ export function refreshGitStatus(
   }
 
   gitStatusLastRefreshAtByKey.set(targetKey, Date.now());
-  const refreshPromise = resolvedClient.refreshStatus({ cwd: target.cwd }).finally(() => {
-    gitStatusRefreshInFlight.delete(targetKey);
-  });
+  const refreshPromise = resolvedClient
+    .refreshStatus({ cwd: target.cwd })
+    .then(projectVcsStatusToGitStatus)
+    .finally(() => {
+      gitStatusRefreshInFlight.delete(targetKey);
+    });
   gitStatusRefreshInFlight.set(targetKey, refreshPromise);
   return refreshPromise;
 }
@@ -245,9 +249,9 @@ function subscribeToGitStatus(targetKey: string, cwd: string, client: GitStatusC
   markGitStatusPending(targetKey);
   return client.onStatus(
     { cwd },
-    (status: GitStatusResult) => {
+    (status: VcsStatusResult) => {
       appAtomRegistry.set(gitStatusStateAtom(targetKey), {
-        data: status,
+        data: projectVcsStatusToGitStatus(status),
         error: null,
         cause: null,
         isPending: false,
@@ -259,6 +263,43 @@ function subscribeToGitStatus(targetKey: string, cwd: string, client: GitStatusC
       },
     },
   );
+}
+
+function projectVcsStatusToGitStatus(status: VcsStatusResult): GitStatusResult {
+  return {
+    isRepo: status.isRepo,
+    ...(status.sourceControlProvider
+      ? {
+          hostingProvider: {
+            kind:
+              status.sourceControlProvider.kind === "github" ||
+              status.sourceControlProvider.kind === "gitlab"
+                ? status.sourceControlProvider.kind
+                : "unknown",
+            name: status.sourceControlProvider.name,
+            baseUrl: status.sourceControlProvider.baseUrl,
+          },
+        }
+      : {}),
+    hasOriginRemote: status.hasPrimaryRemote,
+    isDefaultBranch: status.isDefaultRef,
+    branch: status.refName,
+    hasWorkingTreeChanges: status.hasWorkingTreeChanges,
+    workingTree: status.workingTree,
+    hasUpstream: status.hasUpstream,
+    aheadCount: status.aheadCount,
+    behindCount: status.behindCount,
+    pr: status.pr
+      ? {
+          number: status.pr.number,
+          title: status.pr.title,
+          url: status.pr.url,
+          baseBranch: status.pr.baseRef,
+          headBranch: status.pr.headRef,
+          state: status.pr.state,
+        }
+      : null,
+  };
 }
 
 function markGitStatusPending(targetKey: string): void {

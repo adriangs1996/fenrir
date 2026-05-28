@@ -8,22 +8,22 @@ import {
 } from "../Services/SourceControlWorkflows.ts";
 
 const makeSourceControlWorkflows = Effect.gen(function* () {
-  const git = yield* GitCore;
+  const gitCore = yield* GitCore;
   const gitManager = yield* GitManager;
 
   const pullCurrentBranch: SourceControlWorkflowsShape["pullCurrentBranch"] = (cwd) =>
-    git.pullCurrentBranch(cwd);
+    gitCore.pullCurrentBranch(cwd);
   const createWorktree: SourceControlWorkflowsShape["createWorktree"] = (input) =>
-    git.createWorktree(input);
+    gitCore.createWorktree(input);
   const removeWorktree: SourceControlWorkflowsShape["removeWorktree"] = (input) =>
-    git.removeWorktree(input);
+    gitCore.removeWorktree(input);
   const renameBranch: SourceControlWorkflowsShape["renameBranch"] = (input) =>
-    git.renameBranch(input);
+    gitCore.renameBranch(input);
   const createBranch: SourceControlWorkflowsShape["createBranch"] = (input) =>
-    git.createBranch(input);
+    gitCore.createBranch(input);
   const checkoutBranch: SourceControlWorkflowsShape["checkoutBranch"] = (input) =>
-    git.checkoutBranch(input);
-  const initRepo: SourceControlWorkflowsShape["initRepo"] = (input) => git.initRepo(input);
+    gitCore.checkoutBranch(input);
+  const initRepo: SourceControlWorkflowsShape["initRepo"] = (input) => gitCore.initRepo(input);
   const runStackedAction: SourceControlWorkflowsShape["runStackedAction"] = (input, options) =>
     gitManager.runStackedAction(input, options);
   const resolvePullRequest: SourceControlWorkflowsShape["resolvePullRequest"] = (input) =>

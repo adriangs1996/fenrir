@@ -7,7 +7,7 @@
  * @module TerminalShellResolver
  * @internal Consumed only by TerminalManager layer.
  */
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import { PtySpawnError } from "./PTY";
 
 export { PtySpawnError };
@@ -57,7 +57,7 @@ export interface TerminalShellResolverShape {
 /**
  * TerminalShellResolver - Service tag for shell resolution.
  */
-export class TerminalShellResolver extends ServiceMap.Service<
+export class TerminalShellResolver extends Context.Service<
   TerminalShellResolver,
   TerminalShellResolverShape
 >()("t3/terminal/Services/ShellResolver/TerminalShellResolver") {}

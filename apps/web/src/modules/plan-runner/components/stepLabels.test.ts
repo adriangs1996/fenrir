@@ -8,9 +8,9 @@ import { describe, expect, it } from "vitest";
 
 import { stepLabel } from "./stepLabels";
 
-const tn = TrimmedNonEmptyString.makeUnsafe;
-const ts = IsoDateTime.makeUnsafe;
-const nn = NonNegativeInt.makeUnsafe;
+const tn = TrimmedNonEmptyString.make;
+const ts = IsoDateTime.make;
+const nn = NonNegativeInt.make;
 
 function makeStep(overrides: Partial<PlanRunnerStepSnapshot>): PlanRunnerStepSnapshot {
   return {

@@ -21,7 +21,7 @@ function makeProvider(
     checkedAt: input.checkedAt ?? "2026-05-19T00:00:00.000Z",
     models: input.models ?? [],
     ...(input.instanceId ? { instanceId: input.instanceId } : {}),
-    ...(input.driver ? { driver: ProviderDriverKind.makeUnsafe(input.driver) } : {}),
+    ...(input.driver ? { driver: ProviderDriverKind.make(input.driver) } : {}),
     ...(input.displayName ? { displayName: input.displayName } : {}),
     ...(input.message ? { message: input.message } : {}),
     ...(input.versionAdvisory ? { versionAdvisory: input.versionAdvisory } : {}),
@@ -32,7 +32,7 @@ describe("providerModels", () => {
   it("prefers the default routed instance when multiple snapshots share a provider kind", () => {
     const shadow = makeProvider({
       provider: "codex",
-      instanceId: ProviderInstanceId.makeUnsafe("codex_work"),
+      instanceId: ProviderInstanceId.make("codex_work"),
       displayName: "Codex Work",
       models: [{ slug: "shadow-model", name: "Shadow Model", isCustom: false, capabilities: null }],
     });

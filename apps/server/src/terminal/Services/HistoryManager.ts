@@ -8,7 +8,7 @@
  * @internal Consumed only by TerminalManager layer.
  */
 import { TerminalHistoryError } from "@fenrir/contracts";
-import { Effect, ServiceMap } from "effect";
+import { Effect, Context } from "effect";
 
 export { TerminalHistoryError };
 
@@ -58,7 +58,7 @@ export interface TerminalHistoryManagerShape {
 /**
  * TerminalHistoryManager - Service tag for terminal history persistence.
  */
-export class TerminalHistoryManager extends ServiceMap.Service<
+export class TerminalHistoryManager extends Context.Service<
   TerminalHistoryManager,
   TerminalHistoryManagerShape
 >()("t3/terminal/Services/HistoryManager/TerminalHistoryManager") {}

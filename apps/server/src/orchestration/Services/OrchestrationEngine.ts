@@ -15,7 +15,7 @@ import type {
   OrchestrationEvent,
   OrchestrationReadModel,
 } from "@fenrir/contracts";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect, Stream } from "effect";
 
 import type { OrchestrationDispatchError } from "../Errors.ts";
@@ -84,7 +84,7 @@ export interface OrchestrationEngineShape {
  * })
  * ```
  */
-export class OrchestrationEngineService extends ServiceMap.Service<
+export class OrchestrationEngineService extends Context.Service<
   OrchestrationEngineService,
   OrchestrationEngineShape
 >()("t3/orchestration/Services/OrchestrationEngine/OrchestrationEngineService") {}

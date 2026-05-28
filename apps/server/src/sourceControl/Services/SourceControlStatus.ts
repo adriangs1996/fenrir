@@ -1,4 +1,4 @@
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect, Stream } from "effect";
 
 import type {
@@ -22,7 +22,7 @@ export interface SourceControlStatusShape {
   ) => Stream.Stream<GitStatusStreamEvent, GitManagerServiceError>;
 }
 
-export class SourceControlStatus extends ServiceMap.Service<
+export class SourceControlStatus extends Context.Service<
   SourceControlStatus,
   SourceControlStatusShape
 >()("fenrir/sourceControl/Services/SourceControlStatus") {}

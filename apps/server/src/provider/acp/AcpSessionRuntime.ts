@@ -1,15 +1,4 @@
-import {
-  Cause,
-  Deferred,
-  Effect,
-  Exit,
-  Layer,
-  Queue,
-  Ref,
-  Scope,
-  ServiceMap,
-  Stream,
-} from "effect";
+import { Cause, Deferred, Effect, Exit, Layer, Queue, Ref, Scope, Context, Stream } from "effect";
 import type { ResolvedMcpServerConfig } from "@fenrir/contracts";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import * as EffectAcpClient from "effect-acp/client";
@@ -194,10 +183,8 @@ interface BoundAcpClient {
   ) => Effect.Effect<void, EffectAcpErrors.AcpError>;
 }
 
-function bindAcpClient(
-  acpContext: ServiceMap.ServiceMap<EffectAcpClient.AcpClient>,
-): BoundAcpClient {
-  const client = ServiceMap.get(
+function bindAcpClient(acpContext: Context.Context<EffectAcpClient.AcpClient>): BoundAcpClient {
+  const client = Context.get(
     acpContext,
     EffectAcpClient.AcpClientTag,
   ) as EffectAcpClient.AcpClientShape;
@@ -243,10 +230,9 @@ function bindAcpClient(
   };
 }
 
-export class AcpSessionRuntime extends ServiceMap.Service<
-  AcpSessionRuntime,
-  AcpSessionRuntimeShape
->()("t3/provider/acp/AcpSessionRuntime") {
+export class AcpSessionRuntime extends Context.Service<AcpSessionRuntime, AcpSessionRuntimeShape>()(
+  "t3/provider/acp/AcpSessionRuntime",
+) {
   static layer(
     options: AcpSessionRuntimeOptions,
   ): Layer.Layer<
@@ -258,7 +244,7 @@ export class AcpSessionRuntime extends ServiceMap.Service<
   }
 }
 
-export const AcpSessionRuntimeTag = AcpSessionRuntime as unknown as ServiceMap.Service<
+export const AcpSessionRuntimeTag = AcpSessionRuntime as unknown as Context.Service<
   AcpSessionRuntime,
   AcpSessionRuntimeShape
 >;
@@ -343,7 +329,7 @@ const makeAcpSessionRuntime = (
     const acpContext = (yield* Layer.buildWithScope(
       acpClientLayer,
       runtimeScope,
-    )) as ServiceMap.ServiceMap<EffectAcpClient.AcpClient>;
+    )) as Context.Context<EffectAcpClient.AcpClient>;
 
     const acp = bindAcpClient(acpContext);
 

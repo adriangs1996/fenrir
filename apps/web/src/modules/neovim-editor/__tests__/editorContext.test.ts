@@ -20,7 +20,7 @@ import {
 function makeDraft(overrides?: Partial<EditorContextDraft>): EditorContextDraft {
   return {
     id: "ctx-1",
-    threadId: ThreadId.makeUnsafe("thread-1"),
+    threadId: ThreadId.make("thread-1"),
     createdAt: "2026-05-07T12:00:00.000Z",
     file: "/src/components/App.tsx",
     lineStart: 10,

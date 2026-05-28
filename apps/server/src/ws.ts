@@ -7,7 +7,18 @@ import {
   FilesystemBrowseError,
   type OrchestrationCommand,
   type GitActionProgressEvent,
+  type GitBranch,
   type GitManagerServiceError,
+  type GitStatusLocalResult,
+  type GitStatusRemoteResult,
+  type GitStatusResult,
+  type GitStatusStreamEvent,
+  type VcsListRefsResult,
+  type VcsPullResult,
+  type VcsStatusLocalResult,
+  type VcsStatusRemoteResult,
+  type VcsStatusResult,
+  type VcsStatusStreamEvent,
   ManagedProcessRpcError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
@@ -93,6 +104,8 @@ import { SourceControlQuery } from "./sourceControl/Services/SourceControlQuery"
 import { SourceControl } from "./sourceControl/Services/SourceControl";
 import { SourceControlStatus } from "./sourceControl/Services/SourceControlStatus";
 import { SourceControlWorkflows } from "./sourceControl/Services/SourceControlWorkflows";
+import { SourceControlDiscovery } from "./sourceControl/SourceControlDiscovery";
+import { SourceControlRepositoryService } from "./sourceControl/SourceControlRepositoryService";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ServerAuth } from "./auth/Services/ServerAuth";
 import {
@@ -117,8 +130,8 @@ import { SkillService } from "./skill/SkillService";
 import { ProcessDiagnostics } from "./diagnostics/ProcessDiagnostics";
 import { ProcessResourceMonitor } from "./diagnostics/ProcessResourceMonitor";
 import { TraceDiagnostics } from "./diagnostics/TraceDiagnostics";
-import { ReviewRpcService } from "./review/Services/ReviewRpcService";
-import type { ReviewRpcServiceShape } from "./review/Services/ReviewRpcService";
+import { ReviewRpcService } from "./sourceControl/review/Services/ReviewRpcService";
+import type { ReviewRpcServiceShape } from "./sourceControl/review/Services/ReviewRpcService";
 
 const ContractWsMethods = WS_METHODS;
 
@@ -162,6 +175,91 @@ function toAuthAccessStreamEvent(
   }
 }
 
+function toVcsStatusLocal(local: GitStatusLocalResult): VcsStatusLocalResult {
+  const { hostingProvider, hasOriginRemote, isDefaultBranch, branch, ...rest } = local;
+  return {
+    ...rest,
+    ...(hostingProvider ? { sourceControlProvider: hostingProvider } : {}),
+    hasPrimaryRemote: hasOriginRemote,
+    isDefaultRef: isDefaultBranch,
+    refName: branch,
+  };
+}
+
+function toVcsStatusRemote(remote: GitStatusRemoteResult): VcsStatusRemoteResult {
+  const { pr, ...rest } = remote;
+  return {
+    ...rest,
+    pr:
+      pr === null
+        ? null
+        : {
+            number: pr.number,
+            title: pr.title,
+            url: pr.url,
+            baseRef: pr.baseBranch,
+            headRef: pr.headBranch,
+            state: pr.state,
+          },
+  };
+}
+
+function toVcsStatus(status: GitStatusResult): VcsStatusResult {
+  return {
+    ...toVcsStatusLocal(status),
+    ...toVcsStatusRemote(status),
+  };
+}
+
+function toVcsStatusStreamEvent(event: GitStatusStreamEvent): VcsStatusStreamEvent {
+  switch (event._tag) {
+    case "snapshot":
+      return {
+        _tag: "snapshot",
+        local: toVcsStatusLocal(event.local),
+        remote: event.remote === null ? null : toVcsStatusRemote(event.remote),
+      };
+    case "localUpdated":
+      return {
+        _tag: "localUpdated",
+        local: toVcsStatusLocal(event.local),
+      };
+    case "remoteUpdated":
+      return {
+        _tag: "remoteUpdated",
+        remote: event.remote === null ? null : toVcsStatusRemote(event.remote),
+      };
+  }
+}
+
+function toVcsListRefsResult(input: {
+  readonly branches: ReadonlyArray<GitBranch>;
+  readonly isRepo: boolean;
+  readonly hasOriginRemote: boolean;
+  readonly nextCursor: number | null;
+  readonly totalCount: number;
+}): VcsListRefsResult {
+  return {
+    refs: input.branches,
+    isRepo: input.isRepo,
+    hasPrimaryRemote: input.hasOriginRemote,
+    nextCursor: input.nextCursor,
+    totalCount: input.totalCount,
+  };
+}
+
+function toVcsPullResult(input: {
+  readonly status: VcsPullResult["status"];
+  readonly branch: string;
+  readonly upstreamBranch: string | null;
+}): VcsPullResult {
+  return {
+    status: input.status,
+    refName: input.branch,
+    upstreamRef: input.upstreamBranch,
+  };
+}
+
 const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
   WsRpcGroup.toLayer(
     Effect.gen(function* () {
@@ -173,6 +271,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const sourceControlQuery = yield* SourceControlQuery;
       const sourceControlStatus = yield* SourceControlStatus;
       const sourceControlWorkflows = yield* SourceControlWorkflows;
+      const sourceControlDiscovery = yield* SourceControlDiscovery;
+      const sourceControlRepositoryService = yield* SourceControlRepositoryService;
       const terminalManager = yield* TerminalManager;
       const providerRegistry = yield* ProviderRegistry;
       const config = yield* ServerConfig;
@@ -202,7 +302,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const activeTmuxProcesses = new Map<string, { pid: number }>();
 
       const serverCommandId = (tag: string) =>
-        CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
+        CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
 
       const toManagedProcessRpcError = (err: unknown): ManagedProcessRpcError => {
         if (Schema.is(ManagedProcessRpcError)(err)) return err;
@@ -269,7 +369,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           commandId: serverCommandId("setup-script-activity"),
           threadId: input.threadId,
           activity: {
-            id: EventId.makeUnsafe(crypto.randomUUID()),
+            id: EventId.make(crypto.randomUUID()),
             tone: input.tone,
             kind: input.kind,
             summary: input.summary,
@@ -392,7 +492,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               return Effect.succeed(Option.none());
             }
             return projectionSnapshotQuery
-              .getThreadShellById(ThreadId.makeUnsafe(event.aggregateId))
+              .getThreadShellById(ThreadId.make(event.aggregateId))
               .pipe(
                 Effect.map((thread) =>
                   Option.map(thread, (nextThread) => ({
@@ -714,7 +814,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(
             WS_METHODS.terminalAttachTmux,
             Effect.gen(function* () {
-              const services = yield* Effect.services<never>();
+              const services = yield* Effect.context<never>();
               const runFork = Effect.runForkWith(services);
 
               const exists = yield* tmuxSessionManager.hasSession(input.projectId);
@@ -1200,29 +1300,119 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "workspace" },
           ),
-        [WS_METHODS.subscribeGitStatus]: (input) =>
-          observeRpcStream(WS_METHODS.subscribeGitStatus, sourceControlStatus.streamStatus(input), {
-            "rpc.aggregate": "git",
-          }),
-        [WS_METHODS.gitRefreshStatus]: (input) =>
+        [WS_METHODS.serverDiscoverSourceControl]: (_input) =>
           observeRpcEffect(
-            WS_METHODS.gitRefreshStatus,
-            sourceControlStatus.refreshStatus(input.cwd),
-            {
-              "rpc.aggregate": "git",
-            },
+            WS_METHODS.serverDiscoverSourceControl,
+            sourceControlDiscovery.discover,
+            { "rpc.aggregate": "source-control" },
           ),
-        [WS_METHODS.gitPull]: (input) =>
+        [WS_METHODS.sourceControlLookupRepository]: (input) =>
           observeRpcEffect(
-            WS_METHODS.gitPull,
+            WS_METHODS.sourceControlLookupRepository,
+            sourceControlRepositoryService.lookupRepository(input),
+            { "rpc.aggregate": "source-control" },
+          ),
+        [WS_METHODS.sourceControlCloneRepository]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.sourceControlCloneRepository,
+            sourceControlRepositoryService.cloneRepository(input),
+            { "rpc.aggregate": "source-control" },
+          ),
+        [WS_METHODS.sourceControlPublishRepository]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.sourceControlPublishRepository,
+            sourceControlRepositoryService.publishRepository(input),
+            { "rpc.aggregate": "source-control" },
+          ),
+        [WS_METHODS.subscribeVcsStatus]: (input) =>
+          observeRpcStream(
+            WS_METHODS.subscribeVcsStatus,
+            sourceControlStatus.streamStatus(input).pipe(Stream.map(toVcsStatusStreamEvent)),
+            { "rpc.aggregate": "source-control" },
+          ),
+        [WS_METHODS.vcsRefreshStatus]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsRefreshStatus,
+            sourceControlStatus.refreshStatus(input.cwd).pipe(Effect.map(toVcsStatus)),
+            { "rpc.aggregate": "source-control" },
+          ),
+        [WS_METHODS.vcsPull]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsPull,
             sourceControlWorkflows.pullCurrentBranch(input.cwd).pipe(
-              Effect.matchCauseEffect({
-                onFailure: (cause) => Effect.failCause(cause),
-                onSuccess: (result) =>
-                  refreshGitStatus(input.cwd).pipe(Effect.ignore({ log: true }), Effect.as(result)),
-              }),
+              Effect.map(toVcsPullResult),
+              Effect.tap(() => refreshGitStatus(input.cwd)),
             ),
-            { "rpc.aggregate": "git" },
+            { "rpc.aggregate": "source-control" },
+          ),
+        [WS_METHODS.vcsListRefs]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsListRefs,
+            sourceControlQuery.listBranches(input).pipe(Effect.map(toVcsListRefsResult)),
+            { "rpc.aggregate": "source-control" },
+          ),
+        [WS_METHODS.vcsCreateWorktree]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsCreateWorktree,
+            sourceControlWorkflows
+              .createWorktree({
+                cwd: input.cwd,
+                branch: input.refName,
+                ...(input.newRefName ? { newBranch: input.newRefName } : {}),
+                path: input.path,
+              })
+              .pipe(
+                Effect.map((result) => ({
+                  worktree: {
+                    path: result.worktree.path,
+                    refName: result.worktree.branch,
+                  },
+                })),
+                Effect.tap(() => refreshGitStatus(input.cwd)),
+              ),
+            { "rpc.aggregate": "source-control" },
+          ),
+        [WS_METHODS.vcsRemoveWorktree]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsRemoveWorktree,
+            sourceControlWorkflows
+              .removeWorktree(input)
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "source-control" },
+          ),
+        [WS_METHODS.vcsCreateRef]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsCreateRef,
+            sourceControlWorkflows
+              .createBranch({
+                cwd: input.cwd,
+                branch: input.refName,
+                ...(input.switchRef !== undefined ? { checkout: input.switchRef } : {}),
+              })
+              .pipe(
+                Effect.map((result) => ({ refName: result.branch })),
+                Effect.tap(() => refreshGitStatus(input.cwd)),
+              ),
+            { "rpc.aggregate": "source-control" },
+          ),
+        [WS_METHODS.vcsSwitchRef]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsSwitchRef,
+            Effect.scoped(
+              sourceControlWorkflows.checkoutBranch({ cwd: input.cwd, branch: input.refName }),
+            ).pipe(
+              Effect.map((result) => ({ refName: result.branch })),
+              Effect.tap(() => refreshGitStatus(input.cwd)),
+            ),
+            { "rpc.aggregate": "source-control" },
+          ),
+        [WS_METHODS.vcsInit]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsInit,
+            sourceControlWorkflows
+              .initRepo({ cwd: input.cwd })
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "source-control" },
           ),
         [WS_METHODS.gitRunStackedAction]: (input) =>
           observeRpcStream(
@@ -1260,50 +1450,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             WS_METHODS.gitPreparePullRequestThread,
             sourceControlWorkflows
               .preparePullRequestThread(input)
-              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
-            { "rpc.aggregate": "git" },
-          ),
-        [WS_METHODS.gitListBranches]: (input) =>
-          observeRpcEffect(WS_METHODS.gitListBranches, sourceControlQuery.listBranches(input), {
-            "rpc.aggregate": "git",
-          }),
-        [WS_METHODS.gitCreateWorktree]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.gitCreateWorktree,
-            sourceControlWorkflows
-              .createWorktree(input)
-              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
-            { "rpc.aggregate": "git" },
-          ),
-        [WS_METHODS.gitRemoveWorktree]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.gitRemoveWorktree,
-            sourceControlWorkflows
-              .removeWorktree(input)
-              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
-            { "rpc.aggregate": "git" },
-          ),
-        [WS_METHODS.gitCreateBranch]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.gitCreateBranch,
-            sourceControlWorkflows
-              .createBranch(input)
-              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
-            { "rpc.aggregate": "git" },
-          ),
-        [WS_METHODS.gitCheckout]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.gitCheckout,
-            Effect.scoped(sourceControlWorkflows.checkoutBranch(input)).pipe(
-              Effect.tap(() => refreshGitStatus(input.cwd)),
-            ),
-            { "rpc.aggregate": "git" },
-          ),
-        [WS_METHODS.gitInit]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.gitInit,
-            sourceControlWorkflows
-              .initRepo(input)
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "git" },
           ),
@@ -1890,7 +2036,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 projectId: input.projectId,
                 processDefId: input.processDefId,
               })
-              .pipe(Effect.mapError(toManagedProcessRpcError)),
+              .pipe(Effect.asVoid, Effect.mapError(toManagedProcessRpcError)),
             { "rpc.aggregate": "managedProcess" },
           ),
 
@@ -2014,194 +2160,208 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             { "rpc.aggregate": "server" },
           ),
 
-        [ContractWsMethods.reviewGetOrCreateSession]: (input: ReviewGetOrCreateSessionInput) =>
+        [ContractWsMethods.sourceControlReviewGetOrCreateSession]: (
+          input: ReviewGetOrCreateSessionInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewGetOrCreateSession,
+            ContractWsMethods.sourceControlReviewGetOrCreateSession,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.getOrCreateSession(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewGetSessionSummary]: (input: ReviewGetSessionInput) =>
+        [ContractWsMethods.sourceControlReviewGetSessionSummary]: (input: ReviewGetSessionInput) =>
           observeRpcEffect(
-            ContractWsMethods.reviewGetSessionSummary,
+            ContractWsMethods.sourceControlReviewGetSessionSummary,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.getSessionSummary(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewGetSessionSnapshot]: (input: ReviewGetSessionInput) =>
+        [ContractWsMethods.sourceControlReviewGetSessionSnapshot]: (input: ReviewGetSessionInput) =>
           observeRpcEffect(
-            ContractWsMethods.reviewGetSessionSnapshot,
+            ContractWsMethods.sourceControlReviewGetSessionSnapshot,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.getSessionSnapshot(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewSetMode]: (input: ReviewSetModeInput) =>
+        [ContractWsMethods.sourceControlReviewSetMode]: (input: ReviewSetModeInput) =>
           observeRpcEffect(
-            ContractWsMethods.reviewSetMode,
+            ContractWsMethods.sourceControlReviewSetMode,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.setMode(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewSetScope]: (input: ReviewSetScopeInput) =>
+        [ContractWsMethods.sourceControlReviewSetScope]: (input: ReviewSetScopeInput) =>
           observeRpcEffect(
-            ContractWsMethods.reviewSetScope,
+            ContractWsMethods.sourceControlReviewSetScope,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.setScope(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewSetProgress]: (input: ReviewSetProgressInput) =>
+        [ContractWsMethods.sourceControlReviewSetProgress]: (input: ReviewSetProgressInput) =>
           observeRpcEffect(
-            ContractWsMethods.reviewSetProgress,
+            ContractWsMethods.sourceControlReviewSetProgress,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.setProgress(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewCreateLocalThread]: (
+        [ContractWsMethods.sourceControlReviewCreateLocalThread]: (
           input: ReviewCreateLocalAnnotationThreadInput,
         ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewCreateLocalThread,
+            ContractWsMethods.sourceControlReviewCreateLocalThread,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.createLocalThread(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewUpdateLocalThread]: (
+        [ContractWsMethods.sourceControlReviewUpdateLocalThread]: (
           input: ReviewUpdateLocalAnnotationThreadInput,
         ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewUpdateLocalThread,
+            ContractWsMethods.sourceControlReviewUpdateLocalThread,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.updateLocalThread(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewDeleteLocalThread]: (
+        [ContractWsMethods.sourceControlReviewDeleteLocalThread]: (
           input: ReviewDeleteLocalAnnotationThreadInput,
         ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewDeleteLocalThread,
+            ContractWsMethods.sourceControlReviewDeleteLocalThread,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.deleteLocalThread(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewSetLocalThreadResolved]: (
+        [ContractWsMethods.sourceControlReviewSetLocalThreadResolved]: (
           input: ReviewSetLocalThreadResolvedInput,
         ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewSetLocalThreadResolved,
+            ContractWsMethods.sourceControlReviewSetLocalThreadResolved,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.setLocalThreadResolved(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewCreateLocalReply]: (
+        [ContractWsMethods.sourceControlReviewCreateLocalReply]: (
           input: ReviewCreateLocalAnnotationReplyInput,
         ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewCreateLocalReply,
+            ContractWsMethods.sourceControlReviewCreateLocalReply,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.createLocalReply(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewUpdateLocalReply]: (
+        [ContractWsMethods.sourceControlReviewUpdateLocalReply]: (
           input: ReviewUpdateLocalAnnotationReplyInput,
         ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewUpdateLocalReply,
+            ContractWsMethods.sourceControlReviewUpdateLocalReply,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.updateLocalReply(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewDeleteLocalReply]: (
+        [ContractWsMethods.sourceControlReviewDeleteLocalReply]: (
           input: ReviewDeleteLocalAnnotationReplyInput,
         ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewDeleteLocalReply,
+            ContractWsMethods.sourceControlReviewDeleteLocalReply,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.deleteLocalReply(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewUpsertOverviewNote]: (input: ReviewUpsertOverviewNoteInput) =>
+        [ContractWsMethods.sourceControlReviewUpsertOverviewNote]: (
+          input: ReviewUpsertOverviewNoteInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewUpsertOverviewNote,
+            ContractWsMethods.sourceControlReviewUpsertOverviewNote,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.upsertOverviewNote(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewDeleteOverviewNote]: (input: ReviewDeleteOverviewNoteInput) =>
+        [ContractWsMethods.sourceControlReviewDeleteOverviewNote]: (
+          input: ReviewDeleteOverviewNoteInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewDeleteOverviewNote,
+            ContractWsMethods.sourceControlReviewDeleteOverviewNote,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.deleteOverviewNote(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewGetDiffSnapshot]: (input: ReviewGetDiffSnapshotInput) =>
+        [ContractWsMethods.sourceControlReviewGetDiffSnapshot]: (
+          input: ReviewGetDiffSnapshotInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewGetDiffSnapshot,
+            ContractWsMethods.sourceControlReviewGetDiffSnapshot,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.getDiffSnapshot(input),
             ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewGetFilePatch]: (input: ReviewGetFilePatchInput) =>
+        [ContractWsMethods.sourceControlReviewGetFilePatch]: (input: ReviewGetFilePatchInput) =>
           observeRpcEffect(
-            ContractWsMethods.reviewGetFilePatch,
+            ContractWsMethods.sourceControlReviewGetFilePatch,
             withReviewRpcService((reviewRpcService) => reviewRpcService.getFilePatch(input)).pipe(
               Effect.mapError(toReviewRpcErrorOnly),
             ),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewGetChunkPayload]: (input: ReviewGetChunkPayloadInput) =>
+        [ContractWsMethods.sourceControlReviewGetChunkPayload]: (
+          input: ReviewGetChunkPayloadInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewGetChunkPayload,
+            ContractWsMethods.sourceControlReviewGetChunkPayload,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.getChunkPayload(input),
             ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewGetGitHubSnapshot]: (input: ReviewGetGitHubSnapshotInput) =>
+        [ContractWsMethods.sourceControlReviewGetGitHubSnapshot]: (
+          input: ReviewGetGitHubSnapshotInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewGetGitHubSnapshot,
+            ContractWsMethods.sourceControlReviewGetGitHubSnapshot,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.getGitHubSnapshot(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewUpsertGitHubDraft]: (input: ReviewUpsertGitHubDraftInput) =>
+        [ContractWsMethods.sourceControlReviewUpsertGitHubDraft]: (
+          input: ReviewUpsertGitHubDraftInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewUpsertGitHubDraft,
+            ContractWsMethods.sourceControlReviewUpsertGitHubDraft,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.upsertGitHubDraft({
                 ...input,
@@ -2211,18 +2371,22 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewApplyRawMutation]: (input: ReviewApplyRawMutationInput) =>
+        [ContractWsMethods.sourceControlReviewApplyRawMutation]: (
+          input: ReviewApplyRawMutationInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewApplyRawMutation,
+            ContractWsMethods.sourceControlReviewApplyRawMutation,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.applyRawMutation(input),
             ).pipe(Effect.mapError(toReviewRpcOrConflictError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewDeleteGitHubDraft]: (input: ReviewDeleteGitHubDraftInput) =>
+        [ContractWsMethods.sourceControlReviewDeleteGitHubDraft]: (
+          input: ReviewDeleteGitHubDraftInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewDeleteGitHubDraft,
+            ContractWsMethods.sourceControlReviewDeleteGitHubDraft,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.deleteGitHubDraft({
                 ...input,
@@ -2232,9 +2396,11 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewReplyToGitHubThread]: (input: ReviewReplyToGitHubThreadInput) =>
+        [ContractWsMethods.sourceControlReviewReplyToGitHubThread]: (
+          input: ReviewReplyToGitHubThreadInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewReplyToGitHubThread,
+            ContractWsMethods.sourceControlReviewReplyToGitHubThread,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.replyToGitHubThread({
                 ...input,
@@ -2244,9 +2410,11 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewSubmitGitHubDraft]: (input: ReviewSubmitGitHubDraftInput) =>
+        [ContractWsMethods.sourceControlReviewSubmitGitHubDraft]: (
+          input: ReviewSubmitGitHubDraftInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewSubmitGitHubDraft,
+            ContractWsMethods.sourceControlReviewSubmitGitHubDraft,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.submitGitHubDraft({
                 ...input,
@@ -2256,27 +2424,31 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewRefreshProviderData]: (input: ReviewRefreshProviderDataInput) =>
+        [ContractWsMethods.sourceControlReviewRefreshProviderData]: (
+          input: ReviewRefreshProviderDataInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewRefreshProviderData,
+            ContractWsMethods.sourceControlReviewRefreshProviderData,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.refreshProviderData(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.reviewGenerateAnalysis]: (input: ReviewGenerateAnalysisInput) =>
+        [ContractWsMethods.sourceControlReviewGenerateAnalysis]: (
+          input: ReviewGenerateAnalysisInput,
+        ) =>
           observeRpcEffect(
-            ContractWsMethods.reviewGenerateAnalysis,
+            ContractWsMethods.sourceControlReviewGenerateAnalysis,
             withReviewRpcService((reviewRpcService) =>
               reviewRpcService.generateAnalysis(input, currentSessionId),
             ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
             { "rpc.aggregate": "review" },
           ),
 
-        [ContractWsMethods.subscribeReviewEvents]: (input: ReviewGetSessionInput) =>
+        [ContractWsMethods.subscribeSourceControlReviewEvents]: (input: ReviewGetSessionInput) =>
           observeRpcStream(
-            ContractWsMethods.subscribeReviewEvents,
+            ContractWsMethods.subscribeSourceControlReviewEvents,
             withReviewRpcService((reviewRpcService) =>
               Effect.succeed(
                 reviewRpcService

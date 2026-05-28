@@ -361,11 +361,10 @@ it.effect("accepts provider-scoped model options in thread.turn.start", () =>
     if (parsed.modelSelection?.provider !== "codex") {
       throw new Error("Expected codex modelSelection");
     }
-    const options = parsed.modelSelection.options as
-      | { reasoningEffort?: string; fastMode?: boolean }
-      | undefined;
-    assert.strictEqual(options?.reasoningEffort, "high");
-    assert.strictEqual(options?.fastMode, true);
+    assert.deepStrictEqual(parsed.modelSelection.options, [
+      { id: "reasoningEffort", value: "high" },
+      { id: "fastMode", value: true },
+    ]);
   }),
 );
 

@@ -1,5 +1,5 @@
 import type { McpServerId, ResolvedMcpServerConfig, ServerSettings } from "@fenrir/contracts";
-import { Schema, ServiceMap } from "effect";
+import { Schema, Context } from "effect";
 import type { Effect } from "effect";
 
 export class McpConfigResolverError extends Schema.TaggedErrorClass<McpConfigResolverError>()(
@@ -27,7 +27,6 @@ export interface McpConfigResolverShape {
   ) => Effect.Effect<ResolvedMcpServers, McpConfigResolverError>;
 }
 
-export class McpConfigResolver extends ServiceMap.Service<
-  McpConfigResolver,
-  McpConfigResolverShape
->()("fenrir/mcp/Services/McpConfigResolver") {}
+export class McpConfigResolver extends Context.Service<McpConfigResolver, McpConfigResolverShape>()(
+  "fenrir/mcp/Services/McpConfigResolver",
+) {}

@@ -14,10 +14,10 @@ import { describe, expect, it } from "vitest";
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 
-const asCommandId = (value: string): CommandId => CommandId.makeUnsafe(value);
-const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
-const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
+const asCommandId = (value: string): CommandId => CommandId.make(value);
+const asEventId = (value: string): EventId => EventId.make(value);
+const asProjectId = (value: string): ProjectId => ProjectId.make(value);
+const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 
 async function seedReadModel(): Promise<OrchestrationReadModel> {
   const now = new Date().toISOString();

@@ -10,7 +10,7 @@ import {
   ReviewProgressRepository,
   type ReviewProgressRepositoryShape,
 } from "../Services/ReviewProgress.ts";
-import { ReviewLocalNoteAuthorSnapshot } from "../../../../../packages/contracts/src/review.ts";
+import { ReviewLocalNoteAuthorSnapshot } from "@fenrir/contracts/sourceControlReview";
 
 const ReviewProgressDbRow = ReviewProgressRecord.mapFields(
   Struct.assign({

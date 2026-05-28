@@ -16,7 +16,7 @@ import {
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
 import { readEnvironmentApi } from "../environmentApi";
-import { gitBranchSearchInfiniteQueryOptions, gitQueryKeys } from "../lib/gitReactQuery";
+import { vcsRefSearchInfiniteQueryOptions, gitQueryKeys } from "../lib/gitReactQuery";
 import { useGitStatus } from "../lib/gitStatusState";
 import { newCommandId } from "../lib/utils";
 import { parsePullRequestReference } from "../pullRequestReference";
@@ -206,7 +206,7 @@ export function BranchToolbarBranchSelector({
   useEffect(() => {
     if (!branchCwd) return;
     void queryClient.prefetchInfiniteQuery(
-      gitBranchSearchInfiniteQueryOptions({ environmentId, cwd: branchCwd, query: "" }),
+      vcsRefSearchInfiniteQueryOptions({ environmentId, cwd: branchCwd, query: "" }),
     );
   }, [branchCwd, environmentId, queryClient]);
 
@@ -217,14 +217,14 @@ export function BranchToolbarBranchSelector({
     isFetchingNextPage,
     isPending: isBranchesSearchPending,
   } = useInfiniteQuery(
-    gitBranchSearchInfiniteQueryOptions({
+    vcsRefSearchInfiniteQueryOptions({
       environmentId,
       cwd: branchCwd,
       query: deferredTrimmedBranchQuery,
     }),
   );
   const branches = useMemo(
-    () => branchesSearchData?.pages.flatMap((page) => page.branches) ?? [],
+    () => branchesSearchData?.pages.flatMap((page) => page.refs) ?? [],
     [branchesSearchData?.pages],
   );
   const currentGitBranch =
@@ -302,7 +302,7 @@ export function BranchToolbarBranchSelector({
     startBranchActionTransition(async () => {
       await action().catch(() => undefined);
       await queryClient
-        .invalidateQueries({ queryKey: gitQueryKeys.branches(environmentId, branchCwd) })
+        .invalidateQueries({ queryKey: gitQueryKeys.refs(environmentId, branchCwd) })
         .catch(() => undefined);
     });
   };
@@ -342,12 +342,12 @@ export function BranchToolbarBranchSelector({
       const previousBranch = resolvedActiveBranch;
       setOptimisticBranch(selectedBranchName);
       try {
-        const checkoutResult = await api.git.checkout({
+        const checkoutResult = await api.vcs.switchRef({
           cwd: selectionTarget.checkoutCwd,
-          branch: branch.name,
+          refName: branch.name,
         });
         const nextBranchName = branch.isRemote
-          ? (checkoutResult.branch ?? selectedBranchName)
+          ? (checkoutResult.refName ?? selectedBranchName)
           : selectedBranchName;
         setOptimisticBranch(nextBranchName);
         setThreadBranch(nextBranchName, selectionTarget.nextWorktreePath);
@@ -374,13 +374,13 @@ export function BranchToolbarBranchSelector({
       const previousBranch = resolvedActiveBranch;
       setOptimisticBranch(name);
       try {
-        const createBranchResult = await api.git.createBranch({
+        const createBranchResult = await api.vcs.createRef({
           cwd: branchCwd,
-          branch: name,
-          checkout: true,
+          refName: name,
+          switchRef: true,
         });
-        setOptimisticBranch(createBranchResult.branch);
-        setThreadBranch(createBranchResult.branch, activeWorktreePath);
+        setOptimisticBranch(createBranchResult.refName);
+        setThreadBranch(createBranchResult.refName, activeWorktreePath);
       } catch (error) {
         setOptimisticBranch(previousBranch);
         toastManager.add({
@@ -415,7 +415,7 @@ export function BranchToolbarBranchSelector({
         return;
       }
       void queryClient.invalidateQueries({
-        queryKey: gitQueryKeys.branches(environmentId, branchCwd),
+        queryKey: gitQueryKeys.refs(environmentId, branchCwd),
       });
     },
     [branchCwd, environmentId, queryClient],

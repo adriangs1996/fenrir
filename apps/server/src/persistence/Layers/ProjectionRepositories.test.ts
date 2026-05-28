@@ -24,7 +24,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       const sql = yield* SqlClient.SqlClient;
 
       yield* projects.upsert({
-        projectId: ProjectId.makeUnsafe("project-null-options"),
+        projectId: ProjectId.make("project-null-options"),
         title: "Null options project",
         workspaceRoot: "/tmp/project-null-options",
         defaultModelSelection: {
@@ -93,7 +93,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       );
 
       const persisted = yield* projects.getById({
-        projectId: ProjectId.makeUnsafe("project-null-options"),
+        projectId: ProjectId.make("project-null-options"),
       });
       assert.deepStrictEqual(Option.getOrNull(persisted)?.defaultModelSelection, {
         provider: "codex",
@@ -122,8 +122,8 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       const sql = yield* SqlClient.SqlClient;
 
       yield* threads.upsert({
-        threadId: ThreadId.makeUnsafe("thread-null-options"),
-        projectId: ProjectId.makeUnsafe("project-null-options"),
+        threadId: ThreadId.make("thread-null-options"),
+        projectId: ProjectId.make("project-null-options"),
         title: "Null options thread",
         modelSelection: {
           provider: "claudeAgent",
@@ -162,7 +162,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       );
 
       const persisted = yield* threads.getById({
-        threadId: ThreadId.makeUnsafe("thread-null-options"),
+        threadId: ThreadId.make("thread-null-options"),
       });
       assert.deepStrictEqual(Option.getOrNull(persisted)?.modelSelection, {
         provider: "claudeAgent",

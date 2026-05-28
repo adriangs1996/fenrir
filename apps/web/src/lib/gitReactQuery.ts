@@ -2,6 +2,7 @@ import {
   type EnvironmentId,
   type GitActionProgressEvent,
   type GitStackedAction,
+  type SourceControlPublishRepositoryInput,
   type ThreadId,
 } from "@fenrir/contracts";
 import {
@@ -19,23 +20,25 @@ const GIT_BRANCHES_PAGE_SIZE = 100;
 
 export const gitQueryKeys = {
   all: ["git"] as const,
-  branches: (environmentId: EnvironmentId | null, cwd: string | null) =>
-    ["git", "branches", environmentId ?? null, cwd] as const,
+  refs: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "refs", environmentId ?? null, cwd] as const,
   branchSearch: (environmentId: EnvironmentId | null, cwd: string | null, query: string) =>
-    ["git", "branches", environmentId ?? null, cwd, "search", query] as const,
+    ["git", "refs", environmentId ?? null, cwd, "search", query] as const,
 };
 
 export const gitMutationKeys = {
   init: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "mutation", "init", environmentId ?? null, cwd] as const,
-  checkout: (environmentId: EnvironmentId | null, cwd: string | null) =>
-    ["git", "mutation", "checkout", environmentId ?? null, cwd] as const,
+  switchRef: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "mutation", "switchRef", environmentId ?? null, cwd] as const,
   runStackedAction: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "mutation", "run-stacked-action", environmentId ?? null, cwd] as const,
   pull: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "mutation", "pull", environmentId ?? null, cwd] as const,
   preparePullRequestThread: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "mutation", "prepare-pull-request-thread", environmentId ?? null, cwd] as const,
+  publishRepository: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "mutation", "publish-repository", environmentId ?? null, cwd] as const,
 };
 
 export function invalidateGitQueries(
@@ -45,7 +48,7 @@ export function invalidateGitQueries(
   const environmentId = input?.environmentId ?? null;
   const cwd = input?.cwd ?? null;
   if (cwd !== null) {
-    return queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(environmentId, cwd) });
+    return queryClient.invalidateQueries({ queryKey: gitQueryKeys.refs(environmentId, cwd) });
   }
 
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
@@ -60,10 +63,10 @@ function invalidateGitBranchQueries(
     return Promise.resolve();
   }
 
-  return queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(environmentId, cwd) });
+  return queryClient.invalidateQueries({ queryKey: gitQueryKeys.refs(environmentId, cwd) });
 }
 
-export function gitBranchSearchInfiniteQueryOptions(input: {
+export function vcsRefSearchInfiniteQueryOptions(input: {
   environmentId: EnvironmentId | null;
   cwd: string | null;
   query: string;
@@ -75,10 +78,10 @@ export function gitBranchSearchInfiniteQueryOptions(input: {
     queryKey: gitQueryKeys.branchSearch(input.environmentId, input.cwd, normalizedQuery),
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
-      if (!input.cwd) throw new Error("Git branches are unavailable.");
-      if (!input.environmentId) throw new Error("Git branches are unavailable.");
+      if (!input.cwd) throw new Error("VCS refs are unavailable.");
+      if (!input.environmentId) throw new Error("VCS refs are unavailable.");
       const api = ensureEnvironmentApi(input.environmentId);
-      return api.git.listBranches({
+      return api.vcs.listRefs({
         cwd: input.cwd,
         ...(normalizedQuery.length > 0 ? { query: normalizedQuery } : {}),
         cursor: pageParam,
@@ -121,7 +124,7 @@ export function gitResolvePullRequestQueryOptions(input: {
   });
 }
 
-export function gitInitMutationOptions(input: {
+export function vcsInitMutationOptions(input: {
   environmentId: EnvironmentId | null;
   cwd: string | null;
   queryClient: QueryClient;
@@ -129,9 +132,9 @@ export function gitInitMutationOptions(input: {
   return mutationOptions({
     mutationKey: gitMutationKeys.init(input.environmentId, input.cwd),
     mutationFn: async () => {
-      if (!input.cwd || !input.environmentId) throw new Error("Git init is unavailable.");
+      if (!input.cwd || !input.environmentId) throw new Error("VCS init is unavailable.");
       const api = ensureEnvironmentApi(input.environmentId);
-      return api.git.init({ cwd: input.cwd });
+      return api.vcs.init({ cwd: input.cwd });
     },
     onSettled: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
@@ -139,17 +142,17 @@ export function gitInitMutationOptions(input: {
   });
 }
 
-export function gitCheckoutMutationOptions(input: {
+export function vcsSwitchRefMutationOptions(input: {
   environmentId: EnvironmentId | null;
   cwd: string | null;
   queryClient: QueryClient;
 }) {
   return mutationOptions({
-    mutationKey: gitMutationKeys.checkout(input.environmentId, input.cwd),
-    mutationFn: async (branch: string) => {
-      if (!input.cwd || !input.environmentId) throw new Error("Git checkout is unavailable.");
+    mutationKey: gitMutationKeys.switchRef(input.environmentId, input.cwd),
+    mutationFn: async (refName: string) => {
+      if (!input.cwd || !input.environmentId) throw new Error("VCS ref switch is unavailable.");
       const api = ensureEnvironmentApi(input.environmentId);
-      return api.git.checkout({ cwd: input.cwd, branch });
+      return api.vcs.switchRef({ cwd: input.cwd, refName });
     },
     onSettled: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
@@ -198,7 +201,7 @@ export function gitRunStackedActionMutationOptions(input: {
   });
 }
 
-export function gitPullMutationOptions(input: {
+export function vcsPullMutationOptions(input: {
   environmentId: EnvironmentId | null;
   cwd: string | null;
   queryClient: QueryClient;
@@ -206,9 +209,9 @@ export function gitPullMutationOptions(input: {
   return mutationOptions({
     mutationKey: gitMutationKeys.pull(input.environmentId, input.cwd),
     mutationFn: async () => {
-      if (!input.cwd || !input.environmentId) throw new Error("Git pull is unavailable.");
+      if (!input.cwd || !input.environmentId) throw new Error("VCS pull is unavailable.");
       const api = ensureEnvironmentApi(input.environmentId);
-      return api.git.pull({ cwd: input.cwd });
+      return api.vcs.pull({ cwd: input.cwd });
     },
     onSuccess: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
@@ -216,19 +219,39 @@ export function gitPullMutationOptions(input: {
   });
 }
 
-export function gitCreateWorktreeMutationOptions(input: {
+export function sourceControlPublishRepositoryMutationOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.publishRepository(input.environmentId, input.cwd),
+    mutationFn: async (args: Omit<SourceControlPublishRepositoryInput, "cwd">) => {
+      if (!input.cwd || !input.environmentId) {
+        throw new Error("Repository publishing is unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.sourceControl.publishRepository({ cwd: input.cwd, ...args });
+    },
+    onSuccess: async () => {
+      await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
+    },
+  });
+}
+
+export function vcsCreateWorktreeMutationOptions(input: {
   environmentId: EnvironmentId | null;
   queryClient: QueryClient;
 }) {
   return mutationOptions({
     mutationKey: ["git", "mutation", "create-worktree", input.environmentId ?? null] as const,
     mutationFn: (
-      args: Parameters<ReturnType<typeof ensureEnvironmentApi>["git"]["createWorktree"]>[0],
+      args: Parameters<ReturnType<typeof ensureEnvironmentApi>["vcs"]["createWorktree"]>[0],
     ) => {
       if (!input.environmentId) {
         throw new Error("Worktree creation is unavailable.");
       }
-      return ensureEnvironmentApi(input.environmentId).git.createWorktree(args);
+      return ensureEnvironmentApi(input.environmentId).vcs.createWorktree(args);
     },
     onSuccess: async () => {
       await invalidateGitQueries(input.queryClient, { environmentId: input.environmentId });
@@ -236,19 +259,19 @@ export function gitCreateWorktreeMutationOptions(input: {
   });
 }
 
-export function gitRemoveWorktreeMutationOptions(input: {
+export function vcsRemoveWorktreeMutationOptions(input: {
   environmentId: EnvironmentId | null;
   queryClient: QueryClient;
 }) {
   return mutationOptions({
     mutationKey: ["git", "mutation", "remove-worktree", input.environmentId ?? null] as const,
     mutationFn: (
-      args: Parameters<ReturnType<typeof ensureEnvironmentApi>["git"]["removeWorktree"]>[0],
+      args: Parameters<ReturnType<typeof ensureEnvironmentApi>["vcs"]["removeWorktree"]>[0],
     ) => {
       if (!input.environmentId) {
         throw new Error("Worktree removal is unavailable.");
       }
-      return ensureEnvironmentApi(input.environmentId).git.removeWorktree(args);
+      return ensureEnvironmentApi(input.environmentId).vcs.removeWorktree(args);
     },
     onSuccess: async () => {
       await invalidateGitQueries(input.queryClient, { environmentId: input.environmentId });

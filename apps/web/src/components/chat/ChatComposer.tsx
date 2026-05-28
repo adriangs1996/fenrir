@@ -58,8 +58,6 @@ import {
   removeInlineTerminalContextPlaceholder,
 } from "~/modules/terminal";
 import { useEditorStore, ComposerPendingEditorContexts } from "~/modules/neovim-editor";
-import { ComposerPendingReviewContexts } from "~/modules/review/components/ComposerPendingReviewContexts";
-import type { ReviewContextAttachmentDraft } from "~/modules/review/reviewComposer";
 import {
   resolveComposerFooterContentWidth,
   shouldForceCompactComposerFooterForFit,
@@ -521,7 +519,6 @@ export interface ChatComposerHandle {
     prompt: string;
     images: ComposerImageAttachment[];
     terminalContexts: TerminalContextDraft[];
-    reviewContexts: ReviewContextAttachmentDraft[];
     selectedPromptEffort: string | null;
     selectedModelOptionsForDispatch: unknown;
     selectedModelSelection: ModelSelection;
@@ -542,7 +539,6 @@ export interface ChatComposerProps {
   environmentId: EnvironmentId;
   routeKind: "server" | "draft";
   routeThreadRef: ScopedThreadRef;
-  reviewDiffCacheToken?: string | null;
   draftId: DraftId | null;
 
   // Thread context
@@ -724,7 +720,6 @@ export const ChatComposer = memo(
     const prompt = composerDraft.prompt;
     const composerImages = composerDraft.images;
     const composerTerminalContexts = composerDraft.terminalContexts;
-    const composerReviewContexts = composerDraft.reviewContexts;
     const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
 
     const pendingEditorContexts = useEditorStore((s) => s.pendingContexts);
@@ -743,7 +738,6 @@ export const ChatComposer = memo(
     const setComposerDraftTerminalContexts = useComposerDraftStore(
       (store) => store.setTerminalContexts,
     );
-    const removeComposerReviewContext = useComposerDraftStore((store) => store.removeReviewContext);
     const setComposerDraftProviderInstanceId = useComposerDraftStore(
       (store) => store.setProviderInstanceId,
     );
@@ -924,9 +918,8 @@ export const ChatComposer = memo(
           prompt,
           imageCount: composerImages.length,
           terminalContexts: composerTerminalContexts,
-          reviewContextCount: composerReviewContexts.length,
         }),
-      [composerImages.length, composerReviewContexts.length, composerTerminalContexts, prompt],
+      [composerImages.length, composerTerminalContexts, prompt],
     );
 
     // ------------------------------------------------------------------
@@ -1934,7 +1927,6 @@ export const ChatComposer = memo(
           prompt: promptRef.current,
           images: composerImagesRef.current,
           terminalContexts: composerTerminalContextsRef.current,
-          reviewContexts: composerReviewContexts,
           selectedPromptEffort,
           selectedModelOptionsForDispatch,
           selectedModelSelection,
@@ -1954,7 +1946,6 @@ export const ChatComposer = memo(
         promptRef,
         composerImagesRef,
         composerTerminalContextsRef,
-        composerReviewContexts,
         readComposerSnapshot,
         selectedModel,
         selectedModelOptionsForDispatch,
@@ -2118,19 +2109,6 @@ export const ChatComposer = memo(
                   <ComposerPendingEditorContexts
                     contexts={pendingEditorContexts}
                     onRemove={removePendingEditorContext}
-                    className="mb-2"
-                  />
-                )}
-
-              {!isComposerApprovalState &&
-                pendingUserInputs.length === 0 &&
-                composerReviewContexts.length > 0 && (
-                  <ComposerPendingReviewContexts
-                    attachments={composerReviewContexts}
-                    diffCacheToken={props.reviewDiffCacheToken}
-                    onRemove={(attachmentId) =>
-                      removeComposerReviewContext(composerDraftTarget, attachmentId)
-                    }
                     className="mb-2"
                   />
                 )}

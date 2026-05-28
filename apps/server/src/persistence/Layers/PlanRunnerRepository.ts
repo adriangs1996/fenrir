@@ -831,7 +831,7 @@ const makePlanRunnerRepository = Effect.gen(function* () {
               AND step_key = ${stepKey}
           `;
           const nextSequence: number = seqRows[0]?.next ?? 0;
-          const sequence = NonNegativeInt.makeUnsafe(nextSequence);
+          const sequence = NonNegativeInt.make(nextSequence);
           const payloadJson = JSON.stringify(entry.payload ?? null);
           yield* sql`
             INSERT INTO plan_runner_synthetic_log_entries (

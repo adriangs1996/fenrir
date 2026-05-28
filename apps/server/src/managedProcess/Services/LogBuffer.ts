@@ -6,7 +6,7 @@
  *
  * @module ManagedProcess/LogBuffer
  */
-import { Effect, ServiceMap } from "effect";
+import { Effect, Context } from "effect";
 import type { ProjectId } from "@fenrir/contracts";
 
 export interface LogBufferReadResult {
@@ -41,6 +41,6 @@ export interface LogBufferShape {
   closeAndRotate(instanceId: string): Effect.Effect<void, never>;
 }
 
-export class LogBuffer extends ServiceMap.Service<LogBuffer, LogBufferShape>()(
+export class LogBuffer extends Context.Service<LogBuffer, LogBufferShape>()(
   "t3/managedProcess/LogBuffer",
 ) {}

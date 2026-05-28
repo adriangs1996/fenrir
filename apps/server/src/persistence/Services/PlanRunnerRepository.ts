@@ -23,7 +23,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "@fenrir/contracts";
-import { Option, Schema, ServiceMap } from "effect";
+import { Option, Schema, Context } from "effect";
 import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
@@ -429,7 +429,7 @@ export interface PlanRunnerRepositoryShape {
 /**
  * PlanRunnerRepository - Service tag for plan-runner persistence.
  */
-export class PlanRunnerRepository extends ServiceMap.Service<
+export class PlanRunnerRepository extends Context.Service<
   PlanRunnerRepository,
   PlanRunnerRepositoryShape
 >()("t3/persistence/Services/PlanRunnerRepository/PlanRunnerRepository") {}

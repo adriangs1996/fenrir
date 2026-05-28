@@ -16,6 +16,7 @@ import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as HackIndexRouteImport } from './routes/hack.index'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsVpnRouteImport } from './routes/settings.vpn'
+import { Route as SettingsSourceControlRouteImport } from './routes/settings.source-control'
 import { Route as SettingsKeybindingsRouteImport } from './routes/settings.keybindings'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsDiagnosticsRouteImport } from './routes/settings.diagnostics'
@@ -63,6 +64,11 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
 const SettingsVpnRoute = SettingsVpnRouteImport.update({
   id: '/vpn',
   path: '/vpn',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSourceControlRoute = SettingsSourceControlRouteImport.update({
+  id: '/source-control',
+  path: '/source-control',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsKeybindingsRoute = SettingsKeybindingsRouteImport.update({
@@ -153,6 +159,7 @@ export interface FileRoutesByFullPath {
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/keybindings': typeof SettingsKeybindingsRoute
+  '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/vpn': typeof SettingsVpnRoute
   '/hack/': typeof HackIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
@@ -173,6 +180,7 @@ export interface FileRoutesByTo {
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/keybindings': typeof SettingsKeybindingsRoute
+  '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/vpn': typeof SettingsVpnRoute
   '/': typeof ChatIndexRoute
   '/hack': typeof HackIndexRoute
@@ -197,6 +205,7 @@ export interface FileRoutesById {
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/keybindings': typeof SettingsKeybindingsRoute
+  '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/vpn': typeof SettingsVpnRoute
   '/_chat/': typeof ChatIndexRoute
   '/hack/': typeof HackIndexRoute
@@ -222,6 +231,7 @@ export interface FileRouteTypes {
     | '/settings/diagnostics'
     | '/settings/general'
     | '/settings/keybindings'
+    | '/settings/source-control'
     | '/settings/vpn'
     | '/hack/'
     | '/$environmentId/$threadId'
@@ -242,6 +252,7 @@ export interface FileRouteTypes {
     | '/settings/diagnostics'
     | '/settings/general'
     | '/settings/keybindings'
+    | '/settings/source-control'
     | '/settings/vpn'
     | '/'
     | '/hack'
@@ -265,6 +276,7 @@ export interface FileRouteTypes {
     | '/settings/diagnostics'
     | '/settings/general'
     | '/settings/keybindings'
+    | '/settings/source-control'
     | '/settings/vpn'
     | '/_chat/'
     | '/hack/'
@@ -332,6 +344,13 @@ declare module '@tanstack/react-router' {
       path: '/vpn'
       fullPath: '/settings/vpn'
       preLoaderRoute: typeof SettingsVpnRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/source-control': {
+      id: '/settings/source-control'
+      path: '/source-control'
+      fullPath: '/settings/source-control'
+      preLoaderRoute: typeof SettingsSourceControlRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/keybindings': {
@@ -479,6 +498,7 @@ interface SettingsRouteChildren {
   SettingsDiagnosticsRoute: typeof SettingsDiagnosticsRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsKeybindingsRoute: typeof SettingsKeybindingsRoute
+  SettingsSourceControlRoute: typeof SettingsSourceControlRoute
   SettingsVpnRoute: typeof SettingsVpnRoute
 }
 
@@ -489,6 +509,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsDiagnosticsRoute: SettingsDiagnosticsRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsKeybindingsRoute: SettingsKeybindingsRoute,
+  SettingsSourceControlRoute: SettingsSourceControlRoute,
   SettingsVpnRoute: SettingsVpnRoute,
 }
 

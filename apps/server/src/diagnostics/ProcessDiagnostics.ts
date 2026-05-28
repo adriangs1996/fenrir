@@ -10,7 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { collectUint8StreamText } from "../stream/collectUint8StreamText.ts";
@@ -38,7 +38,7 @@ export interface ProcessDiagnosticsShape {
   }) => Effect.Effect<ServerSignalProcessResult>;
 }
 
-export class ProcessDiagnostics extends ServiceMap.Service<
+export class ProcessDiagnostics extends Context.Service<
   ProcessDiagnostics,
   ProcessDiagnosticsShape
 >()("fenrir/diagnostics/ProcessDiagnostics") {}

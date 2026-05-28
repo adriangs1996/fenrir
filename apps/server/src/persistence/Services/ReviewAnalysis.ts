@@ -1,12 +1,9 @@
 import { IsoDateTime, TrimmedNonEmptyString } from "@fenrir/contracts";
-import { Option, Schema, ServiceMap } from "effect";
+import { Option, Schema, Context } from "effect";
 import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
-import {
-  ReviewAnalysisArtifact,
-  ReviewSessionId,
-} from "../../../../../packages/contracts/src/review.ts";
+import { ReviewAnalysisArtifact, ReviewSessionId } from "@fenrir/contracts/sourceControlReview";
 
 export const ReviewAnalysisRecord = Schema.Struct({
   sessionId: ReviewSessionId,
@@ -39,7 +36,7 @@ export interface ReviewAnalysisRepositoryShape {
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 
-export class ReviewAnalysisRepository extends ServiceMap.Service<
+export class ReviewAnalysisRepository extends Context.Service<
   ReviewAnalysisRepository,
   ReviewAnalysisRepositoryShape
 >()("t3/persistence/Services/ReviewAnalysis/ReviewAnalysisRepository") {}

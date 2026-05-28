@@ -9,7 +9,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
@@ -47,7 +47,7 @@ export interface ProcessResourceMonitorShape {
   ) => Effect.Effect<ServerProcessResourceHistoryResult>;
 }
 
-export class ProcessResourceMonitor extends ServiceMap.Service<
+export class ProcessResourceMonitor extends Context.Service<
   ProcessResourceMonitor,
   ProcessResourceMonitorShape
 >()("fenrir/diagnostics/ProcessResourceMonitor") {}

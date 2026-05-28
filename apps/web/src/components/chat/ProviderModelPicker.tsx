@@ -8,6 +8,7 @@ import { Button, buttonVariants } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
+import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { ClaudeAI, CursorIcon, Gemini, Icon, OpenAI, OpenCodeIcon } from "../Icons";
 import { cn } from "~/lib/utils";
 import {
@@ -36,6 +37,11 @@ const COMING_SOON_PROVIDER_OPTIONS = [
   { id: "cursor", label: "Cursor", icon: CursorIcon },
   { id: "gemini", label: "Gemini", icon: Gemini },
 ] as const;
+
+const SELECTED_SIDEBAR_BUTTON_CLASS = "bg-background text-foreground shadow-sm";
+const SELECTED_SIDEBAR_INDICATOR_CLASS =
+  "pointer-events-none absolute -right-1 top-1/2 z-10 h-5 w-0.5 -translate-y-1/2 rounded-l-full bg-primary";
+const SIDEBAR_TOOLTIP_CLASS = "max-w-64 text-balance font-normal leading-snug";
 
 function providerIconClassName(
   provider: ProviderSelectionKind | string,
@@ -263,210 +269,183 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     });
   };
 
+  const renderedRows = isSearching
+    ? searchResults
+    : selectedSection === "favorites"
+      ? visibleFavorites
+      : [...visibleFavorites, ...visibleModels];
+
   return (
-    <Popover
-      open={isMenuOpen}
-      onOpenChange={(open) => {
-        if (props.disabled) {
-          setIsMenuOpen(false);
-          return;
-        }
-        setIsMenuOpen(open);
-      }}
-    >
-      <PopoverTrigger
-        render={
-          <Button
-            size="sm"
-            variant={props.triggerVariant ?? "ghost"}
-            data-chat-provider-model-picker="true"
-            className={cn(
-              "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 [&_svg]:mx-0",
-              props.compact ? "max-w-42 shrink-0" : "max-w-48 shrink sm:max-w-56 sm:px-3",
-              props.triggerClassName,
-            )}
-            disabled={props.disabled}
-          />
-        }
+    <TooltipProvider delay={0}>
+      <Popover
+        open={isMenuOpen}
+        onOpenChange={(open) => {
+          if (props.disabled) {
+            setIsMenuOpen(false);
+            return;
+          }
+          setIsMenuOpen(open);
+        }}
       >
-        <span
-          className={cn(
-            "flex min-w-0 w-full box-border items-center gap-2 overflow-hidden",
-            props.compact ? "max-w-36 sm:pl-1" : undefined,
-          )}
+        <PopoverTrigger
+          render={
+            <Button
+              size="sm"
+              variant={props.triggerVariant ?? "ghost"}
+              data-chat-provider-model-picker="true"
+              className={cn(
+                "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 [&_svg]:mx-0",
+                props.compact ? "max-w-42 shrink-0" : "max-w-48 shrink sm:max-w-56 sm:px-3",
+                props.triggerClassName,
+              )}
+              disabled={props.disabled}
+            />
+          }
         >
-          <ProviderIcon
-            aria-hidden="true"
+          <span
             className={cn(
-              "size-4 shrink-0",
-              providerIconClassName(activeProvider, "text-muted-foreground/70"),
-              props.activeProviderIconClassName,
+              "flex min-w-0 w-full box-border items-center gap-2 overflow-hidden",
+              props.compact ? "max-w-36 sm:pl-1" : undefined,
             )}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate">{selectedModelLabel}</span>
-            {selectedModelSubtitle && !props.compact ? (
-              <span className="block truncate text-[11px] leading-tight text-muted-foreground/65">
-                {selectedModelSubtitle}
-              </span>
-            ) : null}
+          >
+            <ProviderIcon
+              aria-hidden="true"
+              className={cn(
+                "size-4 shrink-0",
+                providerIconClassName(activeProvider, "text-muted-foreground/70"),
+                props.activeProviderIconClassName,
+              )}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">{selectedModelLabel}</span>
+              {selectedModelSubtitle && !props.compact ? (
+                <span className="block truncate text-[11px] leading-tight text-muted-foreground/65">
+                  {selectedModelSubtitle}
+                </span>
+              ) : null}
+            </span>
+            <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
           </span>
-          <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
-        </span>
-      </PopoverTrigger>
-      <PopoverPopup
-        align="start"
-        className="w-[min(32rem,calc(100vw-1rem))] overflow-hidden p-0 [--viewport-inline-padding:0]"
-      >
-        <div className="flex h-[26rem] min-h-0 overflow-hidden">
-          {showSidebar ? (
-            <div
-              data-model-picker-sidebar="true"
-              className="flex w-40 shrink-0 flex-col gap-1 border-r bg-muted/28 p-2"
-            >
-              <SidebarSectionButton
-                label="Favorites"
-                selected={selectedSection === "favorites"}
-                onClick={() => setSelectedSection("favorites")}
-                icon={<StarIcon className="size-4" />}
-              />
-              {availableProviders.map((provider) => {
-                const liveProvider = props.providers
-                  ? getProviderSnapshot(props.providers, provider)
-                  : undefined;
-                const availability = describeProviderAvailability(liveProvider);
-                const OptionIcon = getProviderIcon(provider);
-                const label = getProviderOptionLabel(props.providers ?? [], provider);
-                return (
-                  <SidebarSectionButton
-                    key={provider}
-                    label={label}
-                    {...(availability ? { description: availability } : {})}
-                    selected={selectedSection === provider}
-                    disabled={availability !== null}
-                    onClick={() => setSelectedSection(provider)}
-                    icon={
-                      <OptionIcon
-                        className={cn(
-                          "size-4",
-                          providerIconClassName(provider, "text-muted-foreground/80"),
-                        )}
-                      />
-                    }
-                  />
-                );
-              })}
-              <div className="mt-1 border-t pt-2">
-                {COMING_SOON_PROVIDER_OPTIONS.map((option) => {
-                  const OptionIcon = option.icon;
-                  return (
+        </PopoverTrigger>
+        <PopoverPopup
+          align="start"
+          className="border-0 bg-transparent p-0 shadow-none before:hidden [--viewport-inline-padding:0] *:data-[slot=popover-viewport]:p-0"
+        >
+          <div className="relative flex h-screen max-h-96 w-screen max-w-100 overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]">
+            {showSidebar ? (
+              <ScrollArea
+                hideScrollbars
+                scrollFade
+                className="w-12 shrink-0 border-r bg-muted/30"
+                data-model-picker-sidebar="true"
+              >
+                <div className="flex min-h-full flex-col gap-1 p-1">
+                  <div className="mb-1 border-b pb-1">
                     <SidebarSectionButton
-                      key={option.id}
-                      label={option.label}
-                      description="Coming soon"
-                      disabled
-                      icon={<OptionIcon className="size-4 text-muted-foreground/80" />}
+                      label="Favorites"
+                      selected={selectedSection === "favorites"}
+                      onClick={() => setSelectedSection("favorites")}
+                      icon={<StarIcon className="size-5 fill-current" />}
                     />
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-          <div className="flex min-w-0 flex-1 flex-col">
-            <div className="border-b p-3">
-              <div className="relative">
-                <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/55" />
-                <Input
-                  ref={searchInputRef}
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      setIsMenuOpen(false);
-                    }
-                  }}
-                  placeholder="Search models..."
-                  className="pl-9"
-                />
-              </div>
-            </div>
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="p-2">
-                {props.lockedProvider !== null && !isSearching ? (
-                  <SectionHeader
-                    title={getProviderOptionLabel(props.providers ?? [], props.lockedProvider)}
-                  />
-                ) : null}
-                {isSearching ? (
-                  searchResults.length > 0 ? (
-                    <div className="space-y-1">
-                      {searchResults.map((item) => (
-                        <ModelPickerRow
-                          key={providerModelKey(item.provider, item.slug)}
-                          item={item}
-                          current={props.provider === item.provider && props.model === item.slug}
-                          showProviderMeta
-                          onSelect={handleModelChange}
-                          onToggleFavorite={toggleFavorite}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <EmptyStateMessage message="No matching models." />
-                  )
-                ) : selectedSection === "favorites" && visibleFavorites.length === 0 ? (
-                  <EmptyStateMessage message="No favorite models yet." />
-                ) : (
-                  <div className="space-y-3">
-                    {visibleFavorites.length > 0 ? (
-                      <section>
-                        <SectionHeader title="Favorites" />
-                        <div className="space-y-1">
-                          {visibleFavorites.map((item) => (
-                            <ModelPickerRow
-                              key={providerModelKey(item.provider, item.slug)}
-                              item={item}
-                              current={
-                                props.provider === item.provider && props.model === item.slug
-                              }
-                              showProviderMeta={selectedSection === "favorites"}
-                              onSelect={handleModelChange}
-                              onToggleFavorite={toggleFavorite}
-                            />
-                          ))}
-                        </div>
-                      </section>
-                    ) : null}
-                    {visibleModels.length > 0 ? (
-                      <section>
-                        <SectionHeader
-                          title={visibleFavorites.length > 0 ? "All models" : "Models"}
-                        />
-                        <div className="space-y-1">
-                          {visibleModels.map((item) => (
-                            <ModelPickerRow
-                              key={providerModelKey(item.provider, item.slug)}
-                              item={item}
-                              current={
-                                props.provider === item.provider && props.model === item.slug
-                              }
-                              showProviderMeta={selectedSection === "favorites"}
-                              onSelect={handleModelChange}
-                              onToggleFavorite={toggleFavorite}
-                            />
-                          ))}
-                        </div>
-                      </section>
-                    ) : null}
                   </div>
-                )}
+                  {availableProviders.map((provider) => {
+                    const liveProvider = props.providers
+                      ? getProviderSnapshot(props.providers, provider)
+                      : undefined;
+                    const availability = describeProviderAvailability(liveProvider);
+                    const OptionIcon = getProviderIcon(provider);
+                    const label = getProviderOptionLabel(props.providers ?? [], provider);
+                    return (
+                      <SidebarSectionButton
+                        key={provider}
+                        label={label}
+                        {...(availability ? { description: availability } : {})}
+                        selected={selectedSection === provider}
+                        disabled={availability !== null}
+                        onClick={() => setSelectedSection(provider)}
+                        icon={
+                          <OptionIcon
+                            className={cn(
+                              "size-5",
+                              providerIconClassName(provider, "text-muted-foreground/85"),
+                            )}
+                          />
+                        }
+                      />
+                    );
+                  })}
+                  <div className="mt-1 flex flex-col gap-1">
+                    {COMING_SOON_PROVIDER_OPTIONS.map((option) => {
+                      const OptionIcon = option.icon;
+                      return (
+                        <SidebarSectionButton
+                          key={option.id}
+                          label={option.label}
+                          description="Coming soon"
+                          disabled
+                          icon={<OptionIcon className="size-5 text-muted-foreground/85" />}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              </ScrollArea>
+            ) : null}
+            <div className={cn("flex min-w-0 flex-1 flex-col", showSidebar && "border-l")}>
+              {props.lockedProvider !== null && !showSidebar && !isSearching ? (
+                <div className="flex items-center gap-2 border-b px-4 py-3">
+                  <ProviderIcon className="size-5 shrink-0" />
+                  <span className="text-sm font-medium">
+                    {getProviderOptionLabel(props.providers ?? [], props.lockedProvider)}
+                  </span>
+                </div>
+              ) : null}
+              <div className="border-b px-3 py-2">
+                <div className="relative">
+                  <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/50" />
+                  <Input
+                    ref={searchInputRef}
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        setIsMenuOpen(false);
+                      }
+                    }}
+                    placeholder="Search models..."
+                    className="h-8 rounded-md border-0 pl-9 shadow-none ring-0 focus-visible:ring-2 focus-visible:ring-primary/70"
+                  />
+                </div>
               </div>
-            </ScrollArea>
+              <ScrollArea className="relative min-h-0 flex-1 before:pointer-events-none before:absolute before:inset-0 before:bg-muted/40">
+                <div className="relative divide-y px-2 py-1">
+                  {renderedRows.length > 0 ? (
+                    renderedRows.map((item, index) => (
+                      <ModelPickerRow
+                        key={providerModelKey(item.provider, item.slug)}
+                        item={item}
+                        current={props.provider === item.provider && props.model === item.slug}
+                        showProviderMeta={isSearching || selectedSection === "favorites"}
+                        jumpLabel={index < 9 ? `#${index + 1}` : null}
+                        onSelect={handleModelChange}
+                        onToggleFavorite={toggleFavorite}
+                      />
+                    ))
+                  ) : isSearching ? (
+                    <EmptyStateMessage message="No matching models." />
+                  ) : selectedSection === "favorites" ? (
+                    <EmptyStateMessage message="No favorite models yet." />
+                  ) : (
+                    <EmptyStateMessage message="No models found." />
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
           </div>
-        </div>
-      </PopoverPopup>
-    </Popover>
+        </PopoverPopup>
+      </Popover>
+    </TooltipProvider>
   );
 });
 
@@ -478,43 +457,48 @@ const SidebarSectionButton = memo(function SidebarSectionButton(props: {
   icon: ReactNode;
   onClick?: () => void;
 }) {
+  const tooltip = props.description ? `${props.label} - ${props.description}` : props.label;
   return (
-    <button
-      type="button"
-      disabled={props.disabled}
-      aria-label={props.label}
-      onClick={props.onClick}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
-        props.selected
-          ? "bg-background text-foreground shadow-sm"
-          : "text-muted-foreground hover:bg-background/65 hover:text-foreground",
-        props.disabled &&
-          "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground",
-      )}
-    >
-      <span className="shrink-0">{props.icon}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate">{props.label}</span>
-        {props.description ? (
-          <span className="block truncate text-[11px] text-muted-foreground/75">
-            {props.description}
-          </span>
-        ) : null}
-      </span>
-      {props.description === "Coming soon" ? (
-        <Clock3Icon className="size-3 shrink-0 text-muted-foreground/65" />
-      ) : null}
-    </button>
-  );
-});
-
-const SectionHeader = memo(function SectionHeader(props: { title: string }) {
-  return (
-    <div className="px-1 pb-1.5">
-      <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
-        {props.title}
-      </p>
+    <div className="relative w-full">
+      {props.selected ? <div className={SELECTED_SIDEBAR_INDICATOR_CLASS} /> : null}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              disabled={props.disabled}
+              aria-label={props.label}
+              onClick={props.onClick}
+              className={cn(
+                "relative isolate flex aspect-square w-full cursor-pointer items-center justify-center rounded transition-colors hover:bg-muted",
+                props.selected
+                  ? SELECTED_SIDEBAR_BUTTON_CLASS
+                  : "text-muted-foreground hover:text-foreground",
+                props.disabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
+              )}
+            >
+              <span className="sr-only">
+                {props.label}
+                {props.description ? ` ${props.description}` : ""}
+              </span>
+              <span aria-hidden="true" className="shrink-0">
+                {props.icon}
+              </span>
+              {props.description === "Coming soon" ? (
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -right-0.5 top-0.5 z-10 flex size-3.5 items-center justify-center rounded-full bg-transparent text-muted-foreground shadow-sm"
+                >
+                  <Clock3Icon className="size-2" />
+                </span>
+              ) : null}
+            </button>
+          }
+        />
+        <TooltipPopup side="left" align="center" className={SIDEBAR_TOOLTIP_CLASS}>
+          {tooltip}
+        </TooltipPopup>
+      </Tooltip>
     </div>
   );
 });
@@ -529,6 +513,7 @@ const ModelPickerRow = memo(function ModelPickerRow(props: {
   item: ProviderModelPickerItem;
   current: boolean;
   showProviderMeta: boolean;
+  jumpLabel: string | null;
   onSelect: (provider: ProviderSelectionKind, model: string) => void;
   onToggleFavorite: (provider: ProviderSelectionKind, model: string) => void;
 }) {
@@ -539,56 +524,86 @@ const ModelPickerRow = memo(function ModelPickerRow(props: {
     <div
       data-model-picker-model={providerModelKey(props.item.provider, props.item.slug)}
       className={cn(
-        "group flex items-stretch gap-1 rounded-md border border-transparent pr-1 transition-colors",
-        props.current && "border-border bg-accent/55",
+        "group flex items-stretch gap-1 rounded border border-transparent px-3 py-3 transition-colors",
+        props.current && "bg-accent text-foreground",
       )}
     >
+      <StarToggle
+        isFavorite={props.item.isFavorite}
+        label={favoriteButtonLabel}
+        onToggle={() => props.onToggleFavorite(props.item.provider, props.item.slug)}
+      />
       <button
         type="button"
         onClick={() => props.onSelect(props.item.provider, props.item.slug)}
         className={cn(
-          "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent/50",
+          "-my-3 flex min-w-0 flex-1 items-start rounded px-0 py-3 text-left transition-colors",
           props.current && "hover:bg-transparent",
         )}
       >
-        <ProviderIcon
-          className={cn(
-            "size-4 shrink-0",
-            providerIconClassName(props.item.provider, "text-muted-foreground/78"),
-          )}
-        />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm text-foreground">{props.item.name}</span>
-          <span className="block truncate text-xs text-muted-foreground/75">
-            {props.showProviderMeta
-              ? [props.item.providerLabel, props.item.subProvider, props.item.slug]
-                  .filter(Boolean)
-                  .join(" · ")
-              : props.item.subProvider
-                ? `${props.item.subProvider} · ${props.item.slug}`
-                : props.item.slug}
+          <span className="block truncate text-sm font-medium leading-snug text-foreground">
+            {props.item.shortName ?? props.item.name}
+          </span>
+          <span className="mt-1 flex min-w-0 items-center gap-1 text-xs font-normal leading-snug text-muted-foreground/70">
+            <ProviderIcon
+              className={cn(
+                "size-3 shrink-0",
+                providerIconClassName(props.item.provider, "text-muted-foreground/78"),
+              )}
+            />
+            <span className="truncate">
+              {props.showProviderMeta
+                ? [props.item.providerLabel, props.item.subProvider].filter(Boolean).join(" · ")
+                : (props.item.subProvider ?? props.item.providerLabel)}
+            </span>
           </span>
         </span>
       </button>
-      <button
-        type="button"
-        aria-label={favoriteButtonLabel}
-        onMouseDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-        }}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          props.onToggleFavorite(props.item.provider, props.item.slug);
-        }}
-        className={cn(
-          "my-1 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground/72 transition-colors hover:bg-accent hover:text-foreground",
-          props.item.isFavorite && "text-amber-500 hover:text-amber-500",
-        )}
-      >
-        <StarIcon className={cn("size-4", props.item.isFavorite && "fill-current")} />
-      </button>
+      {props.jumpLabel ? (
+        <span className="flex h-5 min-w-9 shrink-0 items-center justify-center rounded-md bg-muted px-1.5 text-xs font-medium text-muted-foreground">
+          {props.jumpLabel}
+        </span>
+      ) : null}
     </div>
+  );
+});
+
+const StarToggle = memo(function StarToggle(props: {
+  isFavorite: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            role="switch"
+            aria-checked={props.isFavorite}
+            aria-label={props.label}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              props.onToggle();
+            }}
+            className={cn(
+              "mt-0.5 inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground/45 transition-colors hover:text-foreground",
+              props.isFavorite && "text-yellow-500 hover:text-yellow-500",
+            )}
+          >
+            <StarIcon className={cn("size-4", props.isFavorite && "fill-current")} />
+          </button>
+        }
+      />
+      <TooltipPopup side="top" align="center">
+        {props.label}
+      </TooltipPopup>
+    </Tooltip>
   );
 });

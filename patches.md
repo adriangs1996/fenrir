@@ -9,7 +9,7 @@ Hand-off notes for agent picking up Tier 3. Tiers 1 + 2 already merged.
 - Fork base `chore/upstream-update` already on top of `e82b9873` (last common upstream).
 - Branches merged so far: `chore/upstream-cherry-pick-tier1`, `chore/upstream-cherry-pick-tier2`.
 - Current branch: `upstream-cherry-picks` (collector).
-- Local effect: `4.0.0-beta.43` — older API than upstream (`Context.Service` → use `ServiceMap.Service`; `Cache.makeWith({ lookup })` not `(fn, opts)`).
+- Local effect: `4.0.0-beta.59` — aligned with upstream after the lint guardrail/effect upgrade.
 - Local contracts namespace: `@fenrir/contracts`, shared: `@fenrir/shared`. Upstream: `@t3tools/*`. Always rebrand on conflict.
 - Local brand schema API: `.makeUnsafe()` (upstream renamed to `.make()`).
 - Local Claude effort type: `ClaudeCodeEffort` (upstream renamed to `ClaudeAgentEffort`).

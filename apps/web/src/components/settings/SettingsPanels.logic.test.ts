@@ -8,9 +8,9 @@ import { IsoDateTime, ProjectId, TrimmedNonEmptyString } from "@fenrir/contracts
 import type { ArchivedFeatureSummary } from "@fenrir/contracts";
 import { describe, expect, it } from "vitest";
 
-const pid = ProjectId.makeUnsafe;
-const tn = TrimmedNonEmptyString.makeUnsafe;
-const ts = IsoDateTime.makeUnsafe;
+const pid = ProjectId.make;
+const tn = TrimmedNonEmptyString.make;
+const ts = IsoDateTime.make;
 
 function makeArchived(partial: {
   projectId?: string;

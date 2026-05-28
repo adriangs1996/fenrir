@@ -107,17 +107,25 @@ import {
   type SourceControlWorkflowsShape,
 } from "./sourceControl/Services/SourceControlWorkflows.ts";
 import {
+  SourceControlDiscovery,
+  type SourceControlDiscoveryShape,
+} from "./sourceControl/SourceControlDiscovery.ts";
+import {
+  SourceControlRepositoryService,
+  type SourceControlRepositoryServiceShape,
+} from "./sourceControl/SourceControlRepositoryService.ts";
+import {
   ServerEnvironment,
   type ServerEnvironmentShape,
 } from "./environment/Services/ServerEnvironment.ts";
 import {
   ReviewWriteService,
   type ReviewWriteServiceShape,
-} from "./review/Services/ReviewWriteService.ts";
+} from "./sourceControl/review/Services/ReviewWriteService.ts";
 import {
   ReviewRpcService,
   type ReviewRpcServiceShape,
-} from "./review/Services/ReviewRpcService.ts";
+} from "./sourceControl/review/Services/ReviewRpcService.ts";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
@@ -137,17 +145,17 @@ import { SkillService, type SkillServiceShape } from "./skill/SkillService.ts";
 import { ProcessDiagnostics } from "./diagnostics/ProcessDiagnostics.ts";
 import { ProcessResourceMonitor } from "./diagnostics/ProcessResourceMonitor.ts";
 import { TraceDiagnostics } from "./diagnostics/TraceDiagnostics.ts";
-import { ReviewSessionId } from "../../../packages/contracts/src/review.ts";
+import { ReviewSessionId } from "@fenrir/contracts/sourceControlReview";
 
-const defaultProjectId = ProjectId.makeUnsafe("project-default");
-const defaultThreadId = ThreadId.makeUnsafe("thread-default");
+const defaultProjectId = ProjectId.make("project-default");
+const defaultThreadId = ThreadId.make("thread-default");
 const defaultDesktopBootstrapToken = "test-desktop-bootstrap-token";
 const defaultModelSelection = {
   provider: "codex",
   model: "gpt-5-codex",
 } as const;
 const testEnvironmentDescriptor = {
-  environmentId: EnvironmentId.makeUnsafe("environment-test"),
+  environmentId: EnvironmentId.make("environment-test"),
   label: "Test environment",
   platform: {
     os: "darwin" as const,
@@ -338,6 +346,8 @@ const buildAppUnderTest = (options?: {
     sourceControlQuery?: Partial<SourceControlQueryShape>;
     sourceControlStatus?: Partial<SourceControlStatusShape>;
     sourceControlWorkflows?: Partial<SourceControlWorkflowsShape>;
+    sourceControlDiscovery?: Partial<SourceControlDiscoveryShape>;
+    sourceControlRepositoryService?: Partial<SourceControlRepositoryServiceShape>;
     reviewWriteService?: Partial<ReviewWriteServiceShape>;
     reviewRpcService?: Partial<ReviewRpcServiceShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
@@ -440,6 +450,19 @@ const buildAppUnderTest = (options?: {
         });
       }),
     ).pipe(Layer.provide(gitManagerLayer), Layer.provideMerge(gitCoreLayer));
+    const sourceControlDiscoveryLayer = Layer.mock(SourceControlDiscovery)({
+      discover: Effect.succeed({
+        versionControlSystems: [],
+        sourceControlProviders: [],
+      }),
+      ...options?.layers?.sourceControlDiscovery,
+    });
+    const sourceControlRepositoryServiceLayer = Layer.mock(SourceControlRepositoryService)({
+      lookupRepository: () => Effect.die(new Error("not available in test")),
+      cloneRepository: () => Effect.die(new Error("not available in test")),
+      publishRepository: () => Effect.die(new Error("not available in test")),
+      ...options?.layers?.sourceControlRepositoryService,
+    });
 
     const reviewWriteServiceLayer = Layer.succeed(
       ReviewWriteService,
@@ -533,9 +556,15 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provide(gitCoreLayer),
       Layer.provide(gitManagerLayer),
-      Layer.provideMerge(sourceControlQueryLayer),
-      Layer.provideMerge(sourceControlStatusLayer),
-      Layer.provideMerge(sourceControlWorkflowsLayer),
+      Layer.provide(
+        Layer.mergeAll(
+          sourceControlQueryLayer,
+          sourceControlStatusLayer,
+          sourceControlWorkflowsLayer,
+          sourceControlDiscoveryLayer,
+          sourceControlRepositoryServiceLayer,
+        ),
+      ),
       Layer.provide(
         Layer.mock(ProjectSetupScriptRunner)({
           runForThread: () => Effect.succeed({ status: "no-script" as const }),
@@ -854,8 +883,8 @@ const withWsRpcClient = <A, E, R>(
   f: (client: WsRpcClient) => Effect.Effect<A, E, R>,
 ) => makeWsRpcClient.pipe(Effect.flatMap(f), Effect.provide(wsRpcProtocolLayer(wsUrl)));
 
-const reviewGetGitHubSnapshotMethod = "review.getGitHubSnapshot";
-const subscribeReviewEventsMethod = "subscribeReviewEvents";
+const sourceControlReviewGetGitHubSnapshotMethod = "sourceControl.review.getGitHubSnapshot";
+const subscribeSourceControlReviewEventsMethod = "subscribeSourceControlReviewEvents";
 
 const callWsReviewMethod = <A>(wsUrl: string, method: string, input: unknown) =>
   withWsRpcClient(wsUrl, (client) =>
@@ -1667,7 +1696,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         );
 
         assert.equal(error._tag, "RpcClientError");
-        assertInclude(String(error), "401");
+        assertInclude(String(error), "SocketOpenError");
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -1781,7 +1810,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               {
                 scope: {
                   name: "effect",
-                  version: "4.0.0-beta.43",
+                  version: "4.0.0-beta.59",
                 },
                 spans: [
                   {
@@ -1918,7 +1947,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           },
           scope: {
             name: "effect",
-            version: "4.0.0-beta.43",
+            version: "4.0.0-beta.59",
             attributes: {},
           },
           events: [
@@ -2110,7 +2139,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const response = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
           client[WS_METHODS.planRunnerArchiveFeature]({
-            projectId: ProjectId.makeUnsafe("project-1"),
+            projectId: ProjectId.make("project-1"),
             featureName: "test-feature",
           }),
         ),
@@ -2126,7 +2155,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const response = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
           client[WS_METHODS.planRunnerUnarchiveFeature]({
-            projectId: ProjectId.makeUnsafe("project-1"),
+            projectId: ProjectId.make("project-1"),
             archivedDirName: "test-feature",
           }),
         ),
@@ -2533,8 +2562,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       const first = (yield* callWsReviewMethod<{
         readonly draft: { readonly body?: string } | null;
-      }>(firstUrl, reviewGetGitHubSnapshotMethod, {
-        sessionId: ReviewSessionId.makeUnsafe(sessionId),
+      }>(firstUrl, sourceControlReviewGetGitHubSnapshotMethod, {
+        sessionId: ReviewSessionId.make(sessionId),
       })) as {
         readonly draft: { readonly body?: string } | null;
       };
@@ -2545,73 +2574,75 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("routes websocket rpc subscribeReviewEvents with snapshot replacement", () =>
-    Effect.gen(function* () {
-      const sessionId = ReviewSessionId.makeUnsafe("review-session-1");
+  it.effect(
+    "routes websocket rpc subscribeSourceControlReviewEvents with snapshot replacement",
+    () =>
+      Effect.gen(function* () {
+        const sessionId = ReviewSessionId.make("review-session-1");
 
-      yield* buildAppUnderTest({
-        layers: {
-          reviewRpcService: {
-            streamEvents: () =>
-              Stream.make({
-                _tag: "sessionSnapshotReplaced" as const,
-                snapshot: {
-                  summary: {
-                    id: sessionId,
-                    mode: "review",
-                    scope: "combined",
-                    target: {
-                      cwd: "/repo/worktree",
-                      repositoryRoot: "/repo",
-                      worktreePath: null,
+        yield* buildAppUnderTest({
+          layers: {
+            reviewRpcService: {
+              streamEvents: () =>
+                Stream.make({
+                  _tag: "sessionSnapshotReplaced" as const,
+                  snapshot: {
+                    summary: {
+                      id: sessionId,
+                      mode: "review",
+                      scope: "combined",
+                      target: {
+                        cwd: "/repo/worktree",
+                        repositoryRoot: "/repo",
+                        worktreePath: null,
+                      },
+                      progressCounts: {
+                        unreviewed: 1,
+                        reviewed: 0,
+                        needsFollowUp: 0,
+                      },
+                      fileCount: 1,
+                      chunkCount: 0,
+                      localThreadCount: 0,
+                      overviewNoteCount: 0,
+                      analysisArtifactCount: 0,
+                      degradedReasons: [],
+                      blockedActions: [],
+                      createdAt: "2026-05-21T10:00:00.000Z",
+                      updatedAt: "2026-05-21T10:00:00.000Z",
                     },
-                    progressCounts: {
-                      unreviewed: 1,
-                      reviewed: 0,
-                      needsFollowUp: 0,
-                    },
-                    fileCount: 1,
-                    chunkCount: 0,
-                    localThreadCount: 0,
-                    overviewNoteCount: 0,
-                    analysisArtifactCount: 0,
-                    degradedReasons: [],
-                    blockedActions: [],
-                    createdAt: "2026-05-21T10:00:00.000Z",
-                    updatedAt: "2026-05-21T10:00:00.000Z",
+                    groups: [],
+                    files: [],
+                    chunks: [],
+                    localThreads: [],
+                    localReplies: [],
+                    overviewNotes: [],
+                    analysisArtifacts: [],
+                    github: null,
                   },
-                  groups: [],
-                  files: [],
-                  chunks: [],
-                  localThreads: [],
-                  localReplies: [],
-                  overviewNotes: [],
-                  analysisArtifacts: [],
-                  github: null,
-                },
-              }),
+                }),
+            },
           },
-        },
-      });
+        });
 
-      const wsUrl = yield* getWsServerUrl("/ws");
-      const events = yield* subscribeWsReviewMethod<{
-        readonly _tag: "sessionSnapshotReplaced";
-        readonly snapshot: {
-          readonly summary: {
-            readonly id: typeof sessionId;
-            readonly fileCount: number;
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const events = yield* subscribeWsReviewMethod<{
+          readonly _tag: "sessionSnapshotReplaced";
+          readonly snapshot: {
+            readonly summary: {
+              readonly id: typeof sessionId;
+              readonly fileCount: number;
+            };
           };
-        };
-      }>(wsUrl, subscribeReviewEventsMethod, { sessionId });
+        }>(wsUrl, subscribeSourceControlReviewEventsMethod, { sessionId });
 
-      const first = Array.from(events)[0];
-      assert.equal(first?._tag, "sessionSnapshotReplaced");
-      if (first?._tag === "sessionSnapshotReplaced") {
-        assert.equal(first.snapshot.summary.id, sessionId);
-        assert.equal(first.snapshot.summary.fileCount, 1);
-      }
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+        const first = Array.from(events)[0];
+        assert.equal(first?._tag, "sessionSnapshotReplaced");
+        if (first?._tag === "sessionSnapshotReplaced") {
+          assert.equal(first.snapshot.summary.id, sessionId);
+          assert.equal(first.snapshot.summary.fileCount, 1);
+        }
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("routes websocket rpc git methods", () =>
@@ -2774,13 +2805,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const wsUrl = yield* getWsServerUrl("/ws");
 
       const pull = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitPull]({ cwd: "/tmp/repo" })),
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsPull]({ cwd: "/tmp/repo" })),
       );
       assert.equal(pull.status, "pulled");
 
       const refreshedStatus = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitRefreshStatus]({ cwd: "/tmp/repo" }),
+          client[WS_METHODS.vcsRefreshStatus]({ cwd: "/tmp/repo" }),
         ),
       );
       assert.equal(refreshedStatus.isRepo, true);
@@ -2825,26 +2856,24 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(prepared.branch, "feature/demo");
 
       const branches = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitListBranches]({ cwd: "/tmp/repo" }),
-        ),
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsListRefs]({ cwd: "/tmp/repo" })),
       );
-      assert.equal(branches.branches[0]?.name, "main");
+      assert.equal(branches.refs[0]?.name, "main");
 
       const worktree = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitCreateWorktree]({
+          client[WS_METHODS.vcsCreateWorktree]({
             cwd: "/tmp/repo",
-            branch: "main",
+            refName: "main",
             path: null,
           }),
         ),
       );
-      assert.equal(worktree.worktree.branch, "feature/demo");
+      assert.equal(worktree.worktree.refName, "feature/demo");
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitRemoveWorktree]({
+          client[WS_METHODS.vcsRemoveWorktree]({
             cwd: "/tmp/repo",
             path: "/tmp/wt",
           }),
@@ -2853,25 +2882,25 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitCreateBranch]({
+          client[WS_METHODS.vcsCreateRef]({
             cwd: "/tmp/repo",
-            branch: "feature/new",
+            refName: "feature/new",
           }),
         ),
       );
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitCheckout]({
+          client[WS_METHODS.vcsSwitchRef]({
             cwd: "/tmp/repo",
-            branch: "main",
+            refName: "main",
           }),
         ),
       );
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.gitInit]({
+          client[WS_METHODS.vcsInit]({
             cwd: "/tmp/repo",
           }),
         ),
@@ -2879,7 +2908,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("routes websocket rpc git.pull errors", () =>
+  it.effect("routes websocket rpc vcs.pull errors", () =>
     Effect.gen(function* () {
       const gitError = new GitCommandError({
         operation: "pull",
@@ -2948,7 +2977,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       const wsUrl = yield* getWsServerUrl("/ws");
       const result = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitPull]({ cwd: "/tmp/repo" })).pipe(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsPull]({ cwd: "/tmp/repo" })).pipe(
           Effect.result,
         ),
       );
@@ -3041,7 +3070,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("completes websocket rpc git.pull before background git status refresh finishes", () =>
+  it.effect("completes websocket rpc vcs.pull before background git status refresh finishes", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest({
         layers: {
@@ -3081,7 +3110,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const wsUrl = yield* getWsServerUrl("/ws");
       const startedAt = Date.now();
       const result = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.gitPull]({ cwd: "/tmp/repo" })),
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsPull]({ cwd: "/tmp/repo" })),
       );
       const elapsedMs = Date.now() - startedAt;
 
@@ -3264,7 +3293,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         updatedAt: now,
         projects: [
           {
-            id: ProjectId.makeUnsafe("project-a"),
+            id: ProjectId.make("project-a"),
             title: "Project A",
             workspaceRoot: "/tmp/project-a",
             defaultModelSelection,
@@ -3278,8 +3307,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ],
         threads: [
           {
-            id: ThreadId.makeUnsafe("thread-1"),
-            projectId: ProjectId.makeUnsafe("project-a"),
+            id: ThreadId.make("thread-1"),
+            projectId: ProjectId.make("project-a"),
             title: "Thread A",
             modelSelection: defaultModelSelection,
             interactionMode: "default" as const,
@@ -3313,14 +3342,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           checkpointDiffQuery: {
             getTurnDiff: () =>
               Effect.succeed({
-                threadId: ThreadId.makeUnsafe("thread-1"),
+                threadId: ThreadId.make("thread-1"),
                 fromTurnCount: 0,
                 toTurnCount: 1,
                 diff: "turn-diff",
               }),
             getFullThreadDiff: () =>
               Effect.succeed({
-                threadId: ThreadId.makeUnsafe("thread-1"),
+                threadId: ThreadId.make("thread-1"),
                 fromTurnCount: 0,
                 toTurnCount: 1,
                 diff: "full-diff",
@@ -3339,8 +3368,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         withWsRpcClient(wsUrl, (client) =>
           client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
             type: "thread.session.stop",
-            commandId: CommandId.makeUnsafe("cmd-1"),
-            threadId: ThreadId.makeUnsafe("thread-1"),
+            commandId: CommandId.make("cmd-1"),
+            threadId: ThreadId.make("thread-1"),
             createdAt: now,
           }),
         ),
@@ -3350,7 +3379,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const turnDiffResult = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
           client[ORCHESTRATION_WS_METHODS.getTurnDiff]({
-            threadId: ThreadId.makeUnsafe("thread-1"),
+            threadId: ThreadId.make("thread-1"),
             fromTurnCount: 0,
             toTurnCount: 1,
           }),
@@ -3361,7 +3390,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const fullDiffResult = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
           client[ORCHESTRATION_WS_METHODS.getFullThreadDiff]({
-            threadId: ThreadId.makeUnsafe("thread-1"),
+            threadId: ThreadId.make("thread-1"),
             toTurnCount: 1,
           }),
         ),
@@ -3400,7 +3429,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             readEvents: (_fromSequenceExclusive) =>
               Stream.make({
                 sequence: 1,
-                eventId: EventId.makeUnsafe("event-1"),
+                eventId: EventId.make("event-1"),
                 aggregateKind: "project",
                 aggregateId: defaultProjectId,
                 occurredAt: "2026-04-05T00:00:00.000Z",
@@ -3449,7 +3478,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("closes thread terminals after a successful archive command", () =>
     Effect.gen(function* () {
-      const threadId = ThreadId.makeUnsafe("thread-archive");
+      const threadId = ThreadId.make("thread-archive");
       const closeInputs: Array<Parameters<TerminalManagerShape["close"]>[0]> = [];
 
       yield* buildAppUnderTest({
@@ -3471,7 +3500,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         withWsRpcClient(wsUrl, (client) =>
           client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
             type: "thread.archive",
-            commandId: CommandId.makeUnsafe("cmd-thread-archive"),
+            commandId: CommandId.make("cmd-thread-archive"),
             threadId,
           }),
         ),
@@ -3552,10 +3581,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           withWsRpcClient(wsUrl, (client) =>
             client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
               type: "thread.turn.start",
-              commandId: CommandId.makeUnsafe("cmd-bootstrap-turn-start"),
-              threadId: ThreadId.makeUnsafe("thread-bootstrap"),
+              commandId: CommandId.make("cmd-bootstrap-turn-start"),
+              threadId: ThreadId.make("thread-bootstrap"),
               message: {
-                messageId: MessageId.makeUnsafe("msg-bootstrap"),
+                messageId: MessageId.make("msg-bootstrap"),
                 role: "user",
                 text: "hello",
                 attachments: [],
@@ -3605,7 +3634,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           path: null,
         });
         assert.deepEqual(runForThread.mock.calls[0]?.[0], {
-          threadId: ThreadId.makeUnsafe("thread-bootstrap"),
+          threadId: ThreadId.make("thread-bootstrap"),
           projectId: defaultProjectId,
           projectCwd: "/tmp/project",
           worktreePath: "/tmp/bootstrap-worktree",
@@ -3669,10 +3698,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         withWsRpcClient(wsUrl, (client) =>
           client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
             type: "thread.turn.start",
-            commandId: CommandId.makeUnsafe("cmd-bootstrap-turn-start-setup-failure"),
-            threadId: ThreadId.makeUnsafe("thread-bootstrap-setup-failure"),
+            commandId: CommandId.make("cmd-bootstrap-turn-start-setup-failure"),
+            threadId: ThreadId.make("thread-bootstrap-setup-failure"),
             message: {
-              messageId: MessageId.makeUnsafe("msg-bootstrap-setup-failure"),
+              messageId: MessageId.make("msg-bootstrap-setup-failure"),
               role: "user",
               text: "hello",
               attachments: [],
@@ -3786,10 +3815,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         withWsRpcClient(wsUrl, (client) =>
           client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
             type: "thread.turn.start",
-            commandId: CommandId.makeUnsafe("cmd-bootstrap-turn-start-setup-activity-failure"),
-            threadId: ThreadId.makeUnsafe("thread-bootstrap-setup-activity-failure"),
+            commandId: CommandId.make("cmd-bootstrap-turn-start-setup-activity-failure"),
+            threadId: ThreadId.make("thread-bootstrap-setup-activity-failure"),
             message: {
-              messageId: MessageId.makeUnsafe("msg-bootstrap-setup-activity-failure"),
+              messageId: MessageId.make("msg-bootstrap-setup-activity-failure"),
               role: "user",
               text: "hello",
               attachments: [],
@@ -3870,10 +3899,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         withWsRpcClient(wsUrl, (client) =>
           client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
             type: "thread.turn.start",
-            commandId: CommandId.makeUnsafe("cmd-bootstrap-turn-start-defect"),
-            threadId: ThreadId.makeUnsafe("thread-bootstrap-defect"),
+            commandId: CommandId.make("cmd-bootstrap-turn-start-defect"),
+            threadId: ThreadId.make("thread-bootstrap-defect"),
             message: {
-              messageId: MessageId.makeUnsafe("msg-bootstrap-defect"),
+              messageId: MessageId.make("msg-bootstrap-defect"),
               role: "user",
               text: "hello",
               attachments: [],
@@ -3920,7 +3949,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     () =>
       Effect.gen(function* () {
         const now = new Date().toISOString();
-        const threadId = ThreadId.makeUnsafe("thread-1");
+        const threadId = ThreadId.make("thread-1");
         let replayCursor: number | null = null;
         const makeEvent = (sequence: number): OrchestrationEvent =>
           ({
@@ -4002,7 +4031,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             readEvents: () =>
               Stream.make({
                 sequence: 1,
-                eventId: EventId.makeUnsafe("event-1"),
+                eventId: EventId.make("event-1"),
                 aggregateKind: "project",
                 aggregateId: defaultProjectId,
                 occurredAt: "2026-04-06T00:00:00.000Z",
@@ -4073,7 +4102,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
             streamDomainEvents: Stream.make({
               sequence: 1,
-              eventId: EventId.makeUnsafe("event-1"),
+              eventId: EventId.make("event-1"),
               aggregateKind: "project",
               aggregateId: defaultProjectId,
               occurredAt: "2026-04-05T00:00:00.000Z",

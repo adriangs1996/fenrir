@@ -15,7 +15,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@fenrir/contracts": "workspace:*"
+    "@fenrir/contracts": "workspace:*",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/language-service": "catalog:",
