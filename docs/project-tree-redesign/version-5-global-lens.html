@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en" data-lens="threads">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Global Lens</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0c0f;
+        --sidebar: #101216;
+        --surface: #151922;
+        --surface-2: #1a2029;
+        --line: rgb(255 255 255 / 0.08);
+        --line-strong: rgb(255 255 255 / 0.15);
+        --text: #e7edf6;
+        --muted: #8b949f;
+        --quiet: #606a76;
+        --blue: #79a8ff;
+        --green: #6ed69e;
+        --amber: #efc06d;
+        --cyan: #78d7e6;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        letter-spacing: 0;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: minmax(360px, 520px) 1fr;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--line-strong);
+        background: var(--sidebar);
+        padding: 16px;
+      }
+
+      .header {
+        display: grid;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .header-row strong {
+        color: var(--quiet);
+        font-size: 12px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 6px;
+      }
+
+      .icon-button {
+        width: 30px;
+        height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .lens {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 3px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #0c0f14;
+        padding: 3px;
+      }
+
+      .lens button {
+        height: 32px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      html[data-lens="threads"] button[data-lens="threads"],
+      html[data-lens="plans"] button[data-lens="plans"] {
+        background: var(--surface-2);
+        color: var(--text);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+
+      .projects {
+        display: grid;
+        gap: 10px;
+      }
+
+      .project {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #0e1117;
+        overflow: hidden;
+      }
+
+      .project-head {
+        display: grid;
+        grid-template-columns: auto auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 9px;
+        min-height: 42px;
+        border-bottom: 1px solid var(--line);
+        padding: 0 10px;
+      }
+
+      .chevron {
+        color: var(--muted);
+      }
+
+      .folder {
+        width: 18px;
+        height: 13px;
+        border: 1.5px solid var(--blue);
+        border-radius: 3px;
+        position: relative;
+      }
+
+      .folder::before {
+        content: "";
+        position: absolute;
+        left: 2px;
+        top: -5px;
+        width: 8px;
+        height: 5px;
+        border: 1.5px solid var(--blue);
+        border-bottom: 0;
+        border-radius: 3px 3px 0 0;
+      }
+
+      .name {
+        overflow: hidden;
+        font-size: 17px;
+        font-weight: 760;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .project-badge {
+        color: var(--quiet);
+        font-size: 12px;
+      }
+
+      .list {
+        display: grid;
+        gap: 3px;
+        padding: 8px;
+      }
+
+      html[data-lens="threads"] [data-view="plans"],
+      html[data-lens="plans"] [data-view="threads"] {
+        display: none;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        min-height: 34px;
+        border-radius: 6px;
+        padding: 0 8px;
+      }
+
+      .row.active,
+      .row:hover {
+        background: var(--surface);
+      }
+
+      .title {
+        overflow: hidden;
+        color: #b6c0ca;
+        font-size: 13px;
+        font-weight: 650;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .meta {
+        color: var(--quiet);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .ok {
+        color: var(--green);
+      }
+
+      .run {
+        color: var(--amber);
+      }
+
+      .footer-strip {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1px;
+        border-top: 1px solid var(--line);
+        background: var(--line);
+      }
+
+      .stat {
+        min-width: 0;
+        background: #0d1015;
+        padding: 8px 10px;
+      }
+
+      .stat span {
+        display: block;
+        color: var(--quiet);
+        font-size: 11px;
+      }
+
+      .stat strong {
+        display: block;
+        margin-top: 2px;
+        font-size: 14px;
+      }
+
+      .workspace {
+        display: grid;
+        align-content: center;
+        justify-items: center;
+        background: #0f1117;
+        padding: 32px;
+      }
+
+      .note {
+        width: min(460px, 100%);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 20px;
+      }
+
+      .note strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .note p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      @media (max-width: 760px) {
+        .app {
+          grid-template-columns: 1fr;
+        }
+
+        .workspace {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <aside class="sidebar" aria-label="Projects">
+        <header class="header">
+          <div class="header-row">
+            <strong>PROJECTS</strong>
+            <div class="actions">
+              <button class="icon-button" aria-label="Sort projects">^v</button>
+              <button class="icon-button" aria-label="New project">+</button>
+            </div>
+          </div>
+          <div class="lens" aria-label="Global project lens">
+            <button type="button" data-lens="threads">Threads</button>
+            <button type="button" data-lens="plans">Action plans</button>
+          </div>
+        </header>
+
+        <div class="projects">
+          <section class="project">
+            <div class="project-head">
+              <span class="chevron">v</span>
+              <span class="folder" aria-hidden="true"></span>
+              <span class="name">t3code</span>
+              <span class="project-badge">12 / 3</span>
+            </div>
+            <div class="list">
+              <div data-view="threads">
+                <div class="row active">
+                  <span class="title">Browser Lab MCP empty screenshot crash</span>
+                  <span class="meta">2m</span>
+                </div>
+                <div class="row">
+                  <span class="title">Fix skill selector UI in Composer</span>
+                  <span class="meta">2h</span>
+                </div>
+                <div class="row">
+                  <span class="title">Upstream feature gap analysis</span>
+                  <span class="meta">2h</span>
+                </div>
+              </div>
+              <div data-view="plans">
+                <div class="row active">
+                  <span class="title">agent-memory-layer</span>
+                  <span class="meta run">running</span>
+                </div>
+                <div class="row">
+                  <span class="title">managed-process</span>
+                  <span class="meta ok">ready</span>
+                </div>
+                <div class="row">
+                  <span class="title">rich-review-tab</span>
+                  <span class="meta ok">ready</span>
+                </div>
+              </div>
+            </div>
+            <div class="footer-strip" aria-hidden="true">
+              <div class="stat"><span>Last thread</span><strong>2m ago</strong></div>
+              <div class="stat"><span>Plans</span><strong>1 active</strong></div>
+            </div>
+          </section>
+
+          <section class="project">
+            <div class="project-head">
+              <span class="chevron">v</span>
+              <span class="folder" aria-hidden="true"></span>
+              <span class="name">gwagent</span>
+              <span class="project-badge">9 / 2</span>
+            </div>
+            <div class="list">
+              <div data-view="threads">
+                <div class="row">
+                  <span class="title">Smallest incremental billing change for guruadm...</span>
+                  <span class="meta">2h</span>
+                </div>
+                <div class="row">
+                  <span class="title">Building a personalized AI coding agent</span>
+                  <span class="meta">3h</span>
+                </div>
+                <div class="row">
+                  <span class="title">Structure initiative braindump into formal doc</span>
+                  <span class="meta">7h</span>
+                </div>
+              </div>
+              <div data-view="plans">
+                <div class="row active">
+                  <span class="title">usage-threshold-ledger</span>
+                  <span class="meta run">running</span>
+                </div>
+                <div class="row">
+                  <span class="title">account-lifecycle-flow</span>
+                  <span class="meta ok">ready</span>
+                </div>
+              </div>
+            </div>
+            <div class="footer-strip" aria-hidden="true">
+              <div class="stat"><span>Last thread</span><strong>2h ago</strong></div>
+              <div class="stat"><span>Plans</span><strong>1 active</strong></div>
+            </div>
+          </section>
+
+          <section class="project">
+            <div class="project-head">
+              <span class="chevron">v</span>
+              <span class="folder" aria-hidden="true"></span>
+              <span class="name">browser-lab</span>
+              <span class="project-badge">5 / 1</span>
+            </div>
+            <div class="list">
+              <div data-view="threads">
+                <div class="row">
+                  <span class="title">Mobile capture viewport race condition</span>
+                  <span class="meta">4h</span>
+                </div>
+                <div class="row">
+                  <span class="title">Stabilize screenshot confirmation loop</span>
+                  <span class="meta">6h</span>
+                </div>
+              </div>
+              <div data-view="plans">
+                <div class="row">
+                  <span class="title">playwright-preview-fixtures</span>
+                  <span class="meta ok">ready</span>
+                </div>
+              </div>
+            </div>
+            <div class="footer-strip" aria-hidden="true">
+              <div class="stat"><span>Last thread</span><strong>4h ago</strong></div>
+              <div class="stat"><span>Plans</span><strong>ready</strong></div>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <section class="workspace" aria-label="Detail area">
+        <div class="note">
+          <strong>Version 5: global lens</strong>
+          <p>
+            A single sidebar-level switch changes all projects at once. This is the cleanest option
+            when users usually browse one information type across many projects.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      document.querySelectorAll(".lens button").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.documentElement.dataset.lens = button.dataset.lens;
+        });
+      });
+    </script>
+  </body>
+</html>

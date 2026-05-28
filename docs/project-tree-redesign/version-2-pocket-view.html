@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pocket View</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0c0f;
+        --sidebar: #101216;
+        --phone: #05070a;
+        --screen: #141821;
+        --screen-2: #171d27;
+        --line: rgb(255 255 255 / 0.08);
+        --line-strong: rgb(255 255 255 / 0.16);
+        --text: #e7edf6;
+        --muted: #8a94a0;
+        --quiet: #5e6874;
+        --blue: #79a8ff;
+        --green: #6bd79d;
+        --amber: #e9bf6e;
+        --rose: #e89aa9;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        letter-spacing: 0;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: minmax(360px, 520px) 1fr;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--line-strong);
+        background: var(--sidebar);
+        padding: 18px;
+      }
+
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 18px;
+      }
+
+      .top strong {
+        color: var(--quiet);
+        font-size: 12px;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 6px;
+      }
+
+      .icon-button {
+        width: 30px;
+        height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .projects {
+        display: grid;
+        gap: 18px;
+      }
+
+      .project {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+      }
+
+      .tree-line {
+        display: grid;
+        justify-items: center;
+        gap: 8px;
+        padding-top: 6px;
+        color: var(--muted);
+      }
+
+      .tree-line::after {
+        content: "";
+        width: 1px;
+        height: 230px;
+        background: var(--line);
+      }
+
+      .project-body {
+        min-width: 0;
+      }
+
+      .project-head {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 32px;
+        margin-bottom: 9px;
+      }
+
+      .folder {
+        width: 18px;
+        height: 13px;
+        border: 1.5px solid var(--blue);
+        border-radius: 3px;
+        position: relative;
+      }
+
+      .folder::before {
+        content: "";
+        position: absolute;
+        left: 2px;
+        top: -5px;
+        width: 8px;
+        height: 5px;
+        border: 1.5px solid var(--blue);
+        border-bottom: 0;
+        border-radius: 3px 3px 0 0;
+      }
+
+      .name {
+        overflow: hidden;
+        font-size: 18px;
+        font-weight: 760;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .phone {
+        width: min(330px, 100%);
+        border: 1px solid var(--line-strong);
+        border-radius: 18px;
+        background: var(--phone);
+        padding: 8px;
+        box-shadow: 0 12px 28px rgb(0 0 0 / 0.28);
+      }
+
+      .speaker {
+        width: 52px;
+        height: 4px;
+        border-radius: 999px;
+        background: #252b35;
+        margin: 2px auto 8px;
+      }
+
+      .screen {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--screen);
+      }
+
+      .phone-tabs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 3px;
+        border-bottom: 1px solid var(--line);
+        padding: 5px;
+      }
+
+      .phone-tabs button {
+        height: 30px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .project[data-mode="threads"] button[data-mode="threads"],
+      .project[data-mode="plans"] button[data-mode="plans"] {
+        background: #222a37;
+        color: var(--text);
+      }
+
+      .screen-list {
+        min-height: 180px;
+        padding: 6px;
+      }
+
+      .project[data-mode="threads"] [data-view="plans"],
+      .project[data-mode="plans"] [data-view="threads"] {
+        display: none;
+      }
+
+      .item {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        min-height: 34px;
+        border-radius: 7px;
+        padding: 0 8px;
+      }
+
+      .item.active {
+        background: var(--screen-2);
+      }
+
+      .item-title {
+        overflow: hidden;
+        color: #b6c1cc;
+        font-size: 13px;
+        font-weight: 650;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .item-meta {
+        color: var(--quiet);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .item-meta.done {
+        color: var(--green);
+      }
+
+      .item-meta.warn {
+        color: var(--amber);
+      }
+
+      .dock {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        border-top: 1px solid var(--line);
+        padding: 7px;
+      }
+
+      .dock span {
+        display: grid;
+        place-items: center;
+        min-height: 24px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--quiet);
+        font-size: 11px;
+      }
+
+      .workspace {
+        display: grid;
+        align-content: center;
+        justify-items: center;
+        background: #0f1117;
+        padding: 32px;
+      }
+
+      .note {
+        width: min(460px, 100%);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 20px;
+      }
+
+      .note strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .note p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      @media (max-width: 760px) {
+        .app {
+          grid-template-columns: 1fr;
+        }
+
+        .workspace {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <aside class="sidebar" aria-label="Projects">
+        <div class="top">
+          <strong>PROJECTS</strong>
+          <div class="toolbar">
+            <button class="icon-button" aria-label="Sort projects">^v</button>
+            <button class="icon-button" aria-label="New project">+</button>
+          </div>
+        </div>
+
+        <div class="projects">
+          <section class="project" data-mode="threads">
+            <div class="tree-line">v</div>
+            <div class="project-body">
+              <div class="project-head">
+                <span class="folder" aria-hidden="true"></span>
+                <span class="name">t3code</span>
+              </div>
+              <div class="phone" aria-label="t3code pocket view">
+                <div class="speaker"></div>
+                <div class="screen">
+                  <div class="phone-tabs">
+                    <button type="button" data-mode="threads">Threads</button>
+                    <button type="button" data-mode="plans">Plans</button>
+                  </div>
+                  <div class="screen-list">
+                    <div data-view="threads">
+                      <div class="item active">
+                        <span class="item-title">Browser Lab MCP empty screenshot crash</span>
+                        <span class="item-meta">2m</span>
+                      </div>
+                      <div class="item">
+                        <span class="item-title">Fix skill selector UI in Composer</span>
+                        <span class="item-meta">2h</span>
+                      </div>
+                      <div class="item">
+                        <span class="item-title">Upstream feature gap analysis</span>
+                        <span class="item-meta">2h</span>
+                      </div>
+                      <div class="item">
+                        <span class="item-title">Fix mobile layout toggle in browser lab</span>
+                        <span class="item-meta">2h</span>
+                      </div>
+                    </div>
+                    <div data-view="plans">
+                      <div class="item active">
+                        <span class="item-title">agent-memory-layer</span>
+                        <span class="item-meta warn">run</span>
+                      </div>
+                      <div class="item">
+                        <span class="item-title">managed-process</span>
+                        <span class="item-meta done">ok</span>
+                      </div>
+                      <div class="item">
+                        <span class="item-title">rich-review-tab</span>
+                        <span class="item-meta done">ok</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="dock" aria-hidden="true">
+                    <span>1</span>
+                    <span>2</span>
+                    <span>3</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="project" data-mode="plans">
+            <div class="tree-line">v</div>
+            <div class="project-body">
+              <div class="project-head">
+                <span class="folder" aria-hidden="true"></span>
+                <span class="name">gwagent</span>
+              </div>
+              <div class="phone" aria-label="gwagent pocket view">
+                <div class="speaker"></div>
+                <div class="screen">
+                  <div class="phone-tabs">
+                    <button type="button" data-mode="threads">Threads</button>
+                    <button type="button" data-mode="plans">Plans</button>
+                  </div>
+                  <div class="screen-list">
+                    <div data-view="threads">
+                      <div class="item">
+                        <span class="item-title">Smallest incremental billing change...</span>
+                        <span class="item-meta">2h</span>
+                      </div>
+                      <div class="item">
+                        <span class="item-title">Building a personalized AI coding agent</span>
+                        <span class="item-meta">3h</span>
+                      </div>
+                      <div class="item">
+                        <span class="item-title">Structure initiative braindump</span>
+                        <span class="item-meta">7h</span>
+                      </div>
+                    </div>
+                    <div data-view="plans">
+                      <div class="item active">
+                        <span class="item-title">usage-threshold-ledger</span>
+                        <span class="item-meta warn">run</span>
+                      </div>
+                      <div class="item">
+                        <span class="item-title">account-lifecycle-flow</span>
+                        <span class="item-meta done">ok</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="dock" aria-hidden="true">
+                    <span>A</span>
+                    <span>B</span>
+                    <span>C</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <section class="workspace" aria-label="Detail area">
+        <div class="note">
+          <strong>Version 2: pocket view</strong>
+          <p>
+            The project expands into a small device-like surface. Threads and plans feel like app
+            screens rather than folders competing for vertical space.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      document.querySelectorAll(".phone-tabs button").forEach((button) => {
+        button.addEventListener("click", () => {
+          const project = button.closest(".project");
+          project.dataset.mode = button.dataset.mode;
+        });
+      });
+    </script>
+  </body>
+</html>

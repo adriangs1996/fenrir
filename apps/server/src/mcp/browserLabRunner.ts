@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
-import { BROWSER_LAB_MCP_TOOLS, truncateBrowserLabToolResult } from "./browserLabTools.ts";
+import { BROWSER_LAB_MCP_TOOLS, formatBrowserLabToolResult } from "./browserLabTools.ts";
 
 const backendUrl = process.env.FENRIR_MCP_BACKEND_URL?.trim();
 const token = process.env.FENRIR_MCP_TOKEN?.trim();
@@ -49,28 +49,7 @@ for (const tool of BROWSER_LAB_MCP_TOOLS) {
     },
     async (input: unknown) => {
       const result = await callTool(tool.name, input);
-      if (
-        tool.name === "browser_lab_screenshot" &&
-        result &&
-        typeof result === "object" &&
-        typeof (result as { data?: unknown }).data === "string"
-      ) {
-        return {
-          content: [
-            {
-              type: "image" as const,
-              data: (result as { data: string }).data,
-              mimeType:
-                typeof (result as { mimeType?: unknown }).mimeType === "string"
-                  ? (result as { mimeType: string }).mimeType
-                  : "image/png",
-            },
-          ],
-        };
-      }
-      return {
-        content: [{ type: "text" as const, text: truncateBrowserLabToolResult(result) }],
-      };
+      return formatBrowserLabToolResult(tool.name, result);
     },
   );
 }

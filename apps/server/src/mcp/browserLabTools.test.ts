@@ -3,7 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { BROWSER_LAB_MCP_TOOLS } from "./browserLabTools.ts";
+import { BROWSER_LAB_MCP_TOOLS, formatBrowserLabToolResult } from "./browserLabTools.ts";
 
 function tool(name: string) {
   const match = BROWSER_LAB_MCP_TOOLS.find((candidate) => candidate.name === name);
@@ -52,6 +52,35 @@ describe("Browser Lab MCP tools", () => {
       action: "pause",
       scope: { urlPattern: "*/api/*" },
     });
+  });
+
+  it("formats Browser Lab screenshots as image MCP content", () => {
+    expect(
+      formatBrowserLabToolResult("browser_lab_screenshot", {
+        data: " SGVsbG8= \n",
+        mimeType: "IMAGE/PNG",
+      }),
+    ).toEqual({
+      content: [{ type: "image", data: "SGVsbG8=", mimeType: "image/png" }],
+    });
+  });
+
+  it("rejects empty Browser Lab screenshot bytes before they reach Codex", () => {
+    expect(() =>
+      formatBrowserLabToolResult("browser_lab_screenshot", {
+        data: "",
+        mimeType: "image/png",
+      }),
+    ).toThrow("empty or invalid image data");
+  });
+
+  it("rejects non-image Browser Lab screenshot MIME types", () => {
+    expect(() =>
+      formatBrowserLabToolResult("browser_lab_screenshot", {
+        data: "SGVsbG8=",
+        mimeType: "text/plain",
+      }),
+    ).toThrow("non-image MIME type");
   });
 
   it("advertises concrete input schemas over MCP", async () => {

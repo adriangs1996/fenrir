@@ -19,12 +19,18 @@ interface PersistedUiState {
   expandedProjectCwds?: string[];
   expandedProjectThreadFolderCwds?: string[];
   expandedPlanRunnerFolderKeys?: string[];
+  projectDrawerViewByCwd?: Record<string, string>;
   projectOrderCwds?: string[];
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
 }
 
+export type ProjectDrawerView = "threads" | "plans";
+
+const DEFAULT_PROJECT_DRAWER_VIEW: ProjectDrawerView = "threads";
+
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
+  projectDrawerViewByCwd: Record<string, ProjectDrawerView>;
   projectThreadFolderExpandedByCwd: Record<string, boolean>;
   projectOrder: string[];
 }
@@ -52,6 +58,7 @@ export interface SyncThreadInput {
 
 const initialState: UiState = {
   projectExpandedById: {},
+  projectDrawerViewByCwd: {},
   projectThreadFolderExpandedByCwd: {},
   projectOrder: [],
   threadLastVisitedAtById: {},
@@ -88,6 +95,7 @@ function readPersistedState(): UiState {
       projectThreadFolderExpandedByCwd: sanitizePersistedExpandedKeys(
         parsed.expandedProjectThreadFolderCwds,
       ),
+      projectDrawerViewByCwd: sanitizePersistedProjectDrawerViews(parsed.projectDrawerViewByCwd),
       planRunnerFolderExpandedByKey: sanitizePersistedExpandedKeys(
         parsed.expandedPlanRunnerFolderKeys,
       ),
@@ -125,6 +133,26 @@ function sanitizePersistedThreadChangedFilesExpanded(
     }
   }
 
+  return nextState;
+}
+
+function isProjectDrawerView(value: unknown): value is ProjectDrawerView {
+  return value === "threads" || value === "plans";
+}
+
+function sanitizePersistedProjectDrawerViews(
+  value: PersistedUiState["projectDrawerViewByCwd"],
+): Record<string, ProjectDrawerView> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const nextState: Record<string, ProjectDrawerView> = {};
+  for (const [cwd, view] of Object.entries(value)) {
+    if (cwd.length > 0 && isProjectDrawerView(view) && view !== DEFAULT_PROJECT_DRAWER_VIEW) {
+      nextState[cwd] = view;
+    }
+  }
   return nextState;
 }
 
@@ -192,6 +220,7 @@ function persistState(state: UiState): void {
         expandedProjectCwds,
         expandedProjectThreadFolderCwds,
         expandedPlanRunnerFolderKeys,
+        projectDrawerViewByCwd: state.projectDrawerViewByCwd,
         projectOrderCwds,
         threadChangedFilesExpandedById,
       } satisfies PersistedUiState),
@@ -257,6 +286,7 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
     projects.some((project) => previousProjectCwdById.get(project.key) !== project.cwd);
 
   const nextExpandedById: Record<string, boolean> = {};
+  const nextProjectDrawerViewByCwd: Record<string, ProjectDrawerView> = {};
   const previousExpandedById = state.projectExpandedById;
   const persistedOrderByCwd = new Map(
     persistedProjectOrderCwds.map((cwd, index) => [cwd, index] as const),
@@ -268,6 +298,15 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
       (previousCwdForProjectId ? previousExpandedById[previousCwdForProjectId] : undefined) ??
       persistedExpandedProjectCwds.has(project.cwd);
     nextExpandedById[project.cwd] = expanded;
+    const drawerView =
+      state.projectDrawerViewByCwd[project.cwd] ??
+      (previousCwdForProjectId
+        ? state.projectDrawerViewByCwd[previousCwdForProjectId]
+        : undefined) ??
+      DEFAULT_PROJECT_DRAWER_VIEW;
+    if (drawerView !== DEFAULT_PROJECT_DRAWER_VIEW) {
+      nextProjectDrawerViewByCwd[project.cwd] = drawerView;
+    }
     return {
       id: project.key,
       cwd: project.cwd,
@@ -327,6 +366,7 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
 
   if (
     recordsEqual(state.projectExpandedById, nextExpandedById) &&
+    recordsEqual(state.projectDrawerViewByCwd, nextProjectDrawerViewByCwd) &&
     projectOrdersEqual(state.projectOrder, nextProjectOrder) &&
     !cwdMappingChanged
   ) {
@@ -336,6 +376,7 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
   return {
     ...state,
     projectExpandedById: nextExpandedById,
+    projectDrawerViewByCwd: nextProjectDrawerViewByCwd,
     projectOrder: nextProjectOrder,
   };
 }
@@ -513,6 +554,28 @@ export function setProjectExpanded(state: UiState, projectCwd: string, expanded:
   };
 }
 
+export function setProjectDrawerView(
+  state: UiState,
+  projectCwd: string,
+  view: ProjectDrawerView,
+): UiState {
+  const currentView = state.projectDrawerViewByCwd[projectCwd] ?? DEFAULT_PROJECT_DRAWER_VIEW;
+  if (currentView === view) {
+    return state;
+  }
+
+  const nextProjectDrawerViewByCwd = { ...state.projectDrawerViewByCwd };
+  if (view === DEFAULT_PROJECT_DRAWER_VIEW) {
+    delete nextProjectDrawerViewByCwd[projectCwd];
+  } else {
+    nextProjectDrawerViewByCwd[projectCwd] = view;
+  }
+  return {
+    ...state,
+    projectDrawerViewByCwd: nextProjectDrawerViewByCwd,
+  };
+}
+
 export function setProjectThreadFolderExpanded(
   state: UiState,
   projectCwd: string,
@@ -595,6 +658,7 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   toggleProject: (projectCwd: string) => void;
   setProjectExpanded: (projectCwd: string, expanded: boolean) => void;
+  setProjectDrawerView: (projectCwd: string, view: ProjectDrawerView) => void;
   setProjectThreadFolderExpanded: (projectCwd: string, expanded: boolean) => void;
   setPlanRunnerFolderExpanded: (key: string, expanded: boolean) => void;
   reorderProjects: (draggedProjectIds: readonly string[], targetProjectId: string) => void;
@@ -614,6 +678,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),
+  setProjectDrawerView: (projectCwd, view) =>
+    set((state) => setProjectDrawerView(state, projectCwd, view)),
   setProjectThreadFolderExpanded: (projectCwd, expanded) =>
     set((state) => setProjectThreadFolderExpanded(state, projectCwd, expanded)),
   setPlanRunnerFolderExpanded: (key, expanded) =>

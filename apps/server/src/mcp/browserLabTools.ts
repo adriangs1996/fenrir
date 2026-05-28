@@ -1,13 +1,26 @@
+import { Buffer } from "node:buffer";
 import { z } from "zod";
 import type * as z4 from "zod/v4/core";
 
 type BrowserLabInputSchema = Record<string, z4.$ZodType>;
+type BrowserLabToolContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
+interface BrowserLabToolCallResult {
+  [key: string]: unknown;
+  content: BrowserLabToolContent[];
+}
 
 interface BrowserLabMcpTool {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: BrowserLabInputSchema;
 }
+
+const defaultScreenshotMimeType = "image/png";
+const imageMimeTypePattern = /^image\/[a-z0-9][a-z0-9.+-]*$/i;
+const base64CharactersPattern = /^[a-z0-9+/]+={0,2}$/i;
 
 const optionalTabId = z
   .string()
@@ -366,4 +379,71 @@ export function truncateBrowserLabToolResult(value: unknown): string {
     return text;
   }
   return `${text.slice(0, maxLength)}\n... truncated ${text.length - maxLength} characters`;
+}
+
+function normalizeBase64ImageData(value: string): string | null {
+  const base64 = value.replace(/\s+/g, "");
+  if (!base64 || !base64CharactersPattern.test(base64) || base64.length % 4 === 1) {
+    return null;
+  }
+
+  const bytes = Buffer.from(base64, "base64");
+  if (bytes.length === 0) {
+    return null;
+  }
+
+  const canonicalInput = base64.replace(/=+$/g, "");
+  const canonicalDecoded = bytes.toString("base64").replace(/=+$/g, "");
+  return canonicalInput === canonicalDecoded ? base64 : null;
+}
+
+function normalizeImageMimeType(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    return defaultScreenshotMimeType;
+  }
+
+  const mimeType = value.trim().toLowerCase();
+  if (!imageMimeTypePattern.test(mimeType)) {
+    throw new Error(`Browser Lab screenshot returned non-image MIME type '${value}'.`);
+  }
+  return mimeType;
+}
+
+function formatBrowserLabScreenshotResult(result: unknown): BrowserLabToolCallResult {
+  if (!result || typeof result !== "object") {
+    throw new Error("Browser Lab screenshot returned an invalid result.");
+  }
+
+  const record = result as { readonly data?: unknown; readonly mimeType?: unknown };
+  if (typeof record.data !== "string") {
+    throw new Error("Browser Lab screenshot returned no image data.");
+  }
+
+  const data = normalizeBase64ImageData(record.data);
+  if (!data) {
+    throw new Error("Browser Lab screenshot returned empty or invalid image data.");
+  }
+
+  return {
+    content: [
+      {
+        type: "image",
+        data,
+        mimeType: normalizeImageMimeType(record.mimeType),
+      },
+    ],
+  };
+}
+
+export function formatBrowserLabToolResult(
+  toolName: string,
+  result: unknown,
+): BrowserLabToolCallResult {
+  if (toolName === "browser_lab_screenshot") {
+    return formatBrowserLabScreenshotResult(result);
+  }
+
+  return {
+    content: [{ type: "text", text: truncateBrowserLabToolResult(result) }],
+  };
 }

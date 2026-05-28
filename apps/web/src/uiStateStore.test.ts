@@ -5,6 +5,7 @@ import {
   clearThreadUi,
   markThreadUnread,
   reorderProjects,
+  setProjectDrawerView,
   setPlanRunnerFolderExpanded,
   setProjectExpanded,
   setProjectThreadFolderExpanded,
@@ -17,6 +18,7 @@ import {
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
+    projectDrawerViewByCwd: {},
     projectThreadFolderExpandedByCwd: {},
     projectOrder: [],
     threadLastVisitedAtById: {},
@@ -245,6 +247,20 @@ describe("uiStateStore pure functions", () => {
     expect(next.projectExpandedById[renamedCwd]).toBe(false);
   });
 
+  it("syncProjects preserves project drawer view for retained projects", () => {
+    const project1 = ProjectId.make("project-1");
+    const project1Cwd = "/tmp/project-1";
+    const initialState = makeUiState({
+      projectDrawerViewByCwd: {
+        [project1Cwd]: "plans",
+      },
+    });
+
+    const next = syncProjects(initialState, [{ key: project1, cwd: project1Cwd }]);
+
+    expect(next.projectDrawerViewByCwd[project1Cwd]).toBe("plans");
+  });
+
   it("syncThreads prunes missing thread UI state", () => {
     const thread1 = ThreadId.make("thread-1");
     const thread2 = ThreadId.make("thread-2");
@@ -304,6 +320,26 @@ describe("uiStateStore pure functions", () => {
 
     expect(next.projectExpandedById[project1]).toBe(false);
     expect(next.projectOrder).toEqual([project1]);
+  });
+
+  it("setProjectDrawerView stores non-default drawer views per cwd", () => {
+    const initialState = makeUiState();
+
+    const next = setProjectDrawerView(initialState, "/tmp/project-1", "plans");
+
+    expect(next.projectDrawerViewByCwd["/tmp/project-1"]).toBe("plans");
+  });
+
+  it("setProjectDrawerView removes default drawer view overrides", () => {
+    const initialState = makeUiState({
+      projectDrawerViewByCwd: {
+        "/tmp/project-1": "plans",
+      },
+    });
+
+    const next = setProjectDrawerView(initialState, "/tmp/project-1", "threads");
+
+    expect(next.projectDrawerViewByCwd).toEqual({});
   });
 
   it("setProjectThreadFolderExpanded stores thread folder expansion per cwd", () => {

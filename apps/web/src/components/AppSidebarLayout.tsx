@@ -78,8 +78,22 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     }
 
     const unsubscribe = onMenuAction((action) => {
-      if (action !== "open-settings") return;
-      void navigate({ to: "/settings" });
+      if (action === "open-settings") {
+        void navigate({ to: "/settings" });
+        return;
+      }
+
+      if (action === "toggle-sidebar") {
+        setThreadSidebarOpenRaw((open) => {
+          const nextOpen = !open;
+          try {
+            localStorage.setItem(THREAD_SIDEBAR_COLLAPSED_KEY, nextOpen ? "false" : "true");
+          } catch {
+            // Ignore storage errors
+          }
+          return nextOpen;
+        });
+      }
     });
 
     return () => {

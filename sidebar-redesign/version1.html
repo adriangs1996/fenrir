@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>V1 — Segmented Control Toggle</title>
+    <style>
+      :root {
+        --bg: #0e0e10;
+        --card: #16161a;
+        --border: #27272a;
+        --fg: #fafafa;
+        --fg-muted: #71717a;
+        --fg-muted-dim: #52525b;
+        --primary: #a78bfa;
+        --primary-dim: rgba(167, 139, 250, 0.15);
+        --accent: #1e1e22;
+        --accent-hover: #27272d;
+        --green: #4ade80;
+        --amber: #fbbf24;
+        --blue: #60a5fa;
+        --red: #f87171;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      .sidebar {
+        width: 280px;
+        border-right: 1px solid var(--border);
+        background: var(--card);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .sidebar-header {
+        padding: 12px 14px 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .sidebar-header svg {
+        width: 28px;
+        height: 28px;
+        color: var(--primary);
+        flex-shrink: 0;
+      }
+
+      .sidebar-header h1 {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--fg);
+      }
+
+      .sidebar-header .version {
+        font-size: 9px;
+        color: var(--fg-muted);
+        background: var(--accent);
+        padding: 1px 5px;
+        border-radius: 4px;
+        margin-left: auto;
+      }
+
+      .sidebar-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 6px 0;
+      }
+
+      .sidebar-content::-webkit-scrollbar {
+        width: 4px;
+      }
+      .sidebar-content::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .sidebar-content::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 4px;
+      }
+
+      /* Project Group */
+      .project-group {
+        margin-bottom: 2px;
+      }
+
+      .project-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        cursor: pointer;
+        user-select: none;
+        position: relative;
+      }
+
+      .project-header:hover {
+        background: var(--accent);
+      }
+
+      .project-header .chevron {
+        width: 14px;
+        height: 14px;
+        color: var(--fg-muted-dim);
+        transition: transform 0.2s ease;
+        flex-shrink: 0;
+      }
+
+      .project-header .chevron.expanded {
+        transform: rotate(90deg);
+      }
+
+      .project-header .project-icon {
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
+        background: var(--primary-dim);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        flex-shrink: 0;
+      }
+
+      .project-header .project-name {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--fg);
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .project-header.active .project-name {
+        color: var(--primary);
+        font-weight: 700;
+        font-size: 13px;
+      }
+
+      .project-header .actions {
+        display: none;
+        gap: 2px;
+      }
+
+      .project-header:hover .actions {
+        display: flex;
+      }
+
+      .action-btn {
+        width: 20px;
+        height: 20px;
+        border: none;
+        background: transparent;
+        color: var(--fg-muted);
+        border-radius: 4px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .action-btn:hover {
+        background: var(--accent-hover);
+        color: var(--fg);
+      }
+
+      .action-btn svg {
+        width: 13px;
+        height: 13px;
+      }
+
+      /* V1 KEY FEATURE: Segmented Control */
+      .segmented-control {
+        display: flex;
+        margin: 4px 18px 6px;
+        background: var(--bg);
+        border-radius: 6px;
+        padding: 2px;
+        position: relative;
+      }
+
+      .segmented-control .segment {
+        flex: 1;
+        padding: 4px 0;
+        text-align: center;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--fg-muted);
+        cursor: pointer;
+        border-radius: 4px;
+        transition: all 0.2s ease;
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+      }
+
+      .segmented-control .segment.active {
+        color: var(--fg);
+        background: var(--accent-hover);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+      }
+
+      .segmented-control .segment svg {
+        width: 11px;
+        height: 11px;
+      }
+
+      .segmented-control .segment .count {
+        font-size: 9px;
+        background: var(--border);
+        padding: 0 4px;
+        border-radius: 8px;
+        min-width: 14px;
+        color: var(--fg-muted);
+      }
+
+      .segmented-control .segment.active .count {
+        background: var(--primary-dim);
+        color: var(--primary);
+      }
+
+      /* Thread / Plan items */
+      .project-children {
+        padding: 0 6px 0 22px;
+      }
+
+      .item-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 8px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 11px;
+        color: var(--fg);
+        transition: background 0.15s;
+      }
+
+      .item-row:hover {
+        background: var(--accent);
+      }
+
+      .item-row.active {
+        background: var(--primary-dim);
+        color: var(--primary);
+      }
+
+      .item-row .item-icon {
+        width: 14px;
+        height: 14px;
+        color: var(--fg-muted);
+        flex-shrink: 0;
+      }
+
+      .item-row.active .item-icon {
+        color: var(--primary);
+      }
+
+      .item-row .item-title {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .item-row .item-meta {
+        font-size: 9px;
+        color: var(--fg-muted-dim);
+        flex-shrink: 0;
+      }
+
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .status-dot.working {
+        background: var(--green);
+        animation: pulse 2s infinite;
+      }
+      .status-dot.pending {
+        background: var(--amber);
+      }
+      .status-dot.completed {
+        background: var(--blue);
+      }
+      .status-dot.error {
+        background: var(--red);
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+
+      /* Main content placeholder */
+      .main-content {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--fg-muted);
+        font-size: 13px;
+      }
+
+      /* Design label */
+      .design-label {
+        position: fixed;
+        top: 12px;
+        right: 16px;
+        background: var(--primary);
+        color: #000;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 6px;
+        z-index: 100;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="design-label">V1 — Segmented Control</div>
+
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="80" cy="35" rx="6" ry="3" fill="currentColor" opacity="0.9" />
+          <ellipse cx="120" cy="35" rx="6" ry="3" fill="currentColor" opacity="0.9" />
+          <path
+            d="M42,88 L58,55 L75,72 L88,40 L100,62 L112,40 L125,72 L142,55 L158,88"
+            stroke="currentColor"
+            stroke-width="4"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+        </svg>
+        <h1>Fenrir</h1>
+        <span class="version">dev</span>
+      </div>
+
+      <div class="sidebar-content">
+        <!-- Project 1: Active -->
+        <div class="project-group">
+          <div class="project-header active" onclick="toggleProject(this)">
+            <svg
+              class="chevron expanded"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+            <div class="project-icon">F</div>
+            <span class="project-name">fenrir</span>
+            <div class="actions">
+              <button class="action-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="project-body">
+            <div class="segmented-control">
+              <div class="segment active" onclick="switchView(this, 'threads')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                Threads
+                <span class="count">4</span>
+              </div>
+              <div class="segment" onclick="switchView(this, 'plans')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                Plans
+                <span class="count">2</span>
+              </div>
+            </div>
+
+            <div class="project-children" data-view="threads">
+              <div class="item-row active">
+                <div class="status-dot working"></div>
+                <span class="item-title">Sidebar redesign exploration</span>
+                <span class="item-meta">2m</span>
+              </div>
+              <div class="item-row">
+                <div class="status-dot completed"></div>
+                <span class="item-title">Fix WebSocket reconnect</span>
+                <span class="item-meta">1h</span>
+              </div>
+              <div class="item-row">
+                <div class="status-dot pending"></div>
+                <span class="item-title">Add MCP browser tools</span>
+                <span class="item-meta">3h</span>
+              </div>
+              <div class="item-row">
+                <svg
+                  class="item-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                <span class="item-title">Terminal drawer polish</span>
+                <span class="item-meta">1d</span>
+              </div>
+            </div>
+
+            <div class="project-children" data-view="plans" style="display: none">
+              <div class="item-row">
+                <svg
+                  class="item-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                <span class="item-title">Auth middleware rewrite</span>
+                <span class="item-meta">3 steps</span>
+              </div>
+              <div class="item-row">
+                <svg
+                  class="item-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                <span class="item-title">Provider session pooling</span>
+                <span class="item-meta">5 steps</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Project 2 -->
+        <div class="project-group">
+          <div class="project-header" onclick="toggleProject(this)">
+            <svg
+              class="chevron"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+            <div class="project-icon">G</div>
+            <span class="project-name">guruwalk-api</span>
+            <div class="actions">
+              <button class="action-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Project 3 -->
+        <div class="project-group">
+          <div class="project-header" onclick="toggleProject(this)">
+            <svg
+              class="chevron"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+            <div class="project-icon">R</div>
+            <span class="project-name">redtrail</span>
+            <div class="actions">
+              <button class="action-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main-content">
+      <span>V1: Segmented control — iOS-style pill toggle between Threads and Plans</span>
+    </div>
+
+    <script>
+      function toggleProject(header) {
+        const chevron = header.querySelector(".chevron");
+        const body = header.nextElementSibling;
+        if (body && body.classList.contains("project-body")) {
+          body.style.display = body.style.display === "none" ? "" : "none";
+          chevron.classList.toggle("expanded");
+        }
+      }
+
+      function switchView(segment, view) {
+        const control = segment.parentElement;
+        control.querySelectorAll(".segment").forEach((s) => s.classList.remove("active"));
+        segment.classList.add("active");
+
+        const body = control.parentElement;
+        body.querySelectorAll(".project-children").forEach((c) => {
+          c.style.display = c.dataset.view === view ? "" : "none";
+        });
+      }
+    </script>
+  </body>
+</html>

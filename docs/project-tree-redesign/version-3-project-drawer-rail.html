@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Project Drawer Rail</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0c0f;
+        --sidebar: #101319;
+        --drawer: #151a22;
+        --drawer-2: #1a202a;
+        --line: rgb(255 255 255 / 0.08);
+        --line-strong: rgb(255 255 255 / 0.15);
+        --text: #e8edf4;
+        --muted: #8d97a3;
+        --quiet: #606b77;
+        --blue: #7ca7ff;
+        --green: #70d69e;
+        --amber: #edc16d;
+        --red: #e58a92;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        letter-spacing: 0;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: minmax(370px, 540px) 1fr;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--line-strong);
+        background: var(--sidebar);
+        padding: 18px 14px;
+      }
+
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 4px 14px;
+      }
+
+      .top strong {
+        color: var(--quiet);
+        font-size: 12px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 6px;
+      }
+
+      .icon-button {
+        width: 30px;
+        height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .projects {
+        display: grid;
+        gap: 12px;
+      }
+
+      .project {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #0e1117;
+      }
+
+      .project-head {
+        display: grid;
+        grid-template-columns: auto auto minmax(0, 1fr) auto;
+        gap: 9px;
+        align-items: center;
+        min-height: 42px;
+        border-bottom: 1px solid var(--line);
+        padding: 0 10px;
+      }
+
+      .chevron {
+        color: var(--muted);
+      }
+
+      .folder {
+        width: 18px;
+        height: 13px;
+        border: 1.5px solid var(--blue);
+        border-radius: 3px;
+        position: relative;
+      }
+
+      .folder::before {
+        content: "";
+        position: absolute;
+        left: 2px;
+        top: -5px;
+        width: 8px;
+        height: 5px;
+        border: 1.5px solid var(--blue);
+        border-bottom: 0;
+        border-radius: 3px 3px 0 0;
+      }
+
+      .name {
+        overflow: hidden;
+        font-weight: 760;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .count {
+        color: var(--quiet);
+        font-size: 12px;
+      }
+
+      .drawer {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        min-height: 188px;
+      }
+
+      .rail {
+        display: grid;
+        align-content: start;
+        gap: 8px;
+        border-right: 1px solid var(--line);
+        padding: 8px 6px;
+      }
+
+      .rail button {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .project[data-mode="threads"] button[data-mode="threads"],
+      .project[data-mode="plans"] button[data-mode="plans"],
+      .project[data-mode="status"] button[data-mode="status"] {
+        border-color: var(--line-strong);
+        background: var(--drawer);
+        color: var(--text);
+      }
+
+      .panel {
+        min-width: 0;
+        padding: 8px;
+      }
+
+      .project[data-mode="threads"] [data-view="plans"],
+      .project[data-mode="threads"] [data-view="status"],
+      .project[data-mode="plans"] [data-view="threads"],
+      .project[data-mode="plans"] [data-view="status"],
+      .project[data-mode="status"] [data-view="threads"],
+      .project[data-mode="status"] [data-view="plans"] {
+        display: none;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 24px;
+        color: var(--quiet);
+        font-size: 12px;
+      }
+
+      .rows {
+        display: grid;
+        gap: 4px;
+        margin-top: 4px;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        min-height: 34px;
+        border-radius: 6px;
+        padding: 0 8px;
+      }
+
+      .row.active,
+      .row:hover {
+        background: var(--drawer-2);
+      }
+
+      .title {
+        overflow: hidden;
+        color: #b5c0ca;
+        font-size: 13px;
+        font-weight: 650;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .meta {
+        color: var(--quiet);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .ok {
+        color: var(--green);
+      }
+
+      .run {
+        color: var(--amber);
+      }
+
+      .metric-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .metric {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 8px;
+      }
+
+      .metric span {
+        display: block;
+        color: var(--quiet);
+        font-size: 11px;
+      }
+
+      .metric strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 18px;
+      }
+
+      .bar {
+        overflow: hidden;
+        height: 6px;
+        border-radius: 999px;
+        background: #0b0d11;
+        margin-top: 10px;
+      }
+
+      .bar i {
+        display: block;
+        height: 100%;
+        background: var(--green);
+      }
+
+      .workspace {
+        display: grid;
+        align-content: center;
+        justify-items: center;
+        background: #0f1117;
+        padding: 32px;
+      }
+
+      .note {
+        width: min(460px, 100%);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 20px;
+      }
+
+      .note strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .note p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      @media (max-width: 760px) {
+        .app {
+          grid-template-columns: 1fr;
+        }
+
+        .workspace {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <aside class="sidebar" aria-label="Projects">
+        <div class="top">
+          <strong>PROJECTS</strong>
+          <div class="actions">
+            <button class="icon-button" aria-label="Sort projects">^v</button>
+            <button class="icon-button" aria-label="New project">+</button>
+          </div>
+        </div>
+
+        <div class="projects">
+          <section class="project" data-mode="threads">
+            <div class="project-head">
+              <span class="chevron">v</span>
+              <span class="folder" aria-hidden="true"></span>
+              <span class="name">t3code</span>
+              <span class="count">12 / 3</span>
+            </div>
+            <div class="drawer">
+              <nav class="rail" aria-label="t3code drawers">
+                <button type="button" data-mode="threads" aria-label="Threads">T</button>
+                <button type="button" data-mode="plans" aria-label="Action plans">P</button>
+                <button type="button" data-mode="status" aria-label="Project status">S</button>
+              </nav>
+              <div class="panel">
+                <div data-view="threads">
+                  <div class="section-head"><span>Recent threads</span><span>2m ago</span></div>
+                  <div class="rows">
+                    <div class="row active">
+                      <span class="title">Browser Lab MCP empty screenshot crash</span>
+                      <span class="meta">2m</span>
+                    </div>
+                    <div class="row">
+                      <span class="title">Fix skill selector UI in Composer</span>
+                      <span class="meta">2h</span>
+                    </div>
+                    <div class="row">
+                      <span class="title">Upstream feature gap analysis</span>
+                      <span class="meta">2h</span>
+                    </div>
+                  </div>
+                </div>
+                <div data-view="plans">
+                  <div class="section-head"><span>Action plans</span><span>3 total</span></div>
+                  <div class="rows">
+                    <div class="row active">
+                      <span class="title">agent-memory-layer</span>
+                      <span class="meta run">running</span>
+                    </div>
+                    <div class="row">
+                      <span class="title">managed-process</span>
+                      <span class="meta ok">ready</span>
+                    </div>
+                    <div class="row">
+                      <span class="title">rich-review-tab</span>
+                      <span class="meta ok">ready</span>
+                    </div>
+                  </div>
+                </div>
+                <div data-view="status">
+                  <div class="section-head"><span>Project health</span><span>live</span></div>
+                  <div class="metric-grid">
+                    <div class="metric"><span>Open threads</span><strong>12</strong></div>
+                    <div class="metric"><span>Plans ready</span><strong>2</strong></div>
+                    <div class="metric"><span>Active run</span><strong>1</strong></div>
+                    <div class="metric"><span>Errors</span><strong>0</strong></div>
+                  </div>
+                  <div class="bar" aria-hidden="true"><i style="width: 72%"></i></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="project" data-mode="plans">
+            <div class="project-head">
+              <span class="chevron">v</span>
+              <span class="folder" aria-hidden="true"></span>
+              <span class="name">gwagent</span>
+              <span class="count">9 / 2</span>
+            </div>
+            <div class="drawer">
+              <nav class="rail" aria-label="gwagent drawers">
+                <button type="button" data-mode="threads" aria-label="Threads">T</button>
+                <button type="button" data-mode="plans" aria-label="Action plans">P</button>
+                <button type="button" data-mode="status" aria-label="Project status">S</button>
+              </nav>
+              <div class="panel">
+                <div data-view="threads">
+                  <div class="section-head"><span>Recent threads</span><span>2h ago</span></div>
+                  <div class="rows">
+                    <div class="row">
+                      <span class="title">Smallest incremental billing change...</span>
+                      <span class="meta">2h</span>
+                    </div>
+                    <div class="row">
+                      <span class="title">Building a personalized AI coding agent</span>
+                      <span class="meta">3h</span>
+                    </div>
+                    <div class="row">
+                      <span class="title">Structure initiative braindump</span>
+                      <span class="meta">7h</span>
+                    </div>
+                  </div>
+                </div>
+                <div data-view="plans">
+                  <div class="section-head"><span>Action plans</span><span>2 total</span></div>
+                  <div class="rows">
+                    <div class="row active">
+                      <span class="title">usage-threshold-ledger</span>
+                      <span class="meta run">running</span>
+                    </div>
+                    <div class="row">
+                      <span class="title">account-lifecycle-flow</span>
+                      <span class="meta ok">ready</span>
+                    </div>
+                  </div>
+                </div>
+                <div data-view="status">
+                  <div class="section-head"><span>Project health</span><span>live</span></div>
+                  <div class="metric-grid">
+                    <div class="metric"><span>Open threads</span><strong>9</strong></div>
+                    <div class="metric"><span>Plans ready</span><strong>1</strong></div>
+                    <div class="metric"><span>Active run</span><strong>1</strong></div>
+                    <div class="metric"><span>Errors</span><strong>0</strong></div>
+                  </div>
+                  <div class="bar" aria-hidden="true"><i style="width: 58%"></i></div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <section class="workspace" aria-label="Detail area">
+        <div class="note">
+          <strong>Version 3: project drawer rail</strong>
+          <p>
+            Each project owns a compact rail. The rail can grow beyond threads and plans later
+            without adding more fake folders to the project tree.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      document.querySelectorAll(".rail button").forEach((button) => {
+        button.addEventListener("click", () => {
+          const project = button.closest(".project");
+          project.dataset.mode = button.dataset.mode;
+        });
+      });
+    </script>
+  </body>
+</html>

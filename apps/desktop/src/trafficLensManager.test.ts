@@ -161,11 +161,37 @@ describe("trafficLensManager", () => {
     it("registers navigation event listeners on webContents", () => {
       manager.createTab();
       const eventNames = fakeWebContents.on.mock.calls.map((c: any) => c[0]);
+      expect(eventNames).toContain("before-input-event");
       expect(eventNames).toContain("did-navigate");
       expect(eventNames).toContain("did-navigate-in-page");
       expect(eventNames).toContain("page-title-updated");
       expect(eventNames).toContain("did-start-loading");
       expect(eventNames).toContain("did-stop-loading");
+    });
+
+    it("forwards the sidebar toggle shortcut from the embedded page", () => {
+      const onSidebarToggleShortcut = vi.fn();
+      manager = createTrafficLensManager({
+        window: fakeWindow,
+        onSidebarToggleShortcut,
+      });
+      manager.createTab();
+
+      const beforeInputListener = fakeWebContents.on.mock.calls.find(
+        ([eventName]: any[]) => eventName === "before-input-event",
+      )![1];
+      const event = { preventDefault: vi.fn() };
+      beforeInputListener(event, {
+        type: "keyDown",
+        key: "b",
+        meta: process.platform === "darwin",
+        control: process.platform !== "darwin",
+        alt: false,
+        shift: false,
+      });
+
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(onSidebarToggleShortcut).toHaveBeenCalledOnce();
     });
   });
 

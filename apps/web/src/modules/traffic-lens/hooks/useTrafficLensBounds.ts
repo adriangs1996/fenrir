@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, type RefObject } from "react";
 import { useTrafficLensStore } from "../stores/useTrafficLensStore";
 
-export function useTrafficLensBounds(containerRef: RefObject<HTMLDivElement | null>) {
+export function useTrafficLensBounds(
+  containerRef: RefObject<HTMLDivElement | null>,
+  layoutKey?: string,
+) {
   const activeTabId = useTrafficLensStore((s) => s.activeTabId);
   const rafRef = useRef<number>(0);
 
@@ -23,6 +26,11 @@ export function useTrafficLensBounds(containerRef: RefObject<HTMLDivElement | nu
     }
   }, [activeTabId, containerRef]);
 
+  const scheduleUpdateBounds = useCallback(() => {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(updateBounds);
+  }, [updateBounds]);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !activeTabId) return;
@@ -30,19 +38,18 @@ export function useTrafficLensBounds(containerRef: RefObject<HTMLDivElement | nu
     // Show tab in main process
     void window.desktopBridge?.trafficLensShowTab(activeTabId);
 
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(updateBounds);
-    });
+    const observer = new ResizeObserver(scheduleUpdateBounds);
 
     observer.observe(el);
     updateBounds();
+    window.addEventListener("resize", scheduleUpdateBounds);
 
     return () => {
       observer.disconnect();
+      window.removeEventListener("resize", scheduleUpdateBounds);
       cancelAnimationFrame(rafRef.current);
     };
-  }, [activeTabId, containerRef, updateBounds]);
+  }, [activeTabId, containerRef, layoutKey, scheduleUpdateBounds, updateBounds]);
 
   // Hide all tabs on unmount
   useEffect(() => {

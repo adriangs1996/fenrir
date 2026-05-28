@@ -61,6 +61,7 @@ export interface TrafficLensManagerConfig {
   window: BrowserWindow;
   backendHttpUrl?: string;
   bootstrapToken?: string;
+  onSidebarToggleShortcut?: () => void;
   tabSessionPath?: string;
 }
 
@@ -432,6 +433,17 @@ function parseUrl(value: string): URL {
   } catch {
     return new URL(isHttpUrl(value) ? value : `http://${value}`);
   }
+}
+
+function isSidebarToggleInput(input: Electron.Input): boolean {
+  if (input.type !== "keyDown") {
+    return false;
+  }
+
+  const key = input.key.toLowerCase();
+  const isModPressed = process.platform === "darwin" ? input.meta : input.control;
+  const isOtherModPressed = process.platform === "darwin" ? input.control : input.meta;
+  return key === "b" && isModPressed && !isOtherModPressed && !input.alt && !input.shift;
 }
 
 export function createTrafficLensManager(config: TrafficLensManagerConfig): TrafficLensManager {
@@ -1453,6 +1465,15 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
   function wireWebContents(entry: TabEntry): void {
     const wc = entry.view.webContents;
     const tabId = entry.tabId;
+
+    wc.on("before-input-event", (event, input) => {
+      if (!isSidebarToggleInput(input)) {
+        return;
+      }
+
+      event.preventDefault();
+      config.onSidebarToggleShortcut?.();
+    });
 
     wc.on("will-navigate", () => {
       void archiveSessionStorageSnapshot(tabId, "navigation");

@@ -7,10 +7,13 @@ import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton } from "~/components/ui/sidebar";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "~/components/ui/collapsible";
 import { useUiStateStore } from "~/uiStateStore";
+import { cn } from "~/lib/utils";
 
 const EMPTY_FEATURES: ReadonlyArray<never> = [];
 
 interface PlanRunnerProjectSectionProps {
+  className?: string;
+  layout?: "folder" | "drawer";
   projectId: ProjectId;
   projectCwd: string;
 }
@@ -18,6 +21,8 @@ interface PlanRunnerProjectSectionProps {
 const PLAN_RUNNER_PROJECT_FOLDER_KEY_PREFIX = "plan-runner:project:";
 
 export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
+  className,
+  layout = "folder",
   projectId,
   projectCwd,
 }: PlanRunnerProjectSectionProps) {
@@ -47,11 +52,41 @@ export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
       });
   }, [rpcClient, projectId, setFeatures]);
 
-  // Don't render section if no features and no way to create them
-  if (features.length === 0 && !rpcClient) return null;
+  // Don't render the legacy folder section if no features and no way to create them.
+  if (features.length === 0 && !rpcClient && layout === "folder") return null;
+
+  if (layout === "drawer") {
+    return (
+      <SidebarMenuSub
+        className={cn("mx-0 w-full translate-x-0 gap-0.5 border-0 px-0 py-0", className)}
+      >
+        {features.length === 0 ? (
+          <SidebarMenuSubItem className="w-full">
+            <div className="flex h-7 w-full items-center px-2 text-[10px] text-muted-foreground/60">
+              {rpcClient ? "No plans yet" : "Plans unavailable"}
+            </div>
+          </SidebarMenuSubItem>
+        ) : (
+          features.map((feature) => (
+            <PlanRunnerFeatureFolder
+              key={feature.featureName}
+              feature={feature}
+              projectId={projectId}
+              projectCwd={projectCwd}
+            />
+          ))
+        )}
+      </SidebarMenuSub>
+    );
+  }
 
   return (
-    <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0">
+    <SidebarMenuSub
+      className={cn(
+        "mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0",
+        className,
+      )}
+    >
       <SidebarMenuSubItem className="w-full">
         <Collapsible
           open={expanded}

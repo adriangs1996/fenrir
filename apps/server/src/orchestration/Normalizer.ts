@@ -33,19 +33,31 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
         ),
       );
 
+    function test() {}
+
+    test();
+
     if (command.type === "project.create") {
       return {
         ...command,
-        workspaceRoot: yield* normalizeProjectWorkspaceRoot(command.workspaceRoot, {
-          createIfMissing: command.createWorkspaceRootIfMissing === true,
-        }),
+        workspaceRoot: yield* normalizeProjectWorkspaceRoot(
+          command.workspaceRoot,
+          {
+            createIfMissing: command.createWorkspaceRootIfMissing === true,
+          },
+        ),
       } satisfies OrchestrationCommand;
     }
 
-    if (command.type === "project.meta.update" && command.workspaceRoot !== undefined) {
+    if (
+      command.type === "project.meta.update" &&
+      command.workspaceRoot !== undefined
+    ) {
       return {
         ...command,
-        workspaceRoot: yield* normalizeProjectWorkspaceRoot(command.workspaceRoot),
+        workspaceRoot: yield* normalizeProjectWorkspaceRoot(
+          command.workspaceRoot,
+        ),
       } satisfies OrchestrationCommand;
     }
 
@@ -65,7 +77,10 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
           }
 
           const bytes = Buffer.from(parsed.base64, "base64");
-          if (bytes.byteLength === 0 || bytes.byteLength > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+          if (
+            bytes.byteLength === 0 ||
+            bytes.byteLength > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES
+          ) {
             return yield* new OrchestrationDispatchCommandError({
               message: `Image attachment '${attachment.name}' is empty or too large.`,
             });
@@ -96,14 +111,16 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
             });
           }
 
-          yield* fileSystem.makeDirectory(path.dirname(attachmentPath), { recursive: true }).pipe(
-            Effect.mapError(
-              () =>
-                new OrchestrationDispatchCommandError({
-                  message: `Failed to create attachment directory for '${attachment.name}'.`,
-                }),
-            ),
-          );
+          yield* fileSystem
+            .makeDirectory(path.dirname(attachmentPath), { recursive: true })
+            .pipe(
+              Effect.mapError(
+                () =>
+                  new OrchestrationDispatchCommandError({
+                    message: `Failed to create attachment directory for '${attachment.name}'.`,
+                  }),
+              ),
+            );
           yield* fileSystem.writeFile(attachmentPath, bytes).pipe(
             Effect.mapError(
               () =>

@@ -70,7 +70,7 @@ import {
   useStore,
 } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "~/modules/terminal";
-import { useUiStateStore } from "../uiStateStore";
+import { type ProjectDrawerView, useUiStateStore } from "../uiStateStore";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
@@ -104,7 +104,6 @@ import {
 } from "./desktopUpdate.logic";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collapsible";
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -679,6 +678,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 });
 
 interface SidebarProjectThreadListProps {
+  className?: string;
   projectKey: string;
   projectExpanded: boolean;
   hasOverflowingThreads: boolean;
@@ -729,6 +729,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
   props: SidebarProjectThreadListProps,
 ) {
   const {
+    className,
     projectKey,
     projectExpanded,
     hasOverflowingThreads,
@@ -769,7 +770,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
   return (
     <SidebarMenuSub
       ref={attachThreadListAutoAnimateRef}
-      className="mx-2 w-full gap-0.5 border-l border-sidebar-border py-0.5 pl-2"
+      className={cn("mx-2 w-full gap-0.5 border-l border-sidebar-border py-0.5 pl-2", className)}
     >
       {shouldShowThreadPanel && showEmptyThreadState ? (
         <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
@@ -851,10 +852,61 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
   );
 });
 
+interface ProjectDrawerRailButtonProps {
+  view: ProjectDrawerView;
+  activeView: ProjectDrawerView;
+  label: string;
+  shortcutLabel: string;
+  children: React.ReactNode;
+  onSelect: (view: ProjectDrawerView) => void;
+}
+
+const ProjectDrawerRailButton = memo(function ProjectDrawerRailButton({
+  view,
+  activeView,
+  label,
+  shortcutLabel,
+  children,
+  onSelect,
+}: ProjectDrawerRailButtonProps) {
+  const selected = activeView === view;
+  const handleClick = useCallback(() => {
+    onSelect(view);
+  }, [onSelect, view]);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            aria-pressed={selected}
+            data-thread-selection-safe
+            className={cn(
+              "inline-flex size-7 items-center justify-center rounded-md border border-transparent text-[10px] font-semibold transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
+              selected
+                ? "text-white"
+                : "text-muted-foreground/60 hover:bg-accent/70 hover:text-foreground/85",
+            )}
+            onClick={handleClick}
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipPopup side="right">
+        {label} <span className="text-muted-foreground/70">({shortcutLabel})</span>
+      </TooltipPopup>
+    </Tooltip>
+  );
+});
+
 interface SidebarProjectItemProps {
   project: SidebarProjectSnapshot;
   isThreadListExpanded: boolean;
   activeRouteThreadKey: string | null;
+  activeRouteProjectDrawerView: ProjectDrawerView | null;
   isActiveProject: boolean;
   newThreadShortcutLabel: string | null;
   handleNewThread: ReturnType<typeof useNewThreadHandler>["handleNewThread"];
@@ -876,6 +928,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     project,
     isThreadListExpanded,
     activeRouteThreadKey,
+    activeRouteProjectDrawerView,
     isActiveProject,
     newThreadShortcutLabel,
     handleNewThread,
@@ -1034,11 +1087,15 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const projectExpanded = useUiStateStore(
     (state) => state.projectExpandedById[project.cwd] ?? false,
   );
-  const threadFolderOpen = useUiStateStore(
-    (state) => state.projectThreadFolderExpandedByCwd[project.cwd] ?? false,
+  const projectDrawerView = useUiStateStore(
+    (state) => state.projectDrawerViewByCwd[project.cwd] ?? "threads",
   );
-  const setProjectThreadFolderExpanded = useUiStateStore(
-    (state) => state.setProjectThreadFolderExpanded,
+  const setProjectDrawerView = useUiStateStore((state) => state.setProjectDrawerView);
+  const handleProjectDrawerViewSelect = useCallback(
+    (view: ProjectDrawerView) => {
+      setProjectDrawerView(project.cwd, view);
+    },
+    [project.cwd, setProjectDrawerView],
   );
   const threadLastVisitedAts = useUiStateStore(
     useShallow((state) =>
@@ -1103,6 +1160,29 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       ) ?? null
     );
   }, [activeRouteThreadKey, projectExpanded, visibleProjectThreads]);
+  const effectiveProjectDrawerView: ProjectDrawerView =
+    pinnedCollapsedThread !== null ? "threads" : projectDrawerView;
+
+  useEffect(() => {
+    if (
+      !isActiveProject ||
+      activeRouteProjectDrawerView === null ||
+      activeRouteThreadKey === null
+    ) {
+      return;
+    }
+    setProjectDrawerView(project.cwd, activeRouteProjectDrawerView);
+  }, [
+    activeRouteProjectDrawerView,
+    activeRouteThreadKey,
+    isActiveProject,
+    project.cwd,
+    setProjectDrawerView,
+  ]);
+  const shouldShowProjectDrawerRail = activeRouteThreadKey !== null;
+  const renderedProjectDrawerView: ProjectDrawerView = shouldShowProjectDrawerRail
+    ? effectiveProjectDrawerView
+    : "threads";
 
   const {
     hasOverflowingThreads,
@@ -1752,68 +1832,89 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       </div>
 
       {shouldShowThreadPanel && (
-        <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0">
-          <SidebarMenuSubItem className="w-full">
-            <Collapsible
-              open={threadFolderOpen}
-              onOpenChange={(expanded) => setProjectThreadFolderExpanded(project.cwd, expanded)}
+        <div
+          data-thread-selection-safe
+          className={cn(
+            "ml-3 my-0 grid min-w-0 overflow-hidden rounded-md bg-background",
+            shouldShowProjectDrawerRail ? "grid-cols-[2rem_minmax(0,1fr)]" : "grid-cols-1",
+          )}
+        >
+          {shouldShowProjectDrawerRail ? (
+            <div
+              aria-label={`${project.name} project drawer`}
+              aria-orientation="vertical"
+              role="toolbar"
+              className="flex flex-col items-center gap-1 border-r border-l border-border/20 p-1"
             >
-              <CollapsibleTrigger className="w-full">
-                <SidebarMenuSubButton
-                  size="sm"
-                  className="h-6 w-full translate-x-0 justify-start gap-1.5 px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
-                >
-                  <ChevronRightIcon
-                    className={`size-3 shrink-0 transition-transform duration-200 ${threadFolderOpen ? "rotate-90" : ""}`}
-                  />
-                  <MessageSquareTextIcon className="size-3 shrink-0" />
-                  <span>Threads</span>
-                </SidebarMenuSubButton>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <SidebarProjectThreadList
-                  projectKey={project.projectKey}
-                  projectExpanded={projectExpanded}
-                  hasOverflowingThreads={hasOverflowingThreads}
-                  hiddenThreadStatus={hiddenThreadStatus}
-                  orderedProjectThreadKeys={orderedProjectThreadKeys}
-                  renderedThreads={renderedThreads}
-                  showEmptyThreadState={showEmptyThreadState}
-                  shouldShowThreadPanel={shouldShowThreadPanel}
-                  isThreadListExpanded={isThreadListExpanded}
-                  projectCwd={project.cwd}
-                  activeRouteThreadKey={activeRouteThreadKey}
-                  threadJumpLabelByKey={threadJumpLabelByKey}
-                  appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
-                  renamingThreadKey={renamingThreadKey}
-                  renamingTitle={renamingTitle}
-                  setRenamingTitle={setRenamingTitle}
-                  renamingInputRef={renamingInputRef}
-                  renamingCommittedRef={renamingCommittedRef}
-                  confirmingArchiveThreadKey={confirmingArchiveThreadKey}
-                  setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
-                  confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-                  attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
-                  handleThreadClick={handleThreadClick}
-                  navigateToThread={navigateToThread}
-                  handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-                  handleThreadContextMenu={handleThreadContextMenu}
-                  clearSelection={clearSelection}
-                  commitRename={commitRename}
-                  cancelRename={cancelRename}
-                  attemptArchiveThread={attemptArchiveThread}
-                  openPrLink={openPrLink}
-                  expandThreadListForProject={expandThreadListForProject}
-                  collapseThreadListForProject={collapseThreadListForProject}
-                />
-              </CollapsibleContent>
-            </Collapsible>
-          </SidebarMenuSubItem>
-        </SidebarMenuSub>
-      )}
+              <ProjectDrawerRailButton
+                view="threads"
+                activeView={effectiveProjectDrawerView}
+                label={`Show ${project.name} threads`}
+                shortcutLabel="T"
+                onSelect={handleProjectDrawerViewSelect}
+              >
+                <MessageSquareTextIcon className="size-3.5" />
+              </ProjectDrawerRailButton>
+              <ProjectDrawerRailButton
+                view="plans"
+                activeView={effectiveProjectDrawerView}
+                label={`Show ${project.name} action plans`}
+                shortcutLabel="P"
+                onSelect={handleProjectDrawerViewSelect}
+              >
+                <FileTextIcon className="size-3.5" />
+              </ProjectDrawerRailButton>
+            </div>
+          ) : null}
 
-      {projectExpanded && (
-        <PlanRunnerProjectSection projectId={project.id} projectCwd={project.cwd} />
+          <div className="min-w-0 py-1 pr-1">
+            {renderedProjectDrawerView === "threads" ? (
+              <SidebarProjectThreadList
+                className="mx-0 w-full translate-x-0 gap-0.5 border-0 px-0 py-0"
+                projectKey={project.projectKey}
+                projectExpanded={projectExpanded}
+                hasOverflowingThreads={hasOverflowingThreads}
+                hiddenThreadStatus={hiddenThreadStatus}
+                orderedProjectThreadKeys={orderedProjectThreadKeys}
+                renderedThreads={renderedThreads}
+                showEmptyThreadState={showEmptyThreadState}
+                shouldShowThreadPanel={shouldShowThreadPanel}
+                isThreadListExpanded={isThreadListExpanded}
+                projectCwd={project.cwd}
+                activeRouteThreadKey={activeRouteThreadKey}
+                threadJumpLabelByKey={threadJumpLabelByKey}
+                appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
+                renamingThreadKey={renamingThreadKey}
+                renamingTitle={renamingTitle}
+                setRenamingTitle={setRenamingTitle}
+                renamingInputRef={renamingInputRef}
+                renamingCommittedRef={renamingCommittedRef}
+                confirmingArchiveThreadKey={confirmingArchiveThreadKey}
+                setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
+                confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+                attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
+                handleThreadClick={handleThreadClick}
+                navigateToThread={navigateToThread}
+                handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+                handleThreadContextMenu={handleThreadContextMenu}
+                clearSelection={clearSelection}
+                commitRename={commitRename}
+                cancelRename={cancelRename}
+                attemptArchiveThread={attemptArchiveThread}
+                openPrLink={openPrLink}
+                expandThreadListForProject={expandThreadListForProject}
+                collapseThreadListForProject={collapseThreadListForProject}
+              />
+            ) : (
+              <PlanRunnerProjectSection
+                className="mx-0 w-full translate-x-0 gap-0.5 border-0 px-0 py-0"
+                layout="drawer"
+                projectId={project.id}
+                projectCwd={project.cwd}
+              />
+            )}
+          </div>
+        </div>
       )}
     </>
   );
@@ -2196,6 +2297,7 @@ interface SidebarProjectsContentProps {
   sortedProjects: readonly SidebarProjectSnapshot[];
   expandedThreadListsByProject: ReadonlySet<string>;
   activeRouteProjectKey: string | null;
+  activeRouteProjectDrawerView: ProjectDrawerView | null;
   routeThreadKey: string | null;
   newThreadShortcutLabel: string | null;
   threadJumpLabelByKey: ReadonlyMap<string, string>;
@@ -2235,6 +2337,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     sortedProjects,
     expandedThreadListsByProject,
     activeRouteProjectKey,
+    activeRouteProjectDrawerView,
     routeThreadKey,
     newThreadShortcutLabel,
     threadJumpLabelByKey,
@@ -2352,6 +2455,11 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                         activeRouteThreadKey={
                           activeRouteProjectKey === project.projectKey ? routeThreadKey : null
                         }
+                        activeRouteProjectDrawerView={
+                          activeRouteProjectKey === project.projectKey
+                            ? activeRouteProjectDrawerView
+                            : null
+                        }
                         isActiveProject={activeRouteProjectKey === project.projectKey}
                         newThreadShortcutLabel={newThreadShortcutLabel}
                         handleNewThread={handleNewThread}
@@ -2384,6 +2492,9 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
                 activeRouteThreadKey={
                   activeRouteProjectKey === project.projectKey ? routeThreadKey : null
+                }
+                activeRouteProjectDrawerView={
+                  activeRouteProjectKey === project.projectKey ? activeRouteProjectDrawerView : null
                 }
                 isActiveProject={activeRouteProjectKey === project.projectKey}
                 newThreadShortcutLabel={newThreadShortcutLabel}
@@ -2430,9 +2541,7 @@ export default function Sidebar() {
     [allSidebarThreads, internalPlanRunnerThreadIds],
   );
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
-  const projectThreadFolderExpandedByCwd = useUiStateStore(
-    (store) => store.projectThreadFolderExpandedByCwd,
-  );
+  const projectDrawerViewByCwd = useUiStateStore((store) => store.projectDrawerViewByCwd);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const navigate = useNavigate();
@@ -2661,6 +2770,12 @@ export default function Sidebar() {
     draftRouteLogicalProjectKey,
     sidebarProjectByKey,
   ]);
+  const activeRouteProjectDrawerView: ProjectDrawerView | null =
+    planRunnerProjectIdFromRun || planRunnerProjectIdFromFeature
+      ? "plans"
+      : routeThreadKey || routeDraftId
+        ? "threads"
+        : null;
 
   // Group threads by logical project key so all threads from grouped projects
   // are displayed together.
@@ -2844,8 +2959,13 @@ export default function Sidebar() {
         if (!shouldShowThreadPanel) {
           return [];
         }
-        const threadFolderOpen = projectThreadFolderExpandedByCwd[project.cwd] ?? false;
-        if (!threadFolderOpen) {
+        const projectDrawerView =
+          pinnedCollapsedThread !== null
+            ? "threads"
+            : activeRouteProjectKey === project.projectKey && routeThreadKey !== null
+              ? (projectDrawerViewByCwd[project.cwd] ?? "threads")
+              : "threads";
+        if (projectDrawerView !== "threads") {
           return [];
         }
         const isThreadListExpanded = expandedThreadListsByProject.has(project.projectKey);
@@ -2863,8 +2983,9 @@ export default function Sidebar() {
       sidebarThreadPreviewCount,
       sidebarThreadSortOrder,
       expandedThreadListsByProject,
+      activeRouteProjectKey,
       projectExpandedById,
-      projectThreadFolderExpandedByCwd,
+      projectDrawerViewByCwd,
       routeThreadKey,
       sortedProjects,
       threadsByProjectKey,
@@ -3226,6 +3347,7 @@ export default function Sidebar() {
             sortedProjects={sortedProjects}
             expandedThreadListsByProject={expandedThreadListsByProject}
             activeRouteProjectKey={activeRouteProjectKey}
+            activeRouteProjectDrawerView={activeRouteProjectDrawerView}
             routeThreadKey={routeThreadKey}
             newThreadShortcutLabel={newThreadShortcutLabel}
             threadJumpLabelByKey={visibleThreadJumpLabelByKey}
