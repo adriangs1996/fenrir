@@ -216,6 +216,7 @@ interface ArchivedSessionSnapshotInternal {
 }
 
 const MAX_CAPTURE_BODY_BYTES = 10 * 1024 * 1024; // 10MB
+const CDP_BODY_READ_TIMEOUT_MS = 500;
 const DEFAULT_PROFILE_ID = "default";
 const DEFAULT_PROFILE_NAME = "Default";
 const DEFAULT_PROFILE_PARTITION_KEY = "persist:traffic-lens:default";
@@ -383,6 +384,22 @@ function wildcardMatches(pattern: string | undefined, value: string): boolean {
 
 function delay(ms: number): Promise<void> {
   return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Timed out.")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 function isHttpUrl(url: string): boolean {
@@ -814,7 +831,10 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     if (payload.origin !== input.origin) {
       throw new Error("Storage origin changed while reading browser state.");
     }
-    return payload.entries.map((entry) => ({ key: entry.key, value: entry.value }));
+    return payload.entries.map((entry) => ({
+      key: entry.key,
+      value: entry.value,
+    }));
   }
 
   async function writeDomStorage(input: {
@@ -850,7 +870,9 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
   ): Promise<readonly TrafficLensCookieEntry[]> {
     const profile = getProfile(profileId);
     const targetSession = ensureSession(profile.id);
-    const cookies = await targetSession.cookies.get({ url: toOriginUrl(origin) });
+    const cookies = await targetSession.cookies.get({
+      url: toOriginUrl(origin),
+    });
     return cookies.map((cookie) => {
       const entry = {
         name: cookie.name,
@@ -1278,9 +1300,12 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         let bodyTruncated = false;
 
         try {
-          const bodyResult = await debuggerClient.sendCommand("Fetch.getResponseBody", {
-            requestId,
-          });
+          const bodyResult = await withTimeout(
+            debuggerClient.sendCommand("Fetch.getResponseBody", {
+              requestId,
+            }),
+            CDP_BODY_READ_TIMEOUT_MS,
+          );
           responseBody = bodyResult.base64Encoded
             ? bodyResult.body
             : Buffer.from(bodyResult.body).toString("base64");
@@ -1347,16 +1372,21 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
           return;
         }
 
-        await debuggerClient.sendCommand("Fetch.continueResponse", { requestId });
+        await debuggerClient.sendCommand("Fetch.continueResponse", {
+          requestId,
+        });
         return;
       }
 
       let requestBody: string | null = null;
       if (request.hasPostData) {
         try {
-          const postData = await debuggerClient.sendCommand("Fetch.getRequestPostData", {
-            requestId,
-          });
+          const postData = await withTimeout(
+            debuggerClient.sendCommand("Fetch.getRequestPostData", {
+              requestId,
+            }),
+            CDP_BODY_READ_TIMEOUT_MS,
+          );
           requestBody = Buffer.from(postData.postData).toString("base64");
         } catch {
           // POST data is not always available
@@ -1405,9 +1435,13 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     } catch (error) {
       try {
         if (responseStatusCode !== undefined) {
-          await debuggerClient.sendCommand("Fetch.continueResponse", { requestId });
+          await debuggerClient.sendCommand("Fetch.continueResponse", {
+            requestId,
+          });
         } else {
-          await debuggerClient.sendCommand("Fetch.continueRequest", { requestId });
+          await debuggerClient.sendCommand("Fetch.continueRequest", {
+            requestId,
+          });
         }
       } catch {
         // debugger might be detached
@@ -1935,6 +1969,12 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       if (typeof x !== "number" || typeof y !== "number") {
         throw new Error("clickPage requires x/y coordinates or selector.");
       }
+      entry.view.webContents.focus();
+      entry.view.webContents.sendInputEvent({
+        type: "mouseMove",
+        x,
+        y,
+      });
       entry.view.webContents.sendInputEvent({
         type: "mouseDown",
         x,
@@ -1953,6 +1993,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
 
     typeIntoPage: async (input) => {
       const entry = getTabEntry(resolveTabId(input.tabId));
+      entry.view.webContents.focus();
       if (input.selector) {
         await entry.view.webContents.executeJavaScript(
           `(() => {
@@ -1963,13 +2004,23 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
           true,
         );
       }
-      entry.view.webContents.sendInputEvent({ type: "char", keyCode: input.text });
+      entry.view.webContents.sendInputEvent({
+        type: "char",
+        keyCode: input.text,
+      });
     },
 
     pressPage: async (input) => {
       const entry = getTabEntry(resolveTabId(input.tabId));
-      entry.view.webContents.sendInputEvent({ type: "keyDown", keyCode: input.key });
-      entry.view.webContents.sendInputEvent({ type: "keyUp", keyCode: input.key });
+      entry.view.webContents.focus();
+      entry.view.webContents.sendInputEvent({
+        type: "keyDown",
+        keyCode: input.key,
+      });
+      entry.view.webContents.sendInputEvent({
+        type: "keyUp",
+        keyCode: input.key,
+      });
     },
 
     waitForTabLoad: async (input) => {
@@ -1978,7 +2029,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       if (!entry.view.webContents.isLoading()) {
         return getTabSnapshot(tabId);
       }
-      const timeoutMs = input?.timeoutMs ?? 15_000;
+      const timeoutMs = input?.timeoutMs ?? 60_000;
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
           entry.view.webContents.off("did-stop-loading", onStop);
@@ -1996,7 +2047,9 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     listRules: () => Array.from(rules.values()),
 
     createRule: (input) => {
-      const { id: providedId, ...ruleInput } = input as TrafficLensRuleInput & { id?: string };
+      const { id: providedId, ...ruleInput } = input as TrafficLensRuleInput & {
+        id?: string;
+      };
       const timestamp = nowIso();
       const rule: TrafficLensRule = {
         ...ruleInput,

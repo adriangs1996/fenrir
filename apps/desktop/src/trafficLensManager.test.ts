@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
@@ -13,8 +13,10 @@ const { fakeSession, fakeWebContents, mockWebContentsView } = vi.hoisted(() => {
     getTitle: vi.fn(() => ""),
     isLoading: vi.fn(() => false),
     close: vi.fn(),
+    focus: vi.fn(),
     reload: vi.fn(),
     on: vi.fn(),
+    sendInputEvent: vi.fn(),
     navigationHistory: {
       canGoBack: vi.fn(() => false),
       canGoForward: vi.fn(() => false),
@@ -81,6 +83,10 @@ describe("trafficLensManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     manager = createTrafficLensManager({ window: fakeWindow });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe("createTrafficLensManager", () => {
@@ -411,6 +417,108 @@ describe("trafficLensManager", () => {
       manager.createTab();
       manager.hideAllTabs();
       expect(fakeWindow.contentView.removeChildView).toHaveBeenCalled();
+    });
+  });
+
+  describe("page input", () => {
+    it("focuses the target page and moves the pointer before clicking coordinates", async () => {
+      const snapshot = manager.createTab();
+
+      await manager.clickPage({ tabId: snapshot.tabId, x: 50, y: 75 });
+
+      expect(fakeWebContents.focus.mock.invocationCallOrder[0]).toBeLessThan(
+        fakeWebContents.sendInputEvent.mock.invocationCallOrder[0]!,
+      );
+      expect(fakeWebContents.sendInputEvent).toHaveBeenNthCalledWith(1, {
+        type: "mouseMove",
+        x: 50,
+        y: 75,
+      });
+      expect(fakeWebContents.sendInputEvent).toHaveBeenNthCalledWith(2, {
+        type: "mouseDown",
+        x: 50,
+        y: 75,
+        button: "left",
+        clickCount: 1,
+      });
+      expect(fakeWebContents.sendInputEvent).toHaveBeenNthCalledWith(3, {
+        type: "mouseUp",
+        x: 50,
+        y: 75,
+        button: "left",
+        clickCount: 1,
+      });
+    });
+
+    it("focuses the target page before typing", async () => {
+      const snapshot = manager.createTab();
+
+      await manager.typeIntoPage({ tabId: snapshot.tabId, text: "hello" });
+
+      expect(fakeWebContents.focus.mock.invocationCallOrder[0]).toBeLessThan(
+        fakeWebContents.sendInputEvent.mock.invocationCallOrder[0]!,
+      );
+      expect(fakeWebContents.sendInputEvent).toHaveBeenCalledWith({
+        type: "char",
+        keyCode: "hello",
+      });
+    });
+
+    it("focuses the target page before pressing a key", async () => {
+      const snapshot = manager.createTab();
+
+      await manager.pressPage({ tabId: snapshot.tabId, key: "Enter" });
+
+      expect(fakeWebContents.focus.mock.invocationCallOrder[0]).toBeLessThan(
+        fakeWebContents.sendInputEvent.mock.invocationCallOrder[0]!,
+      );
+      expect(fakeWebContents.sendInputEvent).toHaveBeenNthCalledWith(1, {
+        type: "keyDown",
+        keyCode: "Enter",
+      });
+      expect(fakeWebContents.sendInputEvent).toHaveBeenNthCalledWith(2, {
+        type: "keyUp",
+        keyCode: "Enter",
+      });
+    });
+  });
+
+  describe("request interception", () => {
+    it("continues a POST request when CDP post-data capture stalls", async () => {
+      vi.useFakeTimers();
+      const snapshot = manager.createTab("http://localhost:8082/");
+      const messageHandler = fakeWebContents.debugger.on.mock.calls.find(
+        ([eventName]: any[]) => eventName === "message",
+      )?.[1];
+      if (!messageHandler) {
+        throw new Error("Debugger message handler was not registered.");
+      }
+      fakeWebContents.debugger.sendCommand.mockClear();
+      fakeWebContents.debugger.sendCommand.mockImplementation((command: string) => {
+        if (command === "Fetch.getRequestPostData") {
+          return new Promise(() => {});
+        }
+        return Promise.resolve({});
+      });
+
+      messageHandler({}, "Fetch.requestPaused", {
+        requestId: "request-1",
+        networkId: "network-1",
+        resourceType: "Document",
+        request: {
+          method: "POST",
+          url: "http://localhost:3000/admin/impersonations?locale=en",
+          headers: {},
+          hasPostData: true,
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(501);
+
+      expect(fakeWebContents.debugger.sendCommand).toHaveBeenCalledWith("Fetch.continueRequest", {
+        requestId: "request-1",
+      });
+      expect(snapshot.tabId).toBeDefined();
     });
   });
 
