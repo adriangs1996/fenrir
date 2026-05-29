@@ -23,6 +23,7 @@ import {
   countActiveActionRuns,
   countFailedActionRuns,
   selectActionRunsForThread,
+  stripActionRunControlSequences,
   useActionRunStore,
   type ActionRun,
   type ActionRunStatus,
@@ -72,7 +73,7 @@ function actionRunSortLabel(run: ActionRun): string {
 }
 
 function actionRunCopyOutput(run: ActionRun): string {
-  return run.outputTail
+  return stripActionRunControlSequences(run.outputTail)
     .split(/\r?\n/)
     .filter((line) => !line.includes("__FENRIR_ACTION_DONE__"))
     .join("\n")
@@ -167,7 +168,9 @@ export const ActionRunCenter = memo(function ActionRunCenter({
     <aside
       className={cn(
         "flex min-h-0 flex-col bg-background",
-        mode === "inline" ? "w-[360px] min-w-[360px] border-l border-border" : "h-full w-full",
+        mode === "inline"
+          ? "w-[min(520px,34vw)] min-w-[420px] border-l border-border"
+          : "h-full w-full",
       )}
     >
       <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
@@ -197,7 +200,7 @@ export const ActionRunCenter = memo(function ActionRunCenter({
           Run a project or global action to see live status, output, and receipts here.
         </div>
       ) : (
-        <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(240px,36%)]">
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,42%)_minmax(320px,58%)]">
           <div className="min-h-0 overflow-y-auto p-2">
             <div className="space-y-2">
               {runs.map((run) => {

@@ -12,6 +12,12 @@ function sanitizeSessionName(projectId: string): string {
   return `${SESSION_PREFIX}${projectId.replace(/[.:]/g, "-")}`;
 }
 
+function waitForExitCode(proc: PtyProcess) {
+  return Effect.callback<number>((resume) => {
+    proc.onExit((event) => resume(Effect.succeed(event.exitCode ?? 1)));
+  });
+}
+
 export const TmuxSessionManagerLive = Layer.effect(
   TmuxSessionManager,
   Effect.gen(function* () {
@@ -38,6 +44,16 @@ export const TmuxSessionManagerLive = Layer.effect(
           }),
         );
 
+    const hasSessionByName = (name: string) =>
+      Effect.gen(function* () {
+        const proc = yield* execTmux(["has-session", "-t", name], name).pipe(
+          Effect.orElseSucceed(() => null),
+        );
+        if (!proc) return false;
+        const exitCode = yield* waitForExitCode(proc);
+        return exitCode === 0;
+      });
+
     return {
       sessionName: (projectId: string) => sanitizeSessionName(projectId),
 
@@ -45,22 +61,15 @@ export const TmuxSessionManagerLive = Layer.effect(
         Effect.gen(function* () {
           const name = sanitizeSessionName(projectId);
           const proc = yield* execTmux(["new-session", "-d", "-s", name, "-c", cwd], name);
-          yield* Effect.callback<void, TmuxSessionError>((resume) => {
-            proc.onExit((event) => {
-              if (event.exitCode === 0) {
-                resume(Effect.void);
-              } else {
-                resume(
-                  Effect.fail(
-                    new TmuxSessionError(
-                      name,
-                      `tmux new-session exited with code ${event.exitCode}`,
-                    ),
-                  ),
-                );
-              }
-            });
-          });
+          const exitCode = yield* waitForExitCode(proc);
+          if (exitCode === 0) return;
+
+          const existsAfterFailedCreate = yield* hasSessionByName(name);
+          if (existsAfterFailedCreate) return;
+
+          return yield* Effect.fail(
+            new TmuxSessionError(name, `tmux new-session exited with code ${exitCode}`),
+          );
         }),
 
       killSession: (projectId: string) => {
@@ -92,17 +101,7 @@ export const TmuxSessionManagerLive = Layer.effect(
         });
       },
 
-      hasSession: (projectId: string) =>
-        Effect.gen(function* () {
-          const name = sanitizeSessionName(projectId);
-          const proc = yield* execTmux(["has-session", "-t", name], name).pipe(
-            Effect.orElseSucceed(() => null),
-          );
-          if (!proc) return false;
-          return yield* Effect.callback<boolean>((resume) => {
-            proc.onExit((event) => resume(Effect.succeed(event.exitCode === 0)));
-          });
-        }),
+      hasSession: (projectId: string) => hasSessionByName(sanitizeSessionName(projectId)),
 
       isTmuxAvailable: Effect.gen(function* () {
         const proc = yield* ptyAdapter.spawn({
@@ -151,9 +150,8 @@ export const TmuxSessionManagerLive = Layer.effect(
           const name = sanitizeSessionName(projectId);
           const exists = yield* Effect.gen(function* () {
             const proc = yield* execTmux(["has-session", "-t", name], name);
-            return yield* Effect.callback<boolean>((resume) => {
-              proc.onExit((event) => resume(Effect.succeed(event.exitCode === 0)));
-            });
+            const exitCode = yield* waitForExitCode(proc);
+            return exitCode === 0;
           }).pipe(Effect.orElseSucceed(() => false));
 
           if (!exists) {

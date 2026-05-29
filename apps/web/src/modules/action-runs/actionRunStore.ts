@@ -79,6 +79,13 @@ const ACTION_RUN_STORAGE_KEY = "fenrir:action-runs:v1";
 const ACTION_RUN_TMUX_PROJECT_PREFIX = "action-run-";
 const ACTION_RUN_DONE_MARKER_PREFIX = "__FENRIR_ACTION_DONE__";
 const MAX_OUTPUT_TAIL_LENGTH = 12_000;
+const ESCAPE = String.fromCharCode(0x1b);
+const CSI = String.fromCharCode(0x9b);
+const BELL = String.fromCharCode(0x07);
+const ANSI_CONTROL_SEQUENCE_RE = new RegExp(
+  `[${ESCAPE}${CSI}][[\\]()#;?]*(?:(?:(?:[A-Za-z0-9]*(?:;[A-Za-z0-9]*)*)?${BELL})|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))`,
+  "g",
+);
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -101,6 +108,10 @@ function appendOutputTail(current: string, chunk: string): string {
   const next = `${current}${chunk}`;
   if (next.length <= MAX_OUTPUT_TAIL_LENGTH) return next;
   return next.slice(next.length - MAX_OUTPUT_TAIL_LENGTH);
+}
+
+export function stripActionRunControlSequences(output: string): string {
+  return output.replace(ANSI_CONTROL_SEQUENCE_RE, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 function escapeRegExp(value: string): string {

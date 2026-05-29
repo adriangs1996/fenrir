@@ -20,6 +20,7 @@ import {
   WebSocketConnectionSurface,
 } from "../components/WebSocketConnectionSurface";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
+import { ActionRunToastLifecycle } from "../components/action-runs/ActionRunToastLifecycle";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
@@ -137,6 +138,7 @@ function RootRouteView() {
         <WebSocketConnectionCoordinator />
         <SlowRpcAckToastCoordinator />
         <ProviderUpdateLaunchNotification />
+        <ActionRunToastLifecycle />
         <WebSocketConnectionSurface>
           <CommandPalette>
             <AppSidebarLayout>

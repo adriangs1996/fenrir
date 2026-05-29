@@ -263,7 +263,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         className={cn(
           "shrink-0 whitespace-nowrap px-2 sm:px-3",
           props.skillsPanelOpen
-            ? "text-accent hover:text-accent"
+            ? "text-primary hover:text-primary"
             : "text-muted-foreground/70 hover:text-foreground/80",
         )}
         size="sm"

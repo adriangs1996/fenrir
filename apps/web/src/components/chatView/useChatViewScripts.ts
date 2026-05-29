@@ -25,6 +25,7 @@ import {
 } from "~/projectScripts";
 import type { NewGlobalScriptInput, NewProjectScriptInput } from "../ProjectScriptsControl";
 import { toastManager } from "../ui/toast";
+import { registerActionRunLoadingToast } from "../action-runs/actionRunToastRegistry";
 
 const ACTION_TMUX_COLS = 120;
 const ACTION_TMUX_ROWS = 30;
@@ -156,14 +157,16 @@ export function useChatViewScripts(input: UseChatViewScriptsInput): UseChatViewS
           rows: ACTION_TMUX_ROWS,
         });
         useActionRunStore.getState().markRunning(actionRun.id);
-        await api.terminal.writeTmux({
-          projectId: actionRun.tmuxProjectId,
-          data: `${command}\r`,
-        });
-        toastManager.add({
+        const toastId = toastManager.add({
           type: "loading",
           title: `Running "${script.name}"`,
           description: "The action is running in its own tmux session.",
+          data: { threadRef: activeThreadRef },
+        });
+        registerActionRunLoadingToast(actionRun.id, toastId);
+        await api.terminal.writeTmux({
+          projectId: actionRun.tmuxProjectId,
+          data: `${command}\r`,
         });
       } catch (error) {
         const message =

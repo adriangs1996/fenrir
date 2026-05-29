@@ -79,6 +79,7 @@ import { SkillInlineText } from "./SkillInlineText";
 import {
   actionRunElapsedLabel,
   actionRunStatusLabel,
+  stripActionRunControlSequences,
   useActionRunStore,
   type ActionRun,
   type ActionRunStatus,
@@ -814,7 +815,7 @@ function formatActionRunStatusText(run: ActionRun): string {
 }
 
 function formatActionRunOutputPreview(outputTail: string): { raw: string; preview: string } | null {
-  const raw = outputTail
+  const raw = stripActionRunControlSequences(outputTail)
     .split(/\r?\n/)
     .filter((line) => !line.includes("__FENRIR_ACTION_DONE__"))
     .join("\n")

@@ -111,7 +111,7 @@ describe("TmuxSessionManager", () => {
     }).pipe(Effect.provide(TestLayer));
   });
 
-  it.effect("createSession fails when tmux exits non-zero", () => {
+  it.effect("createSession succeeds when new-session loses a creation race", () => {
     const ptyAdapter = new FakeTmuxPtyAdapter();
     const { TestLayer } = makeFakeLayer(ptyAdapter);
 
@@ -119,8 +119,12 @@ describe("TmuxSessionManager", () => {
       ptyAdapter.exitCodeBySubcommand.set("new-session", 1);
       const manager = yield* TmuxSessionManager;
 
-      const result = yield* Effect.exit(manager.createSession("proj-1", "/tmp"));
-      assert.strictEqual(result._tag, "Failure");
+      yield* manager.createSession("proj-1", "/tmp");
+
+      expect(ptyAdapter.spawnCalls.map((call) => call.args?.[0])).toEqual([
+        "new-session",
+        "has-session",
+      ]);
     }).pipe(Effect.provide(TestLayer));
   });
 
@@ -130,6 +134,7 @@ describe("TmuxSessionManager", () => {
 
     return Effect.gen(function* () {
       ptyAdapter.exitCodeBySubcommand.set("new-session", 1);
+      ptyAdapter.exitCodeBySubcommand.set("has-session", 1);
       const manager = yield* TmuxSessionManager;
 
       const result = yield* Effect.exit(manager.createSession("proj-1", "/tmp"));

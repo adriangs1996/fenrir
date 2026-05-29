@@ -19,6 +19,7 @@ export function buildTmuxActionCommand(input: {
 
   return [
     `printf '\\n[fenrir] action ${shellSingleQuote(name)} started (${input.runId})\\n'`,
+    "unset TMUX TMUX_PANE",
     ...exports,
     `sh -lc ${shellSingleQuote(command)}`,
     "__fenrir_action_status=$?",
