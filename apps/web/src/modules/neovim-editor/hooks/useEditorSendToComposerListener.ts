@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
 import type { EditorSendToComposer } from "@fenrir/contracts";
 import { useDesktopBridgeAvailable, useIsMainWindow } from "~/hooks/useDesktopBridge";
-import { resolveThreadRouteTarget } from "~/threadRoutes";
+import { resolveThreadRouteTarget, type ThreadRouteTarget } from "~/threadRoutes";
 import { randomUUID } from "~/lib/utils";
 import type { EditorContextDraft } from "../editorContext";
 import { useEditorStore } from "../stores/editorStore";
@@ -20,20 +20,25 @@ export function shouldSubscribe(bridge: boolean, main: boolean): boolean {
  */
 export function handleSendToComposer(
   ev: EditorSendToComposer,
-  threadId: string | null,
+  composerTargetId: string | null,
 ): EditorContextDraft | null {
-  if (!threadId) return null;
+  if (!composerTargetId) return null;
   const text = ev.text?.trim();
   if (!text || !ev.file) return null;
   return {
     id: randomUUID(),
-    threadId: threadId as EditorContextDraft["threadId"],
+    threadId: composerTargetId as EditorContextDraft["threadId"],
     createdAt: new Date().toISOString(),
     file: ev.file,
     lineStart: ev.lineStart,
     lineEnd: ev.lineEnd,
     text: ev.text,
   };
+}
+
+export function composerTargetIdFromRouteTarget(target: ThreadRouteTarget | null): string | null {
+  if (!target) return null;
+  return target.kind === "server" ? target.threadRef.threadId : target.draftId;
 }
 
 /**
@@ -52,11 +57,11 @@ export function useEditorSendToComposerListener(): void {
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
   });
-  const activeThreadRef = routeTarget?.kind === "server" ? routeTarget.threadRef : null;
+  const composerTargetId = composerTargetIdFromRouteTarget(routeTarget);
 
-  // Keep a ref so the async callback always reads the latest thread.
-  const threadRefRef = useRef(activeThreadRef);
-  threadRefRef.current = activeThreadRef;
+  // Keep a ref so the async callback always reads the latest composer target.
+  const composerTargetIdRef = useRef(composerTargetId);
+  composerTargetIdRef.current = composerTargetId;
 
   useEffect(() => {
     if (!shouldSubscribe(bridge, main)) return;
@@ -64,11 +69,9 @@ export function useEditorSendToComposerListener(): void {
     if (!editor) return;
 
     const off = editor.onSendToComposer((ev: EditorSendToComposer) => {
-      const currentRef = threadRefRef.current;
-      const threadId = currentRef?.threadId ?? null;
-      const draft = handleSendToComposer(ev, threadId as string | null);
+      const draft = handleSendToComposer(ev, composerTargetIdRef.current);
       if (!draft) {
-        console.warn("[editor] send-to-composer with no active thread; dropping");
+        console.warn("[editor] send-to-composer with no active composer target; dropping");
         return;
       }
 

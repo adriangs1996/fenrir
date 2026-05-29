@@ -11,6 +11,8 @@
  */
 import {
   GlobalScript,
+  GLOBAL_SCRIPT_RUN_COMMAND_PATTERN,
+  MAX_SCRIPT_ID_LENGTH,
   type CreateGlobalActionInput,
   type UpdateGlobalActionInput,
 } from "@fenrir/contracts";
@@ -83,8 +85,6 @@ export class GlobalActionsService extends Context.Service<
 // ID helpers (mirrors apps/web/src/projectScripts.ts normalizeScriptId logic)
 // ---------------------------------------------------------------------------
 
-const MAX_ID_LENGTH = 64;
-
 function normalizeScriptId(value: string): string {
   const cleaned = value
     .trim()
@@ -92,8 +92,8 @@ function normalizeScriptId(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   if (cleaned.length === 0) return "script";
-  if (cleaned.length <= MAX_ID_LENGTH) return cleaned;
-  return cleaned.slice(0, MAX_ID_LENGTH).replace(/-+$/g, "") || "script";
+  if (cleaned.length <= MAX_SCRIPT_ID_LENGTH) return cleaned;
+  return cleaned.slice(0, MAX_SCRIPT_ID_LENGTH).replace(/-+$/g, "") || "script";
 }
 
 function nextGlobalScriptId(name: string, existingIds: readonly string[]): string {
@@ -103,10 +103,18 @@ function nextGlobalScriptId(name: string, existingIds: readonly string[]): strin
   let suffix = 2;
   while (suffix < 10_000) {
     const candidate = `${baseId}-${suffix}`;
-    if (!taken.has(candidate)) return candidate;
+    const safeCandidate =
+      candidate.length <= MAX_SCRIPT_ID_LENGTH
+        ? candidate
+        : `${baseId.slice(0, Math.max(1, MAX_SCRIPT_ID_LENGTH - String(suffix).length - 1))}-${suffix}`;
+    if (!taken.has(safeCandidate)) return safeCandidate;
     suffix += 1;
   }
-  return `${baseId}-${Date.now()}`.slice(0, MAX_ID_LENGTH);
+  return `${baseId}-${Date.now()}`.slice(0, MAX_SCRIPT_ID_LENGTH);
+}
+
+function isValidGlobalScriptId(id: string): boolean {
+  return isGlobalScriptRunCommand(`global-script.${id}.run`);
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +122,9 @@ function nextGlobalScriptId(name: string, existingIds: readonly string[]): strin
 // ---------------------------------------------------------------------------
 
 const GlobalActionsJson = Schema.fromJsonString(Schema.Array(GlobalScript));
+const isGlobalScriptRunCommand = Schema.is(GLOBAL_SCRIPT_RUN_COMMAND_PATTERN);
+const decodeUnknownGlobalScript = Schema.decodeUnknownExit(GlobalScript);
+const decodeUnknownGlobalActionsJson = Schema.decodeUnknownExit(GlobalActionsJson);
 
 // ---------------------------------------------------------------------------
 // Service implementation
@@ -133,6 +144,26 @@ export const makeGlobalActions = Effect.gen(function* () {
 
   const emitChange = (actions: readonly GlobalScript[]) =>
     PubSub.publish(changesPubSub, actions).pipe(Effect.asVoid);
+
+  const decodeGlobalScript = (input: unknown) => {
+    const decoded = decodeUnknownGlobalScript(input);
+    if (decoded._tag === "Failure") {
+      return Effect.fail(
+        new GlobalActionsError(`Invalid global action: ${Cause.pretty(decoded.cause)}`),
+      );
+    }
+    if (!isValidGlobalScriptId(decoded.value.id)) {
+      return Effect.fail(
+        new GlobalActionsError(
+          `Invalid global action id "${decoded.value.id}": ids must be valid keybinding command ids with at most ${MAX_SCRIPT_ID_LENGTH} characters.`,
+        ),
+      );
+    }
+    return Effect.succeed(decoded.value);
+  };
+
+  const validateGlobalActions = (actions: readonly GlobalScript[]) =>
+    Effect.forEach(actions, decodeGlobalScript, { discard: true }).pipe(Effect.asVoid);
 
   // -- Disk I/O -----------------------------------------------------------
 
@@ -156,7 +187,7 @@ export const makeGlobalActions = Effect.gen(function* () {
           ),
         );
 
-      const decoded = Schema.decodeUnknownExit(GlobalActionsJson)(raw);
+      const decoded = decodeUnknownGlobalActionsJson(raw);
       if (decoded._tag === "Failure") {
         yield* Effect.logWarning("failed to parse global-actions.json, using empty list", {
           path: globalActionsPath,
@@ -164,7 +195,20 @@ export const makeGlobalActions = Effect.gen(function* () {
         });
         return [] as readonly GlobalScript[];
       }
-      return decoded.value;
+
+      const validActions: GlobalScript[] = [];
+      for (const action of decoded.value) {
+        if (isValidGlobalScriptId(action.id)) {
+          validActions.push(action);
+          continue;
+        }
+        yield* Effect.logWarning("ignoring invalid global action entry", {
+          path: globalActionsPath,
+          id: action.id,
+          error: `id must be a valid global script command id with at most ${MAX_SCRIPT_ID_LENGTH} characters`,
+        });
+      }
+      return validActions;
     },
   );
 
@@ -182,7 +226,8 @@ export const makeGlobalActions = Effect.gen(function* () {
   const writeAtomically = (actions: readonly GlobalScript[]) => {
     const tempPath = `${globalActionsPath}.${process.pid}.${Date.now()}.tmp`;
 
-    return Effect.succeed(`${JSON.stringify(actions, null, 2)}\n`).pipe(
+    return validateGlobalActions(actions).pipe(
+      Effect.as(`${JSON.stringify(actions, null, 2)}\n`),
       Effect.tap(() =>
         fs.makeDirectory(pathService.dirname(globalActionsPath), { recursive: true }),
       ),
@@ -248,7 +293,7 @@ export const makeGlobalActions = Effect.gen(function* () {
           input.name,
           current.map((s) => s.id),
         );
-        const script = Schema.decodeSync(GlobalScript)({
+        const script = yield* decodeGlobalScript({
           id,
           name: input.name.trim(),
           command: input.command.trim(),
@@ -270,7 +315,7 @@ export const makeGlobalActions = Effect.gen(function* () {
         if (index === -1) {
           return yield* Effect.fail(new GlobalActionsError(`Global action not found: ${id}`));
         }
-        const updated = Schema.decodeSync(GlobalScript)({
+        const updated = yield* decodeGlobalScript({
           id,
           name: input.name.trim(),
           command: input.command.trim(),

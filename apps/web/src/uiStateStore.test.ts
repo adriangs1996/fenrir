@@ -252,13 +252,13 @@ describe("uiStateStore pure functions", () => {
     const project1Cwd = "/tmp/project-1";
     const initialState = makeUiState({
       projectDrawerViewByCwd: {
-        [project1Cwd]: "plans",
+        [project1Cwd]: "files",
       },
     });
 
     const next = syncProjects(initialState, [{ key: project1, cwd: project1Cwd }]);
 
-    expect(next.projectDrawerViewByCwd[project1Cwd]).toBe("plans");
+    expect(next.projectDrawerViewByCwd[project1Cwd]).toBe("files");
   });
 
   it("syncThreads prunes missing thread UI state", () => {
@@ -325,9 +325,9 @@ describe("uiStateStore pure functions", () => {
   it("setProjectDrawerView stores non-default drawer views per cwd", () => {
     const initialState = makeUiState();
 
-    const next = setProjectDrawerView(initialState, "/tmp/project-1", "plans");
+    const next = setProjectDrawerView(initialState, "/tmp/project-1", "files");
 
-    expect(next.projectDrawerViewByCwd["/tmp/project-1"]).toBe("plans");
+    expect(next.projectDrawerViewByCwd["/tmp/project-1"]).toBe("files");
   });
 
   it("setProjectDrawerView removes default drawer view overrides", () => {

@@ -683,15 +683,129 @@ function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
 
-function activeTabStorageScope(manager: TrafficLensManager, input: Record<string, unknown>) {
-  const activeTab = manager.ensureActiveTab();
-  const url = typeof input.origin === "string" ? input.origin : activeTab.url || "about:blank";
-  const origin = URL.canParse(url) ? new URL(url).origin : url;
+function requiredString(input: Record<string, unknown>, key: string): string {
+  const value = input[key];
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${key} is required.`);
+  }
+  return value.trim();
+}
+
+function optionalString(input: Record<string, unknown>, key: string): string | undefined {
+  const value = input[key];
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function optionalNullableString(
+  input: Record<string, unknown>,
+  key: string,
+): string | null | undefined {
+  if (!(key in input)) {
+    return undefined;
+  }
+  const value = input[key];
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${key} must be a string or null.`);
+  }
+  return value;
+}
+
+function makeProfilePartitionKey(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `persist:traffic-lens:${slug || "profile"}`;
+}
+
+function normalizeStorageOrigin(value: string): string {
+  return URL.canParse(value) ? new URL(value).origin : value;
+}
+
+function getTabSnapshot(manager: TrafficLensManager, tabId: string) {
+  const tab = manager.getTabs().find((candidate) => candidate.tabId === tabId);
+  if (!tab) {
+    throw new Error(`Tab not found: ${tabId}`);
+  }
+  return tab;
+}
+
+function activeTabStorageScope(
+  manager: TrafficLensManager,
+  input: Record<string, unknown>,
+  options?: { readonly requireLiveTab?: boolean },
+) {
+  const tabId = optionalString(input, "tabId");
+  const profileId = optionalString(input, "profileId");
+  const requestedOrigin = optionalString(input, "origin");
+  if (profileId && requestedOrigin && !options?.requireLiveTab) {
+    return {
+      profileId,
+      origin: normalizeStorageOrigin(requestedOrigin),
+      ...(tabId ? { tabId } : {}),
+    };
+  }
+
+  const activeTab = tabId ? getTabSnapshot(manager, tabId) : manager.ensureActiveTab();
+  const url = requestedOrigin ?? (activeTab.url ? activeTab.url : "about:blank");
+  const origin = normalizeStorageOrigin(url);
   return {
-    profileId: typeof input.profileId === "string" ? input.profileId : activeTab.profileId,
+    profileId: profileId ?? activeTab.profileId,
     origin,
-    tabId: typeof input.tabId === "string" ? input.tabId : activeTab.tabId,
+    tabId: tabId ?? activeTab.tabId,
   };
+}
+
+function browserLabProfileInput(input: Record<string, unknown>) {
+  const name = requiredString(input, "name");
+  const id = optionalString(input, "id");
+  const userAgentPreset = optionalString(input, "userAgentPreset");
+  const proxyPreset = optionalNullableString(input, "proxyPreset");
+  const notes = optionalNullableString(input, "notes");
+  return {
+    ...(id ? { id } : {}),
+    name,
+    partitionKey: optionalString(input, "partitionKey") ?? makeProfilePartitionKey(name),
+    ...(userAgentPreset ? { userAgentPreset } : {}),
+    ...(proxyPreset !== undefined ? { proxyPreset } : {}),
+    ...(notes !== undefined ? { notes } : {}),
+  };
+}
+
+function browserLabProfilePatch(input: Record<string, unknown>) {
+  const patch: Record<string, unknown> = {};
+  const name = optionalString(input, "name");
+  if (name) {
+    patch.name = name;
+  }
+  const partitionKey = optionalString(input, "partitionKey");
+  if (partitionKey) {
+    patch.partitionKey = partitionKey;
+  }
+  const userAgentPreset = optionalString(input, "userAgentPreset");
+  if (userAgentPreset) {
+    patch.userAgentPreset = userAgentPreset;
+  }
+  const proxyPreset = optionalNullableString(input, "proxyPreset");
+  if (proxyPreset !== undefined) {
+    patch.proxyPreset = proxyPreset;
+  }
+  const notes = optionalNullableString(input, "notes");
+  if (notes !== undefined) {
+    patch.notes = notes;
+  }
+  if (Object.keys(patch).length === 0) {
+    throw new Error("At least one profile field is required.");
+  }
+  return patch;
 }
 
 async function handleBrowserLabControlMethod(method: string, params: unknown): Promise<unknown> {
@@ -704,7 +818,19 @@ async function handleBrowserLabControlMethod(method: string, params: unknown): P
     case "browser_lab_get_active_tab":
       return manager.getActiveTab() ?? manager.ensureActiveTab();
     case "browser_lab_create_tab":
-      return manager.createTab(typeof input.url === "string" ? input.url : undefined);
+      return typeof input.profileId === "string"
+        ? manager.createTabInProfile({
+            profileId: input.profileId,
+            ...(typeof input.url === "string" ? { url: input.url } : {}),
+          })
+        : manager.createTab(typeof input.url === "string" ? input.url : undefined);
+    case "browser_lab_create_tab_in_profile": {
+      const profileId = requiredString(input, "profileId");
+      return manager.createTabInProfile({
+        profileId,
+        ...(typeof input.url === "string" ? { url: input.url } : {}),
+      });
+    }
     case "browser_lab_select_tab": {
       if (typeof input.tabId !== "string") throw new Error("tabId is required.");
       const tab = manager.setActiveTab(input.tabId);
@@ -777,16 +903,16 @@ async function handleBrowserLabControlMethod(method: string, params: unknown): P
       return { ok: true };
     }
     case "browser_lab_get_session_storage": {
-      const scope = activeTabStorageScope(manager, input);
+      const scope = activeTabStorageScope(manager, input, { requireLiveTab: true });
       return manager.getLiveSessionStorage(scope as any);
     }
     case "browser_lab_set_session_storage_item": {
-      const scope = activeTabStorageScope(manager, input);
+      const scope = activeTabStorageScope(manager, input, { requireLiveTab: true });
       await manager.setLiveSessionStorageItem({ ...scope, ...input } as any);
       return { ok: true };
     }
     case "browser_lab_delete_session_storage_item": {
-      const scope = activeTabStorageScope(manager, input);
+      const scope = activeTabStorageScope(manager, input, { requireLiveTab: true });
       await manager.deleteLiveSessionStorageItem({ ...scope, ...input } as any);
       return { ok: true };
     }
@@ -797,6 +923,18 @@ async function handleBrowserLabControlMethod(method: string, params: unknown): P
       return { ok: true };
     case "traffic_lens_drop_paused_request":
       await manager.dropPaused(input as any);
+      return { ok: true };
+    case "traffic_lens_list_profiles":
+      return manager.listProfiles();
+    case "traffic_lens_create_profile":
+      return manager.createProfile(browserLabProfileInput(input) as any);
+    case "traffic_lens_update_profile":
+      return manager.updateProfile(
+        requiredString(input, "id"),
+        browserLabProfilePatch(input) as any,
+      );
+    case "traffic_lens_delete_profile":
+      manager.deleteProfile(requiredString(input, "id"));
       return { ok: true };
     case "traffic_lens_list_rules":
       return manager.listRules();
@@ -834,6 +972,31 @@ async function handleBrowserLabControlMethod(method: string, params: unknown): P
       }
       manager.setOverrideEnabled(input.id, input.enabled);
       return { ok: true };
+    case "traffic_lens_list_storage_origins":
+      return manager.listStorageOrigins(requiredString(input, "profileId"));
+    case "traffic_lens_capture_storage_origin":
+      await manager.captureStorageOrigin({
+        profileId: requiredString(input, "profileId") as any,
+        origin: normalizeStorageOrigin(requiredString(input, "origin")),
+        ...(typeof input.tabId === "string" ? { tabId: input.tabId } : {}),
+      });
+      return { ok: true };
+    case "traffic_lens_get_cookies_for_origin":
+      return manager.getApplicableCookies({
+        profileId: requiredString(input, "profileId") as any,
+        origin: normalizeStorageOrigin(requiredString(input, "origin")),
+      });
+    case "traffic_lens_set_cookie_for_origin":
+      await manager.setCookieForOrigin(input as any);
+      return { ok: true };
+    case "traffic_lens_delete_cookie_for_origin":
+      await manager.deleteCookieForOrigin(input as any);
+      return { ok: true };
+    case "browser_lab_clear_local_storage": {
+      const scope = activeTabStorageScope(manager, input);
+      await manager.clearLocalStorage(scope as any);
+      return { ok: true };
+    }
     default:
       throw new Error(`Unsupported Browser Lab control method: ${method}`);
   }

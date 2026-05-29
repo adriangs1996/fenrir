@@ -141,6 +141,7 @@ function createTestClient(options?: {
       },
     },
     projects: {
+      listEntries: vi.fn(async () => ({ entries: [], truncated: false })),
       searchEntries: vi.fn(async () => []),
       writeFile: vi.fn(async () => undefined),
     },

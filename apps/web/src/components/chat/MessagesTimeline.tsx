@@ -28,10 +28,13 @@ import {
   GlobeIcon,
   HammerIcon,
   type LucideIcon,
+  Loader2Icon,
+  PlayIcon,
   SquarePenIcon,
   TerminalIcon,
   Undo2Icon,
   WrenchIcon,
+  XIcon,
   ZapIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
@@ -73,6 +76,13 @@ import {
 } from "~/modules/terminal";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import { SkillInlineText } from "./SkillInlineText";
+import {
+  actionRunElapsedLabel,
+  actionRunStatusLabel,
+  useActionRunStore,
+  type ActionRun,
+  type ActionRunStatus,
+} from "~/modules/action-runs";
 
 interface TimelineRowSharedState {
   timestampFormat: TimestampFormat;
@@ -84,6 +94,8 @@ interface TimelineRowSharedState {
   activeThreadEnvironmentId: EnvironmentId;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onRevertUserMessage: (messageId: MessageId) => void;
+  onOpenActionRun: (run: ActionRun) => void;
+  onRetryActionRun: (run: ActionRun) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
 }
 
@@ -119,6 +131,9 @@ interface MessagesTimelineProps {
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
+  actionRuns?: ReadonlyArray<ActionRun>;
+  onOpenActionRun?: (run: ActionRun) => void;
+  onRetryActionRun?: (run: ActionRun) => void;
   onIsAtEndChange: (isAtEnd: boolean) => void;
 }
 
@@ -146,6 +161,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
   skills = EMPTY_TIMELINE_SKILLS,
+  actionRuns,
+  onOpenActionRun,
+  onRetryActionRun,
   onIsAtEndChange,
 }: MessagesTimelineProps) {
   const rawRows = useMemo(
@@ -158,6 +176,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         activeTurnInProgress,
         activeTurnId: activeTurnId ?? null,
         activeTurnStartedAt,
+        actionRuns: actionRuns ?? [],
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
       }),
@@ -169,6 +188,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeTurnInProgress,
       activeTurnId,
       activeTurnStartedAt,
+      actionRuns,
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
     ],
@@ -211,6 +231,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadEnvironmentId,
       onOpenTurnDiff,
       onRevertUserMessage,
+      onOpenActionRun: onOpenActionRun ?? noopActionRunHandler,
+      onRetryActionRun: onRetryActionRun ?? noopActionRunHandler,
       onImageExpand,
     }),
     [
@@ -223,6 +245,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeThreadEnvironmentId,
       onOpenTurnDiff,
       onRevertUserMessage,
+      onOpenActionRun,
+      onRetryActionRun,
       onImageExpand,
     ],
   );
@@ -280,6 +304,8 @@ function keyExtractor(item: MessagesTimelineRow) {
   return item.id;
 }
 
+function noopActionRunHandler(_run: ActionRun) {}
+
 type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
 type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
 type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"][number];
@@ -332,6 +358,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         <AssistantTimelineRow row={row} />
       ) : null}
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
+      {row.kind === "action-run" ? <ActionRunTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
     </div>
   );
@@ -637,6 +664,165 @@ function ProposedPlanTimelineRow({
       />
     </div>
   );
+}
+
+const ACTION_RUN_STATUS_CLASS: Record<ActionRunStatus, string> = {
+  "needs-input": "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  starting: "border-sky-500/35 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+  running: "border-sky-500/35 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+  succeeded: "border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  failed: "border-red-500/35 bg-red-500/10 text-red-700 dark:text-red-300",
+  cancelled: "border-border bg-muted/40 text-muted-foreground",
+};
+
+function ActionRunTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "action-run" }> }) {
+  const ctx = useTimelineRowCtx();
+  const dismissReceipt = useActionRunStore((state) => state.dismissReceipt);
+  const run = row.run;
+  const outputPreview = formatActionRunOutputPreview(run.outputTail);
+  const statusText = formatActionRunStatusText(run);
+  const StatusIcon = actionRunStatusIcon(run.status);
+  const canRetry =
+    run.status === "succeeded" || run.status === "failed" || run.status === "cancelled";
+
+  return (
+    <div className="min-w-0 px-1 py-0.5">
+      <div
+        className={cn(
+          "rounded-lg border bg-card/45 px-3 py-2.5 shadow-sm",
+          run.status === "failed"
+            ? "border-red-500/35"
+            : run.status === "succeeded"
+              ? "border-emerald-500/30"
+              : "border-border/75",
+        )}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                  ACTION_RUN_STATUS_CLASS[run.status],
+                )}
+              >
+                <StatusIcon
+                  className={cn(
+                    "size-3",
+                    (run.status === "starting" || run.status === "running") && "animate-spin",
+                  )}
+                />
+                {actionRunStatusLabel(run.status)}
+              </span>
+              <p className="min-w-0 truncate text-xs font-medium text-foreground">
+                {run.scriptName}
+              </p>
+              <span className="text-[10px] text-muted-foreground/45">
+                {run.source === "global" ? "Global action" : "Project action"}
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">{statusText}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            {outputPreview ? (
+              <MessageCopyButton
+                text={outputPreview.raw}
+                size="icon-xs"
+                variant="ghost"
+                className="text-muted-foreground/70 hover:text-foreground"
+              />
+            ) : null}
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              data-scroll-anchor-ignore
+              onClick={() => ctx.onOpenActionRun(run)}
+            >
+              <TerminalIcon className="size-3" />
+              Open
+            </Button>
+            {canRetry ? (
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                data-scroll-anchor-ignore
+                onClick={() => ctx.onRetryActionRun(run)}
+              >
+                <PlayIcon className="size-3" />
+                Retry
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              data-scroll-anchor-ignore
+              onClick={() => dismissReceipt(run.id)}
+              aria-label="Dismiss action receipt"
+            >
+              <XIcon className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-2 grid gap-1.5 text-[10px] text-muted-foreground/70">
+          <p className="truncate font-mono">{run.command}</p>
+          <p className="truncate font-mono text-muted-foreground/45">{run.cwd}</p>
+        </div>
+
+        {run.errorMessage ? (
+          <p className="mt-2 rounded-md border border-red-500/25 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-700 dark:text-red-200">
+            {run.errorMessage}
+          </p>
+        ) : null}
+
+        {outputPreview ? (
+          <pre className="mt-2 max-h-28 overflow-hidden rounded-md border border-border/65 bg-background/70 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground/85">
+            {outputPreview.preview}
+          </pre>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function actionRunStatusIcon(status: ActionRunStatus): LucideIcon {
+  if (status === "starting" || status === "running") return Loader2Icon;
+  if (status === "succeeded") return CheckIcon;
+  if (status === "failed" || status === "needs-input") return CircleAlertIcon;
+  return XIcon;
+}
+
+function formatActionRunStatusText(run: ActionRun): string {
+  if (run.status === "needs-input") {
+    const placeholderLabel =
+      run.placeholderNames.length > 0 ? `: ${run.placeholderNames.join(", ")}` : "";
+    return `Waiting for required input${placeholderLabel}`;
+  }
+  if (run.status === "starting") return "Creating tmux session...";
+  if (run.status === "running") return `Running for ${actionRunElapsedLabel(run)}`;
+  if (run.status === "succeeded") return `Finished successfully in ${actionRunElapsedLabel(run)}`;
+  if (run.status === "failed") {
+    const exitLabel = typeof run.exitCode === "number" ? ` with exit ${run.exitCode}` : "";
+    return `Failed${exitLabel} after ${actionRunElapsedLabel(run)}`;
+  }
+  return `Cancelled after ${actionRunElapsedLabel(run)}`;
+}
+
+function formatActionRunOutputPreview(outputTail: string): { raw: string; preview: string } | null {
+  const raw = outputTail
+    .split(/\r?\n/)
+    .filter((line) => !line.includes("__FENRIR_ACTION_DONE__"))
+    .join("\n")
+    .trim();
+  if (!raw) return null;
+  const lines = raw.split(/\r?\n/);
+  return {
+    raw,
+    preview: lines.slice(Math.max(0, lines.length - 5)).join("\n"),
+  };
 }
 
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {

@@ -53,6 +53,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedDiffToggle.command, "diff.toggle");
 
+    const parsedGlobalTerminalOpen = yield* decode(KeybindingRule, {
+      key: "meta+u",
+      command: "globalTerminal.open",
+    });
+    assert.strictEqual(parsedGlobalTerminalOpen.command, "globalTerminal.open");
+
     const parsedLocal = yield* decode(KeybindingRule, {
       key: "mod+shift+n",
       command: "chat.newLocal",

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { handleSendToComposer, shouldSubscribe } from "../useEditorSendToComposerListener";
+import { scopeThreadRef } from "@fenrir/client-runtime";
+import { DraftId } from "~/composerDraftStore";
+import {
+  composerTargetIdFromRouteTarget,
+  handleSendToComposer,
+  shouldSubscribe,
+} from "../useEditorSendToComposerListener";
 
 describe("useEditorSendToComposerListener", () => {
   describe("shouldSubscribe", () => {
@@ -35,6 +41,13 @@ describe("useEditorSendToComposerListener", () => {
       expect(result!.createdAt).toBeTruthy();
     });
 
+    it("creates a draft when draftId is present", () => {
+      const result = handleSendToComposer(validEvent, "draft-1");
+      expect(result).not.toBeNull();
+      expect(result!.threadId).toBe("draft-1");
+      expect(result!.text).toBe("const x = 1;");
+    });
+
     it("returns null when threadId is null", () => {
       expect(handleSendToComposer(validEvent, null)).toBeNull();
     });
@@ -49,6 +62,30 @@ describe("useEditorSendToComposerListener", () => {
 
     it("returns null when file is empty", () => {
       expect(handleSendToComposer({ ...validEvent, file: "" }, "thread-1")).toBeNull();
+    });
+  });
+
+  describe("composerTargetIdFromRouteTarget", () => {
+    it("returns server thread ids", () => {
+      expect(
+        composerTargetIdFromRouteTarget({
+          kind: "server",
+          threadRef: scopeThreadRef("env-1" as never, "thread-1" as never),
+        }),
+      ).toBe("thread-1");
+    });
+
+    it("returns draft ids", () => {
+      expect(
+        composerTargetIdFromRouteTarget({
+          kind: "draft",
+          draftId: DraftId.make("draft-1"),
+        }),
+      ).toBe("draft-1");
+    });
+
+    it("returns null without a route target", () => {
+      expect(composerTargetIdFromRouteTarget(null)).toBeNull();
     });
   });
 });

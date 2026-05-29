@@ -3,6 +3,11 @@ import { ThreadId, type TerminalEvent } from "@fenrir/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  GLOBAL_TERMINAL_THREAD_ID,
+  GLOBAL_TERMINAL_TMUX_THREAD_ID,
+  globalTerminalThreadRef,
+} from "../globalTerminal";
+import {
   migratePersistedTerminalStateStoreState,
   selectTerminalEventEntries,
   selectThreadTerminalState,
@@ -11,6 +16,11 @@ import {
 
 const THREAD_ID = ThreadId.make("thread-1");
 const THREAD_REF = scopeThreadRef("environment-a" as never, THREAD_ID);
+const GLOBAL_TERMINAL_REF = globalTerminalThreadRef("environment-a" as never);
+const GLOBAL_TERMINAL_TMUX_REF = scopeThreadRef(
+  "environment-a" as never,
+  GLOBAL_TERMINAL_TMUX_THREAD_ID,
+);
 const OTHER_THREAD_REF = scopeThreadRef("environment-b" as never, THREAD_ID);
 
 function makeTerminalEvent(
@@ -383,6 +393,51 @@ describe("terminalStateStore actions", () => {
     );
 
     expect(entries).toEqual([]);
+  });
+
+  it("retains global terminal state during orphan cleanup", () => {
+    const store = useTerminalStateStore.getState();
+    store.setTerminalOpen(THREAD_REF, true);
+    store.setTerminalOpen(GLOBAL_TERMINAL_REF, true);
+    store.setTerminalOpen(GLOBAL_TERMINAL_TMUX_REF, true);
+    store.recordTerminalEvent(
+      GLOBAL_TERMINAL_REF,
+      makeTerminalEvent("output", { threadId: GLOBAL_TERMINAL_THREAD_ID }),
+    );
+    store.recordTerminalEvent(
+      GLOBAL_TERMINAL_TMUX_REF,
+      makeTerminalEvent("output", {
+        threadId: GLOBAL_TERMINAL_TMUX_THREAD_ID,
+        terminalId: "tmux",
+      }),
+    );
+
+    store.removeOrphanedTerminalStates(new Set([scopedThreadKey(THREAD_REF)]));
+
+    expect(
+      useTerminalStateStore.getState().terminalStateByThreadKey[
+        scopedThreadKey(GLOBAL_TERMINAL_REF)
+      ],
+    ).toBeDefined();
+    expect(
+      selectTerminalEventEntries(
+        useTerminalStateStore.getState().terminalEventEntriesByKey,
+        GLOBAL_TERMINAL_REF,
+        "default",
+      ),
+    ).toHaveLength(1);
+    expect(
+      useTerminalStateStore.getState().terminalStateByThreadKey[
+        scopedThreadKey(GLOBAL_TERMINAL_TMUX_REF)
+      ],
+    ).toBeDefined();
+    expect(
+      selectTerminalEventEntries(
+        useTerminalStateStore.getState().terminalEventEntriesByKey,
+        GLOBAL_TERMINAL_TMUX_REF,
+        "tmux",
+      ),
+    ).toHaveLength(1);
   });
 
   it("is a no-op when clearing terminal state for a thread with no state or buffered events", () => {

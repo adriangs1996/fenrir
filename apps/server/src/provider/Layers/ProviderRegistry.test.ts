@@ -967,22 +967,22 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
       );
 
       it.effect(
-        "includes Claude Opus 4.7 with xhigh as the default effort on supported versions",
+        "includes Claude Opus 4.8 with high as the default effort on supported versions",
         () =>
           Effect.gen(function* () {
             const status = yield* checkClaudeProviderStatus();
-            const opus47 = status.models.find((model) => model.slug === "claude-opus-4-7");
-            if (!opus47) {
-              assert.fail("Expected Claude Opus 4.7 to be present for Claude Code v2.1.111.");
+            const opus48 = status.models.find((model) => model.slug === "claude-opus-4-8");
+            if (!opus48) {
+              assert.fail("Expected Claude Opus 4.8 to be present for Claude Code v2.1.111.");
             }
-            if (!opus47.capabilities) {
+            if (!opus48.capabilities) {
               assert.fail(
-                "Expected Claude Opus 4.7 capabilities to be present for Claude Code v2.1.111.",
+                "Expected Claude Opus 4.8 capabilities to be present for Claude Code v2.1.111.",
               );
             }
             assert.deepStrictEqual(
-              opus47.capabilities.reasoningEffortLevels.find((level) => level.isDefault),
-              { value: "xhigh", label: "Extra High", isDefault: true },
+              opus48.capabilities.reasoningEffortLevels.find((level) => level.isDefault),
+              { value: "high", label: "High", isDefault: true },
             );
           }).pipe(
             Effect.provide(
@@ -1001,16 +1001,20 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           ),
       );
 
-      it.effect("hides Claude Opus 4.7 on older Claude Code versions", () =>
+      it.effect("hides Claude Opus 4.7 and newer Opus models on older Claude Code versions", () =>
         Effect.gen(function* () {
           const status = yield* checkClaudeProviderStatus();
+          assert.strictEqual(
+            status.models.some((model) => model.slug === "claude-opus-4-8"),
+            false,
+          );
           assert.strictEqual(
             status.models.some((model) => model.slug === "claude-opus-4-7"),
             false,
           );
           assert.strictEqual(
             status.message,
-            "Claude Code v2.1.110 is too old for Claude Opus 4.7. Upgrade to v2.1.111 or newer to access it.",
+            "Claude Code v2.1.110 is too old for Claude Opus 4.7 and newer Opus models. Upgrade to v2.1.111 or newer to access them.",
           );
         }).pipe(
           Effect.provide(

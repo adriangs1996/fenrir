@@ -169,6 +169,10 @@ function mapDesktopMethod(toolName: string): string | null {
     toolName.startsWith("traffic_lens_list_paused") ||
     toolName.startsWith("traffic_lens_continue_paused") ||
     toolName.startsWith("traffic_lens_drop_paused") ||
+    toolName.startsWith("traffic_lens_list_profiles") ||
+    toolName.startsWith("traffic_lens_create_profile") ||
+    toolName.startsWith("traffic_lens_update_profile") ||
+    toolName.startsWith("traffic_lens_delete_profile") ||
     toolName.startsWith("traffic_lens_list_rules") ||
     toolName.startsWith("traffic_lens_upsert_rule") ||
     toolName.startsWith("traffic_lens_delete_rule") ||
@@ -176,7 +180,12 @@ function mapDesktopMethod(toolName: string): string | null {
     toolName.startsWith("traffic_lens_list_overrides") ||
     toolName.startsWith("traffic_lens_upsert_override") ||
     toolName.startsWith("traffic_lens_delete_override") ||
-    toolName.startsWith("traffic_lens_set_override_enabled")
+    toolName.startsWith("traffic_lens_set_override_enabled") ||
+    toolName.startsWith("traffic_lens_list_storage_origins") ||
+    toolName.startsWith("traffic_lens_capture_storage_origin") ||
+    toolName.startsWith("traffic_lens_get_cookies_for_origin") ||
+    toolName.startsWith("traffic_lens_set_cookie_for_origin") ||
+    toolName.startsWith("traffic_lens_delete_cookie_for_origin")
   ) {
     return toolName;
   }

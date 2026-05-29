@@ -55,6 +55,18 @@ export {
 // Focus
 export { isTerminalFocused } from "./terminalFocus";
 
+// Global terminal
+export {
+  GLOBAL_TERMINAL_ROUTE,
+  GLOBAL_TERMINAL_THREAD_ID,
+  GLOBAL_TERMINAL_TMUX_PROJECT_ID,
+  GLOBAL_TERMINAL_TMUX_THREAD_ID,
+  globalTerminalThreadRef,
+  isGlobalTerminalThreadId,
+  resolveGlobalTerminalToggleHref,
+  shouldStoreGlobalTerminalReturnHref,
+} from "./globalTerminal";
+
 // Extract last command output
 export { extractLastCommandOutput, looksLikePromptLine } from "./extractLastCommandOutput";
 
@@ -69,6 +81,7 @@ export {
 } from "./userMessageTerminalContexts";
 
 // Components
+export { GlobalTerminalRouteView } from "./components/GlobalTerminalRouteView";
 export { default as ThreadTerminalDrawer } from "./components/ThreadTerminalDrawer";
 export {
   TerminalViewport,

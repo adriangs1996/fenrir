@@ -12,6 +12,7 @@ import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
 import { DiffIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
@@ -21,6 +22,12 @@ import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { VpnToolbarButton } from "../VpnToolbarButton";
 import { ChatViewSwitcher, type ChatTab } from "~/modules/neovim-editor";
+import {
+  countActiveActionRuns,
+  countFailedActionRuns,
+  selectActionRunsForThread,
+  useActionRunStore,
+} from "~/modules/action-runs";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -48,6 +55,8 @@ interface ChatHeaderProps {
   onUpdateGlobalScript: (scriptId: string, input: NewGlobalScriptInput) => Promise<void>;
   onDeleteGlobalScript: (scriptId: string) => Promise<void>;
   onChatTabSelect: (tab: ChatTab) => void;
+  actionCenterOpen: boolean;
+  onToggleActionCenter: () => void;
   onToggleDiff: () => void;
 }
 
@@ -77,8 +86,27 @@ export const ChatHeader = memo(function ChatHeader({
   onUpdateGlobalScript,
   onDeleteGlobalScript,
   onChatTabSelect,
+  actionCenterOpen,
+  onToggleActionCenter,
   onToggleDiff,
 }: ChatHeaderProps) {
+  const threadRef = scopeThreadRef(activeThreadEnvironmentId, activeThreadId);
+  const actionRunSummary = useActionRunStore((state) => {
+    const runs = selectActionRunsForThread(state, threadRef);
+    return `${countFailedActionRuns(runs)}:${countActiveActionRuns(runs)}:${runs.length}`;
+  });
+  const [failedActionRunCount = 0, activeActionRunCount = 0, actionRunCount = 0] = actionRunSummary
+    .split(":")
+    .map((value) => Number.parseInt(value, 10));
+  const actionRunBadge =
+    failedActionRunCount > 0
+      ? `${failedActionRunCount} failed`
+      : activeActionRunCount > 0
+        ? `${activeActionRunCount} active`
+        : actionRunCount > 0
+          ? String(actionRunCount)
+          : null;
+
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
@@ -124,10 +152,32 @@ export const ChatHeader = memo(function ChatHeader({
             onDeleteGlobalScript={onDeleteGlobalScript}
           />
         )}
+        <Button
+          type="button"
+          size="xs"
+          variant={actionCenterOpen ? "secondary" : "outline"}
+          onClick={onToggleActionCenter}
+          title="Toggle Action Center"
+        >
+          Runs
+          {actionRunBadge ? (
+            <span
+              className={`ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] ${
+                failedActionRunCount > 0
+                  ? "bg-destructive/15 text-destructive"
+                  : activeActionRunCount > 0
+                    ? "bg-sky-500/15 text-sky-600 dark:text-sky-300"
+                    : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {actionRunBadge}
+            </span>
+          ) : null}
+        </Button>
         {activeProjectName && (
           <GitActionsControl
             gitCwd={gitCwd}
-            activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
+            activeThreadRef={threadRef}
             {...(draftId ? { draftId } : {})}
           />
         )}

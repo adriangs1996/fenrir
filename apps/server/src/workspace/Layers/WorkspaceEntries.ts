@@ -3,7 +3,11 @@ import type { Dirent } from "node:fs";
 
 import { Cache, Duration, Effect, Exit, Layer, Path } from "effect";
 
-import { type FilesystemBrowseResult, type ProjectEntry } from "@fenrir/contracts";
+import {
+  type FilesystemBrowseResult,
+  type ProjectEntry,
+  type ProjectListEntriesResult,
+} from "@fenrir/contracts";
 
 import {
   VcsDriverRegistry,
@@ -296,6 +300,13 @@ function directoryAncestorsOf(relativePath: string): string[] {
 const processErrorDetail = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
+function compareProjectEntries(left: ProjectEntry, right: ProjectEntry): number {
+  if (left.kind !== right.kind) {
+    return left.kind === "directory" ? -1 : 1;
+  }
+  return left.path.localeCompare(right.path);
+}
+
 export const makeWorkspaceEntries = Effect.gen(function* () {
   const path = yield* Path.Path;
   const vcsRegistry = yield* VcsDriverRegistry;
@@ -531,6 +542,50 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
     );
   });
 
+  const resolveDirectoryWithinWorkspace = Effect.fn(
+    "WorkspaceEntries.resolveDirectoryWithinWorkspace",
+  )(function* (input: {
+    cwd: string;
+    relativePath?: string | undefined;
+  }): Effect.fn.Return<
+    { normalizedCwd: string; absolutePath: string; relativePath: string },
+    WorkspaceEntriesError
+  > {
+    const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
+    const requestedRelativePath = input.relativePath?.trim() ?? "";
+
+    if (requestedRelativePath.length > 0 && path.isAbsolute(requestedRelativePath)) {
+      return yield* new WorkspaceEntriesError({
+        cwd: input.cwd,
+        operation: "workspaceEntries.resolveDirectoryWithinWorkspace",
+        detail: "Workspace path must stay within the project root.",
+      });
+    }
+
+    const absolutePath =
+      requestedRelativePath.length === 0
+        ? normalizedCwd
+        : path.resolve(normalizedCwd, requestedRelativePath);
+    const relativeToRoot = toPosixPath(path.relative(normalizedCwd, absolutePath));
+    if (
+      relativeToRoot === ".." ||
+      relativeToRoot.startsWith("../") ||
+      path.isAbsolute(relativeToRoot)
+    ) {
+      return yield* new WorkspaceEntriesError({
+        cwd: input.cwd,
+        operation: "workspaceEntries.resolveDirectoryWithinWorkspace",
+        detail: "Workspace path must stay within the project root.",
+      });
+    }
+
+    return {
+      normalizedCwd,
+      absolutePath,
+      relativePath: relativeToRoot === "." ? "" : relativeToRoot,
+    };
+  });
+
   const invalidate: WorkspaceEntriesShape["invalidate"] = Effect.fn("WorkspaceEntries.invalidate")(
     function* (cwd) {
       const normalizedCwd = yield* normalizeWorkspaceRoot(cwd).pipe(
@@ -542,6 +597,76 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
       }
     },
   );
+
+  const listEntries: WorkspaceEntriesShape["listEntries"] = Effect.fn(
+    "WorkspaceEntries.listEntries",
+  )(function* (input) {
+    const target = yield* resolveDirectoryWithinWorkspace({
+      cwd: input.cwd,
+      relativePath: input.relativePath,
+    });
+    const dirents = yield* Effect.tryPromise({
+      try: () =>
+        fsPromises.readdir(target.absolutePath, {
+          withFileTypes: true,
+        }),
+      catch: (cause) =>
+        new WorkspaceEntriesError({
+          cwd: input.cwd,
+          operation: "workspaceEntries.listEntries",
+          detail: processErrorDetail(cause),
+          cause,
+        }),
+    });
+
+    const candidates: Array<{ entry: ProjectEntry; path: string }> = [];
+    for (const dirent of dirents) {
+      if (!dirent.name || dirent.name === "." || dirent.name === "..") {
+        continue;
+      }
+      if (!dirent.isDirectory() && !dirent.isFile()) {
+        continue;
+      }
+      if (dirent.isDirectory() && IGNORED_DIRECTORY_NAMES.has(dirent.name)) {
+        continue;
+      }
+
+      const childPath = toPosixPath(
+        target.relativePath ? path.join(target.relativePath, dirent.name) : dirent.name,
+      );
+      if (isPathInIgnoredDirectory(childPath)) {
+        continue;
+      }
+
+      candidates.push({
+        path: childPath,
+        entry: {
+          path: childPath,
+          kind: dirent.isDirectory() ? "directory" : "file",
+          ...(target.relativePath ? { parentPath: target.relativePath } : {}),
+        },
+      });
+    }
+
+    const handle = yield* resolveWorkspaceVcs(target.normalizedCwd);
+    const allowedPaths = new Set(
+      yield* filterIgnoredPaths(
+        handle,
+        target.normalizedCwd,
+        candidates.map((candidate) => candidate.path),
+      ),
+    );
+    const sortedEntries = candidates
+      .filter((candidate) => allowedPaths.has(candidate.path))
+      .map((candidate) => candidate.entry)
+      .toSorted(compareProjectEntries);
+    const limit = Math.max(0, Math.floor(input.limit));
+
+    return {
+      entries: sortedEntries.slice(0, limit),
+      truncated: sortedEntries.length > limit,
+    } satisfies ProjectListEntriesResult;
+  });
 
   const search: WorkspaceEntriesShape["search"] = Effect.fn("WorkspaceEntries.search")(
     function* (input) {
@@ -635,6 +760,7 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
   return {
     browse,
     invalidate,
+    listEntries,
     search,
   } satisfies WorkspaceEntriesShape;
 });

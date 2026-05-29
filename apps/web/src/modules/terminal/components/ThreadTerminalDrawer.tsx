@@ -46,6 +46,7 @@ import {
 } from "../terminalLinks";
 import {
   isDiffToggleShortcut,
+  isGlobalTerminalOpenShortcut,
   isTerminalClearShortcut,
   isTerminalCloseShortcut,
   isTerminalNewShortcut,
@@ -193,7 +194,7 @@ interface TerminalViewportProps {
   worktreePath?: string | null;
   runtimeEnv?: Record<string, string>;
   onSessionExited: () => void;
-  onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onAddTerminalContext?: (selection: TerminalContextSelection) => void;
   onTerminalMount?: (terminal: Terminal | null) => void;
   focusRequestId: number;
   autoFocus: boolean;
@@ -242,8 +243,9 @@ export function TerminalViewport({
     onSessionExited();
   });
   const handleAddTerminalContext = useEffectEvent((selection: TerminalContextSelection) => {
-    onAddTerminalContext(selection);
+    onAddTerminalContext?.(selection);
   });
+  const canAddTerminalContext = onAddTerminalContext !== undefined;
   const readTerminalLabel = useEffectEvent(() => terminalLabel);
   const { terminalFontFamily, terminalFontSize, terminalLineHeight } = useSettings((s) => ({
     terminalFontFamily: s.terminalFontFamily,
@@ -434,6 +436,10 @@ export function TerminalViewport({
       if (selectionActionOpenRef.current) {
         return;
       }
+      if (!canAddTerminalContext) {
+        clearSelectionAction();
+        return;
+      }
       const nextAction = readSelectionAction();
       if (!nextAction) {
         clearSelectionAction();
@@ -479,6 +485,7 @@ export function TerminalViewport({
         isTerminalSplitShortcut(event, currentKeybindings, options) ||
         isTerminalNewShortcut(event, currentKeybindings, options) ||
         isTerminalCloseShortcut(event, currentKeybindings, options) ||
+        isGlobalTerminalOpenShortcut(event, currentKeybindings, options) ||
         isDiffToggleShortcut(event, currentKeybindings, options) ||
         threadTraversalDirectionFromCommand(
           resolveShortcutCommand(event, currentKeybindings, options),
@@ -846,11 +853,10 @@ export function TerminalViewport({
 
     return () => {
       disposed = true;
-      if (mode == "tmux") {
+      if (mode === "tmux" && projectId) {
         const currentTmuxProject = useTerminalStateStore.getState().activeTmuxProjectId;
-        if (currentTmuxProject) {
-          void api.terminal.detachTmux({ projectId: currentTmuxProject }).catch(() => {});
-
+        void api.terminal.detachTmux({ projectId }).catch(() => {});
+        if (currentTmuxProject === projectId) {
           useTerminalStateStore.getState().setActiveTmuxProject(null);
         }
       }
@@ -882,6 +888,7 @@ export function TerminalViewport({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     clientSettingsHydrated,
+    canAddTerminalContext,
     cwd,
     environmentId,
     runtimeEnv,

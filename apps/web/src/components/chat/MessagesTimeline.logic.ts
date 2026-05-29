@@ -4,6 +4,7 @@ import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
 import { buildTurnDiffTree, type TurnDiffTreeNode } from "../../lib/turnDiffTree";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import { estimateTimelineMessageHeight } from "../timelineHeight";
+import { type ActionRun } from "~/modules/action-runs";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
@@ -40,7 +41,22 @@ export type MessagesTimelineRow =
       createdAt: string;
       proposedPlan: ProposedPlan;
     }
+  | {
+      kind: "action-run";
+      id: string;
+      createdAt: string;
+      run: ActionRun;
+    }
   | { kind: "working"; id: string; createdAt: string | null };
+
+type ActionRunTimelineEntry = {
+  kind: "action-run";
+  id: string;
+  createdAt: string;
+  run: ActionRun;
+};
+
+type CombinedTimelineEntry = TimelineEntry | ActionRunTimelineEntry;
 
 export function computeMessageDurationStart(
   messages: ReadonlyArray<TimelineDurationMessage>,
@@ -115,6 +131,7 @@ export function deriveMessagesTimelineRows(input: {
   activeTurnInProgress?: boolean;
   activeTurnId?: TurnId | null;
   activeTurnStartedAt: string | null;
+  actionRuns?: ReadonlyArray<ActionRun> | undefined;
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
 }): MessagesTimelineRow[] {
@@ -123,9 +140,10 @@ export function deriveMessagesTimelineRows(input: {
     input.timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
   );
   const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(input.timelineEntries);
+  const combinedEntries = buildCombinedTimelineEntries(input.timelineEntries, input.actionRuns);
 
-  for (let index = 0; index < input.timelineEntries.length; index += 1) {
-    const timelineEntry = input.timelineEntries[index];
+  for (let index = 0; index < combinedEntries.length; index += 1) {
+    const timelineEntry = combinedEntries[index];
     if (!timelineEntry) {
       continue;
     }
@@ -133,8 +151,8 @@ export function deriveMessagesTimelineRows(input: {
     if (timelineEntry.kind === "work") {
       const groupedEntries = [timelineEntry.entry];
       let cursor = index + 1;
-      while (cursor < input.timelineEntries.length) {
-        const nextEntry = input.timelineEntries[cursor];
+      while (cursor < combinedEntries.length) {
+        const nextEntry = combinedEntries[cursor];
         if (!nextEntry || nextEntry.kind !== "work") break;
         groupedEntries.push(nextEntry.entry);
         cursor += 1;
@@ -155,6 +173,16 @@ export function deriveMessagesTimelineRows(input: {
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         proposedPlan: timelineEntry.proposedPlan,
+      });
+      continue;
+    }
+
+    if (timelineEntry.kind === "action-run") {
+      nextRows.push({
+        kind: "action-run",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        run: timelineEntry.run,
       });
       continue;
     }
@@ -204,6 +232,31 @@ export function deriveMessagesTimelineRows(input: {
   return nextRows;
 }
 
+function buildCombinedTimelineEntries(
+  timelineEntries: ReadonlyArray<TimelineEntry>,
+  actionRuns: ReadonlyArray<ActionRun> | undefined,
+): CombinedTimelineEntry[] {
+  if (!actionRuns || actionRuns.length === 0) {
+    return [...timelineEntries];
+  }
+
+  const combinedEntries: CombinedTimelineEntry[] = [
+    ...timelineEntries,
+    ...actionRuns.map((run) => ({
+      kind: "action-run" as const,
+      id: `action-run:${run.id}`,
+      createdAt: run.createdAt,
+      run,
+    })),
+  ];
+
+  return combinedEntries.toSorted((left, right) => {
+    const createdAtComparison = left.createdAt.localeCompare(right.createdAt);
+    if (createdAtComparison !== 0) return createdAtComparison;
+    return left.id.localeCompare(right.id);
+  });
+}
+
 export interface StableMessagesTimelineRowsState {
   readonly byId: ReadonlyMap<string, MessagesTimelineRow>;
   readonly result: ReadonlyArray<MessagesTimelineRow>;
@@ -237,6 +290,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
   switch (a.kind) {
     case "working":
       return a.createdAt === (b as typeof a).createdAt;
+    case "action-run":
+      return a.run === (b as typeof a).run;
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;
     case "work":
@@ -270,6 +325,8 @@ export function estimateMessagesTimelineRowHeight(
       return estimateWorkRowHeight(row, input);
     case "proposed-plan":
       return estimateTimelineProposedPlanHeight(row.proposedPlan);
+    case "action-run":
+      return estimateActionRunRowHeight(row.run);
     case "working":
       return 40;
     case "message": {
@@ -283,6 +340,12 @@ export function estimateMessagesTimelineRowHeight(
       return estimate;
     }
   }
+}
+
+function estimateActionRunRowHeight(run: ActionRun): number {
+  if (run.status === "succeeded") return 82;
+  const outputLines = run.outputTail.trim().length > 0 ? 4 : 0;
+  return 112 + outputLines * 18;
 }
 
 function estimateWorkRowHeight(

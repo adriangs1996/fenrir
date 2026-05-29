@@ -1,13 +1,43 @@
 # Fenrir
 
-Minimal GUI for coding agents. Currently Codex-first, with Claude support via the Claude Agent SDK.
+Next-generation IDE for agentic-first development. Whatever your workflow is, Fenrir tries to support it.
+
+Fenrir is a fork of T3Code and continues to use it as a reference for many features. This project exists because of the outstanding work in T3Code and the patterns it established for building a practical, agent-centered development environment.
+
+Today, Fenrir is still behind that reference. The long-term goal is a fast, reliable, workflow-flexible IDE for coding agents, but the current project is not feature-complete and should be treated as an early, experimental fork.
+
+Currently Codex-first, with Claude support via the Claude Agent SDK.
 
 > [!WARNING]
-> Very early WIP. Bugs expected. APIs, schemas, and UX will change without notice.
+> Very early WIP. Bugs expected. APIs, schemas, and UX will change without notice. Many workflows are incomplete, rough, or temporarily behind the behavior available in T3Code.
+
+## Current status
+
+Fenrir is usable as a local development workbench for experimenting with provider sessions, conversations, terminals, editors, and git-aware workflows, but it is not polished product software yet.
+
+Expect the current state to include:
+
+- missing or incomplete flows compared with T3Code
+- behavior that changes quickly as the architecture settles
+- rough edges around session recovery, reconnects, partial streams, and provider differences
+- UI that reflects active development more than a stable release
+- desktop packaging that may lag the browser/server workflow
+
+## Fenrir-only direction
+
+Even though Fenrir is behind T3Code in overall polish and coverage, it is exploring several features that are not part of the current T3Code baseline:
+
+- **Plan runner** — discovers `.plans/` feature folders, freezes a plan graph, runs executor/analyzer/integration agent threads, persists run state, supports recovery after restarts, and exposes run monitoring in the UI.
+- **Browser lab and Traffic Lens** — an embedded browser workflow with captured HTTP traffic, request replay, rules/overrides, profiles, cookies, local storage, and session storage inspection.
+- **Managed processes** — project-scoped long-running processes for dev servers and watchers, with tmux-backed restart reconciliation, auto-restart policies, readiness probes, and streamed logs.
+- **Embedded Neovim workspace** — an Electron-backed Neovim pane with project cwd sync, dirty-buffer tracking, and editor selections that can be sent into the agent composer as structured context.
+- **Provider skills workspace** — UI and server support for inspecting, editing, importing, and syncing provider skills across Codex and Claude-style skill folders.
+
+These areas should be read as active product bets, not stable guarantees. Some are partially wired, some are desktop-only, and some still need the same reliability work as the rest of the app.
 
 ## What it is
 
-Fenrir runs a local Node WebSocket server that wraps the [`codex app-server`](https://developers.openai.com/codex/sdk/#app-server) (JSON-RPC over stdio) and the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk), and serves a React UI for managing sessions, conversations, terminals, editors, and git worktrees.
+Fenrir runs a local Node WebSocket server that wraps the [`codex app-server`](https://developers.openai.com/codex/sdk/#app-server) (JSON-RPC over stdio) and the [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk). It serves a React UI that is being built toward managing sessions, conversations, terminals, editors, and git worktrees in one place.
 
 It ships in two shapes:
 

@@ -5,19 +5,19 @@ import type {
   ProjectId,
   ProjectScript,
   ScopedThreadRef,
-  TerminalOpenInput,
   ThreadId,
 } from "@fenrir/contracts";
 import { projectScriptRuntimeEnv } from "@fenrir/shared/projectScripts";
-import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 import { readEnvironmentApi } from "../../environmentApi";
 import { isElectron } from "../../env";
 import { readLocalApi } from "../../localApi";
-import { DEFAULT_THREAD_TERMINAL_ID, type Project, type Thread } from "../../types";
+import { type Project, type Thread } from "../../types";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { parsePlaceholders, substitutePlaceholders } from "~/lib/placeholders";
 import { newCommandId, randomUUID } from "~/lib/utils";
+import { buildTmuxActionCommand, useActionRunStore } from "~/modules/action-runs";
 import {
   commandForGlobalScript,
   commandForProjectScript,
@@ -26,20 +26,8 @@ import {
 import type { NewGlobalScriptInput, NewProjectScriptInput } from "../ProjectScriptsControl";
 import { toastManager } from "../ui/toast";
 
-const SCRIPT_TERMINAL_COLS = 120;
-const SCRIPT_TERMINAL_ROWS = 30;
-
-interface TerminalLaunchContext {
-  cwd: string;
-  threadId: ThreadId;
-  worktreePath: string | null;
-}
-
-interface TerminalStateSnapshot {
-  activeTerminalId: string;
-  runningTerminalIds: ReadonlyArray<string>;
-  terminalIds: ReadonlyArray<string>;
-}
+const ACTION_TMUX_COLS = 120;
+const ACTION_TMUX_ROWS = 30;
 
 interface PersistProjectScriptsInput {
   keybinding?: string | null;
@@ -57,7 +45,6 @@ interface PlaceholderDialogState {
 }
 
 interface UseChatViewScriptsInput {
-  activateTerminalTab: (options?: { ensureOpen?: boolean; focus?: boolean }) => void;
   activeProject: Project | null | undefined;
   activeThread: Thread | null | undefined;
   activeThreadId: ThreadId | null;
@@ -65,11 +52,7 @@ interface UseChatViewScriptsInput {
   environmentId: EnvironmentId;
   gitCwd: string | null;
   setLastInvokedScriptByProjectId: Dispatch<SetStateAction<Record<string, string>>>;
-  setTerminalLaunchContext: Dispatch<SetStateAction<TerminalLaunchContext | null>>;
   setThreadError: (targetThreadId: ThreadId | null, error: string | null) => void;
-  storeNewTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
-  storeSetActiveTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
-  terminalState: TerminalStateSnapshot;
 }
 
 interface UseChatViewScriptsResult {
@@ -80,10 +63,11 @@ interface UseChatViewScriptsResult {
   runProjectScript: (
     script: ProjectScript,
     options?: {
+      actionRunId?: string;
       cwd?: string;
       env?: Record<string, string>;
-      preferNewTerminal?: boolean;
       rememberAsLastInvoked?: boolean;
+      source?: "project" | "global";
       worktreePath?: string | null;
     },
   ) => Promise<void>;
@@ -95,7 +79,6 @@ interface UseChatViewScriptsResult {
 
 export function useChatViewScripts(input: UseChatViewScriptsInput): UseChatViewScriptsResult {
   const {
-    activateTerminalTab,
     activeProject,
     activeThread,
     activeThreadId,
@@ -103,28 +86,29 @@ export function useChatViewScripts(input: UseChatViewScriptsInput): UseChatViewS
     environmentId,
     gitCwd,
     setLastInvokedScriptByProjectId,
-    setTerminalLaunchContext,
     setThreadError,
-    storeNewTerminal,
-    storeSetActiveTerminal,
-    terminalState,
   } = input;
   const [placeholderDialogOpen, setPlaceholderDialogOpen] = useState(false);
-  const [pendingGlobalScript, setPendingGlobalScript] = useState<GlobalScript | null>(null);
+  const [pendingGlobalScript, setPendingGlobalScript] = useState<{
+    script: GlobalScript;
+    runId: string;
+  } | null>(null);
+  const submittingPlaceholderRunIdRef = useRef<string | null>(null);
 
   const runProjectScript = useCallback(
     async (
       script: ProjectScript,
       options?: {
+        actionRunId?: string;
         cwd?: string;
         env?: Record<string, string>;
-        preferNewTerminal?: boolean;
         rememberAsLastInvoked?: boolean;
+        source?: "project" | "global";
         worktreePath?: string | null;
       },
     ) => {
       const api = readEnvironmentApi(environmentId);
-      if (!api || !activeThreadId || !activeProject || !activeThread) {
+      if (!api || !activeThreadId || !activeProject || !activeThread || !activeThreadRef) {
         return;
       }
 
@@ -138,34 +122,7 @@ export function useChatViewScripts(input: UseChatViewScriptsInput): UseChatViewS
       }
 
       const targetCwd = options?.cwd ?? gitCwd ?? activeProject.cwd;
-      const baseTerminalId =
-        terminalState.activeTerminalId ||
-        terminalState.terminalIds[0] ||
-        DEFAULT_THREAD_TERMINAL_ID;
-      const isBaseTerminalBusy = terminalState.runningTerminalIds.includes(baseTerminalId);
-      const shouldCreateNewTerminal = Boolean(options?.preferNewTerminal) || isBaseTerminalBusy;
-      const targetTerminalId = shouldCreateNewTerminal
-        ? `terminal-${randomUUID()}`
-        : baseTerminalId;
       const targetWorktreePath = options?.worktreePath ?? activeThread.worktreePath ?? null;
-
-      setTerminalLaunchContext({
-        threadId: activeThreadId,
-        cwd: targetCwd,
-        worktreePath: targetWorktreePath,
-      });
-      activateTerminalTab({ ensureOpen: true, focus: true });
-
-      if (!activeThreadRef) {
-        return;
-      }
-
-      if (shouldCreateNewTerminal) {
-        storeNewTerminal(activeThreadRef, targetTerminalId);
-      } else {
-        storeSetActiveTerminal(activeThreadRef, targetTerminalId);
-      }
-
       const runtimeEnv = projectScriptRuntimeEnv({
         project: {
           cwd: activeProject.cwd,
@@ -173,40 +130,54 @@ export function useChatViewScripts(input: UseChatViewScriptsInput): UseChatViewS
         worktreePath: targetWorktreePath,
         ...(options?.env ? { extraEnv: options.env } : {}),
       });
-      const openTerminalInput: TerminalOpenInput = shouldCreateNewTerminal
-        ? {
-            threadId: activeThreadId,
-            terminalId: targetTerminalId,
-            cwd: targetCwd,
-            ...(targetWorktreePath !== null ? { worktreePath: targetWorktreePath } : {}),
-            env: runtimeEnv,
-            cols: SCRIPT_TERMINAL_COLS,
-            rows: SCRIPT_TERMINAL_ROWS,
-          }
-        : {
-            threadId: activeThreadId,
-            terminalId: targetTerminalId,
-            cwd: targetCwd,
-            ...(targetWorktreePath !== null ? { worktreePath: targetWorktreePath } : {}),
-            env: runtimeEnv,
-          };
+      const runId = options?.actionRunId ?? randomUUID();
+      const actionRun = useActionRunStore.getState().createActionRun({
+        id: runId,
+        threadRef: activeThreadRef,
+        projectId: activeProject.id,
+        source: options?.source ?? "project",
+        scriptId: script.id,
+        scriptName: script.name,
+        command: script.command,
+        cwd: targetCwd,
+      });
+      const command = buildTmuxActionCommand({
+        runId: actionRun.id,
+        name: script.name,
+        command: script.command,
+        env: runtimeEnv,
+      });
 
       try {
-        await api.terminal.open(openTerminalInput);
-        await api.terminal.write({
-          threadId: activeThreadId,
-          terminalId: targetTerminalId,
-          data: `${script.command}\r`,
+        await api.terminal.attachTmux({
+          projectId: actionRun.tmuxProjectId,
+          cwd: targetCwd,
+          cols: ACTION_TMUX_COLS,
+          rows: ACTION_TMUX_ROWS,
+        });
+        useActionRunStore.getState().markRunning(actionRun.id);
+        await api.terminal.writeTmux({
+          projectId: actionRun.tmuxProjectId,
+          data: `${command}\r`,
+        });
+        toastManager.add({
+          type: "loading",
+          title: `Running "${script.name}"`,
+          description: "The action is running in its own tmux session.",
         });
       } catch (error) {
-        setThreadError(
-          activeThreadId,
-          error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
-        );
+        const message =
+          error instanceof Error ? error.message : `Failed to run script "${script.name}".`;
+        useActionRunStore.getState().failActionRun(actionRun.id, message);
+        toastManager.add({
+          type: "error",
+          title: `Could not run "${script.name}"`,
+          description: message,
+        });
+        setThreadError(activeThreadId, message);
       }
     },
     [
-      activateTerminalTab,
       activeProject,
       activeThread,
       activeThreadId,
@@ -214,13 +185,7 @@ export function useChatViewScripts(input: UseChatViewScriptsInput): UseChatViewS
       environmentId,
       gitCwd,
       setLastInvokedScriptByProjectId,
-      setTerminalLaunchContext,
       setThreadError,
-      storeNewTerminal,
-      storeSetActiveTerminal,
-      terminalState.activeTerminalId,
-      terminalState.runningTerminalIds,
-      terminalState.terminalIds,
     ],
   );
 
@@ -432,13 +397,16 @@ export function useChatViewScripts(input: UseChatViewScriptsInput): UseChatViewS
 
       const placeholders = parsePlaceholders(script.command);
       if (placeholders.length === 0) {
-        await runProjectScript({
-          id: script.id,
-          name: script.name,
-          command: script.command,
-          icon: script.icon,
-          runOnWorktreeCreate: false,
-        });
+        await runProjectScript(
+          {
+            id: script.id,
+            name: script.name,
+            command: script.command,
+            icon: script.icon,
+            runOnWorktreeCreate: false,
+          },
+          { source: "global" },
+        );
         return;
       }
 
@@ -450,20 +418,45 @@ export function useChatViewScripts(input: UseChatViewScriptsInput): UseChatViewS
         : false;
 
       if (allDefaultsFilled && !altKey) {
-        await runProjectScript({
-          id: script.id,
-          name: script.name,
-          command: substitutePlaceholders(script.command, projectDefaults!.defaults),
-          icon: script.icon,
-          runOnWorktreeCreate: false,
+        await runProjectScript(
+          {
+            id: script.id,
+            name: script.name,
+            command: substitutePlaceholders(script.command, projectDefaults!.defaults),
+            icon: script.icon,
+            runOnWorktreeCreate: false,
+          },
+          { source: "global" },
+        );
+        return;
+      }
+
+      if (!activeProject || !activeThreadRef) {
+        toastManager.add({
+          type: "error",
+          title: "Open a project thread first",
+          description: "Global actions with placeholders need a project context.",
         });
         return;
       }
 
-      setPendingGlobalScript(script);
+      const runId = randomUUID();
+      useActionRunStore.getState().createActionRun({
+        id: runId,
+        threadRef: activeThreadRef,
+        projectId: activeProject.id,
+        source: "global",
+        scriptId: script.id,
+        scriptName: script.name,
+        command: script.command,
+        cwd: gitCwd ?? activeProject.cwd,
+        status: "needs-input",
+        placeholderNames: placeholders,
+      });
+      setPendingGlobalScript({ script, runId });
       setPlaceholderDialogOpen(true);
     },
-    [activeProject, activeThread, activeThreadId, runProjectScript],
+    [activeProject, activeThread, activeThreadId, activeThreadRef, gitCwd, runProjectScript],
   );
 
   const handlePlaceholderRun = useCallback(
@@ -472,22 +465,26 @@ export function useChatViewScripts(input: UseChatViewScriptsInput): UseChatViewS
         return;
       }
 
-      await runProjectScript({
-        id: pendingGlobalScript.id,
-        name: pendingGlobalScript.name,
-        command: substitutePlaceholders(pendingGlobalScript.command, values),
-        icon: pendingGlobalScript.icon,
-        runOnWorktreeCreate: false,
-      });
+      submittingPlaceholderRunIdRef.current = pendingGlobalScript.runId;
+      await runProjectScript(
+        {
+          id: pendingGlobalScript.script.id,
+          name: pendingGlobalScript.script.name,
+          command: substitutePlaceholders(pendingGlobalScript.script.command, values),
+          icon: pendingGlobalScript.script.icon,
+          runOnWorktreeCreate: false,
+        },
+        { actionRunId: pendingGlobalScript.runId, source: "global" },
+      );
 
       if (saveAsDefault && activeProject) {
         const api = readEnvironmentApi(environmentId);
         if (api) {
           const currentDefaults = activeProject.globalScriptDefaults ?? [];
           const existingIndex = currentDefaults.findIndex(
-            (entry) => entry.scriptId === pendingGlobalScript.id,
+            (entry) => entry.scriptId === pendingGlobalScript.script.id,
           );
-          const newEntry = { scriptId: pendingGlobalScript.id, defaults: values };
+          const newEntry = { scriptId: pendingGlobalScript.script.id, defaults: values };
           const nextDefaults =
             existingIndex >= 0
               ? currentDefaults.map((entry, index) => (index === existingIndex ? newEntry : entry))
@@ -503,16 +500,26 @@ export function useChatViewScripts(input: UseChatViewScriptsInput): UseChatViewS
       }
 
       setPendingGlobalScript(null);
+      submittingPlaceholderRunIdRef.current = null;
     },
     [activeProject, environmentId, pendingGlobalScript, runProjectScript],
   );
 
-  const handlePlaceholderDialogOpenChange = useCallback((open: boolean) => {
-    setPlaceholderDialogOpen(open);
-    if (!open) {
-      setPendingGlobalScript(null);
-    }
-  }, []);
+  const handlePlaceholderDialogOpenChange = useCallback(
+    (open: boolean) => {
+      setPlaceholderDialogOpen(open);
+      if (!open) {
+        if (
+          pendingGlobalScript &&
+          submittingPlaceholderRunIdRef.current !== pendingGlobalScript.runId
+        ) {
+          useActionRunStore.getState().requestCancel(pendingGlobalScript.runId);
+        }
+        setPendingGlobalScript(null);
+      }
+    },
+    [pendingGlobalScript],
+  );
 
   const placeholderDialogDefaults = useMemo(() => {
     if (!pendingGlobalScript || !activeProject) {
@@ -521,7 +528,7 @@ export function useChatViewScripts(input: UseChatViewScriptsInput): UseChatViewS
 
     return (
       activeProject.globalScriptDefaults?.find(
-        (entry) => entry.scriptId === pendingGlobalScript.id,
+        (entry) => entry.scriptId === pendingGlobalScript.script.id,
       ) ?? null
     );
   }, [activeProject, pendingGlobalScript]);
@@ -534,7 +541,7 @@ export function useChatViewScripts(input: UseChatViewScriptsInput): UseChatViewS
       onOpenChange: handlePlaceholderDialogOpenChange,
       onRun: handlePlaceholderRun,
       open: placeholderDialogOpen,
-      script: pendingGlobalScript,
+      script: pendingGlobalScript?.script ?? null,
     },
     runGlobalScript,
     runProjectScript,

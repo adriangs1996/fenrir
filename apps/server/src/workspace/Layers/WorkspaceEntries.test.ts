@@ -68,6 +68,12 @@ const searchWorkspaceEntries = (input: { cwd: string; query: string; limit: numb
     return yield* workspaceEntries.search(input);
   });
 
+const listWorkspaceEntries = (input: { cwd: string; relativePath?: string; limit: number }) =>
+  Effect.gen(function* () {
+    const workspaceEntries = yield* WorkspaceEntries;
+    return yield* workspaceEntries.listEntries(input);
+  });
+
 const browseWorkspaceEntries = (input: { partialPath: string; cwd?: string }) =>
   Effect.gen(function* () {
     const workspaceEntries = yield* WorkspaceEntries;
@@ -270,6 +276,56 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
         yield* searchWorkspaceEntries({ cwd, query: "", limit: 200 });
 
         expect(peakReads).toBeLessThanOrEqual(32);
+      }),
+    );
+  });
+
+  describe("listEntries", () => {
+    it.effect("lists direct children relative to cwd with directories first", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "fenrir-workspace-list-" });
+        yield* writeTextFile(cwd, "src/index.ts", "export {};");
+        yield* writeTextFile(cwd, "README.md", "# Readme\n");
+        yield* writeTextFile(cwd, "node_modules/pkg/index.js", "");
+
+        const result = yield* listWorkspaceEntries({ cwd, limit: 100 });
+
+        expect(result).toEqual({
+          entries: [
+            { path: "src", kind: "directory" },
+            { path: "README.md", kind: "file" },
+          ],
+          truncated: false,
+        });
+      }),
+    );
+
+    it.effect("lists nested directories and reports truncation", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "fenrir-workspace-list-nested-" });
+        yield* writeTextFile(cwd, "src/a.ts", "export {};");
+        yield* writeTextFile(cwd, "src/b.ts", "export {};");
+
+        const result = yield* listWorkspaceEntries({ cwd, relativePath: "src", limit: 1 });
+
+        expect(result).toEqual({
+          entries: [{ path: "src/a.ts", kind: "file", parentPath: "src" }],
+          truncated: true,
+        });
+      }),
+    );
+
+    it.effect("rejects directory traversal outside the workspace root", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "fenrir-workspace-list-traversal-" });
+
+        const error = yield* listWorkspaceEntries({
+          cwd,
+          relativePath: "../outside",
+          limit: 100,
+        }).pipe(Effect.flip);
+
+        expect(error.detail).toBe("Workspace path must stay within the project root.");
       }),
     );
   });

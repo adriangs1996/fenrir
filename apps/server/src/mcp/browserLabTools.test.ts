@@ -17,7 +17,7 @@ function toolInputSchema(name: string) {
 
 describe("Browser Lab MCP tools", () => {
   it("declares an input schema for every tool", () => {
-    expect(BROWSER_LAB_MCP_TOOLS).toHaveLength(38);
+    expect(BROWSER_LAB_MCP_TOOLS).toHaveLength(49);
     expect(BROWSER_LAB_MCP_TOOLS.every((entry) => entry.inputSchema)).toBe(true);
   });
 
@@ -51,6 +51,68 @@ describe("Browser Lab MCP tools", () => {
       phase: "beforeRequest",
       action: "pause",
       scope: { urlPattern: "*/api/*" },
+    });
+  });
+
+  it("allows tabs to be created directly in a Browser Lab profile", () => {
+    expect(
+      toolInputSchema("browser_lab_create_tab").safeParse({
+        url: "http://localhost:8082",
+        profileId: "github-adrian",
+      }),
+    ).toMatchObject({
+      success: true,
+    });
+
+    expect(
+      toolInputSchema("browser_lab_create_tab_in_profile").safeParse({
+        url: "http://localhost:8082",
+      }),
+    ).toMatchObject({
+      success: false,
+    });
+  });
+
+  it("exposes profile management schemas for persistent browser sessions", () => {
+    expect(
+      toolInputSchema("traffic_lens_create_profile").safeParse({
+        name: "GitHub Adrian",
+        notes: "Logged into the development GitHub account.",
+      }),
+    ).toMatchObject({
+      success: true,
+    });
+
+    expect(
+      toolInputSchema("traffic_lens_update_profile").safeParse({
+        id: "github-adrian",
+        partitionKey: "persist:traffic-lens:github-adrian",
+      }),
+    ).toMatchObject({
+      success: true,
+    });
+  });
+
+  it("exposes profile-scoped cookie and storage tools", () => {
+    expect(
+      toolInputSchema("traffic_lens_get_cookies_for_origin").safeParse({
+        profileId: "github-adrian",
+        origin: "https://github.com",
+      }),
+    ).toMatchObject({
+      success: true,
+    });
+
+    expect(
+      toolInputSchema("traffic_lens_set_cookie_for_origin").safeParse({
+        profileId: "github-adrian",
+        url: "https://github.com",
+        name: "logged_in",
+        value: "yes",
+        sameSite: "lax",
+      }),
+    ).toMatchObject({
+      success: true,
     });
   });
 

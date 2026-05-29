@@ -29,6 +29,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       onEvent: (callback) => rpcClient.rawTcp.onEvent(callback),
     },
     projects: {
+      listEntries: rpcClient.projects.listEntries,
       searchEntries: rpcClient.projects.searchEntries,
       writeFile: rpcClient.projects.writeFile,
     },

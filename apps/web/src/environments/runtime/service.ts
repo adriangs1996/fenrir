@@ -28,7 +28,7 @@ import {
   useComposerDraftStore,
 } from "~/composerDraftStore";
 import { ensureLocalApi } from "~/localApi";
-import { collectActiveTerminalThreadIds } from "~/modules/terminal";
+import { collectActiveTerminalThreadIds, isGlobalTerminalThreadId } from "~/modules/terminal";
 import { deriveOrchestrationBatchEffects } from "~/orchestrationEventEffects";
 import { projectQueryKeys } from "~/lib/projectReactQuery";
 import { providerQueryKeys } from "~/lib/providerReactQuery";
@@ -61,6 +61,7 @@ import {
   selectThreadsAcrossEnvironments,
 } from "~/store";
 import { useTerminalStateStore } from "~/modules/terminal";
+import { useActionRunStore } from "~/modules/action-runs";
 import { useUiStateStore } from "~/uiStateStore";
 import { WsTransport } from "../../rpc/wsTransport";
 import { createWsRpcClient, type WsRpcClient } from "../../rpc/wsRpcClient";
@@ -497,7 +498,8 @@ function createEnvironmentConnectionHandlers() {
     applyTerminalEvent: (event: TerminalEvent, environmentId: EnvironmentId) => {
       const threadRef = scopeThreadRef(environmentId, ThreadId.make(event.threadId));
       const isTmuxEvent = event.threadId.startsWith("tmux:");
-      if (!isTmuxEvent) {
+      const isGlobalTerminalEvent = isGlobalTerminalThreadId(event.threadId);
+      if (!isTmuxEvent && !isGlobalTerminalEvent) {
         const serverThread = selectThreadByRef(useStore.getState(), threadRef);
         const hasDraftThread =
           useComposerDraftStore.getState().getDraftThreadByRef(threadRef) !== null;
@@ -510,6 +512,7 @@ function createEnvironmentConnectionHandlers() {
           return;
         }
       }
+      useActionRunStore.getState().applyTerminalEvent(event, environmentId);
       useTerminalStateStore.getState().applyTerminalEvent(threadRef, event);
     },
   };

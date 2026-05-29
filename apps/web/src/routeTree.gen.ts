@@ -24,6 +24,7 @@ import { Route as SettingsConnectionsRouteImport } from './routes/settings.conne
 import { Route as SettingsArchivedPlansRouteImport } from './routes/settings.archived-plans'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as HackSessionIdRouteImport } from './routes/hack.$sessionId'
+import { Route as ChatGlobalTerminalRouteImport } from './routes/_chat.global-terminal'
 import { Route as ChatBrowserLabRouteImport } from './routes/_chat.browser-lab'
 import { Route as ChatPlanRunnerRunIdRouteImport } from './routes/_chat.plan-runner.$runId'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
@@ -106,6 +107,11 @@ const HackSessionIdRoute = HackSessionIdRouteImport.update({
   path: '/$sessionId',
   getParentRoute: () => HackRoute,
 } as any)
+const ChatGlobalTerminalRoute = ChatGlobalTerminalRouteImport.update({
+  id: '/global-terminal',
+  path: '/global-terminal',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatBrowserLabRoute = ChatBrowserLabRouteImport.update({
   id: '/browser-lab',
   path: '/browser-lab',
@@ -152,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/browser-lab': typeof ChatBrowserLabRoute
+  '/global-terminal': typeof ChatGlobalTerminalRoute
   '/hack/$sessionId': typeof HackSessionIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
@@ -173,6 +180,7 @@ export interface FileRoutesByTo {
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/browser-lab': typeof ChatBrowserLabRoute
+  '/global-terminal': typeof ChatGlobalTerminalRoute
   '/hack/$sessionId': typeof HackSessionIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
@@ -198,6 +206,7 @@ export interface FileRoutesById {
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/_chat/browser-lab': typeof ChatBrowserLabRoute
+  '/_chat/global-terminal': typeof ChatGlobalTerminalRoute
   '/hack/$sessionId': typeof HackSessionIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
@@ -224,6 +233,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/settings'
     | '/browser-lab'
+    | '/global-terminal'
     | '/hack/$sessionId'
     | '/settings/archived'
     | '/settings/archived-plans'
@@ -245,6 +255,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/settings'
     | '/browser-lab'
+    | '/global-terminal'
     | '/hack/$sessionId'
     | '/settings/archived'
     | '/settings/archived-plans'
@@ -269,6 +280,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/settings'
     | '/_chat/browser-lab'
+    | '/_chat/global-terminal'
     | '/hack/$sessionId'
     | '/settings/archived'
     | '/settings/archived-plans'
@@ -402,6 +414,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HackSessionIdRouteImport
       parentRoute: typeof HackRoute
     }
+    '/_chat/global-terminal': {
+      id: '/_chat/global-terminal'
+      path: '/global-terminal'
+      fullPath: '/global-terminal'
+      preLoaderRoute: typeof ChatGlobalTerminalRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/browser-lab': {
       id: '/_chat/browser-lab'
       path: '/browser-lab'
@@ -456,6 +475,7 @@ declare module '@tanstack/react-router' {
 
 interface ChatRouteChildren {
   ChatBrowserLabRoute: typeof ChatBrowserLabRoute
+  ChatGlobalTerminalRoute: typeof ChatGlobalTerminalRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
@@ -467,6 +487,7 @@ interface ChatRouteChildren {
 
 const ChatRouteChildren: ChatRouteChildren = {
   ChatBrowserLabRoute: ChatBrowserLabRoute,
+  ChatGlobalTerminalRoute: ChatGlobalTerminalRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,

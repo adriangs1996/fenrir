@@ -12,6 +12,8 @@ import type { Effect } from "effect";
 import type {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
+  ProjectListEntriesInput,
+  ProjectListEntriesResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
 } from "@fenrir/contracts";
@@ -31,6 +33,13 @@ export class WorkspaceEntriesError extends Schema.TaggedErrorClass<WorkspaceEntr
  * invalidation.
  */
 export interface WorkspaceEntriesShape {
+  /**
+   * List direct file and directory children for a workspace-relative directory.
+   */
+  readonly listEntries: (
+    input: ProjectListEntriesInput,
+  ) => Effect.Effect<ProjectListEntriesResult, WorkspaceEntriesError>;
+
   /**
    * Search indexed workspace entries for files and directories matching the
    * provided query.

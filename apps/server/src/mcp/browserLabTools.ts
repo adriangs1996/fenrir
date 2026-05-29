@@ -26,6 +26,13 @@ const optionalTabId = z
   .string()
   .describe("Browser Lab tab id. Omit to use the active tab.")
   .optional();
+const profileId = z
+  .string()
+  .min(1)
+  .describe(
+    "Browser Lab profile id. Use traffic_lens_list_profiles first when you need a logged-in or account-specific browser session.",
+  );
+const optionalProfileId = profileId.optional();
 const url = z.string().describe("Absolute URL to open, for example http://localhost:8082.");
 const headers = z.record(z.string(), z.string()).describe("HTTP headers keyed by header name.");
 const emptyInputSchema = {};
@@ -33,9 +40,55 @@ const tabInputSchema = { tabId: optionalTabId };
 const requiredTabInputSchema = {
   tabId: z.string().describe("Browser Lab tab id."),
 };
+const profileInputSchema = {
+  name: z
+    .string()
+    .min(1)
+    .describe("Human-readable profile name, for example GitHub Adrian or Stripe Test Admin."),
+  partitionKey: z
+    .string()
+    .min(1)
+    .describe(
+      "Optional Electron session partition key. Omit for a persistent key derived from the profile name. Use persist:traffic-lens:<slug> when supplying your own key so cookies and storage survive restarts.",
+    )
+    .optional(),
+  userAgentPreset: z
+    .string()
+    .min(1)
+    .describe("Optional user-agent override for new desktop-mode tabs in this profile.")
+    .optional(),
+  proxyPreset: z
+    .string()
+    .nullable()
+    .describe("Optional proxy preset identifier reserved for future Browser Lab proxy routing.")
+    .optional(),
+  notes: z
+    .string()
+    .nullable()
+    .describe("Optional operator notes, such as which account is logged in.")
+    .optional(),
+};
+const createProfileSchema = {
+  id: z
+    .string()
+    .min(1)
+    .describe("Optional stable profile id. Omit to let Browser Lab generate one.")
+    .optional(),
+  ...profileInputSchema,
+};
+const updateProfileSchema = {
+  id: profileId,
+  name: profileInputSchema.name.optional(),
+  partitionKey: profileInputSchema.partitionKey.describe(
+    "Optional new Electron session partition key. Changing it switches future tabs to a different cookie/storage jar and does not migrate existing browser state.",
+  ),
+  userAgentPreset: profileInputSchema.userAgentPreset,
+  proxyPreset: profileInputSchema.proxyPreset,
+  notes: profileInputSchema.notes,
+};
 const ruleScopeSchema = {
   tabId: optionalTabId,
-  profileId: z.string().describe("Traffic Lens profile id.").optional(),
+  profileId: optionalProfileId.describe("Traffic Lens profile id."),
   hostPattern: z.string().describe("Host glob or pattern to match.").optional(),
   urlPattern: z.string().describe("URL glob or pattern to match.").optional(),
   method: z.string().describe("HTTP method to match, for example GET or POST.").optional(),
@@ -100,10 +153,9 @@ const upsertOverrideSchema = {
 };
 const storageScopeSchema = {
   tabId: optionalTabId,
-  profileId: z
-    .string()
-    .describe("Traffic Lens profile id. Omit to use the active tab profile.")
-    .optional(),
+  profileId: optionalProfileId.describe(
+    "Traffic Lens profile id. Omit to use the active tab profile.",
+  ),
   origin: z
     .string()
     .describe(
@@ -120,6 +172,38 @@ const storageDeleteSchema = {
   ...storageScopeSchema,
   key: z.string().describe("Storage key."),
 };
+const cookieForOriginSchema = {
+  profileId,
+  url: z
+    .string()
+    .describe(
+      "Absolute URL for cookie scope, for example https://github.com/settings/profile. Browser Lab derives the origin from this URL.",
+    ),
+};
+const setCookieForOriginSchema = {
+  ...cookieForOriginSchema,
+  name: z.string().min(1).describe("Cookie name."),
+  value: z.string().describe("Cookie value."),
+  domain: z.string().describe("Optional cookie domain. Omit for a host-only cookie.").optional(),
+  path: z
+    .string()
+    .describe("Optional cookie path. Defaults to Electron's cookie behavior.")
+    .optional(),
+  secure: z.boolean().describe("Whether the cookie is Secure.").optional(),
+  httpOnly: z.boolean().describe("Whether the cookie is HttpOnly.").optional(),
+  sameSite: z
+    .enum(["unspecified", "no_restriction", "lax", "strict"])
+    .describe("Optional SameSite policy.")
+    .optional(),
+  expirationDate: z
+    .number()
+    .describe("Optional Unix epoch expiration time in seconds. Omit for a session cookie.")
+    .optional(),
+};
+const deleteCookieForOriginSchema = {
+  ...cookieForOriginSchema,
+  name: z.string().min(1).describe("Cookie name to delete."),
+};
 
 export const BROWSER_LAB_MCP_TOOLS = [
   {
@@ -134,8 +218,15 @@ export const BROWSER_LAB_MCP_TOOLS = [
   },
   {
     name: "browser_lab_create_tab",
-    description: "Create a Browser Lab tab, optionally opening a URL immediately.",
-    inputSchema: { url: url.optional() },
+    description:
+      "Create a Browser Lab tab, optionally in a specific persistent profile. Pass profileId to reuse that profile's cookies, localStorage, and session partition for account-specific development.",
+    inputSchema: { url: url.optional(), profileId: optionalProfileId },
+  },
+  {
+    name: "browser_lab_create_tab_in_profile",
+    description:
+      "Create a Browser Lab tab in a named persistent profile. Use this when the task needs a known logged-in account or preloaded cookies/storage. Call traffic_lens_list_profiles first to discover available profile ids.",
+    inputSchema: { url: url.optional(), profileId },
   },
   {
     name: "browser_lab_select_tab",
@@ -270,6 +361,30 @@ export const BROWSER_LAB_MCP_TOOLS = [
     inputSchema: { pauseId: z.string().describe("Paused request id.") },
   },
   {
+    name: "traffic_lens_list_profiles",
+    description:
+      "List Browser Lab profiles. Each profile maps to an Electron session partition, so tabs opened with its profileId share that profile's cookies, localStorage, cache, and login state across Browser Lab restarts.",
+    inputSchema: emptyInputSchema,
+  },
+  {
+    name: "traffic_lens_create_profile",
+    description:
+      "Create a persistent Browser Lab profile for an account, persona, tenant, or test environment. Omit partitionKey to let Browser Lab derive a persistent session key from the name; then open tabs with browser_lab_create_tab_in_profile or browser_lab_create_tab profileId.",
+    inputSchema: createProfileSchema,
+  },
+  {
+    name: "traffic_lens_update_profile",
+    description:
+      "Update Browser Lab profile metadata. Use this to rename a profile, annotate which account is logged in, or change the user-agent for future tabs. Changing partitionKey switches future tabs to a different cookie/storage jar and does not migrate existing state.",
+    inputSchema: updateProfileSchema,
+  },
+  {
+    name: "traffic_lens_delete_profile",
+    description:
+      "Delete a Browser Lab profile. The default profile cannot be deleted, and Browser Lab refuses deletion while tabs for the profile are still open.",
+    inputSchema: { id: profileId },
+  },
+  {
     name: "traffic_lens_list_rules",
     description: "List Browser Lab runtime rules.",
     inputSchema: emptyInputSchema,
@@ -341,19 +456,65 @@ export const BROWSER_LAB_MCP_TOOLS = [
     inputSchema: tabInputSchema,
   },
   {
+    name: "traffic_lens_list_storage_origins",
+    description:
+      "List origins where Browser Lab has observed or captured cookies/localStorage/sessionStorage for a profile. Use this to discover which origins have saved state before inspecting profile storage.",
+    inputSchema: { profileId },
+  },
+  {
+    name: "traffic_lens_capture_storage_origin",
+    description:
+      "Capture the latest cookies and localStorage for a profile/origin into Traffic Lens history. If a matching tab is open, Browser Lab also captures live sessionStorage for that tab.",
+    inputSchema: {
+      profileId,
+      origin: z
+        .string()
+        .describe("Origin to capture, for example https://github.com or http://localhost:3000."),
+      tabId: optionalTabId,
+    },
+  },
+  {
+    name: "traffic_lens_get_cookies_for_origin",
+    description:
+      "Read cookies from a Browser Lab profile for a specific origin without needing an open tab. Useful for verifying that a saved account profile has the expected login cookies before opening tabs.",
+    inputSchema: {
+      profileId,
+      origin: z.string().describe("Origin to read cookies for, for example https://github.com."),
+    },
+  },
+  {
+    name: "traffic_lens_set_cookie_for_origin",
+    description:
+      "Set a cookie directly in a Browser Lab profile's persistent session partition for the supplied URL. Use this to seed or repair profile login/test state before opening a tab in that profile.",
+    inputSchema: setCookieForOriginSchema,
+  },
+  {
+    name: "traffic_lens_delete_cookie_for_origin",
+    description:
+      "Delete a cookie from a Browser Lab profile's persistent session partition for the supplied URL.",
+    inputSchema: deleteCookieForOriginSchema,
+  },
+  {
     name: "browser_lab_get_local_storage",
-    description: "Read localStorage for an origin.",
+    description:
+      "Read localStorage for an origin. Pass profileId and origin to inspect a profile's persistent storage without relying on whichever tab is active.",
     inputSchema: storageScopeSchema,
   },
   {
     name: "browser_lab_set_local_storage_item",
-    description: "Set a localStorage item.",
+    description:
+      "Set a localStorage item for an origin. Pass profileId and origin to seed a specific Browser Lab profile before opening account-specific tabs.",
     inputSchema: storageSetSchema,
   },
   {
     name: "browser_lab_delete_local_storage_item",
-    description: "Delete a localStorage item.",
+    description: "Delete a localStorage item for an origin, optionally scoped to a profile.",
     inputSchema: storageDeleteSchema,
+  },
+  {
+    name: "browser_lab_clear_local_storage",
+    description: "Clear all localStorage entries for an origin, optionally scoped to a profile.",
+    inputSchema: storageScopeSchema,
   },
   {
     name: "browser_lab_get_session_storage",

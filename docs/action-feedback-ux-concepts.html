@@ -1,0 +1,3116 @@
+<!doctype html>
+<html lang="en" data-state="running">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Action Feedback UX Concepts</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0a0b0d;
+        --chrome: #111214;
+        --chrome-2: #16181c;
+        --surface: #191b20;
+        --surface-2: #20232a;
+        --surface-3: #272b34;
+        --line: rgb(255 255 255 / 0.08);
+        --line-strong: rgb(255 255 255 / 0.14);
+        --text: #edf1f7;
+        --text-soft: #c2cad4;
+        --muted: #8a929f;
+        --quiet: #626b77;
+        --blue: #83b7ff;
+        --blue-bg: rgb(131 183 255 / 0.13);
+        --green: #72d69c;
+        --green-bg: rgb(114 214 156 / 0.12);
+        --red: #ff727d;
+        --red-bg: rgb(255 114 125 / 0.12);
+        --amber: #f1c16d;
+        --amber-bg: rgb(241 193 109 / 0.12);
+        --teal: #76d7cf;
+        --teal-bg: rgb(118 215 207 / 0.12);
+        --violet: #b7a1ff;
+        --violet-bg: rgb(183 161 255 / 0.13);
+        --shadow: 0 24px 70px rgb(0 0 0 / 0.4);
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, ui-monospace, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+        letter-spacing: 0;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      body {
+        padding: 18px;
+      }
+
+      button,
+      input {
+        color: inherit;
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      .page {
+        display: grid;
+        gap: 14px;
+        width: min(1700px, 100%);
+        margin: 0 auto;
+      }
+
+      .page-header {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 2px 2px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .title-stack {
+        display: grid;
+        gap: 6px;
+      }
+
+      .title-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      h1 {
+        font-size: 22px;
+        line-height: 1.2;
+      }
+
+      .tag {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 4px 6px;
+        white-space: nowrap;
+      }
+
+      .intro {
+        max-width: 920px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: end;
+        gap: 8px;
+      }
+
+      .legend span,
+      .mini-pill,
+      .kbd,
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgb(255 255 255 / 0.025);
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1;
+        padding: 6px 9px;
+        white-space: nowrap;
+      }
+
+      .kbd {
+        border-radius: 5px;
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 4px 6px;
+      }
+
+      .controls {
+        display: grid;
+        gap: 10px;
+        position: sticky;
+        z-index: 30;
+        top: 0;
+        padding: 10px 0;
+        background: color-mix(in srgb, var(--bg) 92%, transparent);
+        backdrop-filter: blur(18px);
+      }
+
+      .concept-tabs {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .concept-tab {
+        display: grid;
+        gap: 3px;
+        min-width: 0;
+        height: 50px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        padding: 8px 10px;
+        text-align: left;
+      }
+
+      .concept-tab:hover,
+      .concept-tab[aria-selected="true"] {
+        border-color: var(--line-strong);
+        background: var(--surface-2);
+      }
+
+      .concept-tab[aria-selected="true"] {
+        box-shadow: inset 0 -2px 0 var(--blue);
+      }
+
+      .concept-tab strong,
+      .concept-tab span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .concept-tab strong {
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .concept-tab[aria-selected="true"] strong {
+        color: var(--blue);
+      }
+
+      .concept-tab span {
+        color: var(--quiet);
+        font-size: 11px;
+      }
+
+      .state-controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--chrome);
+        padding: 8px;
+      }
+
+      .state-controls .label {
+        color: var(--quiet);
+        font-size: 12px;
+        padding: 0 4px;
+      }
+
+      .state-button {
+        min-height: 28px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 12px;
+        padding: 0 9px;
+      }
+
+      .state-button:hover,
+      .state-button[aria-pressed="true"] {
+        border-color: var(--line-strong);
+        background: var(--surface-2);
+        color: var(--text);
+      }
+
+      .state-button[aria-pressed="true"][data-state-button="running"] {
+        color: var(--blue);
+      }
+
+      .state-button[aria-pressed="true"][data-state-button="success"] {
+        color: var(--green);
+      }
+
+      .state-button[aria-pressed="true"][data-state-button="failure"] {
+        color: var(--red);
+      }
+
+      .state-button[aria-pressed="true"][data-state-button="queued"],
+      .state-button[aria-pressed="true"][data-state-button="needs-input"] {
+        color: var(--amber);
+      }
+
+      .state-button[aria-pressed="true"][data-state-button="cancelled"] {
+        color: var(--quiet);
+      }
+
+      .concept-panel {
+        display: none;
+        gap: 14px;
+      }
+
+      .concept-panel.active {
+        display: grid;
+      }
+
+      .concept-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      .concept-title {
+        display: grid;
+        gap: 5px;
+      }
+
+      .concept-title h2 {
+        font-size: 18px;
+        line-height: 1.2;
+      }
+
+      .concept-title p {
+        max-width: 900px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .fit-score {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: end;
+        gap: 8px;
+      }
+
+      .fit-score span {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--muted);
+        font-size: 12px;
+        padding: 6px 8px;
+        white-space: nowrap;
+      }
+
+      .mock-window {
+        display: grid;
+        grid-template-columns: 310px minmax(0, 1fr);
+        overflow: hidden;
+        min-height: 780px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--chrome);
+        box-shadow: var(--shadow);
+      }
+
+      .mock-sidebar {
+        display: flex;
+        min-height: 0;
+        flex-direction: column;
+        border-right: 1px solid var(--line-strong);
+        background: #121214;
+      }
+
+      .window-controls {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 36px;
+        padding: 0 10px;
+      }
+
+      .dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+      }
+
+      .dot.red {
+        background: #ff5f57;
+      }
+
+      .dot.yellow {
+        background: #ffbd2e;
+      }
+
+      .dot.green {
+        background: #28c840;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: 10px;
+        color: var(--text-soft);
+        font-size: 13px;
+      }
+
+      .brand-mark {
+        display: inline-grid;
+        place-items: center;
+        width: 18px;
+        height: 18px;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        color: var(--blue);
+        font-size: 11px;
+      }
+
+      .alpha {
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 9px;
+        padding: 2px 4px;
+      }
+
+      .project-list {
+        display: grid;
+        gap: 2px;
+        padding: 10px;
+      }
+
+      .nav-section {
+        margin: 10px 0 8px;
+        color: var(--quiet);
+        font-size: 10px;
+        text-transform: uppercase;
+      }
+
+      .project-row,
+      .thread-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 28px;
+        border-radius: 6px;
+        color: var(--muted);
+        font-size: 12px;
+        padding: 0 8px;
+      }
+
+      .project-row.active {
+        color: var(--text);
+        font-weight: 620;
+      }
+
+      .thread-row {
+        justify-content: space-between;
+        padding-left: 14px;
+      }
+
+      .thread-row.active {
+        background: rgb(255 255 255 / 0.07);
+        color: var(--text-soft);
+      }
+
+      .thread-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .thread-time {
+        flex: 0 0 auto;
+        color: var(--quiet);
+        font-size: 10px;
+      }
+
+      .sidebar-footer {
+        display: grid;
+        gap: 2px;
+        margin-top: auto;
+        border-top: 1px solid var(--line);
+        padding: 10px;
+      }
+
+      .workspace {
+        display: grid;
+        min-width: 0;
+        min-height: 0;
+        grid-template-rows: auto minmax(0, 1fr);
+        background: linear-gradient(90deg, rgb(255 255 255 / 0.018), transparent 30%), #101113;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-height: 39px;
+        border-bottom: 1px solid var(--line-strong);
+        padding: 0 12px 0 16px;
+      }
+
+      .thread-name {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 8px;
+      }
+
+      .thread-name strong {
+        overflow: hidden;
+        color: var(--text-soft);
+        font-size: 13px;
+        font-weight: 620;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .top-actions {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .icon-button,
+      .text-button,
+      .combo-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        min-height: 28px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: rgb(255 255 255 / 0.035);
+        color: var(--text-soft);
+        font-size: 12px;
+        padding: 0 9px;
+      }
+
+      .icon-button {
+        width: 28px;
+        padding: 0;
+      }
+
+      .combo-button {
+        min-width: 126px;
+        justify-content: space-between;
+      }
+
+      .icon-button:hover,
+      .text-button:hover,
+      .combo-button:hover {
+        border-color: var(--line-strong);
+        background: rgb(255 255 255 / 0.065);
+      }
+
+      .button-icon {
+        display: inline-grid;
+        place-items: center;
+        width: 14px;
+        height: 14px;
+        color: var(--muted);
+      }
+
+      .content-area {
+        display: grid;
+        min-height: 0;
+        grid-template-columns: minmax(0, 1fr) 320px;
+      }
+
+      .thread-canvas {
+        display: grid;
+        min-width: 0;
+        min-height: 0;
+        grid-template-rows: minmax(0, 1fr) auto;
+      }
+
+      .messages {
+        overflow: hidden;
+        padding: 38px 42px 20px;
+      }
+
+      .message {
+        max-width: 720px;
+        margin: 0 auto;
+        color: var(--text-soft);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .message + .message {
+        margin-top: 22px;
+      }
+
+      .response-divider {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin: 22px auto 18px;
+        max-width: 720px;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 10px;
+        text-transform: uppercase;
+      }
+
+      .response-divider::before,
+      .response-divider::after {
+        content: "";
+        height: 1px;
+        flex: 1;
+        background: var(--line);
+      }
+
+      .code-token {
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: var(--surface-2);
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 1px 4px;
+      }
+
+      .composer {
+        max-width: 680px;
+        width: calc(100% - 70px);
+        margin: 0 auto 18px;
+        border: 1px solid var(--line-strong);
+        border-radius: 14px;
+        background: var(--surface);
+        box-shadow: 0 16px 44px rgb(0 0 0 / 0.22);
+      }
+
+      .composer-input {
+        min-height: 62px;
+        padding: 12px;
+        color: var(--quiet);
+        font-size: 13px;
+      }
+
+      .composer-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 34px;
+        border-top: 1px solid var(--line);
+        padding: 0 10px;
+        color: var(--quiet);
+        font-size: 12px;
+      }
+
+      .send-button {
+        display: inline-grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        margin-left: auto;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        background: var(--surface-3);
+        color: var(--text-soft);
+      }
+
+      .side-panel {
+        display: grid;
+        min-height: 0;
+        grid-template-rows: auto minmax(0, 1fr);
+        border-left: 1px solid var(--line);
+        background: rgb(255 255 255 / 0.018);
+      }
+
+      .side-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 42px;
+        border-bottom: 1px solid var(--line);
+        padding: 0 12px;
+      }
+
+      .side-panel-header strong {
+        font-size: 12px;
+      }
+
+      .side-panel-body {
+        display: grid;
+        align-content: start;
+        gap: 10px;
+        overflow: auto;
+        padding: 12px;
+      }
+
+      .terminal-drawer {
+        overflow: hidden;
+        border-top: 1px solid var(--line-strong);
+        background: #0b0c0f;
+      }
+
+      .terminal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 36px;
+        border-bottom: 1px solid var(--line);
+        background: #111318;
+        padding: 0 10px;
+      }
+
+      .terminal-title {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 8px;
+      }
+
+      .terminal-title strong {
+        overflow: hidden;
+        font-size: 12px;
+        font-weight: 620;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .terminal-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .terminal-body {
+        height: 228px;
+        overflow: hidden;
+        padding: 12px 14px;
+        color: #cad2de;
+        font-family: var(--mono);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      .terminal-line {
+        display: block;
+        white-space: pre;
+      }
+
+      .term-green {
+        color: var(--green);
+      }
+
+      .term-red {
+        color: var(--red);
+      }
+
+      .term-blue {
+        color: var(--blue);
+      }
+
+      .term-amber {
+        color: var(--amber);
+      }
+
+      .term-muted {
+        color: #6f7783;
+      }
+
+      .run-strip,
+      .run-card,
+      .state-card,
+      .dropdown,
+      .toast,
+      .timeline-card,
+      .queue-popover,
+      .hud-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .run-strip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 46px;
+        border-color: var(--line-strong);
+        background: var(--surface-2);
+        padding: 8px 10px;
+      }
+
+      .run-main {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 10px;
+      }
+
+      .status-dot {
+        flex: 0 0 auto;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--quiet);
+      }
+
+      .status-dot.running {
+        background: var(--blue);
+        box-shadow: 0 0 0 4px var(--blue-bg);
+      }
+
+      .status-dot.success {
+        background: var(--green);
+      }
+
+      .status-dot.failure {
+        background: var(--red);
+      }
+
+      .status-dot.queued,
+      .status-dot.needs-input {
+        background: var(--amber);
+      }
+
+      .status-copy {
+        display: grid;
+        min-width: 0;
+        gap: 2px;
+      }
+
+      .status-copy strong {
+        overflow: hidden;
+        color: var(--text);
+        font-size: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .status-copy span {
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .run-actions {
+        display: flex;
+        flex: 0 0 auto;
+        gap: 6px;
+      }
+
+      .small-action {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: rgb(255 255 255 / 0.04);
+        color: var(--text-soft);
+        font-size: 11px;
+        padding: 5px 7px;
+      }
+
+      .small-action:hover {
+        background: rgb(255 255 255 / 0.075);
+      }
+
+      .status-pill.running {
+        border-color: rgb(131 183 255 / 0.36);
+        background: var(--blue-bg);
+        color: var(--blue);
+      }
+
+      .status-pill.success {
+        border-color: rgb(114 214 156 / 0.38);
+        background: var(--green-bg);
+        color: var(--green);
+      }
+
+      .status-pill.failure {
+        border-color: rgb(255 114 125 / 0.38);
+        background: var(--red-bg);
+        color: var(--red);
+      }
+
+      .status-pill.queued,
+      .status-pill.needs-input {
+        border-color: rgb(241 193 109 / 0.36);
+        background: var(--amber-bg);
+        color: var(--amber);
+      }
+
+      .status-pill.cancelled {
+        border-color: var(--line);
+        background: rgb(255 255 255 / 0.03);
+        color: var(--quiet);
+      }
+
+      .spin {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border: 2px solid rgb(131 183 255 / 0.25);
+        border-top-color: var(--blue);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .focus-state {
+        display: none;
+      }
+
+      html[data-state="running"] .focus-state.state-running,
+      html[data-state="success"] .focus-state.state-success,
+      html[data-state="failure"] .focus-state.state-failure,
+      html[data-state="queued"] .focus-state.state-queued,
+      html[data-state="needs-input"] .focus-state.state-needs-input,
+      html[data-state="cancelled"] .focus-state.state-cancelled {
+        display: flex;
+      }
+
+      .focus-state.block {
+        display: none;
+      }
+
+      html[data-state="running"] .focus-state.block.state-running,
+      html[data-state="success"] .focus-state.block.state-success,
+      html[data-state="failure"] .focus-state.block.state-failure,
+      html[data-state="queued"] .focus-state.block.state-queued,
+      html[data-state="needs-input"] .focus-state.block.state-needs-input,
+      html[data-state="cancelled"] .focus-state.block.state-cancelled {
+        display: block;
+      }
+
+      .action-dropdown-wrap {
+        position: relative;
+      }
+
+      .dropdown {
+        position: absolute;
+        z-index: 10;
+        top: 34px;
+        right: 0;
+        width: 320px;
+        overflow: hidden;
+        box-shadow: var(--shadow);
+      }
+
+      .dropdown-section {
+        display: grid;
+        gap: 3px;
+        padding: 8px;
+      }
+
+      .dropdown-label {
+        color: var(--quiet);
+        font-size: 10px;
+        font-weight: 700;
+        padding: 4px 6px;
+        text-transform: uppercase;
+      }
+
+      .action-item,
+      .history-item,
+      .queue-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        border-radius: 6px;
+        color: var(--text-soft);
+        font-size: 12px;
+        padding: 6px 8px;
+      }
+
+      .action-item.active,
+      .history-item.active,
+      .queue-item.active {
+        background: rgb(255 255 255 / 0.065);
+      }
+
+      .item-copy {
+        display: grid;
+        min-width: 0;
+        gap: 2px;
+      }
+
+      .item-copy strong,
+      .item-copy span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .item-copy strong {
+        color: var(--text-soft);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .item-copy span {
+        color: var(--quiet);
+        font-size: 10px;
+      }
+
+      .item-meta {
+        margin-left: auto;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+
+      .card-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border-bottom: 1px solid var(--line);
+        padding: 9px 10px;
+      }
+
+      .card-title strong {
+        color: var(--text);
+        font-size: 12px;
+      }
+
+      .card-body {
+        display: grid;
+        gap: 9px;
+        padding: 10px;
+      }
+
+      .kv {
+        display: grid;
+        grid-template-columns: 78px minmax(0, 1fr);
+        gap: 8px;
+        font-size: 11px;
+      }
+
+      .kv span:first-child {
+        color: var(--quiet);
+      }
+
+      .kv span:last-child {
+        overflow: hidden;
+        color: var(--text-soft);
+        font-family: var(--mono);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .progress-track {
+        overflow: hidden;
+        height: 5px;
+        border-radius: 999px;
+        background: rgb(255 255 255 / 0.08);
+      }
+
+      .progress-fill {
+        height: 100%;
+        border-radius: inherit;
+        background: var(--blue);
+      }
+
+      .progress-fill.success {
+        width: 100%;
+        background: var(--green);
+      }
+
+      .progress-fill.failure {
+        width: 100%;
+        background: var(--red);
+      }
+
+      .progress-fill.queued {
+        width: 20%;
+        background: var(--amber);
+      }
+
+      .progress-fill.running {
+        width: 62%;
+      }
+
+      .log-preview {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #0d0f13;
+        color: #b8c1ce;
+        font-family: var(--mono);
+        font-size: 10px;
+        line-height: 1.55;
+        padding: 8px;
+      }
+
+      .state-matrix {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .state-card {
+        display: grid;
+        gap: 7px;
+        min-height: 120px;
+        padding: 10px;
+      }
+
+      .state-card strong {
+        color: var(--text);
+        font-size: 12px;
+      }
+
+      .state-card p {
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .state-card .mini-pill {
+        justify-self: start;
+      }
+
+      .interaction-board {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .flow-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        padding: 12px;
+      }
+
+      .flow-card h3 {
+        margin-bottom: 8px;
+        color: var(--text);
+        font-size: 13px;
+      }
+
+      .flow-card ul {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+        padding-left: 16px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .toast-stack {
+        position: absolute;
+        right: 22px;
+        bottom: 102px;
+        display: grid;
+        gap: 8px;
+        width: 360px;
+      }
+
+      .toast {
+        display: flex;
+        align-items: start;
+        gap: 10px;
+        padding: 10px;
+        box-shadow: var(--shadow);
+      }
+
+      .toast-copy {
+        display: grid;
+        min-width: 0;
+        gap: 3px;
+      }
+
+      .toast-copy strong {
+        color: var(--text);
+        font-size: 12px;
+      }
+
+      .toast-copy span {
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.35;
+      }
+
+      .absolute-layer {
+        position: relative;
+      }
+
+      .action-center {
+        width: 360px;
+        border-left: 1px solid var(--line-strong);
+        background: #14161a;
+      }
+
+      .content-area.with-action-center {
+        grid-template-columns: minmax(0, 1fr) 360px;
+      }
+
+      .run-card {
+        overflow: hidden;
+      }
+
+      .run-card.selected {
+        border-color: rgb(131 183 255 / 0.42);
+      }
+
+      .run-card-row {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 9px 10px;
+      }
+
+      .timeline-card {
+        overflow: hidden;
+        max-width: 720px;
+        margin: 18px auto;
+      }
+
+      .timeline-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border-bottom: 1px solid var(--line);
+        padding: 10px 12px;
+      }
+
+      .timeline-head strong {
+        font-size: 13px;
+      }
+
+      .timeline-body {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .timeline-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .queue-popover {
+        position: absolute;
+        z-index: 12;
+        top: 34px;
+        right: 144px;
+        width: 420px;
+        overflow: hidden;
+        box-shadow: var(--shadow);
+      }
+
+      .queue-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 40px;
+        border-bottom: 1px solid var(--line);
+        padding: 0 10px;
+      }
+
+      .queue-head strong {
+        font-size: 12px;
+      }
+
+      .queue-list {
+        display: grid;
+        gap: 4px;
+        padding: 8px;
+      }
+
+      .route-toast {
+        position: absolute;
+        right: 22px;
+        top: 52px;
+        width: 310px;
+      }
+
+      .terminal-shell {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        height: 360px;
+        border-top: 1px solid var(--line-strong);
+        background: #0a0c0f;
+      }
+
+      .command-strip {
+        display: grid;
+        gap: 8px;
+        border-bottom: 1px solid var(--line);
+        background: #12151a;
+        padding: 10px;
+      }
+
+      .command-strip-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .command-tabs {
+        display: flex;
+        gap: 6px;
+      }
+
+      .command-tab {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        padding: 5px 7px;
+      }
+
+      .command-tab.active {
+        background: var(--surface-2);
+        color: var(--text);
+      }
+
+      .hud-card {
+        position: absolute;
+        right: 18px;
+        bottom: 122px;
+        width: 390px;
+        overflow: hidden;
+        box-shadow: var(--shadow);
+      }
+
+      .placeholder-form {
+        display: grid;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        padding: 10px;
+      }
+
+      .field {
+        display: grid;
+        gap: 4px;
+      }
+
+      .field label {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .field input {
+        min-height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #101217;
+        color: var(--text-soft);
+        font-size: 12px;
+        padding: 0 8px;
+      }
+
+      .warning-callout {
+        display: flex;
+        gap: 9px;
+        border: 1px solid rgb(241 193 109 / 0.32);
+        border-radius: 8px;
+        background: var(--amber-bg);
+        color: var(--text-soft);
+        font-size: 12px;
+        line-height: 1.42;
+        padding: 10px;
+      }
+
+      .inline-note {
+        color: var(--quiet);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      @media (max-width: 1200px) {
+        body {
+          padding: 10px;
+        }
+
+        .mock-window {
+          grid-template-columns: 250px minmax(0, 1fr);
+        }
+
+        .content-area,
+        .content-area.with-action-center {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .side-panel,
+        .action-center {
+          display: none;
+        }
+
+        .state-matrix,
+        .interaction-board {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .concept-tabs {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        .page-header,
+        .concept-head {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .legend,
+        .fit-score {
+          justify-content: start;
+        }
+
+        .mock-window {
+          grid-template-columns: 1fr;
+        }
+
+        .mock-sidebar {
+          display: none;
+        }
+
+        .messages {
+          padding: 24px 14px 18px;
+        }
+
+        .composer {
+          width: calc(100% - 24px);
+        }
+
+        .state-matrix,
+        .interaction-board {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="page-header">
+        <div class="title-stack">
+          <div class="title-row">
+            <h1>Project and global action feedback UX concepts</h1>
+            <span class="tag">docs/action-feedback-ux-concepts.html</span>
+          </div>
+          <p class="intro">
+            Five detailed mockups for turning action clicks into explicit runs with visible state,
+            output ownership, recovery paths, and a consistent answer to "did it run, where did it
+            run, and what happened?"
+          </p>
+        </div>
+        <div class="legend" aria-label="Prototype notes">
+          <span>Mirrors current dark chat shell</span>
+          <span>Static HTML, interactive tabs</span>
+          <span>All states shown below each concept</span>
+        </div>
+      </header>
+
+      <nav class="controls" aria-label="Concept and state controls">
+        <div class="concept-tabs" role="tablist" aria-label="Action feedback concepts">
+          <button
+            class="concept-tab"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            data-concept-tab="one"
+          >
+            <strong>1. Terminal Run Bar</strong>
+            <span>Keep terminal primary, add lifecycle</span>
+          </button>
+          <button
+            class="concept-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            data-concept-tab="two"
+          >
+            <strong>2. Action Center</strong>
+            <span>Runs live in a right-side drawer</span>
+          </button>
+          <button
+            class="concept-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            data-concept-tab="three"
+          >
+            <strong>3. Timeline Cards</strong>
+            <span>Runs become first-class messages</span>
+          </button>
+          <button
+            class="concept-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            data-concept-tab="four"
+          >
+            <strong>4. Queue Popover</strong>
+            <span>Top-bar queue with terminal routing</span>
+          </button>
+          <button
+            class="concept-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            data-concept-tab="five"
+          >
+            <strong>5. Terminal HUD</strong>
+            <span>Dense terminal-first command cockpit</span>
+          </button>
+        </div>
+        <div class="state-controls" aria-label="Focused run state">
+          <span class="label">Preview focused state</span>
+          <button
+            class="state-button"
+            type="button"
+            aria-pressed="true"
+            data-state-button="running"
+          >
+            Running
+          </button>
+          <button
+            class="state-button"
+            type="button"
+            aria-pressed="false"
+            data-state-button="success"
+          >
+            Success
+          </button>
+          <button
+            class="state-button"
+            type="button"
+            aria-pressed="false"
+            data-state-button="failure"
+          >
+            Failure
+          </button>
+          <button
+            class="state-button"
+            type="button"
+            aria-pressed="false"
+            data-state-button="queued"
+          >
+            Queued
+          </button>
+          <button
+            class="state-button"
+            type="button"
+            aria-pressed="false"
+            data-state-button="needs-input"
+          >
+            Needs input
+          </button>
+          <button
+            class="state-button"
+            type="button"
+            aria-pressed="false"
+            data-state-button="cancelled"
+          >
+            Cancelled
+          </button>
+        </div>
+      </nav>
+
+      <main>
+        <section
+          class="concept-panel active"
+          data-concept-panel="one"
+          aria-label="Terminal Run Bar concept"
+        >
+          <div class="concept-head">
+            <div class="concept-title">
+              <h2>1. Terminal Run Bar</h2>
+              <p>
+                Minimal structural change: the terminal remains the source of visible output, but
+                every action creates an explicit run bar, terminal markers, action history, and
+                recovery actions. Best if you want to keep the existing mental model.
+              </p>
+            </div>
+            <div class="fit-score">
+              <span>Implementation: medium</span>
+              <span>Visual change: low</span>
+              <span>Best for: terminal-native users</span>
+            </div>
+          </div>
+
+          <div class="mock-window absolute-layer">
+            <aside class="mock-sidebar">
+              <div class="window-controls">
+                <span class="dot red"></span>
+                <span class="dot yellow"></span>
+                <span class="dot green"></span>
+                <span class="brand"
+                  ><span class="brand-mark">F</span> Fenrir <span class="alpha">ALPHA</span></span
+                >
+              </div>
+              <div class="project-list">
+                <div class="nav-section">Projects</div>
+                <div class="project-row active">> t3code</div>
+                <div class="thread-row active">
+                  <span class="thread-title">Global actions terminal feedback UX</span
+                  ><span class="thread-time">now</span>
+                </div>
+                <div class="thread-row">
+                  <span class="thread-title">Design TS config system</span
+                  ><span class="thread-time">12h</span>
+                </div>
+                <div class="thread-row">
+                  <span class="thread-title">Upstream feature gap analysis</span
+                  ><span class="thread-time">13h</span>
+                </div>
+                <div class="project-row">> gwagent</div>
+                <div class="project-row">> gwback</div>
+              </div>
+              <div class="sidebar-footer">
+                <div class="project-row">Cmd Browser Lab</div>
+                <div class="project-row">> Global Terminal</div>
+                <div class="project-row">Settings Settings</div>
+              </div>
+            </aside>
+
+            <section class="workspace">
+              <header class="topbar">
+                <div class="thread-name">
+                  <strong>Global actions terminal feedback UX</strong>
+                  <span class="tag">t3code</span>
+                </div>
+                <div class="top-actions">
+                  <button class="text-button" type="button">Thread</button>
+                  <div class="action-dropdown-wrap">
+                    <button class="combo-button" type="button">
+                      <span class="focus-state state-running"
+                        ><span class="spin"></span> Running lint</span
+                      >
+                      <span class="focus-state state-success">OK Lint passed</span>
+                      <span class="focus-state state-failure">x Lint failed</span>
+                      <span class="focus-state state-queued">1 queued</span>
+                      <span class="focus-state state-needs-input">Input needed</span>
+                      <span class="focus-state state-cancelled">Action cancelled</span>
+                      <span>v</span>
+                    </button>
+                    <div class="dropdown" aria-label="Action menu open">
+                      <div class="dropdown-section">
+                        <div class="dropdown-label">Project actions</div>
+                        <div class="action-item active">
+                          <span class="status-dot running"></span>
+                          <span class="item-copy"><strong>Lint</strong><span>bun lint</span></span>
+                          <span class="item-meta">running</span>
+                        </div>
+                        <div class="action-item">
+                          <span class="status-dot"></span>
+                          <span class="item-copy"
+                            ><strong>Typecheck</strong><span>bun typecheck</span></span
+                          >
+                          <span class="item-meta">CmdShiftT</span>
+                        </div>
+                        <div class="action-item">
+                          <span class="status-dot"></span>
+                          <span class="item-copy"><strong>Format</strong><span>bun fmt</span></span>
+                          <span class="item-meta">CmdShiftF</span>
+                        </div>
+                      </div>
+                      <div class="dropdown-section" style="border-top: 1px solid var(--line)">
+                        <div class="dropdown-label">Recent runs</div>
+                        <div class="history-item active">
+                          <span class="status-dot running"></span>
+                          <span class="item-copy"
+                            ><strong>Lint</strong
+                            ><span>default terminal - 2m 14s elapsed</span></span
+                          >
+                          <span class="item-meta">View</span>
+                        </div>
+                        <div class="history-item">
+                          <span class="status-dot success"></span>
+                          <span class="item-copy"
+                            ><strong>Format</strong><span>exit 0 - 4s - copied 0 files</span></span
+                          >
+                          <span class="item-meta">Rerun</span>
+                        </div>
+                        <div class="history-item">
+                          <span class="status-dot failure"></span>
+                          <span class="item-copy"
+                            ><strong>Typecheck</strong><span>exit 2 - 41s - 3 errors</span></span
+                          >
+                          <span class="item-meta">Open</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <button class="combo-button" type="button">Commit & push <span>v</span></button>
+                </div>
+              </header>
+
+              <div class="content-area">
+                <div class="thread-canvas">
+                  <div class="messages">
+                    <div class="message">
+                      <p>
+                        Current behavior: clicking an action opens the terminal, but the run has no
+                        identity. This version keeps the terminal flow but exposes state, route, and
+                        exit result.
+                      </p>
+                    </div>
+                    <div class="response-divider">Run state</div>
+                    <div class="run-strip">
+                      <div class="run-main focus-state state-running">
+                        <span class="status-dot running"></span>
+                        <span class="status-copy"
+                          ><strong>Running Lint</strong
+                          ><span>run-7c9a - default terminal - started 2m 14s ago</span></span
+                        >
+                      </div>
+                      <div class="run-main focus-state state-success">
+                        <span class="status-dot success"></span>
+                        <span class="status-copy"
+                          ><strong>Lint passed</strong
+                          ><span>exit 0 - 18.4s - 42 lines captured</span></span
+                        >
+                      </div>
+                      <div class="run-main focus-state state-failure">
+                        <span class="status-dot failure"></span>
+                        <span class="status-copy"
+                          ><strong>Lint failed</strong
+                          ><span>exit 1 - 18.4s - 3 warnings promoted to errors</span></span
+                        >
+                      </div>
+                      <div class="run-main focus-state state-queued">
+                        <span class="status-dot queued"></span>
+                        <span class="status-copy"
+                          ><strong>Lint queued</strong
+                          ><span
+                            >waiting for Typecheck in default terminal - next in queue</span
+                          ></span
+                        >
+                      </div>
+                      <div class="run-main focus-state state-needs-input">
+                        <span class="status-dot needs-input"></span>
+                        <span class="status-copy"
+                          ><strong>Deploy needs input</strong
+                          ><span>missing {{environment}} and {{version}} placeholders</span></span
+                        >
+                      </div>
+                      <div class="run-main focus-state state-cancelled">
+                        <span class="status-dot"></span>
+                        <span class="status-copy"
+                          ><strong>Lint cancelled</strong
+                          ><span>cancelled by user after 8.1s - terminal left open</span></span
+                        >
+                      </div>
+                      <div class="run-actions">
+                        <button class="small-action" type="button">Open terminal</button>
+                        <button class="small-action" type="button">Copy output</button>
+                        <button class="small-action" type="button">Cancel</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="terminal-drawer">
+                    <div class="terminal-header">
+                      <div class="terminal-title">
+                        <strong>Terminal 1</strong>
+                        <span class="focus-state state-running status-pill running"
+                          >run-7c9a running</span
+                        >
+                        <span class="focus-state state-success status-pill success"
+                          >run-7c9a passed</span
+                        >
+                        <span class="focus-state state-failure status-pill failure"
+                          >run-7c9a failed</span
+                        >
+                        <span class="focus-state state-queued status-pill queued">run queued</span>
+                        <span class="focus-state state-needs-input status-pill needs-input"
+                          >waiting for input</span
+                        >
+                        <span class="focus-state state-cancelled status-pill cancelled"
+                          >cancelled</span
+                        >
+                      </div>
+                      <div class="terminal-actions">
+                        <button class="small-action" type="button">Copy last output</button>
+                        <button class="small-action" type="button">New</button>
+                      </div>
+                    </div>
+                    <div class="terminal-body">
+                      <span class="terminal-line term-muted"
+                        >[fenrir] action run run-7c9a started: Lint</span
+                      >
+                      <span class="terminal-line term-muted"
+                        >[fenrir] cwd /Users/adrian/sandbox/t3code - terminal default - source
+                        project action</span
+                      >
+                      <span class="terminal-line"><span class="term-blue">$</span> bun lint</span>
+                      <span class="terminal-line"
+                        >apps/web/src/components/chatView/useChatViewScripts.ts:195:15
+                        lint/no-floating-promises</span
+                      >
+                      <span class="terminal-line">
+                        action write is not linked to visible tmux terminal</span
+                      >
+                      <span class="terminal-line focus-state block state-running term-amber"
+                        >[fenrir] still running - 2m 14s - cancel with Esc or close from run
+                        bar</span
+                      >
+                      <span class="terminal-line focus-state block state-success term-green"
+                        >[fenrir] action run run-7c9a finished: exit 0 - 18.4s</span
+                      >
+                      <span class="terminal-line focus-state block state-failure term-red"
+                        >[fenrir] action run run-7c9a finished: exit 1 - 18.4s</span
+                      >
+                      <span class="terminal-line focus-state block state-queued term-amber"
+                        >[fenrir] queued until terminal is idle; click Run in new terminal to start
+                        now</span
+                      >
+                      <span class="terminal-line focus-state block state-needs-input term-amber"
+                        >[fenrir] paused before execution: fill placeholders in the action
+                        dialog</span
+                      >
+                      <span class="terminal-line focus-state block state-cancelled term-muted"
+                        >[fenrir] action run run-7c9a cancelled by user - shell remains active</span
+                      >
+                    </div>
+                  </div>
+                </div>
+
+                <aside class="side-panel">
+                  <div class="side-panel-header">
+                    <strong>Run details</strong>
+                    <span class="status-pill running">live</span>
+                  </div>
+                  <div class="side-panel-body">
+                    <div class="state-card">
+                      <strong>What the user can answer</strong>
+                      <p>Was it started? Yes, run id and terminal are visible.</p>
+                      <p>
+                        Where is it running? Default terminal, cwd, and source action are shown.
+                      </p>
+                      <p>Can I recover? Cancel, rerun, copy output, open terminal.</p>
+                    </div>
+                    <div class="warning-callout">
+                      <span>!</span>
+                      <span
+                        >Terminal mismatch should become a blocking warning: "Action output is
+                        attached to PTY but the visible drawer is tmux. Switch output route or open
+                        PTY terminal."</span
+                      >
+                    </div>
+                    <div class="run-card">
+                      <div class="card-title">
+                        <strong>Captured metadata</strong><span class="tag">run-7c9a</span>
+                      </div>
+                      <div class="card-body">
+                        <div class="kv"><span>command</span><span>bun lint</span></div>
+                        <div class="kv">
+                          <span>cwd</span><span>/Users/adrian/sandbox/t3code</span>
+                        </div>
+                        <div class="kv"><span>terminal</span><span>thread default - pty</span></div>
+                        <div class="kv">
+                          <span>env</span><span>FENRIR_PROJECT_ROOT, FENRIR_WORKTREE_PATH</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </section>
+          </div>
+
+          <div class="state-matrix">
+            <div class="state-card">
+              <span class="mini-pill">Running</span><strong>Button spinner and run bar</strong>
+              <p>
+                Action button changes immediately, terminal opens to the owning session, and run
+                duration increments.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Success</span><strong>Exit code 0 is explicit</strong>
+              <p>
+                Green terminal marker, success toast, and recent history item with duration and copy
+                output action.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Failure</span><strong>Exit code and tail output</strong>
+              <p>
+                Failure run bar stays visible until dismissed; retry and copy output remain one
+                click away.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Queued</span><strong>Busy terminal handling</strong>
+              <p>
+                User can wait, run in a new terminal, or cancel queue entry before shell write
+                happens.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Needs input</span><strong>Placeholder guard</strong>
+              <p>
+                Alt-click or first run opens inputs; command is not written until required values
+                are present.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Cancelled</span><strong>Stop is visible</strong>
+              <p>
+                Shows whether Fenrir killed a subprocess, sent Ctrl-C, or only removed a queued
+                item.
+              </p>
+            </div>
+          </div>
+
+          <div class="interaction-board">
+            <div class="flow-card">
+              <h3>Primary flow</h3>
+              <ul>
+                <li>Click action or keybinding.</li>
+                <li>Create run id before touching terminal.</li>
+                <li>Open correct terminal route.</li>
+                <li>Write wrapped command and show run bar.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Failure flow</h3>
+              <ul>
+                <li>Open/write failure shows toast and run card.</li>
+                <li>Exit nonzero pins failed bar.</li>
+                <li>Retry reuses same cwd/env unless edited.</li>
+                <li>Copy error includes command and tail output.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Busy terminal</h3>
+              <ul>
+                <li>If active terminal is busy, default to new terminal or explicit queue.</li>
+                <li>Queue order is visible in dropdown.</li>
+                <li>User can promote queued run to new terminal.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Tradeoff</h3>
+              <ul>
+                <li>Lowest UI disruption.</li>
+                <li>Still assumes users inspect terminal output.</li>
+                <li>Needs action-run sentinels for reliable success.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="concept-panel" data-concept-panel="two" aria-label="Action Center concept">
+          <div class="concept-head">
+            <div class="concept-title">
+              <h2>2. Action Center Drawer</h2>
+              <p>
+                A dedicated right drawer for action runs. The terminal can still be opened, but the
+                answer to "what happened?" lives in one consistent place with history, current
+                queue, and detailed metadata.
+              </p>
+            </div>
+            <div class="fit-score">
+              <span>Implementation: high</span>
+              <span>Visual change: medium</span>
+              <span>Best for: operational clarity</span>
+            </div>
+          </div>
+
+          <div class="mock-window absolute-layer">
+            <aside class="mock-sidebar">
+              <div class="window-controls">
+                <span class="dot red"></span><span class="dot yellow"></span
+                ><span class="dot green"></span>
+                <span class="brand"
+                  ><span class="brand-mark">F</span> Fenrir <span class="alpha">ALPHA</span></span
+                >
+              </div>
+              <div class="project-list">
+                <div class="nav-section">Projects</div>
+                <div class="project-row active">> t3code</div>
+                <div class="thread-row active">
+                  <span class="thread-title">Global actions terminal feedback UX</span
+                  ><span class="thread-time">now</span>
+                </div>
+                <div class="thread-row">
+                  <span class="thread-title">MCP browser lab</span
+                  ><span class="thread-time">50s</span>
+                </div>
+              </div>
+              <div class="sidebar-footer">
+                <div class="project-row">> Global Terminal</div>
+                <div class="project-row">Settings Settings</div>
+              </div>
+            </aside>
+
+            <section class="workspace">
+              <header class="topbar">
+                <div class="thread-name">
+                  <strong>Global actions terminal feedback UX</strong
+                  ><span class="tag">t3code</span>
+                </div>
+                <div class="top-actions">
+                  <button class="text-button" type="button">Thread</button>
+                  <button class="combo-button" type="button">+ Add action <span>v</span></button>
+                  <button class="combo-button" type="button">
+                    Runs <span class="status-pill running">3</span>
+                  </button>
+                </div>
+              </header>
+              <div class="content-area with-action-center">
+                <div class="thread-canvas">
+                  <div class="messages">
+                    <div class="message">
+                      <p>
+                        The chat remains uncluttered. Action state lives in a persistent center on
+                        the right, similar to a build pane in an IDE.
+                      </p>
+                    </div>
+                    <div class="message">
+                      <p>
+                        A terminal opens only when the user asks for details, or automatically if
+                        the action is interactive.
+                      </p>
+                    </div>
+                  </div>
+                  <div class="composer">
+                    <div class="composer-input">
+                      Ask anything, @tag files/folders, $use skills, or / for commands
+                    </div>
+                    <div class="composer-toolbar">
+                      <span>GPT-5.5</span><span>Tools</span><span>Build</span
+                      ><span class="send-button">^</span>
+                    </div>
+                  </div>
+                </div>
+
+                <aside class="action-center">
+                  <div class="side-panel-header">
+                    <strong>Action Center</strong>
+                    <button class="small-action" type="button">Clear completed</button>
+                  </div>
+                  <div class="side-panel-body">
+                    <div class="run-card selected">
+                      <div class="run-card-row focus-state state-running">
+                        <span class="status-dot running"></span>
+                        <span class="item-copy"
+                          ><strong>Lint</strong
+                          ><span>running - 2m 14s - default terminal</span></span
+                        >
+                        <span class="item-meta">62%</span>
+                      </div>
+                      <div class="run-card-row focus-state state-success">
+                        <span class="status-dot success"></span>
+                        <span class="item-copy"
+                          ><strong>Lint</strong><span>passed - exit 0 - 18.4s</span></span
+                        >
+                        <span class="item-meta">View</span>
+                      </div>
+                      <div class="run-card-row focus-state state-failure">
+                        <span class="status-dot failure"></span>
+                        <span class="item-copy"
+                          ><strong>Lint</strong><span>failed - exit 1 - 3 issues</span></span
+                        >
+                        <span class="item-meta">Fix</span>
+                      </div>
+                      <div class="run-card-row focus-state state-queued">
+                        <span class="status-dot queued"></span>
+                        <span class="item-copy"
+                          ><strong>Lint</strong><span>queued behind Typecheck</span></span
+                        >
+                        <span class="item-meta">#2</span>
+                      </div>
+                      <div class="run-card-row focus-state state-needs-input">
+                        <span class="status-dot needs-input"></span>
+                        <span class="item-copy"
+                          ><strong>Deploy preview</strong
+                          ><span>needs environment and version</span></span
+                        >
+                        <span class="item-meta">Input</span>
+                      </div>
+                      <div class="run-card-row focus-state state-cancelled">
+                        <span class="status-dot"></span>
+                        <span class="item-copy"
+                          ><strong>Lint</strong><span>cancelled - shell left open</span></span
+                        >
+                        <span class="item-meta">Rerun</span>
+                      </div>
+                    </div>
+
+                    <div class="run-card">
+                      <div class="card-title">
+                        <strong>Selected run details</strong>
+                        <span class="focus-state state-running status-pill running">running</span>
+                        <span class="focus-state state-success status-pill success">passed</span>
+                        <span class="focus-state state-failure status-pill failure">failed</span>
+                        <span class="focus-state state-queued status-pill queued">queued</span>
+                        <span class="focus-state state-needs-input status-pill needs-input"
+                          >needs input</span
+                        >
+                        <span class="focus-state state-cancelled status-pill cancelled"
+                          >cancelled</span
+                        >
+                      </div>
+                      <div class="card-body">
+                        <div class="progress-track">
+                          <div class="focus-state block state-running progress-fill running"></div>
+                          <div class="focus-state block state-success progress-fill success"></div>
+                          <div class="focus-state block state-failure progress-fill failure"></div>
+                          <div class="focus-state block state-queued progress-fill queued"></div>
+                          <div
+                            class="focus-state block state-needs-input progress-fill queued"
+                          ></div>
+                          <div
+                            class="focus-state block state-cancelled progress-fill queued"
+                            style="background: var(--quiet); width: 36%"
+                          ></div>
+                        </div>
+                        <div class="kv"><span>run id</span><span>run-7c9a</span></div>
+                        <div class="kv"><span>command</span><span>bun lint</span></div>
+                        <div class="kv">
+                          <span>terminal</span><span>default - pty - visible route linked</span>
+                        </div>
+                        <div class="log-preview">
+                          $ bun lint<br />
+                          apps/web/src/.../useChatViewScripts.ts<br />
+                          <span class="focus-state block state-running"
+                            >still running, 62% stage estimate</span
+                          >
+                          <span class="focus-state block state-success" style="color: var(--green)"
+                            >completed without issues</span
+                          >
+                          <span class="focus-state block state-failure" style="color: var(--red)"
+                            >3 lint issues, first error copied to clipboard action available</span
+                          >
+                          <span class="focus-state block state-queued" style="color: var(--amber)"
+                            >will start after Typecheck exits</span
+                          >
+                          <span
+                            class="focus-state block state-needs-input"
+                            style="color: var(--amber)"
+                            >command not started yet</span
+                          >
+                          <span class="focus-state block state-cancelled"
+                            >cancelled before completion</span
+                          >
+                        </div>
+                        <div class="run-actions">
+                          <button class="small-action" type="button">Open terminal</button>
+                          <button class="small-action" type="button">Retry</button>
+                          <button class="small-action" type="button">Copy</button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="run-card">
+                      <div class="card-title">
+                        <strong>Other runs</strong><span class="tag">history</span>
+                      </div>
+                      <div class="card-body">
+                        <div class="history-item">
+                          <span class="status-dot running"></span
+                          ><span class="item-copy"
+                            ><strong>Typecheck</strong><span>running in Terminal 2</span></span
+                          >
+                        </div>
+                        <div class="history-item">
+                          <span class="status-dot success"></span
+                          ><span class="item-copy"
+                            ><strong>Format</strong><span>passed 7m ago</span></span
+                          >
+                        </div>
+                        <div class="history-item">
+                          <span class="status-dot failure"></span
+                          ><span class="item-copy"
+                            ><strong>Build</strong><span>failed yesterday</span></span
+                          >
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </section>
+            <div class="toast-stack">
+              <div class="toast focus-state state-running">
+                <span class="spin"></span
+                ><span class="toast-copy"
+                  ><strong>Lint started</strong
+                  ><span>Running in default terminal. Open Action Center for logs.</span></span
+                >
+              </div>
+              <div class="toast focus-state state-success">
+                <span class="status-dot success"></span
+                ><span class="toast-copy"
+                  ><strong>Lint passed</strong
+                  ><span>Exit 0 in 18.4s. Output was captured.</span></span
+                >
+              </div>
+              <div class="toast focus-state state-failure">
+                <span class="status-dot failure"></span
+                ><span class="toast-copy"
+                  ><strong>Lint failed</strong
+                  ><span>Exit 1. Retry, copy output, or open the terminal.</span></span
+                >
+              </div>
+              <div class="toast focus-state state-queued">
+                <span class="status-dot queued"></span
+                ><span class="toast-copy"
+                  ><strong>Lint queued</strong
+                  ><span>Typecheck is using the selected terminal.</span></span
+                >
+              </div>
+              <div class="toast focus-state state-needs-input">
+                <span class="status-dot needs-input"></span
+                ><span class="toast-copy"
+                  ><strong>Input required</strong
+                  ><span>Fill placeholders before the action can run.</span></span
+                >
+              </div>
+              <div class="toast focus-state state-cancelled">
+                <span class="status-dot"></span
+                ><span class="toast-copy"
+                  ><strong>Lint cancelled</strong
+                  ><span>The run was stopped. Terminal history is preserved.</span></span
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="state-matrix">
+            <div class="state-card">
+              <span class="mini-pill">Running</span><strong>Drawer item selected</strong>
+              <p>
+                Live run list updates without forcing terminal focus. Button count shows active
+                runs.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Success</span><strong>History is durable</strong>
+              <p>
+                Success remains in Action Center until cleared, with captured output and duration.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Failure</span><strong>Failure is inspectable</strong>
+              <p>
+                Errors stay pinned with retry, open terminal, copy output, and command metadata.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Queued</span><strong>Queue is global per thread</strong>
+              <p>
+                Users see order, terminal assignment, and can move a queued item to a new terminal.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Needs input</span><strong>Inline form possible</strong>
+              <p>
+                Placeholder inputs can render directly in the drawer without losing the action
+                context.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Cancelled</span><strong>Audit trail remains</strong>
+              <p>
+                Cancelled runs show who cancelled, when, and whether the process received Ctrl-C.
+              </p>
+            </div>
+          </div>
+
+          <div class="interaction-board">
+            <div class="flow-card">
+              <h3>Primary flow</h3>
+              <ul>
+                <li>Click action.</li>
+                <li>Toast confirms start.</li>
+                <li>Action Center opens if run needs attention.</li>
+                <li>Terminal only steals focus when configured.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Power user flow</h3>
+              <ul>
+                <li>Keep drawer collapsed.</li>
+                <li>Top bar badge tracks active and failed runs.</li>
+                <li>Keyboard shortcut opens selected run details.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Edge cases</h3>
+              <ul>
+                <li>Terminal backend mismatch becomes a red detail row.</li>
+                <li>Spawn/write failures produce failed runs.</li>
+                <li>Lost websocket marks run as "unknown" until reattached.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Tradeoff</h3>
+              <ul>
+                <li>Most complete observability.</li>
+                <li>More UI and state to build.</li>
+                <li>Could feel heavy for one-off commands.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section
+          class="concept-panel"
+          data-concept-panel="three"
+          aria-label="Timeline Cards concept"
+        >
+          <div class="concept-head">
+            <div class="concept-title">
+              <h2>3. Timeline Cards</h2>
+              <p>
+                Every project/global action appears as a first-class timeline event. This is the
+                most conversational option: the action result becomes part of the thread history,
+                with collapsible output and direct recovery actions.
+              </p>
+            </div>
+            <div class="fit-score">
+              <span>Implementation: medium-high</span>
+              <span>Visual change: high</span>
+              <span>Best for: auditability</span>
+            </div>
+          </div>
+
+          <div class="mock-window absolute-layer">
+            <aside class="mock-sidebar">
+              <div class="window-controls">
+                <span class="dot red"></span><span class="dot yellow"></span
+                ><span class="dot green"></span
+                ><span class="brand"
+                  ><span class="brand-mark">F</span> Fenrir <span class="alpha">ALPHA</span></span
+                >
+              </div>
+              <div class="project-list">
+                <div class="nav-section">Projects</div>
+                <div class="project-row active">> t3code</div>
+                <div class="thread-row active">
+                  <span class="thread-title">Global actions terminal feedback UX</span
+                  ><span class="thread-time">now</span>
+                </div>
+              </div>
+              <div class="sidebar-footer">
+                <div class="project-row">> Global Terminal</div>
+                <div class="project-row">Settings Settings</div>
+              </div>
+            </aside>
+            <section class="workspace">
+              <header class="topbar">
+                <div class="thread-name">
+                  <strong>Global actions terminal feedback UX</strong
+                  ><span class="tag">t3code</span>
+                </div>
+                <div class="top-actions">
+                  <button class="text-button" type="button">Thread</button
+                  ><button class="combo-button" type="button">+ Add action <span>v</span></button
+                  ><button class="combo-button" type="button">Commit & push <span>v</span></button>
+                </div>
+              </header>
+              <div class="content-area">
+                <div class="thread-canvas">
+                  <div class="messages">
+                    <div class="message">
+                      <p>I clicked the Lint action to verify the project before making changes.</p>
+                    </div>
+                    <article class="timeline-card">
+                      <div class="timeline-head">
+                        <strong class="focus-state state-running">Action running: Lint</strong>
+                        <strong class="focus-state state-success">Action passed: Lint</strong>
+                        <strong class="focus-state state-failure">Action failed: Lint</strong>
+                        <strong class="focus-state state-queued">Action queued: Lint</strong>
+                        <strong class="focus-state state-needs-input"
+                          >Action needs input: Deploy preview</strong
+                        >
+                        <strong class="focus-state state-cancelled">Action cancelled: Lint</strong>
+                        <span class="focus-state state-running status-pill running"
+                          >running 2m 14s</span
+                        >
+                        <span class="focus-state state-success status-pill success">exit 0</span>
+                        <span class="focus-state state-failure status-pill failure">exit 1</span>
+                        <span class="focus-state state-queued status-pill queued">position 2</span>
+                        <span class="focus-state state-needs-input status-pill needs-input"
+                          >blocked</span
+                        >
+                        <span class="focus-state state-cancelled status-pill cancelled"
+                          >stopped</span
+                        >
+                      </div>
+                      <div class="timeline-body">
+                        <div class="kv"><span>command</span><span>bun lint</span></div>
+                        <div class="kv">
+                          <span>cwd</span><span>/Users/adrian/sandbox/t3code</span>
+                        </div>
+                        <div class="focus-state block state-needs-input placeholder-form">
+                          <div class="field">
+                            <label for="env-input">environment</label
+                            ><input id="env-input" value="preview" />
+                          </div>
+                          <div class="field">
+                            <label for="version-input">version</label
+                            ><input id="version-input" value="2026.05.29-1" />
+                          </div>
+                          <label class="inline-note"
+                            ><input type="checkbox" checked /> Save as project defaults for this
+                            global action</label
+                          >
+                        </div>
+                        <div class="log-preview">
+                          <span class="focus-state block state-running"
+                            >$ bun lint<br />checking apps/web...<br />checking apps/server...<br /><span
+                              style="color: var(--blue)"
+                              >Still running. Output will continue streaming here.</span
+                            ></span
+                          >
+                          <span class="focus-state block state-success"
+                            >$ bun lint<br /><span style="color: var(--green)"
+                              >No lint issues found.</span
+                            ><br />Finished in 18.4s.</span
+                          >
+                          <span class="focus-state block state-failure"
+                            >$ bun lint<br /><span style="color: var(--red)"
+                              >apps/web/src/... line 195: Promise must be handled.</span
+                            ><br />2 more issues hidden.</span
+                          >
+                          <span class="focus-state block state-queued"
+                            >Waiting for Typecheck to release Terminal 1.<br />Starts automatically
+                            unless cancelled.</span
+                          >
+                          <span class="focus-state block state-needs-input"
+                            >Command preview:<br />deploy --env preview --version 2026.05.29-1</span
+                          >
+                          <span class="focus-state block state-cancelled"
+                            >Run was cancelled before completion. Partial output is preserved.</span
+                          >
+                        </div>
+                        <div class="timeline-actions">
+                          <button class="small-action" type="button">Open terminal</button>
+                          <button class="small-action" type="button">Copy output</button>
+                          <button class="small-action" type="button">Retry</button>
+                          <button class="small-action" type="button">Collapse</button>
+                        </div>
+                      </div>
+                    </article>
+                    <div class="response-divider">Response</div>
+                    <div class="message">
+                      <p>
+                        The thread now has a durable record of the action and result. Future agent
+                        turns can reference the run card instead of asking the user to inspect an
+                        old terminal buffer.
+                      </p>
+                    </div>
+                  </div>
+                  <div class="composer">
+                    <div class="composer-input">
+                      Ask anything, @tag files/folders, $use skills, or / for commands
+                    </div>
+                    <div class="composer-toolbar">
+                      <span>GPT-5.5</span><span>Tools</span><span>Build</span
+                      ><span class="send-button">^</span>
+                    </div>
+                  </div>
+                </div>
+                <aside class="side-panel">
+                  <div class="side-panel-header">
+                    <strong>Run card behavior</strong><span class="tag">timeline</span>
+                  </div>
+                  <div class="side-panel-body">
+                    <div class="state-card">
+                      <strong>History policy</strong>
+                      <p>
+                        Completed cards collapse by default after a timeout. Failed cards remain
+                        expanded until viewed.
+                      </p>
+                    </div>
+                    <div class="state-card">
+                      <strong>Agent context</strong>
+                      <p>
+                        The card can be attached to the next message as a terminal context without
+                        selecting terminal text.
+                      </p>
+                    </div>
+                    <div class="state-card">
+                      <strong>Noise control</strong>
+                      <p>
+                        Only user-triggered actions become timeline cards. Background terminal
+                        activity stays in terminal.
+                      </p>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </section>
+          </div>
+
+          <div class="state-matrix">
+            <div class="state-card">
+              <span class="mini-pill">Running</span><strong>Live timeline card</strong>
+              <p>
+                Output preview streams inline; card header shows elapsed time and terminal route.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Success</span><strong>Collapsed green result</strong>
+              <p>
+                Shows command, duration, exit 0, and copy output. Full output is one click away.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Failure</span><strong>Persistent failed card</strong>
+              <p>Stays expanded, highlights tail error, offers retry and "ask agent to fix".</p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Queued</span><strong>Queue entry card</strong>
+              <p>User can cancel or move to new terminal without opening the dropdown again.</p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Needs input</span><strong>Inline prompt</strong>
+              <p>Placeholder form appears directly where the action was triggered.</p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Cancelled</span><strong>Partial output preserved</strong>
+              <p>Card records who cancelled and whether the process exited cleanly.</p>
+            </div>
+          </div>
+
+          <div class="interaction-board">
+            <div class="flow-card">
+              <h3>Primary flow</h3>
+              <ul>
+                <li>Click action.</li>
+                <li>Timeline card inserted immediately.</li>
+                <li>Terminal opens only when requested.</li>
+                <li>Card updates through terminal lifecycle events.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Agent handoff</h3>
+              <ul>
+                <li>User can click "Ask agent to fix".</li>
+                <li>Run output is attached as context.</li>
+                <li>Agent sees command, cwd, exit code, and tail output.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Edge cases</h3>
+              <ul>
+                <li>If write fails, card becomes failed before command output exists.</li>
+                <li>If reconnect happens, card shows "reconnecting" until run status resolves.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Tradeoff</h3>
+              <ul>
+                <li>Excellent audit trail.</li>
+                <li>Can clutter chat if actions are frequent.</li>
+                <li>Needs good collapse defaults.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="concept-panel" data-concept-panel="four" aria-label="Queue Popover concept">
+          <div class="concept-head">
+            <div class="concept-title">
+              <h2>4. Queue Popover</h2>
+              <p>
+                Actions behave like a compact job queue anchored to the top bar. This makes it clear
+                when a command is waiting, what terminal it will use, and how to reroute it without
+                committing to a permanent side panel.
+              </p>
+            </div>
+            <div class="fit-score">
+              <span>Implementation: medium</span>
+              <span>Visual change: low-medium</span>
+              <span>Best for: many quick actions</span>
+            </div>
+          </div>
+
+          <div class="mock-window absolute-layer">
+            <aside class="mock-sidebar">
+              <div class="window-controls">
+                <span class="dot red"></span><span class="dot yellow"></span
+                ><span class="dot green"></span
+                ><span class="brand"
+                  ><span class="brand-mark">F</span> Fenrir <span class="alpha">ALPHA</span></span
+                >
+              </div>
+              <div class="project-list">
+                <div class="nav-section">Projects</div>
+                <div class="project-row active">> t3code</div>
+                <div class="thread-row active">
+                  <span class="thread-title">Global actions terminal feedback UX</span
+                  ><span class="thread-time">now</span>
+                </div>
+              </div>
+              <div class="sidebar-footer">
+                <div class="project-row">> Global Terminal</div>
+                <div class="project-row">Settings Settings</div>
+              </div>
+            </aside>
+            <section class="workspace">
+              <header class="topbar">
+                <div class="thread-name">
+                  <strong>Global actions terminal feedback UX</strong
+                  ><span class="tag">t3code</span>
+                </div>
+                <div class="top-actions">
+                  <button class="text-button" type="button">Thread</button>
+                  <button class="combo-button" type="button">+ Add action <span>v</span></button>
+                  <button class="combo-button" type="button">
+                    Action queue <span class="status-pill running">2 active</span>
+                  </button>
+                  <button class="combo-button" type="button">Commit & push <span>v</span></button>
+                </div>
+              </header>
+              <div class="content-area">
+                <div class="thread-canvas">
+                  <div class="messages">
+                    <div class="message">
+                      <p>
+                        The top bar owns action routing. The user sees queue state before the
+                        terminal opens.
+                      </p>
+                    </div>
+                    <div class="response-divider">Terminal</div>
+                    <div class="terminal-drawer">
+                      <div class="terminal-header">
+                        <div class="terminal-title">
+                          <strong>Terminal 1</strong
+                          ><span class="status-pill running">Typecheck running</span>
+                        </div>
+                        <div class="terminal-actions">
+                          <button class="small-action" type="button">Split</button
+                          ><button class="small-action" type="button">New</button>
+                        </div>
+                      </div>
+                      <div class="terminal-body">
+                        <span class="terminal-line"
+                          ><span class="term-blue">$</span> bun typecheck</span
+                        >
+                        <span class="terminal-line">packages/contracts/src/rpc.ts checking...</span>
+                        <span class="terminal-line term-muted"
+                          >[fenrir] Terminal busy; Lint queued as job #2.</span
+                        >
+                        <span class="terminal-line focus-state block state-running term-blue"
+                          >[fenrir] Lint running in Terminal 2 because user selected "Run now in new
+                          terminal".</span
+                        >
+                        <span class="terminal-line focus-state block state-success term-green"
+                          >[fenrir] Lint completed in Terminal 2: exit 0.</span
+                        >
+                        <span class="terminal-line focus-state block state-failure term-red"
+                          >[fenrir] Lint completed in Terminal 2: exit 1.</span
+                        >
+                        <span class="terminal-line focus-state block state-queued term-amber"
+                          >[fenrir] Lint will run here after Typecheck exits.</span
+                        >
+                        <span class="terminal-line focus-state block state-needs-input term-amber"
+                          >[fenrir] Deploy queued but blocked on placeholders.</span
+                        >
+                        <span class="terminal-line focus-state block state-cancelled term-muted"
+                          >[fenrir] Lint removed from queue before execution.</span
+                        >
+                      </div>
+                    </div>
+                  </div>
+                  <div class="composer">
+                    <div class="composer-input">
+                      Ask anything, @tag files/folders, $use skills, or / for commands
+                    </div>
+                    <div class="composer-toolbar">
+                      <span>GPT-5.5</span><span>Tools</span><span>Build</span
+                      ><span class="send-button">^</span>
+                    </div>
+                  </div>
+                </div>
+                <aside class="side-panel">
+                  <div class="side-panel-header">
+                    <strong>Terminal routing</strong><span class="tag">queue</span>
+                  </div>
+                  <div class="side-panel-body">
+                    <div class="state-card">
+                      <strong>Default rule</strong>
+                      <p>
+                        If active terminal is idle, run there. If busy, show queue popover and offer
+                        a new terminal.
+                      </p>
+                    </div>
+                    <div class="state-card">
+                      <strong>Predictability</strong>
+                      <p>
+                        The queue shows exact terminal, cwd, env, and whether command has already
+                        been written.
+                      </p>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </section>
+            <div class="queue-popover">
+              <div class="queue-head">
+                <strong>Action queue</strong>
+                <span class="focus-state state-running status-pill running">running</span>
+                <span class="focus-state state-success status-pill success">passed</span>
+                <span class="focus-state state-failure status-pill failure">failed</span>
+                <span class="focus-state state-queued status-pill queued">queued</span>
+                <span class="focus-state state-needs-input status-pill needs-input">blocked</span>
+                <span class="focus-state state-cancelled status-pill cancelled">cancelled</span>
+              </div>
+              <div class="queue-list">
+                <div class="queue-item active">
+                  <span class="focus-state state-running status-dot running"></span>
+                  <span class="focus-state state-success status-dot success"></span>
+                  <span class="focus-state state-failure status-dot failure"></span>
+                  <span class="focus-state state-queued status-dot queued"></span>
+                  <span class="focus-state state-needs-input status-dot needs-input"></span>
+                  <span class="focus-state state-cancelled status-dot"></span>
+                  <span class="item-copy">
+                    <strong class="focus-state state-running">Lint running now</strong>
+                    <strong class="focus-state state-success">Lint passed</strong>
+                    <strong class="focus-state state-failure">Lint failed</strong>
+                    <strong class="focus-state state-queued">Lint waiting</strong>
+                    <strong class="focus-state state-needs-input">Deploy waiting for input</strong>
+                    <strong class="focus-state state-cancelled">Lint cancelled</strong>
+                    <span>Terminal 2 - /sandbox/t3code - bun lint</span>
+                  </span>
+                  <span class="item-meta">run-7c9a</span>
+                </div>
+                <div class="queue-item">
+                  <span class="status-dot running"></span
+                  ><span class="item-copy"
+                    ><strong>Typecheck</strong><span>Terminal 1 - started 4m ago</span></span
+                  ><span class="item-meta">active</span>
+                </div>
+                <div class="queue-item">
+                  <span class="status-dot queued"></span
+                  ><span class="item-copy"
+                    ><strong>Build</strong><span>queued after Lint</span></span
+                  ><span class="item-meta">#3</span>
+                </div>
+              </div>
+              <div class="card-body" style="border-top: 1px solid var(--line)">
+                <div class="run-actions">
+                  <button class="small-action" type="button">Run in new terminal</button>
+                  <button class="small-action" type="button">Move up</button>
+                  <button class="small-action" type="button">Cancel</button>
+                  <button class="small-action" type="button">Details</button>
+                </div>
+              </div>
+            </div>
+            <div class="route-toast toast">
+              <span class="status-dot queued"></span>
+              <span class="toast-copy"
+                ><strong>Terminal is busy</strong
+                ><span>Lint is queued. Run in a new terminal or wait for Typecheck.</span></span
+              >
+            </div>
+          </div>
+
+          <div class="state-matrix">
+            <div class="state-card">
+              <span class="mini-pill">Running</span><strong>Queue item turns active</strong>
+              <p>
+                Shows terminal route and exposes "follow terminal" instead of opening terminal
+                blindly.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Success</span><strong>Item collapses to history</strong>
+              <p>Queue count decreases; result remains in recent actions list.</p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Failure</span><strong>Item stays pinned</strong>
+              <p>Failed jobs remain in queue popover until viewed or dismissed.</p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Queued</span><strong>Order is controllable</strong>
+              <p>Move up, cancel, run now in new terminal, or edit cwd/env before start.</p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Needs input</span><strong>Blocked queue item</strong>
+              <p>
+                Queue can contain blocked actions, but they never execute until input is supplied.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Cancelled</span><strong>Before vs after start</strong>
+              <p>
+                Before start removes job. After start sends interrupt and records partial output.
+              </p>
+            </div>
+          </div>
+
+          <div class="interaction-board">
+            <div class="flow-card">
+              <h3>Primary flow</h3>
+              <ul>
+                <li>Click action.</li>
+                <li>If terminal idle, start.</li>
+                <li>If busy, queue popover opens.</li>
+                <li>User chooses wait or new terminal.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Keyboard flow</h3>
+              <ul>
+                <li>Shortcut can enqueue silently.</li>
+                <li>Top bar badge shows active/failed count.</li>
+                <li>Second shortcut opens queue popover.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Edge cases</h3>
+              <ul>
+                <li>Terminal closes while queued: reroute prompt appears.</li>
+                <li>Command spawn fails: queue item becomes failed.</li>
+                <li>Reconnect restores queue from server state.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Tradeoff</h3>
+              <ul>
+                <li>Great for concurrency.</li>
+                <li>Less obvious after popover closes.</li>
+                <li>Needs precise queue semantics.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="concept-panel" data-concept-panel="five" aria-label="Terminal HUD concept">
+          <div class="concept-head">
+            <div class="concept-title">
+              <h2>5. Terminal HUD</h2>
+              <p>
+                A dense terminal-first design. Action feedback lives inside the terminal tab as a
+                command cockpit: current run, recent runs, controls, command metadata, and output
+                markers are all visible without leaving terminal mode.
+              </p>
+            </div>
+            <div class="fit-score">
+              <span>Implementation: medium</span>
+              <span>Visual change: medium</span>
+              <span>Best for: power users</span>
+            </div>
+          </div>
+
+          <div class="mock-window absolute-layer">
+            <aside class="mock-sidebar">
+              <div class="window-controls">
+                <span class="dot red"></span><span class="dot yellow"></span
+                ><span class="dot green"></span
+                ><span class="brand"
+                  ><span class="brand-mark">F</span> Fenrir <span class="alpha">ALPHA</span></span
+                >
+              </div>
+              <div class="project-list">
+                <div class="nav-section">Projects</div>
+                <div class="project-row active">> t3code</div>
+                <div class="thread-row active">
+                  <span class="thread-title">Global actions terminal feedback UX</span
+                  ><span class="thread-time">now</span>
+                </div>
+              </div>
+              <div class="sidebar-footer">
+                <div class="project-row">> Global Terminal</div>
+                <div class="project-row">Settings Settings</div>
+              </div>
+            </aside>
+
+            <section class="workspace">
+              <header class="topbar">
+                <div class="thread-name">
+                  <strong>Global actions terminal feedback UX</strong
+                  ><span class="tag">terminal tab</span>
+                </div>
+                <div class="top-actions">
+                  <button class="text-button" type="button">Thread</button
+                  ><button class="text-button" type="button">Editor</button
+                  ><button
+                    class="text-button"
+                    type="button"
+                    style="border-color: rgb(131 183 255 / 0.35); color: var(--blue)"
+                  >
+                    Terminal</button
+                  ><button class="combo-button" type="button">Actions <span>v</span></button>
+                </div>
+              </header>
+              <div class="thread-canvas">
+                <div class="messages" style="padding: 0">
+                  <div class="terminal-shell">
+                    <div class="command-strip">
+                      <div class="command-strip-top">
+                        <div class="run-main focus-state state-running">
+                          <span class="status-dot running"></span
+                          ><span class="status-copy"
+                            ><strong>Lint running</strong
+                            ><span>run-7c9a - bun lint - /sandbox/t3code</span></span
+                          >
+                        </div>
+                        <div class="run-main focus-state state-success">
+                          <span class="status-dot success"></span
+                          ><span class="status-copy"
+                            ><strong>Lint passed</strong
+                            ><span>exit 0 - 18.4s - output captured</span></span
+                          >
+                        </div>
+                        <div class="run-main focus-state state-failure">
+                          <span class="status-dot failure"></span
+                          ><span class="status-copy"
+                            ><strong>Lint failed</strong
+                            ><span>exit 1 - 3 issues - output pinned</span></span
+                          >
+                        </div>
+                        <div class="run-main focus-state state-queued">
+                          <span class="status-dot queued"></span
+                          ><span class="status-copy"
+                            ><strong>Lint queued</strong
+                            ><span>waiting behind Typecheck - Terminal 1</span></span
+                          >
+                        </div>
+                        <div class="run-main focus-state state-needs-input">
+                          <span class="status-dot needs-input"></span
+                          ><span class="status-copy"
+                            ><strong>Deploy needs input</strong
+                            ><span>fill placeholders before writing command</span></span
+                          >
+                        </div>
+                        <div class="run-main focus-state state-cancelled">
+                          <span class="status-dot"></span
+                          ><span class="status-copy"
+                            ><strong>Lint cancelled</strong
+                            ><span>partial output saved - terminal still open</span></span
+                          >
+                        </div>
+                        <div class="run-actions">
+                          <button class="small-action" type="button">Cancel</button>
+                          <button class="small-action" type="button">Rerun</button>
+                          <button class="small-action" type="button">Copy</button>
+                        </div>
+                      </div>
+                      <div class="command-tabs">
+                        <button class="command-tab active" type="button">Current</button>
+                        <button class="command-tab" type="button">Recent 5</button>
+                        <button class="command-tab" type="button">Queue 2</button>
+                        <button class="command-tab" type="button">Metadata</button>
+                        <button class="command-tab" type="button">Terminal routes</button>
+                      </div>
+                    </div>
+                    <div class="terminal-body" style="height: auto">
+                      <span class="terminal-line term-muted"
+                        >[fenrir] run run-7c9a - action Lint - terminal Terminal 1 - source topbar
+                        click</span
+                      >
+                      <span class="terminal-line"><span class="term-blue">$</span> bun lint</span>
+                      <span class="terminal-line"
+                        >apps/web/src/components/chatView/useChatViewScripts.ts</span
+                      >
+                      <span class="terminal-line">apps/server/src/terminal/Layers/Manager.ts</span>
+                      <span class="terminal-line focus-state block state-running term-blue"
+                        >[fenrir] running - stage lint - 62% - elapsed 2m 14s</span
+                      >
+                      <span class="terminal-line focus-state block state-success term-green"
+                        >[fenrir] success - exit 0 - elapsed 18.4s - output saved to run
+                        details</span
+                      >
+                      <span class="terminal-line focus-state block state-failure term-red"
+                        >[fenrir] failed - exit 1 - elapsed 18.4s - retry available</span
+                      >
+                      <span class="terminal-line focus-state block state-queued term-amber"
+                        >[fenrir] queued - not written yet - no side effects</span
+                      >
+                      <span class="terminal-line focus-state block state-needs-input term-amber"
+                        >[fenrir] blocked - placeholders required - command preview hidden until
+                        confirmed</span
+                      >
+                      <span class="terminal-line focus-state block state-cancelled term-muted"
+                        >[fenrir] cancelled - sent Ctrl-C - process exited with signal 2</span
+                      >
+                    </div>
+                    <div class="terminal-header">
+                      <div class="terminal-title">
+                        <strong>Recent action runs</strong
+                        ><span class="tag">visible in terminal tab</span>
+                      </div>
+                      <div class="terminal-actions">
+                        <button class="small-action" type="button">Export log</button
+                        ><button class="small-action" type="button">Clear success</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="composer">
+                  <div class="composer-input">
+                    Ask anything, @tag files/folders, $use skills, or / for commands
+                  </div>
+                  <div class="composer-toolbar">
+                    <span>GPT-5.5</span><span>Tools</span><span>Build</span
+                    ><span class="send-button">^</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <div class="hud-card">
+              <div class="card-title">
+                <strong>Command HUD</strong><span class="tag">hover or shortcut</span>
+              </div>
+              <div class="card-body">
+                <div class="kv"><span>run id</span><span>run-7c9a</span></div>
+                <div class="kv">
+                  <span>route</span><span>thread terminal - pty - Terminal 1</span>
+                </div>
+                <div class="kv">
+                  <span>fallback</span><span>if tmux visible, write through tmux or warn</span>
+                </div>
+                <div class="run-actions">
+                  <button class="small-action" type="button">Follow output</button
+                  ><button class="small-action" type="button">Attach to chat</button
+                  ><button class="small-action" type="button">Kill process</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="state-matrix">
+            <div class="state-card">
+              <span class="mini-pill">Running</span><strong>HUD is live</strong>
+              <p>
+                Terminal tab shows action strip, current stage, elapsed time, and explicit process
+                controls.
+              </p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Success</span><strong>Output is marked</strong>
+              <p>Green sentinel marker and recent-run list make silent successes visible.</p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Failure</span><strong>Terminal stays useful</strong>
+              <p>Failed run stays in the command strip until dismissed, without covering output.</p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Queued</span><strong>No side effects yet</strong>
+              <p>Queued HUD explicitly says the command has not been written to the shell.</p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Needs input</span><strong>Prompt before write</strong>
+              <p>Action strip blocks command write and opens compact inputs in the HUD.</p>
+            </div>
+            <div class="state-card">
+              <span class="mini-pill">Cancelled</span><strong>Signal is recorded</strong>
+              <p>Shows whether the user cancelled queue, sent Ctrl-C, or force-killed a process.</p>
+            </div>
+          </div>
+
+          <div class="interaction-board">
+            <div class="flow-card">
+              <h3>Primary flow</h3>
+              <ul>
+                <li>Click action.</li>
+                <li>Terminal tab becomes active.</li>
+                <li>Command strip owns lifecycle.</li>
+                <li>Output markers bracket command output.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Power controls</h3>
+              <ul>
+                <li>Recent runs, queue, metadata, routes are terminal subtabs.</li>
+                <li>Ctrl-C and cancel are separate controls.</li>
+                <li>Attach output to chat is one click.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Edge cases</h3>
+              <ul>
+                <li>
+                  Interactive command can stay in terminal with HUD state "waiting for shell input".
+                </li>
+                <li>Terminal close prompts to keep or kill active run.</li>
+              </ul>
+            </div>
+            <div class="flow-card">
+              <h3>Tradeoff</h3>
+              <ul>
+                <li>Fast and dense for terminal users.</li>
+                <li>Less discoverable for non-terminal users.</li>
+                <li>Still terminal-centric.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const conceptTabs = Array.from(document.querySelectorAll("[data-concept-tab]"));
+      const conceptPanels = Array.from(document.querySelectorAll("[data-concept-panel]"));
+      const stateButtons = Array.from(document.querySelectorAll("[data-state-button]"));
+
+      function activateConcept(id) {
+        for (const tab of conceptTabs) {
+          tab.setAttribute("aria-selected", String(tab.dataset.conceptTab === id));
+        }
+        for (const panel of conceptPanels) {
+          panel.classList.toggle("active", panel.dataset.conceptPanel === id);
+        }
+      }
+
+      function activateState(state) {
+        document.documentElement.dataset.state = state;
+        for (const button of stateButtons) {
+          button.setAttribute("aria-pressed", String(button.dataset.stateButton === state));
+        }
+      }
+
+      for (const tab of conceptTabs) {
+        tab.addEventListener("click", () => {
+          activateConcept(tab.dataset.conceptTab);
+        });
+      }
+
+      for (const button of stateButtons) {
+        button.addEventListener("click", () => {
+          activateState(button.dataset.stateButton);
+        });
+      }
+    </script>
+  </body>
+</html>

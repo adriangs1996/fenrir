@@ -6,6 +6,7 @@ import {
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
 } from "./MessagesTimeline.logic";
+import { type ActionRun } from "~/modules/action-runs";
 
 describe("computeMessageDurationStart", () => {
   it("returns message createdAt when there is no preceding user message", () => {
@@ -205,6 +206,81 @@ describe("resolveAssistantMessageCopyState", () => {
 });
 
 describe("deriveMessagesTimelineRows", () => {
+  it("places action receipts in chronological order with messages", () => {
+    const actionRun = {
+      id: "run-1",
+      threadKey: "environment-local:thread-1",
+      environmentId: "environment-local" as never,
+      threadId: "thread-1" as never,
+      projectId: "project-1",
+      source: "project",
+      scriptId: "lint",
+      scriptName: "Lint",
+      command: "bun lint",
+      cwd: "/repo",
+      tmuxProjectId: "action-run-run-1",
+      status: "failed",
+      createdAt: "2026-01-01T00:00:05Z",
+      startedAt: "2026-01-01T00:00:05Z",
+      completedAt: "2026-01-01T00:00:07Z",
+      exitCode: 1,
+      outputTail: "lint failed",
+      errorMessage: null,
+      placeholderNames: [],
+      cancelRequested: false,
+      receiptDismissed: false,
+      updatedAt: "2026-01-01T00:00:07Z",
+    } satisfies ActionRun;
+
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-1-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:00Z",
+          message: {
+            id: "user-1" as never,
+            role: "user",
+            text: "Run lint",
+            turnId: null,
+            createdAt: "2026-01-01T00:00:00Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-final-entry",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:10Z",
+          message: {
+            id: "assistant-final" as never,
+            role: "assistant",
+            text: "Lint failed.",
+            turnId: "turn-1" as never,
+            createdAt: "2026-01-01T00:00:10Z",
+            completedAt: "2026-01-01T00:00:12Z",
+            streaming: false,
+          },
+        },
+      ],
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: false,
+      activeTurnInProgress: false,
+      activeTurnId: null,
+      activeTurnStartedAt: null,
+      actionRuns: [actionRun],
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["message", "action-run", "message"]);
+    expect(rows[1]).toMatchObject({
+      id: "action-run:run-1",
+      kind: "action-run",
+      run: actionRun,
+    });
+  });
+
   it("only enables assistant copy for the terminal assistant message in a turn", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [
@@ -256,6 +332,7 @@ describe("deriveMessagesTimelineRows", () => {
       activeTurnInProgress: false,
       activeTurnId: null,
       activeTurnStartedAt: null,
+      actionRuns: [],
       turnDiffSummaryByAssistantMessageId: new Map(),
       revertTurnCountByUserMessageId: new Map(),
     });
@@ -309,6 +386,7 @@ describe("deriveMessagesTimelineRows", () => {
       activeTurnInProgress: true,
       activeTurnId: "turn-2" as never,
       activeTurnStartedAt: null,
+      actionRuns: [],
       turnDiffSummaryByAssistantMessageId: new Map(),
       revertTurnCountByUserMessageId: new Map(),
     });
@@ -362,6 +440,7 @@ describe("computeStableMessagesTimelineRows", () => {
       activeTurnInProgress: false,
       activeTurnId: null,
       activeTurnStartedAt: null,
+      actionRuns: [],
       turnDiffSummaryByAssistantMessageId: new Map(),
       revertTurnCountByUserMessageId: new Map(),
     });
@@ -414,6 +493,7 @@ describe("computeStableMessagesTimelineRows", () => {
         activeTurnInProgress: false,
         activeTurnId: null,
         activeTurnStartedAt: null,
+        actionRuns: [],
         turnDiffSummaryByAssistantMessageId: new Map(),
         revertTurnCountByUserMessageId: new Map(),
       });
@@ -469,6 +549,7 @@ describe("computeStableMessagesTimelineRows", () => {
       activeTurnInProgress: false,
       activeTurnId: null,
       activeTurnStartedAt: null,
+      actionRuns: [],
       turnDiffSummaryByAssistantMessageId: new Map(),
       revertTurnCountByUserMessageId: new Map(),
     });

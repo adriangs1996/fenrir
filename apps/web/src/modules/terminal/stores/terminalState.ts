@@ -11,6 +11,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "~/lib/storage";
 import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
+import { isGlobalTerminalThreadId } from "../globalTerminal";
 import {
   getDefaultThreadTerminalHeight,
   DEFAULT_THREAD_TERMINAL_ID,
@@ -267,6 +268,11 @@ function terminalThreadKey(threadRef: ScopedThreadRef): string {
 
 function terminalEventBufferKey(threadRef: ScopedThreadRef, terminalId: string): string {
   return `${terminalThreadKey(threadRef)}\u0000${terminalId}`;
+}
+
+function isRetainedSyntheticTerminalThreadKey(threadKey: string): boolean {
+  const parsed = parseScopedThreadKey(threadKey);
+  return parsed ? isGlobalTerminalThreadId(parsed.threadId) : false;
 }
 
 function copyTerminalGroups(groups: ThreadTerminalGroup[]): ThreadTerminalGroup[] {
@@ -827,18 +833,24 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
         removeOrphanedTerminalStates: (activeThreadKeys) =>
           set((state) => {
             const orphanedIds = Object.keys(state.terminalStateByThreadKey).filter(
-              (key) => !activeThreadKeys.has(key),
+              (key) => !activeThreadKeys.has(key) && !isRetainedSyntheticTerminalThreadKey(key),
             );
             const orphanedLaunchContextIds = Object.keys(
               state.terminalLaunchContextByThreadKey,
-            ).filter((key) => !activeThreadKeys.has(key));
+            ).filter(
+              (key) => !activeThreadKeys.has(key) && !isRetainedSyntheticTerminalThreadKey(key),
+            );
             const nextTerminalEventEntriesByKey = {
               ...state.terminalEventEntriesByKey,
             };
             let removedEventEntries = false;
             for (const key of Object.keys(nextTerminalEventEntriesByKey)) {
               const [threadKey] = key.split("\u0000");
-              if (threadKey && !activeThreadKeys.has(threadKey)) {
+              if (
+                threadKey &&
+                !activeThreadKeys.has(threadKey) &&
+                !isRetainedSyntheticTerminalThreadKey(threadKey)
+              ) {
                 delete nextTerminalEventEntriesByKey[key];
                 removedEventEntries = true;
               }

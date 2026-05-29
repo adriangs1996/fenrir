@@ -160,6 +160,7 @@ import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
+import { ActionRunCenter } from "./action-runs/ActionRunCenter";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
@@ -199,6 +200,12 @@ import { RightPanelSheet } from "./RightPanelSheet";
 import { useComposerHandleContext } from "../composerHandleContext";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { parseThreadRouteSearch } from "~/threadRouteSearch";
+import {
+  selectActionRunReceiptsForThread,
+  selectActionRunsForThread,
+  useActionRunStore,
+  type ActionRun,
+} from "~/modules/action-runs";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -207,6 +214,8 @@ const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ReadonlyArray<{ name: string; displayName: string }> = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+const ACTION_RUN_OBSERVER_COLS = 120;
+const ACTION_RUN_OBSERVER_ROWS = 30;
 
 type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
 
@@ -723,6 +732,7 @@ export default function ChatView(props: ChatViewProps) {
     [composerDraftTarget, setComposerDraftPrompt],
   );
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [actionCenterOpen, setActionCenterOpen] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
@@ -816,7 +826,6 @@ export default function ChatView(props: ChatViewProps) {
   const storeSetTerminalOpen = useTerminalStateStore((s) => s.setTerminalOpen);
   const storeSplitTerminal = useTerminalStateStore((s) => s.splitTerminal);
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
-  const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
   const storeCloseTerminal = useTerminalStateStore((s) => s.closeTerminal);
   const serverThreadKeys = useStore(
     useShallow((state) =>
@@ -887,6 +896,15 @@ export default function ChatView(props: ChatViewProps) {
   const activeThreadRef = useMemo(
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
     [activeThread],
+  );
+  const actionRunReceipts = useActionRunStore(
+    useShallow((state) => selectActionRunReceiptsForThread(state, routeThreadRef)),
+  );
+  const activeActionRunObserverKey = useActionRunStore((state) =>
+    selectActionRunsForThread(state, routeThreadRef)
+      .filter((run) => run.status === "starting" || run.status === "running")
+      .map((run) => `${run.id}:${run.tmuxProjectId}:${run.cwd}`)
+      .join("|"),
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const existingOpenTerminalThreadKeys = useMemo(() => {
@@ -1795,7 +1813,6 @@ export default function ChatView(props: ChatViewProps) {
     updateGlobalScript,
     updateProjectScript,
   } = useChatViewScripts({
-    activateTerminalTab,
     activeProject,
     activeThread,
     activeThreadId,
@@ -1803,12 +1820,67 @@ export default function ChatView(props: ChatViewProps) {
     environmentId,
     gitCwd,
     setLastInvokedScriptByProjectId,
-    setTerminalLaunchContext,
     setThreadError,
-    storeNewTerminal,
-    storeSetActiveTerminal,
-    terminalState,
   });
+
+  const handleToggleActionCenter = useCallback(() => {
+    setActionCenterOpen((open) => !open);
+  }, []);
+
+  const handleOpenActionRun = useCallback((_run: ActionRun) => {
+    setActionCenterOpen(true);
+  }, []);
+
+  const handleRetryActionRun = useCallback(
+    (run: ActionRun) => {
+      void runProjectScript(
+        {
+          id: run.scriptId,
+          name: run.scriptName,
+          command: run.command,
+          icon: "play",
+          runOnWorktreeCreate: false,
+        },
+        {
+          cwd: run.cwd,
+          rememberAsLastInvoked: false,
+          source: run.source,
+        },
+      );
+      setActionCenterOpen(true);
+    },
+    [runProjectScript],
+  );
+
+  useEffect(() => {
+    if (actionCenterOpen || activeActionRunObserverKey.length === 0) {
+      return;
+    }
+    const api = readEnvironmentApi(environmentId);
+    if (!api) {
+      return;
+    }
+
+    const activeRuns = selectActionRunsForThread(
+      useActionRunStore.getState(),
+      routeThreadRef,
+    ).filter((run) => run.status === "starting" || run.status === "running");
+
+    for (const run of activeRuns) {
+      void api.terminal
+        .attachTmux({
+          projectId: run.tmuxProjectId,
+          cwd: run.cwd,
+          cols: ACTION_RUN_OBSERVER_COLS,
+          rows: ACTION_RUN_OBSERVER_ROWS,
+        })
+        .catch((error) => {
+          const message =
+            error instanceof Error ? error.message : "Could not reconnect action tmux session.";
+          useActionRunStore.getState().failActionRun(run.id, message);
+        });
+    }
+  }, [actionCenterOpen, activeActionRunObserverKey, environmentId, routeThreadRef]);
 
   const handleRuntimeModeChange = useCallback(
     (mode: RuntimeMode) => {
@@ -3489,6 +3561,8 @@ export default function ChatView(props: ChatViewProps) {
           onUpdateGlobalScript={updateGlobalScript}
           onDeleteGlobalScript={deleteGlobalScript}
           onChatTabSelect={handleChatViewSelect}
+          actionCenterOpen={actionCenterOpen}
+          onToggleActionCenter={handleToggleActionCenter}
           onToggleDiff={onToggleDiff}
         />
       </header>
@@ -3535,6 +3609,9 @@ export default function ChatView(props: ChatViewProps) {
                 timestampFormat={timestampFormat}
                 workspaceRoot={activeWorkspaceRoot}
                 skills={serverSkills.length > 0 ? serverSkills : EMPTY_PROVIDER_SKILLS}
+                actionRuns={actionRunReceipts}
+                onOpenActionRun={handleOpenActionRun}
+                onRetryActionRun={handleRetryActionRun}
                 onIsAtEndChange={onIsAtEndChange}
               />
 
@@ -3705,8 +3782,16 @@ export default function ChatView(props: ChatViewProps) {
         </div>
         {/* end chat column */}
 
-        {/* Right panel tabs (Plan / Diff / Skills) — desktop inline */}
-        {rightPanel.activeTab !== null && !shouldUsePlanSidebarSheet ? (
+        {/* Right panel tabs (Plan / Diff / Skills) and Action Center — desktop inline */}
+        {actionCenterOpen && !shouldUsePlanSidebarSheet ? (
+          <ActionRunCenter
+            threadRef={routeThreadRef}
+            threadId={threadId}
+            keybindings={keybindings}
+            onClose={() => setActionCenterOpen(false)}
+            onRetry={handleRetryActionRun}
+          />
+        ) : rightPanel.activeTab !== null && !shouldUsePlanSidebarSheet ? (
           <RightPanelTabs
             planProps={{
               activePlan,
@@ -3742,23 +3827,37 @@ export default function ChatView(props: ChatViewProps) {
             onAddTerminalContext={addTerminalContextToDraft}
           />
         ))}
-      {/* Right panel tabs — mobile sheet */}
+      {/* Right panel tabs / Action Center — mobile sheet */}
       {shouldUsePlanSidebarSheet ? (
-        <RightPanelSheet open={rightPanel.activeTab !== null} onClose={closePlanSidebar}>
-          <RightPanelTabs
-            planProps={{
-              activePlan,
-              activeProposedPlan: sidebarProposedPlan,
-              label: planSidebarLabel,
-              environmentId,
-              markdownCwd: gitCwd ?? undefined,
-              workspaceRoot: activeWorkspaceRoot,
-              timestampFormat,
-              onClose: closePlanSidebar,
-            }}
-            mode="sheet"
-            onSkillInsert={handleSkillInsert}
-          />
+        <RightPanelSheet
+          open={actionCenterOpen || rightPanel.activeTab !== null}
+          onClose={actionCenterOpen ? () => setActionCenterOpen(false) : closePlanSidebar}
+        >
+          {actionCenterOpen ? (
+            <ActionRunCenter
+              threadRef={routeThreadRef}
+              threadId={threadId}
+              keybindings={keybindings}
+              mode="sheet"
+              onClose={() => setActionCenterOpen(false)}
+              onRetry={handleRetryActionRun}
+            />
+          ) : (
+            <RightPanelTabs
+              planProps={{
+                activePlan,
+                activeProposedPlan: sidebarProposedPlan,
+                label: planSidebarLabel,
+                environmentId,
+                markdownCwd: gitCwd ?? undefined,
+                workspaceRoot: activeWorkspaceRoot,
+                timestampFormat,
+                onClose: closePlanSidebar,
+              }}
+              mode="sheet"
+              onSkillInsert={handleSkillInsert}
+            />
+          )}
         </RightPanelSheet>
       ) : null}
 

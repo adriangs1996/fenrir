@@ -8,6 +8,7 @@ import {
 } from "@fenrir/contracts";
 import {
   formatShortcutLabel,
+  isGlobalTerminalOpenShortcut,
   isChatNewShortcut,
   isChatNewLocalShortcut,
   isDiffToggleShortcut,
@@ -83,6 +84,17 @@ function compile(bindings: TestBinding[]): ResolvedKeybindingsConfig {
 
 const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("j"), command: "terminal.toggle" },
+  {
+    shortcut: {
+      key: "u",
+      metaKey: true,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      modKey: false,
+    },
+    command: "globalTerminal.open",
+  },
   {
     shortcut: modShortcut("d"),
     command: "terminal.split",
@@ -309,6 +321,10 @@ describe("shortcutLabelForCommand", () => {
 
   it("returns effective labels for non-terminal commands", () => {
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.new", "MacIntel"), "⇧⌘O");
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "globalTerminal.open", "MacIntel"),
+      "⌘U",
+    );
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFavorite", "Linux"),
@@ -483,6 +499,19 @@ describe("chat/editor shortcuts", () => {
     );
     assert.isTrue(
       isOpenFavoriteEditorShortcut(event({ key: "o", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+      }),
+    );
+  });
+
+  it("matches globalTerminal.open shortcut", () => {
+    assert.isTrue(
+      isGlobalTerminalOpenShortcut(event({ key: "u", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+    );
+    assert.isFalse(
+      isGlobalTerminalOpenShortcut(event({ key: "u", ctrlKey: true }), DEFAULT_BINDINGS, {
         platform: "Linux",
       }),
     );

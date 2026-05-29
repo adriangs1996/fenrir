@@ -1,4 +1,5 @@
 import { Cause, Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
+import { homedir } from "node:os";
 import {
   type AuthAccessStreamEvent,
   AuthSessionId,
@@ -18,6 +19,7 @@ import {
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
+  ProjectListEntriesError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
@@ -645,10 +647,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         const environment = yield* serverEnvironment.getDescriptor;
         const auth = yield* serverAuth.getDescriptor();
 
+        const homeDirectoryPath = homedir().trim();
+
         return {
           environment,
           auth,
           cwd: config.cwd,
+          ...(homeDirectoryPath.length > 0 ? { homeDirectoryPath } : {}),
           keybindingsConfigPath: config.keybindingsConfigPath,
           keybindings: keybindingsConfig.keybindings,
           issues: keybindingsConfig.issues,
@@ -1166,6 +1171,20 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 ),
               ),
             { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.projectsListEntries]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsListEntries,
+            workspaceEntries.listEntries(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectListEntriesError({
+                    message: `Failed to list workspace entries: ${cause.detail}`,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
           ),
         [WS_METHODS.projectsSearchEntries]: (input) =>
           observeRpcEffect(

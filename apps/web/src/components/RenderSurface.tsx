@@ -51,6 +51,25 @@ export function isAppShortcut(
   return resolvedCommand !== null;
 }
 
+export function isEditorSendSelectionShortcut(
+  e: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: {
+    terminalOpen?: boolean;
+    platform?: string;
+  },
+): boolean {
+  return (
+    resolveShortcutCommand(e, keybindings, {
+      ...(options?.platform ? { platform: options.platform } : {}),
+      context: {
+        terminalFocus: false,
+        terminalOpen: options?.terminalOpen ?? false,
+      },
+    }) === "editor.sendSelection"
+  );
+}
+
 export function isNativePasteShortcut(
   e: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">,
   platform = navigator.platform,
@@ -332,6 +351,16 @@ export function RenderSurface({
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (isNativePasteShortcut(e)) {
+        return;
+      }
+      if (
+        isEditorSendSelectionShortcut(e, keybindingsRef.current, {
+          terminalOpen: terminalOpenRef.current,
+        })
+      ) {
+        void bridge.editor.invokeBridge("send_selection");
+        e.preventDefault();
+        e.stopPropagation();
         return;
       }
       if (isAppShortcut(e, keybindingsRef.current, { terminalOpen: terminalOpenRef.current })) {

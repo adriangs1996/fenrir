@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import ThreadSidebar from "./Sidebar";
 import { HackSidebar } from "./hack/HackSidebar";
 import { Sidebar, SidebarProvider, SidebarRail, useSidebar } from "./ui/sidebar";
 import { useCommandPaletteStore } from "../commandPaletteStore";
-import { isSidebarToggleShortcut } from "../keybindings";
+import { isGlobalTerminalOpenShortcut, isSidebarToggleShortcut } from "../keybindings";
 import { useServerKeybindings } from "../rpc/serverState";
-import { isTerminalFocused } from "../modules/terminal";
+import {
+  isTerminalFocused,
+  resolveGlobalTerminalToggleHref,
+  shouldStoreGlobalTerminalReturnHref,
+} from "../modules/terminal";
 
 const THREAD_SIDEBAR_COLLAPSED_KEY = "thread_sidebar_collapsed";
 const THREAD_SIDEBAR_WIDTH_STORAGE_KEY = "chat_thread_sidebar_width";
@@ -16,29 +20,49 @@ const THREAD_MAIN_CONTENT_MIN_WIDTH = 40 * 16;
 
 function AppSidebarKeyboardShortcuts() {
   const { toggleSidebar } = useSidebar();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const returnHrefRef = useRef<string | null>(null);
   const commandPaletteOpen = useCommandPaletteStore((state) => state.open);
   const keybindings = useServerKeybindings();
+
+  useEffect(() => {
+    if (shouldStoreGlobalTerminalReturnHref(location.pathname)) {
+      returnHrefRef.current = location.href;
+    }
+  }, [location.href, location.pathname]);
 
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || commandPaletteOpen) {
         return;
       }
-      if (
-        !isSidebarToggleShortcut(event, keybindings, {
-          context: {
-            terminalFocus: isTerminalFocused(),
-            terminalOpen: false,
-            reviewFocus: false,
-          },
-        })
-      ) {
+      const shortcutContext = {
+        terminalFocus: isTerminalFocused(),
+        terminalOpen: false,
+        reviewFocus: false,
+      };
+
+      if (isGlobalTerminalOpenShortcut(event, keybindings, { context: shortcutContext })) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (shouldStoreGlobalTerminalReturnHref(location.pathname)) {
+          returnHrefRef.current = location.href;
+        }
+        void navigate({
+          href: resolveGlobalTerminalToggleHref({
+            pathname: location.pathname,
+            returnHref: returnHrefRef.current,
+          }),
+        });
         return;
       }
 
-      event.preventDefault();
-      event.stopPropagation();
-      toggleSidebar();
+      if (isSidebarToggleShortcut(event, keybindings, { context: shortcutContext })) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleSidebar();
+      }
     };
 
     // Capture before focused rich-text/contenteditable surfaces can consume the chord.
@@ -46,7 +70,7 @@ function AppSidebarKeyboardShortcuts() {
     return () => {
       window.removeEventListener("keydown", onWindowKeyDown, true);
     };
-  }, [commandPaletteOpen, keybindings, toggleSidebar]);
+  }, [commandPaletteOpen, keybindings, location.href, location.pathname, navigate, toggleSidebar]);
 
   return null;
 }

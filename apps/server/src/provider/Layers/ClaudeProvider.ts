@@ -45,6 +45,14 @@ const contextWindowOptions = [
 ] as const;
 
 const effortOptions = {
+  opus48: [
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High", isDefault: true },
+    { value: "xhigh", label: "Extra High" },
+    { value: "max", label: "Max" },
+    { value: "ultrathink", label: "Ultrathink" },
+  ],
   opus47: [
     { value: "low", label: "Low" },
     { value: "medium", label: "Medium" },
@@ -128,6 +136,16 @@ const PROVIDER = "claudeAgent" as const;
 const MINIMUM_CLAUDE_OPUS_4_7_VERSION = "2.1.111";
 const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
+    slug: "claude-opus-4-8",
+    name: "Claude Opus 4.8",
+    isCustom: false,
+    capabilities: claudeCapabilities({
+      effortOptions: effortOptions.opus48,
+      supportsContextWindow: true,
+      promptInjectedValues: ["ultrathink"],
+    }),
+  },
+  {
     slug: "claude-opus-4-7",
     name: "Claude Opus 4.7",
     isCustom: false,
@@ -185,12 +203,14 @@ function getBuiltInClaudeModelsForVersion(
   if (supportsClaudeOpus47(version)) {
     return BUILT_IN_MODELS;
   }
-  return BUILT_IN_MODELS.filter((model) => model.slug !== "claude-opus-4-7");
+  return BUILT_IN_MODELS.filter(
+    (model) => model.slug !== "claude-opus-4-8" && model.slug !== "claude-opus-4-7",
+  );
 }
 
 function formatClaudeOpus47UpgradeMessage(version: string | null): string {
   const versionLabel = version ? `v${version}` : "the installed version";
-  return `Claude Code ${versionLabel} is too old for Claude Opus 4.7. Upgrade to v${MINIMUM_CLAUDE_OPUS_4_7_VERSION} or newer to access it.`;
+  return `Claude Code ${versionLabel} is too old for Claude Opus 4.7 and newer Opus models. Upgrade to v${MINIMUM_CLAUDE_OPUS_4_7_VERSION} or newer to access them.`;
 }
 
 export function getClaudeModelCapabilities(model: string | null | undefined): ModelCapabilities {

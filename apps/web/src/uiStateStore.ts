@@ -24,7 +24,7 @@ interface PersistedUiState {
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
 }
 
-export type ProjectDrawerView = "threads" | "plans";
+export type ProjectDrawerView = "threads" | "plans" | "files";
 
 const DEFAULT_PROJECT_DRAWER_VIEW: ProjectDrawerView = "threads";
 
@@ -137,7 +137,7 @@ function sanitizePersistedThreadChangedFilesExpanded(
 }
 
 function isProjectDrawerView(value: unknown): value is ProjectDrawerView {
-  return value === "threads" || value === "plans";
+  return value === "threads" || value === "plans" || value === "files";
 }
 
 function sanitizePersistedProjectDrawerViews(

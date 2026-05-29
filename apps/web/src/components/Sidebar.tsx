@@ -3,6 +3,7 @@ import {
   ArrowUpDownIcon,
   ChevronRightIcon,
   CloudIcon,
+  FilesIcon,
   FileTextIcon,
   FolderIcon,
   FolderPlusIcon,
@@ -58,7 +59,6 @@ import {
 import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
-import { isTerminalFocused } from "~/modules/terminal";
 import { cn, isMacPlatform, newCommandId } from "../lib/utils";
 import {
   selectProjectByRef,
@@ -69,7 +69,12 @@ import {
   selectThreadByRef,
   useStore,
 } from "../store";
-import { selectThreadTerminalState, useTerminalStateStore } from "~/modules/terminal";
+import {
+  GLOBAL_TERMINAL_ROUTE,
+  isTerminalFocused,
+  selectThreadTerminalState,
+  useTerminalStateStore,
+} from "~/modules/terminal";
 import { type ProjectDrawerView, useUiStateStore } from "../uiStateStore";
 import {
   resolveShortcutCommand,
@@ -145,6 +150,7 @@ import {
   useInternalPlanRunnerThreadIds,
   usePlanRunnerStore,
 } from "~/modules/plan-runner";
+import { ProjectFileExplorer } from "~/modules/project-files";
 import { NEW_PLAN_PROMPT } from "~/modules/plan-runner/planPrompts";
 import { readEnvironmentApi } from "../environmentApi";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
@@ -1183,6 +1189,25 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const renderedProjectDrawerView: ProjectDrawerView = shouldShowProjectDrawerRail
     ? effectiveProjectDrawerView
     : "threads";
+  const activeRouteThreadForProject = useMemo(() => {
+    if (!activeRouteThreadKey) {
+      return null;
+    }
+    const activeThread = sidebarThreadByKey.get(activeRouteThreadKey);
+    if (!activeThread) {
+      return null;
+    }
+    return projectThreads.some(
+      (projectThread) =>
+        projectThread.environmentId === activeThread.environmentId &&
+        projectThread.id === activeThread.id,
+    )
+      ? activeThread
+      : null;
+  }, [activeRouteThreadKey, projectThreads, sidebarThreadByKey]);
+  const fileExplorerEnvironmentId =
+    activeRouteThreadForProject?.environmentId ?? project.environmentId;
+  const fileExplorerWorkspaceRoot = activeRouteThreadForProject?.worktreePath ?? project.cwd;
 
   const {
     hasOverflowingThreads,
@@ -1864,6 +1889,15 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
               >
                 <FileTextIcon className="size-3.5" />
               </ProjectDrawerRailButton>
+              <ProjectDrawerRailButton
+                view="files"
+                activeView={effectiveProjectDrawerView}
+                label={`Show ${project.name} files`}
+                shortcutLabel="F"
+                onSelect={handleProjectDrawerViewSelect}
+              >
+                <FilesIcon className="size-3.5" />
+              </ProjectDrawerRailButton>
             </div>
           ) : null}
 
@@ -1905,12 +1939,19 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 expandThreadListForProject={expandThreadListForProject}
                 collapseThreadListForProject={collapseThreadListForProject}
               />
-            ) : (
+            ) : renderedProjectDrawerView === "plans" ? (
               <PlanRunnerProjectSection
                 className="mx-0 w-full translate-x-0 gap-0.5 border-0 px-0 py-0"
                 layout="drawer"
                 projectId={project.id}
                 projectCwd={project.cwd}
+              />
+            ) : (
+              <ProjectFileExplorer
+                className="mx-0 w-full translate-x-0 gap-0.5 border-0 px-0 py-0"
+                environmentId={fileExplorerEnvironmentId}
+                projectName={project.name}
+                workspaceRoot={fileExplorerWorkspaceRoot}
               />
             )}
           </div>
@@ -2232,6 +2273,7 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
   const isBrowserLabRoute = pathname === "/browser-lab";
+  const isGlobalTerminalRoute = pathname === GLOBAL_TERMINAL_ROUTE;
   const isSettingsRoute = pathname.startsWith("/settings");
 
   const handleBrowserLabClick = useCallback(() => {
@@ -2240,6 +2282,10 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
 
   const handleSettingsClick = useCallback(() => {
     void navigate({ to: "/settings" });
+  }, [navigate]);
+
+  const handleGlobalTerminalClick = useCallback(() => {
+    void navigate({ to: GLOBAL_TERMINAL_ROUTE });
   }, [navigate]);
 
   return (
@@ -2256,6 +2302,17 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
           >
             <GlobeIcon className="size-3.5" />
             <span className="text-xs">Browser Lab</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            isActive={isGlobalTerminalRoute}
+            size="sm"
+            className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+            onClick={handleGlobalTerminalClick}
+          >
+            <TerminalIcon className="size-3.5" />
+            <span className="text-xs">Global Terminal</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>

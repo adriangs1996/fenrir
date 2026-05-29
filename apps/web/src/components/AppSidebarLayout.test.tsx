@@ -27,10 +27,12 @@ vi.mock("../rpc/serverState", () => ({
 }));
 
 vi.mock("../keybindings", () => ({
+  isGlobalTerminalOpenShortcut: () => false,
   isSidebarToggleShortcut: () => false,
 }));
 
 vi.mock("../modules/terminal", () => ({
+  GLOBAL_TERMINAL_ROUTE: "/global-terminal",
   isTerminalFocused: () => false,
 }));
 

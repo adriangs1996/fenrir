@@ -343,6 +343,14 @@ export function isTerminalCloseShortcut(
   return matchesCommandShortcut(event, keybindings, "terminal.close", options);
 }
 
+export function isGlobalTerminalOpenShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "globalTerminal.open", options);
+}
+
 export function isDiffToggleShortcut(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,

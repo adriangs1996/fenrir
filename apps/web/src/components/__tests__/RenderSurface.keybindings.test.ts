@@ -6,6 +6,7 @@ import type {
 } from "@fenrir/contracts";
 import {
   isAppShortcut,
+  isEditorSendSelectionShortcut,
   isNativePasteShortcut,
   resolveViewportSize,
   shouldResyncViewportOnVisibleTransition,
@@ -14,13 +15,15 @@ import {
 /** Helper to build a minimal keyboard-event-like object. */
 function kbd(mods: {
   key?: string;
+  code?: string;
   metaKey?: boolean;
   ctrlKey?: boolean;
   shiftKey?: boolean;
   altKey?: boolean;
-}): Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey"> {
+}): Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey"> {
   return {
     key: mods.key ?? "j",
+    code: mods.code ?? "",
     metaKey: mods.metaKey ?? false,
     ctrlKey: mods.ctrlKey ?? false,
     shiftKey: mods.shiftKey ?? false,
@@ -97,6 +100,24 @@ describe("isAppShortcut", () => {
     it("treats Cmd+Shift+C as app shortcut on macOS when bound", () => {
       expect(
         isAppShortcut(kbd({ key: "C", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS),
+      ).toBe(true);
+    });
+
+    it("detects Cmd+Shift+C as editor send selection on macOS", () => {
+      expect(
+        isEditorSendSelectionShortcut(
+          kbd({ key: "C", code: "KeyC", metaKey: true, shiftKey: true }),
+          DEFAULT_BINDINGS,
+        ),
+      ).toBe(true);
+    });
+
+    it("detects editor send selection by physical KeyC when the keyboard layout changes key", () => {
+      expect(
+        isEditorSendSelectionShortcut(
+          kbd({ key: "Ç", code: "KeyC", metaKey: true, shiftKey: true }),
+          DEFAULT_BINDINGS,
+        ),
       ).toBe(true);
     });
 
