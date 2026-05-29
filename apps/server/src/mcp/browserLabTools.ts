@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type * as z4 from "zod/v4/core";
 
@@ -585,14 +586,32 @@ function formatBrowserLabScreenshotResult(result: unknown): BrowserLabToolCallRe
     throw new Error("Browser Lab screenshot returned empty or invalid image data.");
   }
 
+  const mimeType = normalizeImageMimeType(record.mimeType);
+  const artifactId = `browser-lab-${randomUUID()}`;
+  const uri = `fenrir-image://${artifactId}`;
+
   return {
     content: [
       {
         type: "image",
         data,
-        mimeType: normalizeImageMimeType(record.mimeType),
+        mimeType,
+      },
+      {
+        type: "text",
+        text: `Fenrir image handle: ${uri}`,
       },
     ],
+    structuredContent: {
+      fenrirImageHandles: [
+        {
+          id: artifactId,
+          uri,
+          name: "browser-lab-screenshot.png",
+          mimeType,
+        },
+      ],
+    },
   };
 }
 

@@ -77,3 +77,8 @@ export function inferImageExtension(input: { mimeType: string; fileName?: string
 
   return ".bin";
 }
+
+export function inferImageMimeType(input: { fileName: string }): string | null {
+  const mimeType = Mime.getType(input.fileName)?.toLowerCase() ?? null;
+  return mimeType?.startsWith("image/") ? mimeType : null;
+}

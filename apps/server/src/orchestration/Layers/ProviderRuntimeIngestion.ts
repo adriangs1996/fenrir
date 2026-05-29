@@ -19,6 +19,7 @@ import { makeDrainableWorker } from "@fenrir/shared/DrainableWorker";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
+import { ProjectionThreadImageArtifactRepositoryLive } from "../../persistence/Layers/ProjectionThreadImageArtifacts.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { SourceControlWorkspaceLive } from "../../sourceControl/SourceControlModule.ts";
 import { SourceControl } from "../../sourceControl/Services/SourceControl.ts";
@@ -28,6 +29,11 @@ import {
   type ProviderRuntimeIngestionShape,
 } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { materializeAssistantMarkdownImages } from "../../assistantImageMaterialization.ts";
+import {
+  materializeProviderRuntimeImageArtifacts,
+  redactProviderRuntimeImageDataForActivity,
+} from "../../providerImageArtifacts.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
@@ -449,7 +455,9 @@ function runtimeEventToActivities(
             ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(event.payload.title ? { title: event.payload.title } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
-            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+            ...(event.payload.data !== undefined
+              ? { data: redactProviderRuntimeImageDataForActivity(event.payload.data) }
+              : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -472,7 +480,9 @@ function runtimeEventToActivities(
             itemType: event.payload.itemType,
             ...(event.payload.title ? { title: event.payload.title } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
-            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+            ...(event.payload.data !== undefined
+              ? { data: redactProviderRuntimeImageDataForActivity(event.payload.data) }
+              : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -661,34 +671,43 @@ const make = Effect.fn("make")(function* () {
     turnId?: TurnId;
     createdAt: string;
     commandTag: string;
-    finalDeltaCommandTag: string;
     fallbackText?: string;
   }) {
     const bufferedText = yield* takeBufferedAssistantText(input.messageId);
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const thread = readModel.threads.find((entry) => entry.id === input.threadId);
+    const existingMessage = thread?.messages.find((entry) => entry.id === input.messageId);
+    const existingText = existingMessage?.text ?? "";
     const text =
-      bufferedText.length > 0
-        ? bufferedText
+      existingText.length > 0 || bufferedText.length > 0
+        ? `${existingText}${bufferedText}`
         : (input.fallbackText?.trim().length ?? 0) > 0
           ? input.fallbackText!
           : "";
-
-    if (text.length > 0) {
-      yield* orchestrationEngine.dispatch({
-        type: "thread.message.assistant.delta",
-        commandId: providerCommandId(input.event, input.finalDeltaCommandTag),
-        threadId: input.threadId,
-        messageId: input.messageId,
-        delta: text,
-        ...(input.turnId ? { turnId: input.turnId } : {}),
-        createdAt: input.createdAt,
-      });
-    }
+    const markdownCwd = thread
+      ? resolveThreadWorkspaceCwd({
+          thread,
+          projects: readModel.projects,
+        })
+      : undefined;
+    const materializedMessage = yield* materializeAssistantMarkdownImages({
+      threadId: input.threadId,
+      cwd: markdownCwd,
+      text,
+      ...(existingMessage?.attachments !== undefined
+        ? { existingAttachments: existingMessage.attachments }
+        : {}),
+    });
 
     yield* orchestrationEngine.dispatch({
       type: "thread.message.assistant.complete",
       commandId: providerCommandId(input.event, input.commandTag),
       threadId: input.threadId,
       messageId: input.messageId,
+      ...(materializedMessage.text.length > 0 ? { text: materializedMessage.text } : {}),
+      ...(materializedMessage.attachments.length > 0
+        ? { attachments: materializedMessage.attachments }
+        : {}),
       ...(input.turnId ? { turnId: input.turnId } : {}),
       createdAt: input.createdAt,
     });
@@ -893,6 +912,12 @@ const make = Effect.fn("make")(function* () {
     const eventTurnId = toTurnId(event.turnId);
     const activeTurnId = thread.session?.activeTurnId ?? null;
 
+    yield* materializeProviderRuntimeImageArtifacts({
+      event,
+      threadId: thread.id,
+      ...(eventTurnId ? { turnId: eventTurnId } : {}),
+    });
+
     const conflictsWithActiveTurn =
       activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);
     const missingTurnForActiveTurn = activeTurnId !== null && eventTurnId === undefined;
@@ -1094,7 +1119,6 @@ const make = Effect.fn("make")(function* () {
         ...(turnId ? { turnId } : {}),
         createdAt: now,
         commandTag: "assistant-complete",
-        finalDeltaCommandTag: "assistant-delta-finalize",
         ...(assistantCompletion.fallbackText !== undefined && shouldApplyFallbackCompletionText
           ? { fallbackText: assistantCompletion.fallbackText }
           : {}),
@@ -1131,7 +1155,6 @@ const make = Effect.fn("make")(function* () {
               turnId,
               createdAt: now,
               commandTag: "assistant-complete-finalize",
-              finalDeltaCommandTag: "assistant-delta-finalize-fallback",
             }),
           { concurrency: 1 },
         ).pipe(Effect.asVoid);
@@ -1283,4 +1306,8 @@ const make = Effect.fn("make")(function* () {
 export const ProviderRuntimeIngestionLive = Layer.effect(
   ProviderRuntimeIngestionService,
   make(),
-).pipe(Layer.provide(ProjectionTurnRepositoryLive), Layer.provide(SourceControlWorkspaceLive));
+).pipe(
+  Layer.provide(ProjectionTurnRepositoryLive),
+  Layer.provide(ProjectionThreadImageArtifactRepositoryLive),
+  Layer.provide(SourceControlWorkspaceLive),
+);

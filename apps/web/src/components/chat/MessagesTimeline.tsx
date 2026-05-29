@@ -511,6 +511,8 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           text={messageText}
           cwd={ctx.markdownCwd}
           isStreaming={Boolean(row.message.streaming)}
+          images={row.message.attachments ?? []}
+          onImageExpand={ctx.onImageExpand}
           skills={ctx.skills}
         />
         <AssistantChangedFilesSection turnSummary={row.assistantTurnDiffSummary} />

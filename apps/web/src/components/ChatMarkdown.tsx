@@ -31,6 +31,8 @@ import { useTheme } from "../hooks/useTheme";
 import { resolveMarkdownFileLinkMeta, rewriteMarkdownFileUriHref } from "../markdown-links";
 import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
+import type { ChatImageAttachment } from "../types";
+import { buildExpandedImagePreview, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 
 class CodeHighlightErrorBoundary extends React.Component<
   { fallback: ReactNode; children: ReactNode },
@@ -57,10 +59,13 @@ interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
   isStreaming?: boolean;
+  images?: ReadonlyArray<ChatImageAttachment>;
+  onImageExpand?: (preview: ExpandedImagePreview) => void;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
 }
 
 const EMPTY_MARKDOWN_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
+const EMPTY_MARKDOWN_IMAGES: ReadonlyArray<ChatImageAttachment> = [];
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
 const MAX_HIGHLIGHT_CACHE_ENTRIES = 500;
@@ -70,6 +75,7 @@ const highlightedCodeCache = new LRUCache<string>(
   MAX_HIGHLIGHT_CACHE_MEMORY_BYTES,
 );
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
+const FENRIR_IMAGE_URI_PREFIX = "fenrir-image://";
 
 function extractFenceLanguage(className: string | undefined): string {
   const match = className?.match(CODE_FENCE_LANGUAGE_REGEX);
@@ -483,10 +489,53 @@ function areMarkdownFileLinkPropsEqual(
   );
 }
 
+function parseFenrirImageId(src: string | undefined): string | null {
+  if (!src) {
+    return null;
+  }
+  const trimmed = src.trim();
+  if (trimmed.startsWith(FENRIR_IMAGE_URI_PREFIX)) {
+    return trimmed.slice(FENRIR_IMAGE_URI_PREFIX.length).split(/[?#]/, 1)[0] ?? null;
+  }
+  if (trimmed.startsWith("/attachments/")) {
+    const rawId = trimmed.slice("/attachments/".length).split(/[?#]/, 1)[0] ?? "";
+    try {
+      return decodeURIComponent(rawId);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function isRemoteImageSrc(src: string | undefined): boolean {
+  if (!src) {
+    return false;
+  }
+  try {
+    const url = new URL(src);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function MarkdownImagePlaceholder({ label, alt }: { label: string; alt: string | undefined }) {
+  const detail = alt?.trim();
+  return (
+    <span className="chat-markdown-image-placeholder" role="img" aria-label={detail || label}>
+      <span>{label}</span>
+      {detail ? <span className="chat-markdown-image-placeholder-alt">{detail}</span> : null}
+    </span>
+  );
+}
+
 function ChatMarkdown({
   text,
   cwd,
   isStreaming = false,
+  images = EMPTY_MARKDOWN_IMAGES,
+  onImageExpand,
   skills = EMPTY_MARKDOWN_SKILLS,
 }: ChatMarkdownProps) {
   const { syntaxTheme } = useTheme();
@@ -511,7 +560,17 @@ function ChatMarkdown({
     const filePaths = [...markdownFileLinkMetaByHref.values()].map((meta) => meta.filePath);
     return buildFileLinkParentSuffixByPath(filePaths);
   }, [markdownFileLinkMetaByHref]);
-  const markdownUrlTransform = useCallback((href: string) => {
+  const imageById = useMemo(() => new Map(images.map((image) => [image.id, image])), [images]);
+  const markdownUrlTransform = useCallback((href: string, key?: string) => {
+    if (
+      key === "src" &&
+      (href.startsWith(FENRIR_IMAGE_URI_PREFIX) ||
+        href.startsWith("/attachments/") ||
+        href.startsWith("file://") ||
+        href.startsWith("data:"))
+    ) {
+      return href;
+    }
     return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
   }, []);
   const markdownComponents = useMemo<Components>(
@@ -552,6 +611,36 @@ function ChatMarkdown({
           />
         );
       },
+      img({ node: _node, src, alt }) {
+        const imageId = parseFenrirImageId(src);
+        if (imageId) {
+          const image = imageById.get(imageId);
+          if (!image?.previewUrl) {
+            return <MarkdownImagePlaceholder label="Image unavailable" alt={alt} />;
+          }
+
+          return (
+            <button
+              type="button"
+              className="chat-markdown-image-button"
+              aria-label={`Preview ${image.name}`}
+              onClick={() => {
+                const preview = buildExpandedImagePreview(images, image.id);
+                if (!preview) return;
+                onImageExpand?.(preview);
+              }}
+            >
+              <img src={image.previewUrl} alt={alt || image.name} className="chat-markdown-image" />
+            </button>
+          );
+        }
+
+        if (isRemoteImageSrc(src)) {
+          return <MarkdownImagePlaceholder label="Remote image blocked" alt={alt} />;
+        }
+
+        return <MarkdownImagePlaceholder label="Image unavailable" alt={alt} />;
+      },
       pre({ node: _node, children, ...props }) {
         const codeBlock = extractCodeBlock(children);
         if (!codeBlock) {
@@ -578,8 +667,11 @@ function ChatMarkdown({
       diffThemeName,
       fileLinkParentSuffixByPath,
       fileLinkTheme,
+      imageById,
+      images,
       isStreaming,
       markdownFileLinkMetaByHref,
+      onImageExpand,
       skills,
     ],
   );

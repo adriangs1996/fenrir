@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Path } from "effect";
+import { Effect } from "effect";
 import {
   type ClientOrchestrationCommand,
   type OrchestrationCommand,
@@ -6,16 +6,12 @@ import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
 } from "@fenrir/contracts";
 
-import { createAttachmentId, resolveAttachmentPath } from "../attachmentStore";
-import { ServerConfig } from "../config";
+import { persistImageAttachment } from "../imageAttachmentMaterialization";
 import { parseBase64DataUrl } from "../imageMime";
 import { WorkspacePaths } from "../workspace/Services/WorkspacePaths";
 
 export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
   Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const serverConfig = yield* ServerConfig;
     const workspacePaths = yield* WorkspacePaths;
 
     const normalizeProjectWorkspaceRoot = (
@@ -71,49 +67,19 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
             });
           }
 
-          const attachmentId = createAttachmentId(command.threadId);
-          if (!attachmentId) {
-            return yield* new OrchestrationDispatchCommandError({
-              message: "Failed to create a safe attachment id.",
-            });
-          }
-
-          const persistedAttachment = {
-            type: "image" as const,
-            id: attachmentId,
+          return yield* persistImageAttachment({
+            threadId: command.threadId,
             name: attachment.name,
-            mimeType: parsed.mimeType.toLowerCase(),
-            sizeBytes: bytes.byteLength,
-          };
-
-          const attachmentPath = resolveAttachmentPath({
-            attachmentsDir: serverConfig.attachmentsDir,
-            attachment: persistedAttachment,
-          });
-          if (!attachmentPath) {
-            return yield* new OrchestrationDispatchCommandError({
-              message: `Failed to resolve persisted path for '${attachment.name}'.`,
-            });
-          }
-
-          yield* fileSystem.makeDirectory(path.dirname(attachmentPath), { recursive: true }).pipe(
+            mimeType: parsed.mimeType,
+            bytes,
+          }).pipe(
             Effect.mapError(
-              () =>
+              (cause) =>
                 new OrchestrationDispatchCommandError({
-                  message: `Failed to create attachment directory for '${attachment.name}'.`,
+                  message: cause.message,
                 }),
             ),
           );
-          yield* fileSystem.writeFile(attachmentPath, bytes).pipe(
-            Effect.mapError(
-              () =>
-                new OrchestrationDispatchCommandError({
-                  message: `Failed to persist attachment '${attachment.name}'.`,
-                }),
-            ),
-          );
-
-          return persistedAttachment;
         }),
       { concurrency: 1 },
     );

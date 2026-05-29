@@ -116,14 +116,24 @@ describe("Browser Lab MCP tools", () => {
     });
   });
 
-  it("formats Browser Lab screenshots as image MCP content", () => {
-    expect(
-      formatBrowserLabToolResult("browser_lab_screenshot", {
-        data: " SGVsbG8= \n",
-        mimeType: "IMAGE/PNG",
-      }),
-    ).toEqual({
-      content: [{ type: "image", data: "SGVsbG8=", mimeType: "image/png" }],
+  it("formats Browser Lab screenshots as image MCP content with a Fenrir handle", () => {
+    const result = formatBrowserLabToolResult("browser_lab_screenshot", {
+      data: " SGVsbG8= \n",
+      mimeType: "IMAGE/PNG",
+    });
+
+    expect(result.content[0]).toEqual({ type: "image", data: "SGVsbG8=", mimeType: "image/png" });
+    expect(result.content[1]).toMatchObject({ type: "text" });
+    expect((result.content[1] as { text?: string }).text).toMatch(
+      /^Fenrir image handle: fenrir-image:\/\/browser-lab-/,
+    );
+    expect(result.structuredContent).toMatchObject({
+      fenrirImageHandles: [
+        {
+          name: "browser-lab-screenshot.png",
+          mimeType: "image/png",
+        },
+      ],
     });
   });
 

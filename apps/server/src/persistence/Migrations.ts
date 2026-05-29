@@ -49,6 +49,7 @@ import Migration0033 from "./Migrations/033_TrafficLensWorkbench.ts";
 import Migration0034 from "./Migrations/034_TrafficLensStoragePersistence.ts";
 import Migration0035 from "./Migrations/035_CanonicalizeModelSelectionOptions.ts";
 import Migration0036 from "./Migrations/036_ProjectionThreadMcpServers.ts";
+import Migration0037 from "./Migrations/037_ProjectionThreadImageArtifacts.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -97,6 +98,7 @@ export const migrationEntries = [
   [34, "TrafficLensStoragePersistence", Migration0034],
   [35, "CanonicalizeModelSelectionOptions", Migration0035],
   [36, "ProjectionThreadMcpServers", Migration0036],
+  [37, "ProjectionThreadImageArtifacts", Migration0037],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
