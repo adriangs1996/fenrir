@@ -8,6 +8,10 @@ import {
   EnvironmentId,
   EventId,
   GitCommandError,
+  type GitStatusLocalResult,
+  type GitStatusRemoteResult,
+  type GitStatusResult,
+  type GitStatusStreamEvent,
   KeybindingRule,
   MessageId,
   OpenError,
@@ -18,6 +22,7 @@ import {
   ProjectId,
   ResolvedKeybindingRule,
   ThreadId,
+  VcsProcessExitError,
   WS_METHODS,
   WsRpcGroup,
   EditorId,
@@ -58,6 +63,7 @@ import {
 } from "./checkpointing/Services/CheckpointDiffQuery.ts";
 import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
+import { GitWorkflowService, type GitWorkflowServiceShape } from "./git/GitWorkflowService.ts";
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
 import { Open, type OpenShape } from "./open.ts";
 import {
@@ -114,6 +120,14 @@ import {
   SourceControlRepositoryService,
   type SourceControlRepositoryServiceShape,
 } from "./sourceControl/SourceControlRepositoryService.ts";
+import {
+  VcsProvisioningService,
+  type VcsProvisioningServiceShape,
+} from "./vcs/VcsProvisioningService.ts";
+import {
+  VcsStatusBroadcaster,
+  type VcsStatusBroadcasterShape,
+} from "./vcs/VcsStatusBroadcaster.ts";
 import {
   ServerEnvironment,
   type ServerEnvironmentShape,
@@ -211,6 +225,68 @@ const makeDefaultOrchestrationReadModel = () => {
     managedProcessInstances: [],
   };
 };
+
+function toVcsStatusLocal(input: GitStatusLocalResult) {
+  return {
+    isRepo: input.isRepo,
+    ...(input.hostingProvider ? { sourceControlProvider: input.hostingProvider } : {}),
+    hasPrimaryRemote: input.hasOriginRemote,
+    isDefaultRef: input.isDefaultBranch,
+    refName: input.branch,
+    hasWorkingTreeChanges: input.hasWorkingTreeChanges,
+    workingTree: input.workingTree,
+  };
+}
+
+function toVcsStatusRemote(input: GitStatusRemoteResult) {
+  return {
+    hasUpstream: input.hasUpstream,
+    aheadCount: input.aheadCount,
+    behindCount: input.behindCount,
+    ...(input.aheadOfDefaultCount === undefined
+      ? {}
+      : { aheadOfDefaultCount: input.aheadOfDefaultCount }),
+    pr:
+      input.pr === null
+        ? null
+        : {
+            number: input.pr.number,
+            title: input.pr.title,
+            url: input.pr.url,
+            baseRef: input.pr.baseBranch,
+            headRef: input.pr.headBranch,
+            state: input.pr.state,
+          },
+  };
+}
+
+function toVcsStatus(input: GitStatusResult) {
+  return {
+    ...toVcsStatusLocal(input),
+    ...toVcsStatusRemote(input),
+  };
+}
+
+function toVcsStatusStreamEvent(event: GitStatusStreamEvent) {
+  switch (event._tag) {
+    case "snapshot":
+      return {
+        _tag: "snapshot" as const,
+        local: toVcsStatusLocal(event.local),
+        remote: event.remote === null ? null : toVcsStatusRemote(event.remote),
+      };
+    case "localUpdated":
+      return {
+        _tag: "localUpdated" as const,
+        local: toVcsStatusLocal(event.local),
+      };
+    case "remoteUpdated":
+      return {
+        _tag: "remoteUpdated" as const,
+        remote: event.remote === null ? null : toVcsStatusRemote(event.remote),
+      };
+  }
+}
 
 const workspaceAndProjectServicesLayer = Layer.mergeAll(
   WorkspacePathsLive,
@@ -343,6 +419,9 @@ const buildAppUnderTest = (options?: {
     open?: Partial<OpenShape>;
     gitCore?: Partial<GitCoreShape>;
     gitManager?: Partial<GitManagerShape>;
+    gitWorkflow?: Partial<GitWorkflowServiceShape>;
+    vcsProvisioning?: Partial<VcsProvisioningServiceShape>;
+    vcsStatusBroadcaster?: Partial<VcsStatusBroadcasterShape>;
     sourceControlQuery?: Partial<SourceControlQueryShape>;
     sourceControlStatus?: Partial<SourceControlStatusShape>;
     sourceControlWorkflows?: Partial<SourceControlWorkflowsShape>;
@@ -463,6 +542,120 @@ const buildAppUnderTest = (options?: {
       publishRepository: () => Effect.die(new Error("not available in test")),
       ...options?.layers?.sourceControlRepositoryService,
     });
+    const gitWorkflowLayer = Layer.effect(
+      GitWorkflowService,
+      Effect.gen(function* () {
+        const gitManager = yield* GitManager;
+        const sourceControlQuery = yield* SourceControlQuery;
+        const sourceControlWorkflows = yield* SourceControlWorkflows;
+
+        return GitWorkflowService.of({
+          status: (input) => gitManager.status(input).pipe(Effect.map(toVcsStatus)),
+          localStatus: (input) => gitManager.localStatus(input).pipe(Effect.map(toVcsStatusLocal)),
+          remoteStatus: (input) =>
+            gitManager
+              .remoteStatus(input)
+              .pipe(Effect.map((remote) => (remote === null ? null : toVcsStatusRemote(remote)))),
+          invalidateLocalStatus: gitManager.invalidateLocalStatus,
+          invalidateRemoteStatus: gitManager.invalidateRemoteStatus,
+          invalidateStatus: gitManager.invalidateStatus,
+          pullCurrentBranch: (cwd) =>
+            sourceControlWorkflows.pullCurrentBranch(cwd).pipe(
+              Effect.map((result) => ({
+                status: result.status,
+                refName: result.branch,
+                upstreamRef: result.upstreamBranch,
+              })),
+            ),
+          runStackedAction: sourceControlWorkflows.runStackedAction,
+          resolvePullRequest: sourceControlWorkflows.resolvePullRequest,
+          preparePullRequestThread: sourceControlWorkflows.preparePullRequestThread,
+          listRefs: (input) =>
+            sourceControlQuery.listBranches(input).pipe(
+              Effect.map((result) => ({
+                refs: result.branches,
+                isRepo: result.isRepo,
+                hasPrimaryRemote: result.hasOriginRemote,
+                nextCursor: result.nextCursor,
+                totalCount: result.totalCount,
+              })),
+            ),
+          createWorktree: (input) =>
+            sourceControlWorkflows
+              .createWorktree({
+                cwd: input.cwd,
+                branch: input.refName,
+                ...(input.newRefName ? { newBranch: input.newRefName } : {}),
+                path: input.path,
+              })
+              .pipe(
+                Effect.map((result) => ({
+                  worktree: {
+                    path: result.worktree.path,
+                    refName: result.worktree.branch,
+                  },
+                })),
+              ),
+          removeWorktree: sourceControlWorkflows.removeWorktree,
+          createRef: (input) =>
+            sourceControlWorkflows
+              .createBranch({
+                cwd: input.cwd,
+                branch: input.refName,
+                ...(input.switchRef !== undefined ? { checkout: input.switchRef } : {}),
+              })
+              .pipe(Effect.map((result) => ({ refName: result.branch }))),
+          switchRef: (input) =>
+            sourceControlWorkflows
+              .checkoutBranch({ cwd: input.cwd, branch: input.refName })
+              .pipe(Effect.map((result) => ({ refName: result.branch }))),
+          renameBranch: sourceControlWorkflows.renameBranch,
+          ...options?.layers?.gitWorkflow,
+        });
+      }),
+    ).pipe(
+      Layer.provide(gitManagerLayer),
+      Layer.provideMerge(sourceControlQueryLayer),
+      Layer.provideMerge(sourceControlWorkflowsLayer),
+    );
+    const vcsProvisioningLayer = Layer.effect(
+      VcsProvisioningService,
+      Effect.gen(function* () {
+        const sourceControlWorkflows = yield* SourceControlWorkflows;
+        return VcsProvisioningService.of({
+          initRepository: (input) =>
+            sourceControlWorkflows.initRepo(input).pipe(
+              Effect.mapError(
+                (error) =>
+                  new VcsProcessExitError({
+                    operation: error.operation,
+                    command: error.command,
+                    cwd: error.cwd,
+                    exitCode: 1,
+                    detail: error.detail,
+                  }),
+              ),
+            ),
+          ...options?.layers?.vcsProvisioning,
+        });
+      }),
+    ).pipe(Layer.provide(sourceControlWorkflowsLayer));
+    const vcsStatusBroadcasterLayer = Layer.effect(
+      VcsStatusBroadcaster,
+      Effect.gen(function* () {
+        const sourceControlStatus = yield* SourceControlStatus;
+        return VcsStatusBroadcaster.of({
+          getStatus: (input) => sourceControlStatus.getStatus(input).pipe(Effect.map(toVcsStatus)),
+          refreshLocalStatus: (cwd) =>
+            sourceControlStatus.refreshLocalStatus(cwd).pipe(Effect.map(toVcsStatusLocal)),
+          refreshStatus: (cwd) =>
+            sourceControlStatus.refreshStatus(cwd).pipe(Effect.map(toVcsStatus)),
+          streamStatus: (input) =>
+            sourceControlStatus.streamStatus(input).pipe(Stream.map(toVcsStatusStreamEvent)),
+          ...options?.layers?.vcsStatusBroadcaster,
+        });
+      }),
+    ).pipe(Layer.provide(sourceControlStatusLayer));
 
     const reviewWriteServiceLayer = Layer.succeed(
       ReviewWriteService,
@@ -563,6 +756,9 @@ const buildAppUnderTest = (options?: {
           sourceControlWorkflowsLayer,
           sourceControlDiscoveryLayer,
           sourceControlRepositoryServiceLayer,
+          gitWorkflowLayer,
+          vcsProvisioningLayer,
+          vcsStatusBroadcasterLayer,
         ),
       ),
       Layer.provide(

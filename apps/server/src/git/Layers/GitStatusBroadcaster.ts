@@ -233,17 +233,23 @@ export const GitStatusBroadcasterLive = Layer.effect(
           const configuredInterval = Exit.isSuccess(settingsExit)
             ? settingsExit.value.automaticGitFetchInterval
             : DEFAULT_GIT_STATUS_REFRESH_INTERVAL;
+          const activeInterval = Duration.isZero(configuredInterval)
+            ? DEFAULT_GIT_STATUS_REFRESH_INTERVAL
+            : configuredInterval;
+          if (Duration.isZero(configuredInterval)) {
+            return activeInterval;
+          }
           const exit = yield* refreshRemoteStatus(cwd).pipe(Effect.exit);
           if (Exit.isSuccess(exit)) {
             yield* Ref.set(consecutiveFailuresRef, 0);
-            return configuredInterval;
+            return activeInterval;
           }
 
           const consecutiveFailures = yield* Ref.updateAndGet(
             consecutiveFailuresRef,
             (count) => count + 1,
           );
-          const nextDelay = remoteRefreshFailureDelay(consecutiveFailures, configuredInterval);
+          const nextDelay = remoteRefreshFailureDelay(consecutiveFailures, activeInterval);
           yield* Effect.logWarning("git remote status refresh failed", {
             cwd,
             detail: exit.cause.toString(),

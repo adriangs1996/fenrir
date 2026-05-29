@@ -62,7 +62,7 @@ export function EditorPane({
   }, [bridge, retryToken]);
 
   if (!bridge || !main) {
-    // Defensive null — the chat tab bar already gates editor visibility on
+    // Defensive null — the titlebar workspace switch gates editor visibility on
     // these conditions, so this branch should be unreachable in practice.
     return null;
   }

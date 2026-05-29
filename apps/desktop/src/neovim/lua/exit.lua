@@ -1,4 +1,4 @@
--- Fenrir exit.lua — graceful shutdown (mksession + qa)
+-- Fenrir exit.lua — graceful shutdown (:qa)
 -- Force-quit unless the user opted into a confirmation prompt.
 -- The Fenrir shell tears the process down right after this runs;
 -- modified buffers are intentionally discarded so the IPC channel

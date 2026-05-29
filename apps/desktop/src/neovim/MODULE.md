@@ -17,7 +17,7 @@
 | `openFile(path, …)`    | `string, number?, number?` | `Promise<void>`            | Calls `_G.fenrir.private.bridge.open_file` via `nvim_exec_lua`                         |
 | `invokeBridge(fn)`     | `string`                   | `Promise<void>`            | Whitelisted Lua function invocation (currently: `"send_selection"`)                    |
 | `onFenrirEvent(l)`     | `(ev) => void`             | `() => void` (unsubscribe) | Subscribe to `fenrir_autocmd` / `fenrir_send_to_composer` / `fenrir_cmd` notifications |
-| `shutdown()`           | —                          | `Promise<void>`            | Save session (500ms timeout), SIGTERM nvim                                             |
+| `shutdown()`           | —                          | `Promise<void>`            | Best-effort final session save (1.5s timeout), SIGTERM nvim                            |
 
 **Properties:** `kind: "neovim"` (readonly, satisfies `SceneSource`)
 
@@ -25,14 +25,14 @@
 
 All Lua strings live as TS template literals in `neovimLua.ts`. Canonical `.lua` sources in `lua/` are kept in sync manually.
 
-| Export               | Registers                                                                                                                                                         |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FENRIR_INIT_LUA`    | `vim.g.fenrir = true`, `_G.fenrir.private` namespace, sources `ginit.vim`                                                                                         |
-| `FENRIR_EXIT_LUA`    | Graceful `:qa!` (or `:confirm qa` if `vim.g.fenrir_confirm_quit`). Currently unused by NeovimSource directly                                                      |
-| `FENRIR_BRIDGE_LUA`  | `_G.fenrir.private.bridge.{open_file, send_selection}`                                                                                                            |
-| `FENRIR_SESSION_LUA` | `_G.fenrir.private.session.{save, restore}`; host invokes restore explicitly after bootstrap                                                                      |
-| `FENRIR_CMD_LUA`     | `:Fenrir <subcommand>` user command (focus-chat, send, save-and-quit, new-thread, submit, open, log)                                                              |
-| `FENRIR_EVENTS_LUA`  | `FenrirEvents` augroup: BufEnter, BufWritePost, BufModifiedSet → `vim.rpcnotify(0, "fenrir_autocmd", …)` (avoids `_event` suffix swallowed by neovim Node client) |
+| Export               | Registers                                                                                                                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FENRIR_INIT_LUA`    | `vim.g.fenrir = true`, `_G.fenrir.private` namespace, sources `ginit.vim`                                                                                                                         |
+| `FENRIR_EXIT_LUA`    | Graceful `:qa!` (or `:confirm qa` if `vim.g.fenrir_confirm_quit`). Currently unused by NeovimSource directly                                                                                      |
+| `FENRIR_BRIDGE_LUA`  | `_G.fenrir.private.bridge.{open_file, send_selection}`                                                                                                                                            |
+| `FENRIR_SESSION_LUA` | `_G.fenrir.private.session.{save, schedule_save, restore}`; host invokes restore explicitly after bootstrap; Lua autosaves session state after buffer/window/tab/cwd changes and on `VimLeavePre` |
+| `FENRIR_CMD_LUA`     | `:Fenrir <subcommand>` user command (focus-chat, send, save-and-quit, new-thread, submit, open, log)                                                                                              |
+| `FENRIR_EVENTS_LUA`  | `FenrirEvents` augroup: BufEnter, BufWritePost, BufModifiedSet → `vim.rpcnotify(0, "fenrir_autocmd", …)` (avoids `_event` suffix swallowed by neovim Node client)                                 |
 
 ### IPC Channels
 

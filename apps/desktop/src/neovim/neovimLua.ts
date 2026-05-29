@@ -28,9 +28,8 @@ pcall(vim.cmd, "runtime! ginit.vim")
 `.trim();
 
 // ─────────────────────────────────────────────────────────────
-// exit.lua — graceful shutdown (mksession + qa)
+// exit.lua — graceful shutdown (:qa)
 // Currently unused via NeovimSource; wired directly in main.ts.
-// Session save wired in plan 07 + 10.
 // ─────────────────────────────────────────────────────────────
 export const FENRIR_EXIT_LUA = `
 -- Force-quit unless the user opted into a confirmation prompt. The Fenrir
@@ -103,14 +102,38 @@ _G.fenrir.private.bridge = M
 return true
 `.trim();
 
+export const FENRIR_SESSION_AUTOSAVE_DELAY_MS = 250;
+export const FENRIR_SESSION_AUTOSAVE_EVENTS = [
+  "BufEnter",
+  "BufDelete",
+  "BufFilePost",
+  "DirChanged",
+  "TabEnter",
+  "TabClosed",
+  "WinEnter",
+  "WinClosed",
+] as const;
+
+const FENRIR_SESSION_AUTOSAVE_EVENTS_LUA = FENRIR_SESSION_AUTOSAVE_EVENTS.map(
+  (event) => `"${event}"`,
+).join(", ");
+
 // ─────────────────────────────────────────────────────────────
-// session.lua — per-cwd :mksession save/restore.
+// session.lua — per-cwd :mksession save/restore + debounced autosave.
 // Reads vim.g.fenrir_session_dir + vim.g.fenrir_session_hash set by host.
 // Restore is invoked explicitly by the host after bootstrap so it is
 // deterministic during embedded respawns.
 // ─────────────────────────────────────────────────────────────
 export const FENRIR_SESSION_LUA = `
-local M = {}
+local M = {
+  _restoring = false,
+  _save_generation = 0,
+  _saving = false,
+}
+
+local SESSIONOPTIONS = "buffers,curdir,folds,help,tabpages,winsize,winpos,localoptions"
+local AUTOSAVE_DELAY_MS = ${FENRIR_SESSION_AUTOSAVE_DELAY_MS}
+local AUTOSAVE_EVENTS = { ${FENRIR_SESSION_AUTOSAVE_EVENTS_LUA} }
 
 local function paths()
   local dir = vim.g.fenrir_session_dir
@@ -125,13 +148,18 @@ end
 function M.save()
   local p = paths()
   if not p then return false end
+  if M._saving then return false end
+  M._saving = true
 
   -- Configure sessionoptions for embedded use.
   -- Skip 'options' (avoid leaking GUI-specific opts).
   -- Skip 'globals' (collide with user vars).
-  vim.opt.sessionoptions = "buffers,curdir,folds,help,tabpages,winsize,winpos,localoptions"
+  local previous_sessionoptions = vim.o.sessionoptions
+  vim.opt.sessionoptions = SESSIONOPTIONS
 
   local ok, err = pcall(vim.cmd, "mksession! " .. vim.fn.fnameescape(p.session))
+  vim.o.sessionoptions = previous_sessionoptions
+  M._saving = false
   if not ok then
     vim.notify("[fenrir] mksession failed: " .. tostring(err), vim.log.levels.WARN)
     return false
@@ -152,6 +180,18 @@ function M.save()
   return true
 end
 
+function M.schedule_save()
+  if M._restoring then return false end
+  M._save_generation = M._save_generation + 1
+  local generation = M._save_generation
+  vim.defer_fn(function()
+    if M._save_generation ~= generation then return end
+    if M._restoring then return end
+    M.save()
+  end, AUTOSAVE_DELAY_MS)
+  return true
+end
+
 function M.restore()
   local p = paths()
   if not p then return false end
@@ -159,7 +199,9 @@ function M.restore()
   -- Source quietly. swap files are an annoying prompt source — set shortmess+=A.
   local prev = vim.opt.shortmess:get()
   pcall(vim.opt.shortmess.append, vim.opt.shortmess, "A")
+  M._restoring = true
   local ok, err = pcall(vim.cmd, "silent! source " .. vim.fn.fnameescape(p.session))
+  M._restoring = false
   vim.opt.shortmess = prev
   if not ok then
     vim.notify("[fenrir] session restore failed: " .. tostring(err), vim.log.levels.WARN)
@@ -169,6 +211,24 @@ function M.restore()
 end
 
 _G.fenrir.private.session = M
+
+local group = vim.api.nvim_create_augroup("FenrirSession", { clear = true })
+
+for _, event in ipairs(AUTOSAVE_EVENTS) do
+  pcall(vim.api.nvim_create_autocmd, event, {
+    group = group,
+    callback = function()
+      M.schedule_save()
+    end,
+  })
+end
+
+pcall(vim.api.nvim_create_autocmd, "VimLeavePre", {
+  group = group,
+  callback = function()
+    M.save()
+  end,
+})
 
 return true
 `.trim();

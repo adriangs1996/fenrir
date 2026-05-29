@@ -2,7 +2,7 @@ import { assert, it, afterEach, describe, expect, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { GitCommandError } from "@fenrir/contracts";
+import { VcsProcessExitError } from "@fenrir/contracts";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitHubCli from "./GitHubCli.ts";
@@ -271,10 +271,11 @@ describe("GitHubCli.layer", () => {
     Effect.gen(function* () {
       mockRun.mockReturnValueOnce(
         Effect.fail(
-          new GitCommandError({
+          new VcsProcessExitError({
             operation: "GitHubCli.execute",
             command: "gh pr view",
             cwd: "/repo",
+            exitCode: 1,
             detail:
               "GraphQL: Could not resolve to a PullRequest with the number of 4888. (repository.pullRequest)",
           }),

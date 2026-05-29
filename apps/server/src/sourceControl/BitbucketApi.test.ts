@@ -149,7 +149,9 @@ function makeLayer(input: {
         capabilities: {
           kind: "git",
           supportsWorktrees: true,
+          supportsBookmarks: false,
           supportsAtomicSnapshot: false,
+          supportsPushDefaultRemote: true,
           ignoreClassifier: "native",
         },
         execute: () =>

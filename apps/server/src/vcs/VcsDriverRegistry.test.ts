@@ -2,7 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { Effect } from "effect";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { Effect, Layer } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runProcess } from "../processRunner.ts";
@@ -35,7 +36,7 @@ describe("VcsDriverRegistryLive", () => {
       Effect.gen(function* () {
         const registry = yield* VcsDriverRegistry;
         return yield* registry.detect({ cwd });
-      }).pipe(Effect.provide(VcsDriverRegistryLive)),
+      }).pipe(Effect.provide(VcsDriverRegistryLive.pipe(Layer.provide(NodeServices.layer)))),
     );
 
     expect(result?.kind).toBe("git");
@@ -49,7 +50,7 @@ describe("VcsDriverRegistryLive", () => {
       Effect.gen(function* () {
         const registry = yield* VcsDriverRegistry;
         return yield* registry.detect({ cwd });
-      }).pipe(Effect.provide(VcsDriverRegistryLive)),
+      }).pipe(Effect.provide(VcsDriverRegistryLive.pipe(Layer.provide(NodeServices.layer)))),
     );
 
     expect(result).toBeNull();

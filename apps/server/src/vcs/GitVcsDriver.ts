@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { DateTime, Effect, Layer, Option, Context } from "effect";
 
-import { GitCommandError } from "@fenrir/contracts";
+import { VcsProcessExitError } from "@fenrir/contracts";
 import type { VcsDriverShape } from "./VcsDriver.ts";
 import { VcsProcess, VcsProcessLive } from "./VcsProcess.ts";
 
@@ -95,19 +95,19 @@ function parseGitRemoteVerboseOutput(
   return remotes;
 }
 
-function gitCommandError(
+function gitProcessExitError(
   operation: string,
   cwd: string,
   command: string,
   detail: string,
-  cause?: unknown,
-): GitCommandError {
-  return new GitCommandError({
+  exitCode = -1,
+): VcsProcessExitError {
+  return new VcsProcessExitError({
     operation,
     command,
     cwd,
+    exitCode,
     detail,
-    ...(cause !== undefined ? { cause } : {}),
   });
 }
 
@@ -139,8 +139,9 @@ const makeGitVcsDriver = Effect.gen(function* () {
     vcsProcess.run({
       operation,
       command: "git",
-      args,
+      args: ["-C", cwd, ...args],
       cwd,
+      spawnCwd: globalThis.process.cwd(),
       ...(options?.stdin !== undefined ? { stdin: options.stdin } : {}),
       ...(options?.env !== undefined ? { env: options.env } : {}),
       ...(options?.allowNonZeroExit !== undefined
@@ -203,6 +204,7 @@ const makeGitVcsDriver = Effect.gen(function* () {
             ? gitCommonDir
             : path.resolve(cwd, gitCommonDir)
           : null,
+      freshness: yield* nowFreshness,
     };
   });
 
@@ -227,16 +229,20 @@ const makeGitVcsDriver = Effect.gen(function* () {
     ).pipe(
       Effect.flatMap((result) =>
         result.exitCode === 0
-          ? Effect.succeed({
-              paths: splitNullSeparatedPaths(result.stdout, result.stdoutTruncated),
-              truncated: result.stdoutTruncated,
+          ? Effect.gen(function* () {
+              return {
+                paths: splitNullSeparatedPaths(result.stdout, result.stdoutTruncated),
+                truncated: result.stdoutTruncated,
+                freshness: yield* nowFreshness,
+              };
             })
           : Effect.fail(
-              gitCommandError(
+              gitProcessExitError(
                 "GitVcsDriver.listWorkspaceFiles",
                 cwd,
                 "git ls-files",
                 result.stderr.trim() || "git ls-files failed",
+                result.exitCode,
               ),
             ),
       ),
@@ -267,11 +273,12 @@ const makeGitVcsDriver = Effect.gen(function* () {
       );
 
       if (result.exitCode !== 0 && result.exitCode !== 1) {
-        return yield* gitCommandError(
+        return yield* gitProcessExitError(
           "GitVcsDriver.filterIgnoredPaths",
           cwd,
           "git check-ignore",
           result.stderr.trim() || "git check-ignore failed",
+          result.exitCode,
         );
       }
 
@@ -302,11 +309,12 @@ const makeGitVcsDriver = Effect.gen(function* () {
       });
 
       if (result.exitCode !== 0) {
-        return yield* gitCommandError(
+        return yield* gitProcessExitError(
           "GitVcsDriver.listRemotes",
           cwd,
           "git remote -v",
           result.stderr.trim() || "git remote -v failed",
+          result.exitCode,
         );
       }
 
@@ -423,7 +431,7 @@ const makeGitVcsDriver = Effect.gen(function* () {
         });
         const treeOid = writeTreeResult.stdout.trim();
         if (treeOid.length === 0) {
-          return yield* gitCommandError(
+          return yield* gitProcessExitError(
             operation,
             input.cwd,
             "git write-tree",
@@ -440,7 +448,7 @@ const makeGitVcsDriver = Effect.gen(function* () {
         });
         const commitOid = commitTreeResult.stdout.trim();
         if (commitOid.length === 0) {
-          return yield* gitCommandError(
+          return yield* gitProcessExitError(
             operation,
             input.cwd,
             "git commit-tree",
@@ -527,7 +535,7 @@ const makeGitVcsDriver = Effect.gen(function* () {
         } else {
           const headCommit = yield* resolveHeadCommit(input.cwd);
           if (!headCommit) {
-            return yield* gitCommandError(
+            return yield* gitProcessExitError(
               operation,
               input.cwd,
               "git diff",
@@ -556,11 +564,12 @@ const makeGitVcsDriver = Effect.gen(function* () {
       });
 
       if (result.exitCode !== 0) {
-        return yield* gitCommandError(
+        return yield* gitProcessExitError(
           operation,
           input.cwd,
           "git diff",
           result.stderr.trim() || "Checkpoint ref is unavailable for diff operation.",
+          result.exitCode,
         );
       }
 
@@ -588,7 +597,9 @@ const makeGitVcsDriver = Effect.gen(function* () {
     capabilities: {
       kind: "git",
       supportsWorktrees: true,
+      supportsBookmarks: false,
       supportsAtomicSnapshot: false,
+      supportsPushDefaultRemote: true,
       ignoreClassifier: "native",
     },
     execute,

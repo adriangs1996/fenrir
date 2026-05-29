@@ -294,7 +294,7 @@ export const make = Effect.fn("makeSourceControlRepositoryService")(function* ()
         };
       }
 
-      const pushResult = yield* gitCore.pushCurrentBranch(input.cwd, null);
+      const pushResult = yield* gitCore.pushCurrentBranch(input.cwd, null, { remoteName });
 
       return {
         repository: toRepositoryInfo(providerKind, urls),

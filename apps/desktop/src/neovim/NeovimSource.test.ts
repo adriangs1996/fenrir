@@ -7,6 +7,11 @@ vi.mock("electron", () => ({
 }));
 
 import { domKeyToVimNotation, NeovimSource } from "./NeovimSource";
+import {
+  FENRIR_SESSION_AUTOSAVE_DELAY_MS,
+  FENRIR_SESSION_AUTOSAVE_EVENTS,
+  FENRIR_SESSION_LUA,
+} from "./neovimLua";
 
 function createSource(): NeovimSource {
   return new NeovimSource("/tmp/project");
@@ -174,6 +179,18 @@ describe("NeovimSource", () => {
       shape: "block",
       text: "S",
     });
+  });
+});
+
+describe("FENRIR_SESSION_LUA", () => {
+  it("autosaves sessions after editor state changes and before nvim exits", () => {
+    expect(FENRIR_SESSION_AUTOSAVE_DELAY_MS).toBeGreaterThan(0);
+    expect(FENRIR_SESSION_AUTOSAVE_EVENTS).toEqual(
+      expect.arrayContaining(["BufEnter", "WinClosed", "TabClosed", "DirChanged"]),
+    );
+    expect(FENRIR_SESSION_LUA).toContain("function M.schedule_save()");
+    expect(FENRIR_SESSION_LUA).toContain('vim.api.nvim_create_augroup("FenrirSession"');
+    expect(FENRIR_SESSION_LUA).toContain('"VimLeavePre"');
   });
 });
 

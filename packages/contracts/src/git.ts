@@ -275,6 +275,7 @@ const GitStatusRemoteShape = {
   hasUpstream: Schema.Boolean,
   aheadCount: NonNegativeInt,
   behindCount: NonNegativeInt,
+  aheadOfDefaultCount: Schema.optional(NonNegativeInt),
   pr: Schema.NullOr(GitStatusPr),
 };
 

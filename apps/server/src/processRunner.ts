@@ -2,6 +2,7 @@ import { type ChildProcess as ChildProcessHandle, spawn, spawnSync } from "node:
 
 export interface ProcessRunOptions {
   cwd?: string | undefined;
+  spawnCwd?: string | undefined;
   timeoutMs?: number | undefined;
   env?: NodeJS.ProcessEnv | undefined;
   stdin?: string | undefined;
@@ -149,7 +150,7 @@ export async function runProcess(
 
   return new Promise<ProcessRunResult>((resolve, reject) => {
     const child = spawn(command, args, {
-      cwd: options.cwd,
+      cwd: options.spawnCwd ?? options.cwd,
       env: options.env,
       stdio: "pipe",
       shell: process.platform === "win32",

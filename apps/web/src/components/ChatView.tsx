@@ -142,7 +142,6 @@ import {
 } from "~/modules/terminal";
 import {
   appendEditorContextsToPrompt,
-  ChatTabBar,
   EditorPane,
   formatEditorContextLabel,
   useEditorStore,
@@ -781,8 +780,8 @@ export default function ChatView(props: ChatViewProps) {
   const sendInFlightRef = useRef(false);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
 
-  // Editor tab visibility — gated by desktop bridge presence, main window,
-  // and successful nvim probe. When false, the editor tab disappears and
+  // Editor view visibility — gated by desktop bridge presence, main window,
+  // and successful nvim probe. When false, the editor switch disappears and
   // Cmd+E is a no-op.
   const desktopBridgeAvailable = useDesktopBridgeAvailable();
   const isMainWindow = useIsMainWindow();
@@ -1572,10 +1571,6 @@ export default function ChatView(props: ChatViewProps) {
     }),
     [terminalState.terminalOpen],
   );
-  const terminalToggleShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "terminal.toggle"),
-    [keybindings],
-  );
   const splitTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.split", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
@@ -1742,7 +1737,7 @@ export default function ChatView(props: ChatViewProps) {
     setTerminalOpen,
     terminalState.terminalOpen,
   ]);
-  const handleTabBarSelect = useCallback(
+  const handleChatViewSelect = useCallback(
     (tab: ChatViewTab) => {
       if (tab === "terminal") {
         activateTerminalTab({ ensureOpen: true, focus: true });
@@ -3473,15 +3468,14 @@ export default function ChatView(props: ChatViewProps) {
           {...(routeKind === "draft" && draftId ? { draftId } : {})}
           activeThreadTitle={activeThread.title}
           activeProjectName={activeProject?.name}
+          activeChatTab={activeChatTab}
+          editorAvailable={editorAvailable}
           isGitRepo={isGitRepo}
           activeProjectScripts={activeProject?.scripts}
           preferredScriptId={
             activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
           }
           keybindings={keybindings}
-          terminalAvailable={activeProject !== undefined}
-          terminalOpen={terminalState.terminalOpen}
-          terminalToggleShortcutLabel={terminalToggleShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffPanelOpen}
           globalScripts={[...(serverConfig?.globalActions ?? [])]}
@@ -3494,7 +3488,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddGlobalScript={saveGlobalScript}
           onUpdateGlobalScript={updateGlobalScript}
           onDeleteGlobalScript={deleteGlobalScript}
-          onToggleTerminal={toggleTerminalVisibility}
+          onChatTabSelect={handleChatViewSelect}
           onToggleDiff={onToggleDiff}
         />
       </header>
@@ -3509,11 +3503,6 @@ export default function ChatView(props: ChatViewProps) {
       <div className="flex min-h-0 min-w-0 flex-1">
         {/* Chat column */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <ChatTabBar
-            activeTab={activeChatTab}
-            editorAvailable={editorAvailable}
-            onTabSelect={handleTabBarSelect}
-          />
           {/* Thread tab — composer hides "for free" when this branch is
               hidden via display:none. EditorPane mounts unconditionally
               alongside so its canvas/GL state stays warm across toggles. */}

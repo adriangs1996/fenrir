@@ -22,7 +22,9 @@ const GitCoreTestLayer = GitCoreLive.pipe(
   Layer.provide(NodeServices.layer),
 );
 const CheckpointStoreTestLayer = CheckpointStoreLive;
-const TestLayer = Layer.mergeAll(NodeServices.layer, GitCoreTestLayer, CheckpointStoreTestLayer);
+const TestLayer = Layer.mergeAll(GitCoreTestLayer, CheckpointStoreTestLayer).pipe(
+  Layer.provideMerge(NodeServices.layer),
+);
 
 function makeTmpDir(
   prefix = "checkpoint-store-test-",

@@ -31,6 +31,7 @@ const DEFAULT_CELL_H = 18;
 const DEFAULT_TEXT_ASCENT = 14;
 const DEFAULT_FONT_WEIGHT = 400;
 const SPACE_CP = 0x20;
+const SESSION_SAVE_TIMEOUT_MS = 1_500;
 
 interface HlAttr {
   fg: number | undefined;
@@ -347,7 +348,7 @@ export class NeovimSource implements SceneSource {
 
   /**
    * Ask the embedded nvim to persist its session before we kill the process.
-   * Bounded to 500ms so a hung nvim never blocks shutdown.
+   * Bounded so a hung nvim never blocks shutdown.
    */
   private async saveSessionBeforeKill(): Promise<void> {
     const client = this.client;
@@ -355,7 +356,7 @@ export class NeovimSource implements SceneSource {
     try {
       await Promise.race([
         client.request("nvim_exec_lua", ["return _G.fenrir.private.session.save()", []]),
-        new Promise((resolve) => setTimeout(() => resolve(false), 500)),
+        new Promise((resolve) => setTimeout(() => resolve(false), SESSION_SAVE_TIMEOUT_MS)),
       ]);
     } catch (err) {
       console.warn("[neovimSource] session save before kill failed:", err);

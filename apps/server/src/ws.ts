@@ -5,20 +5,10 @@ import {
   CommandId,
   EventId,
   FilesystemBrowseError,
+  DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
   type OrchestrationCommand,
   type GitActionProgressEvent,
-  type GitBranch,
   type GitManagerServiceError,
-  type GitStatusLocalResult,
-  type GitStatusRemoteResult,
-  type GitStatusResult,
-  type GitStatusStreamEvent,
-  type VcsListRefsResult,
-  type VcsPullResult,
-  type VcsStatusLocalResult,
-  type VcsStatusRemoteResult,
-  type VcsStatusResult,
-  type VcsStatusStreamEvent,
   ManagedProcessRpcError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
@@ -100,12 +90,13 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner";
-import { SourceControlQuery } from "./sourceControl/Services/SourceControlQuery";
 import { SourceControl } from "./sourceControl/Services/SourceControl";
-import { SourceControlStatus } from "./sourceControl/Services/SourceControlStatus";
 import { SourceControlWorkflows } from "./sourceControl/Services/SourceControlWorkflows";
 import { SourceControlDiscovery } from "./sourceControl/SourceControlDiscovery";
 import { SourceControlRepositoryService } from "./sourceControl/SourceControlRepositoryService";
+import { GitWorkflowService } from "./git/GitWorkflowService";
+import { VcsProvisioningService } from "./vcs/VcsProvisioningService";
+import { VcsStatusBroadcaster } from "./vcs/VcsStatusBroadcaster";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ServerAuth } from "./auth/Services/ServerAuth";
 import {
@@ -175,91 +166,6 @@ function toAuthAccessStreamEvent(
   }
 }
 
-function toVcsStatusLocal(local: GitStatusLocalResult): VcsStatusLocalResult {
-  const { hostingProvider, hasOriginRemote, isDefaultBranch, branch, ...rest } = local;
-  return {
-    ...rest,
-    ...(hostingProvider ? { sourceControlProvider: hostingProvider } : {}),
-    hasPrimaryRemote: hasOriginRemote,
-    isDefaultRef: isDefaultBranch,
-    refName: branch,
-  };
-}
-
-function toVcsStatusRemote(remote: GitStatusRemoteResult): VcsStatusRemoteResult {
-  const { pr, ...rest } = remote;
-  return {
-    ...rest,
-    pr:
-      pr === null
-        ? null
-        : {
-            number: pr.number,
-            title: pr.title,
-            url: pr.url,
-            baseRef: pr.baseBranch,
-            headRef: pr.headBranch,
-            state: pr.state,
-          },
-  };
-}
-
-function toVcsStatus(status: GitStatusResult): VcsStatusResult {
-  return {
-    ...toVcsStatusLocal(status),
-    ...toVcsStatusRemote(status),
-  };
-}
-
-function toVcsStatusStreamEvent(event: GitStatusStreamEvent): VcsStatusStreamEvent {
-  switch (event._tag) {
-    case "snapshot":
-      return {
-        _tag: "snapshot",
-        local: toVcsStatusLocal(event.local),
-        remote: event.remote === null ? null : toVcsStatusRemote(event.remote),
-      };
-    case "localUpdated":
-      return {
-        _tag: "localUpdated",
-        local: toVcsStatusLocal(event.local),
-      };
-    case "remoteUpdated":
-      return {
-        _tag: "remoteUpdated",
-        remote: event.remote === null ? null : toVcsStatusRemote(event.remote),
-      };
-  }
-}
-
-function toVcsListRefsResult(input: {
-  readonly branches: ReadonlyArray<GitBranch>;
-  readonly isRepo: boolean;
-  readonly hasOriginRemote: boolean;
-  readonly nextCursor: number | null;
-  readonly totalCount: number;
-}): VcsListRefsResult {
-  return {
-    refs: input.branches,
-    isRepo: input.isRepo,
-    hasPrimaryRemote: input.hasOriginRemote,
-    nextCursor: input.nextCursor,
-    totalCount: input.totalCount,
-  };
-}
-
-function toVcsPullResult(input: {
-  readonly status: VcsPullResult["status"];
-  readonly branch: string;
-  readonly upstreamBranch: string | null;
-}): VcsPullResult {
-  return {
-    status: input.status,
-    refName: input.branch,
-    upstreamRef: input.upstreamBranch,
-  };
-}
-
 const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
   WsRpcGroup.toLayer(
     Effect.gen(function* () {
@@ -268,16 +174,25 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const checkpointDiffQuery = yield* CheckpointDiffQuery;
       const keybindings = yield* Keybindings;
       const open = yield* Open;
-      const sourceControlQuery = yield* SourceControlQuery;
-      const sourceControlStatus = yield* SourceControlStatus;
       const sourceControlWorkflows = yield* SourceControlWorkflows;
       const sourceControlDiscovery = yield* SourceControlDiscovery;
       const sourceControlRepositoryService = yield* SourceControlRepositoryService;
+      const gitWorkflow = yield* GitWorkflowService;
+      const vcsProvisioning = yield* VcsProvisioningService;
+      const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
       const terminalManager = yield* TerminalManager;
       const providerRegistry = yield* ProviderRegistry;
       const config = yield* ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents;
       const serverSettings = yield* ServerSettingsService;
+      const automaticGitFetchInterval = serverSettings.getSettings.pipe(
+        Effect.map((settings) => settings.automaticGitFetchInterval),
+        Effect.catch((cause) =>
+          Effect.logWarning("Failed to read automatic Git fetch interval setting", {
+            detail: cause instanceof Error ? cause.message : String(cause),
+          }).pipe(Effect.as(DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL)),
+        ),
+      );
       const globalActions = yield* GlobalActionsService;
       const startup = yield* ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries;
@@ -758,7 +673,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       });
 
       const refreshGitStatus = (cwd: string) =>
-        sourceControlStatus
+        vcsStatusBroadcaster
           .refreshStatus(cwd)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
 
@@ -1327,90 +1242,58 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         [WS_METHODS.subscribeVcsStatus]: (input) =>
           observeRpcStream(
             WS_METHODS.subscribeVcsStatus,
-            sourceControlStatus.streamStatus(input).pipe(Stream.map(toVcsStatusStreamEvent)),
+            vcsStatusBroadcaster.streamStatus(input, {
+              automaticRemoteRefreshInterval: automaticGitFetchInterval,
+            }),
             { "rpc.aggregate": "source-control" },
           ),
         [WS_METHODS.vcsRefreshStatus]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRefreshStatus,
-            sourceControlStatus.refreshStatus(input.cwd).pipe(Effect.map(toVcsStatus)),
+            vcsStatusBroadcaster.refreshStatus(input.cwd),
             { "rpc.aggregate": "source-control" },
           ),
         [WS_METHODS.vcsPull]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsPull,
-            sourceControlWorkflows.pullCurrentBranch(input.cwd).pipe(
-              Effect.map(toVcsPullResult),
-              Effect.tap(() => refreshGitStatus(input.cwd)),
-            ),
+            gitWorkflow
+              .pullCurrentBranch(input.cwd)
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "source-control" },
           ),
         [WS_METHODS.vcsListRefs]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.vcsListRefs,
-            sourceControlQuery.listBranches(input).pipe(Effect.map(toVcsListRefsResult)),
-            { "rpc.aggregate": "source-control" },
-          ),
+          observeRpcEffect(WS_METHODS.vcsListRefs, gitWorkflow.listRefs(input), {
+            "rpc.aggregate": "source-control",
+          }),
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateWorktree,
-            sourceControlWorkflows
-              .createWorktree({
-                cwd: input.cwd,
-                branch: input.refName,
-                ...(input.newRefName ? { newBranch: input.newRefName } : {}),
-                path: input.path,
-              })
-              .pipe(
-                Effect.map((result) => ({
-                  worktree: {
-                    path: result.worktree.path,
-                    refName: result.worktree.branch,
-                  },
-                })),
-                Effect.tap(() => refreshGitStatus(input.cwd)),
-              ),
+            gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "source-control" },
           ),
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,
-            sourceControlWorkflows
-              .removeWorktree(input)
-              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "source-control" },
           ),
         [WS_METHODS.vcsCreateRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateRef,
-            sourceControlWorkflows
-              .createBranch({
-                cwd: input.cwd,
-                branch: input.refName,
-                ...(input.switchRef !== undefined ? { checkout: input.switchRef } : {}),
-              })
-              .pipe(
-                Effect.map((result) => ({ refName: result.branch })),
-                Effect.tap(() => refreshGitStatus(input.cwd)),
-              ),
+            gitWorkflow.createRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "source-control" },
           ),
         [WS_METHODS.vcsSwitchRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsSwitchRef,
-            Effect.scoped(
-              sourceControlWorkflows.checkoutBranch({ cwd: input.cwd, branch: input.refName }),
-            ).pipe(
-              Effect.map((result) => ({ refName: result.branch })),
-              Effect.tap(() => refreshGitStatus(input.cwd)),
-            ),
+            gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "source-control" },
           ),
         [WS_METHODS.vcsInit]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsInit,
-            sourceControlWorkflows
-              .initRepo({ cwd: input.cwd })
+            vcsProvisioning
+              .initRepository(input)
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "source-control" },
           ),
@@ -1418,7 +1301,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcStream(
             WS_METHODS.gitRunStackedAction,
             Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) =>
-              sourceControlWorkflows
+              gitWorkflow
                 .runStackedAction(input, {
                   actionId: input.actionId,
                   progressReporter: {
@@ -1440,7 +1323,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         [WS_METHODS.gitResolvePullRequest]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitResolvePullRequest,
-            sourceControlWorkflows.resolvePullRequest(input),
+            gitWorkflow.resolvePullRequest(input),
             {
               "rpc.aggregate": "git",
             },
@@ -1448,7 +1331,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitPreparePullRequestThread,
-            sourceControlWorkflows
+            gitWorkflow
               .preparePullRequestThread(input)
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "git" },

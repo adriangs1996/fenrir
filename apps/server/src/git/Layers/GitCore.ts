@@ -58,6 +58,9 @@ const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
 const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
 const STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN = Duration.seconds(5);
 const STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY = 2_048;
+const STATUS_UPSTREAM_REFRESH_ENV = Object.freeze({
+  SSH_ASKPASS_REQUIRE: "never",
+} satisfies NodeJS.ProcessEnv);
 const DEFAULT_BASE_BRANCH_CANDIDATES = ["main", "master"] as const;
 const GIT_LIST_BRANCHES_DEFAULT_LIMIT = 100;
 const NON_REPOSITORY_STATUS_DETAILS = Object.freeze<GitStatusDetails>({
@@ -71,6 +74,7 @@ const NON_REPOSITORY_STATUS_DETAILS = Object.freeze<GitStatusDetails>({
   hasUpstream: false,
   aheadCount: 0,
   behindCount: 0,
+  aheadOfDefaultCount: 0,
 });
 
 type TraceTailState = {
@@ -88,6 +92,7 @@ interface ExecuteGitOptions {
   timeoutMs?: number | undefined;
   allowNonZeroExit?: boolean | undefined;
   fallbackErrorMessage?: string | undefined;
+  env?: NodeJS.ProcessEnv | undefined;
   maxOutputBytes?: number | undefined;
   truncateOutputAtMaxBytes?: boolean | undefined;
   progress?: ExecuteGitProgress | undefined;
@@ -797,6 +802,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       cwd,
       args,
       ...(options.stdin !== undefined ? { stdin: options.stdin } : {}),
+      ...(options.env !== undefined ? { env: options.env } : {}),
       allowNonZeroExit: true,
       ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
       ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
@@ -929,6 +935,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       ["--git-dir", gitCommonDir, "fetch", "--quiet", "--no-tags", remoteName],
       {
         allowNonZeroExit: true,
+        env: STATUS_UPSTREAM_REFRESH_ENV,
         timeoutMs: Duration.toMillis(STATUS_UPSTREAM_REFRESH_TIMEOUT),
       },
     ).pipe(Effect.asVoid);
@@ -1030,6 +1037,15 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       ["remote"],
       "No git remote is configured for this repository.",
     );
+  });
+
+  const resolvePublishBranchName = Effect.fn("resolvePublishBranchName")(function* (
+    cwd: string,
+    branch: string,
+  ) {
+    const remoteNames = yield* listRemoteNames(cwd).pipe(Effect.catch(() => Effect.succeed([])));
+    const parsedRemoteRef = parseRemoteRefWithRemoteNames(branch, remoteNames);
+    return parsedRemoteRef?.branchName ?? branch;
   });
 
   const resolvePushRemoteName = Effect.fn("resolvePushRemoteName")(function* (
@@ -1251,6 +1267,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     let upstreamRef: string | null = null;
     let aheadCount = 0;
     let behindCount = 0;
+    let aheadOfDefaultCount = 0;
     let hasWorkingTreeChanges = false;
     const changedFilesWithoutNumstat = new Set<string>();
 
@@ -1279,11 +1296,29 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       }
     }
 
-    if (!upstreamRef && branch) {
-      aheadCount = yield* computeAheadCountAgainstBase(cwd, branch).pipe(
-        Effect.catch(() => Effect.succeed(0)),
-      );
+    const fallbackAheadCount =
+      !upstreamRef && branch
+        ? yield* computeAheadCountAgainstBase(cwd, branch).pipe(
+            Effect.catch(() => Effect.succeed(0)),
+          )
+        : null;
+
+    if (fallbackAheadCount !== null) {
+      aheadCount = fallbackAheadCount;
       behindCount = 0;
+    }
+
+    const isDefaultBranch =
+      branch !== null &&
+      (branch === defaultBranch ||
+        (defaultBranch === null && (branch === "main" || branch === "master")));
+    if (branch && !isDefaultBranch) {
+      aheadOfDefaultCount =
+        fallbackAheadCount !== null
+          ? fallbackAheadCount
+          : yield* computeAheadCountAgainstBase(cwd, branch).pipe(
+              Effect.catch(() => Effect.succeed(0)),
+            );
     }
 
     const stagedEntries = parseNumstatEntries(stagedNumstatStdout);
@@ -1315,10 +1350,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     return {
       isRepo: true,
       hasOriginRemote,
-      isDefaultBranch:
-        branch !== null &&
-        (branch === defaultBranch ||
-          (defaultBranch === null && (branch === "main" || branch === "master"))),
+      isDefaultBranch,
       branch,
       upstreamRef,
       hasWorkingTreeChanges,
@@ -1330,6 +1362,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       hasUpstream: upstreamRef !== null,
       aheadCount,
       behindCount,
+      aheadOfDefaultCount,
     };
   });
 
@@ -1359,6 +1392,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
         hasUpstream: details.hasUpstream,
         aheadCount: details.aheadCount,
         behindCount: details.behindCount,
+        aheadOfDefaultCount: details.aheadOfDefaultCount,
         pr: null,
       })),
     );
@@ -1439,7 +1473,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
   });
 
   const pushCurrentBranch: GitCoreShape["pushCurrentBranch"] = Effect.fn("pushCurrentBranch")(
-    function* (cwd, fallbackBranch) {
+    function* (cwd, fallbackBranch, options) {
       const details = yield* statusDetails(cwd);
       const branch = details.branch ?? fallbackBranch;
       if (!branch) {
@@ -1449,6 +1483,23 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
           ["push"],
           "Cannot push from detached HEAD.",
         );
+      }
+
+      const requestedRemoteName = options?.remoteName?.trim() || null;
+      if (requestedRemoteName) {
+        const publishBranch = yield* resolvePublishBranchName(cwd, branch);
+        yield* runGit("GitCore.pushCurrentBranch.pushWithRequestedRemote", cwd, [
+          "push",
+          "-u",
+          requestedRemoteName,
+          `HEAD:refs/heads/${publishBranch}`,
+        ]);
+        return {
+          status: "pushed" as const,
+          branch,
+          upstreamBranch: `${requestedRemoteName}/${publishBranch}`,
+          setUpstream: true,
+        };
       }
 
       const hasNoLocalDelta = details.aheadCount === 0 && details.behindCount === 0;
@@ -1497,16 +1548,17 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
             "Cannot push because no git remote is configured for this repository.",
           );
         }
+        const publishBranch = yield* resolvePublishBranchName(cwd, branch);
         yield* runGit("GitCore.pushCurrentBranch.pushWithUpstream", cwd, [
           "push",
           "-u",
           publishRemoteName,
-          `HEAD:refs/heads/${branch}`,
+          `HEAD:refs/heads/${publishBranch}`,
         ]);
         return {
           status: "pushed" as const,
           branch,
-          upstreamBranch: `${publishRemoteName}/${branch}`,
+          upstreamBranch: `${publishRemoteName}/${publishBranch}`,
           setUpstream: true,
         };
       }
@@ -2008,6 +2060,18 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     },
   );
 
+  const fetchRemoteTrackingBranch: GitCoreShape["fetchRemoteTrackingBranch"] = Effect.fn(
+    "fetchRemoteTrackingBranch",
+  )(function* (input) {
+    yield* runGit("GitCore.fetchRemoteTrackingBranch", input.cwd, [
+      "fetch",
+      "--quiet",
+      "--no-tags",
+      input.remoteName,
+      `+refs/heads/${input.remoteBranch}:refs/remotes/${input.remoteName}/${input.remoteBranch}`,
+    ]);
+  });
+
   const setBranchUpstream: GitCoreShape["setBranchUpstream"] = (input) =>
     runGit("GitCore.setBranchUpstream", input.cwd, [
       "branch",
@@ -2192,7 +2256,9 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     createWorktree,
     fetchPullRequestBranch,
     ensureRemote,
+    resolvePrimaryRemoteName,
     fetchRemoteBranch,
+    fetchRemoteTrackingBranch,
     setBranchUpstream,
     removeWorktree,
     renameBranch,

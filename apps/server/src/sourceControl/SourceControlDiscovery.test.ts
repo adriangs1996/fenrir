@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { GitCommandError } from "@fenrir/contracts";
+import { VcsProcessExitError } from "@fenrir/contracts";
 
 import { ServerConfig } from "../config.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -71,10 +71,11 @@ Logged in to github.com account juliusmarminge (keyring)
         );
       }
       return Effect.fail(
-        new GitCommandError({
+        new VcsProcessExitError({
           operation: input.operation,
           command: input.command,
           cwd: input.cwd,
+          exitCode: 127,
           detail: `${input.command} not found`,
         }),
       );
@@ -187,10 +188,11 @@ Logged in to gitlab.com as gitlab-user
         return Effect.succeed(processOutput("azure-user@example.com\n"));
       }
       return Effect.fail(
-        new GitCommandError({
+        new VcsProcessExitError({
           operation: input.operation,
           command: input.command,
           cwd: input.cwd,
+          exitCode: 127,
           detail: `${input.command} not found`,
         }),
       );

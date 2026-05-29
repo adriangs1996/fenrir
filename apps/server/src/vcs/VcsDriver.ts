@@ -1,27 +1,23 @@
 import type { Effect } from "effect";
 
-import type { CheckpointRef, GitCommandError, VcsListRemotesResult } from "@fenrir/contracts";
+import type {
+  CheckpointRef,
+  VcsDriverCapabilities,
+  VcsDriverKind,
+  VcsError,
+  VcsInitInput,
+  VcsListRemotesResult,
+  VcsListWorkspaceFilesResult,
+  VcsRepositoryIdentity,
+} from "@fenrir/contracts";
 import type { VcsProcessInput, VcsProcessOutput } from "./VcsProcess.ts";
 
-export type VcsDriverKind = "git";
-
-export interface VcsRepositoryIdentity {
-  readonly kind: VcsDriverKind;
-  readonly rootPath: string;
-  readonly metadataPath: string | null;
-}
-
-export interface VcsDriverCapabilities {
-  readonly kind: VcsDriverKind;
-  readonly supportsWorktrees: boolean;
-  readonly supportsAtomicSnapshot: boolean;
-  readonly ignoreClassifier: "native" | "git-compatible-fallback";
-}
-
-export interface VcsListWorkspaceFilesResult {
-  readonly paths: ReadonlyArray<string>;
-  readonly truncated: boolean;
-}
+export type {
+  VcsDriverCapabilities,
+  VcsDriverKind,
+  VcsListWorkspaceFilesResult,
+  VcsRepositoryIdentity,
+};
 
 export interface VcsCaptureCheckpointInput {
   readonly cwd: string;
@@ -48,42 +44,34 @@ export interface VcsDeleteCheckpointRefsInput {
 }
 
 export interface VcsCheckpointOps {
-  readonly captureCheckpoint: (
-    input: VcsCaptureCheckpointInput,
-  ) => Effect.Effect<void, GitCommandError>;
+  readonly captureCheckpoint: (input: VcsCaptureCheckpointInput) => Effect.Effect<void, VcsError>;
   readonly hasCheckpointRef: (
     input: Omit<VcsRestoreCheckpointInput, "fallbackToHead">,
-  ) => Effect.Effect<boolean, GitCommandError>;
+  ) => Effect.Effect<boolean, VcsError>;
   readonly restoreCheckpoint: (
     input: VcsRestoreCheckpointInput,
-  ) => Effect.Effect<boolean, GitCommandError>;
-  readonly diffCheckpoints: (
-    input: VcsDiffCheckpointsInput,
-  ) => Effect.Effect<string, GitCommandError>;
+  ) => Effect.Effect<boolean, VcsError>;
+  readonly diffCheckpoints: (input: VcsDiffCheckpointsInput) => Effect.Effect<string, VcsError>;
   readonly deleteCheckpointRefs: (
     input: VcsDeleteCheckpointRefsInput,
-  ) => Effect.Effect<void, GitCommandError>;
+  ) => Effect.Effect<void, VcsError>;
 }
 
 export interface VcsDriverShape {
   readonly capabilities: VcsDriverCapabilities;
   readonly execute: (
     input: Omit<VcsProcessInput, "command">,
-  ) => Effect.Effect<VcsProcessOutput, GitCommandError>;
+  ) => Effect.Effect<VcsProcessOutput, VcsError>;
   readonly checkpoints?: VcsCheckpointOps;
-  readonly detectRepository: (
-    cwd: string,
-  ) => Effect.Effect<VcsRepositoryIdentity | null, GitCommandError>;
-  readonly isInsideWorkTree: (cwd: string) => Effect.Effect<boolean, GitCommandError>;
+  readonly detectRepository: (cwd: string) => Effect.Effect<VcsRepositoryIdentity | null, VcsError>;
+  readonly isInsideWorkTree: (cwd: string) => Effect.Effect<boolean, VcsError>;
   readonly listWorkspaceFiles: (
     cwd: string,
-  ) => Effect.Effect<VcsListWorkspaceFilesResult, GitCommandError>;
-  readonly listRemotes: (cwd: string) => Effect.Effect<VcsListRemotesResult, GitCommandError>;
+  ) => Effect.Effect<VcsListWorkspaceFilesResult, VcsError>;
+  readonly listRemotes: (cwd: string) => Effect.Effect<VcsListRemotesResult, VcsError>;
   readonly filterIgnoredPaths: (
     cwd: string,
     relativePaths: ReadonlyArray<string>,
-  ) => Effect.Effect<ReadonlyArray<string>, GitCommandError>;
-  readonly initRepository: (input: {
-    readonly cwd: string;
-  }) => Effect.Effect<void, GitCommandError>;
+  ) => Effect.Effect<ReadonlyArray<string>, VcsError>;
+  readonly initRepository: (input: VcsInitInput) => Effect.Effect<void, VcsError>;
 }

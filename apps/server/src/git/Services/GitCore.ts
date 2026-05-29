@@ -49,6 +49,7 @@ export interface ExecuteGitResult {
 
 export interface GitStatusDetails extends Omit<GitStatusResult, "pr"> {
   upstreamRef: string | null;
+  aheadOfDefaultCount: number;
 }
 
 export interface GitPreparedCommitContext {
@@ -132,6 +133,12 @@ export interface GitFetchRemoteBranchInput {
   localBranch: string;
 }
 
+export interface GitFetchRemoteTrackingBranchInput {
+  cwd: string;
+  remoteName: string;
+  remoteBranch: string;
+}
+
 export interface GitSetBranchUpstreamInput {
   cwd: string;
   branch: string;
@@ -187,6 +194,7 @@ export interface GitCoreShape {
   readonly pushCurrentBranch: (
     cwd: string,
     fallbackBranch: string | null,
+    options?: { readonly remoteName?: string | null },
   ) => Effect.Effect<GitPushResult, GitCommandError>;
 
   /**
@@ -257,10 +265,22 @@ export interface GitCoreShape {
   readonly ensureRemote: (input: GitEnsureRemoteInput) => Effect.Effect<string, GitCommandError>;
 
   /**
+   * Resolve the preferred push/fetch remote name for this repository.
+   */
+  readonly resolvePrimaryRemoteName: (cwd: string) => Effect.Effect<string, GitCommandError>;
+
+  /**
    * Fetch a remote branch into a local branch without checkout.
    */
   readonly fetchRemoteBranch: (
     input: GitFetchRemoteBranchInput,
+  ) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * Fetch a remote branch into its remote-tracking ref without materializing a local branch.
+   */
+  readonly fetchRemoteTrackingBranch: (
+    input: GitFetchRemoteTrackingBranchInput,
   ) => Effect.Effect<void, GitCommandError>;
 
   /**

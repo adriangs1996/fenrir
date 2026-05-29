@@ -30,6 +30,7 @@ import {
   VcsSwitchRefInput,
   VcsSwitchRefResult,
 } from "./git";
+import { VcsError } from "./vcs";
 import { KeybindingsConfigError } from "./keybindings";
 import {
   ClientOrchestrationCommand,
@@ -633,7 +634,7 @@ export const WsVcsSwitchRefRpc = Rpc.make(WS_METHODS.vcsSwitchRef, {
 
 export const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
   payload: VcsInitInput,
-  error: GitCommandError,
+  error: VcsError,
 });
 
 export const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {

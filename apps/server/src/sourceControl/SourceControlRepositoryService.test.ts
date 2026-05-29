@@ -5,7 +5,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError, type SourceControlProviderError } from "@fenrir/contracts";
+import { VcsProcessExitError, type SourceControlProviderError } from "@fenrir/contracts";
 
 import { ServerConfig } from "../config.ts";
 import { GitCore, type GitCoreShape } from "../git/Services/GitCore.ts";
@@ -67,7 +67,9 @@ function makeLayer(input: {
     capabilities: {
       kind: "git",
       supportsWorktrees: true,
+      supportsBookmarks: false,
       supportsAtomicSnapshot: false,
+      supportsPushDefaultRemote: true,
       ignoreClassifier: "native",
     },
     execute: () => Effect.succeed(processOutput()),
@@ -308,10 +310,11 @@ it.effect("publish succeeds with status remote_added when the local repo has no 
           execute: (input) =>
             input.args[0] === "rev-parse"
               ? Effect.fail(
-                  new GitCommandError({
+                  new VcsProcessExitError({
                     operation: input.operation,
                     command: "git rev-parse --verify HEAD",
                     cwd: input.cwd,
+                    exitCode: 1,
                     detail: "fatal: Needed a single revision",
                   }),
                 )

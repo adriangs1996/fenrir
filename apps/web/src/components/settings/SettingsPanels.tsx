@@ -1645,7 +1645,7 @@ export function GeneralSettingsPanel() {
 
         <SettingsRow
           title="Embedded editor"
-          description="Choose which embedded editor opens when the Editor tab is available."
+          description="Choose which embedded editor opens when the Editor view is available."
           resetAction={
             settings.embeddedEditor !== DEFAULT_UNIFIED_SETTINGS.embeddedEditor ? (
               <SettingResetButton

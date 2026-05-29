@@ -10,7 +10,7 @@ import { scopeThreadRef } from "@fenrir/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { DiffIcon, TerminalSquareIcon } from "lucide-react";
+import { DiffIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, {
@@ -20,6 +20,7 @@ import ProjectScriptsControl, {
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { VpnToolbarButton } from "../VpnToolbarButton";
+import { ChatViewSwitcher, type ChatTab } from "~/modules/neovim-editor";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -27,13 +28,12 @@ interface ChatHeaderProps {
   draftId?: DraftId;
   activeThreadTitle: string;
   activeProjectName: string | undefined;
+  activeChatTab: ChatTab;
+  editorAvailable: boolean;
   isGitRepo: boolean;
   activeProjectScripts: ProjectScript[] | undefined;
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
-  terminalAvailable: boolean;
-  terminalOpen: boolean;
-  terminalToggleShortcutLabel: string | null;
   diffToggleShortcutLabel?: string | null;
   gitCwd: string | null;
   diffOpen: boolean;
@@ -47,7 +47,7 @@ interface ChatHeaderProps {
   onAddGlobalScript: (input: NewGlobalScriptInput) => Promise<void>;
   onUpdateGlobalScript: (scriptId: string, input: NewGlobalScriptInput) => Promise<void>;
   onDeleteGlobalScript: (scriptId: string) => Promise<void>;
-  onToggleTerminal: () => void;
+  onChatTabSelect: (tab: ChatTab) => void;
   onToggleDiff: () => void;
 }
 
@@ -57,13 +57,12 @@ export const ChatHeader = memo(function ChatHeader({
   draftId,
   activeThreadTitle,
   activeProjectName,
+  activeChatTab,
+  editorAvailable,
   isGitRepo,
   activeProjectScripts,
   preferredScriptId,
   keybindings,
-  terminalAvailable,
-  terminalOpen,
-  terminalToggleShortcutLabel,
   diffToggleShortcutLabel,
   gitCwd,
   diffOpen,
@@ -77,7 +76,7 @@ export const ChatHeader = memo(function ChatHeader({
   onAddGlobalScript,
   onUpdateGlobalScript,
   onDeleteGlobalScript,
-  onToggleTerminal,
+  onChatTabSelect,
   onToggleDiff,
 }: ChatHeaderProps) {
   return (
@@ -101,6 +100,11 @@ export const ChatHeader = memo(function ChatHeader({
           </Badge>
         )}
       </div>
+      <ChatViewSwitcher
+        activeTab={activeChatTab}
+        editorAvailable={editorAvailable}
+        onTabSelect={onChatTabSelect}
+      />
       <div className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3">
         <VpnToolbarButton />
         {activeProjectScripts && (
@@ -127,30 +131,6 @@ export const ChatHeader = memo(function ChatHeader({
             {...(draftId ? { draftId } : {})}
           />
         )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                className="shrink-0"
-                pressed={terminalOpen}
-                onPressedChange={onToggleTerminal}
-                aria-label="Toggle terminal tab"
-                variant="outline"
-                size="xs"
-                disabled={!terminalAvailable}
-              >
-                <TerminalSquareIcon className="size-3" />
-              </Toggle>
-            }
-          />
-          <TooltipPopup side="bottom">
-            {!terminalAvailable
-              ? "Terminal is unavailable until this thread has an active project."
-              : terminalToggleShortcutLabel
-                ? `Toggle terminal tab (${terminalToggleShortcutLabel})`
-                : "Toggle terminal tab"}
-          </TooltipPopup>
-        </Tooltip>
         <Tooltip>
           <TooltipTrigger
             render={

@@ -253,6 +253,7 @@ const EMPTY_GIT_STATUS_REMOTE: GitStatusRemoteResult = {
   hasUpstream: false,
   aheadCount: 0,
   behindCount: 0,
+  aheadOfDefaultCount: 0,
   pr: null,
 };
 
@@ -271,6 +272,9 @@ function toRemoteStatusPart(status: GitStatusResult): GitStatusRemoteResult {
     hasUpstream: status.hasUpstream,
     aheadCount: status.aheadCount,
     behindCount: status.behindCount,
+    ...(status.aheadOfDefaultCount === undefined
+      ? {}
+      : { aheadOfDefaultCount: status.aheadOfDefaultCount }),
     pr: status.pr,
   };
 }

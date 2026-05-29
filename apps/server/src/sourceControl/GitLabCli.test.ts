@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError } from "@fenrir/contracts";
+import { VcsProcessExitError } from "@fenrir/contracts";
 
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitLabCli from "./GitLabCli.ts";
@@ -315,10 +315,11 @@ layer("GitLabCli.layer", (it) => {
     Effect.gen(function* () {
       mockedRun.mockReturnValueOnce(
         Effect.fail(
-          new GitCommandError({
+          new VcsProcessExitError({
             operation: "GitLabCli.execute",
             command: "glab mr view 4888",
             cwd: "/repo",
+            exitCode: 1,
             detail: "GET 404 merge request not found",
           }),
         ),

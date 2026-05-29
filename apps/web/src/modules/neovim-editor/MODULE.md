@@ -1,6 +1,6 @@
 # Module: Neovim Editor (Web)
 
-> Embedded Neovim editor as a chat-view tab. Single instance per Electron main window; respawned per project cwd. Speaks to desktop process via `window.desktopBridge.editor.*`.
+> Embedded Neovim editor as a chat workspace view. Single instance per Electron main window; respawned per project cwd. Speaks to desktop process via `window.desktopBridge.editor.*`.
 
 ## Public API
 
@@ -8,20 +8,20 @@
 
 #### `useEditorStore` (Zustand — persisted)
 
-| Selector / Action      | Input                | Output                 | Description                                                        |
-| ---------------------- | -------------------- | ---------------------- | ------------------------------------------------------------------ |
-| `activeChatTab`        | —                    | `ChatTab`              | `"thread" \| "editor"` — global, persisted to localStorage         |
-| `setActiveChatTab`     | `ChatTab`            | `void`                 | Set active tab                                                     |
-| `toggleChatTab`        | —                    | `void`                 | Flip between `"thread"` and `"editor"`                             |
-| `currentFile`          | —                    | `string \| null`       | File path from nvim BufEnter; null when no file buffer             |
-| `setCurrentFile`       | `string \| null`     | `void`                 | Hydrated by `useEditorEventListener`                               |
-| `dirtyFiles`           | —                    | `Set<string>`          | Files with unsaved changes (BufModifiedSet)                        |
-| `setDirty`             | `string, boolean`    | `void`                 | Add/remove from dirty set                                          |
-| `pendingContexts`      | —                    | `EditorContextDraft[]` | Editor context selections awaiting next message send               |
-| `addPendingContext`    | `EditorContextDraft` | `void`                 | Append to pending queue                                            |
-| `removePendingContext` | `string` (id)        | `void`                 | Remove by id                                                       |
-| `clearPendingContexts` | —                    | `void`                 | Clear all pending contexts                                         |
-| `resetVolatile`        | —                    | `void`                 | Reset `currentFile`, `dirtyFiles`, `pendingContexts`; preserve tab |
+| Selector / Action      | Input                | Output                 | Description                                                              |
+| ---------------------- | -------------------- | ---------------------- | ------------------------------------------------------------------------ |
+| `activeChatTab`        | —                    | `ChatTab`              | `"thread" \| "editor" \| "terminal"` — global, persisted to localStorage |
+| `setActiveChatTab`     | `ChatTab`            | `void`                 | Set active workspace view                                                |
+| `toggleChatTab`        | —                    | `void`                 | Flip between `"thread"` and `"editor"`                                   |
+| `currentFile`          | —                    | `string \| null`       | File path from nvim BufEnter; null when no file buffer                   |
+| `setCurrentFile`       | `string \| null`     | `void`                 | Hydrated by `useEditorEventListener`                                     |
+| `dirtyFiles`           | —                    | `Set<string>`          | Files with unsaved changes (BufModifiedSet)                              |
+| `setDirty`             | `string, boolean`    | `void`                 | Add/remove from dirty set                                                |
+| `pendingContexts`      | —                    | `EditorContextDraft[]` | Editor context selections awaiting next message send                     |
+| `addPendingContext`    | `EditorContextDraft` | `void`                 | Append to pending queue                                                  |
+| `removePendingContext` | `string` (id)        | `void`                 | Remove by id                                                             |
+| `clearPendingContexts` | —                    | `void`                 | Clear all pending contexts                                               |
+| `resetVolatile`        | —                    | `void`                 | Reset `currentFile`, `dirtyFiles`, `pendingContexts`; preserve tab       |
 
 **Storage:** `fenrir:editor` in localStorage. Only `activeChatTab` persisted via `partialize`.
 
@@ -214,7 +214,7 @@ apps/web/src/modules/neovim-editor/
 ### For implementers (working INSIDE this module):
 
 - Public API exported from `index.ts` barrel — add exports intentionally.
-- Tab state (`activeChatTab`) is global; per-thread state intentionally avoided.
+- Workspace view state (`activeChatTab`) is global; per-thread state intentionally avoided.
 - Editor context types mirror terminal context for cohesion — keep parsers in lockstep with `~/modules/terminal/terminalContext.ts`.
 - All hooks export pure helper functions alongside the hook for testing without React.
 - `editorContext.ts` is pure — no React, no side effects. Test in isolation.

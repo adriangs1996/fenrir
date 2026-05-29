@@ -50,8 +50,12 @@ import { TrafficLensStorageServiceLive } from "./traffic-lens-storage/Layers/Tra
 import { BrowserLabControlHttpLive } from "./browserLab/browserLabControlHttp";
 import { BrowserLabControlServiceLive } from "./browserLab/Layers/BrowserLabControlService";
 import { PlanRunnerLive } from "./plan-runner/Layers/PlanRunner";
+import { layer as GitWorkflowServiceLive } from "./git/GitWorkflowService";
 import { GitManagerLive } from "./git/Layers/GitManager";
 import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster";
+import { VcsDriverRegistryLive } from "./vcs/VcsDriverRegistry";
+import { layer as VcsProvisioningServiceLive } from "./vcs/VcsProvisioningService";
+import { layer as VcsStatusBroadcasterLive } from "./vcs/VcsStatusBroadcaster";
 import { KeybindingsLive } from "./keybindings";
 import { ServerRuntimeStartup, ServerRuntimeStartupLive } from "./serverRuntimeStartup";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
@@ -222,6 +226,18 @@ const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitCoreLive),
 );
 
+const GitWorkflowLayerLive = GitWorkflowServiceLive.pipe(
+  Layer.provideMerge(VcsDriverRegistryLive),
+  Layer.provideMerge(GitLayerLive),
+);
+
+const VcsLayerLive = Layer.empty.pipe(
+  Layer.provideMerge(VcsDriverRegistryLive),
+  Layer.provideMerge(VcsProvisioningServiceLive),
+  Layer.provideMerge(GitWorkflowLayerLive),
+  Layer.provideMerge(VcsStatusBroadcasterLive.pipe(Layer.provide(GitWorkflowLayerLive))),
+);
+
 const SourceControlLayerLive = SourceControlModuleLive.pipe(
   Layer.provideMerge(GitManagerLayerLive),
   Layer.provideMerge(GitCoreLive),
@@ -387,6 +403,7 @@ const CoreDependenciesLive = CoreInfrastructureLive.pipe(
   Layer.provideMerge(SkillServiceLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
+  Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(SourceControlLayerLive),
   Layer.provideMerge(ReviewLayerLive),
   Layer.provideMerge(ServerEnvironmentLive),
