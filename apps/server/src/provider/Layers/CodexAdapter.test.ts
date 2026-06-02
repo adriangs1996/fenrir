@@ -376,6 +376,80 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("normalizes serialized MCP tool results to canonical content", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      const imageHandle = "fenrir-image://browser-lab-test";
+      const toolResult = {
+        content: [
+          { type: "image", data: "SGVsbG8=", mimeType: "image/png" },
+          { type: "text", text: `Fenrir image handle: ${imageHandle}` },
+        ],
+        structuredContent: {
+          fenrirImageHandles: [
+            {
+              id: "browser-lab-test",
+              uri: imageHandle,
+              name: "browser-lab-screenshot.png",
+              mimeType: "image/png",
+            },
+          ],
+        },
+      };
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-mcp-completed-serialized-result"),
+        kind: "notification",
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        method: "item/completed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("mcp_1"),
+        payload: {
+          item: {
+            type: "mcpToolCall",
+            id: "mcp_1",
+            server: "fenrir-browser-lab",
+            tool: "browser_lab_screenshot",
+            arguments: { tabId: "tab-1" },
+            status: "completed",
+            result: {
+              content: [{ type: "text", text: JSON.stringify(toolResult) }],
+            },
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "item.completed");
+      if (firstEvent.value.type !== "item.completed") {
+        return;
+      }
+
+      const data = firstEvent.value.payload.data as {
+        readonly item?: {
+          readonly result?: {
+            readonly content?: ReadonlyArray<{ readonly type?: string; readonly text?: string }>;
+            readonly structuredContent?: {
+              readonly fenrirImageHandles?: ReadonlyArray<{ readonly uri?: string }>;
+            };
+          };
+        };
+      };
+      const result = data.item?.result;
+      assert.equal(result?.content?.[0]?.type, "image");
+      assert.equal(result?.content?.[1]?.text, `Fenrir image handle: ${imageHandle}`);
+      assert.equal(result?.structuredContent?.fenrirImageHandles?.[0]?.uri, imageHandle);
+    }),
+  );
+
   it.effect("maps completed plan items to canonical proposed-plan completion events", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;

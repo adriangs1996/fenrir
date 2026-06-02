@@ -2,6 +2,7 @@ import { scopedThreadKey } from "@fenrir/client-runtime";
 import {
   type EnvironmentId,
   type ProjectId,
+  type ScopedProjectRef,
   type ScopedThreadRef,
   type TerminalEvent,
   type ThreadId,
@@ -72,6 +73,7 @@ interface ActionRunStoreState extends PersistedActionRunState {
   readonly dismissReceipt: (runId: string) => void;
   readonly removeActionRun: (runId: string) => void;
   readonly clearCompletedForThread: (threadRef: ScopedThreadRef) => void;
+  readonly clearCompletedForProject: (projectRef: ScopedProjectRef) => void;
   readonly applyTerminalEvent: (event: TerminalEvent, environmentId: EnvironmentId) => void;
 }
 
@@ -301,6 +303,20 @@ export const useActionRunStore = create<ActionRunStoreState>()(
           return { runsById };
         }),
 
+      clearCompletedForProject: (projectRef) =>
+        set((state) => {
+          const runsById = Object.fromEntries(
+            Object.entries(state.runsById).filter(
+              ([, run]) =>
+                run.environmentId !== projectRef.environmentId ||
+                run.projectId !== projectRef.projectId ||
+                !isTerminalStatus(run.status),
+            ),
+          );
+          if (Object.keys(runsById).length === Object.keys(state.runsById).length) return state;
+          return { runsById };
+        }),
+
       applyTerminalEvent: (event, environmentId) =>
         set((state) => {
           const tmuxProjectId = tmuxProjectIdFromTerminalEvent(event);
@@ -384,6 +400,18 @@ export function selectActionRunsForThread(
   const threadKey = actionRunThreadKey(threadRef);
   return Object.values(state.runsById)
     .filter((run) => run.threadKey === threadKey)
+    .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+export function selectActionRunsForProject(
+  state: Pick<ActionRunStoreState, "runsById">,
+  projectRef: ScopedProjectRef,
+): ActionRun[] {
+  return Object.values(state.runsById)
+    .filter(
+      (run) =>
+        run.environmentId === projectRef.environmentId && run.projectId === projectRef.projectId,
+    )
     .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 

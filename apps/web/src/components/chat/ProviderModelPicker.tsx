@@ -9,6 +9,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import { useSuppressBaseUIClickAfterMouseDown } from "../ui/useSuppressBaseUIClickAfterMouseDown";
 import { ClaudeAI, CursorIcon, Gemini, Icon, OpenAI, OpenCodeIcon } from "../Icons";
 import { cn } from "~/lib/utils";
 import {
@@ -125,6 +126,19 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const favorites = useSettings((settings) => settings.favorites ?? []);
   const { updateSettings } = useUpdateSettings();
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const triggerClickSuppressionProps = useSuppressBaseUIClickAfterMouseDown<HTMLButtonElement>(
+    (event) => {
+      if (props.disabled || event.button !== 0 || isMenuOpen) {
+        return;
+      }
+      setIsMenuOpen(true);
+    },
+    undefined,
+    {
+      shouldSuppressClickAfterMouseDown: (event) =>
+        event.button === 0 && !props.disabled && !isMenuOpen,
+    },
+  );
 
   const activeProvider = props.lockedProvider ?? props.provider;
   const selectedProviderOptions = props.modelOptionsByProvider[activeProvider] ?? [];
@@ -299,6 +313,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 props.triggerClassName,
               )}
               disabled={props.disabled}
+              onClick={triggerClickSuppressionProps.onClick}
+              onMouseDown={triggerClickSuppressionProps.onMouseDown}
             />
           }
         >

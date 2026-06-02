@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../../components/ui/select";
+import { normalizeBrowserAddressInput } from "../browserNavigation";
 import { TRAFFIC_LENS_MOBILE_PRESET_OPTIONS } from "../mobilePresets";
 import { useTrafficLensStore } from "../stores/useTrafficLensStore";
 
@@ -33,11 +34,8 @@ export function TrafficLensAddressBar(props: { onOpenExternal?: () => void }) {
 
   const handleNavigate = (e: React.FormEvent) => {
     e.preventDefault();
-    let url = urlInput.trim();
+    const url = normalizeBrowserAddressInput(urlInput);
     if (!url) return;
-    if (!/^https?:\/\//i.test(url)) {
-      url = `http://${url}`;
-    }
     void window.desktopBridge?.trafficLensNavigate(activeTabId, url);
   };
 

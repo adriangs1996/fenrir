@@ -20,6 +20,7 @@ import {
   type WorkspaceEntriesShape,
 } from "../Services/WorkspaceEntries.ts";
 import { WorkspacePaths } from "../Services/WorkspacePaths.ts";
+import { expandHomePath } from "../../pathExpansion.ts";
 
 const WORKSPACE_CACHE_TTL_MS = 15_000;
 const WORKSPACE_CACHE_MAX_KEYS = 4;
@@ -118,9 +119,10 @@ function splitBrowsePartialPath(input: {
   }
 
   const hasTrailing = hasTrailingPathSeparator(trimmed);
+  const expandedPath = isExplicitRelativePath(trimmed) ? trimmed : expandHomePath(trimmed);
   const resolvedPath = input.cwd
-    ? input.path.resolve(input.cwd, trimmed)
-    : input.path.resolve(trimmed);
+    ? input.path.resolve(input.cwd, expandedPath)
+    : input.path.resolve(expandedPath);
 
   if (hasTrailing) {
     return {

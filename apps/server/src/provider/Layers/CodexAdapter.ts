@@ -118,6 +118,91 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function parseJsonObjectText(value: string): Record<string, unknown> | undefined {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    return undefined;
+  }
+
+  try {
+    return asObject(JSON.parse(trimmed));
+  } catch {
+    return undefined;
+  }
+}
+
+function isMcpToolCallResultRecord(value: Record<string, unknown>): boolean {
+  return (
+    Array.isArray(value.content) ||
+    asObject(value.structuredContent) !== undefined ||
+    asObject(value.structured_content) !== undefined
+  );
+}
+
+function normalizeSerializedMcpToolCallResult(result: unknown): unknown {
+  const resultRecord = asObject(result);
+  const content = asArray(resultRecord?.content);
+  if (!resultRecord || content?.length !== 1) {
+    return result;
+  }
+
+  const onlyContent = asObject(content[0]);
+  if (asString(onlyContent?.type)?.toLowerCase() !== "text") {
+    return result;
+  }
+
+  const text = asString(onlyContent?.text);
+  if (!text) {
+    return result;
+  }
+
+  const parsed = parseJsonObjectText(text);
+  if (!parsed || !isMcpToolCallResultRecord(parsed)) {
+    return result;
+  }
+
+  return {
+    ...resultRecord,
+    ...parsed,
+    ...(parsed._meta === undefined && resultRecord._meta !== undefined
+      ? { _meta: resultRecord._meta }
+      : {}),
+  };
+}
+
+function normalizeMcpToolCallPayload(payload: unknown): unknown {
+  const root = asObject(payload);
+  if (!root) {
+    return payload;
+  }
+
+  const item = asObject(root.item);
+  if (item?.result !== undefined) {
+    const normalizedResult = normalizeSerializedMcpToolCallResult(item.result);
+    return normalizedResult === item.result
+      ? payload
+      : {
+          ...root,
+          item: {
+            ...item,
+            result: normalizedResult,
+          },
+        };
+  }
+
+  if (root.result !== undefined) {
+    const normalizedResult = normalizeSerializedMcpToolCallResult(root.result);
+    return normalizedResult === root.result
+      ? payload
+      : {
+          ...root,
+          result: normalizedResult,
+        };
+  }
+
+  return payload;
+}
+
 function trimText(value: string | null | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
@@ -766,6 +851,10 @@ function mapItemLifecycle(
         ? "completed"
         : undefined;
   const title = itemTitleForSource(itemType, source);
+  const data =
+    itemType === "mcp_tool_call" && event.payload !== undefined
+      ? normalizeMcpToolCallPayload(event.payload)
+      : event.payload;
 
   return {
     ...runtimeEventBase(event, canonicalThreadId),
@@ -775,7 +864,7 @@ function mapItemLifecycle(
       ...(status ? { status } : {}),
       ...(title ? { title } : {}),
       ...(detail ? { detail } : {}),
-      ...(event.payload !== undefined ? { data: event.payload } : {}),
+      ...(data !== undefined ? { data } : {}),
     },
   };
 }

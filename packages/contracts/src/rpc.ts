@@ -99,6 +99,23 @@ import {
   StopRawTcpListenerInput,
 } from "./rawTcpListener";
 import {
+  CreateRemoteHostInput,
+  DeleteRemoteHostInput,
+  ListRemoteDirectoryInput,
+  ListRemoteDirectoryResult,
+  ListRemoteCommandRunsInput,
+  RemoteCommandRunSnapshot,
+  RemoteConnectionSnapshot,
+  RemoteControllerEvent,
+  RemoteControllerRpcError,
+  RemoteHostSnapshot,
+  SendRemoteCommandInput,
+  SetRemoteConnectionPathInput,
+  StartRemoteConnectionInput,
+  StopRemoteConnectionInput,
+  UpdateRemoteHostInput,
+} from "./remoteController";
+import {
   TrafficLensArchivedSessionStorageSummary,
   TrafficLensClearPersistedOriginInput,
   TrafficLensDeleteOverrideInput,
@@ -319,6 +336,20 @@ export const WS_METHODS = {
   rawTcpSessionUpgradePty: "rawTcp.sessionUpgradePty",
   rawTcpSessionClose: "rawTcp.sessionClose",
   subscribeRawTcpEvents: "subscribeRawTcpEvents",
+
+  // Remote Controller
+  remoteControllerListHosts: "remoteController.listHosts",
+  remoteControllerCreateHost: "remoteController.createHost",
+  remoteControllerUpdateHost: "remoteController.updateHost",
+  remoteControllerDeleteHost: "remoteController.deleteHost",
+  remoteControllerStartConnection: "remoteController.startConnection",
+  remoteControllerStopConnection: "remoteController.stopConnection",
+  remoteControllerSetConnectionPath: "remoteController.setConnectionPath",
+  remoteControllerListConnections: "remoteController.listConnections",
+  remoteControllerSendCommand: "remoteController.sendCommand",
+  remoteControllerListCommandRuns: "remoteController.listCommandRuns",
+  remoteControllerListDirectory: "remoteController.listDirectory",
+  subscribeRemoteControllerEvents: "subscribeRemoteControllerEvents",
 
   // Traffic Lens
   trafficLensGetTraffic: "trafficLens.getTraffic",
@@ -858,6 +889,97 @@ export const WsSubscribeRawTcpEventsRpc = Rpc.make(WS_METHODS.subscribeRawTcpEve
   success: RawTcpEvent,
   stream: true,
 });
+
+// ─── Remote Controller RPCs ────────────────────────────────────────────────
+
+export const WsRemoteControllerListHostsRpc = Rpc.make(WS_METHODS.remoteControllerListHosts, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(RemoteHostSnapshot),
+});
+
+export const WsRemoteControllerCreateHostRpc = Rpc.make(WS_METHODS.remoteControllerCreateHost, {
+  payload: CreateRemoteHostInput,
+  success: RemoteHostSnapshot,
+  error: RemoteControllerRpcError,
+});
+
+export const WsRemoteControllerUpdateHostRpc = Rpc.make(WS_METHODS.remoteControllerUpdateHost, {
+  payload: UpdateRemoteHostInput,
+  success: RemoteHostSnapshot,
+  error: RemoteControllerRpcError,
+});
+
+export const WsRemoteControllerDeleteHostRpc = Rpc.make(WS_METHODS.remoteControllerDeleteHost, {
+  payload: DeleteRemoteHostInput,
+  error: RemoteControllerRpcError,
+});
+
+export const WsRemoteControllerStartConnectionRpc = Rpc.make(
+  WS_METHODS.remoteControllerStartConnection,
+  {
+    payload: StartRemoteConnectionInput,
+    success: RemoteConnectionSnapshot,
+    error: RemoteControllerRpcError,
+  },
+);
+
+export const WsRemoteControllerStopConnectionRpc = Rpc.make(
+  WS_METHODS.remoteControllerStopConnection,
+  {
+    payload: StopRemoteConnectionInput,
+    success: RemoteConnectionSnapshot,
+    error: RemoteControllerRpcError,
+  },
+);
+
+export const WsRemoteControllerSetConnectionPathRpc = Rpc.make(
+  WS_METHODS.remoteControllerSetConnectionPath,
+  {
+    payload: SetRemoteConnectionPathInput,
+    success: RemoteConnectionSnapshot,
+    error: RemoteControllerRpcError,
+  },
+);
+
+export const WsRemoteControllerListConnectionsRpc = Rpc.make(
+  WS_METHODS.remoteControllerListConnections,
+  {
+    payload: Schema.Struct({}),
+    success: Schema.Array(RemoteConnectionSnapshot),
+  },
+);
+
+export const WsRemoteControllerSendCommandRpc = Rpc.make(WS_METHODS.remoteControllerSendCommand, {
+  payload: SendRemoteCommandInput,
+  success: RemoteCommandRunSnapshot,
+  error: RemoteControllerRpcError,
+});
+
+export const WsRemoteControllerListCommandRunsRpc = Rpc.make(
+  WS_METHODS.remoteControllerListCommandRuns,
+  {
+    payload: ListRemoteCommandRunsInput,
+    success: Schema.Array(RemoteCommandRunSnapshot),
+  },
+);
+
+export const WsRemoteControllerListDirectoryRpc = Rpc.make(
+  WS_METHODS.remoteControllerListDirectory,
+  {
+    payload: ListRemoteDirectoryInput,
+    success: ListRemoteDirectoryResult,
+    error: RemoteControllerRpcError,
+  },
+);
+
+export const WsSubscribeRemoteControllerEventsRpc = Rpc.make(
+  WS_METHODS.subscribeRemoteControllerEvents,
+  {
+    payload: Schema.Struct({}),
+    success: RemoteControllerEvent,
+    stream: true,
+  },
+);
 
 // ─── Traffic Lens RPCs ─────────────────────────────────────────────────────
 
@@ -1537,6 +1659,18 @@ export const WsRpcGroup = RpcGroup.make(
   WsRawTcpSessionUpgradePtyRpc,
   WsRawTcpSessionCloseRpc,
   WsSubscribeRawTcpEventsRpc,
+  WsRemoteControllerListHostsRpc,
+  WsRemoteControllerCreateHostRpc,
+  WsRemoteControllerUpdateHostRpc,
+  WsRemoteControllerDeleteHostRpc,
+  WsRemoteControllerStartConnectionRpc,
+  WsRemoteControllerStopConnectionRpc,
+  WsRemoteControllerSetConnectionPathRpc,
+  WsRemoteControllerListConnectionsRpc,
+  WsRemoteControllerSendCommandRpc,
+  WsRemoteControllerListCommandRunsRpc,
+  WsRemoteControllerListDirectoryRpc,
+  WsSubscribeRemoteControllerEventsRpc,
   WsTrafficLensGetTrafficRpc,
   WsTrafficLensGetTrafficDetailRpc,
   WsTrafficLensClearTrafficRpc,

@@ -1,10 +1,11 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
+
 import {
   ensurePrimaryEnvironmentReady,
   resolveInitialServerAuthGateState,
 } from "../environments/primary";
 
-function HackRouteLayout() {
+function RemoteHostRouteLayout() {
   return (
     <div className="flex h-full flex-1 flex-col">
       <Outlet />
@@ -12,7 +13,7 @@ function HackRouteLayout() {
   );
 }
 
-export const Route = createFileRoute("/hack")({
+export const Route = createFileRoute("/remote-host")({
   beforeLoad: async () => {
     const [, authGateState] = await Promise.all([
       ensurePrimaryEnvironmentReady(),
@@ -22,5 +23,5 @@ export const Route = createFileRoute("/hack")({
       throw redirect({ to: "/pair", replace: true });
     }
   },
-  component: HackRouteLayout,
+  component: RemoteHostRouteLayout,
 });

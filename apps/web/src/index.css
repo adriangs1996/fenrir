@@ -350,7 +350,7 @@
     --app-chrome-background: #0d0c0c;
     --foreground: #c5c9c5;
     --kanagawa-dragon-surface: #282727;
-    --kanagawa-dragon-overlay: #393836;
+    --kanagawa-dragon-overlay: #282727;
 
     --card: var(--kanagawa-dragon-surface);
     --card-foreground: #c5c9c5;

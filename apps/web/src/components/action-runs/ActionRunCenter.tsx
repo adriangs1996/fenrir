@@ -1,5 +1,6 @@
 import {
   type ResolvedKeybindingsConfig,
+  type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
 } from "@fenrir/contracts";
@@ -22,7 +23,7 @@ import {
   actionRunStatusLabel,
   countActiveActionRuns,
   countFailedActionRuns,
-  selectActionRunsForThread,
+  selectActionRunsForProject,
   stripActionRunControlSequences,
   useActionRunStore,
   type ActionRun,
@@ -34,6 +35,7 @@ import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 
 interface ActionRunCenterProps {
+  projectRef: ScopedProjectRef;
   threadRef: ScopedThreadRef;
   threadId: ThreadId;
   keybindings: ResolvedKeybindingsConfig;
@@ -85,6 +87,7 @@ function canRetryActionRun(run: ActionRun): boolean {
 }
 
 export const ActionRunCenter = memo(function ActionRunCenter({
+  projectRef,
   threadRef,
   threadId,
   keybindings,
@@ -93,9 +96,9 @@ export const ActionRunCenter = memo(function ActionRunCenter({
   onRetry,
 }: ActionRunCenterProps) {
   const runs = useActionRunStore(
-    useShallow((state) => selectActionRunsForThread(state, threadRef)),
+    useShallow((state) => selectActionRunsForProject(state, projectRef)),
   );
-  const clearCompletedForThread = useActionRunStore((state) => state.clearCompletedForThread);
+  const clearCompletedForProject = useActionRunStore((state) => state.clearCompletedForProject);
   const removeActionRun = useActionRunStore((state) => state.removeActionRun);
   const requestCancel = useActionRunStore((state) => state.requestCancel);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -185,7 +188,7 @@ export const ActionRunCenter = memo(function ActionRunCenter({
             type="button"
             size="xs"
             variant="outline"
-            onClick={() => clearCompletedForThread(threadRef)}
+            onClick={() => clearCompletedForProject(projectRef)}
           >
             Clear done
           </Button>

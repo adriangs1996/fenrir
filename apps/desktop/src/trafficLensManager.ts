@@ -56,6 +56,7 @@ import {
 import { buildCookieSnapshot, buildDomStorageSnapshot } from "./trafficLens/storageSnapshot";
 import { scriptLiteral, toOriginUrl } from "./trafficLens/storageMutation";
 import { createStorageUtilityTarget } from "./trafficLens/storageUtilityTarget";
+import { normalizeBrowserNavigationUrl } from "./browserNavigation";
 
 export interface TrafficLensManagerConfig {
   window: BrowserWindow;
@@ -609,6 +610,17 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     };
   }
 
+  function getTabNavigationCapabilities(tabId: string): {
+    readonly canGoBack: boolean;
+    readonly canGoForward: boolean;
+  } {
+    const wc = getTabEntry(tabId).view.webContents;
+    return {
+      canGoBack: wc.navigationHistory.canGoBack(),
+      canGoForward: wc.navigationHistory.canGoForward(),
+    };
+  }
+
   function getTabsInDisplayOrder(): TrafficLensTabSnapshot[] {
     const snapshots = Array.from(activeTabs.keys()).map(getTabSnapshot);
     if (!activeTabId) {
@@ -659,6 +671,18 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     const created = createTabForProfile(DEFAULT_PROFILE_ID, "about:blank");
     activeTabId = created.tabId;
     return getTabEntry(created.tabId);
+  }
+
+  function selectActiveTab(tabId: string, options?: { emit?: boolean; persist?: boolean }) {
+    const snapshot = getTabSnapshot(tabId);
+    activeTabId = tabId;
+    if (options?.persist !== false) {
+      persistTabSession();
+    }
+    if (options?.emit !== false) {
+      emitTab({ type: "tab.selected", tabId: tabId as any });
+    }
+    return snapshot;
   }
 
   function resolveTabId(tabId?: string): string {
@@ -1475,6 +1499,11 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       config.onSidebarToggleShortcut?.();
     });
 
+    wc.setWindowOpenHandler(({ url }) => {
+      createTabForProfile(entry.profileId, url);
+      return { action: "deny" };
+    });
+
     wc.on("will-navigate", () => {
       void archiveSessionStorageSnapshot(tabId, "navigation");
     });
@@ -1486,6 +1515,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         type: "tab.navigated",
         tabId: tabId as any,
         url: navUrl,
+        ...getTabNavigationCapabilities(tabId),
       });
       persistTabSession();
     });
@@ -1497,6 +1527,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         type: "tab.navigated",
         tabId: tabId as any,
         url: navUrl,
+        ...getTabNavigationCapabilities(tabId),
       });
       persistTabSession();
     });
@@ -1514,6 +1545,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         type: "tab.loadingChanged",
         tabId: tabId as any,
         loading: true,
+        ...getTabNavigationCapabilities(tabId),
       });
     });
 
@@ -1543,6 +1575,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         type: "tab.loadingChanged",
         tabId: tabId as any,
         loading: false,
+        ...getTabNavigationCapabilities(tabId),
       });
       persistTabSession();
     });
@@ -1581,7 +1614,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     const profile = getProfile(profileId);
     ensureSession(profile.id);
     const tabId = options?.tabId ?? randomUUID();
-    const initialUrl = url || "about:blank";
+    const initialUrl = normalizeBrowserNavigationUrl(url || "about:blank");
     const view = new WebContentsView({
       webPreferences: {
         partition: profile.partitionKey,
@@ -1744,11 +1777,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       return createTabForProfile(DEFAULT_PROFILE_ID, url ?? "about:blank");
     },
 
-    setActiveTab: (tabId) => {
-      activeTabId = tabId;
-      persistTabSession();
-      return getTabSnapshot(tabId);
-    },
+    setActiveTab: (tabId) => selectActiveTab(tabId),
 
     createTab: (url) => createTabForProfile(DEFAULT_PROFILE_ID, url),
 
@@ -1756,9 +1785,10 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
 
     navigateTab: (tabId, url) => {
       const entry = getTabEntry(tabId);
-      entry.lastKnownUrl = url;
+      const normalizedUrl = normalizeBrowserNavigationUrl(url);
+      entry.lastKnownUrl = normalizedUrl;
       persistTabSession();
-      void entry.view.webContents.loadURL(url);
+      void entry.view.webContents.loadURL(normalizedUrl);
     },
 
     goBack: (tabId) => {
@@ -1854,8 +1884,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       if (!entry) {
         return;
       }
-      activeTabId = tabId;
-      persistTabSession();
+      selectActiveTab(tabId);
 
       for (const [id, other] of activeTabs) {
         if (id !== tabId) {

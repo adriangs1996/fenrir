@@ -13,8 +13,8 @@ vi.mock("./Sidebar", () => ({
   default: () => <div>Threads</div>,
 }));
 
-vi.mock("./hack/HackSidebar", () => ({
-  HackSidebar: () => <div>Hack</div>,
+vi.mock("./remote-host/RemoteHostSidebar", () => ({
+  RemoteHostSidebar: () => <div>Remote Host</div>,
 }));
 
 vi.mock("../commandPaletteStore", () => ({

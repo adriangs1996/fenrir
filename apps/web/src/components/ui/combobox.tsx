@@ -7,6 +7,7 @@ import * as React from "react";
 import { cn } from "~/lib/utils";
 import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
+import { useSuppressBaseUIClickAfterMouseDown } from "./useSuppressBaseUIClickAfterMouseDown";
 
 const ComboboxContext = React.createContext<{
   chipsRef: React.RefObject<Element | null> | null;
@@ -127,9 +128,26 @@ function ComboboxInput({
   );
 }
 
-function ComboboxTrigger({ className, children, ...props }: ComboboxPrimitive.Trigger.Props) {
+function ComboboxTrigger({
+  className,
+  children,
+  onClick,
+  onMouseDown,
+  ...props
+}: ComboboxPrimitive.Trigger.Props) {
+  const clickSuppressionProps = useSuppressBaseUIClickAfterMouseDown<HTMLButtonElement>(
+    onMouseDown,
+    onClick,
+  );
+
   return (
-    <ComboboxPrimitive.Trigger className={className} data-slot="combobox-trigger" {...props}>
+    <ComboboxPrimitive.Trigger
+      className={className}
+      data-slot="combobox-trigger"
+      onClick={clickSuppressionProps.onClick}
+      onMouseDown={clickSuppressionProps.onMouseDown}
+      {...props}
+    >
       {children}
     </ComboboxPrimitive.Trigger>
   );

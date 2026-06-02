@@ -8,6 +8,7 @@ import { ChevronDownIcon, ChevronsUpDownIcon, ChevronUpIcon } from "lucide-react
 import type * as React from "react";
 
 import { cn } from "~/lib/utils";
+import { useSuppressBaseUIClickAfterMouseDown } from "./useSuppressBaseUIClickAfterMouseDown";
 
 const Select = SelectPrimitive.Root;
 
@@ -77,12 +78,21 @@ function SelectTrigger({
   size = "default",
   variant = "default",
   children,
+  onClick,
+  onMouseDown,
   ...props
 }: SelectPrimitive.Trigger.Props & VariantProps<typeof selectTriggerVariants>) {
+  const clickSuppressionProps = useSuppressBaseUIClickAfterMouseDown<HTMLButtonElement>(
+    onMouseDown,
+    onClick,
+  );
+
   return (
     <SelectPrimitive.Trigger
       className={cn(selectTriggerVariants({ size, variant }), className)}
       data-slot="select-trigger"
+      onClick={clickSuppressionProps.onClick}
+      onMouseDown={clickSuppressionProps.onMouseDown}
       {...props}
     >
       {children}

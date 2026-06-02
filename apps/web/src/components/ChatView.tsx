@@ -202,7 +202,7 @@ import { useCommandPaletteStore } from "../commandPaletteStore";
 import { parseThreadRouteSearch } from "~/threadRouteSearch";
 import {
   selectActionRunReceiptsForThread,
-  selectActionRunsForThread,
+  selectActionRunsForProject,
   useActionRunStore,
   type ActionRun,
 } from "~/modules/action-runs";
@@ -897,11 +897,20 @@ export default function ChatView(props: ChatViewProps) {
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
     [activeThread],
   );
+  const activeThreadEnvironmentId = activeThread?.environmentId;
+  const activeThreadProjectId = activeThread?.projectId;
+  const activeProjectRef = useMemo(
+    () =>
+      activeThreadEnvironmentId && activeThreadProjectId
+        ? scopeProjectRef(activeThreadEnvironmentId, activeThreadProjectId)
+        : null,
+    [activeThreadEnvironmentId, activeThreadProjectId],
+  );
   const actionRunReceipts = useActionRunStore(
     useShallow((state) => selectActionRunReceiptsForThread(state, routeThreadRef)),
   );
   const activeActionRunObserverKey = useActionRunStore((state) =>
-    selectActionRunsForThread(state, routeThreadRef)
+    (activeProjectRef ? selectActionRunsForProject(state, activeProjectRef) : [])
       .filter((run) => run.status === "starting" || run.status === "running")
       .map((run) => `${run.id}:${run.tmuxProjectId}:${run.cwd}`)
       .join("|"),
@@ -941,9 +950,6 @@ export default function ChatView(props: ChatViewProps) {
     });
   }, [activeThreadKey, existingOpenTerminalThreadKeys, terminalState.terminalOpen]);
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
-  const activeProjectRef = activeThread
-    ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
-    : null;
   const activeProject = useStore(
     useMemo(() => createProjectSelectorByRef(activeProjectRef), [activeProjectRef]),
   );
@@ -1861,10 +1867,11 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
 
-    const activeRuns = selectActionRunsForThread(
-      useActionRunStore.getState(),
-      routeThreadRef,
-    ).filter((run) => run.status === "starting" || run.status === "running");
+    const activeRuns = activeProjectRef
+      ? selectActionRunsForProject(useActionRunStore.getState(), activeProjectRef).filter(
+          (run) => run.status === "starting" || run.status === "running",
+        )
+      : [];
 
     for (const run of activeRuns) {
       void api.terminal
@@ -1880,7 +1887,7 @@ export default function ChatView(props: ChatViewProps) {
           useActionRunStore.getState().failActionRun(run.id, message);
         });
     }
-  }, [actionCenterOpen, activeActionRunObserverKey, environmentId, routeThreadRef]);
+  }, [actionCenterOpen, activeActionRunObserverKey, activeProjectRef, environmentId]);
 
   const handleRuntimeModeChange = useCallback(
     (mode: RuntimeMode) => {
@@ -3539,6 +3546,7 @@ export default function ChatView(props: ChatViewProps) {
           activeThreadId={activeThread.id}
           {...(routeKind === "draft" && draftId ? { draftId } : {})}
           activeThreadTitle={activeThread.title}
+          activeProjectId={activeProject?.id}
           activeProjectName={activeProject?.name}
           activeChatTab={activeChatTab}
           editorAvailable={editorAvailable}
@@ -3783,8 +3791,9 @@ export default function ChatView(props: ChatViewProps) {
         {/* end chat column */}
 
         {/* Right panel tabs (Plan / Diff / Skills) and Action Center — desktop inline */}
-        {actionCenterOpen && !shouldUsePlanSidebarSheet ? (
+        {actionCenterOpen && activeProjectRef && !shouldUsePlanSidebarSheet ? (
           <ActionRunCenter
+            projectRef={activeProjectRef}
             threadRef={routeThreadRef}
             threadId={threadId}
             keybindings={keybindings}
@@ -3833,8 +3842,9 @@ export default function ChatView(props: ChatViewProps) {
           open={actionCenterOpen || rightPanel.activeTab !== null}
           onClose={actionCenterOpen ? () => setActionCenterOpen(false) : closePlanSidebar}
         >
-          {actionCenterOpen ? (
+          {actionCenterOpen && activeProjectRef ? (
             <ActionRunCenter
+              projectRef={activeProjectRef}
               threadRef={routeThreadRef}
               threadId={threadId}
               keybindings={keybindings}

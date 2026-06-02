@@ -5,6 +5,7 @@ import { ChevronRightIcon } from "lucide-react";
 import type * as React from "react";
 
 import { cn } from "~/lib/utils";
+import { useSuppressBaseUIClickAfterMouseDown } from "./useSuppressBaseUIClickAfterMouseDown";
 
 const MenuCreateHandle = MenuPrimitive.createHandle;
 
@@ -12,9 +13,26 @@ const Menu = MenuPrimitive.Root;
 
 const MenuPortal = MenuPrimitive.Portal;
 
-function MenuTrigger({ className, children, ...props }: MenuPrimitive.Trigger.Props) {
+function MenuTrigger({
+  className,
+  children,
+  onClick,
+  onMouseDown,
+  ...props
+}: MenuPrimitive.Trigger.Props) {
+  const clickSuppressionProps = useSuppressBaseUIClickAfterMouseDown<HTMLElement>(
+    onMouseDown,
+    onClick,
+  );
+
   return (
-    <MenuPrimitive.Trigger className={className} data-slot="menu-trigger" {...props}>
+    <MenuPrimitive.Trigger
+      className={className}
+      data-slot="menu-trigger"
+      onClick={clickSuppressionProps.onClick}
+      onMouseDown={clickSuppressionProps.onMouseDown}
+      {...props}
+    >
       {children}
     </MenuPrimitive.Trigger>
   );

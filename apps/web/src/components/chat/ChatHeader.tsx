@@ -2,11 +2,12 @@ import {
   type EnvironmentId,
   type GlobalScript,
   type GlobalScriptProjectDefaults,
+  type ProjectId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@fenrir/contracts";
-import { scopeThreadRef } from "@fenrir/client-runtime";
+import { scopeProjectRef, scopeThreadRef } from "@fenrir/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
@@ -25,7 +26,7 @@ import { ChatViewSwitcher, type ChatTab } from "~/modules/neovim-editor";
 import {
   countActiveActionRuns,
   countFailedActionRuns,
-  selectActionRunsForThread,
+  selectActionRunsForProject,
   useActionRunStore,
 } from "~/modules/action-runs";
 
@@ -34,6 +35,7 @@ interface ChatHeaderProps {
   activeThreadId: ThreadId;
   draftId?: DraftId;
   activeThreadTitle: string;
+  activeProjectId: ProjectId | undefined;
   activeProjectName: string | undefined;
   activeChatTab: ChatTab;
   editorAvailable: boolean;
@@ -65,6 +67,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   draftId,
   activeThreadTitle,
+  activeProjectId,
   activeProjectName,
   activeChatTab,
   editorAvailable,
@@ -91,8 +94,11 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleDiff,
 }: ChatHeaderProps) {
   const threadRef = scopeThreadRef(activeThreadEnvironmentId, activeThreadId);
+  const projectRef = activeProjectId
+    ? scopeProjectRef(activeThreadEnvironmentId, activeProjectId)
+    : null;
   const actionRunSummary = useActionRunStore((state) => {
-    const runs = selectActionRunsForThread(state, threadRef);
+    const runs = projectRef ? selectActionRunsForProject(state, projectRef) : [];
     return `${countFailedActionRuns(runs)}:${countActiveActionRuns(runs)}:${runs.length}`;
   });
   const [failedActionRunCount = 0, activeActionRunCount = 0, actionRunCount = 0] = actionRunSummary

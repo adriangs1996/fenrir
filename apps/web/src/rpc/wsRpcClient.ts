@@ -218,6 +218,22 @@ export interface WsRpcClient {
     readonly sessionClose: RpcUnaryMethod<typeof WS_METHODS.rawTcpSessionClose>;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeRawTcpEvents>;
   };
+  readonly remoteController: {
+    readonly listHosts: RpcUnaryNoArgMethod<typeof WS_METHODS.remoteControllerListHosts>;
+    readonly createHost: RpcUnaryMethod<typeof WS_METHODS.remoteControllerCreateHost>;
+    readonly updateHost: RpcUnaryMethod<typeof WS_METHODS.remoteControllerUpdateHost>;
+    readonly deleteHost: RpcUnaryMethod<typeof WS_METHODS.remoteControllerDeleteHost>;
+    readonly startConnection: RpcUnaryMethod<typeof WS_METHODS.remoteControllerStartConnection>;
+    readonly stopConnection: RpcUnaryMethod<typeof WS_METHODS.remoteControllerStopConnection>;
+    readonly setConnectionPath: RpcUnaryMethod<typeof WS_METHODS.remoteControllerSetConnectionPath>;
+    readonly listConnections: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.remoteControllerListConnections
+    >;
+    readonly sendCommand: RpcUnaryMethod<typeof WS_METHODS.remoteControllerSendCommand>;
+    readonly listCommandRuns: RpcUnaryMethod<typeof WS_METHODS.remoteControllerListCommandRuns>;
+    readonly listDirectory: RpcUnaryMethod<typeof WS_METHODS.remoteControllerListDirectory>;
+    readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeRemoteControllerEvents>;
+  };
   readonly projects: {
     readonly listEntries: RpcUnaryMethod<typeof WS_METHODS.projectsListEntries>;
     readonly searchEntries: RpcUnaryMethod<typeof WS_METHODS.projectsSearchEntries>;
@@ -515,6 +531,36 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       onEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeRawTcpEvents]({}),
+          listener,
+          options,
+        ),
+    },
+    remoteController: {
+      listHosts: () =>
+        transport.request((client) => client[WS_METHODS.remoteControllerListHosts]({})),
+      createHost: (input) =>
+        transport.request((client) => client[WS_METHODS.remoteControllerCreateHost](input)),
+      updateHost: (input) =>
+        transport.request((client) => client[WS_METHODS.remoteControllerUpdateHost](input)),
+      deleteHost: (input) =>
+        transport.request((client) => client[WS_METHODS.remoteControllerDeleteHost](input)),
+      startConnection: (input) =>
+        transport.request((client) => client[WS_METHODS.remoteControllerStartConnection](input)),
+      stopConnection: (input) =>
+        transport.request((client) => client[WS_METHODS.remoteControllerStopConnection](input)),
+      setConnectionPath: (input) =>
+        transport.request((client) => client[WS_METHODS.remoteControllerSetConnectionPath](input)),
+      listConnections: () =>
+        transport.request((client) => client[WS_METHODS.remoteControllerListConnections]({})),
+      sendCommand: (input) =>
+        transport.request((client) => client[WS_METHODS.remoteControllerSendCommand](input)),
+      listCommandRuns: (input) =>
+        transport.request((client) => client[WS_METHODS.remoteControllerListCommandRuns](input)),
+      listDirectory: (input) =>
+        transport.request((client) => client[WS_METHODS.remoteControllerListDirectory](input)),
+      onEvent: (listener, options) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeRemoteControllerEvents]({}),
           listener,
           options,
         ),

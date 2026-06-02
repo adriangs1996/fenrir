@@ -6,6 +6,7 @@ export {
   countActiveActionRuns,
   countFailedActionRuns,
   selectActionRunReceiptsForThread,
+  selectActionRunsForProject,
   selectActionRunsForThread,
   stripActionRunControlSequences,
   useActionRunStore,

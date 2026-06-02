@@ -105,8 +105,7 @@ export function HackSidebar() {
                       }`}
                       onClick={() =>
                         void navigate({
-                          to: "/hack/$sessionId",
-                          params: { sessionId: s.sessionId },
+                          to: "/remote-host",
                         })
                       }
                     >

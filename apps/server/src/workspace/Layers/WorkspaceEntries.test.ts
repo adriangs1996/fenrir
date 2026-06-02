@@ -1,4 +1,5 @@
 import fsPromises from "node:fs/promises";
+import { homedir } from "node:os";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, afterEach, describe, expect, vi } from "@effect/vitest";
@@ -390,6 +391,18 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
           parentPath: cwd,
           entries: [{ name: "packages", fullPath: path.join(cwd, "packages") }],
         });
+      }),
+    );
+
+    it.effect("expands home-relative paths before listing directories", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+
+        const result = yield* browseWorkspaceEntries({
+          partialPath: "~/",
+        });
+
+        expect(result.parentPath).toBe(path.resolve(homedir()));
       }),
     );
 

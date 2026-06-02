@@ -28,6 +28,21 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       sessionClose: (input) => rpcClient.rawTcp.sessionClose(input),
       onEvent: (callback) => rpcClient.rawTcp.onEvent(callback),
     },
+    remoteController: {
+      listHosts: () => rpcClient.remoteController.listHosts().then((list) => [...list]),
+      createHost: (input) => rpcClient.remoteController.createHost(input),
+      updateHost: (input) => rpcClient.remoteController.updateHost(input),
+      deleteHost: (input) => rpcClient.remoteController.deleteHost(input),
+      startConnection: (input) => rpcClient.remoteController.startConnection(input),
+      stopConnection: (input) => rpcClient.remoteController.stopConnection(input),
+      setConnectionPath: (input) => rpcClient.remoteController.setConnectionPath(input),
+      listConnections: () => rpcClient.remoteController.listConnections().then((list) => [...list]),
+      sendCommand: (input) => rpcClient.remoteController.sendCommand(input),
+      listCommandRuns: (input) =>
+        rpcClient.remoteController.listCommandRuns(input).then((list) => [...list]),
+      listDirectory: (input) => rpcClient.remoteController.listDirectory(input),
+      onEvent: (callback) => rpcClient.remoteController.onEvent(callback),
+    },
     projects: {
       listEntries: rpcClient.projects.listEntries,
       searchEntries: rpcClient.projects.searchEntries,

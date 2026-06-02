@@ -158,11 +158,20 @@ export const useTrafficLensStore = create<TrafficLensState>((set) => ({
 
   applyEvent: (event) =>
     set((state) => {
+      const navigationCapabilities = {
+        ...("canGoBack" in event && typeof event.canGoBack === "boolean"
+          ? { canGoBack: event.canGoBack }
+          : {}),
+        ...("canGoForward" in event && typeof event.canGoForward === "boolean"
+          ? { canGoForward: event.canGoForward }
+          : {}),
+      };
+
       switch (event.type) {
         case "tab.created":
           return {
             tabs: { ...state.tabs, [event.snapshot.tabId]: event.snapshot },
-            activeTabId: state.activeTabId ?? event.snapshot.tabId,
+            activeTabId: event.snapshot.tabId,
           };
         case "tab.closed": {
           const { [event.tabId]: _closedTab, ...restTabs } = state.tabs;
@@ -174,10 +183,17 @@ export const useTrafficLensStore = create<TrafficLensState>((set) => ({
                 : state.activeTabId,
           };
         }
+        case "tab.selected":
+          return state.tabs[event.tabId] ? { activeTabId: event.tabId } : state;
         case "tab.navigated": {
           const existing = state.tabs[event.tabId];
           if (!existing) return state;
-          return { tabs: { ...state.tabs, [event.tabId]: { ...existing, url: event.url } } };
+          return {
+            tabs: {
+              ...state.tabs,
+              [event.tabId]: { ...existing, url: event.url, ...navigationCapabilities },
+            },
+          };
         }
         case "tab.titleUpdated": {
           const existing = state.tabs[event.tabId];
@@ -188,7 +204,10 @@ export const useTrafficLensStore = create<TrafficLensState>((set) => ({
           const existing = state.tabs[event.tabId];
           if (!existing) return state;
           return {
-            tabs: { ...state.tabs, [event.tabId]: { ...existing, loading: event.loading } },
+            tabs: {
+              ...state.tabs,
+              [event.tabId]: { ...existing, loading: event.loading, ...navigationCapabilities },
+            },
           };
         }
         case "tab.viewModeChanged": {

@@ -34,7 +34,11 @@ const profileId = z
     "Browser Lab profile id. Use traffic_lens_list_profiles first when you need a logged-in or account-specific browser session.",
   );
 const optionalProfileId = profileId.optional();
-const url = z.string().describe("Absolute URL to open, for example http://localhost:8082.");
+const url = z
+  .string()
+  .describe(
+    "Absolute URL to open, for example http://localhost:8082, https://example.com, or file:///Users/alice/page.html.",
+  );
 const headers = z.record(z.string(), z.string()).describe("HTTP headers keyed by header name.");
 const emptyInputSchema = {};
 const tabInputSchema = { tabId: optionalTabId };
@@ -241,7 +245,8 @@ export const BROWSER_LAB_MCP_TOOLS = [
   },
   {
     name: "browser_lab_navigate",
-    description: "Navigate the active or selected Browser Lab tab to an absolute URL.",
+    description:
+      "Navigate the active or selected Browser Lab tab to an absolute URL, including file:// URLs for local files.",
     inputSchema: { tabId: optionalTabId, url },
   },
   {

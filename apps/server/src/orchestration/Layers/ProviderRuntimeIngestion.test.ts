@@ -216,7 +216,9 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
-      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provideMerge(
+        ServerConfig.layerTest(process.cwd(), { prefix: "fenrir-provider-runtime-ingestion-" }),
+      ),
       Layer.provideMerge(NodeServices.layer),
     );
     runtime = ManagedRuntime.make(layer);
@@ -723,6 +725,95 @@ describe("ProviderRuntimeIngestion", () => {
       (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-no-delta",
     );
     expect(message?.text).toBe("assistant-only final text");
+    expect(message?.streaming).toBe(false);
+  });
+
+  it("materializes canonical MCP image tool results before resolving assistant image handles", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const artifactId = "browser-lab-test";
+    const uri = `fenrir-image://${artifactId}`;
+    const toolResult = {
+      content: [
+        { type: "image", data: "SGVsbG8=", mimeType: "image/png" },
+        { type: "text", text: `Fenrir image handle: ${uri}` },
+      ],
+      structuredContent: {
+        fenrirImageHandles: [
+          {
+            id: artifactId,
+            uri,
+            name: "browser-lab-screenshot.png",
+            mimeType: "image/png",
+          },
+        ],
+      },
+    };
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-mcp-image-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image"),
+      itemId: asItemId("tool-image"),
+      payload: {
+        itemType: "mcp_tool_call",
+        status: "completed",
+        title: "MCP fenrir-browser-lab.browser_lab_screenshot",
+        data: {
+          item: {
+            type: "mcpToolCall",
+            id: "tool-image",
+            server: "fenrir-browser-lab",
+            tool: "browser_lab_screenshot",
+            status: "completed",
+            result: toolResult,
+          },
+        },
+      },
+    });
+
+    await harness.drain();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-assistant-image-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image"),
+      itemId: asItemId("assistant-image"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: `Here it is:\n\n![Browser Lab screenshot](${uri})`,
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:assistant-image" &&
+          !message.streaming &&
+          (message.attachments?.length ?? 0) === 1,
+      ),
+    );
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:assistant-image",
+    );
+    const attachment = message?.attachments?.[0];
+
+    expect(attachment).toMatchObject({
+      type: "image",
+      name: "browser-lab-screenshot.png",
+      mimeType: "image/png",
+      sizeBytes: 5,
+    });
+    expect(attachment?.id).toMatch(/^thread-1-[0-9a-f-]{36}$/);
+    expect(message?.text).toContain(`fenrir-image://${attachment?.id}`);
+    expect(message?.text).not.toContain(uri);
     expect(message?.streaming).toBe(false);
   });
 

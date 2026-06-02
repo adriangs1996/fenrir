@@ -7,9 +7,7 @@ import {
   FileTextIcon,
   FolderIcon,
   FolderPlusIcon,
-  GlobeIcon,
   GitPullRequestIcon,
-  SettingsIcon,
   MessageSquareTextIcon,
   SquarePenIcon,
   TerminalIcon,
@@ -70,7 +68,6 @@ import {
   useStore,
 } from "../store";
 import {
-  GLOBAL_TERMINAL_ROUTE,
   isTerminalFocused,
   selectThreadTerminalState,
   useTerminalStateStore,
@@ -113,7 +110,6 @@ import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger 
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarHeader,
   SidebarMenu,
@@ -142,8 +138,7 @@ import {
   useThreadJumpHintVisibility,
   ThreadStatusPill,
 } from "./Sidebar.logic";
-import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
-import { SidebarProviderUpdatePill } from "./sidebar/SidebarProviderUpdatePill";
+import { SidebarRouteNavFooter } from "./sidebar/SidebarRouteNavFooter";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import {
   PlanRunnerProjectSection,
@@ -2269,68 +2264,6 @@ const SidebarChromeHeader = memo(function SidebarChromeHeader({
   );
 });
 
-const SidebarChromeFooter = memo(function SidebarChromeFooter() {
-  const navigate = useNavigate();
-  const pathname = useLocation({ select: (location) => location.pathname });
-  const isBrowserLabRoute = pathname === "/browser-lab";
-  const isGlobalTerminalRoute = pathname === GLOBAL_TERMINAL_ROUTE;
-  const isSettingsRoute = pathname.startsWith("/settings");
-
-  const handleBrowserLabClick = useCallback(() => {
-    void navigate({ to: "/browser-lab" });
-  }, [navigate]);
-
-  const handleSettingsClick = useCallback(() => {
-    void navigate({ to: "/settings" });
-  }, [navigate]);
-
-  const handleGlobalTerminalClick = useCallback(() => {
-    void navigate({ to: GLOBAL_TERMINAL_ROUTE });
-  }, [navigate]);
-
-  return (
-    <SidebarFooter className="p-2">
-      <SidebarProviderUpdatePill />
-      <SidebarUpdatePill />
-      <SidebarMenu>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            isActive={isBrowserLabRoute}
-            size="sm"
-            className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-            onClick={handleBrowserLabClick}
-          >
-            <GlobeIcon className="size-3.5" />
-            <span className="text-xs">Browser Lab</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            isActive={isGlobalTerminalRoute}
-            size="sm"
-            className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-            onClick={handleGlobalTerminalClick}
-          >
-            <TerminalIcon className="size-3.5" />
-            <span className="text-xs">Global Terminal</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            isActive={isSettingsRoute}
-            size="sm"
-            className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-            onClick={handleSettingsClick}
-          >
-            <SettingsIcon className="size-3.5" />
-            <span className="text-xs">Settings</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
-    </SidebarFooter>
-  );
-});
-
 interface SidebarProjectsContentProps {
   showArm64IntelBuildWarning: boolean;
   arm64IntelBuildWarningDescription: string | null;
@@ -3419,7 +3352,7 @@ export default function Sidebar() {
           />
 
           <SidebarSeparator />
-          <SidebarChromeFooter />
+          <SidebarRouteNavFooter />
         </>
       )}
     </>

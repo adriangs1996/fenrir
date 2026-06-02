@@ -45,6 +45,8 @@ import { TerminalShellResolverLive } from "./terminal/Layers/ShellResolver";
 import { TerminalProcessLifecycleLive } from "./terminal/Layers/ProcessLifecycle";
 import { TmuxSessionManagerLive } from "./terminal/Layers/TmuxSessionManager";
 import { RawTcpListenerServiceLive } from "./raw-tcp/Layers/RawTcpListenerService";
+import { RemoteController } from "./puppeteer/Layers/RemoteController";
+import { RemoteConnectionManagerLive } from "./puppeteer/Layers/RemoteConnectionManager";
 import { TrafficLensServiceLive } from "./traffic-lens/Layers/TrafficLensService";
 import { TrafficLensStorageServiceLive } from "./traffic-lens-storage/Layers/TrafficLensStorageService";
 import { BrowserLabControlHttpLive } from "./browserLab/browserLabControlHttp";
@@ -379,6 +381,7 @@ const CoreInfrastructureLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ProviderRuntimeServiceLive),
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(RawTcpListenerServiceLive),
+  Layer.provideMerge(RemoteController.pipe(Layer.provide(RemoteConnectionManagerLive))),
   Layer.provideMerge(TrafficLensServiceLive),
   Layer.provideMerge(TrafficLensStorageServiceLive),
   Layer.provideMerge(BrowserLabControlServiceLive),

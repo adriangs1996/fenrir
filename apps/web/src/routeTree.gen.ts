@@ -10,10 +10,10 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as RemoteHostRouteImport } from './routes/remote-host'
 import { Route as PairRouteImport } from './routes/pair'
-import { Route as HackRouteImport } from './routes/hack'
 import { Route as ChatRouteImport } from './routes/_chat'
-import { Route as HackIndexRouteImport } from './routes/hack.index'
+import { Route as RemoteHostIndexRouteImport } from './routes/remote-host.index'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsVpnRouteImport } from './routes/settings.vpn'
 import { Route as SettingsSourceControlRouteImport } from './routes/settings.source-control'
@@ -23,7 +23,7 @@ import { Route as SettingsDiagnosticsRouteImport } from './routes/settings.diagn
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
 import { Route as SettingsArchivedPlansRouteImport } from './routes/settings.archived-plans'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
-import { Route as HackSessionIdRouteImport } from './routes/hack.$sessionId'
+import { Route as RemoteHostHostIdRouteImport } from './routes/remote-host.$hostId'
 import { Route as ChatGlobalTerminalRouteImport } from './routes/_chat.global-terminal'
 import { Route as ChatBrowserLabRouteImport } from './routes/_chat.browser-lab'
 import { Route as ChatPlanRunnerRunIdRouteImport } from './routes/_chat.plan-runner.$runId'
@@ -38,24 +38,24 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RemoteHostRoute = RemoteHostRouteImport.update({
+  id: '/remote-host',
+  path: '/remote-host',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PairRoute = PairRouteImport.update({
   id: '/pair',
   path: '/pair',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const HackRoute = HackRouteImport.update({
-  id: '/hack',
-  path: '/hack',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatRoute = ChatRouteImport.update({
   id: '/_chat',
   getParentRoute: () => rootRouteImport,
 } as any)
-const HackIndexRoute = HackIndexRouteImport.update({
+const RemoteHostIndexRoute = RemoteHostIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => HackRoute,
+  getParentRoute: () => RemoteHostRoute,
 } as any)
 const ChatIndexRoute = ChatIndexRouteImport.update({
   id: '/',
@@ -102,10 +102,10 @@ const SettingsArchivedRoute = SettingsArchivedRouteImport.update({
   path: '/archived',
   getParentRoute: () => SettingsRoute,
 } as any)
-const HackSessionIdRoute = HackSessionIdRouteImport.update({
-  id: '/$sessionId',
-  path: '/$sessionId',
-  getParentRoute: () => HackRoute,
+const RemoteHostHostIdRoute = RemoteHostHostIdRouteImport.update({
+  id: '/$hostId',
+  path: '/$hostId',
+  getParentRoute: () => RemoteHostRoute,
 } as any)
 const ChatGlobalTerminalRoute = ChatGlobalTerminalRouteImport.update({
   id: '/global-terminal',
@@ -154,12 +154,12 @@ const ChatPlanRunnerFeatureNamePlanIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
-  '/hack': typeof HackRouteWithChildren
   '/pair': typeof PairRoute
+  '/remote-host': typeof RemoteHostRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/browser-lab': typeof ChatBrowserLabRoute
   '/global-terminal': typeof ChatGlobalTerminalRoute
-  '/hack/$sessionId': typeof HackSessionIdRoute
+  '/remote-host/$hostId': typeof RemoteHostHostIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -168,7 +168,7 @@ export interface FileRoutesByFullPath {
   '/settings/keybindings': typeof SettingsKeybindingsRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/vpn': typeof SettingsVpnRoute
-  '/hack/': typeof HackIndexRoute
+  '/remote-host/': typeof RemoteHostIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/plan-runner/$runId': typeof ChatPlanRunnerRunIdRoute
@@ -181,7 +181,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRouteWithChildren
   '/browser-lab': typeof ChatBrowserLabRoute
   '/global-terminal': typeof ChatGlobalTerminalRoute
-  '/hack/$sessionId': typeof HackSessionIdRoute
+  '/remote-host/$hostId': typeof RemoteHostHostIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -191,7 +191,7 @@ export interface FileRoutesByTo {
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/vpn': typeof SettingsVpnRoute
   '/': typeof ChatIndexRoute
-  '/hack': typeof HackIndexRoute
+  '/remote-host': typeof RemoteHostIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/plan-runner/$runId': typeof ChatPlanRunnerRunIdRoute
@@ -202,12 +202,12 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
-  '/hack': typeof HackRouteWithChildren
   '/pair': typeof PairRoute
+  '/remote-host': typeof RemoteHostRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/_chat/browser-lab': typeof ChatBrowserLabRoute
   '/_chat/global-terminal': typeof ChatGlobalTerminalRoute
-  '/hack/$sessionId': typeof HackSessionIdRoute
+  '/remote-host/$hostId': typeof RemoteHostHostIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -217,7 +217,7 @@ export interface FileRoutesById {
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/vpn': typeof SettingsVpnRoute
   '/_chat/': typeof ChatIndexRoute
-  '/hack/': typeof HackIndexRoute
+  '/remote-host/': typeof RemoteHostIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/_chat/plan-runner/$runId': typeof ChatPlanRunnerRunIdRoute
@@ -229,12 +229,12 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/hack'
     | '/pair'
+    | '/remote-host'
     | '/settings'
     | '/browser-lab'
     | '/global-terminal'
-    | '/hack/$sessionId'
+    | '/remote-host/$hostId'
     | '/settings/archived'
     | '/settings/archived-plans'
     | '/settings/connections'
@@ -243,7 +243,7 @@ export interface FileRouteTypes {
     | '/settings/keybindings'
     | '/settings/source-control'
     | '/settings/vpn'
-    | '/hack/'
+    | '/remote-host/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/plan-runner/$runId'
@@ -256,7 +256,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/browser-lab'
     | '/global-terminal'
-    | '/hack/$sessionId'
+    | '/remote-host/$hostId'
     | '/settings/archived'
     | '/settings/archived-plans'
     | '/settings/connections'
@@ -266,7 +266,7 @@ export interface FileRouteTypes {
     | '/settings/source-control'
     | '/settings/vpn'
     | '/'
-    | '/hack'
+    | '/remote-host'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/plan-runner/$runId'
@@ -276,12 +276,12 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_chat'
-    | '/hack'
     | '/pair'
+    | '/remote-host'
     | '/settings'
     | '/_chat/browser-lab'
     | '/_chat/global-terminal'
-    | '/hack/$sessionId'
+    | '/remote-host/$hostId'
     | '/settings/archived'
     | '/settings/archived-plans'
     | '/settings/connections'
@@ -291,7 +291,7 @@ export interface FileRouteTypes {
     | '/settings/source-control'
     | '/settings/vpn'
     | '/_chat/'
-    | '/hack/'
+    | '/remote-host/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
     | '/_chat/plan-runner/$runId'
@@ -302,8 +302,8 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
-  HackRoute: typeof HackRouteWithChildren
   PairRoute: typeof PairRoute
+  RemoteHostRoute: typeof RemoteHostRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
 }
 
@@ -316,18 +316,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/remote-host': {
+      id: '/remote-host'
+      path: '/remote-host'
+      fullPath: '/remote-host'
+      preLoaderRoute: typeof RemoteHostRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pair': {
       id: '/pair'
       path: '/pair'
       fullPath: '/pair'
       preLoaderRoute: typeof PairRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/hack': {
-      id: '/hack'
-      path: '/hack'
-      fullPath: '/hack'
-      preLoaderRoute: typeof HackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_chat': {
@@ -337,12 +337,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/hack/': {
-      id: '/hack/'
+    '/remote-host/': {
+      id: '/remote-host/'
       path: '/'
-      fullPath: '/hack/'
-      preLoaderRoute: typeof HackIndexRouteImport
-      parentRoute: typeof HackRoute
+      fullPath: '/remote-host/'
+      preLoaderRoute: typeof RemoteHostIndexRouteImport
+      parentRoute: typeof RemoteHostRoute
     }
     '/_chat/': {
       id: '/_chat/'
@@ -407,12 +407,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsArchivedRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/hack/$sessionId': {
-      id: '/hack/$sessionId'
-      path: '/$sessionId'
-      fullPath: '/hack/$sessionId'
-      preLoaderRoute: typeof HackSessionIdRouteImport
-      parentRoute: typeof HackRoute
+    '/remote-host/$hostId': {
+      id: '/remote-host/$hostId'
+      path: '/$hostId'
+      fullPath: '/remote-host/$hostId'
+      preLoaderRoute: typeof RemoteHostHostIdRouteImport
+      parentRoute: typeof RemoteHostRoute
     }
     '/_chat/global-terminal': {
       id: '/_chat/global-terminal'
@@ -500,17 +500,19 @@ const ChatRouteChildren: ChatRouteChildren = {
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
-interface HackRouteChildren {
-  HackSessionIdRoute: typeof HackSessionIdRoute
-  HackIndexRoute: typeof HackIndexRoute
+interface RemoteHostRouteChildren {
+  RemoteHostHostIdRoute: typeof RemoteHostHostIdRoute
+  RemoteHostIndexRoute: typeof RemoteHostIndexRoute
 }
 
-const HackRouteChildren: HackRouteChildren = {
-  HackSessionIdRoute: HackSessionIdRoute,
-  HackIndexRoute: HackIndexRoute,
+const RemoteHostRouteChildren: RemoteHostRouteChildren = {
+  RemoteHostHostIdRoute: RemoteHostHostIdRoute,
+  RemoteHostIndexRoute: RemoteHostIndexRoute,
 }
 
-const HackRouteWithChildren = HackRoute._addFileChildren(HackRouteChildren)
+const RemoteHostRouteWithChildren = RemoteHostRoute._addFileChildren(
+  RemoteHostRouteChildren,
+)
 
 interface SettingsRouteChildren {
   SettingsArchivedRoute: typeof SettingsArchivedRoute
@@ -540,8 +542,8 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
-  HackRoute: HackRouteWithChildren,
   PairRoute: PairRoute,
+  RemoteHostRoute: RemoteHostRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
 }
 export const routeTree = rootRouteImport

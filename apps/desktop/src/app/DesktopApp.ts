@@ -833,9 +833,7 @@ async function handleBrowserLabControlMethod(method: string, params: unknown): P
     }
     case "browser_lab_select_tab": {
       if (typeof input.tabId !== "string") throw new Error("tabId is required.");
-      const tab = manager.setActiveTab(input.tabId);
-      manager.showTab(input.tabId);
-      return tab;
+      return manager.setActiveTab(input.tabId);
     }
     case "browser_lab_close_tab": {
       if (typeof input.tabId !== "string") throw new Error("tabId is required.");

@@ -28,6 +28,13 @@ describe("Browser Lab MCP tools", () => {
       success: true,
     });
     expect(
+      toolInputSchema("browser_lab_navigate").safeParse({
+        url: "file:///Users/adrian/demo.html",
+      }),
+    ).toMatchObject({
+      success: true,
+    });
+    expect(
       toolInputSchema("browser_lab_navigate").safeParse({ target: "http://localhost:8082" }),
     ).toMatchObject({
       success: false,

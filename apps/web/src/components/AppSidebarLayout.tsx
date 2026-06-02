@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import ThreadSidebar from "./Sidebar";
-import { HackSidebar } from "./hack/HackSidebar";
+import { RemoteHostSidebar } from "./remote-host/RemoteHostSidebar";
 import { Sidebar, SidebarProvider, SidebarRail, useSidebar } from "./ui/sidebar";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { isGlobalTerminalOpenShortcut, isSidebarToggleShortcut } from "../keybindings";
@@ -144,7 +144,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
         }}
       >
-        {pathname.startsWith("/hack") ? <HackSidebar /> : <ThreadSidebar />}
+        {pathname.startsWith("/remote-host") ? <RemoteHostSidebar /> : <ThreadSidebar />}
         <SidebarRail />
       </Sidebar>
       <main className="flex-1 overflow-hidden min-h-0 min-w-0">{children}</main>

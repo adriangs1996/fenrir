@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
+import { pathToFileURL } from "node:url";
 
 // --- Fake WebContentsView and session ---
 const { fakeSession, fakeWebContents, mockWebContentsView } = vi.hoisted(() => {
@@ -16,6 +17,7 @@ const { fakeSession, fakeWebContents, mockWebContentsView } = vi.hoisted(() => {
     focus: vi.fn(),
     reload: vi.fn(),
     on: vi.fn(),
+    setWindowOpenHandler: vi.fn(),
     sendInputEvent: vi.fn(),
     navigationHistory: {
       canGoBack: vi.fn(() => false),
@@ -82,6 +84,12 @@ describe("trafficLensManager", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    fakeWebContents.executeJavaScript.mockResolvedValue([]);
+    fakeWebContents.getURL.mockReturnValue("about:blank");
+    fakeWebContents.getTitle.mockReturnValue("");
+    fakeWebContents.isLoading.mockReturnValue(false);
+    fakeWebContents.navigationHistory.canGoBack.mockReturnValue(false);
+    fakeWebContents.navigationHistory.canGoForward.mockReturnValue(false);
     manager = createTrafficLensManager({ window: fakeWindow });
   });
 
@@ -167,6 +175,72 @@ describe("trafficLensManager", () => {
       expect(eventNames).toContain("page-title-updated");
       expect(eventNames).toContain("did-start-loading");
       expect(eventNames).toContain("did-stop-loading");
+    });
+
+    it("opens embedded new-window requests as Browser Lab tabs", () => {
+      const listener = vi.fn();
+      manager.onTabEvent(listener);
+      manager.createTab("https://source.test");
+      listener.mockClear();
+      fakeWebContents.loadURL.mockClear();
+
+      const handler = fakeWebContents.setWindowOpenHandler.mock.calls[0]![0];
+      const result = handler({ url: "https://target.test/path" });
+
+      expect(result).toEqual({ action: "deny" });
+      expect(fakeWebContents.loadURL).toHaveBeenCalledWith("https://target.test/path");
+      expect(manager.getTabs()).toHaveLength(2);
+      expect(manager.getActiveTab()?.url).toBe("https://target.test/path");
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "tab.created",
+          snapshot: expect.objectContaining({ url: "https://target.test/path" }),
+        }),
+      );
+    });
+
+    it("emits navigation capabilities when navigation changes", () => {
+      const listener = vi.fn();
+      manager.onTabEvent(listener);
+      const snapshot = manager.createTab();
+      listener.mockClear();
+      fakeWebContents.navigationHistory.canGoBack.mockReturnValue(true);
+      fakeWebContents.navigationHistory.canGoForward.mockReturnValue(false);
+
+      const didNavigateListener = fakeWebContents.on.mock.calls.find(
+        ([eventName]: any[]) => eventName === "did-navigate",
+      )![1];
+      didNavigateListener({}, "https://target.htb/dashboard");
+
+      expect(listener).toHaveBeenCalledWith({
+        type: "tab.navigated",
+        tabId: snapshot.tabId,
+        url: "https://target.htb/dashboard",
+        canGoBack: true,
+        canGoForward: false,
+      });
+    });
+
+    it("emits navigation capabilities when loading stops", () => {
+      const listener = vi.fn();
+      manager.onTabEvent(listener);
+      const snapshot = manager.createTab();
+      listener.mockClear();
+      fakeWebContents.navigationHistory.canGoBack.mockReturnValue(true);
+      fakeWebContents.navigationHistory.canGoForward.mockReturnValue(true);
+
+      const didStopLoadingListener = fakeWebContents.on.mock.calls.find(
+        ([eventName]: any[]) => eventName === "did-stop-loading",
+      )![1];
+      didStopLoadingListener();
+
+      expect(listener).toHaveBeenCalledWith({
+        type: "tab.loadingChanged",
+        tabId: snapshot.tabId,
+        loading: false,
+        canGoBack: true,
+        canGoForward: true,
+      });
     });
 
     it("forwards the sidebar toggle shortcut from the embedded page", () => {
@@ -303,6 +377,21 @@ describe("trafficLensManager", () => {
       expect(fakeWebContents.loadURL).toHaveBeenCalledWith("https://target.htb");
     });
 
+    it("navigates to file URLs without rewriting them as HTTP", () => {
+      const snapshot = manager.createTab();
+      manager.navigateTab(snapshot.tabId, "file:///tmp/fenrir browser lab.html");
+      expect(fakeWebContents.loadURL).toHaveBeenCalledWith(
+        "file:///tmp/fenrir%20browser%20lab.html",
+      );
+    });
+
+    it("navigates absolute filesystem paths as file URLs", () => {
+      const snapshot = manager.createTab();
+      const filePath = Path.join(OS.tmpdir(), "fenrir browser lab.html");
+      manager.navigateTab(snapshot.tabId, filePath);
+      expect(fakeWebContents.loadURL).toHaveBeenCalledWith(pathToFileURL(filePath).toString());
+    });
+
     it("throws for unknown tabId", () => {
       expect(() => manager.navigateTab("nonexistent", "https://x.com")).toThrow();
     });
@@ -408,6 +497,26 @@ describe("trafficLensManager", () => {
       manager.createTab("https://b.com");
       const tabs = manager.getTabs();
       expect(tabs).toHaveLength(2);
+    });
+  });
+
+  describe("setActiveTab", () => {
+    it("selects a tab without attaching its WebContentsView", () => {
+      const first = manager.createTab("https://a.test");
+      manager.createTab("https://b.test");
+      const listener = vi.fn();
+      manager.onTabEvent(listener);
+      fakeWindow.contentView.addChildView.mockClear();
+
+      const selected = manager.setActiveTab(first.tabId);
+
+      expect(selected.tabId).toBe(first.tabId);
+      expect(manager.getActiveTab()?.tabId).toBe(first.tabId);
+      expect(fakeWindow.contentView.addChildView).not.toHaveBeenCalled();
+      expect(listener).toHaveBeenCalledWith({
+        type: "tab.selected",
+        tabId: first.tabId,
+      });
     });
   });
 

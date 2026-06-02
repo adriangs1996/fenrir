@@ -80,7 +80,7 @@ function extractHandleFromUnknown(value: unknown): FenrirImageHandleEntry | null
   }
 
   const name = asString(record.name);
-  const mimeType = asString(record.mimeType)?.toLowerCase();
+  const mimeType = (asString(record.mimeType) ?? asString(record.mime_type))?.toLowerCase();
   return {
     artifactId,
     uri: fenrirImageUri(artifactId),
@@ -92,8 +92,10 @@ function extractHandleFromUnknown(value: unknown): FenrirImageHandleEntry | null
 function extractStructuredFenrirImageHandles(
   result: Record<string, unknown>,
 ): FenrirImageHandleEntry[] {
-  const structuredContent = asRecord(result.structuredContent);
-  const rawHandles = structuredContent?.fenrirImageHandles;
+  const structuredContent =
+    asRecord(result.structuredContent) ?? asRecord(result.structured_content);
+  const rawHandles =
+    structuredContent?.fenrirImageHandles ?? structuredContent?.fenrir_image_handles;
   if (!Array.isArray(rawHandles)) {
     return [];
   }
@@ -227,6 +229,18 @@ export const materializeProviderRuntimeImageArtifacts = Effect.fn(
   ).pipe(Effect.asVoid);
 });
 
+function redactImageResultContent(result: Record<string, unknown>): Record<string, unknown> {
+  const content = Array.isArray(result.content) ? result.content : null;
+  if (!content) {
+    return result;
+  }
+
+  return {
+    ...result,
+    content: content.map(redactImageContentEntry),
+  };
+}
+
 function redactImageContentEntry(entry: unknown): unknown {
   const record = asRecord(entry);
   if (!record || asString(record.type)?.toLowerCase() !== "image") {
@@ -254,10 +268,7 @@ export function redactProviderRuntimeImageDataForActivity(data: unknown): unknow
     return data;
   }
 
-  const nextResult = {
-    ...result,
-    content: result.content.map(redactImageContentEntry),
-  };
+  const nextResult = redactImageResultContent(result);
 
   if (item?.result) {
     return {

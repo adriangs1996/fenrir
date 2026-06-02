@@ -632,10 +632,17 @@ export const TrafficLensTabClosedEvent = Schema.Struct({
   tabId: TrafficLensTabId,
 });
 
+export const TrafficLensTabSelectedEvent = Schema.Struct({
+  type: Schema.Literal("tab.selected"),
+  tabId: TrafficLensTabId,
+});
+
 export const TrafficLensTabNavigatedEvent = Schema.Struct({
   type: Schema.Literal("tab.navigated"),
   tabId: TrafficLensTabId,
   url: Schema.String,
+  canGoBack: Schema.optional(Schema.Boolean),
+  canGoForward: Schema.optional(Schema.Boolean),
 });
 
 export const TrafficLensTabTitleUpdatedEvent = Schema.Struct({
@@ -648,6 +655,8 @@ export const TrafficLensTabLoadingChangedEvent = Schema.Struct({
   type: Schema.Literal("tab.loadingChanged"),
   tabId: TrafficLensTabId,
   loading: Schema.Boolean,
+  canGoBack: Schema.optional(Schema.Boolean),
+  canGoForward: Schema.optional(Schema.Boolean),
 });
 
 export const TrafficLensTabViewModeChangedEvent = Schema.Struct({
@@ -665,6 +674,7 @@ export const TrafficLensTabMobilePresetChangedEvent = Schema.Struct({
 export const TrafficLensTabEvent = Schema.Union([
   TrafficLensTabCreatedEvent,
   TrafficLensTabClosedEvent,
+  TrafficLensTabSelectedEvent,
   TrafficLensTabNavigatedEvent,
   TrafficLensTabTitleUpdatedEvent,
   TrafficLensTabLoadingChangedEvent,

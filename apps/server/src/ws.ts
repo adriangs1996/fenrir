@@ -28,6 +28,7 @@ import {
   ThreadId,
   type TerminalEvent,
   type RawTcpEvent,
+  type RemoteControllerEvent,
   WS_METHODS,
   WsRpcGroup,
   TmuxError,
@@ -114,6 +115,7 @@ import { ImportResolver } from "./managedProcess/Services/ImportResolver";
 import { ManagedProcessManager } from "./managedProcess/Services/Manager";
 import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager";
 import { RawTcpListenerService } from "./raw-tcp/Services/RawTcpListenerService";
+import { RemoteControllerService } from "./puppeteer/Services/RemoteControllerService";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService";
 import { TrafficLensStorageService } from "./traffic-lens-storage/Services/TrafficLensStorageService";
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner";
@@ -207,6 +209,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const sessions = yield* SessionCredentialService;
       const tmuxSessionManager = yield* TmuxSessionManager;
       const rawTcpListenerService = yield* RawTcpListenerService;
+      const remoteControllerService = yield* RemoteControllerService;
       const trafficLensService = yield* TrafficLensService;
       const trafficLensStorageService = yield* TrafficLensStorageService;
       const planRunnerService = yield* PlanRunnerService;
@@ -1560,6 +1563,99 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               ),
             ),
             { "rpc.aggregate": "rawTcp" },
+          ),
+
+        // ─── Remote Controller RPCs ────────────────────────────────────
+
+        [WS_METHODS.remoteControllerListHosts]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.remoteControllerListHosts,
+            remoteControllerService.listHosts(),
+            { "rpc.aggregate": "remoteController" },
+          ),
+
+        [WS_METHODS.remoteControllerCreateHost]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.remoteControllerCreateHost,
+            remoteControllerService.createHost(input),
+            { "rpc.aggregate": "remoteController" },
+          ),
+
+        [WS_METHODS.remoteControllerUpdateHost]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.remoteControllerUpdateHost,
+            remoteControllerService.updateHost(input),
+            { "rpc.aggregate": "remoteController" },
+          ),
+
+        [WS_METHODS.remoteControllerDeleteHost]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.remoteControllerDeleteHost,
+            remoteControllerService.deleteHost(input),
+            { "rpc.aggregate": "remoteController" },
+          ),
+
+        [WS_METHODS.remoteControllerStartConnection]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.remoteControllerStartConnection,
+            remoteControllerService.startConnection(input),
+            { "rpc.aggregate": "remoteController" },
+          ),
+
+        [WS_METHODS.remoteControllerStopConnection]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.remoteControllerStopConnection,
+            remoteControllerService.stopConnection(input),
+            { "rpc.aggregate": "remoteController" },
+          ),
+
+        [WS_METHODS.remoteControllerSetConnectionPath]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.remoteControllerSetConnectionPath,
+            remoteControllerService.setConnectionPath(input),
+            { "rpc.aggregate": "remoteController" },
+          ),
+
+        [WS_METHODS.remoteControllerListConnections]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.remoteControllerListConnections,
+            remoteControllerService.listConnections(),
+            { "rpc.aggregate": "remoteController" },
+          ),
+
+        [WS_METHODS.remoteControllerSendCommand]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.remoteControllerSendCommand,
+            remoteControllerService.sendCommand(input),
+            { "rpc.aggregate": "remoteController" },
+          ),
+
+        [WS_METHODS.remoteControllerListCommandRuns]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.remoteControllerListCommandRuns,
+            remoteControllerService.listCommandRuns(input),
+            { "rpc.aggregate": "remoteController" },
+          ),
+
+        [WS_METHODS.remoteControllerListDirectory]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.remoteControllerListDirectory,
+            remoteControllerService.listDirectory(input),
+            { "rpc.aggregate": "remoteController" },
+          ),
+
+        [WS_METHODS.subscribeRemoteControllerEvents]: (_input) =>
+          observeRpcStream(
+            WS_METHODS.subscribeRemoteControllerEvents,
+            Stream.callback<RemoteControllerEvent>((queue) =>
+              Effect.acquireRelease(
+                remoteControllerService.subscribe((event) => {
+                  Queue.offerUnsafe(queue, event);
+                }),
+                (unsubscribe) => Effect.sync(unsubscribe),
+              ),
+            ),
+            { "rpc.aggregate": "remoteController" },
           ),
 
         // ─── Traffic Lens RPCs ─────────────────────────────────────────

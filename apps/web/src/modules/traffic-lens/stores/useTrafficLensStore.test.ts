@@ -117,6 +117,61 @@ describe("trafficLensStore", () => {
     expect(useTrafficLensStore.getState().tabs["tab-2"]!.title).toBe("Tab 2");
   });
 
+  it("makes newly created tabs active from tab created events", () => {
+    useTrafficLensStore.getState().upsertTab(makeTab());
+
+    useTrafficLensStore.getState().applyEvent({
+      type: "tab.created",
+      snapshot: makeTab({ tabId: "tab-2" as any, title: "Tab 2" }),
+    } as TrafficLensTabEvent);
+
+    expect(useTrafficLensStore.getState().activeTabId).toBe("tab-2");
+  });
+
+  it("applies tab selected events without requiring a WebContentsView host", () => {
+    useTrafficLensStore.getState().upsertTab(makeTab());
+    useTrafficLensStore.getState().upsertTab(makeTab({ tabId: "tab-2" as any, title: "Tab 2" }));
+
+    useTrafficLensStore.getState().applyEvent({
+      type: "tab.selected",
+      tabId: "tab-2",
+    } as TrafficLensTabEvent);
+
+    expect(useTrafficLensStore.getState().activeTabId).toBe("tab-2");
+  });
+
+  it("applies navigation capabilities from tab events", () => {
+    useTrafficLensStore.getState().upsertTab(makeTab());
+
+    useTrafficLensStore.getState().applyEvent({
+      type: "tab.navigated",
+      tabId: "tab-1",
+      url: "https://target.htb/dashboard",
+      canGoBack: true,
+      canGoForward: false,
+    } as TrafficLensTabEvent);
+
+    expect(useTrafficLensStore.getState().tabs["tab-1"]!).toMatchObject({
+      url: "https://target.htb/dashboard",
+      canGoBack: true,
+      canGoForward: false,
+    });
+
+    useTrafficLensStore.getState().applyEvent({
+      type: "tab.loadingChanged",
+      tabId: "tab-1",
+      loading: false,
+      canGoBack: false,
+      canGoForward: true,
+    } as TrafficLensTabEvent);
+
+    expect(useTrafficLensStore.getState().tabs["tab-1"]!).toMatchObject({
+      loading: false,
+      canGoBack: false,
+      canGoForward: true,
+    });
+  });
+
   it("applies tab view mode events to the active tab snapshot", () => {
     useTrafficLensStore.getState().upsertTab(makeTab());
 

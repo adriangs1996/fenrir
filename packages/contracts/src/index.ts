@@ -21,6 +21,7 @@ export * from "./filesystem";
 export * from "./project";
 export * from "./rpc";
 export * from "./rawTcpListener";
+export * from "./remoteController";
 export * from "./vpn";
 export * from "./trafficLens";
 export * from "./planRunner";

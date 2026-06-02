@@ -141,6 +141,22 @@ import type {
   StopRawTcpListenerInput,
 } from "./rawTcpListener";
 import type {
+  CreateRemoteHostInput,
+  DeleteRemoteHostInput,
+  ListRemoteCommandRunsInput,
+  ListRemoteDirectoryInput,
+  ListRemoteDirectoryResult,
+  RemoteCommandRunSnapshot,
+  RemoteConnectionSnapshot,
+  RemoteControllerEvent,
+  RemoteHostSnapshot,
+  SendRemoteCommandInput,
+  SetRemoteConnectionPathInput,
+  StartRemoteConnectionInput,
+  StopRemoteConnectionInput,
+  UpdateRemoteHostInput,
+} from "./remoteController";
+import type {
   ServerProviderSkill,
   CreateSkillInput,
   GetSkillDetailsInput,
@@ -759,6 +775,22 @@ export interface EnvironmentApi {
     sessionUpgradePty: (input: RawTcpSessionUpgradePtyInput) => Promise<RawTcpSessionSnapshot>;
     sessionClose: (input: RawTcpSessionCloseInput) => Promise<void>;
     onEvent: (callback: (event: RawTcpEvent) => void) => () => void;
+  };
+  remoteController: {
+    listHosts: () => Promise<readonly RemoteHostSnapshot[]>;
+    createHost: (input: CreateRemoteHostInput) => Promise<RemoteHostSnapshot>;
+    updateHost: (input: UpdateRemoteHostInput) => Promise<RemoteHostSnapshot>;
+    deleteHost: (input: DeleteRemoteHostInput) => Promise<void>;
+    startConnection: (input: StartRemoteConnectionInput) => Promise<RemoteConnectionSnapshot>;
+    stopConnection: (input: StopRemoteConnectionInput) => Promise<RemoteConnectionSnapshot>;
+    setConnectionPath: (input: SetRemoteConnectionPathInput) => Promise<RemoteConnectionSnapshot>;
+    listConnections: () => Promise<readonly RemoteConnectionSnapshot[]>;
+    sendCommand: (input: SendRemoteCommandInput) => Promise<RemoteCommandRunSnapshot>;
+    listCommandRuns: (
+      input: ListRemoteCommandRunsInput,
+    ) => Promise<readonly RemoteCommandRunSnapshot[]>;
+    listDirectory: (input: ListRemoteDirectoryInput) => Promise<ListRemoteDirectoryResult>;
+    onEvent: (callback: (event: RemoteControllerEvent) => void) => () => void;
   };
   projects: {
     listEntries: (input: ProjectListEntriesInput) => Promise<ProjectListEntriesResult>;

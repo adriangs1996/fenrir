@@ -109,6 +109,37 @@ describe("TrafficLensTabEvent", () => {
     expect(event.type).toBe("tab.closed");
   });
 
+  it("decodes tab.selected event", () => {
+    const event = decodeTabEvent({ type: "tab.selected", tabId: "t1" });
+    expect(event.type).toBe("tab.selected");
+  });
+
+  it("decodes tab.navigated event with navigation capabilities", () => {
+    const event = decodeTabEvent({
+      type: "tab.navigated",
+      tabId: "t1",
+      url: "https://target.htb",
+      canGoBack: true,
+      canGoForward: false,
+    });
+    expect(event.type).toBe("tab.navigated");
+    if (event.type !== "tab.navigated") throw new Error("Expected tab.navigated event.");
+    expect(event.canGoBack).toBe(true);
+  });
+
+  it("decodes tab.loadingChanged event with navigation capabilities", () => {
+    const event = decodeTabEvent({
+      type: "tab.loadingChanged",
+      tabId: "t1",
+      loading: false,
+      canGoBack: true,
+      canGoForward: true,
+    });
+    expect(event.type).toBe("tab.loadingChanged");
+    if (event.type !== "tab.loadingChanged") throw new Error("Expected tab.loadingChanged event.");
+    expect(event.canGoForward).toBe(true);
+  });
+
   it("decodes tab.viewModeChanged event", () => {
     const event = decodeTabEvent({
       type: "tab.viewModeChanged",

@@ -15,7 +15,13 @@ import {
   KeybindingRule,
   MessageId,
   OpenError,
+  RemoteCommandRunId,
+  RemoteConnectionId,
+  type RemoteConnectionSnapshot,
+  RemoteHostId,
+  type RemoteHostSnapshot,
   TerminalNotRunningError,
+  TrimmedNonEmptyString,
   type OrchestrationCommand,
   type OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
@@ -39,6 +45,7 @@ import {
   ManagedRuntime,
   Option,
   Path,
+  Schema,
   Stream,
 } from "effect";
 import {
@@ -147,6 +154,10 @@ import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
 import { GlobalActionsService, type GlobalActionsShape } from "./globalActions.ts";
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner.ts";
+import {
+  RemoteControllerService,
+  type RemoteControllerServiceShape,
+} from "./puppeteer/Services/RemoteControllerService.ts";
 import { RawTcpListenerService } from "./raw-tcp/Services/RawTcpListenerService.ts";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService.ts";
 import { TrafficLensStorageService } from "./traffic-lens-storage/Services/TrafficLensStorageService.ts";
@@ -443,6 +454,7 @@ const buildAppUnderTest = (options?: {
     skillService?: Partial<SkillServiceShape>;
     importResolver?: Partial<ImportResolverShape>;
     browserLabControlService?: Partial<BrowserLabControlServiceShape>;
+    remoteControllerService?: Partial<RemoteControllerServiceShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -794,6 +806,23 @@ const buildAppUnderTest = (options?: {
           sessionWrite: () => Effect.void,
           sessionClose: () => Effect.void,
           subscribe: () => Effect.succeed(() => {}),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(RemoteControllerService)({
+          listHosts: () => Effect.succeed([]),
+          createHost: () => Effect.die(new Error("not available in test")),
+          updateHost: () => Effect.die(new Error("not available in test")),
+          deleteHost: () => Effect.die(new Error("not available in test")),
+          startConnection: () => Effect.die(new Error("not available in test")),
+          stopConnection: () => Effect.die(new Error("not available in test")),
+          setConnectionPath: () => Effect.die(new Error("not available in test")),
+          listConnections: () => Effect.succeed([]),
+          sendCommand: () => Effect.die(new Error("not available in test")),
+          listCommandRuns: () => Effect.succeed([]),
+          listDirectory: () => Effect.die(new Error("not available in test")),
+          subscribe: () => Effect.succeed(() => {}),
+          ...options?.layers?.remoteControllerService,
         }),
       ),
       Layer.provide(
@@ -1873,6 +1902,197 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(response.environment.environmentId, testEnvironmentDescriptor.environmentId);
       assert.equal(response.auth.policy, "desktop-managed-local");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes remote controller RPC calls and event streams over websocket", () =>
+    Effect.gen(function* () {
+      const trim = Schema.decodeUnknownSync(TrimmedNonEmptyString);
+      const hostId = RemoteHostId.make("remote-host-ws-test");
+      const connectionId = RemoteConnectionId.make("remote-connection-ws-test");
+      const runId = RemoteCommandRunId.make("remote-command-run-ws-test");
+      const now = "2026-06-02T00:00:00.000Z";
+      const template = {
+        type: "command-template" as const,
+        command: trim("sh"),
+        args: ["-lc", "{command}"],
+      };
+      let host: RemoteHostSnapshot | undefined;
+      let connection: RemoteConnectionSnapshot | undefined;
+      const runs: Array<{
+        readonly runId: typeof runId;
+        readonly connectionId: typeof connectionId;
+        readonly command: string;
+        readonly status: "running" | "succeeded" | "failed";
+        readonly output: string;
+        readonly exitCode: number | null;
+        readonly signal: string | null;
+        readonly startedAt: string;
+        readonly finishedAt?: string;
+      }> = [];
+
+      yield* buildAppUnderTest({
+        layers: {
+          remoteControllerService: {
+            listHosts: () => Effect.sync(() => (host ? [host] : [])),
+            createHost: (input) =>
+              Effect.sync(() => {
+                host = {
+                  hostId: input.hostId ?? hostId,
+                  label: input.label,
+                  ...(input.description === undefined ? {} : { description: input.description }),
+                  transport: input.transport,
+                  createdAt: now,
+                  updatedAt: now,
+                };
+                return host;
+              }),
+            startConnection: (input) =>
+              Effect.sync(() => {
+                connection = {
+                  connectionId: input.connectionId ?? connectionId,
+                  ...(input.hostId === undefined ? {} : { hostId: input.hostId }),
+                  label: input.label ?? host?.label ?? trim("Remote host"),
+                  transportType: "command-template",
+                  status: "connected",
+                  state: { path: trim(".") },
+                  startedAt: now,
+                };
+                return connection;
+              }),
+            setConnectionPath: (input) =>
+              Effect.sync(() => {
+                if (!connection) {
+                  throw new Error("connection unavailable");
+                }
+                connection = {
+                  ...connection,
+                  state: { path: input.path },
+                };
+                return connection;
+              }),
+            listConnections: () => Effect.sync(() => (connection ? [connection] : [])),
+            sendCommand: (input) =>
+              Effect.sync(() => {
+                const run = {
+                  runId,
+                  connectionId: input.connectionId,
+                  command: input.command,
+                  status: "succeeded" as const,
+                  output: "fenrir\n",
+                  exitCode: 0,
+                  signal: null,
+                  startedAt: now,
+                  finishedAt: now,
+                };
+                runs.push(run);
+                return run;
+              }),
+            listCommandRuns: (input) =>
+              Effect.sync(() =>
+                runs.filter(
+                  (run) =>
+                    input.connectionId === undefined || run.connectionId === input.connectionId,
+                ),
+              ),
+            listDirectory: (input) =>
+              Effect.succeed({
+                path: input.path,
+                entries: [
+                  {
+                    name: trim("alpha.txt"),
+                    path: trim("./alpha.txt"),
+                    kind: "file" as const,
+                    sizeBytes: 6,
+                    modifiedAtMs: 1_710_000_000_000,
+                  },
+                ],
+                truncated: false,
+              }),
+            subscribe: (callback) =>
+              Effect.sync(() => {
+                callback({
+                  type: "host.upserted",
+                  snapshot: host ?? {
+                    hostId,
+                    label: trim("Local shell"),
+                    transport: template,
+                    createdAt: now,
+                    updatedAt: now,
+                  },
+                });
+                return () => {};
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          Effect.gen(function* () {
+            const createdHost = yield* client[WS_METHODS.remoteControllerCreateHost]({
+              hostId,
+              label: trim("Local shell"),
+              transport: template,
+            });
+            const startedConnection = yield* client[WS_METHODS.remoteControllerStartConnection]({
+              hostId,
+              connectionId,
+            });
+            const pathConnection = yield* client[WS_METHODS.remoteControllerSetConnectionPath]({
+              connectionId,
+              path: trim("./src"),
+            });
+            const sentRun = yield* client[WS_METHODS.remoteControllerSendCommand]({
+              connectionId,
+              command: "whoami",
+            });
+            const listedHosts = yield* client[WS_METHODS.remoteControllerListHosts]({});
+            const listedConnections = yield* client[WS_METHODS.remoteControllerListConnections]({});
+            const listedRuns = yield* client[WS_METHODS.remoteControllerListCommandRuns]({
+              connectionId,
+            });
+            const listedDirectory = yield* client[WS_METHODS.remoteControllerListDirectory]({
+              connectionId,
+              path: trim("."),
+            });
+            return {
+              createdHost,
+              startedConnection,
+              pathConnection,
+              sentRun,
+              listedHosts,
+              listedConnections,
+              listedRuns,
+              listedDirectory,
+            };
+          }),
+        ),
+      );
+      const events = Array.from(
+        yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[WS_METHODS.subscribeRemoteControllerEvents]({}).pipe(
+              Stream.take(1),
+              Stream.runCollect,
+            ),
+          ),
+        ),
+      );
+
+      assert.equal(result.createdHost.hostId, hostId);
+      assert.equal(result.startedConnection.connectionId, connectionId);
+      assert.equal(result.pathConnection.state.path, "./src");
+      assert.equal(result.sentRun.output, "fenrir\n");
+      assert.equal(result.listedHosts.length, 1);
+      assert.equal(result.listedConnections.length, 1);
+      assert.equal(result.listedRuns.length, 1);
+      assert.deepEqual(
+        result.listedDirectory.entries.map((entry) => entry.name),
+        ["alpha.txt"],
+      );
+      assert.equal(events[0]?.type, "host.upserted");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
