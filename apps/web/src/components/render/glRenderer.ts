@@ -30,6 +30,9 @@ const SOLID_SLOT: AtlasSlot = { ax: SOLID_AX, ay: SOLID_AY, span: 1 };
 const BYTES_PER_INSTANCE = 12;
 const FG_U32_OFF = 1; // u32 view offset within a 3-u32 cell.
 const BG_U32_OFF = 2;
+const HL_REVERSE = 1 << 0;
+const HL_BOLD = 1 << 1;
+const HL_ITALIC = 1 << 2;
 
 // Codepoints we treat as blank. SPACE_CP covers the literal space sent by nvim;
 // 0 is the natural fill value of a fresh Uint32Array.
@@ -130,14 +133,6 @@ interface AtlasSlot {
   span: number;
 }
 
-interface HlPacked {
-  fg: number; // u32 RGBA, byte0 = R (matches u8-normalized vertex attrib).
-  bg: number;
-  reverse: boolean;
-  bold: boolean;
-  italic: boolean;
-}
-
 class GlyphAtlas {
   readonly canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -148,7 +143,7 @@ class GlyphAtlas {
   // hashes faster than strings, and avoids the per-cell template-literal
   // allocation that dominated the old `${bold}${italic}|${ch}` path.
   private map = new Map<number, AtlasSlot>();
-  private textMap = new Map<string, AtlasSlot>();
+  private textMap = new Map<number, AtlasSlot>();
   private nextAx = 2;
   private nextAy = 0;
   // Pending-upload bbox, in atlas-slot units. New glyphs are rasterized into
@@ -219,9 +214,15 @@ class GlyphAtlas {
     return slot;
   }
 
-  ensureText(text: string, span: number, bold: boolean, italic: boolean): AtlasSlot {
+  ensureText(
+    ligatureId: number,
+    text: string,
+    span: number,
+    bold: boolean,
+    italic: boolean,
+  ): AtlasSlot {
     if (span <= 1) return this.ensureCp(text.codePointAt(0) ?? 0, bold, italic);
-    const key = `${italic ? 1 : 0}${bold ? 1 : 0}|${span}|${text}`;
+    const key = (ligatureId << 2) | (italic ? 2 : 0) | (bold ? 1 : 0);
     const cached = this.textMap.get(key);
     if (cached) return cached;
     const slot = this.allocateSlot(span);
@@ -380,13 +381,15 @@ export class GLRenderer {
 
   private atlas: GlyphAtlas | null = null;
   private metrics: CellMetrics | null = null;
-  // Hl is keyed by dense small ids assigned sequentially by nvim. Pre-pack
-  // each entry's fg/bg as u32 RGBA at upsert time so the per-cell loop
-  // writes one u32 instead of doing 6 shifts + 6 divides. Keep the original
-  // entries alongside so we can re-pack when the default colors change
-  // (entries that omitted fg/bg inherit defaults at pack time).
+  // Hl is keyed by dense small ids assigned sequentially by nvim. Store packed
+  // fields in typed arrays so the per-cell loop avoids object allocation and
+  // object-property reads. Keep original entries alongside so entries that
+  // omitted fg/bg can be re-packed when default colors change.
   private hlEntries: Array<HlAttrEntry | undefined> = [];
-  private hlPacked: Array<HlPacked | undefined> = [];
+  private hlFg = new Uint32Array(0);
+  private hlBg = new Uint32Array(0);
+  private hlFlags = new Uint8Array(0);
+  private hlDefined = new Uint8Array(0);
   private defaultColors: DefaultColorsEntry = { fg: 0xe8e8ea, bg: 0x0e0f13, sp: 0xff453a };
   private defFgU32 = 0;
   private defBgU32 = 0;
@@ -394,6 +397,10 @@ export class GLRenderer {
   private windowsById = new Map<number, WindowEntry>();
   private visibleSorted: WindowEntry[] = [];
   private cursor: CursorEntry | null = null;
+  private readonly cursorGlyphScratch: ResolvedCursorGlyph = { cp: 0, bold: false, italic: false };
+  private redefinedHlEpochs = new Uint32Array(0);
+  private redefinedHlEpoch = 0;
+  private redefinedHlCount = 0;
   private dpr = 1;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -536,19 +543,22 @@ export class GLRenderer {
     // cells. New ids haven't been used yet, so we update the table without
     // scanning.
     const c = this.defaultColors;
-    const redefined = new Set<number>();
+    const epoch = this.beginRedefinedHlPass();
+    this.redefinedHlCount = 0;
     for (const e of entries) {
-      if (this.hlPacked[e.id] !== undefined) redefined.add(e.id);
+      const wasDefined = e.id < this.hlDefined.length && this.hlDefined[e.id] !== 0;
+      this.ensureHlCapacity(e.id);
+      if (wasDefined) this.markRedefinedHl(e.id, epoch);
       this.hlEntries[e.id] = e;
-      this.hlPacked[e.id] = packHl(e, c);
+      this.writePackedHl(e, c);
     }
-    if (redefined.size === 0) return;
+    if (this.redefinedHlCount === 0) return;
     for (const grid of this.grids.values()) {
       for (let r = 0; r < grid.rows; r++) {
         if (grid.dirtyRows.has(r)) continue;
         const base = r * grid.cols;
         for (let c2 = 0; c2 < grid.cols; c2++) {
-          if (redefined.has(grid.cellHl[base + c2]!)) {
+          if (this.redefinedHlEpochs[grid.cellHl[base + c2]!] === epoch) {
             grid.dirtyRows.add(r);
             break;
           }
@@ -566,11 +576,59 @@ export class GLRenderer {
     for (let i = 0; i < this.hlEntries.length; i++) {
       const e = this.hlEntries[i];
       if (!e) continue;
-      this.hlPacked[i] = packHl(e, c);
+      this.ensureHlCapacity(i);
+      this.writePackedHl(e, c);
     }
     for (const grid of this.grids.values()) {
       for (let r = 0; r < grid.rows; r++) grid.dirtyRows.add(r);
     }
+  }
+
+  private ensureHlCapacity(id: number): void {
+    if (id < this.hlDefined.length) return;
+    const nextLength = growCapacity(this.hlDefined.length, id + 1);
+    const nextFg = new Uint32Array(nextLength);
+    const nextBg = new Uint32Array(nextLength);
+    const nextFlags = new Uint8Array(nextLength);
+    const nextDefined = new Uint8Array(nextLength);
+    const nextEpochs = new Uint32Array(nextLength);
+    nextFg.set(this.hlFg);
+    nextBg.set(this.hlBg);
+    nextFlags.set(this.hlFlags);
+    nextDefined.set(this.hlDefined);
+    nextEpochs.set(this.redefinedHlEpochs);
+    this.hlFg = nextFg;
+    this.hlBg = nextBg;
+    this.hlFlags = nextFlags;
+    this.hlDefined = nextDefined;
+    this.redefinedHlEpochs = nextEpochs;
+  }
+
+  private writePackedHl(e: HlAttrEntry, c: DefaultColorsEntry): void {
+    const id = e.id;
+    this.hlFg[id] = packRgba(e.fg ?? c.fg);
+    this.hlBg[id] = packRgba(e.bg ?? c.bg);
+    this.hlFlags[id] =
+      (e.reverse === true ? HL_REVERSE : 0) |
+      (e.bold === true ? HL_BOLD : 0) |
+      (e.italic === true ? HL_ITALIC : 0);
+    this.hlDefined[id] = 1;
+  }
+
+  private beginRedefinedHlPass(): number {
+    if (this.redefinedHlEpoch === 0xffffffff) {
+      this.redefinedHlEpochs.fill(0);
+      this.redefinedHlEpoch = 1;
+      return this.redefinedHlEpoch;
+    }
+    this.redefinedHlEpoch += 1;
+    return this.redefinedHlEpoch;
+  }
+
+  private markRedefinedHl(id: number, epoch: number): void {
+    if (this.redefinedHlEpochs[id] === epoch) return;
+    this.redefinedHlEpochs[id] = epoch;
+    this.redefinedHlCount += 1;
   }
 
   ensureGrid(id: number, cols: number, rows: number): void {
@@ -645,8 +703,14 @@ export class GLRenderer {
 
   setWindows(windows: WindowEntry[]): void {
     this.windowsById.clear();
-    for (const w of windows) this.windowsById.set(w.gridId, w);
-    this.visibleSorted = windows.filter((w) => !w.hidden).toSorted((a, b) => a.zIndex - b.zIndex);
+    const visibleSorted = this.visibleSorted;
+    visibleSorted.length = 0;
+    for (let i = 0; i < windows.length; i++) {
+      const w = windows[i]!;
+      this.windowsById.set(w.gridId, w);
+      if (!w.hidden) visibleSorted.push(w);
+    }
+    visibleSorted.sort(compareWindowZIndex);
   }
 
   setCursor(cursor: CursorEntry | null): void {
@@ -696,8 +760,7 @@ export class GLRenderer {
 
     // Cursor's text glyph (if any) must be in the atlas before flushing.
     if (this.cursor?.shape === "block") {
-      const cursorGrid = this.grids.get(this.cursor.gridId);
-      const glyph = resolveBlockCursorGlyph(this.cursor, cursorGrid, this.hlPacked);
+      const glyph = this.resolveCurrentBlockCursorGlyph();
       if (glyph) {
         atlas.ensureCp(glyph.cp, glyph.bold, glyph.italic);
       }
@@ -749,28 +812,31 @@ export class GLRenderer {
     const u32 = grid.instanceU32;
     const cellChars = grid.cellChars;
     const cellHl = grid.cellHl;
-    const hlPacked = this.hlPacked;
+    const hlFg = this.hlFg;
+    const hlBg = this.hlBg;
+    const hlFlags = this.hlFlags;
+    const hlDefined = this.hlDefined;
     const cols = grid.cols;
     let byteOff = base * BYTES_PER_INSTANCE;
     let u32Off = base * 3;
     for (let c = 0; c < cols; ) {
       const cp = cellChars[base + c]!;
       const hlId = cellHl[base + c]!;
-      const hl = hlPacked[hlId];
       let fgU32 = defFg;
       let bgU32 = defBg;
       let bold = false;
       let italic = false;
-      if (hl !== undefined) {
-        if (hl.reverse) {
-          fgU32 = hl.bg;
-          bgU32 = hl.fg;
+      if (hlId < hlDefined.length && hlDefined[hlId] !== 0) {
+        const flags = hlFlags[hlId]!;
+        if ((flags & HL_REVERSE) !== 0) {
+          fgU32 = hlBg[hlId]!;
+          bgU32 = hlFg[hlId]!;
         } else {
-          fgU32 = hl.fg;
-          bgU32 = hl.bg;
+          fgU32 = hlFg[hlId]!;
+          bgU32 = hlBg[hlId]!;
         }
-        bold = hl.bold;
-        italic = hl.italic;
+        bold = (flags & HL_BOLD) !== 0;
+        italic = (flags & HL_ITALIC) !== 0;
       }
       let ax = EMPTY_AX;
       let ay = EMPTY_AY;
@@ -781,7 +847,7 @@ export class GLRenderer {
         const ligature =
           m.ligatures === true ? findLigatureMatch(cellChars, cellHl, base, cols, c) : null;
         if (ligature !== null) {
-          const slot = atlas.ensureText(ligature.text, ligature.span, bold, italic);
+          const slot = atlas.ensureText(ligature.id, ligature.text, ligature.span, bold, italic);
           if (slot !== EMPTY_SLOT) {
             ax = slot.ax;
             ay = slot.ay;
@@ -844,8 +910,7 @@ export class GLRenderer {
       sizeY = 2 / m.height;
       posY = cursor.row + 1 - sizeY;
     } else {
-      const cursorGrid = this.grids.get(cursor.gridId);
-      const glyph = resolveBlockCursorGlyph(cursor, cursorGrid, this.hlPacked);
+      const glyph = this.resolveCurrentBlockCursorGlyph();
       atlasPos = glyph ? atlas.ensureCp(glyph.cp, glyph.bold, glyph.italic) : EMPTY_SLOT;
       fgN = this.defaultColors.bg;
       bgN = this.defaultColors.fg;
@@ -874,6 +939,36 @@ export class GLRenderer {
 
     gl.bindVertexArray(this.cursorVao);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  private resolveCurrentBlockCursorGlyph(): ResolvedCursorGlyph | null {
+    const cursor = this.cursor;
+    if (!cursor || cursor.shape !== "block") return null;
+    const grid = this.grids.get(cursor.gridId);
+    if (
+      grid &&
+      cursor.row >= 0 &&
+      cursor.row < grid.rows &&
+      cursor.col >= 0 &&
+      cursor.col < grid.cols
+    ) {
+      const idx = cursor.row * grid.cols + cursor.col;
+      const cp = grid.cellChars[idx]!;
+      if (cp !== 0 && cp !== SPACE_CP) {
+        const hlId = grid.cellHl[idx]!;
+        const flags =
+          hlId < this.hlDefined.length && this.hlDefined[hlId] !== 0 ? this.hlFlags[hlId]! : 0;
+        this.cursorGlyphScratch.cp = cp;
+        this.cursorGlyphScratch.bold = (flags & HL_BOLD) !== 0;
+        this.cursorGlyphScratch.italic = (flags & HL_ITALIC) !== 0;
+        return this.cursorGlyphScratch;
+      }
+    }
+    if (!cursor.text || cursor.text === " ") return null;
+    this.cursorGlyphScratch.cp = cursor.text.codePointAt(0)!;
+    this.cursorGlyphScratch.bold = false;
+    this.cursorGlyphScratch.italic = false;
+    return this.cursorGlyphScratch;
   }
 
   private makeInstanceVao(instanceVbo: WebGLBuffer): WebGLVertexArrayObject {
@@ -972,6 +1067,16 @@ function copySlice(
   }
 }
 
+function compareWindowZIndex(a: WindowEntry, b: WindowEntry): number {
+  return a.zIndex - b.zIndex;
+}
+
+function growCapacity(current: number, required: number): number {
+  let next = current === 0 ? 32 : current;
+  while (next < required) next *= 2;
+  return next;
+}
+
 export function resolveBlockCursorGlyph(
   cursor: CursorEntry | null,
   grid:
@@ -1028,14 +1133,4 @@ function packRgba(n: number): number {
   // (0xff << 24) is negative when interpreted as i32; the |0 / >>>0 makes it
   // an unambiguous u32 bit pattern when stored into a Uint32Array.
   return (r | (g << 8) | (b << 16) | (0xff << 24)) >>> 0;
-}
-
-function packHl(e: HlAttrEntry, c: DefaultColorsEntry): HlPacked {
-  return {
-    fg: packRgba(e.fg ?? c.fg),
-    bg: packRgba(e.bg ?? c.bg),
-    reverse: e.reverse === true,
-    bold: e.bold === true,
-    italic: e.italic === true,
-  };
 }

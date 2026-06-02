@@ -1,7 +1,7 @@
 import { DEFAULT_SERVER_SETTINGS, McpServerId, type ServerSettings } from "@fenrir/contracts";
 import { it, expect } from "@effect/vitest";
 import { Effect } from "effect";
-import { FENRIR_BROWSER_LAB_MCP_ID } from "@fenrir/shared/mcpBuiltIns";
+import { FENRIR_BROWSER_LAB_MCP_ID, FENRIR_REMOTE_HOST_MCP_ID } from "@fenrir/shared/mcpBuiltIns";
 
 import { McpConfigResolver } from "../Services/McpConfigResolver.ts";
 import { McpConfigResolverLive } from "./McpConfigResolver.ts";
@@ -166,6 +166,39 @@ it.effect("McpConfigResolver resolves the built-in Browser Lab runner", () =>
 
       expect(transport.command).toBe(process.execPath);
       expect(transport.args[0]).toMatch(/browserLabRunner\.(ts|mjs|js|cjs)$/);
+      expect(transport.env.ELECTRON_RUN_AS_NODE).toBe("1");
+      expect(transport.env.FENRIR_MCP_BACKEND_URL).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+      expect(transport.env.FENRIR_MCP_TOKEN).toBeTruthy();
+    } finally {
+      if (previousElectronRunAsNode === undefined) {
+        delete process.env.ELECTRON_RUN_AS_NODE;
+      } else {
+        process.env.ELECTRON_RUN_AS_NODE = previousElectronRunAsNode;
+      }
+    }
+  }).pipe(Effect.provide(McpConfigResolverLive)),
+);
+
+it.effect("McpConfigResolver resolves the built-in Remote Host runner", () =>
+  Effect.gen(function* () {
+    const previousElectronRunAsNode = process.env.ELECTRON_RUN_AS_NODE;
+    process.env.ELECTRON_RUN_AS_NODE = "1";
+
+    try {
+      const resolver = yield* McpConfigResolver;
+      const resolved = yield* resolver.resolve({
+        settings: makeSettings({}),
+        selectedServerIds: [FENRIR_REMOTE_HOST_MCP_ID],
+      });
+
+      const transport = resolved.servers[0]?.transport;
+      expect(transport?.type).toBe("stdio");
+      if (transport?.type !== "stdio") {
+        return;
+      }
+
+      expect(transport.command).toBe(process.execPath);
+      expect(transport.args[0]).toMatch(/remoteHostRunner\.(ts|mjs|js|cjs)$/);
       expect(transport.env.ELECTRON_RUN_AS_NODE).toBe("1");
       expect(transport.env.FENRIR_MCP_BACKEND_URL).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
       expect(transport.env.FENRIR_MCP_TOKEN).toBeTruthy();

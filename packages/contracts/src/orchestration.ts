@@ -711,6 +711,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
   ),
+  mcpServerIds: Schema.optional(Schema.Array(McpServerId)),
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
   reviewContext: Schema.optional(ReviewContextTrace),
@@ -732,6 +733,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   titleSeed: Schema.optional(TrimmedNonEmptyString),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
+  mcpServerIds: Schema.optional(Schema.Array(McpServerId)),
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
   reviewContext: Schema.optional(ReviewContextTrace),
@@ -1059,6 +1061,7 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PROVIDER_INTERACTION_MODE)),
   ),
+  mcpServerIds: Schema.optional(Schema.Array(McpServerId)),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
   reviewContext: Schema.optional(ReviewContextTrace),
   createdAt: IsoDateTime,

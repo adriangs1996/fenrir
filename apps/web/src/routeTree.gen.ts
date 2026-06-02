@@ -25,6 +25,7 @@ import { Route as SettingsArchivedPlansRouteImport } from './routes/settings.arc
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as RemoteHostHostIdRouteImport } from './routes/remote-host.$hostId'
 import { Route as ChatGlobalTerminalRouteImport } from './routes/_chat.global-terminal'
+import { Route as ChatGitdiffRouteImport } from './routes/_chat.gitdiff'
 import { Route as ChatBrowserLabRouteImport } from './routes/_chat.browser-lab'
 import { Route as ChatPlanRunnerRunIdRouteImport } from './routes/_chat.plan-runner.$runId'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
@@ -112,6 +113,11 @@ const ChatGlobalTerminalRoute = ChatGlobalTerminalRouteImport.update({
   path: '/global-terminal',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatGitdiffRoute = ChatGitdiffRouteImport.update({
+  id: '/gitdiff',
+  path: '/gitdiff',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatBrowserLabRoute = ChatBrowserLabRouteImport.update({
   id: '/browser-lab',
   path: '/browser-lab',
@@ -158,6 +164,7 @@ export interface FileRoutesByFullPath {
   '/remote-host': typeof RemoteHostRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/browser-lab': typeof ChatBrowserLabRoute
+  '/gitdiff': typeof ChatGitdiffRoute
   '/global-terminal': typeof ChatGlobalTerminalRoute
   '/remote-host/$hostId': typeof RemoteHostHostIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -180,6 +187,7 @@ export interface FileRoutesByTo {
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/browser-lab': typeof ChatBrowserLabRoute
+  '/gitdiff': typeof ChatGitdiffRoute
   '/global-terminal': typeof ChatGlobalTerminalRoute
   '/remote-host/$hostId': typeof RemoteHostHostIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -206,6 +214,7 @@ export interface FileRoutesById {
   '/remote-host': typeof RemoteHostRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/_chat/browser-lab': typeof ChatBrowserLabRoute
+  '/_chat/gitdiff': typeof ChatGitdiffRoute
   '/_chat/global-terminal': typeof ChatGlobalTerminalRoute
   '/remote-host/$hostId': typeof RemoteHostHostIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -233,6 +242,7 @@ export interface FileRouteTypes {
     | '/remote-host'
     | '/settings'
     | '/browser-lab'
+    | '/gitdiff'
     | '/global-terminal'
     | '/remote-host/$hostId'
     | '/settings/archived'
@@ -255,6 +265,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/settings'
     | '/browser-lab'
+    | '/gitdiff'
     | '/global-terminal'
     | '/remote-host/$hostId'
     | '/settings/archived'
@@ -280,6 +291,7 @@ export interface FileRouteTypes {
     | '/remote-host'
     | '/settings'
     | '/_chat/browser-lab'
+    | '/_chat/gitdiff'
     | '/_chat/global-terminal'
     | '/remote-host/$hostId'
     | '/settings/archived'
@@ -421,6 +433,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatGlobalTerminalRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/gitdiff': {
+      id: '/_chat/gitdiff'
+      path: '/gitdiff'
+      fullPath: '/gitdiff'
+      preLoaderRoute: typeof ChatGitdiffRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/browser-lab': {
       id: '/_chat/browser-lab'
       path: '/browser-lab'
@@ -475,6 +494,7 @@ declare module '@tanstack/react-router' {
 
 interface ChatRouteChildren {
   ChatBrowserLabRoute: typeof ChatBrowserLabRoute
+  ChatGitdiffRoute: typeof ChatGitdiffRoute
   ChatGlobalTerminalRoute: typeof ChatGlobalTerminalRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
@@ -487,6 +507,7 @@ interface ChatRouteChildren {
 
 const ChatRouteChildren: ChatRouteChildren = {
   ChatBrowserLabRoute: ChatBrowserLabRoute,
+  ChatGitdiffRoute: ChatGitdiffRoute,
   ChatGlobalTerminalRoute: ChatGlobalTerminalRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,

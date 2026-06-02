@@ -2894,6 +2894,7 @@ export default function ChatView(props: ChatViewProps) {
         titleSeed: title,
         runtimeMode,
         interactionMode,
+        mcpServerIds: [...ctxSelectedMcpServerIds],
         ...(bootstrap ? { bootstrap } : {}),
         createdAt: messageCreatedAt,
       });
@@ -3224,6 +3225,7 @@ export default function ChatView(props: ChatViewProps) {
           titleSeed: activeThread.title,
           runtimeMode,
           interactionMode: nextInteractionMode,
+          mcpServerIds: [...ctxSelectedMcpServerIds],
           ...(nextInteractionMode === "default" && activeProposedPlan
             ? {
                 sourceProposedPlan: {
@@ -3368,6 +3370,7 @@ export default function ChatView(props: ChatViewProps) {
           titleSeed: nextThreadTitle,
           runtimeMode,
           interactionMode: "default",
+          mcpServerIds: [...ctxSelectedMcpServerIds],
           sourceProposedPlan: {
             threadId: activeThread.id,
             planId: activeProposedPlan.id,

@@ -16,6 +16,7 @@ import {
 } from "@fenrir/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { FENRIR_REMOTE_HOST_MCP_ID } from "@fenrir/shared/mcpBuiltIns";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "@fenrir/contracts";
@@ -369,6 +370,44 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("uses MCP ids carried on the turn-start event before the thread projection catches up", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-mcp-override"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-mcp-override"),
+          role: "user",
+          text: "use remote host",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        mcpServerIds: [FENRIR_REMOTE_HOST_MCP_ID],
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      mcpServerIds: [FENRIR_REMOTE_HOST_MCP_ID],
+      mcpServers: [
+        {
+          id: FENRIR_REMOTE_HOST_MCP_ID,
+          name: "Remote Host",
+          transport: {
+            type: "stdio",
+            command: process.execPath,
+          },
+        },
+      ],
+    });
   });
 
   it("generates a thread title on the first turn", async () => {

@@ -4,7 +4,11 @@ import type {
   McpValueRef,
   ResolvedMcpServerConfig,
 } from "@fenrir/contracts";
-import { getFenrirBuiltInMcpServers, FENRIR_BROWSER_LAB_MCP_ID } from "@fenrir/shared/mcpBuiltIns";
+import {
+  getFenrirBuiltInMcpServers,
+  FENRIR_BROWSER_LAB_MCP_ID,
+  FENRIR_REMOTE_HOST_MCP_ID,
+} from "@fenrir/shared/mcpBuiltIns";
 import { Effect, Layer, Option } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -19,6 +23,12 @@ import {
   getBrowserLabMcpToken,
   resolveBrowserLabMcpRunnerPath,
 } from "../browserLabMcpRuntime.ts";
+import {
+  getRemoteHostMcpBackendUrl,
+  getRemoteHostMcpRunnerEnv,
+  getRemoteHostMcpToken,
+  resolveRemoteHostMcpRunnerPath,
+} from "../remoteHostMcpRuntime.ts";
 import { hashResolvedMcpServers } from "../mcpConfigHash.ts";
 
 function mergeDefinitions(
@@ -78,6 +88,9 @@ function resolveServer(
     readonly browserLabRunnerPath: string;
     readonly browserLabBackendUrl: string;
     readonly browserLabToken: string;
+    readonly remoteHostRunnerPath: string;
+    readonly remoteHostBackendUrl: string;
+    readonly remoteHostToken: string;
   },
 ): Effect.Effect<ResolvedMcpServerConfig, McpConfigResolverError> {
   if (server.id === FENRIR_BROWSER_LAB_MCP_ID) {
@@ -92,6 +105,22 @@ function resolveServer(
           ...getBrowserLabMcpRunnerEnv(),
           FENRIR_MCP_BACKEND_URL: runtime.browserLabBackendUrl,
           FENRIR_MCP_TOKEN: runtime.browserLabToken,
+        },
+      },
+    });
+  }
+  if (server.id === FENRIR_REMOTE_HOST_MCP_ID) {
+    return Effect.succeed({
+      id: server.id,
+      name: server.name,
+      transport: {
+        type: "stdio",
+        command: process.execPath,
+        args: [runtime.remoteHostRunnerPath],
+        env: {
+          ...getRemoteHostMcpRunnerEnv(),
+          FENRIR_MCP_BACKEND_URL: runtime.remoteHostBackendUrl,
+          FENRIR_MCP_TOKEN: runtime.remoteHostToken,
         },
       },
     });
@@ -162,6 +191,9 @@ export const McpConfigResolverLive = Layer.effect(
       browserLabRunnerPath: resolveBrowserLabMcpRunnerPath(),
       browserLabBackendUrl: getBrowserLabMcpBackendUrl(config),
       browserLabToken: getBrowserLabMcpToken(),
+      remoteHostRunnerPath: resolveRemoteHostMcpRunnerPath(),
+      remoteHostBackendUrl: getRemoteHostMcpBackendUrl(config),
+      remoteHostToken: getRemoteHostMcpToken(),
     };
     return {
       resolve: (input) =>

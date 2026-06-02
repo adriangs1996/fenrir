@@ -1,9 +1,9 @@
-interface LigatureCandidate {
-  readonly text: string;
+interface LigatureCandidate extends LigatureMatch {
   readonly cps: readonly number[];
 }
 
 export interface LigatureMatch {
+  readonly id: number;
   readonly text: string;
   readonly span: number;
 }
@@ -36,11 +36,12 @@ const LIGATURE_CANDIDATES = [
 
 const CANDIDATES_BY_FIRST_CP = new Map<number, LigatureCandidate[]>();
 
-for (const text of LIGATURE_CANDIDATES) {
+for (let id = 0; id < LIGATURE_CANDIDATES.length; id++) {
+  const text = LIGATURE_CANDIDATES[id]!;
   const cps = Array.from(text, (char) => char.codePointAt(0)!);
   const first = cps[0]!;
   const bucket = CANDIDATES_BY_FIRST_CP.get(first);
-  const candidate: LigatureCandidate = { text, cps };
+  const candidate: LigatureCandidate = { id, text, span: cps.length, cps };
   if (bucket) {
     bucket.push(candidate);
   } else {
@@ -66,16 +67,13 @@ export function findLigatureMatch(
   const hlId = cellHl[base + col]!;
 
   candidateLoop: for (const candidate of bucket) {
-    const span = candidate.cps.length;
+    const span = candidate.span;
     if (col + span > cols) continue;
     for (let offset = 0; offset < span; offset++) {
       if (cellHl[base + col + offset] !== hlId) continue candidateLoop;
       if (cellChars[base + col + offset] !== candidate.cps[offset]) continue candidateLoop;
     }
-    return {
-      text: candidate.text,
-      span,
-    };
+    return candidate;
   }
 
   return null;

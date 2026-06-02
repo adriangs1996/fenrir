@@ -80,21 +80,29 @@ function createDeferred<T>() {
   return { promise, reject, resolve };
 }
 
-function commandRun(command: string): RemoteCommandRunSnapshot {
+function commandRun(
+  command: string,
+  input?: {
+    output?: string;
+    startedAt?: string;
+  },
+): RemoteCommandRunSnapshot {
   return {
     runId: `run-${command}` as never,
     connectionId: "connection-1" as never,
     command,
     status: "succeeded",
-    output: "",
+    output: input?.output ?? "",
     exitCode: 0,
     signal: null,
-    startedAt: "2026-06-02T00:00:01.000Z",
+    startedAt: input?.startedAt ?? "2026-06-02T00:00:01.000Z",
     finishedAt: "2026-06-02T00:00:02.000Z",
   };
 }
 
-function seedRemoteHostWorkspace() {
+function seedRemoteHostWorkspace(input?: {
+  commandRuns?: ReadonlyArray<RemoteCommandRunSnapshot>;
+}) {
   const host = {
     hostId: "host-1" as never,
     label: "Local shell",
@@ -119,7 +127,7 @@ function seedRemoteHostWorkspace() {
   useRemoteControllerStore.setState({
     hosts: { [host.hostId]: host },
     connections: { [connection.connectionId]: connection },
-    commandRuns: {},
+    commandRuns: Object.fromEntries((input?.commandRuns ?? []).map((run) => [run.runId, run])),
     selectedHostId: null,
   });
 }
@@ -154,27 +162,6 @@ function changeCommandInput(element: HTMLTextAreaElement, value: string) {
     }),
   );
   element.dispatchEvent(new Event("change", { bubbles: true }));
-}
-
-function sendButton(): HTMLButtonElement {
-  const element = document.querySelector<HTMLButtonElement>('button[aria-label="Send command"]');
-  if (!element) {
-    throw new Error("Expected the remote host send button to be rendered.");
-  }
-  return element;
-}
-
-function dispatchButtonClick(element: HTMLButtonElement) {
-  for (const type of ["mousedown", "mouseup", "click"] as const) {
-    element.dispatchEvent(
-      new MouseEvent(type, {
-        bubbles: true,
-        button: 0,
-        buttons: type === "mousedown" ? 1 : 0,
-        cancelable: true,
-      }),
-    );
-  }
 }
 
 function nextAnimationFrame(): Promise<void> {
@@ -224,9 +211,8 @@ describe("RemoteHostWorkspace", () => {
       changeCommandInput(input, "whoami");
       deferred.resolve(commandRun("pwd"));
 
-      await vi.waitFor(() => {
-        expect(sendButton().disabled).toBe(false);
-      });
+      await deferred.promise;
+      await nextAnimationFrame();
       expect(document.activeElement).toBe(input);
       expect(input.value).toBe("whoami");
     } finally {
@@ -234,7 +220,46 @@ describe("RemoteHostWorkspace", () => {
     }
   });
 
-  it("keeps command input focus after sending with the send button", async () => {
+  it("renders command history as a continuous shell transcript", async () => {
+    seedRemoteHostWorkspace({
+      commandRuns: [
+        commandRun("pwd", {
+          output: "/tmp\n",
+          startedAt: "2026-06-02T00:00:02.000Z",
+        }),
+        commandRun("whoami", {
+          output: "fenrir\n",
+          startedAt: "2026-06-02T00:00:01.000Z",
+        }),
+      ],
+    });
+    const screen = await render(
+      <SidebarProvider>
+        <RemoteHostWorkspace hostId="host-1" />
+      </SidebarProvider>,
+    );
+
+    try {
+      const shell = document.querySelector<HTMLElement>('[data-remote-host-shell="true"]');
+      const runs = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-remote-host-shell-run="true"]'),
+      );
+
+      expect(shell).toBeTruthy();
+      expect(runs).toHaveLength(2);
+      expect(runs[0]?.textContent ?? "").toContain("$whoami");
+      expect(runs[0]?.textContent ?? "").toContain("fenrir");
+      expect(runs[1]?.textContent ?? "").toContain("$pwd");
+      expect(runs[1]?.textContent ?? "").toContain("/tmp");
+      expect(document.querySelector('[data-remote-host-shell-prompt="true"]')).toBeTruthy();
+      expect(document.querySelector('button[aria-label="Send command"]')).toBeNull();
+      expect(document.querySelector("section")).toBeNull();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("keeps command input focus after sending from the shell prompt", async () => {
     seedRemoteHostWorkspace();
     const deferred = createDeferred<RemoteCommandRunSnapshot>();
     mocks.sendCommand.mockReturnValueOnce(deferred.promise);
@@ -249,7 +274,7 @@ describe("RemoteHostWorkspace", () => {
       input.focus();
       changeCommandInput(input, "id");
 
-      dispatchButtonClick(sendButton());
+      dispatchEnter(input);
 
       await vi.waitFor(() => {
         expect(mocks.sendCommand).toHaveBeenCalledWith({
@@ -263,6 +288,45 @@ describe("RemoteHostWorkspace", () => {
       await deferred.promise;
       await nextAnimationFrame();
       expect(document.activeElement).toBe(input);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("handles clear commands locally without sending them to the remote controller", async () => {
+    seedRemoteHostWorkspace({
+      commandRuns: [
+        commandRun("pwd", {
+          output: "/tmp\n",
+          startedAt: "2026-06-02T00:00:01.000Z",
+        }),
+        commandRun("whoami", {
+          output: "fenrir\n",
+          startedAt: "2026-06-02T00:00:02.000Z",
+        }),
+      ],
+    });
+    const screen = await render(
+      <SidebarProvider>
+        <RemoteHostWorkspace hostId="host-1" />
+      </SidebarProvider>,
+    );
+
+    try {
+      const input = commandInput();
+      input.focus();
+      changeCommandInput(input, "clear");
+
+      dispatchEnter(input);
+
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll('[data-remote-host-shell-run="true"]')).toHaveLength(0);
+      });
+      expect(mocks.sendCommand).not.toHaveBeenCalled();
+      expect(input.value).toBe("");
+      expect(document.activeElement).toBe(input);
+      expect(document.body.textContent ?? "").not.toContain("fenrir");
+      expect(document.body.textContent ?? "").not.toContain("Remote shell ready");
     } finally {
       await screen.unmount();
     }

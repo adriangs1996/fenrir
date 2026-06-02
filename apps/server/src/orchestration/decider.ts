@@ -473,6 +473,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.titleSeed !== undefined ? { titleSeed: command.titleSeed } : {}),
           runtimeMode: targetThread.runtimeMode,
           interactionMode: targetThread.interactionMode,
+          ...(command.mcpServerIds !== undefined ? { mcpServerIds: command.mcpServerIds } : {}),
           ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
           ...("reviewContext" in command && command.reviewContext !== undefined
             ? { reviewContext: command.reviewContext }

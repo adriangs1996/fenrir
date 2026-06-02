@@ -51,6 +51,7 @@ import { TrafficLensServiceLive } from "./traffic-lens/Layers/TrafficLensService
 import { TrafficLensStorageServiceLive } from "./traffic-lens-storage/Layers/TrafficLensStorageService";
 import { BrowserLabControlHttpLive } from "./browserLab/browserLabControlHttp";
 import { BrowserLabControlServiceLive } from "./browserLab/Layers/BrowserLabControlService";
+import { RemoteHostMcpHttpLive } from "./mcp/remoteHostMcpHttp";
 import { PlanRunnerLive } from "./plan-runner/Layers/PlanRunner";
 import { layer as GitWorkflowServiceLive } from "./git/GitWorkflowService";
 import { GitManagerLive } from "./git/Layers/GitManager";
@@ -450,6 +451,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   trafficLensIngestRouteLayer,
   trafficLensStorageIngestRouteLayer,
   BrowserLabControlHttpLive,
+  RemoteHostMcpHttpLive,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,
 ).pipe(Layer.provide(trafficLensApiCorsLayer));

@@ -1,7 +1,7 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ["src/bin.ts", "src/mcp/browserLabRunner.ts"],
+  entry: ["src/bin.ts", "src/mcp/browserLabRunner.ts", "src/mcp/remoteHostRunner.ts"],
   format: ["esm", "cjs"],
   checks: {
     legacyCjs: false,

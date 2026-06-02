@@ -1,9 +1,7 @@
-import { existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 
 import { DEFAULT_PORT, type ServerConfigShape } from "../config";
+import { getElectronNodeRunnerEnv, resolveMcpRunnerPath } from "./mcpRunnerRuntime.ts";
 
 const browserLabMcpToken = randomBytes(32).toString("hex");
 
@@ -16,21 +14,9 @@ export function getBrowserLabMcpBackendUrl(config?: Pick<ServerConfigShape, "por
 }
 
 export function resolveBrowserLabMcpRunnerPath(): string {
-  const dir = dirname(fileURLToPath(import.meta.url));
-  const candidates = [
-    join(dir, "mcp", "browserLabRunner.mjs"),
-    join(dir, "mcp", "browserLabRunner.js"),
-    join(dir, "mcp", "browserLabRunner.cjs"),
-    join(dir, "browserLabRunner.ts"),
-    join(dir, "browserLabRunner.js"),
-    join(dir, "browserLabRunner.mjs"),
-    join(dir, "browserLabRunner.cjs"),
-  ];
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+  return resolveMcpRunnerPath(import.meta.url, "browserLabRunner");
 }
 
 export function getBrowserLabMcpRunnerEnv(): Record<string, string> {
-  return process.env.ELECTRON_RUN_AS_NODE
-    ? { ELECTRON_RUN_AS_NODE: process.env.ELECTRON_RUN_AS_NODE }
-    : {};
+  return getElectronNodeRunnerEnv();
 }

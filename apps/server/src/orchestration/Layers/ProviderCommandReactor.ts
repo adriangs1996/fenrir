@@ -290,6 +290,7 @@ const make = Effect.gen(function* () {
     options?: {
       readonly modelSelection?: ModelSelection;
       readonly providerInstanceId?: ProviderInstanceId;
+      readonly mcpServerIds?: ReadonlyArray<McpServerId>;
     },
   ) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -324,7 +325,7 @@ const make = Effect.gen(function* () {
       thread,
       projects: readModel.projects,
     });
-    const selectedMcpServerIds = thread.mcpServerIds ?? [];
+    const selectedMcpServerIds = options?.mcpServerIds ?? thread.mcpServerIds ?? [];
     const resolvedMcp = yield* resolveThreadMcpServers({
       selectedServerIds: selectedMcpServerIds,
     });
@@ -501,6 +502,7 @@ const make = Effect.gen(function* () {
     readonly modelSelection?: ModelSelection;
     readonly providerInstanceId?: ProviderInstanceId;
     readonly interactionMode?: "default" | "plan";
+    readonly mcpServerIds?: ReadonlyArray<McpServerId>;
     readonly createdAt: string;
   }) {
     const thread = yield* resolveThread(input.threadId);
@@ -512,6 +514,7 @@ const make = Effect.gen(function* () {
       ...(input.providerInstanceId !== undefined
         ? { providerInstanceId: input.providerInstanceId }
         : {}),
+      ...(input.mcpServerIds !== undefined ? { mcpServerIds: input.mcpServerIds } : {}),
     });
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
@@ -731,6 +734,9 @@ const make = Effect.gen(function* () {
         : {}),
       ...(event.payload.providerInstanceId !== undefined
         ? { providerInstanceId: event.payload.providerInstanceId }
+        : {}),
+      ...(event.payload.mcpServerIds !== undefined
+        ? { mcpServerIds: event.payload.mcpServerIds }
         : {}),
       interactionMode: event.payload.interactionMode,
       createdAt: event.payload.createdAt,
