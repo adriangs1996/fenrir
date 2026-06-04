@@ -27,7 +27,6 @@
     "scripts",
     "integration",
     "../../scripts/lib",
-    "../../packages/contracts/src",
-    "../../packages/shared/src/sourceControlReview.ts"
+    "../../packages/contracts/src"
   ]
 }

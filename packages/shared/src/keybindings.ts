@@ -33,7 +33,6 @@ export interface ShortcutEventLike {
 export interface ShortcutMatchContext {
   readonly terminalFocus: boolean;
   readonly terminalOpen: boolean;
-  readonly reviewFocus: boolean;
   readonly [key: string]: boolean;
 }
 
@@ -100,51 +99,6 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+e", command: "editor.toggleChatTab", when: "!terminalFocus" },
   { key: "alt+k", command: "thread.previous" },
   { key: "alt+j", command: "thread.next" },
-  {
-    key: "j",
-    command: "sourceControl.review.previousItem" as KeybindingRule["command"],
-    when: "reviewFocus",
-  },
-  {
-    key: "k",
-    command: "sourceControl.review.nextItem" as KeybindingRule["command"],
-    when: "reviewFocus",
-  },
-  {
-    key: "o",
-    command: "sourceControl.review.openChange" as KeybindingRule["command"],
-    when: "reviewFocus",
-  },
-  {
-    key: "a",
-    command: "sourceControl.review.askAgent" as KeybindingRule["command"],
-    when: "reviewFocus",
-  },
-  {
-    key: "r",
-    command: "sourceControl.review.markReviewed" as KeybindingRule["command"],
-    when: "reviewFocus",
-  },
-  {
-    key: "f",
-    command: "sourceControl.review.markNeedsFollowUp" as KeybindingRule["command"],
-    when: "reviewFocus",
-  },
-  {
-    key: "tab",
-    command: "sourceControl.review.toggleMode" as KeybindingRule["command"],
-    when: "reviewFocus",
-  },
-  {
-    key: "g",
-    command: "sourceControl.review.refreshAnalysis" as KeybindingRule["command"],
-    when: "reviewFocus",
-  },
-  {
-    key: "s",
-    command: "sourceControl.review.openSubmitReviewTray" as KeybindingRule["command"],
-    when: "reviewFocus",
-  },
   ...THREAD_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
     key: `mod+${index + 1}`,
     command,
@@ -419,7 +373,6 @@ function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatc
   return {
     terminalFocus: false,
     terminalOpen: false,
-    reviewFocus: false,
     ...options?.context,
   };
 }

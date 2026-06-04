@@ -24,8 +24,7 @@ function GitDiffCompatibilityRoute() {
           </EmptyMedia>
           <EmptyTitle>Open a thread first</EmptyTitle>
           <EmptyDescription>
-            The Git Diff Workbench is scoped to a thread so it can use that thread&apos;s worktree
-            and review session.
+            The Git Diff Workbench is scoped to a thread so it can use that thread&apos;s worktree.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>

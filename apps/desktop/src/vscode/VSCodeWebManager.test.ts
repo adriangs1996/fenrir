@@ -191,7 +191,7 @@ describe("resolveVSCodeFenrirShortcutCommand", () => {
         {
           keybindings,
           platform: "MacIntel",
-          context: { terminalFocus: false, terminalOpen: false, reviewFocus: false },
+          context: { terminalFocus: false, terminalOpen: false },
         },
       ),
     ).toBe("terminal.toggle");
@@ -211,7 +211,7 @@ describe("resolveVSCodeFenrirShortcutCommand", () => {
         {
           keybindings,
           platform: "MacIntel",
-          context: { terminalFocus: false, terminalOpen: false, reviewFocus: false },
+          context: { terminalFocus: false, terminalOpen: false },
         },
       ),
     ).toBeNull();

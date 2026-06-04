@@ -336,7 +336,6 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         context: {
           terminalFocus: isTerminalFocused(),
           terminalOpen,
-          reviewFocus: false,
         },
       });
       if (command !== "commandPalette.toggle") {
@@ -1571,9 +1570,6 @@ function OpenCommandPaletteDialog() {
             highlightedItemValue={highlightedItemValue}
             isActionsOnly={isActionsOnly}
             keybindings={keybindings}
-            shortcutContext={{
-              reviewFocus: false,
-            }}
             onExecuteItem={executeItem}
             {...(relativePathNeedsActiveProject
               ? { emptyStateMessage: "Relative paths require an active project." }

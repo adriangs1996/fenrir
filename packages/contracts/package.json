@@ -10,11 +10,6 @@
   "module": "./dist/index.mjs",
   "types": "./src/index.ts",
   "exports": {
-    "./sourceControlReview": {
-      "types": "./src/sourceControlReview.ts",
-      "import": "./src/sourceControlReview.ts",
-      "require": "./src/sourceControlReview.ts"
-    },
     "./sourceControl": {
       "types": "./src/sourceControl.ts",
       "import": "./src/sourceControl.ts",

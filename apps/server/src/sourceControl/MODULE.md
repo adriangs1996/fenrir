@@ -36,6 +36,6 @@ source-control contract.
 ## Current Integration Points
 
 - `server.ts` composes the full module once for runtime dependencies.
-- `ws.ts`, orchestration reactors, review, and plan-runner consume the services.
+- `ws.ts`, orchestration reactors, and plan-runner consume the services.
 - Git remains available for lower-level features that still need raw command
   execution or Git-specific behavior.

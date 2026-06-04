@@ -69,6 +69,7 @@ import {
   type CheckpointDiffQueryShape,
 } from "./checkpointing/Services/CheckpointDiffQuery.ts";
 import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
+import { GitDiffCore, type GitDiffCoreShape } from "./git/Services/GitDiffCore.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
 import { GitWorkflowService, type GitWorkflowServiceShape } from "./git/GitWorkflowService.ts";
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
@@ -140,14 +141,6 @@ import {
   type ServerEnvironmentShape,
 } from "./environment/Services/ServerEnvironment.ts";
 import {
-  ReviewWriteService,
-  type ReviewWriteServiceShape,
-} from "./sourceControl/review/Services/ReviewWriteService.ts";
-import {
-  ReviewRpcService,
-  type ReviewRpcServiceShape,
-} from "./sourceControl/review/Services/ReviewRpcService.ts";
-import {
   SourceControlStackService,
   type SourceControlStackServiceShape,
 } from "./sourceControl/stack/Services/SourceControlStackService.ts";
@@ -173,7 +166,6 @@ import {
 import { ProcessDiagnostics } from "./diagnostics/ProcessDiagnostics.ts";
 import { ProcessResourceMonitor } from "./diagnostics/ProcessResourceMonitor.ts";
 import { TraceDiagnostics } from "./diagnostics/TraceDiagnostics.ts";
-import { ReviewSessionId } from "@fenrir/contracts/sourceControlReview";
 
 const defaultProjectId = ProjectId.make("project-default");
 const defaultThreadId = ThreadId.make("thread-default");
@@ -432,6 +424,7 @@ const buildAppUnderTest = (options?: {
     serverSettings?: Partial<ServerSettingsShape>;
     open?: Partial<OpenShape>;
     gitCore?: Partial<GitCoreShape>;
+    gitDiffCore?: Partial<GitDiffCoreShape>;
     gitManager?: Partial<GitManagerShape>;
     gitWorkflow?: Partial<GitWorkflowServiceShape>;
     vcsProvisioning?: Partial<VcsProvisioningServiceShape>;
@@ -441,8 +434,6 @@ const buildAppUnderTest = (options?: {
     sourceControlWorkflows?: Partial<SourceControlWorkflowsShape>;
     sourceControlDiscovery?: Partial<SourceControlDiscoveryShape>;
     sourceControlRepositoryService?: Partial<SourceControlRepositoryServiceShape>;
-    reviewWriteService?: Partial<ReviewWriteServiceShape>;
-    reviewRpcService?: Partial<ReviewRpcServiceShape>;
     sourceControlStackService?: Partial<SourceControlStackServiceShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
@@ -496,6 +487,10 @@ const buildAppUnderTest = (options?: {
     const layerConfig = Layer.succeed(ServerConfig, config);
     const gitCoreLayer = Layer.mock(GitCore)({
       ...options?.layers?.gitCore,
+    });
+    const gitDiffCoreLayer = Layer.mock(GitDiffCore)({
+      loadDiffFileIndex: () => Effect.succeed([]),
+      ...options?.layers?.gitDiffCore,
     });
     const gitManagerLayer = Layer.mock(GitManager)({
       ...options?.layers?.gitManager,
@@ -672,50 +667,6 @@ const buildAppUnderTest = (options?: {
       }),
     ).pipe(Layer.provide(sourceControlStatusLayer));
 
-    const reviewWriteServiceLayer = Layer.succeed(
-      ReviewWriteService,
-      ReviewWriteService.of({
-        getGitHubSnapshot: () => Effect.die(new Error("not implemented in test")),
-        upsertGitHubDraft: () => Effect.die(new Error("not implemented in test")),
-        deleteGitHubDraft: () => Effect.die(new Error("not implemented in test")),
-        replyToGitHubThread: () => Effect.die(new Error("not implemented in test")),
-        submitGitHubDraft: () => Effect.die(new Error("not implemented in test")),
-        applyRawMutation: () => Effect.die(new Error("not implemented in test")),
-      }),
-    );
-    const reviewRpcServiceLayer = Layer.succeed(
-      ReviewRpcService,
-      ReviewRpcService.of({
-        getOrCreateSession: () => Effect.die(new Error("not implemented in test")),
-        getSessionSummary: () => Effect.die(new Error("not implemented in test")),
-        getSessionSnapshot: () => Effect.die(new Error("not implemented in test")),
-        getDiffSnapshot: () => Effect.die(new Error("not implemented in test")),
-        getFilePatch: () => Effect.die(new Error("not implemented in test")),
-        getChunkPayload: () => Effect.die(new Error("not implemented in test")),
-        setMode: () => Effect.die(new Error("not implemented in test")),
-        setScope: () => Effect.die(new Error("not implemented in test")),
-        setProgress: () => Effect.die(new Error("not implemented in test")),
-        createLocalThread: () => Effect.die(new Error("not implemented in test")),
-        updateLocalThread: () => Effect.die(new Error("not implemented in test")),
-        deleteLocalThread: () => Effect.die(new Error("not implemented in test")),
-        setLocalThreadResolved: () => Effect.die(new Error("not implemented in test")),
-        createLocalReply: () => Effect.die(new Error("not implemented in test")),
-        updateLocalReply: () => Effect.die(new Error("not implemented in test")),
-        deleteLocalReply: () => Effect.die(new Error("not implemented in test")),
-        upsertOverviewNote: () => Effect.die(new Error("not implemented in test")),
-        deleteOverviewNote: () => Effect.die(new Error("not implemented in test")),
-        getGitHubSnapshot: () => Effect.die(new Error("not implemented in test")),
-        upsertGitHubDraft: () => Effect.die(new Error("not implemented in test")),
-        applyRawMutation: () => Effect.die(new Error("not implemented in test")),
-        deleteGitHubDraft: () => Effect.die(new Error("not implemented in test")),
-        replyToGitHubThread: () => Effect.die(new Error("not implemented in test")),
-        submitGitHubDraft: () => Effect.die(new Error("not implemented in test")),
-        refreshProviderData: () => Effect.die(new Error("not implemented in test")),
-        generateAnalysis: () => Effect.die(new Error("not implemented in test")),
-        streamEvents: () => Stream.empty,
-        ...options?.layers?.reviewRpcService,
-      }),
-    );
     const sourceControlStackServiceLayer = Layer.succeed(
       SourceControlStackService,
       SourceControlStackService.of({
@@ -806,6 +757,7 @@ const buildAppUnderTest = (options?: {
           gitWorkflowLayer,
           vcsProvisioningLayer,
           vcsStatusBroadcasterLayer,
+          gitDiffCoreLayer,
           sourceControlStackServiceLayer,
         ),
       ),
@@ -968,12 +920,7 @@ const buildAppUnderTest = (options?: {
       ),
     );
 
-    const servedRoutesLayerWithReview = servedRoutesLayer.pipe(
-      Layer.provide(reviewWriteServiceLayer),
-      Layer.provide(reviewRpcServiceLayer),
-    );
-
-    const appLayer = servedRoutesLayerWithReview.pipe(
+    const appLayer = servedRoutesLayer.pipe(
       Layer.provide(
         Layer.mock(BrowserTraceCollector)({
           record: () => Effect.void,
@@ -1128,31 +1075,6 @@ const withWsRpcClient = <A, E, R>(
   wsUrl: string,
   f: (client: WsRpcClient) => Effect.Effect<A, E, R>,
 ) => makeWsRpcClient.pipe(Effect.flatMap(f), Effect.provide(wsRpcProtocolLayer(wsUrl)));
-
-const sourceControlReviewGetGitHubSnapshotMethod = "sourceControl.review.getGitHubSnapshot";
-const subscribeSourceControlReviewEventsMethod = "subscribeSourceControlReviewEvents";
-
-const callWsReviewMethod = <A>(wsUrl: string, method: string, input: unknown) =>
-  withWsRpcClient(wsUrl, (client) =>
-    (
-      client as unknown as Record<
-        string,
-        ((value: unknown) => Effect.Effect<A, Error, never>) | undefined
-      >
-    )[method]!(input),
-  );
-
-const subscribeWsReviewMethod = <A>(wsUrl: string, method: string, input: unknown) =>
-  Effect.scoped(
-    withWsRpcClient(wsUrl, (client) =>
-      (
-        client as unknown as Record<
-          string,
-          ((value: unknown) => Stream.Stream<A, Error, never>) | undefined
-        >
-      )[method]!(input).pipe(Stream.take(1), Stream.runCollect),
-    ),
-  );
 
 export const appendSessionCookieToWsUrl = (url: string, sessionCookieHeader: string) => {
   const isAbsoluteUrl = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(url);
@@ -2986,133 +2908,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("routes websocket rpc review.getGitHubSnapshot scopes drafts by auth session id", () =>
-    Effect.gen(function* () {
-      let observedAuthSessionId: string | null = null;
-      const sessionId = "review-session-1" as const;
-
-      yield* buildAppUnderTest({
-        layers: {
-          reviewRpcService: {
-            getGitHubSnapshot: (_input, authSessionId) =>
-              Effect.sync(() => {
-                observedAuthSessionId = authSessionId;
-
-                return {
-                  provider: "github" as const,
-                  pullRequestNumber: 42,
-                  writable: true,
-                  draft: {
-                    id: "github-review-draft-1" as never,
-                    state: "pending" as const,
-                    pullRequestNumber: 42,
-                    decision: "comment" as const,
-                    body: `draft-for-${authSessionId}`,
-                    threads: [],
-                    createdAt: "2026-05-21T10:00:00.000Z",
-                    updatedAt: "2026-05-21T10:00:00.000Z",
-                  },
-                  pendingDrafts: [],
-                  threads: [],
-                  generalComments: [],
-                  reviews: [],
-                };
-              }),
-          },
-        },
-      });
-
-      const firstCookie = yield* getAuthenticatedSessionCookieHeader();
-      const firstUrl = appendSessionCookieToWsUrl(
-        yield* getWsServerUrl("/ws", { authenticated: false }),
-        firstCookie,
-      );
-
-      const first = (yield* callWsReviewMethod<{
-        readonly draft: { readonly body?: string } | null;
-      }>(firstUrl, sourceControlReviewGetGitHubSnapshotMethod, {
-        sessionId: ReviewSessionId.make(sessionId),
-      })) as {
-        readonly draft: { readonly body?: string } | null;
-      };
-
-      assert.isNotNull(observedAuthSessionId);
-      assert.equal(first.draft?.body, `draft-for-${observedAuthSessionId}`);
-      assert.notEqual(first.draft?.body, `draft-for-${sessionId}`);
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
-  it.effect(
-    "routes websocket rpc subscribeSourceControlReviewEvents with snapshot replacement",
-    () =>
-      Effect.gen(function* () {
-        const sessionId = ReviewSessionId.make("review-session-1");
-
-        yield* buildAppUnderTest({
-          layers: {
-            reviewRpcService: {
-              streamEvents: () =>
-                Stream.make({
-                  _tag: "sessionSnapshotReplaced" as const,
-                  snapshot: {
-                    summary: {
-                      id: sessionId,
-                      mode: "review",
-                      scope: "combined",
-                      target: {
-                        cwd: "/repo/worktree",
-                        repositoryRoot: "/repo",
-                        worktreePath: null,
-                      },
-                      progressCounts: {
-                        unreviewed: 1,
-                        reviewed: 0,
-                        needsFollowUp: 0,
-                      },
-                      fileCount: 1,
-                      chunkCount: 0,
-                      localThreadCount: 0,
-                      overviewNoteCount: 0,
-                      analysisArtifactCount: 0,
-                      degradedReasons: [],
-                      blockedActions: [],
-                      createdAt: "2026-05-21T10:00:00.000Z",
-                      updatedAt: "2026-05-21T10:00:00.000Z",
-                    },
-                    groups: [],
-                    files: [],
-                    chunks: [],
-                    localThreads: [],
-                    localReplies: [],
-                    overviewNotes: [],
-                    analysisArtifacts: [],
-                    github: null,
-                  },
-                }),
-            },
-          },
-        });
-
-        const wsUrl = yield* getWsServerUrl("/ws");
-        const events = yield* subscribeWsReviewMethod<{
-          readonly _tag: "sessionSnapshotReplaced";
-          readonly snapshot: {
-            readonly summary: {
-              readonly id: typeof sessionId;
-              readonly fileCount: number;
-            };
-          };
-        }>(wsUrl, subscribeSourceControlReviewEventsMethod, { sessionId });
-
-        const first = Array.from(events)[0];
-        assert.equal(first?._tag, "sessionSnapshotReplaced");
-        if (first?._tag === "sessionSnapshotReplaced") {
-          assert.equal(first.snapshot.summary.id, sessionId);
-          assert.equal(first.snapshot.summary.fileCount, 1);
-        }
-      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
   it.effect("routes websocket rpc git methods", () =>
     Effect.gen(function* () {
       const gitStatusResult = {
@@ -3267,6 +3062,18 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             checkoutBranch: (input) => Effect.succeed({ branch: input.branch }),
             initRepo: () => Effect.void,
           },
+          gitDiffCore: {
+            loadDiffFileIndex: () =>
+              Effect.succeed([
+                {
+                  path: "src/changed.ts",
+                  previousPath: null,
+                  insertions: 2,
+                  deletions: 1,
+                  binary: false,
+                },
+              ]),
+          },
         },
       });
 
@@ -3322,6 +3129,19 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.equal(prepared.branch, "feature/demo");
+
+      const diffFileIndex = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.gitDiffLoadFileIndex]({
+            cwd: "/tmp/repo",
+            target: { kind: "worktree" },
+            detectRenames: true,
+            detectCopies: true,
+          }),
+        ),
+      );
+      assert.equal(diffFileIndex[0]?.path, "src/changed.ts");
+      assert.equal(diffFileIndex[0]?.insertions, 2);
 
       const branches = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsListRefs]({ cwd: "/tmp/repo" })),

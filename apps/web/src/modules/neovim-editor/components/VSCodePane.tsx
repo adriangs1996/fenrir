@@ -66,7 +66,6 @@ export function VSCodePane({ cwd, keybindings, terminalOpen = false, visible }: 
       context: {
         terminalFocus: false,
         terminalOpen,
-        reviewFocus: false,
       },
     });
   }, [keybindings, terminalOpen, visible]);

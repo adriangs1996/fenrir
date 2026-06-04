@@ -32,34 +32,6 @@ import {
   WsRpcGroup,
   TmuxError,
   type ManagedProcessLogServerMessage,
-  ReviewActionBlockedError,
-  type ReviewApplyRawMutationInput,
-  type ReviewCreateLocalAnnotationReplyInput,
-  type ReviewCreateLocalAnnotationThreadInput,
-  type ReviewDeleteLocalAnnotationReplyInput,
-  type ReviewDeleteLocalAnnotationThreadInput,
-  type ReviewDeleteOverviewNoteInput,
-  type ReviewDeleteGitHubDraftInput,
-  type ReviewGenerateAnalysisInput,
-  type ReviewGetChunkPayloadInput,
-  type ReviewGetDiffSnapshotInput,
-  type ReviewGetFilePatchInput,
-  type ReviewGetGitHubSnapshotInput,
-  type ReviewGetOrCreateSessionInput,
-  type ReviewGetSessionInput,
-  ReviewMutationConflictError,
-  type ReviewSetLocalThreadResolvedInput,
-  type ReviewRefreshProviderDataInput,
-  type ReviewReplyToGitHubThreadInput,
-  ReviewRpcError,
-  type ReviewSetModeInput,
-  type ReviewSetProgressInput,
-  type ReviewSetScopeInput,
-  type ReviewSubmitGitHubDraftInput,
-  type ReviewUpdateLocalAnnotationReplyInput,
-  type ReviewUpdateLocalAnnotationThreadInput,
-  type ReviewUpsertGitHubDraftInput,
-  type ReviewUpsertOverviewNoteInput,
   SourceControlStackRpcError,
   type SourceControlStackAbortOperationInput,
   type SourceControlStackContinueOperationInput,
@@ -110,6 +82,7 @@ import { SourceControl } from "./sourceControl/Services/SourceControl";
 import { SourceControlWorkflows } from "./sourceControl/Services/SourceControlWorkflows";
 import { SourceControlDiscovery } from "./sourceControl/SourceControlDiscovery";
 import { SourceControlRepositoryService } from "./sourceControl/SourceControlRepositoryService";
+import { GitDiffCore } from "./git/Services/GitDiffCore";
 import { GitWorkflowService } from "./git/GitWorkflowService";
 import { VcsProvisioningService } from "./vcs/VcsProvisioningService";
 import { VcsStatusBroadcaster } from "./vcs/VcsStatusBroadcaster";
@@ -137,8 +110,6 @@ import { resolveManagedProcessCwd } from "@fenrir/shared/projectScripts";
 import { ProcessDiagnostics } from "./diagnostics/ProcessDiagnostics";
 import { ProcessResourceMonitor } from "./diagnostics/ProcessResourceMonitor";
 import { TraceDiagnostics } from "./diagnostics/TraceDiagnostics";
-import { ReviewRpcService } from "./sourceControl/review/Services/ReviewRpcService";
-import type { ReviewRpcServiceShape } from "./sourceControl/review/Services/ReviewRpcService";
 import { SourceControlStackService } from "./sourceControl/stack/Services/SourceControlStackService";
 import type { SourceControlStackServiceShape } from "./sourceControl/stack/Services/SourceControlStackService";
 
@@ -196,6 +167,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const sourceControlDiscovery = yield* SourceControlDiscovery;
       const sourceControlRepositoryService = yield* SourceControlRepositoryService;
       const gitWorkflow = yield* GitWorkflowService;
+      const gitDiffCore = yield* GitDiffCore;
       const vcsProvisioning = yield* VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
       const terminalManager = yield* TerminalManager;
@@ -246,35 +218,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         });
       };
 
-      const toReviewRpcErrorOnly = (err: unknown): ReviewRpcError => {
-        if (Schema.is(ReviewRpcError)(err)) return err;
-        return new ReviewRpcError({
-          message: err instanceof globalThis.Error ? err.message : "Review operation failed.",
-          cause: err,
-        });
-      };
-
-      const toReviewRpcOrBlockedError = (
-        err: unknown,
-      ): ReviewRpcError | ReviewActionBlockedError => {
-        if (Schema.is(ReviewActionBlockedError)(err) || Schema.is(ReviewRpcError)(err)) return err;
-        return new ReviewRpcError({
-          message: err instanceof globalThis.Error ? err.message : "Review operation failed.",
-          cause: err,
-        });
-      };
-
-      const toReviewRpcOrConflictError = (
-        err: unknown,
-      ): ReviewRpcError | ReviewMutationConflictError => {
-        if (Schema.is(ReviewMutationConflictError)(err) || Schema.is(ReviewRpcError)(err))
-          return err;
-        return new ReviewRpcError({
-          message: err instanceof globalThis.Error ? err.message : "Review operation failed.",
-          cause: err,
-        });
-      };
-
       const toSourceControlStackRpcError = (err: unknown): SourceControlStackRpcError => {
         if (Schema.is(SourceControlStackRpcError)(err)) return err;
         return new SourceControlStackRpcError({
@@ -285,14 +228,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           cause: err,
         });
       };
-
-      const withReviewRpcService = <A, E, R>(
-        f: (reviewRpcService: ReviewRpcServiceShape) => Effect.Effect<A, E, R>,
-      ) =>
-        Effect.gen(function* () {
-          const reviewRpcService = yield* ReviewRpcService;
-          return yield* f(reviewRpcService);
-        });
 
       const withStackService = <A, E, R>(
         f: (stackService: SourceControlStackServiceShape) => Effect.Effect<A, E, R>,
@@ -1391,6 +1326,10 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "git" },
           ),
+        [WS_METHODS.gitDiffLoadFileIndex]: (input) =>
+          observeRpcEffect(WS_METHODS.gitDiffLoadFileIndex, gitDiffCore.loadDiffFileIndex(input), {
+            "rpc.aggregate": "git-diff",
+          }),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
             "rpc.aggregate": "terminal",
@@ -2110,305 +2049,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               Effect.mapError(toManagedProcessRpcError),
             ),
             { "rpc.aggregate": "managedProcess" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewGetOrCreateSession]: (
-          input: ReviewGetOrCreateSessionInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewGetOrCreateSession,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.getOrCreateSession(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewGetSessionSummary]: (input: ReviewGetSessionInput) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewGetSessionSummary,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.getSessionSummary(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewGetSessionSnapshot]: (input: ReviewGetSessionInput) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewGetSessionSnapshot,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.getSessionSnapshot(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewSetMode]: (input: ReviewSetModeInput) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewSetMode,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.setMode(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewSetScope]: (input: ReviewSetScopeInput) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewSetScope,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.setScope(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewSetProgress]: (input: ReviewSetProgressInput) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewSetProgress,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.setProgress(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewCreateLocalThread]: (
-          input: ReviewCreateLocalAnnotationThreadInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewCreateLocalThread,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.createLocalThread(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewUpdateLocalThread]: (
-          input: ReviewUpdateLocalAnnotationThreadInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewUpdateLocalThread,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.updateLocalThread(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewDeleteLocalThread]: (
-          input: ReviewDeleteLocalAnnotationThreadInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewDeleteLocalThread,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.deleteLocalThread(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewSetLocalThreadResolved]: (
-          input: ReviewSetLocalThreadResolvedInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewSetLocalThreadResolved,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.setLocalThreadResolved(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewCreateLocalReply]: (
-          input: ReviewCreateLocalAnnotationReplyInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewCreateLocalReply,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.createLocalReply(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewUpdateLocalReply]: (
-          input: ReviewUpdateLocalAnnotationReplyInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewUpdateLocalReply,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.updateLocalReply(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewDeleteLocalReply]: (
-          input: ReviewDeleteLocalAnnotationReplyInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewDeleteLocalReply,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.deleteLocalReply(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewUpsertOverviewNote]: (
-          input: ReviewUpsertOverviewNoteInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewUpsertOverviewNote,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.upsertOverviewNote(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewDeleteOverviewNote]: (
-          input: ReviewDeleteOverviewNoteInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewDeleteOverviewNote,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.deleteOverviewNote(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewGetDiffSnapshot]: (
-          input: ReviewGetDiffSnapshotInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewGetDiffSnapshot,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.getDiffSnapshot(input),
-            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewGetFilePatch]: (input: ReviewGetFilePatchInput) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewGetFilePatch,
-            withReviewRpcService((reviewRpcService) => reviewRpcService.getFilePatch(input)).pipe(
-              Effect.mapError(toReviewRpcErrorOnly),
-            ),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewGetChunkPayload]: (
-          input: ReviewGetChunkPayloadInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewGetChunkPayload,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.getChunkPayload(input),
-            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewGetGitHubSnapshot]: (
-          input: ReviewGetGitHubSnapshotInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewGetGitHubSnapshot,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.getGitHubSnapshot(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewUpsertGitHubDraft]: (
-          input: ReviewUpsertGitHubDraftInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewUpsertGitHubDraft,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.upsertGitHubDraft({
-                ...input,
-                authSessionId: currentSessionId,
-              }),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewApplyRawMutation]: (
-          input: ReviewApplyRawMutationInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewApplyRawMutation,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.applyRawMutation(input),
-            ).pipe(Effect.mapError(toReviewRpcOrConflictError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewDeleteGitHubDraft]: (
-          input: ReviewDeleteGitHubDraftInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewDeleteGitHubDraft,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.deleteGitHubDraft({
-                ...input,
-                authSessionId: currentSessionId,
-              }),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewReplyToGitHubThread]: (
-          input: ReviewReplyToGitHubThreadInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewReplyToGitHubThread,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.replyToGitHubThread({
-                ...input,
-                authSessionId: currentSessionId,
-              }),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewSubmitGitHubDraft]: (
-          input: ReviewSubmitGitHubDraftInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewSubmitGitHubDraft,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.submitGitHubDraft({
-                ...input,
-                authSessionId: currentSessionId,
-              }),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewRefreshProviderData]: (
-          input: ReviewRefreshProviderDataInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewRefreshProviderData,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.refreshProviderData(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcErrorOnly)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.sourceControlReviewGenerateAnalysis]: (
-          input: ReviewGenerateAnalysisInput,
-        ) =>
-          observeRpcEffect(
-            ContractWsMethods.sourceControlReviewGenerateAnalysis,
-            withReviewRpcService((reviewRpcService) =>
-              reviewRpcService.generateAnalysis(input, currentSessionId),
-            ).pipe(Effect.mapError(toReviewRpcOrBlockedError)),
-            { "rpc.aggregate": "review" },
-          ),
-
-        [ContractWsMethods.subscribeSourceControlReviewEvents]: (input: ReviewGetSessionInput) =>
-          observeRpcStream(
-            ContractWsMethods.subscribeSourceControlReviewEvents,
-            withReviewRpcService((reviewRpcService) =>
-              Effect.succeed(
-                reviewRpcService
-                  .streamEvents(input, currentSessionId)
-                  .pipe(Stream.mapError(toReviewRpcErrorOnly)),
-              ),
-            ).pipe(Stream.unwrap),
-            { "rpc.aggregate": "review" },
           ),
 
         [ContractWsMethods.sourceControlStackGetSnapshot]: (

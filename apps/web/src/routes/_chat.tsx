@@ -52,7 +52,6 @@ function ChatRouteGlobalShortcuts() {
         context: {
           terminalFocus: isTerminalFocused(),
           terminalOpen,
-          reviewFocus: false,
         },
       });
 

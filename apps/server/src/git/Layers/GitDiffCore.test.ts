@@ -70,6 +70,33 @@ function makeCommittedRepo(files: Record<string, string>) {
   return cwd;
 }
 
+function makeStackedRepo() {
+  const cwd = makeCommittedRepo({
+    "src/base.txt": "base\n",
+  });
+
+  git(cwd, "checkout", "-b", "feature/parent");
+  writeFile(cwd, "src/parent-only.txt", "parent\n");
+  writeFile(cwd, "src/shared.txt", "shared from parent\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-m", "parent stack item");
+
+  git(cwd, "checkout", "-b", "feature/child");
+  writeFile(cwd, "src/child-only.txt", "child\n");
+  writeFile(cwd, "src/shared.txt", "shared from child\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-m", "child stack item");
+
+  git(cwd, "checkout", "feature/parent");
+  writeFile(cwd, "src/parent-followup.txt", "parent followup\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-m", "parent followup");
+
+  git(cwd, "checkout", "feature/child");
+
+  return cwd;
+}
+
 function byPath<T extends { readonly path: string }>(files: ReadonlyArray<T>) {
   return files.toSorted((left, right) => left.path.localeCompare(right.path));
 }
@@ -264,6 +291,96 @@ describe("GitDiffCoreLive", () => {
               previousPath: "src/old-name.txt",
               insertions: 1,
               deletions: 0,
+              binary: false,
+            }),
+          ]);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("reports multiple renames alongside ordinary changed files", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "src/alpha-old.txt": "alpha\n",
+          "src/beta-old.txt": "beta\n",
+          "src/changed.txt": "one\ntwo\n",
+        });
+
+        try {
+          git(cwd, "mv", "src/alpha-old.txt", "src/alpha-new.txt");
+          git(cwd, "mv", "src/beta-old.txt", "src/beta-new.txt");
+          writeFile(cwd, "src/changed.txt", "one\ntwo\nthree\n");
+          git(cwd, "add", "src/changed.txt");
+
+          const gitDiff = yield* GitDiffCore;
+          const files = yield* gitDiff.loadDiffFileIndex({
+            cwd,
+            target: { kind: "staged" },
+            detectRenames: true,
+            detectCopies: true,
+          });
+
+          expect(byPath(files)).toEqual([
+            expect.objectContaining({
+              path: "src/alpha-new.txt",
+              previousPath: "src/alpha-old.txt",
+              insertions: 0,
+              deletions: 0,
+              binary: false,
+            }),
+            expect.objectContaining({
+              path: "src/beta-new.txt",
+              previousPath: "src/beta-old.txt",
+              insertions: 0,
+              deletions: 0,
+              binary: false,
+            }),
+            expect.objectContaining({
+              path: "src/changed.txt",
+              previousPath: null,
+              insertions: 1,
+              deletions: 0,
+              binary: false,
+            }),
+          ]);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("loads a stacked branch file index against its parent branch", () =>
+      Effect.gen(function* () {
+        const cwd = makeStackedRepo();
+
+        try {
+          const gitDiff = yield* GitDiffCore;
+          const files = yield* gitDiff.loadDiffFileIndex({
+            cwd,
+            target: {
+              kind: "range",
+              baseRef: "feature/parent",
+              headRef: "feature/child",
+            },
+            detectRenames: true,
+            detectCopies: true,
+          });
+
+          expect(byPath(files)).toEqual([
+            expect.objectContaining({
+              path: "src/child-only.txt",
+              previousPath: null,
+              insertions: 1,
+              deletions: 0,
+              binary: false,
+            }),
+            expect.objectContaining({
+              path: "src/shared.txt",
+              previousPath: null,
+              insertions: 1,
+              deletions: 1,
               binary: false,
             }),
           ]);

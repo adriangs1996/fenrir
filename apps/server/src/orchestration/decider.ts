@@ -475,9 +475,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           interactionMode: targetThread.interactionMode,
           ...(command.mcpServerIds !== undefined ? { mcpServerIds: command.mcpServerIds } : {}),
           ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
-          ...("reviewContext" in command && command.reviewContext !== undefined
-            ? { reviewContext: command.reviewContext }
-            : {}),
           createdAt: command.createdAt,
         },
       };

@@ -20,11 +20,6 @@ import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/
 import { ServerLifecycleEventsLive } from "./serverLifecycleEvents";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
 import { PlanRunnerRepositoryLive } from "./persistence/Layers/PlanRunnerRepository";
-import { ReviewSessionRepositoryLive } from "./persistence/Layers/ReviewSessions";
-import { ReviewIgnoreRuleRepositoryLive } from "./persistence/Layers/ReviewIgnoreRules";
-import { ReviewAnnotationRepositoryLive } from "./persistence/Layers/ReviewAnnotations";
-import { ReviewProgressRepositoryLive } from "./persistence/Layers/ReviewProgress";
-import { ReviewAnalysisRepositoryLive } from "./persistence/Layers/ReviewAnalysis";
 import {
   ProviderRuntimeLifecycleLive,
   ProviderRuntimeServiceLive,
@@ -37,6 +32,7 @@ import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQu
 import { OrchestrationProjectionSnapshotQueryLive } from "./orchestration/Layers/ProjectionSnapshotQuery";
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore";
 import { GitCoreLive } from "./git/Layers/GitCore";
+import { GitDiffCoreLive } from "./git/Layers/GitDiffCore";
 import { GitHubCliLive } from "./git/Layers/GitHubCli";
 import { RoutingTextGenerationLive } from "./git/Layers/RoutingTextGeneration";
 import { TerminalManagerLive } from "./terminal/Layers/Manager";
@@ -55,7 +51,6 @@ import { RemoteHostMcpHttpLive } from "./mcp/remoteHostMcpHttp";
 import { PlanRunnerLive } from "./plan-runner/Layers/PlanRunner";
 import { layer as GitWorkflowServiceLive } from "./git/GitWorkflowService";
 import { GitManagerLive } from "./git/Layers/GitManager";
-import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster";
 import { VcsDriverRegistryLive } from "./vcs/VcsDriverRegistry";
 import { layer as VcsProvisioningServiceLive } from "./vcs/VcsProvisioningService";
 import { layer as VcsStatusBroadcasterLive } from "./vcs/VcsStatusBroadcaster";
@@ -73,15 +68,7 @@ import { GlobalActionsLive } from "./globalActions";
 import { ServerSettingsLive } from "./serverSettings";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { SourceControlModuleLive } from "./sourceControl/SourceControlModule";
-import { ReviewDiffServiceLive } from "./sourceControl/review/Layers/ReviewDiffService";
-import { ReviewAnalysisServiceLive } from "./sourceControl/review/Layers/ReviewAnalysisService";
-import { ReviewMutationServiceLive } from "./sourceControl/review/Layers/ReviewMutationService";
-import { ReviewSessionServiceLive } from "./sourceControl/review/Layers/ReviewSessionService";
-import { ReviewWriteServiceLive } from "./sourceControl/review/Layers/ReviewWriteService";
-import { ReviewRpcServiceLive } from "./sourceControl/review/Layers/ReviewRpcService";
 import { SourceControlStackServiceLive } from "./sourceControl/stack/Layers/SourceControlStackService";
-import { ReviewGitHubPendingDraftRepositoryLive } from "./persistence/Layers/ReviewGitHubDrafts";
-import { GitHubReviewProviderLive } from "./sourceControl/review/Layers/GitHubReviewProvider";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
@@ -208,10 +195,6 @@ const ProviderRuntimeLifecycleLayerLive = ProviderRuntimeLifecycleLive.pipe(
 
 const PersistenceLayerLive = Layer.empty.pipe(
   Layer.provideMerge(PlanRunnerRepositoryLive),
-  Layer.provideMerge(ReviewSessionRepositoryLive),
-  Layer.provideMerge(ReviewAnnotationRepositoryLive),
-  Layer.provideMerge(ReviewProgressRepositoryLive),
-  Layer.provideMerge(ReviewAnalysisRepositoryLive),
   Layer.provideMerge(SqlitePersistenceLayerLive),
 );
 
@@ -222,9 +205,12 @@ const GitManagerLayerLive = GitManagerLive.pipe(
   Layer.provideMerge(RoutingTextGenerationLive),
 );
 
+const GitDiffLayerLive = GitDiffCoreLive.pipe(Layer.provideMerge(GitCoreLive));
+
 const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitManagerLayerLive),
   Layer.provideMerge(GitCoreLive),
+  Layer.provideMerge(GitDiffLayerLive),
 );
 
 const GitWorkflowLayerLive = GitWorkflowServiceLive.pipe(
@@ -243,85 +229,6 @@ const SourceControlLayerLive = SourceControlModuleLive.pipe(
   Layer.provideMerge(GitManagerLayerLive),
   Layer.provideMerge(GitCoreLive),
 );
-
-const ReviewDiffDependenciesLive = Layer.mergeAll(
-  ReviewIgnoreRuleRepositoryLive.pipe(Layer.provideMerge(PersistenceLayerLive)),
-  GitStatusBroadcasterLive.pipe(Layer.provideMerge(GitManagerLayerLive)),
-  GitCoreLive,
-);
-
-const ReviewGitHubDraftRepositoryLayerLive = ReviewGitHubPendingDraftRepositoryLive.pipe(
-  Layer.provideMerge(PersistenceLayerLive),
-);
-
-const ReviewProviderLayerLive = GitHubReviewProviderLive.pipe(Layer.provideMerge(GitHubCliLive));
-
-const ReviewDiffLayerLive = ReviewDiffServiceLive.pipe(Layer.provide(ReviewDiffDependenciesLive));
-
-const ReviewSessionRepositoryLayerLive = ReviewSessionRepositoryLive.pipe(
-  Layer.provideMerge(PersistenceLayerLive),
-);
-
-const ReviewIgnoreRuleRepositoryLayerLive = ReviewIgnoreRuleRepositoryLive.pipe(
-  Layer.provideMerge(PersistenceLayerLive),
-);
-
-const ReviewMutationLayerLive = ReviewMutationServiceLive.pipe(
-  Layer.provideMerge(ReviewSessionRepositoryLayerLive),
-  Layer.provideMerge(ReviewIgnoreRuleRepositoryLayerLive),
-  Layer.provideMerge(ReviewDiffLayerLive),
-  Layer.provideMerge(SourceControlLayerLive),
-  Layer.provideMerge(GitCoreLive),
-);
-
-const ReviewWriteLayerLive = ReviewWriteServiceLive.pipe(
-  Layer.provideMerge(ReviewSessionRepositoryLayerLive),
-  Layer.provideMerge(ReviewGitHubDraftRepositoryLayerLive),
-  Layer.provideMerge(ReviewDiffLayerLive),
-  Layer.provideMerge(ReviewMutationLayerLive),
-  Layer.provideMerge(ReviewProviderLayerLive),
-  Layer.provideMerge(GitHubCliLive),
-);
-
-const ReviewAnnotationRepositoryLayerLive = ReviewAnnotationRepositoryLive.pipe(
-  Layer.provideMerge(PersistenceLayerLive),
-);
-
-const ReviewProgressRepositoryLayerLive = ReviewProgressRepositoryLive.pipe(
-  Layer.provideMerge(PersistenceLayerLive),
-);
-
-const ReviewAnalysisRepositoryLayerLive = ReviewAnalysisRepositoryLive.pipe(
-  Layer.provideMerge(PersistenceLayerLive),
-);
-
-const ReviewAnalysisLayerLive = ReviewAnalysisServiceLive.pipe(
-  Layer.provideMerge(ReviewDiffLayerLive),
-  Layer.provideMerge(ReviewProviderLayerLive),
-  Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
-);
-
-const ReviewSessionServiceLayerLive = ReviewSessionServiceLive.pipe(
-  Layer.provideMerge(ReviewSessionRepositoryLayerLive),
-  Layer.provideMerge(SourceControlLayerLive),
-  Layer.provideMerge(GitManagerLayerLive),
-  Layer.provideMerge(GitCoreLive),
-  Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
-);
-
-const ReviewRpcLayerLive = ReviewRpcServiceLive.pipe(
-  Layer.provideMerge(ReviewSessionRepositoryLayerLive),
-  Layer.provideMerge(ReviewAnnotationRepositoryLayerLive),
-  Layer.provideMerge(ReviewProgressRepositoryLayerLive),
-  Layer.provideMerge(ReviewAnalysisRepositoryLayerLive),
-  Layer.provideMerge(ReviewDiffLayerLive),
-  Layer.provideMerge(ReviewAnalysisLayerLive),
-  Layer.provideMerge(ReviewSessionServiceLayerLive),
-  Layer.provideMerge(ReviewWriteLayerLive),
-  Layer.provideMerge(SourceControlLayerLive),
-);
-
-const ReviewLayerLive = Layer.mergeAll(ReviewWriteLayerLive, ReviewRpcLayerLive);
 
 const SourceControlStackLayerLive = SourceControlStackServiceLive.pipe(
   Layer.provideMerge(SourceControlLayerLive),
@@ -413,7 +320,6 @@ const CoreDependenciesLive = CoreInfrastructureLive.pipe(
   Layer.provideMerge(ProjectFaviconResolverLive),
   Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(SourceControlLayerLive),
-  Layer.provideMerge(ReviewLayerLive),
   Layer.provideMerge(SourceControlStackLayerLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),

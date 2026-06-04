@@ -145,11 +145,6 @@ const DEFAULT_BINDINGS = compile([
     },
     command: "thread.next",
   },
-  {
-    shortcut: { ...modShortcut("o"), modKey: false },
-    command: "sourceControl.review.openChange" as KeybindingCommand,
-    whenAst: whenIdentifier("reviewFocus"),
-  },
   { shortcut: modShortcut("1"), command: "thread.jump.1" },
   { shortcut: modShortcut("2"), command: "thread.jump.2" },
   { shortcut: modShortcut("3"), command: "thread.jump.3" },
@@ -337,17 +332,6 @@ describe("shortcutLabelForCommand", () => {
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.previous", "Linux"),
       "Alt+K",
-    );
-    assert.strictEqual(
-      shortcutLabelForCommand(
-        DEFAULT_BINDINGS,
-        "sourceControl.review.openChange" as KeybindingCommand,
-        {
-          platform: "Linux",
-          context: { reviewFocus: true },
-        } as never,
-      ),
-      "O",
     );
   });
 
@@ -632,22 +616,6 @@ describe("resolveShortcutCommand", () => {
         },
       ),
       "thread.next",
-    );
-  });
-
-  it("respects reviewFocus-only commands", () => {
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "o" }), DEFAULT_BINDINGS, {
-        platform: "Linux",
-        context: { reviewFocus: true },
-      }),
-      "sourceControl.review.openChange",
-    );
-    assert.isNull(
-      resolveShortcutCommand(event({ key: "o" }), DEFAULT_BINDINGS, {
-        platform: "Linux",
-        context: { reviewFocus: false },
-      }),
     );
   });
 });

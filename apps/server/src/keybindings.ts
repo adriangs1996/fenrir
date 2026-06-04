@@ -139,47 +139,6 @@ const THREAD_TRAVERSAL_DEFAULT_MIGRATIONS = [
   nextKey: string;
 }>;
 
-const LEGACY_REVIEW_KEYBINDING_COMMANDS = {
-  "review.previousItem": "sourceControl.review.previousItem",
-  "review.nextItem": "sourceControl.review.nextItem",
-  "review.openChange": "sourceControl.review.openChange",
-  "review.askAgent": "sourceControl.review.askAgent",
-  "review.markReviewed": "sourceControl.review.markReviewed",
-  "review.markNeedsFollowUp": "sourceControl.review.markNeedsFollowUp",
-  "review.toggleMode": "sourceControl.review.toggleMode",
-  "review.refreshAnalysis": "sourceControl.review.refreshAnalysis",
-  "review.openSubmitReviewTray": "sourceControl.review.openSubmitReviewTray",
-} as const satisfies Readonly<Record<string, KeybindingRule["command"]>>;
-
-function migrateLegacyReviewKeybindingCommand(entry: unknown): {
-  entry: unknown;
-  changed: boolean;
-} {
-  if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-    return { entry, changed: false };
-  }
-
-  const record = entry as Record<string, unknown>;
-  const command = record.command;
-  if (typeof command !== "string") {
-    return { entry, changed: false };
-  }
-
-  const migratedCommand =
-    LEGACY_REVIEW_KEYBINDING_COMMANDS[command as keyof typeof LEGACY_REVIEW_KEYBINDING_COMMANDS];
-  if (!migratedCommand) {
-    return { entry, changed: false };
-  }
-
-  return {
-    entry: {
-      ...record,
-      command: migratedCommand,
-    },
-    changed: true,
-  };
-}
-
 function migrateThreadTraversalDefaultKeybindings(rules: readonly KeybindingRule[]): {
   keybindings: readonly KeybindingRule[];
   changed: boolean;
@@ -568,54 +527,6 @@ const makeKeybindings = Effect.gen(function* () {
     );
   };
 
-  const migrateLegacyReviewKeybindingsOnStartup = Effect.fn(function* (): Effect.fn.Return<
-    boolean,
-    KeybindingsConfigError
-  > {
-    if (!(yield* readConfigExists)) {
-      return false;
-    }
-
-    const rawConfig = yield* readRawConfig.pipe(
-      Effect.flatMap(Schema.decodeEffect(RawKeybindingsEntries)),
-      Effect.mapError(
-        (cause) =>
-          new KeybindingsConfigError({
-            configPath: keybindingsConfigPath,
-            detail: "expected JSON array",
-            cause,
-          }),
-      ),
-    );
-
-    let changed = false;
-    const migratedEntries = rawConfig.map((entry) => {
-      const migrated = migrateLegacyReviewKeybindingCommand(entry);
-      changed = changed || migrated.changed;
-      return migrated.entry;
-    });
-
-    if (!changed) {
-      return false;
-    }
-
-    const migratedConfig = yield* Schema.decodeUnknownEffect(KeybindingsConfig)(
-      migratedEntries,
-    ).pipe(
-      Effect.mapError(
-        (cause) =>
-          new KeybindingsConfigError({
-            configPath: keybindingsConfigPath,
-            detail: "failed to migrate legacy review keybindings",
-            cause,
-          }),
-      ),
-    );
-
-    yield* writeConfigAtomically(migratedConfig);
-    return true;
-  });
-
   const loadConfigStateFromDisk = loadRuntimeCustomKeybindingsConfig().pipe(
     Effect.map(({ keybindings, issues }) => ({
       keybindings: mergeWithDefaultKeybindings(compileResolvedKeybindingsConfig(keybindings)),
@@ -649,20 +560,6 @@ const makeKeybindings = Effect.gen(function* () {
         yield* writeConfigAtomically(DEFAULT_KEYBINDINGS);
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
-      }
-
-      const migratedLegacyReviewKeybindings = yield* migrateLegacyReviewKeybindingsOnStartup().pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("skipping legacy review keybinding migration", {
-            path: keybindingsConfigPath,
-            error: error.message,
-          }).pipe(Effect.as(false)),
-        ),
-      );
-      if (migratedLegacyReviewKeybindings) {
-        yield* Effect.logInfo("migrated legacy review keybinding commands", {
-          path: keybindingsConfigPath,
-        });
       }
 
       const runtimeConfig = yield* loadRuntimeCustomKeybindingsConfig();

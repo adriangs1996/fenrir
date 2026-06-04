@@ -1,9 +1,19 @@
 import { Schema } from "effect";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas";
 
-export const DiffTarget = Schema.Struct({
-  kind: TrimmedNonEmptyString,
-});
+export const DiffTarget = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("worktree"),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("staged"),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("range"),
+    baseRef: TrimmedNonEmptyString,
+    headRef: TrimmedNonEmptyString,
+  }),
+]);
 export type DiffTarget = typeof DiffTarget.Type;
 
 export const LoadDiffFileIndexInput = Schema.Struct({

@@ -20,6 +20,7 @@ import type {
   VcsSwitchRefInput,
   VcsSwitchRefResult,
 } from "./git";
+import type { LoadDiffFileIndexInput, LoadDiffFileIndexResult } from "./gitDiff";
 import type {
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
@@ -29,45 +30,6 @@ import type {
   SourceControlRepositoryInfo,
   SourceControlRepositoryLookupInput,
 } from "./sourceControl";
-import type {
-  GitHubReviewSnapshot,
-  ReviewAnalysisArtifact,
-  ReviewApplyRawMutationInput,
-  ReviewApplyRawMutationResult,
-  ReviewChunkPayload,
-  ReviewCreateLocalAnnotationReplyInput,
-  ReviewCreateLocalAnnotationThreadInput,
-  ReviewDeleteGitHubDraftInput,
-  ReviewDeleteLocalAnnotationReplyInput,
-  ReviewDeleteLocalAnnotationThreadInput,
-  ReviewDeleteOverviewNoteInput,
-  ReviewDiffFilePatch,
-  ReviewDiffSnapshot,
-  ReviewGenerateAnalysisInput,
-  ReviewGetChunkPayloadInput,
-  ReviewGetDiffSnapshotInput,
-  ReviewGetFilePatchInput,
-  ReviewGetGitHubSnapshotInput,
-  ReviewGetOrCreateSessionInput,
-  ReviewGetSessionInput,
-  ReviewLocalAnnotationReply,
-  ReviewLocalAnnotationThread,
-  ReviewOverviewNote,
-  ReviewRefreshProviderDataInput,
-  ReviewReplyToGitHubThreadInput,
-  ReviewSessionSnapshot,
-  ReviewSessionSummary,
-  ReviewSetLocalThreadResolvedInput,
-  ReviewSetModeInput,
-  ReviewSetProgressInput,
-  ReviewSetScopeInput,
-  ReviewStreamEvent,
-  ReviewSubmitGitHubDraftInput,
-  ReviewUpdateLocalAnnotationReplyInput,
-  ReviewUpdateLocalAnnotationThreadInput,
-  ReviewUpsertGitHubDraftInput,
-  ReviewUpsertOverviewNoteInput,
-} from "./sourceControlReview";
 import type {
   SourceControlStackAbortOperationInput,
   SourceControlStackContinueOperationInput,
@@ -261,7 +223,6 @@ export type EditorSendToComposer = typeof EditorSendToComposer.Type;
 export interface VSCodeShortcutContext {
   readonly terminalFocus: boolean;
   readonly terminalOpen: boolean;
-  readonly reviewFocus: boolean;
   readonly [key: string]: boolean;
 }
 
@@ -861,55 +822,6 @@ export interface EnvironmentApi {
     publishRepository: (
       input: SourceControlPublishRepositoryInput,
     ) => Promise<SourceControlPublishRepositoryResult>;
-    review: {
-      getOrCreateSession: (input: ReviewGetOrCreateSessionInput) => Promise<ReviewSessionSummary>;
-      getSessionSummary: (input: ReviewGetSessionInput) => Promise<ReviewSessionSummary>;
-      getSessionSnapshot: (input: ReviewGetSessionInput) => Promise<ReviewSessionSnapshot>;
-      setMode: (input: ReviewSetModeInput) => Promise<ReviewSessionSummary>;
-      setScope: (input: ReviewSetScopeInput) => Promise<ReviewSessionSummary>;
-      setProgress: (input: ReviewSetProgressInput) => Promise<ReviewSessionSummary>;
-      createLocalThread: (
-        input: ReviewCreateLocalAnnotationThreadInput,
-      ) => Promise<ReviewLocalAnnotationThread>;
-      updateLocalThread: (
-        input: ReviewUpdateLocalAnnotationThreadInput,
-      ) => Promise<ReviewLocalAnnotationThread>;
-      deleteLocalThread: (input: ReviewDeleteLocalAnnotationThreadInput) => Promise<void>;
-      setLocalThreadResolved: (
-        input: ReviewSetLocalThreadResolvedInput,
-      ) => Promise<ReviewLocalAnnotationThread>;
-      createLocalReply: (
-        input: ReviewCreateLocalAnnotationReplyInput,
-      ) => Promise<ReviewLocalAnnotationReply>;
-      updateLocalReply: (
-        input: ReviewUpdateLocalAnnotationReplyInput,
-      ) => Promise<ReviewLocalAnnotationReply>;
-      deleteLocalReply: (input: ReviewDeleteLocalAnnotationReplyInput) => Promise<void>;
-      upsertOverviewNote: (input: ReviewUpsertOverviewNoteInput) => Promise<ReviewOverviewNote>;
-      deleteOverviewNote: (input: ReviewDeleteOverviewNoteInput) => Promise<void>;
-      getDiffSnapshot: (input: ReviewGetDiffSnapshotInput) => Promise<ReviewDiffSnapshot>;
-      getFilePatch: (input: ReviewGetFilePatchInput) => Promise<ReviewDiffFilePatch | null>;
-      getChunkPayload: (input: ReviewGetChunkPayloadInput) => Promise<ReviewChunkPayload | null>;
-      getGitHubSnapshot: (
-        input: ReviewGetGitHubSnapshotInput,
-      ) => Promise<GitHubReviewSnapshot | null>;
-      upsertGitHubDraft: (input: ReviewUpsertGitHubDraftInput) => Promise<GitHubReviewSnapshot>;
-      applyRawMutation: (
-        input: ReviewApplyRawMutationInput,
-      ) => Promise<ReviewApplyRawMutationResult>;
-      deleteGitHubDraft: (input: ReviewDeleteGitHubDraftInput) => Promise<GitHubReviewSnapshot>;
-      replyToGitHubThread: (input: ReviewReplyToGitHubThreadInput) => Promise<GitHubReviewSnapshot>;
-      submitGitHubDraft: (input: ReviewSubmitGitHubDraftInput) => Promise<GitHubReviewSnapshot>;
-      refreshProviderData: (
-        input: ReviewRefreshProviderDataInput,
-      ) => Promise<ReviewSessionSnapshot>;
-      generateAnalysis: (input: ReviewGenerateAnalysisInput) => Promise<ReviewAnalysisArtifact>;
-      onEvent: (
-        input: ReviewGetSessionInput,
-        callback: (event: ReviewStreamEvent) => void,
-        options?: { onResubscribe?: () => void },
-      ) => () => void;
-    };
     stack: {
       getSnapshot: (
         input: SourceControlStackGetSnapshotInput,
@@ -973,6 +885,9 @@ export interface EnvironmentApi {
     preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Promise<GitPreparePullRequestThreadResult>;
+  };
+  gitDiff: {
+    loadFileIndex: (input: LoadDiffFileIndexInput) => Promise<LoadDiffFileIndexResult>;
   };
   orchestration: {
     getArchivedShellSnapshot: () => Promise<OrchestrationShellSnapshot>;

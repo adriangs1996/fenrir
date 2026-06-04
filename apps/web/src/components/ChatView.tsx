@@ -2340,7 +2340,6 @@ export default function ChatView(props: ChatViewProps) {
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
         terminalOpen: Boolean(terminalState.terminalOpen),
-        reviewFocus: false,
       };
 
       const command = resolveShortcutCommand(event, keybindings, {

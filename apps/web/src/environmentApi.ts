@@ -58,7 +58,6 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       lookupRepository: rpcClient.sourceControl.lookupRepository,
       cloneRepository: rpcClient.sourceControl.cloneRepository,
       publishRepository: rpcClient.sourceControl.publishRepository,
-      review: rpcClient.sourceControl.review as EnvironmentApi["sourceControl"]["review"],
       stack: rpcClient.sourceControl.stack as EnvironmentApi["sourceControl"]["stack"],
     },
     vcs: {
@@ -75,6 +74,9 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
     git: {
       resolvePullRequest: rpcClient.git.resolvePullRequest,
       preparePullRequestThread: rpcClient.git.preparePullRequestThread,
+    },
+    gitDiff: {
+      loadFileIndex: rpcClient.gitDiff.loadFileIndex,
     },
     orchestration: {
       getArchivedShellSnapshot: rpcClient.orchestration.getArchivedShellSnapshot,

@@ -27,19 +27,6 @@ export const THREAD_KEYBINDING_COMMANDS = [
 ] as const;
 export type ThreadKeybindingCommand = (typeof THREAD_KEYBINDING_COMMANDS)[number];
 
-export const REVIEW_KEYBINDING_COMMANDS = [
-  "sourceControl.review.previousItem",
-  "sourceControl.review.nextItem",
-  "sourceControl.review.openChange",
-  "sourceControl.review.askAgent",
-  "sourceControl.review.markReviewed",
-  "sourceControl.review.markNeedsFollowUp",
-  "sourceControl.review.toggleMode",
-  "sourceControl.review.refreshAnalysis",
-  "sourceControl.review.openSubmitReviewTray",
-] as const;
-export type ReviewKeybindingCommand = (typeof REVIEW_KEYBINDING_COMMANDS)[number];
-
 const STATIC_KEYBINDING_COMMANDS = [
   "sidebar.toggle",
   "commandPalette.toggle",
@@ -77,7 +64,6 @@ export const GLOBAL_SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
 export const KeybindingCommand = Schema.Union([
   Schema.Literals(STATIC_KEYBINDING_COMMANDS),
   Schema.Literals(THREAD_KEYBINDING_COMMANDS),
-  Schema.Literals(REVIEW_KEYBINDING_COMMANDS),
   SCRIPT_RUN_COMMAND_PATTERN,
   GLOBAL_SCRIPT_RUN_COMMAND_PATTERN,
 ]);

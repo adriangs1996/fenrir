@@ -184,7 +184,6 @@ async function mountClaudePicker(props?: {
       nonPersistedImageIds: [],
       persistedAttachments: [],
       terminalContexts: [],
-      reviewContexts: [],
       modelSelectionByProvider: props?.skipDraftModelOptions
         ? {}
         : {
@@ -389,7 +388,6 @@ async function mountCodexPicker(props: { model?: string; options?: CodexModelOpt
       nonPersistedImageIds: [],
       persistedAttachments: [],
       terminalContexts: [],
-      reviewContexts: [],
       modelSelectionByProvider: {
         codex: {
           provider: "codex",

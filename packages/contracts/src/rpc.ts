@@ -30,6 +30,7 @@ import {
   VcsSwitchRefInput,
   VcsSwitchRefResult,
 } from "./git";
+import { LoadDiffFileIndexInput, LoadDiffFileIndexResult } from "./gitDiff";
 import { VcsError } from "./vcs";
 import { KeybindingsConfigError } from "./keybindings";
 import {
@@ -230,48 +231,6 @@ import {
   SourceControlStackSwitchEntryInput,
   SourceControlStackSyncInput,
 } from "./sourceControlStack";
-import {
-  GitHubReviewSnapshot,
-  ReviewAnalysisArtifact,
-  ReviewActionBlockedError,
-  ReviewApplyRawMutationInput,
-  ReviewApplyRawMutationResult,
-  ReviewCreateLocalAnnotationReplyInput,
-  ReviewCreateLocalAnnotationThreadInput,
-  ReviewDeleteLocalAnnotationReplyInput,
-  ReviewDeleteLocalAnnotationThreadInput,
-  ReviewDeleteOverviewNoteInput,
-  ReviewDeleteGitHubDraftInput,
-  ReviewGenerateAnalysisInput,
-  ReviewGetChunkPayloadInput,
-  ReviewChunkPayload,
-  ReviewGetDiffSnapshotInput,
-  ReviewGetFilePatchInput,
-  ReviewGetGitHubSnapshotInput,
-  ReviewGetOrCreateSessionInput,
-  ReviewGetSessionInput,
-  ReviewDiffFilePatch,
-  ReviewDiffSnapshot,
-  ReviewLocalAnnotationReply,
-  ReviewLocalAnnotationThread,
-  ReviewMutationConflictError,
-  ReviewOverviewNote,
-  ReviewRefreshProviderDataInput,
-  ReviewReplyToGitHubThreadInput,
-  ReviewRpcError,
-  ReviewSessionSnapshot,
-  ReviewSessionSummary,
-  ReviewSetLocalThreadResolvedInput,
-  ReviewSetModeInput,
-  ReviewSetProgressInput,
-  ReviewSetScopeInput,
-  ReviewStreamEvent,
-  ReviewSubmitGitHubDraftInput,
-  ReviewUpdateLocalAnnotationReplyInput,
-  ReviewUpdateLocalAnnotationThreadInput,
-  ReviewUpsertGitHubDraftInput,
-  ReviewUpsertOverviewNoteInput,
-} from "./sourceControlReview";
 export const WS_METHODS = {
   // Project registry methods
   projectsList: "projects.list",
@@ -297,6 +256,7 @@ export const WS_METHODS = {
   gitRunStackedAction: "git.runStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  gitDiffLoadFileIndex: "gitDiff.loadFileIndex",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -418,39 +378,10 @@ export const WS_METHODS = {
   managedProcessSubscribeLog: "managedProcess.subscribeLog",
   managedProcessProposedImports: "managedProcess.proposedImports",
 
-  // Review
+  // Source control
   sourceControlLookupRepository: "sourceControl.lookupRepository",
   sourceControlCloneRepository: "sourceControl.cloneRepository",
   sourceControlPublishRepository: "sourceControl.publishRepository",
-
-  // Review
-  sourceControlReviewGetOrCreateSession: "sourceControl.review.getOrCreateSession",
-  sourceControlReviewGetSessionSummary: "sourceControl.review.getSessionSummary",
-  sourceControlReviewGetSessionSnapshot: "sourceControl.review.getSessionSnapshot",
-  sourceControlReviewSetMode: "sourceControl.review.setMode",
-  sourceControlReviewSetScope: "sourceControl.review.setScope",
-  sourceControlReviewSetProgress: "sourceControl.review.setProgress",
-  sourceControlReviewCreateLocalThread: "sourceControl.review.createLocalThread",
-  sourceControlReviewUpdateLocalThread: "sourceControl.review.updateLocalThread",
-  sourceControlReviewDeleteLocalThread: "sourceControl.review.deleteLocalThread",
-  sourceControlReviewSetLocalThreadResolved: "sourceControl.review.setLocalThreadResolved",
-  sourceControlReviewCreateLocalReply: "sourceControl.review.createLocalReply",
-  sourceControlReviewUpdateLocalReply: "sourceControl.review.updateLocalReply",
-  sourceControlReviewDeleteLocalReply: "sourceControl.review.deleteLocalReply",
-  sourceControlReviewUpsertOverviewNote: "sourceControl.review.upsertOverviewNote",
-  sourceControlReviewDeleteOverviewNote: "sourceControl.review.deleteOverviewNote",
-  sourceControlReviewGetDiffSnapshot: "sourceControl.review.getDiffSnapshot",
-  sourceControlReviewGetFilePatch: "sourceControl.review.getFilePatch",
-  sourceControlReviewGetChunkPayload: "sourceControl.review.getChunkPayload",
-  sourceControlReviewGetGitHubSnapshot: "sourceControl.review.getGitHubSnapshot",
-  sourceControlReviewUpsertGitHubDraft: "sourceControl.review.upsertGitHubDraft",
-  sourceControlReviewApplyRawMutation: "sourceControl.review.applyRawMutation",
-  sourceControlReviewDeleteGitHubDraft: "sourceControl.review.deleteGitHubDraft",
-  sourceControlReviewReplyToGitHubThread: "sourceControl.review.replyToGitHubThread",
-  sourceControlReviewSubmitGitHubDraft: "sourceControl.review.submitGitHubDraft",
-  sourceControlReviewRefreshProviderData: "sourceControl.review.refreshProviderData",
-  sourceControlReviewGenerateAnalysis: "sourceControl.review.generateAnalysis",
-  subscribeSourceControlReviewEvents: "subscribeSourceControlReviewEvents",
 
   // Source-control stack
   sourceControlStackGetSnapshot: "sourceControl.stack.getSnapshot",
@@ -666,6 +597,12 @@ export const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePu
   payload: GitPreparePullRequestThreadInput,
   success: GitPreparePullRequestThreadResult,
   error: GitManagerServiceError,
+});
+
+export const WsGitDiffLoadFileIndexRpc = Rpc.make(WS_METHODS.gitDiffLoadFileIndex, {
+  payload: LoadDiffFileIndexInput,
+  success: LoadDiffFileIndexResult,
+  error: GitCommandError,
 });
 
 export const WsVcsListRefsRpc = Rpc.make(WS_METHODS.vcsListRefs, {
@@ -1346,231 +1283,6 @@ export const WsManagedProcessProposedImportsRpc = Rpc.make(
   },
 );
 
-// ─── Review RPCs ───────────────────────────────────────────────────────────
-
-export const WsReviewGetOrCreateSessionRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewGetOrCreateSession,
-  {
-    payload: ReviewGetOrCreateSessionInput,
-    success: ReviewSessionSummary,
-    error: ReviewRpcError,
-  },
-);
-
-export const WsReviewGetSessionSummaryRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewGetSessionSummary,
-  {
-    payload: ReviewGetSessionInput,
-    success: ReviewSessionSummary,
-    error: ReviewRpcError,
-  },
-);
-
-export const WsReviewGetSessionSnapshotRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewGetSessionSnapshot,
-  {
-    payload: ReviewGetSessionInput,
-    success: ReviewSessionSnapshot,
-    error: ReviewRpcError,
-  },
-);
-
-export const WsReviewSetModeRpc = Rpc.make(WS_METHODS.sourceControlReviewSetMode, {
-  payload: ReviewSetModeInput,
-  success: ReviewSessionSummary,
-  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-});
-
-export const WsReviewSetScopeRpc = Rpc.make(WS_METHODS.sourceControlReviewSetScope, {
-  payload: ReviewSetScopeInput,
-  success: ReviewSessionSummary,
-  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-});
-
-export const WsReviewSetProgressRpc = Rpc.make(WS_METHODS.sourceControlReviewSetProgress, {
-  payload: ReviewSetProgressInput,
-  success: ReviewSessionSummary,
-  error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-});
-
-export const WsReviewCreateLocalThreadRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewCreateLocalThread,
-  {
-    payload: ReviewCreateLocalAnnotationThreadInput,
-    success: ReviewLocalAnnotationThread,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewUpdateLocalThreadRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewUpdateLocalThread,
-  {
-    payload: ReviewUpdateLocalAnnotationThreadInput,
-    success: ReviewLocalAnnotationThread,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewDeleteLocalThreadRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewDeleteLocalThread,
-  {
-    payload: ReviewDeleteLocalAnnotationThreadInput,
-    success: Schema.Void,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewSetLocalThreadResolvedRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewSetLocalThreadResolved,
-  {
-    payload: ReviewSetLocalThreadResolvedInput,
-    success: ReviewLocalAnnotationThread,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewCreateLocalReplyRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewCreateLocalReply,
-  {
-    payload: ReviewCreateLocalAnnotationReplyInput,
-    success: ReviewLocalAnnotationReply,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewUpdateLocalReplyRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewUpdateLocalReply,
-  {
-    payload: ReviewUpdateLocalAnnotationReplyInput,
-    success: ReviewLocalAnnotationReply,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewDeleteLocalReplyRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewDeleteLocalReply,
-  {
-    payload: ReviewDeleteLocalAnnotationReplyInput,
-    success: Schema.Void,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewUpsertOverviewNoteRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewUpsertOverviewNote,
-  {
-    payload: ReviewUpsertOverviewNoteInput,
-    success: ReviewOverviewNote,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewDeleteOverviewNoteRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewDeleteOverviewNote,
-  {
-    payload: ReviewDeleteOverviewNoteInput,
-    success: Schema.Void,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewGetDiffSnapshotRpc = Rpc.make(WS_METHODS.sourceControlReviewGetDiffSnapshot, {
-  payload: ReviewGetDiffSnapshotInput,
-  success: ReviewDiffSnapshot,
-  error: ReviewRpcError,
-});
-
-export const WsReviewGetFilePatchRpc = Rpc.make(WS_METHODS.sourceControlReviewGetFilePatch, {
-  payload: ReviewGetFilePatchInput,
-  success: Schema.NullOr(ReviewDiffFilePatch),
-  error: ReviewRpcError,
-});
-
-export const WsReviewGetChunkPayloadRpc = Rpc.make(WS_METHODS.sourceControlReviewGetChunkPayload, {
-  payload: ReviewGetChunkPayloadInput,
-  success: Schema.NullOr(ReviewChunkPayload),
-  error: ReviewRpcError,
-});
-
-export const WsReviewGetGitHubSnapshotRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewGetGitHubSnapshot,
-  {
-    payload: ReviewGetGitHubSnapshotInput,
-    success: Schema.NullOr(GitHubReviewSnapshot),
-    error: ReviewRpcError,
-  },
-);
-
-export const WsReviewUpsertGitHubDraftRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewUpsertGitHubDraft,
-  {
-    payload: ReviewUpsertGitHubDraftInput,
-    success: GitHubReviewSnapshot,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewApplyRawMutationRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewApplyRawMutation,
-  {
-    payload: ReviewApplyRawMutationInput,
-    success: ReviewApplyRawMutationResult,
-    error: Schema.Union([ReviewRpcError, ReviewMutationConflictError]),
-  },
-);
-
-export const WsReviewDeleteGitHubDraftRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewDeleteGitHubDraft,
-  {
-    payload: ReviewDeleteGitHubDraftInput,
-    success: GitHubReviewSnapshot,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewReplyToGitHubThreadRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewReplyToGitHubThread,
-  {
-    payload: ReviewReplyToGitHubThreadInput,
-    success: GitHubReviewSnapshot,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewSubmitGitHubDraftRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewSubmitGitHubDraft,
-  {
-    payload: ReviewSubmitGitHubDraftInput,
-    success: GitHubReviewSnapshot,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsReviewRefreshProviderDataRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewRefreshProviderData,
-  {
-    payload: ReviewRefreshProviderDataInput,
-    success: ReviewSessionSnapshot,
-    error: ReviewRpcError,
-  },
-);
-
-export const WsReviewGenerateAnalysisRpc = Rpc.make(
-  WS_METHODS.sourceControlReviewGenerateAnalysis,
-  {
-    payload: ReviewGenerateAnalysisInput,
-    success: ReviewAnalysisArtifact,
-    error: Schema.Union([ReviewRpcError, ReviewActionBlockedError]),
-  },
-);
-
-export const WsSubscribeReviewEventsRpc = Rpc.make(WS_METHODS.subscribeSourceControlReviewEvents, {
-  payload: ReviewGetSessionInput,
-  success: ReviewStreamEvent,
-  error: ReviewRpcError,
-  stream: true,
-});
-
 // ─── Source-Control Stack RPCs ─────────────────────────────────────────────
 
 export const WsSourceControlStackGetSnapshotRpc = Rpc.make(
@@ -1716,6 +1428,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
+  WsGitDiffLoadFileIndexRpc,
   WsVcsListRefsRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,
@@ -1818,33 +1531,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsManagedProcessSubscribeLogRpc,
   WsManagedProcessProposedImportsRpc,
   WsOrchestrationSubscribeShellRpc,
-  WsReviewGetOrCreateSessionRpc,
-  WsReviewGetSessionSummaryRpc,
-  WsReviewGetSessionSnapshotRpc,
-  WsReviewSetModeRpc,
-  WsReviewSetScopeRpc,
-  WsReviewSetProgressRpc,
-  WsReviewCreateLocalThreadRpc,
-  WsReviewUpdateLocalThreadRpc,
-  WsReviewDeleteLocalThreadRpc,
-  WsReviewSetLocalThreadResolvedRpc,
-  WsReviewCreateLocalReplyRpc,
-  WsReviewUpdateLocalReplyRpc,
-  WsReviewDeleteLocalReplyRpc,
-  WsReviewUpsertOverviewNoteRpc,
-  WsReviewDeleteOverviewNoteRpc,
-  WsReviewGetDiffSnapshotRpc,
-  WsReviewGetFilePatchRpc,
-  WsReviewGetChunkPayloadRpc,
-  WsReviewGetGitHubSnapshotRpc,
-  WsReviewUpsertGitHubDraftRpc,
-  WsReviewApplyRawMutationRpc,
-  WsReviewDeleteGitHubDraftRpc,
-  WsReviewReplyToGitHubThreadRpc,
-  WsReviewSubmitGitHubDraftRpc,
-  WsReviewRefreshProviderDataRpc,
-  WsReviewGenerateAnalysisRpc,
-  WsSubscribeReviewEventsRpc,
   WsSourceControlStackGetSnapshotRpc,
   WsSourceControlStackCreateEntryRpc,
   WsSourceControlStackSwitchEntryRpc,

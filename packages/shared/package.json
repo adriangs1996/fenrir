@@ -72,10 +72,6 @@
       "types": "./src/providerActivityLog.ts",
       "import": "./src/providerActivityLog.ts"
     },
-    "./sourceControlReview": {
-      "types": "./src/sourceControlReview.ts",
-      "import": "./src/sourceControlReview.ts"
-    },
     "./commandFormat": {
       "types": "./src/commandFormat.ts",
       "import": "./src/commandFormat.ts"

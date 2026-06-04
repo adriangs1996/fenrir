@@ -56,40 +56,6 @@ interface GitRunStackedActionOptions {
   readonly onProgress?: (event: GitActionProgressEvent) => void;
 }
 
-interface ReviewRpcClient {
-  readonly getOrCreateSession: (input: unknown) => Promise<unknown>;
-  readonly getSessionSummary: (input: unknown) => Promise<unknown>;
-  readonly getSessionSnapshot: (input: unknown) => Promise<unknown>;
-  readonly setMode: (input: unknown) => Promise<unknown>;
-  readonly setScope: (input: unknown) => Promise<unknown>;
-  readonly setProgress: (input: unknown) => Promise<unknown>;
-  readonly createLocalThread: (input: unknown) => Promise<unknown>;
-  readonly updateLocalThread: (input: unknown) => Promise<unknown>;
-  readonly deleteLocalThread: (input: unknown) => Promise<unknown>;
-  readonly setLocalThreadResolved: (input: unknown) => Promise<unknown>;
-  readonly createLocalReply: (input: unknown) => Promise<unknown>;
-  readonly updateLocalReply: (input: unknown) => Promise<unknown>;
-  readonly deleteLocalReply: (input: unknown) => Promise<unknown>;
-  readonly upsertOverviewNote: (input: unknown) => Promise<unknown>;
-  readonly deleteOverviewNote: (input: unknown) => Promise<unknown>;
-  readonly getDiffSnapshot: (input: unknown) => Promise<unknown>;
-  readonly getFilePatch: (input: unknown) => Promise<unknown>;
-  readonly getChunkPayload: (input: unknown) => Promise<unknown>;
-  readonly getGitHubSnapshot: (input: unknown) => Promise<unknown>;
-  readonly upsertGitHubDraft: (input: unknown) => Promise<unknown>;
-  readonly applyRawMutation: (input: unknown) => Promise<unknown>;
-  readonly deleteGitHubDraft: (input: unknown) => Promise<unknown>;
-  readonly replyToGitHubThread: (input: unknown) => Promise<unknown>;
-  readonly submitGitHubDraft: (input: unknown) => Promise<unknown>;
-  readonly refreshProviderData: (input: unknown) => Promise<unknown>;
-  readonly generateAnalysis: (input: unknown) => Promise<unknown>;
-  readonly onEvent: (
-    input: unknown,
-    listener: (event: unknown) => void,
-    options?: StreamSubscriptionOptions,
-  ) => () => void;
-}
-
 interface StackRpcClient {
   readonly getSnapshot: (input: unknown) => Promise<unknown>;
   readonly createEntry: (input: unknown) => Promise<unknown>;
@@ -179,36 +145,6 @@ function applyVcsStatusStreamEvent(
   }
 }
 
-const REVIEW_WS_METHODS = {
-  getOrCreateSession: "sourceControl.review.getOrCreateSession",
-  getSessionSummary: "sourceControl.review.getSessionSummary",
-  getSessionSnapshot: "sourceControl.review.getSessionSnapshot",
-  setMode: "sourceControl.review.setMode",
-  setScope: "sourceControl.review.setScope",
-  setProgress: "sourceControl.review.setProgress",
-  createLocalThread: "sourceControl.review.createLocalThread",
-  updateLocalThread: "sourceControl.review.updateLocalThread",
-  deleteLocalThread: "sourceControl.review.deleteLocalThread",
-  setLocalThreadResolved: "sourceControl.review.setLocalThreadResolved",
-  createLocalReply: "sourceControl.review.createLocalReply",
-  updateLocalReply: "sourceControl.review.updateLocalReply",
-  deleteLocalReply: "sourceControl.review.deleteLocalReply",
-  upsertOverviewNote: "sourceControl.review.upsertOverviewNote",
-  deleteOverviewNote: "sourceControl.review.deleteOverviewNote",
-  getDiffSnapshot: "sourceControl.review.getDiffSnapshot",
-  getFilePatch: "sourceControl.review.getFilePatch",
-  getChunkPayload: "sourceControl.review.getChunkPayload",
-  getGitHubSnapshot: "sourceControl.review.getGitHubSnapshot",
-  upsertGitHubDraft: "sourceControl.review.upsertGitHubDraft",
-  applyRawMutation: "sourceControl.review.applyRawMutation",
-  deleteGitHubDraft: "sourceControl.review.deleteGitHubDraft",
-  replyToGitHubThread: "sourceControl.review.replyToGitHubThread",
-  submitGitHubDraft: "sourceControl.review.submitGitHubDraft",
-  refreshProviderData: "sourceControl.review.refreshProviderData",
-  generateAnalysis: "sourceControl.review.generateAnalysis",
-  subscribeEvents: "subscribeSourceControlReviewEvents",
-} as const;
-
 const STACK_WS_METHODS = {
   getSnapshot: "sourceControl.stack.getSnapshot",
   createEntry: "sourceControl.stack.createEntry",
@@ -292,6 +228,9 @@ export interface WsRpcClient {
     readonly preparePullRequestThread: RpcUnaryMethod<
       typeof WS_METHODS.gitPreparePullRequestThread
     >;
+  };
+  readonly gitDiff: {
+    readonly loadFileIndex: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadFileIndex>;
   };
   readonly vcs: {
     readonly pull: RpcUnaryMethod<typeof WS_METHODS.vcsPull>;
@@ -437,13 +376,12 @@ export interface WsRpcClient {
     readonly lookupRepository: RpcUnaryMethod<typeof WS_METHODS.sourceControlLookupRepository>;
     readonly cloneRepository: RpcUnaryMethod<typeof WS_METHODS.sourceControlCloneRepository>;
     readonly publishRepository: RpcUnaryMethod<typeof WS_METHODS.sourceControlPublishRepository>;
-    readonly review: ReviewRpcClient;
     readonly stack: StackRpcClient;
   };
 }
 
 export function createWsRpcClient(transport: WsTransport): WsRpcClient {
-  const reviewRequest = (method: string, input: unknown) =>
+  const sourceControlRequest = (method: string, input: unknown) =>
     transport.request(
       (client) =>
         (
@@ -453,7 +391,7 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
           >
         )[method]?.(input) as Effect.Effect<unknown, Error, never>,
     );
-  const reviewSubscribe = (
+  const sourceControlSubscribe = (
     method: string,
     input: unknown,
     listener: (event: unknown) => void,
@@ -470,45 +408,13 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       listener,
       options,
     );
-  const stackRequest = (method: string, input: unknown) => reviewRequest(method, input);
+  const stackRequest = (method: string, input: unknown) => sourceControlRequest(method, input);
   const stackSubscribe = (
     method: string,
     input: unknown,
     listener: (event: unknown) => void,
     options?: StreamSubscriptionOptions,
-  ) => reviewSubscribe(method, input, listener, options);
-
-  const reviewClient: ReviewRpcClient = {
-    getOrCreateSession: (input) => reviewRequest(REVIEW_WS_METHODS.getOrCreateSession, input),
-    getSessionSummary: (input) => reviewRequest(REVIEW_WS_METHODS.getSessionSummary, input),
-    getSessionSnapshot: (input) => reviewRequest(REVIEW_WS_METHODS.getSessionSnapshot, input),
-    setMode: (input) => reviewRequest(REVIEW_WS_METHODS.setMode, input),
-    setScope: (input) => reviewRequest(REVIEW_WS_METHODS.setScope, input),
-    setProgress: (input) => reviewRequest(REVIEW_WS_METHODS.setProgress, input),
-    createLocalThread: (input) => reviewRequest(REVIEW_WS_METHODS.createLocalThread, input),
-    updateLocalThread: (input) => reviewRequest(REVIEW_WS_METHODS.updateLocalThread, input),
-    deleteLocalThread: (input) => reviewRequest(REVIEW_WS_METHODS.deleteLocalThread, input),
-    setLocalThreadResolved: (input) =>
-      reviewRequest(REVIEW_WS_METHODS.setLocalThreadResolved, input),
-    createLocalReply: (input) => reviewRequest(REVIEW_WS_METHODS.createLocalReply, input),
-    updateLocalReply: (input) => reviewRequest(REVIEW_WS_METHODS.updateLocalReply, input),
-    deleteLocalReply: (input) => reviewRequest(REVIEW_WS_METHODS.deleteLocalReply, input),
-    upsertOverviewNote: (input) => reviewRequest(REVIEW_WS_METHODS.upsertOverviewNote, input),
-    deleteOverviewNote: (input) => reviewRequest(REVIEW_WS_METHODS.deleteOverviewNote, input),
-    getDiffSnapshot: (input) => reviewRequest(REVIEW_WS_METHODS.getDiffSnapshot, input),
-    getFilePatch: (input) => reviewRequest(REVIEW_WS_METHODS.getFilePatch, input),
-    getChunkPayload: (input) => reviewRequest(REVIEW_WS_METHODS.getChunkPayload, input),
-    getGitHubSnapshot: (input) => reviewRequest(REVIEW_WS_METHODS.getGitHubSnapshot, input),
-    upsertGitHubDraft: (input) => reviewRequest(REVIEW_WS_METHODS.upsertGitHubDraft, input),
-    applyRawMutation: (input) => reviewRequest(REVIEW_WS_METHODS.applyRawMutation, input),
-    deleteGitHubDraft: (input) => reviewRequest(REVIEW_WS_METHODS.deleteGitHubDraft, input),
-    replyToGitHubThread: (input) => reviewRequest(REVIEW_WS_METHODS.replyToGitHubThread, input),
-    submitGitHubDraft: (input) => reviewRequest(REVIEW_WS_METHODS.submitGitHubDraft, input),
-    refreshProviderData: (input) => reviewRequest(REVIEW_WS_METHODS.refreshProviderData, input),
-    generateAnalysis: (input) => reviewRequest(REVIEW_WS_METHODS.generateAnalysis, input),
-    onEvent: (input, listener, options) =>
-      reviewSubscribe(REVIEW_WS_METHODS.subscribeEvents, input, listener, options),
-  };
+  ) => sourceControlSubscribe(method, input, listener, options);
 
   const stackClient: StackRpcClient = {
     getSnapshot: (input) => stackRequest(STACK_WS_METHODS.getSnapshot, input),
@@ -651,6 +557,10 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.gitResolvePullRequest](input)),
       preparePullRequestThread: (input) =>
         transport.request((client) => client[WS_METHODS.gitPreparePullRequestThread](input)),
+    },
+    gitDiff: {
+      loadFileIndex: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffLoadFileIndex](input)),
     },
     vcs: {
       pull: (input) => transport.request((client) => client[WS_METHODS.vcsPull](input)),
@@ -892,7 +802,6 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.sourceControlCloneRepository](input)),
       publishRepository: (input) =>
         transport.request((client) => client[WS_METHODS.sourceControlPublishRepository](input)),
-      review: reviewClient,
       stack: stackClient,
     },
   };

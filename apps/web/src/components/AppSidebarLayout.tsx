@@ -40,7 +40,6 @@ function AppSidebarKeyboardShortcuts() {
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
         terminalOpen: false,
-        reviewFocus: false,
       };
 
       if (isGlobalTerminalOpenShortcut(event, keybindings, { context: shortcutContext })) {

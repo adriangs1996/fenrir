@@ -102,33 +102,4 @@ describe("wsRpcClient", () => {
       ],
     ]);
   });
-
-  it("passes source-control review stream subscriptions through the transport with reconnect hooks intact", () => {
-    const subscribe = vi.fn(
-      (..._args: any[]) =>
-        () =>
-          undefined,
-    );
-    const transport = {
-      dispose: vi.fn(async () => undefined),
-      reconnect: vi.fn(async () => undefined),
-      request: vi.fn(),
-      requestStream: vi.fn(),
-      subscribe,
-    } satisfies Pick<
-      WsTransport,
-      "dispose" | "reconnect" | "request" | "requestStream" | "subscribe"
-    >;
-
-    const client = createWsRpcClient(transport as unknown as WsTransport);
-    const listener = vi.fn();
-    const onResubscribe = vi.fn();
-
-    client.sourceControl.review.onEvent({ sessionId: "review-session-1" } as never, listener, {
-      onResubscribe,
-    });
-
-    expect(subscribe).toHaveBeenCalledTimes(1);
-    expect(subscribe.mock.calls[0]?.[2]).toMatchObject({ onResubscribe });
-  });
 });

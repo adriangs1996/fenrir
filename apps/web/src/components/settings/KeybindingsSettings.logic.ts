@@ -31,13 +31,7 @@ export interface KeybindingRow {
 export type WhenVariableOption = string;
 export type KeybindingCommandOption = KeybindingCommand;
 
-const CORE_WHEN_VARIABLES = [
-  DEFAULT_WHEN_VARIABLE,
-  "terminalOpen",
-  "reviewFocus",
-  "true",
-  "false",
-] as const;
+const CORE_WHEN_VARIABLES = [DEFAULT_WHEN_VARIABLE, "terminalOpen", "true", "false"] as const;
 
 const DEFAULT_WHEN_VARIABLES = new Set<string>(CORE_WHEN_VARIABLES);
 for (const binding of DEFAULT_RESOLVED_KEYBINDINGS) {

@@ -287,21 +287,6 @@ const SourceProposedPlanReference = Schema.Struct({
   planId: OrchestrationProposedPlanId,
 });
 
-const ReviewContextSourceKind = Schema.Literals(["chunk", "file", "group"]);
-
-const ReviewContextTraceAttachment = Schema.Struct({
-  attachmentId: TrimmedNonEmptyString,
-  sourceKind: ReviewContextSourceKind,
-  sessionId: TrimmedNonEmptyString,
-  chunkIds: Schema.Array(TrimmedNonEmptyString),
-  normalizedPaths: Schema.Array(TrimmedNonEmptyString),
-});
-
-const ReviewContextTrace = Schema.Struct({
-  attachments: Schema.Array(ReviewContextTraceAttachment),
-});
-export type ReviewContextTrace = typeof ReviewContextTrace.Type;
-
 export const OrchestrationSessionStatus = Schema.Literals([
   "idle",
   "starting",
@@ -714,7 +699,6 @@ export const ThreadTurnStartCommand = Schema.Struct({
   mcpServerIds: Schema.optional(Schema.Array(McpServerId)),
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
-  reviewContext: Schema.optional(ReviewContextTrace),
   createdAt: IsoDateTime,
 });
 
@@ -736,7 +720,6 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   mcpServerIds: Schema.optional(Schema.Array(McpServerId)),
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
-  reviewContext: Schema.optional(ReviewContextTrace),
   createdAt: IsoDateTime,
 });
 
@@ -1063,7 +1046,6 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   ),
   mcpServerIds: Schema.optional(Schema.Array(McpServerId)),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
-  reviewContext: Schema.optional(ReviewContextTrace),
   createdAt: IsoDateTime,
 });
 

@@ -42,9 +42,6 @@ import Migration0026 from "./Migrations/026_CleanupInvalidProjectionPendingAppro
 import Migration0027 from "./Migrations/027_PlanRunnerPersistence.ts";
 import Migration0028 from "./Migrations/028_ManagedProcessDefinitions.ts";
 import Migration0029 from "./Migrations/029_ProjectionThreadSessionProviderInstances.ts";
-import Migration0030 from "./Migrations/030_ReviewSharedPersistence.ts";
-import Migration0031 from "./Migrations/031_ReviewSessionPullRequestOverride.ts";
-import Migration0032 from "./Migrations/032_ReviewSessionModeScope.ts";
 import Migration0033 from "./Migrations/033_TrafficLensWorkbench.ts";
 import Migration0034 from "./Migrations/034_TrafficLensStoragePersistence.ts";
 import Migration0035 from "./Migrations/035_CanonicalizeModelSelectionOptions.ts";
@@ -91,9 +88,6 @@ export const migrationEntries = [
   [27, "PlanRunnerPersistence", Migration0027],
   [28, "ManagedProcessDefinitions", Migration0028],
   [29, "ProjectionThreadSessionProviderInstances", Migration0029],
-  [30, "ReviewSharedPersistence", Migration0030],
-  [31, "ReviewSessionPullRequestOverride", Migration0031],
-  [32, "ReviewSessionModeScope", Migration0032],
   [33, "TrafficLensWorkbench", Migration0033],
   [34, "TrafficLensStoragePersistence", Migration0034],
   [35, "CanonicalizeModelSelectionOptions", Migration0035],

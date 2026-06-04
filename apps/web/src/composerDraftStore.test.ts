@@ -22,7 +22,6 @@ import {
   markPromotedDraftThreads,
   markPromotedDraftThreadsByRef,
   type ComposerImageAttachment,
-  type ReviewContextAttachmentDraft,
   useComposerDraftStore,
   DraftId,
 } from "./composerDraftStore";
@@ -78,36 +77,6 @@ function makeTerminalContext(input: {
     lineEnd: input.lineEnd ?? 5,
     text: input.text ?? "git status\nOn branch main",
     createdAt: "2026-03-13T12:00:00.000Z",
-  };
-}
-
-function makeReviewContextAttachment(id: string): ReviewContextAttachmentDraft {
-  return {
-    id,
-    createdAt: "2026-05-21T10:00:00.000Z",
-    sourceKind: "chunk",
-    title: "apps/server/src/review.ts @@ -1,3 +1,6 @@",
-    sessionId: "review-session-1",
-    diffCacheToken: "diff-cache-token-1",
-    chunks: [
-      {
-        sessionId: "review-session-1",
-        groupId: "review-group-1",
-        fileId: "review-file-1",
-        lane: "committed",
-        normalizedPath: "apps/server/src/review.ts",
-        displayPath: "apps/server/src/review.ts",
-        chunkId: "review-chunk-1",
-        anchor: {
-          normalizedPath: "apps/server/src/review.ts",
-          provenance: { scope: "branch", lane: "committed" },
-          excerpt: "const current = next;",
-        },
-        header: "@@ -1,3 +1,6 @@",
-        rawPatch: "@@ -1,3 +1,6 @@\n+const current = next;",
-        codeExcerpt: "const current = next;",
-      },
-    ],
   };
 }
 
@@ -516,63 +485,6 @@ describe("composerDraftStore terminal contexts", () => {
     expect(mergedState.draftsByThreadKey[threadKeyFor(threadId)]).toBeUndefined();
     expect(mergedState.draftThreadsByThreadKey).toEqual({});
     expect(mergedState.logicalProjectDraftThreadKeyByLogicalProjectKey).toEqual({});
-  });
-});
-
-describe("composerDraftStore review contexts", () => {
-  const threadId = ThreadId.make("thread-review-context");
-  const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
-
-  beforeEach(() => {
-    resetComposerDraftStore();
-  });
-
-  it("appends review context attachments in add order and clears them with composer content", () => {
-    const first = makeReviewContextAttachment("review-1");
-    const second = makeReviewContextAttachment("review-2");
-
-    useComposerDraftStore.getState().addReviewContext(threadRef, first);
-    useComposerDraftStore.getState().addReviewContext(threadRef, second);
-
-    expect(
-      draftFor(threadId, TEST_ENVIRONMENT_ID)?.reviewContexts.map((entry) => entry.id),
-    ).toEqual(["review-1", "review-2"]);
-
-    useComposerDraftStore.getState().clearComposerContent(threadRef);
-    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
-  });
-
-  it("persists review context attachments in the serialized draft payload", () => {
-    useComposerDraftStore
-      .getState()
-      .addReviewContext(threadRef, makeReviewContextAttachment("review-persist"));
-
-    const persistApi = useComposerDraftStore.persist as unknown as {
-      getOptions: () => {
-        partialize: (state: ReturnType<typeof useComposerDraftStore.getState>) => unknown;
-      };
-    };
-    const persistedState = persistApi.getOptions().partialize(useComposerDraftStore.getState()) as {
-      draftsByThreadKey?: Record<
-        string,
-        {
-          reviewContexts?: Array<{
-            id: string;
-            sourceKind: string;
-            chunks: Array<{ chunkId: string }>;
-          }>;
-        }
-      >;
-    };
-
-    expect(
-      persistedState.draftsByThreadKey?.[threadKeyFor(threadId, TEST_ENVIRONMENT_ID)]
-        ?.reviewContexts?.[0],
-    ).toMatchObject({
-      id: "review-persist",
-      sourceKind: "chunk",
-      chunks: [{ chunkId: "review-chunk-1" }],
-    });
   });
 });
 

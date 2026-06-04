@@ -19,7 +19,6 @@ import { cn } from "~/lib/utils";
 
 interface CommandPaletteResultsProps {
   shortcutContext?: {
-    readonly reviewFocus?: boolean;
     readonly terminalFocus?: boolean;
     readonly terminalOpen?: boolean;
   };
