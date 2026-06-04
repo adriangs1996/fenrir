@@ -90,8 +90,9 @@ export const make = Effect.fn("makeAzureDevOpsSourceControlProvider")(function* 
       return azure
         .listPullRequests({
           cwd: input.cwd,
-          headSelector: input.headSelector,
+          ...(input.headSelector !== undefined ? { headSelector: input.headSelector } : {}),
           ...(source !== undefined ? { source } : {}),
+          ...(input.baseRefName !== undefined ? { baseRefName: input.baseRefName } : {}),
           state: input.state,
           ...(input.limit !== undefined ? { limit: input.limit } : {}),
         })
@@ -119,6 +120,54 @@ export const make = Effect.fn("makeAzureDevOpsSourceControlProvider")(function* 
         })
         .pipe(Effect.mapError((error) => providerError("createChangeRequest", error)));
     },
+    updateChangeRequest: (input) => {
+      const args = [
+        "repos",
+        "pr",
+        "update",
+        "--only-show-errors",
+        "--detect",
+        "true",
+        "--id",
+        input.reference,
+        ...(input.baseRefName === undefined ? [] : ["--target-branch", input.baseRefName]),
+        ...(input.title === undefined ? [] : ["--title", input.title]),
+        ...(input.bodyFile === undefined ? [] : ["--description", `@${input.bodyFile}`]),
+      ];
+      if (args.length === 8) {
+        return Effect.void;
+      }
+      return azure
+        .execute({
+          cwd: input.cwd,
+          args,
+        })
+        .pipe(
+          Effect.asVoid,
+          Effect.mapError((error) => providerError("updateChangeRequest", error)),
+        );
+    },
+    closeChangeRequest: (input) =>
+      azure
+        .execute({
+          cwd: input.cwd,
+          args: [
+            "repos",
+            "pr",
+            "update",
+            "--only-show-errors",
+            "--detect",
+            "true",
+            "--id",
+            input.reference,
+            "--status",
+            "abandoned",
+          ],
+        })
+        .pipe(
+          Effect.asVoid,
+          Effect.mapError((error) => providerError("closeChangeRequest", error)),
+        ),
     getRepositoryCloneUrls: (input) =>
       azure
         .getRepositoryCloneUrls(input)

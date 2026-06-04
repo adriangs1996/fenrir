@@ -129,6 +129,7 @@ function createRegisteredGitStatusClient(environmentId: EnvironmentId) {
           environmentId,
         },
       })),
+      listProviderSkills: vi.fn(async () => ({ skills: [] })),
       refreshProviders: vi.fn(async () => undefined),
       updateProvider: vi.fn(async () => undefined),
       upsertKeybinding: vi.fn(async () => undefined),

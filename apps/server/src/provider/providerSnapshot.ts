@@ -7,6 +7,7 @@ import {
   ServerProviderAuth,
   type ServerProviderMcpCapabilities,
   ServerProviderModel,
+  type ServerProviderSkill,
   ServerProviderState,
 } from "@fenrir/contracts";
 import { Effect, Stream } from "effect";
@@ -143,6 +144,7 @@ export function buildServerProvider(input: {
   enabled: boolean;
   checkedAt: string;
   models: ReadonlyArray<ServerProviderModel>;
+  skills?: ReadonlyArray<ServerProviderSkill>;
   probe: ProviderProbeResult;
   mcpCapabilities?: ServerProviderMcpCapabilities;
 }): ServerProvider {
@@ -168,6 +170,7 @@ export function buildServerProvider(input: {
     ...(input.availability ? { availability: input.availability } : {}),
     ...(input.unavailableReason ? { unavailableReason: input.unavailableReason } : {}),
     models: input.models,
+    skills: [...(input.skills ?? [])],
     ...(mcpCapabilities ? { mcpCapabilities } : {}),
   };
 }

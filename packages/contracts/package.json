@@ -20,6 +20,11 @@
       "import": "./src/sourceControl.ts",
       "require": "./src/sourceControl.ts"
     },
+    "./sourceControlStack": {
+      "types": "./src/sourceControlStack.ts",
+      "import": "./src/sourceControlStack.ts",
+      "require": "./src/sourceControlStack.ts"
+    },
     "./vcs": {
       "types": "./src/vcs.ts",
       "import": "./src/vcs.ts",

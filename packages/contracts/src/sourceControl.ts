@@ -36,6 +36,39 @@ export const ChangeRequest = Schema.Struct({
 });
 export type ChangeRequest = typeof ChangeRequest.Type;
 
+export const SourceControlChangeRequestListInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  context: Schema.optionalKey(SourceControlProviderInfo),
+  source: Schema.optionalKey(
+    Schema.Struct({
+      refName: TrimmedNonEmptyString,
+      owner: Schema.optionalKey(TrimmedNonEmptyString),
+      repository: Schema.optionalKey(TrimmedNonEmptyString),
+    }),
+  ),
+  headSelector: Schema.optionalKey(TrimmedNonEmptyString),
+  baseRefName: Schema.optionalKey(TrimmedNonEmptyString),
+  state: Schema.Union([ChangeRequestState, Schema.Literal("all")]),
+  limit: Schema.optionalKey(PositiveInt),
+});
+export type SourceControlChangeRequestListInput = typeof SourceControlChangeRequestListInput.Type;
+
+export const SourceControlChangeRequestUpdateInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  reference: TrimmedNonEmptyString,
+  baseRefName: Schema.optionalKey(TrimmedNonEmptyString),
+  title: Schema.optionalKey(TrimmedNonEmptyString),
+  bodyFile: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type SourceControlChangeRequestUpdateInput =
+  typeof SourceControlChangeRequestUpdateInput.Type;
+
+export const SourceControlChangeRequestCloseInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  reference: TrimmedNonEmptyString,
+});
+export type SourceControlChangeRequestCloseInput = typeof SourceControlChangeRequestCloseInput.Type;
+
 export const SourceControlRepositoryCloneUrls = Schema.Struct({
   nameWithOwner: TrimmedNonEmptyString,
   url: TrimmedNonEmptyString,

@@ -147,6 +147,10 @@ import {
   ReviewRpcService,
   type ReviewRpcServiceShape,
 } from "./sourceControl/review/Services/ReviewRpcService.ts";
+import {
+  SourceControlStackService,
+  type SourceControlStackServiceShape,
+} from "./sourceControl/stack/Services/SourceControlStackService.ts";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
@@ -166,7 +170,6 @@ import {
   ImportResolver,
   type ImportResolverShape,
 } from "./managedProcess/Services/ImportResolver.ts";
-import { SkillService, type SkillServiceShape } from "./skill/SkillService.ts";
 import { ProcessDiagnostics } from "./diagnostics/ProcessDiagnostics.ts";
 import { ProcessResourceMonitor } from "./diagnostics/ProcessResourceMonitor.ts";
 import { TraceDiagnostics } from "./diagnostics/TraceDiagnostics.ts";
@@ -440,6 +443,7 @@ const buildAppUnderTest = (options?: {
     sourceControlRepositoryService?: Partial<SourceControlRepositoryServiceShape>;
     reviewWriteService?: Partial<ReviewWriteServiceShape>;
     reviewRpcService?: Partial<ReviewRpcServiceShape>;
+    sourceControlStackService?: Partial<SourceControlStackServiceShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
@@ -451,7 +455,6 @@ const buildAppUnderTest = (options?: {
     serverEnvironment?: Partial<ServerEnvironmentShape>;
     sourceControl?: Partial<SourceControlShape>;
     globalActions?: Partial<GlobalActionsShape>;
-    skillService?: Partial<SkillServiceShape>;
     importResolver?: Partial<ImportResolverShape>;
     browserLabControlService?: Partial<BrowserLabControlServiceShape>;
     remoteControllerService?: Partial<RemoteControllerServiceShape>;
@@ -713,6 +716,38 @@ const buildAppUnderTest = (options?: {
         ...options?.layers?.reviewRpcService,
       }),
     );
+    const sourceControlStackServiceLayer = Layer.succeed(
+      SourceControlStackService,
+      SourceControlStackService.of({
+        getSnapshot: (input) =>
+          Effect.succeed({
+            threadId: input.threadId,
+            cwd: "/tmp/default-project",
+            repositoryRoot: "/tmp/default-project",
+            provider: null,
+            rootBaseRef: "main",
+            currentEntryId: null,
+            entries: [],
+            capabilities: [],
+            problems: ["not-a-repository" as const],
+            generatedAt: new Date().toISOString(),
+          }),
+        createEntry: () => Effect.die(new Error("not implemented in test")),
+        switchEntry: () => Effect.die(new Error("not implemented in test")),
+        renameEntry: () => Effect.die(new Error("not implemented in test")),
+        dropEntry: () => Effect.die(new Error("not implemented in test")),
+        reorderEntries: () => Effect.die(new Error("not implemented in test")),
+        restack: () => Effect.die(new Error("not implemented in test")),
+        sync: () => Effect.die(new Error("not implemented in test")),
+        squashEntry: () => Effect.die(new Error("not implemented in test")),
+        splitEntry: () => Effect.die(new Error("not implemented in test")),
+        publish: () => Effect.die(new Error("not implemented in test")),
+        continueOperation: () => Effect.die(new Error("not implemented in test")),
+        abortOperation: () => Effect.die(new Error("not implemented in test")),
+        streamEvents: () => Stream.empty,
+        ...options?.layers?.sourceControlStackService,
+      }),
+    );
 
     const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
@@ -771,6 +806,7 @@ const buildAppUnderTest = (options?: {
           gitWorkflowLayer,
           vcsProvisioningLayer,
           vcsStatusBroadcasterLayer,
+          sourceControlStackServiceLayer,
         ),
       ),
       Layer.provide(
@@ -978,21 +1014,6 @@ const buildAppUnderTest = (options?: {
           delete: () => Effect.die(new Error("not available in test")),
           streamChanges: Stream.empty,
           ...options?.layers?.globalActions,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(SkillService)({
-          start: Effect.void,
-          ready: Effect.void,
-          getAll: Effect.succeed([]),
-          getByName: () => Effect.die(new Error("not available in test")),
-          create: () => Effect.die(new Error("not available in test")),
-          update: () => Effect.die(new Error("not available in test")),
-          delete: () => Effect.die(new Error("not available in test")),
-          toggleEnabled: () => Effect.die(new Error("not available in test")),
-          resolveConflict: () => Effect.die(new Error("not available in test")),
-          streamChanges: Stream.empty,
-          ...options?.layers?.skillService,
         }),
       ),
       Layer.provide(

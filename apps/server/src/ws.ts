@@ -24,7 +24,6 @@ import {
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   GlobalActionsRpcError,
-  SkillRpcError,
   ThreadId,
   type TerminalEvent,
   type RawTcpEvent,
@@ -32,7 +31,6 @@ import {
   WS_METHODS,
   WsRpcGroup,
   TmuxError,
-  type ServerProviderSkill,
   type ManagedProcessLogServerMessage,
   ReviewActionBlockedError,
   type ReviewApplyRawMutationInput,
@@ -62,6 +60,20 @@ import {
   type ReviewUpdateLocalAnnotationThreadInput,
   type ReviewUpsertGitHubDraftInput,
   type ReviewUpsertOverviewNoteInput,
+  SourceControlStackRpcError,
+  type SourceControlStackAbortOperationInput,
+  type SourceControlStackContinueOperationInput,
+  type SourceControlStackCreateEntryInput,
+  type SourceControlStackDropEntryInput,
+  type SourceControlStackGetSnapshotInput,
+  type SourceControlStackPublishInput,
+  type SourceControlStackRenameEntryInput,
+  type SourceControlStackReorderInput,
+  type SourceControlStackRestackInput,
+  type SourceControlStackSplitEntryInput,
+  type SourceControlStackSquashEntryInput,
+  type SourceControlStackSwitchEntryInput,
+  type SourceControlStackSyncInput,
 } from "@fenrir/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
@@ -84,6 +96,7 @@ import {
   ProviderMaintenanceRunner,
   ProviderMaintenanceRunnerLive,
 } from "./provider/providerMaintenanceRunner";
+import { listProviderSkills } from "./provider/providerSkills";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { GlobalActionsService } from "./globalActions";
@@ -121,12 +134,13 @@ import { TrafficLensStorageService } from "./traffic-lens-storage/Services/Traff
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner";
 import type { TrafficLensEvent } from "@fenrir/contracts";
 import { resolveManagedProcessCwd } from "@fenrir/shared/projectScripts";
-import { SkillService } from "./skill/SkillService";
 import { ProcessDiagnostics } from "./diagnostics/ProcessDiagnostics";
 import { ProcessResourceMonitor } from "./diagnostics/ProcessResourceMonitor";
 import { TraceDiagnostics } from "./diagnostics/TraceDiagnostics";
 import { ReviewRpcService } from "./sourceControl/review/Services/ReviewRpcService";
 import type { ReviewRpcServiceShape } from "./sourceControl/review/Services/ReviewRpcService";
+import { SourceControlStackService } from "./sourceControl/stack/Services/SourceControlStackService";
+import type { SourceControlStackServiceShape } from "./sourceControl/stack/Services/SourceControlStackService";
 
 const ContractWsMethods = WS_METHODS;
 
@@ -213,7 +227,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const trafficLensService = yield* TrafficLensService;
       const trafficLensStorageService = yield* TrafficLensStorageService;
       const planRunnerService = yield* PlanRunnerService;
-      const skillService = yield* SkillService;
       const managedProcessManager = yield* ManagedProcessManager;
       const importResolver = yield* ImportResolver;
       const processDiagnostics = yield* ProcessDiagnostics;
@@ -262,12 +275,31 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         });
       };
 
+      const toSourceControlStackRpcError = (err: unknown): SourceControlStackRpcError => {
+        if (Schema.is(SourceControlStackRpcError)(err)) return err;
+        return new SourceControlStackRpcError({
+          message:
+            err instanceof globalThis.Error
+              ? err.message
+              : "Source-control stack operation failed.",
+          cause: err,
+        });
+      };
+
       const withReviewRpcService = <A, E, R>(
         f: (reviewRpcService: ReviewRpcServiceShape) => Effect.Effect<A, E, R>,
       ) =>
         Effect.gen(function* () {
           const reviewRpcService = yield* ReviewRpcService;
           return yield* f(reviewRpcService);
+        });
+
+      const withStackService = <A, E, R>(
+        f: (stackService: SourceControlStackServiceShape) => Effect.Effect<A, E, R>,
+      ) =>
+        Effect.gen(function* () {
+          const stackService = yield* SourceControlStackService;
+          return yield* f(stackService);
         });
 
       const loadAuthAccessSnapshot = () =>
@@ -674,9 +706,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           },
           settings,
           globalActions: globalActionsList,
-          skills: yield* skillService.getAll.pipe(
-            Effect.orElseSucceed(() => [] as readonly ServerProviderSkill[]),
-          ),
         };
       });
 
@@ -1058,6 +1087,10 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {
             "rpc.aggregate": "server",
           }),
+        [WS_METHODS.serverListProviderSkills]: (input) =>
+          observeRpcEffect(WS_METHODS.serverListProviderSkills, listProviderSkills(input), {
+            "rpc.aggregate": "server",
+          }),
         [WS_METHODS.serverRefreshProviders]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverRefreshProviders,
@@ -1428,13 +1461,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   payload: { globalActions: globalActionsList },
                 })),
               );
-              const skillsUpdates = skillService.streamChanges.pipe(
-                Stream.map((skillsList) => ({
-                  version: 1 as const,
-                  type: "skillsUpdated" as const,
-                  payload: { skills: skillsList },
-                })),
-              );
 
               return Stream.concat(
                 Stream.make({
@@ -1446,10 +1472,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   keybindingsUpdates,
                   Stream.merge(
                     providerStatuses,
-                    Stream.merge(
-                      settingsUpdates,
-                      Stream.merge(globalActionsUpdates, skillsUpdates),
-                    ),
+                    Stream.merge(settingsUpdates, globalActionsUpdates),
                   ),
                 ),
               );
@@ -2089,75 +2112,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             { "rpc.aggregate": "managedProcess" },
           ),
 
-        [WS_METHODS.serverListSkills]: (_input) =>
-          observeRpcEffect(
-            WS_METHODS.serverListSkills,
-            skillService.getAll.pipe(
-              Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
-            ),
-            { "rpc.aggregate": "server" },
-          ),
-        [WS_METHODS.serverGetSkillDetails]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.serverGetSkillDetails,
-            skillService
-              .getDetails(input.name)
-              .pipe(
-                Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
-              ),
-            { "rpc.aggregate": "server" },
-          ),
-        [WS_METHODS.serverCreateSkill]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.serverCreateSkill,
-            skillService
-              .create(input)
-              .pipe(
-                Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
-              ),
-            { "rpc.aggregate": "server" },
-          ),
-        [WS_METHODS.serverUpdateSkill]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.serverUpdateSkill,
-            skillService
-              .update(input)
-              .pipe(
-                Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
-              ),
-            { "rpc.aggregate": "server" },
-          ),
-        [WS_METHODS.serverDeleteSkill]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.serverDeleteSkill,
-            skillService
-              .delete(input.name)
-              .pipe(
-                Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
-              ),
-            { "rpc.aggregate": "server" },
-          ),
-        [WS_METHODS.serverResolveSkillConflict]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.serverResolveSkillConflict,
-            skillService
-              .resolveConflict(input)
-              .pipe(
-                Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
-              ),
-            { "rpc.aggregate": "server" },
-          ),
-        [WS_METHODS.serverSetActiveSkillProject]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.serverSetActiveSkillProject,
-            skillService
-              .setActiveProjectRoot(input.cwd)
-              .pipe(
-                Effect.mapError((e) => new SkillRpcError({ message: e.message, cause: e.cause })),
-              ),
-            { "rpc.aggregate": "server" },
-          ),
-
         [ContractWsMethods.sourceControlReviewGetOrCreateSession]: (
           input: ReviewGetOrCreateSessionInput,
         ) =>
@@ -2455,6 +2409,158 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               ),
             ).pipe(Stream.unwrap),
             { "rpc.aggregate": "review" },
+          ),
+
+        [ContractWsMethods.sourceControlStackGetSnapshot]: (
+          input: SourceControlStackGetSnapshotInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackGetSnapshot,
+            withStackService((stackService) => stackService.getSnapshot(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.sourceControlStackCreateEntry]: (
+          input: SourceControlStackCreateEntryInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackCreateEntry,
+            withStackService((stackService) => stackService.createEntry(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.sourceControlStackSwitchEntry]: (
+          input: SourceControlStackSwitchEntryInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackSwitchEntry,
+            withStackService((stackService) => stackService.switchEntry(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.sourceControlStackRenameEntry]: (
+          input: SourceControlStackRenameEntryInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackRenameEntry,
+            withStackService((stackService) => stackService.renameEntry(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.sourceControlStackDropEntry]: (
+          input: SourceControlStackDropEntryInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackDropEntry,
+            withStackService((stackService) => stackService.dropEntry(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.sourceControlStackReorderEntries]: (
+          input: SourceControlStackReorderInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackReorderEntries,
+            withStackService((stackService) => stackService.reorderEntries(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.sourceControlStackRestack]: (input: SourceControlStackRestackInput) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackRestack,
+            withStackService((stackService) => stackService.restack(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.sourceControlStackSync]: (input: SourceControlStackSyncInput) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackSync,
+            withStackService((stackService) => stackService.sync(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.sourceControlStackSquashEntry]: (
+          input: SourceControlStackSquashEntryInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackSquashEntry,
+            withStackService((stackService) => stackService.squashEntry(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.sourceControlStackSplitEntry]: (
+          input: SourceControlStackSplitEntryInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackSplitEntry,
+            withStackService((stackService) => stackService.splitEntry(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.sourceControlStackPublish]: (input: SourceControlStackPublishInput) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackPublish,
+            withStackService((stackService) => stackService.publish(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.sourceControlStackContinueOperation]: (
+          input: SourceControlStackContinueOperationInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackContinueOperation,
+            withStackService((stackService) => stackService.continueOperation(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.sourceControlStackAbortOperation]: (
+          input: SourceControlStackAbortOperationInput,
+        ) =>
+          observeRpcEffect(
+            ContractWsMethods.sourceControlStackAbortOperation,
+            withStackService((stackService) => stackService.abortOperation(input)).pipe(
+              Effect.mapError(toSourceControlStackRpcError),
+            ),
+            { "rpc.aggregate": "source-control-stack" },
+          ),
+
+        [ContractWsMethods.subscribeSourceControlStackEvents]: (
+          input: SourceControlStackGetSnapshotInput,
+        ) =>
+          observeRpcStream(
+            ContractWsMethods.subscribeSourceControlStackEvents,
+            withStackService((stackService) =>
+              Effect.succeed(
+                stackService
+                  .streamEvents(input)
+                  .pipe(Stream.mapError(toSourceControlStackRpcError)),
+              ),
+            ).pipe(Stream.unwrap),
+            { "rpc.aggregate": "source-control-stack" },
           ),
       });
     }),

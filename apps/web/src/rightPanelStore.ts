@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type RightPanelTab = "plan" | "diff" | "skills";
+export type RightPanelTab = "plan" | "diff";
 
 interface RightPanelState {
   /** Currently active tab, or null if panel is closed */

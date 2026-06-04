@@ -1,14 +1,13 @@
 import type { ServerProviderSkill } from "@fenrir/contracts";
 
-// ─── Scoring weights ───────────────────────────────────────────────────────
-
 const WEIGHT_NAME = 5;
 const WEIGHT_DISPLAY_NAME = 4;
-const WEIGHT_DESCRIPTION = 3;
-const WEIGHT_TAGS = 2;
-const WEIGHT_BODY = 1;
+const WEIGHT_SHORT_DESCRIPTION = 3;
+const WEIGHT_DESCRIPTION = 2;
+const WEIGHT_SCOPE = 1;
 
-function scoreField(field: string, query: string, weight: number): number {
+function scoreField(field: string | undefined, query: string, weight: number): number {
+  if (!field) return 0;
   const lowerField = field.toLowerCase();
   const lowerQuery = query.toLowerCase();
 
@@ -35,46 +34,47 @@ function scoreSkill(skill: ServerProviderSkill, query: string): number {
 
   score += scoreField(skill.name, query, WEIGHT_NAME);
   score += scoreField(skill.displayName, query, WEIGHT_DISPLAY_NAME);
+  score += scoreField(skill.shortDescription, query, WEIGHT_SHORT_DESCRIPTION);
   score += scoreField(skill.description, query, WEIGHT_DESCRIPTION);
-
-  for (const tag of skill.tags) {
-    score += scoreField(tag, query, WEIGHT_TAGS);
-  }
-
-  // Body: substring only — no prefix/exact bonus
-  const lowerBody = skill.body.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  if (lowerBody.includes(lowerQuery)) {
-    score += WEIGHT_BODY * 2;
-  } else {
-    const tokens = lowerQuery.split(/\s+/).filter(Boolean);
-    const matchedTokens = tokens.filter((token) => lowerBody.includes(token));
-    if (matchedTokens.length > 0) {
-      score += WEIGHT_BODY * (matchedTokens.length / tokens.length);
-    }
-  }
+  score += scoreField(skill.scope, query, WEIGHT_SCOPE);
 
   return score;
 }
 
+function dedupeSkillsByName(skills: readonly ServerProviderSkill[]): ServerProviderSkill[] {
+  const seenNames = new Set<string>();
+  const deduped: ServerProviderSkill[] = [];
+
+  for (const skill of skills) {
+    if (seenNames.has(skill.name)) {
+      continue;
+    }
+    seenNames.add(skill.name);
+    deduped.push(skill);
+  }
+
+  return deduped;
+}
+
 /**
  * Search skills against a query string.
- * Scores each skill across name, displayName, description, tags, and body.
- * Returns results sorted by score descending, zero-score entries excluded.
+ * Scores each provider-reported skill across name, displayName, description, and scope.
+ * Returns prompt-addressable skill names once, sorted by score descending, zero-score entries excluded.
  */
 export function searchProviderSkills(
   skills: readonly ServerProviderSkill[],
   query: string,
 ): ServerProviderSkill[] {
+  const enabledSkills = skills.filter((skill) => skill.enabled);
   const trimmed = query.trim();
   if (!trimmed) {
-    return [...skills];
+    return dedupeSkillsByName(enabledSkills);
   }
 
-  const scored = skills
+  const scored = enabledSkills
     .map((skill) => ({ skill, score: scoreSkill(skill, trimmed) }))
     .filter(({ score }) => score > 0)
     .toSorted((a, b) => b.score - a.score);
 
-  return scored.map(({ skill }) => skill);
+  return dedupeSkillsByName(scored.map(({ skill }) => skill));
 }

@@ -55,8 +55,9 @@ export const make = Effect.fn("makeBitbucketSourceControlProvider")(function* ()
         .listPullRequests({
           cwd: input.cwd,
           ...(input.context ? { context: input.context } : {}),
-          headSelector: input.headSelector,
+          ...(input.headSelector ? { headSelector: input.headSelector } : {}),
           ...(source ? { source } : {}),
+          ...(input.baseRefName ? { baseRefName: input.baseRefName } : {}),
           state: input.state,
           ...(input.limit !== undefined ? { limit: input.limit } : {}),
         })
@@ -85,6 +86,25 @@ export const make = Effect.fn("makeBitbucketSourceControlProvider")(function* ()
         })
         .pipe(Effect.mapError((error) => providerError("createChangeRequest", error)));
     },
+    updateChangeRequest: (input) =>
+      bitbucket
+        .updatePullRequest({
+          cwd: input.cwd,
+          ...(input.context ? { context: input.context } : {}),
+          reference: input.reference,
+          ...(input.baseRefName ? { baseRefName: input.baseRefName } : {}),
+          ...(input.title ? { title: input.title } : {}),
+          ...(input.bodyFile ? { bodyFile: input.bodyFile } : {}),
+        })
+        .pipe(Effect.mapError((error) => providerError("updateChangeRequest", error))),
+    closeChangeRequest: (input) =>
+      bitbucket
+        .closePullRequest({
+          cwd: input.cwd,
+          ...(input.context ? { context: input.context } : {}),
+          reference: input.reference,
+        })
+        .pipe(Effect.mapError((error) => providerError("closeChangeRequest", error))),
     getRepositoryCloneUrls: (input) =>
       bitbucket
         .getRepositoryCloneUrls(input)

@@ -1,6 +1,6 @@
 import { ProviderInteractionMode, RuntimeMode } from "@fenrir/contracts";
 import { memo, type ReactNode } from "react";
-import { DiffIcon, EllipsisIcon, ListTodoIcon, ZapIcon } from "lucide-react";
+import { DiffIcon, EllipsisIcon, ListTodoIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -14,21 +14,16 @@ import {
 
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
-  skillsPanelOpen: boolean;
-  sidePanelLabel: "Plan" | "Tasks" | "Skills" | "Diff";
+  sidePanelOpen: boolean;
+  sidePanelLabel: "Plan" | "Tasks" | "Diff";
   runtimeMode: RuntimeMode;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
-  onToggleSkillsPanel: () => void;
+  onToggleSidePanel: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
-  const SidePanelIcon =
-    props.sidePanelLabel === "Diff"
-      ? DiffIcon
-      : props.sidePanelLabel === "Skills"
-        ? ZapIcon
-        : ListTodoIcon;
-  const sidePanelAction = `${props.skillsPanelOpen ? "Hide" : "Show"} ${props.sidePanelLabel.toLowerCase()} panel`;
+  const SidePanelIcon = props.sidePanelLabel === "Diff" ? DiffIcon : ListTodoIcon;
+  const sidePanelAction = `${props.sidePanelOpen ? "Hide" : "Show"} ${props.sidePanelLabel.toLowerCase()} panel`;
 
   return (
     <Menu>
@@ -77,7 +72,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         </MenuRadioGroup>
         <MenuDivider />
         <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Panels</div>
-        <MenuItem onClick={props.onToggleSkillsPanel}>
+        <MenuItem onClick={props.onToggleSidePanel}>
           <SidePanelIcon className="size-4 shrink-0" />
           {sidePanelAction}
         </MenuItem>

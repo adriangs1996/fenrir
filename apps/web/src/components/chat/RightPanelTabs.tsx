@@ -1,4 +1,4 @@
-import { DiffIcon, ListTodoIcon, ZapIcon } from "lucide-react";
+import { DiffIcon, ListTodoIcon } from "lucide-react";
 import {
   Suspense,
   lazy,
@@ -34,10 +34,6 @@ import {
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
-
-const LazySkillsPanel = lazy(() =>
-  import("~/modules/skills/SkillsPanel").then((m) => ({ default: m.SkillsPanel })),
-);
 
 function DiffLoadingFallback(props: { mode: DiffPanelMode }) {
   return (
@@ -96,14 +92,11 @@ interface RightPanelTabsProps {
    * "sheet" = mobile sheet overlay (full width).
    */
   mode?: "sidebar" | "sheet";
-  /** Called when the user clicks a skill item to insert it into the composer. */
-  onSkillInsert?: (skillName: string) => void;
 }
 
 export const RightPanelTabs = memo(function RightPanelTabs({
   planProps,
   mode = "sidebar",
-  onSkillInsert,
 }: RightPanelTabsProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const resizeStateRef = useRef<{
@@ -117,12 +110,6 @@ export const RightPanelTabs = memo(function RightPanelTabs({
   } | null>(null);
   const suppressClickRef = useRef(false);
   const [sidebarWidth, setSidebarWidth] = useState<number | null>(null);
-  const handleSkillInsert = useCallback(
-    (skillName: string) => {
-      onSkillInsert?.(skillName);
-    },
-    [onSkillInsert],
-  );
   const { activeTab } = useRightPanelStore();
   const diffPanelMode: DiffPanelMode = mode === "sheet" ? "sheet" : "sidebar";
 
@@ -345,7 +332,6 @@ export const RightPanelTabs = memo(function RightPanelTabs({
       <div role="tablist" className="flex h-10 shrink-0 items-end border-b border-border/60 px-1">
         <TabButton tab="plan" icon={ListTodoIcon} label="Plan" />
         <TabButton tab="diff" icon={DiffIcon} label="Diff" />
-        <TabButton tab="skills" icon={ZapIcon} label="Skills" />
       </div>
 
       {/* Tab content */}
@@ -372,21 +358,6 @@ export const RightPanelTabs = memo(function RightPanelTabs({
                 <DiffPanel mode={diffPanelMode} />
               </Suspense>
             </DiffWorkerPoolProvider>
-          ) : null}
-        </div>
-
-        {/* Skills tab */}
-        <div className={cn("h-full", activeTab !== "skills" && "hidden")}>
-          {activeTab === "skills" ? (
-            <Suspense
-              fallback={
-                <div className="flex h-full items-center justify-center p-6">
-                  <ZapIcon className="size-6 animate-pulse text-muted-foreground/30" />
-                </div>
-              }
-            >
-              <LazySkillsPanel onInsert={handleSkillInsert} />
-            </Suspense>
           ) : null}
         </div>
       </div>

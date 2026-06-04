@@ -106,8 +106,9 @@ export interface BitbucketApiShape {
   readonly listPullRequests: (input: {
     readonly cwd: string;
     readonly context?: SourceControlProvider.SourceControlProviderContext;
-    readonly headSelector: string;
+    readonly headSelector?: string;
     readonly source?: SourceControlProvider.SourceControlRefSelector;
+    readonly baseRefName?: string;
     readonly state: "open" | "closed" | "merged" | "all";
     readonly limit?: number;
   }) => Effect.Effect<
@@ -141,6 +142,19 @@ export interface BitbucketApiShape {
     readonly target?: SourceControlProvider.SourceControlRefSelector;
     readonly title: string;
     readonly bodyFile: string;
+  }) => Effect.Effect<void, BitbucketApiError>;
+  readonly updatePullRequest: (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProvider.SourceControlProviderContext;
+    readonly reference: string;
+    readonly baseRefName?: string;
+    readonly title?: string;
+    readonly bodyFile?: string;
+  }) => Effect.Effect<void, BitbucketApiError>;
+  readonly closePullRequest: (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProvider.SourceControlProviderContext;
+    readonly reference: string;
   }) => Effect.Effect<void, BitbucketApiError>;
   readonly getDefaultBranch: (input: {
     readonly cwd: string;
@@ -596,11 +610,17 @@ export const make = Effect.fn("makeBitbucketApi")(function* () {
       resolveRepository(input).pipe(
         Effect.flatMap((repository) => {
           const states = toBitbucketStates(input.state);
+          const sourceBranch = SourceControlProvider.sourceBranch(input);
           const query: Record<string, string | ReadonlyArray<string>> = {
             pagelen: String(Math.max(1, Math.min(input.limit ?? 20, 50))),
             sort: "-updated_on",
             q: bitbucketQueryString([
-              `source.branch.name = "${SourceControlProvider.sourceBranch(input).replaceAll('"', '\\"')}"`,
+              ...(sourceBranch.length === 0
+                ? []
+                : [`source.branch.name = "${sourceBranch.replaceAll('"', '\\"')}"`]),
+              ...(input.baseRefName === undefined
+                ? []
+                : [`destination.branch.name = "${input.baseRefName.replaceAll('"', '\\"')}"`]),
               bitbucketStateFilter(states),
             ]),
             state: states,
@@ -693,6 +713,65 @@ export const make = Effect.fn("makeBitbucketApi")(function* () {
           BitbucketPullRequests.BitbucketPullRequestSchema,
         );
       }),
+    updatePullRequest: (input) =>
+      Effect.gen(function* () {
+        const repository = yield* resolveRepository(input);
+        const description =
+          input.bodyFile === undefined
+            ? undefined
+            : yield* fileSystem.readFileString(input.bodyFile).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new BitbucketApiError({
+                      operation: "updatePullRequest",
+                      detail: `Failed to read pull request body file ${input.bodyFile}.`,
+                      cause,
+                    }),
+                ),
+              );
+        const body = {
+          ...(input.title === undefined ? {} : { title: input.title }),
+          ...(description === undefined ? {} : { description }),
+          ...(input.baseRefName === undefined
+            ? {}
+            : {
+                destination: {
+                  branch: {
+                    name: input.baseRefName,
+                  },
+                },
+              }),
+        };
+
+        if (Object.keys(body).length === 0) {
+          return;
+        }
+
+        yield* executeJson(
+          "updatePullRequest",
+          HttpClientRequest.put(
+            apiUrl(
+              `/repositories/${encodeURIComponent(repository.workspace)}/${encodeURIComponent(repository.repoSlug)}/pullrequests/${encodeURIComponent(normalizeChangeRequestId(input.reference))}`,
+            ),
+          ).pipe(HttpClientRequest.bodyJsonUnsafe(body)),
+          BitbucketPullRequests.BitbucketPullRequestSchema,
+        );
+      }),
+    closePullRequest: (input) =>
+      resolveRepository(input).pipe(
+        Effect.flatMap((repository) =>
+          executeJson(
+            "closePullRequest",
+            HttpClientRequest.post(
+              apiUrl(
+                `/repositories/${encodeURIComponent(repository.workspace)}/${encodeURIComponent(repository.repoSlug)}/pullrequests/${encodeURIComponent(normalizeChangeRequestId(input.reference))}/decline`,
+              ),
+            ),
+            BitbucketPullRequests.BitbucketPullRequestSchema,
+          ),
+        ),
+        Effect.asVoid,
+      ),
     getDefaultBranch: (input) =>
       resolveRepository(input).pipe(
         Effect.flatMap((locator) =>

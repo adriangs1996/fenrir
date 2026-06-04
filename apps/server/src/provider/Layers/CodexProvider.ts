@@ -6,6 +6,7 @@ import type {
   ServerProviderModel,
   ServerProviderAuth,
   ServerProviderState,
+  ServerProviderSkill,
 } from "@fenrir/contracts";
 import {
   Cache,
@@ -55,6 +56,7 @@ import { CodexProvider } from "../Services/CodexProvider";
 import { expandHomePath } from "../../pathExpansion.ts";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@fenrir/contracts";
+import { ServerConfig } from "../../config.ts";
 import {
   booleanModelOptionDescriptor,
   createModelCapabilitiesFromDescriptors,
@@ -246,6 +248,7 @@ const CAPABILITIES_PROBE_TIMEOUT_MS = 8_000;
 interface CodexAppServerCapabilitiesSnapshot {
   readonly account?: CodexAccountSnapshot;
   readonly models?: ReadonlyArray<ServerProviderModel>;
+  readonly skills?: ReadonlyArray<ServerProviderSkill>;
 }
 
 function isCodexAppServerCapabilitiesSnapshot(
@@ -331,6 +334,31 @@ function appendCustomCodexModels(
   return customEntries.length > 0 ? [...models, ...customEntries] : models;
 }
 
+function parseCodexSkillsListResponse(
+  response: CodexSchema.V2SkillsListResponse,
+  cwd: string,
+): ReadonlyArray<ServerProviderSkill> {
+  const matchingEntry = response.data.find((entry) => entry.cwd === cwd);
+  const skills = matchingEntry
+    ? matchingEntry.skills
+    : response.data.flatMap((entry) => entry.skills);
+
+  return skills.map((skill) => {
+    const shortDescription =
+      skill.shortDescription ?? skill.interface?.shortDescription ?? undefined;
+
+    return {
+      name: skill.name,
+      path: skill.path,
+      enabled: skill.enabled,
+      ...(skill.description ? { description: skill.description } : {}),
+      ...(skill.scope ? { scope: skill.scope } : {}),
+      ...(skill.interface?.displayName ? { displayName: skill.interface.displayName } : {}),
+      ...(shortDescription ? { shortDescription } : {}),
+    } satisfies ServerProviderSkill;
+  });
+}
+
 const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
   client: CodexClient.CodexAppServerClientShape,
 ) {
@@ -359,11 +387,16 @@ function processEnvForChild(input: { readonly homePath?: string }): Record<strin
 }
 
 const probeCodexAppServerCapabilities = Effect.fn("probeCodexAppServerCapabilities")(
-  function* (input: { readonly binaryPath: string; readonly homePath?: string }) {
+  function* (input: {
+    readonly binaryPath: string;
+    readonly homePath?: string;
+    readonly cwd: string;
+  }) {
     const clientContext = yield* Layer.build(
       CodexClient.layerCommand({
         command: input.binaryPath,
         args: ["app-server"],
+        cwd: input.cwd,
         env: processEnvForChild(input.homePath ? { homePath: input.homePath } : {}),
       }),
     );
@@ -376,21 +409,64 @@ const probeCodexAppServerCapabilities = Effect.fn("probeCodexAppServerCapabiliti
 
     const accountResponse = yield* client.request("account/read", {});
     const account = readCodexAccountSnapshot(accountResponse);
-    const models =
-      accountResponse.account || !accountResponse.requiresOpenaiAuth
-        ? yield* requestAllCodexModels(client)
-        : undefined;
+    const canReadCapabilities = accountResponse.account || !accountResponse.requiresOpenaiAuth;
+    const [skillsResponse, models] = canReadCapabilities
+      ? yield* Effect.all(
+          [
+            client.request("skills/list", {
+              cwds: [input.cwd],
+            }),
+            requestAllCodexModels(client),
+          ],
+          { concurrency: "unbounded" },
+        )
+      : [undefined, undefined];
 
     return {
       account,
       ...(models ? { models } : {}),
+      ...(skillsResponse
+        ? { skills: parseCodexSkillsListResponse(skillsResponse, input.cwd) }
+        : {}),
     } satisfies CodexAppServerCapabilitiesSnapshot;
   },
 );
 
+export const listCodexSkillsForCwd = Effect.fn("listCodexSkillsForCwd")(function* (input: {
+  readonly binaryPath: string;
+  readonly homePath?: string;
+  readonly cwd: string;
+}) {
+  const clientContext = yield* Layer.build(
+    CodexClient.layerCommand({
+      command: input.binaryPath,
+      args: ["app-server"],
+      cwd: input.cwd,
+      env: processEnvForChild(input.homePath ? { homePath: input.homePath } : {}),
+    }),
+  );
+  const client = yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
+    Effect.provide(clientContext),
+  );
+
+  yield* client.request("initialize", buildCodexInitializeParams());
+  yield* client.notify("initialized", undefined);
+
+  const accountResponse = yield* client.request("account/read", {});
+  if (!accountResponse.account && accountResponse.requiresOpenaiAuth) {
+    return [];
+  }
+
+  const response = yield* client.request("skills/list", {
+    cwds: [input.cwd],
+  });
+  return parseCodexSkillsListResponse(response, input.cwd);
+});
+
 const probeCodexCapabilities = (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
+  readonly cwd: string;
 }) =>
   probeCodexAppServerCapabilities(input).pipe(
     Effect.timeoutOption(CAPABILITIES_PROBE_TIMEOUT_MS),
@@ -579,6 +655,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       enabled: codexSettings.enabled,
       checkedAt,
       models: resolvedModels,
+      ...(capabilities?.skills ? { skills: capabilities.skills } : {}),
       probe: {
         installed: true,
         version: parsedVersion,
@@ -598,6 +675,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
       enabled: codexSettings.enabled,
       checkedAt,
       models: resolvedModels,
+      ...(capabilities?.skills ? { skills: capabilities.skills } : {}),
       probe: {
         installed: true,
         version: parsedVersion,
@@ -616,6 +694,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     enabled: codexSettings.enabled,
     checkedAt,
     models: resolvedModels,
+    ...(capabilities?.skills ? { skills: capabilities.skills } : {}),
     probe: {
       installed: true,
       version: parsedVersion,
@@ -634,6 +713,7 @@ export const CodexProviderLive = Layer.effect(
   CodexProvider,
   Effect.gen(function* () {
     const serverSettings = yield* ServerSettingsService;
+    const config = yield* ServerConfig;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -641,16 +721,17 @@ export const CodexProviderLive = Layer.effect(
       capacity: 4,
       timeToLive: Duration.minutes(5),
       lookup: (key: string) => {
-        const [binaryPath, homePath] = JSON.parse(key) as [string, string | undefined];
+        const [binaryPath, homePath, cwd] = JSON.parse(key) as [string, string | undefined, string];
         return probeCodexCapabilities({
           binaryPath,
+          cwd,
           ...(homePath ? { homePath } : {}),
         });
       },
     });
 
     const checkProvider = checkCodexProviderStatus((input) =>
-      Cache.get(accountProbeCache, JSON.stringify([input.binaryPath, input.homePath])),
+      Cache.get(accountProbeCache, JSON.stringify([input.binaryPath, input.homePath, config.cwd])),
     ).pipe(
       Effect.provideService(ServerSettingsService, serverSettings),
       Effect.provideService(FileSystem.FileSystem, fileSystem),

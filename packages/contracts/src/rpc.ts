@@ -199,6 +199,7 @@ import {
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server";
+import { ServerListProviderSkillsInput, ServerListProviderSkillsResult } from "./skill";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
 import {
   SourceControlCloneRepositoryInput,
@@ -211,14 +212,24 @@ import {
   SourceControlRepositoryLookupInput,
 } from "./sourceControl";
 import {
-  CreateSkillInput,
-  GetSkillDetailsInput,
-  ResolveSkillConflictInput,
-  ServerProviderSkill,
-  ServerSkillDetails,
-  SkillRpcError,
-  UpdateSkillInput,
-} from "./skill";
+  SourceControlStackAbortOperationInput,
+  SourceControlStackContinueOperationInput,
+  SourceControlStackCreateEntryInput,
+  SourceControlStackDropEntryInput,
+  SourceControlStackGetSnapshotInput,
+  SourceControlStackMutationResult,
+  SourceControlStackPublishInput,
+  SourceControlStackRenameEntryInput,
+  SourceControlStackReorderInput,
+  SourceControlStackRestackInput,
+  SourceControlStackRpcError,
+  SourceControlStackSnapshot,
+  SourceControlStackSplitEntryInput,
+  SourceControlStackSquashEntryInput,
+  SourceControlStackStreamEvent,
+  SourceControlStackSwitchEntryInput,
+  SourceControlStackSyncInput,
+} from "./sourceControlStack";
 import {
   GitHubReviewSnapshot,
   ReviewAnalysisArtifact,
@@ -297,6 +308,7 @@ export const WS_METHODS = {
 
   // Server meta
   serverGetConfig: "server.getConfig",
+  serverListProviderSkills: "server.listProviderSkills",
   serverRefreshProviders: "server.refreshProviders",
   serverUpdateProvider: "server.updateProvider",
   serverUpsertKeybinding: "server.upsertKeybinding",
@@ -406,15 +418,6 @@ export const WS_METHODS = {
   managedProcessSubscribeLog: "managedProcess.subscribeLog",
   managedProcessProposedImports: "managedProcess.proposedImports",
 
-  // Skills
-  serverListSkills: "serverListSkills",
-  serverGetSkillDetails: "serverGetSkillDetails",
-  serverCreateSkill: "serverCreateSkill",
-  serverUpdateSkill: "serverUpdateSkill",
-  serverDeleteSkill: "serverDeleteSkill",
-  serverResolveSkillConflict: "serverResolveSkillConflict",
-  serverSetActiveSkillProject: "serverSetActiveSkillProject",
-
   // Review
   sourceControlLookupRepository: "sourceControl.lookupRepository",
   sourceControlCloneRepository: "sourceControl.cloneRepository",
@@ -448,6 +451,22 @@ export const WS_METHODS = {
   sourceControlReviewRefreshProviderData: "sourceControl.review.refreshProviderData",
   sourceControlReviewGenerateAnalysis: "sourceControl.review.generateAnalysis",
   subscribeSourceControlReviewEvents: "subscribeSourceControlReviewEvents",
+
+  // Source-control stack
+  sourceControlStackGetSnapshot: "sourceControl.stack.getSnapshot",
+  sourceControlStackCreateEntry: "sourceControl.stack.createEntry",
+  sourceControlStackSwitchEntry: "sourceControl.stack.switchEntry",
+  sourceControlStackRenameEntry: "sourceControl.stack.renameEntry",
+  sourceControlStackDropEntry: "sourceControl.stack.dropEntry",
+  sourceControlStackReorderEntries: "sourceControl.stack.reorderEntries",
+  sourceControlStackRestack: "sourceControl.stack.restack",
+  sourceControlStackSync: "sourceControl.stack.sync",
+  sourceControlStackSquashEntry: "sourceControl.stack.squashEntry",
+  sourceControlStackSplitEntry: "sourceControl.stack.splitEntry",
+  sourceControlStackPublish: "sourceControl.stack.publish",
+  sourceControlStackContinueOperation: "sourceControl.stack.continueOperation",
+  sourceControlStackAbortOperation: "sourceControl.stack.abortOperation",
+  subscribeSourceControlStackEvents: "subscribeSourceControlStackEvents",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -489,6 +508,11 @@ export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   payload: Schema.Struct({}),
   success: ServerConfig,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError]),
+});
+
+export const WsServerListProviderSkillsRpc = Rpc.make(WS_METHODS.serverListProviderSkills, {
+  payload: ServerListProviderSkillsInput,
+  success: ServerListProviderSkillsResult,
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
@@ -1322,48 +1346,6 @@ export const WsManagedProcessProposedImportsRpc = Rpc.make(
   },
 );
 
-// ─── Skill RPCs ────────────────────────────────────────────────────────────
-
-export const WsServerListSkillsRpc = Rpc.make(WS_METHODS.serverListSkills, {
-  payload: Schema.Struct({}),
-  success: Schema.Array(ServerProviderSkill),
-  error: SkillRpcError,
-});
-
-export const WsServerGetSkillDetailsRpc = Rpc.make(WS_METHODS.serverGetSkillDetails, {
-  payload: GetSkillDetailsInput,
-  success: ServerSkillDetails,
-  error: SkillRpcError,
-});
-
-export const WsServerCreateSkillRpc = Rpc.make(WS_METHODS.serverCreateSkill, {
-  payload: CreateSkillInput,
-  success: ServerProviderSkill,
-  error: SkillRpcError,
-});
-
-export const WsServerUpdateSkillRpc = Rpc.make(WS_METHODS.serverUpdateSkill, {
-  payload: UpdateSkillInput,
-  success: ServerProviderSkill,
-  error: SkillRpcError,
-});
-
-export const WsServerDeleteSkillRpc = Rpc.make(WS_METHODS.serverDeleteSkill, {
-  payload: Schema.Struct({ name: Schema.String }),
-  error: SkillRpcError,
-});
-
-export const WsServerResolveSkillConflictRpc = Rpc.make(WS_METHODS.serverResolveSkillConflict, {
-  payload: ResolveSkillConflictInput,
-  success: ServerProviderSkill,
-  error: SkillRpcError,
-});
-
-export const WsServerSetActiveSkillProjectRpc = Rpc.make(WS_METHODS.serverSetActiveSkillProject, {
-  payload: Schema.Struct({ cwd: Schema.String }),
-  error: SkillRpcError,
-});
-
 // ─── Review RPCs ───────────────────────────────────────────────────────────
 
 export const WsReviewGetOrCreateSessionRpc = Rpc.make(
@@ -1589,8 +1571,123 @@ export const WsSubscribeReviewEventsRpc = Rpc.make(WS_METHODS.subscribeSourceCon
   stream: true,
 });
 
+// ─── Source-Control Stack RPCs ─────────────────────────────────────────────
+
+export const WsSourceControlStackGetSnapshotRpc = Rpc.make(
+  WS_METHODS.sourceControlStackGetSnapshot,
+  {
+    payload: SourceControlStackGetSnapshotInput,
+    success: SourceControlStackSnapshot,
+    error: SourceControlStackRpcError,
+  },
+);
+
+export const WsSourceControlStackCreateEntryRpc = Rpc.make(
+  WS_METHODS.sourceControlStackCreateEntry,
+  {
+    payload: SourceControlStackCreateEntryInput,
+    success: SourceControlStackMutationResult,
+    error: SourceControlStackRpcError,
+  },
+);
+
+export const WsSourceControlStackSwitchEntryRpc = Rpc.make(
+  WS_METHODS.sourceControlStackSwitchEntry,
+  {
+    payload: SourceControlStackSwitchEntryInput,
+    success: SourceControlStackMutationResult,
+    error: SourceControlStackRpcError,
+  },
+);
+
+export const WsSourceControlStackRenameEntryRpc = Rpc.make(
+  WS_METHODS.sourceControlStackRenameEntry,
+  {
+    payload: SourceControlStackRenameEntryInput,
+    success: SourceControlStackMutationResult,
+    error: SourceControlStackRpcError,
+  },
+);
+
+export const WsSourceControlStackDropEntryRpc = Rpc.make(WS_METHODS.sourceControlStackDropEntry, {
+  payload: SourceControlStackDropEntryInput,
+  success: SourceControlStackMutationResult,
+  error: SourceControlStackRpcError,
+});
+
+export const WsSourceControlStackReorderEntriesRpc = Rpc.make(
+  WS_METHODS.sourceControlStackReorderEntries,
+  {
+    payload: SourceControlStackReorderInput,
+    success: SourceControlStackMutationResult,
+    error: SourceControlStackRpcError,
+  },
+);
+
+export const WsSourceControlStackRestackRpc = Rpc.make(WS_METHODS.sourceControlStackRestack, {
+  payload: SourceControlStackRestackInput,
+  success: SourceControlStackMutationResult,
+  error: SourceControlStackRpcError,
+});
+
+export const WsSourceControlStackSyncRpc = Rpc.make(WS_METHODS.sourceControlStackSync, {
+  payload: SourceControlStackSyncInput,
+  success: SourceControlStackMutationResult,
+  error: SourceControlStackRpcError,
+});
+
+export const WsSourceControlStackSquashEntryRpc = Rpc.make(
+  WS_METHODS.sourceControlStackSquashEntry,
+  {
+    payload: SourceControlStackSquashEntryInput,
+    success: SourceControlStackMutationResult,
+    error: SourceControlStackRpcError,
+  },
+);
+
+export const WsSourceControlStackSplitEntryRpc = Rpc.make(WS_METHODS.sourceControlStackSplitEntry, {
+  payload: SourceControlStackSplitEntryInput,
+  success: SourceControlStackMutationResult,
+  error: SourceControlStackRpcError,
+});
+
+export const WsSourceControlStackPublishRpc = Rpc.make(WS_METHODS.sourceControlStackPublish, {
+  payload: SourceControlStackPublishInput,
+  success: SourceControlStackMutationResult,
+  error: SourceControlStackRpcError,
+});
+
+export const WsSourceControlStackContinueOperationRpc = Rpc.make(
+  WS_METHODS.sourceControlStackContinueOperation,
+  {
+    payload: SourceControlStackContinueOperationInput,
+    success: SourceControlStackMutationResult,
+    error: SourceControlStackRpcError,
+  },
+);
+
+export const WsSourceControlStackAbortOperationRpc = Rpc.make(
+  WS_METHODS.sourceControlStackAbortOperation,
+  {
+    payload: SourceControlStackAbortOperationInput,
+    success: SourceControlStackMutationResult,
+    error: SourceControlStackRpcError,
+  },
+);
+
+export const WsSubscribeSourceControlStackEventsRpc = Rpc.make(
+  WS_METHODS.subscribeSourceControlStackEvents,
+  {
+    payload: SourceControlStackGetSnapshotInput,
+    success: SourceControlStackStreamEvent,
+    error: SourceControlStackRpcError,
+    stream: true,
+  },
+);
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
+  WsServerListProviderSkillsRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpsertKeybindingRpc,
   WsServerRemoveKeybindingRpc,
@@ -1721,13 +1818,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsManagedProcessSubscribeLogRpc,
   WsManagedProcessProposedImportsRpc,
   WsOrchestrationSubscribeShellRpc,
-  WsServerListSkillsRpc,
-  WsServerGetSkillDetailsRpc,
-  WsServerCreateSkillRpc,
-  WsServerUpdateSkillRpc,
-  WsServerDeleteSkillRpc,
-  WsServerResolveSkillConflictRpc,
-  WsServerSetActiveSkillProjectRpc,
   WsReviewGetOrCreateSessionRpc,
   WsReviewGetSessionSummaryRpc,
   WsReviewGetSessionSnapshotRpc,
@@ -1755,4 +1845,18 @@ export const WsRpcGroup = RpcGroup.make(
   WsReviewRefreshProviderDataRpc,
   WsReviewGenerateAnalysisRpc,
   WsSubscribeReviewEventsRpc,
+  WsSourceControlStackGetSnapshotRpc,
+  WsSourceControlStackCreateEntryRpc,
+  WsSourceControlStackSwitchEntryRpc,
+  WsSourceControlStackRenameEntryRpc,
+  WsSourceControlStackDropEntryRpc,
+  WsSourceControlStackReorderEntriesRpc,
+  WsSourceControlStackRestackRpc,
+  WsSourceControlStackSyncRpc,
+  WsSourceControlStackSquashEntryRpc,
+  WsSourceControlStackSplitEntryRpc,
+  WsSourceControlStackPublishRpc,
+  WsSourceControlStackContinueOperationRpc,
+  WsSourceControlStackAbortOperationRpc,
+  WsSubscribeSourceControlStackEventsRpc,
 );

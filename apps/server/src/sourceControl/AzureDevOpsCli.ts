@@ -44,8 +44,9 @@ export interface AzureDevOpsCliShape {
 
   readonly listPullRequests: (input: {
     readonly cwd: string;
-    readonly headSelector: string;
+    readonly headSelector?: string;
     readonly source?: SourceControlProvider.SourceControlRefSelector;
+    readonly baseRefName?: string;
     readonly state: "open" | "closed" | "merged" | "all";
     readonly limit?: number;
   }) => Effect.Effect<
@@ -258,8 +259,9 @@ export const make = Effect.fn("makeAzureDevOpsCli")(function* () {
 
   return AzureDevOpsCli.of({
     execute,
-    listPullRequests: (input) =>
-      executeJson({
+    listPullRequests: (input) => {
+      const sourceBranch = SourceControlProvider.sourceBranch(input);
+      return executeJson({
         cwd: input.cwd,
         args: [
           "repos",
@@ -267,8 +269,8 @@ export const make = Effect.fn("makeAzureDevOpsCli")(function* () {
           "list",
           "--detect",
           "true",
-          "--source-branch",
-          SourceControlProvider.sourceBranch(input),
+          ...(sourceBranch.length === 0 ? [] : ["--source-branch", sourceBranch]),
+          ...(input.baseRefName === undefined ? [] : ["--target-branch", input.baseRefName]),
           "--status",
           toAzureStatus(input.state),
           "--top",
@@ -297,7 +299,8 @@ export const make = Effect.fn("makeAzureDevOpsCli")(function* () {
                 }),
               ),
         ),
-      ),
+      );
+    },
     getPullRequest: (input) =>
       executeJson({
         cwd: input.cwd,

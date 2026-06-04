@@ -53,8 +53,9 @@ export interface GitLabCliShape {
 
   readonly listMergeRequests: (input: {
     readonly cwd: string;
-    readonly headSelector: string;
+    readonly headSelector?: string;
     readonly source?: SourceControlProvider.SourceControlRefSelector;
+    readonly baseRefName?: string;
     readonly state: "open" | "closed" | "merged" | "all";
     readonly limit?: number;
   }) => Effect.Effect<ReadonlyArray<GitLabMergeRequestSummary>, GitLabCliError>;
@@ -222,6 +223,15 @@ function normalizeHeadSelector(headSelector: string): string {
 }
 
 function sourceRefName(input: {
+  readonly headSelector?: string;
+  readonly source?: SourceControlProvider.SourceControlRefSelector;
+}): string | null {
+  return (
+    input.source?.refName ?? (input.headSelector ? normalizeHeadSelector(input.headSelector) : null)
+  );
+}
+
+function requireSourceRefName(input: {
   readonly headSelector: string;
   readonly source?: SourceControlProvider.SourceControlRefSelector;
 }): string {
@@ -272,14 +282,15 @@ export const make = Effect.fn("makeGitLabCli")(function* () {
 
   return GitLabCli.of({
     execute,
-    listMergeRequests: (input) =>
-      execute({
+    listMergeRequests: (input) => {
+      const sourceRef = sourceRefName(input);
+      return execute({
         cwd: input.cwd,
         args: [
           "mr",
           "list",
-          "--source-branch",
-          sourceRefName(input),
+          ...(sourceRef === null ? [] : ["--source-branch", sourceRef]),
+          ...(input.baseRefName === undefined ? [] : ["--target-branch", input.baseRefName]),
           ...stateArgs(input.state),
           "--per-page",
           String(input.limit ?? 20),
@@ -307,7 +318,8 @@ export const make = Effect.fn("makeGitLabCli")(function* () {
                 }),
               ),
         ),
-      ),
+      );
+    },
     getMergeRequest: (input) =>
       execute({
         cwd: input.cwd,
@@ -411,7 +423,7 @@ export const make = Effect.fn("makeGitLabCli")(function* () {
           "POST",
           "projects/:fullpath/merge_requests",
           "--raw-field",
-          `source_branch=${sourceRefName(input)}`,
+          `source_branch=${requireSourceRefName(input)}`,
           "--raw-field",
           `target_branch=${input.target?.refName ?? input.baseBranch}`,
           ...(sourceProject ? ["--raw-field", `source_project_id=${sourceProject}`] : []),

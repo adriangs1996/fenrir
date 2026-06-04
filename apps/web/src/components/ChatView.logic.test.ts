@@ -25,23 +25,14 @@ describe("resolveSidePanelControlLabel", () => {
       resolveSidePanelControlLabel({
         activeTab: "plan",
         planLabel: "Tasks",
-        hasPlanContent: true,
       }),
     ).toBe("Tasks");
     expect(
       resolveSidePanelControlLabel({
         activeTab: "diff",
         planLabel: "Tasks",
-        hasPlanContent: true,
       }),
     ).toBe("Diff");
-    expect(
-      resolveSidePanelControlLabel({
-        activeTab: "skills",
-        planLabel: "Plan",
-        hasPlanContent: true,
-      }),
-    ).toBe("Skills");
   });
 
   it("uses the smart default label when the right panel is closed", () => {
@@ -49,16 +40,14 @@ describe("resolveSidePanelControlLabel", () => {
       resolveSidePanelControlLabel({
         activeTab: null,
         planLabel: "Plan",
-        hasPlanContent: true,
       }),
     ).toBe("Plan");
     expect(
       resolveSidePanelControlLabel({
         activeTab: null,
         planLabel: "Tasks",
-        hasPlanContent: false,
       }),
-    ).toBe("Skills");
+    ).toBe("Tasks");
   });
 });
 

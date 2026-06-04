@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 
 import ChatView from "../components/ChatView";
@@ -22,6 +22,9 @@ import {
 
 function ChatThreadRouteView() {
   const navigate = useNavigate();
+  const isNestedThreadToolRoute = useLocation({
+    select: (location) => location.pathname.endsWith("/gitdiff"),
+  });
   const threadRef = Route.useParams({
     select: (params) => resolveThreadRouteRef(params),
   });
@@ -122,6 +125,10 @@ function ChatThreadRouteView() {
         </div>
       </SidebarInset>
     );
+  }
+
+  if (isNestedThreadToolRoute) {
+    return <Outlet />;
   }
 
   return (

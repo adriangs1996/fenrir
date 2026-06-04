@@ -11,6 +11,7 @@ import {
   type ProjectId,
   type ServerConfig,
   type ServerLifecycleWelcomePayload,
+  type ServerProviderSkill,
   type ThreadId,
   type TurnId,
   WS_METHODS,
@@ -72,6 +73,7 @@ const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' heig
 interface TestFixture {
   snapshot: OrchestrationReadModel;
   serverConfig: ServerConfig;
+  providerSkills: ReadonlyArray<ServerProviderSkill>;
   welcome: ServerLifecycleWelcomePayload;
 }
 
@@ -170,6 +172,7 @@ function createBaseServerConfig(): ServerConfig {
         auth: { status: "authenticated" },
         checkedAt: NOW_ISO,
         models: [],
+        skills: [],
       },
     ],
     availableEditors: [],
@@ -184,7 +187,6 @@ function createBaseServerConfig(): ServerConfig {
       ...DEFAULT_CLIENT_SETTINGS,
     },
     globalActions: [],
-    skills: [],
   };
 }
 
@@ -346,6 +348,7 @@ function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
   return {
     snapshot,
     serverConfig: createBaseServerConfig(),
+    providerSkills: [],
     welcome: {
       environment: {
         environmentId: EnvironmentId.make("environment-local"),
@@ -781,6 +784,9 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
+  if (tag === WS_METHODS.serverListProviderSkills) {
+    return { skills: fixture.providerSkills };
+  }
   if (tag === WS_METHODS.vcsListRefs) {
     return {
       isRepo: true,
@@ -804,9 +810,6 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
     };
   }
   if (tag === WS_METHODS.shellOpenInEditor) {
-    return null;
-  }
-  if (tag === WS_METHODS.serverSetActiveSkillProject) {
     return null;
   }
   if (tag === WS_METHODS.terminalOpen) {
@@ -3993,38 +3996,34 @@ describe("ChatView timeline estimator parity (full app)", () => {
         targetText: "skill insert thread",
       }),
       configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          skills: [
-            {
-              name: "review",
-              displayName: "Review",
-              description: "Review the current change.",
-              body: "Review the current change.",
-              tags: ["code"],
-              enabled: true,
-              syncStatus: [],
-              createdAt: NOW_ISO,
-              updatedAt: NOW_ISO,
-            },
-          ],
-        };
+        nextFixture.providerSkills = [
+          {
+            name: "review",
+            displayName: "Review",
+            description: "Review the current change.",
+            path: "/repo/project/.codex/skills/review/SKILL.md",
+            scope: "project",
+            enabled: true,
+          },
+        ];
       },
     });
 
     try {
       const composerEditor = await waitForComposerEditor();
-      await page.getByRole("button", { name: "Skills" }).click();
-      await page.getByTitle("Insert /review").click();
+      composerEditor.focus();
+      await pressComposerKey("$");
+      await pressComposerKey("r");
+      await pressComposerKey("e");
+      const menuItem = await waitForComposerMenuItem("skill:review");
+      menuItem.click();
 
       await vi.waitFor(
         () => {
-          expect(composerEditor.textContent).toBe("/review");
+          expect(composerEditor.textContent).toBe("$review ");
         },
         { timeout: 8_000, interval: 16 },
       );
-
-      await waitForComposerMenuItem("skill:review");
     } finally {
       await mounted.cleanup();
     }

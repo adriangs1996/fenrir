@@ -67,12 +67,10 @@ import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRun
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor";
-import { SkillProjectReactorLive } from "./orchestration/Layers/SkillProjectReactor";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { ProviderMaintenanceRunnerLive } from "./provider/providerMaintenanceRunner";
 import { GlobalActionsLive } from "./globalActions";
 import { ServerSettingsLive } from "./serverSettings";
-import { SkillServiceLive } from "./skill/SkillService";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { SourceControlModuleLive } from "./sourceControl/SourceControlModule";
 import { ReviewDiffServiceLive } from "./sourceControl/review/Layers/ReviewDiffService";
@@ -81,6 +79,7 @@ import { ReviewMutationServiceLive } from "./sourceControl/review/Layers/ReviewM
 import { ReviewSessionServiceLive } from "./sourceControl/review/Layers/ReviewSessionService";
 import { ReviewWriteServiceLive } from "./sourceControl/review/Layers/ReviewWriteService";
 import { ReviewRpcServiceLive } from "./sourceControl/review/Layers/ReviewRpcService";
+import { SourceControlStackServiceLive } from "./sourceControl/stack/Layers/SourceControlStackService";
 import { ReviewGitHubPendingDraftRepositoryLive } from "./persistence/Layers/ReviewGitHubDrafts";
 import { GitHubReviewProviderLive } from "./sourceControl/review/Layers/GitHubReviewProvider";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
@@ -169,7 +168,6 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderCommandReactorLive),
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(ThreadDeletionReactorLive),
-  Layer.provideMerge(SkillProjectReactorLive),
   Layer.provideMerge(ManagedProcessReactorLive),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
@@ -325,6 +323,13 @@ const ReviewRpcLayerLive = ReviewRpcServiceLive.pipe(
 
 const ReviewLayerLive = Layer.mergeAll(ReviewWriteLayerLive, ReviewRpcLayerLive);
 
+const SourceControlStackLayerLive = SourceControlStackServiceLive.pipe(
+  Layer.provideMerge(SourceControlLayerLive),
+  Layer.provideMerge(GitWorkflowLayerLive),
+  Layer.provideMerge(GitCoreLive),
+  Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
+);
+
 const TerminalLayerLive = Layer.mergeAll(
   TerminalManagerLive.pipe(
     Layer.provide(TerminalHistoryManagerLive),
@@ -404,12 +409,12 @@ const CoreDependenciesLive = CoreInfrastructureLive.pipe(
   Layer.provideMerge(ProviderRegistryLayerLive),
   Layer.provideMerge(ProviderMaintenanceRunnerLayerLive),
   Layer.provideMerge(GlobalActionsLive),
-  Layer.provideMerge(SkillServiceLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
   Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(SourceControlLayerLive),
   Layer.provideMerge(ReviewLayerLive),
+  Layer.provideMerge(SourceControlStackLayerLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),
 );

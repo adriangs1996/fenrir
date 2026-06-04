@@ -95,8 +95,9 @@ export const make = Effect.fn("makeGitLabSourceControlProvider")(function* () {
       return gitlab
         .listMergeRequests({
           cwd: input.cwd,
-          headSelector: input.headSelector,
+          ...(input.headSelector !== undefined ? { headSelector: input.headSelector } : {}),
           ...(source ? { source } : {}),
+          ...(input.baseRefName !== undefined ? { baseRefName: input.baseRefName } : {}),
           state: input.state,
           ...(input.limit !== undefined ? { limit: input.limit } : {}),
         })
@@ -124,6 +125,38 @@ export const make = Effect.fn("makeGitLabSourceControlProvider")(function* () {
         })
         .pipe(Effect.mapError((error) => providerError("createChangeRequest", error)));
     },
+    updateChangeRequest: (input) => {
+      const args = [
+        "mr",
+        "update",
+        input.reference,
+        ...(input.baseRefName === undefined ? [] : ["--target-branch", input.baseRefName]),
+        ...(input.title === undefined ? [] : ["--title", input.title]),
+        ...(input.bodyFile === undefined ? [] : ["--description-file", input.bodyFile]),
+      ];
+      if (args.length === 3) {
+        return Effect.void;
+      }
+      return gitlab
+        .execute({
+          cwd: input.cwd,
+          args,
+        })
+        .pipe(
+          Effect.asVoid,
+          Effect.mapError((error) => providerError("updateChangeRequest", error)),
+        );
+    },
+    closeChangeRequest: (input) =>
+      gitlab
+        .execute({
+          cwd: input.cwd,
+          args: ["mr", "close", input.reference],
+        })
+        .pipe(
+          Effect.asVoid,
+          Effect.mapError((error) => providerError("closeChangeRequest", error)),
+        ),
     getRepositoryCloneUrls: (input) =>
       gitlab
         .getRepositoryCloneUrls(input)

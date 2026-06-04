@@ -47,6 +47,7 @@ function createTestClient(options?: {
           environmentId: EnvironmentId.make("env-1"),
         },
       })),
+      listProviderSkills: vi.fn(async () => ({ skills: [] })),
       subscribeConfig: (listener: (event: any) => void) => {
         configListeners.add(listener);
         return () => configListeners.delete(listener);

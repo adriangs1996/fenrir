@@ -12,6 +12,7 @@ import type {
   RuntimeMode,
   ScopedThreadRef,
   ServerProvider,
+  ServerProviderSkill,
   ThreadId,
 } from "@fenrir/contracts";
 import {
@@ -34,6 +35,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
+import { providerSkillsQueryOptions } from "~/lib/providerSkillsReactQuery";
 import {
   clampCollapsedComposerCursor,
   type ComposerTrigger,
@@ -113,7 +115,6 @@ import {
   LockOpenIcon,
   PenLineIcon,
   XIcon,
-  ZapIcon,
 } from "lucide-react";
 import { proposedPlanTitle } from "../../proposedPlan";
 import type { UnifiedSettings } from "@fenrir/contracts/settings";
@@ -121,9 +122,9 @@ import type { SessionPhase, Thread } from "../../types";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import type { PendingApproval, PendingUserInput } from "../../session-logic";
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
-import { useSkills } from "~/hooks/useSkills";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
+const EMPTY_PROVIDER_SKILLS: ReadonlyArray<ServerProviderSkill> = [];
 
 const runtimeModeConfig: Record<
   RuntimeMode,
@@ -182,21 +183,16 @@ const terminalContextIdListsEqual = (
 const ComposerFooterModeControls = memo(function ComposerFooterModeControls(props: {
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
-  skillsPanelOpen: boolean;
-  sidePanelLabel: "Plan" | "Tasks" | "Skills" | "Diff";
+  sidePanelOpen: boolean;
+  sidePanelLabel: "Plan" | "Tasks" | "Diff";
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
-  onToggleSkillsPanel: () => void;
+  onToggleSidePanel: () => void;
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
-  const SidePanelIcon =
-    props.sidePanelLabel === "Diff"
-      ? DiffIcon
-      : props.sidePanelLabel === "Skills"
-        ? ZapIcon
-        : ListTodoIcon;
-  const sidePanelTitle = `${props.skillsPanelOpen ? "Hide" : "Show"} ${props.sidePanelLabel.toLowerCase()} panel`;
+  const SidePanelIcon = props.sidePanelLabel === "Diff" ? DiffIcon : ListTodoIcon;
+  const sidePanelTitle = `${props.sidePanelOpen ? "Hide" : "Show"} ${props.sidePanelLabel.toLowerCase()} panel`;
 
   return (
     <>
@@ -262,13 +258,13 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         variant="ghost"
         className={cn(
           "shrink-0 whitespace-nowrap px-2 sm:px-3",
-          props.skillsPanelOpen
+          props.sidePanelOpen
             ? "text-primary hover:text-primary"
             : "text-muted-foreground/70 hover:text-foreground/80",
         )}
         size="sm"
         type="button"
-        onClick={props.onToggleSkillsPanel}
+        onClick={props.onToggleSidePanel}
         title={sidePanelTitle}
       >
         <SidePanelIcon />
@@ -631,9 +627,9 @@ export interface ChatComposerProps {
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
-  skillsPanelOpen: boolean;
-  sidePanelLabel: "Plan" | "Tasks" | "Skills" | "Diff";
-  toggleSkillsPanel: () => void;
+  sidePanelOpen: boolean;
+  sidePanelLabel: "Plan" | "Tasks" | "Diff";
+  toggleSidePanel: () => void;
 
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
@@ -700,19 +696,14 @@ export const ChatComposer = memo(
       toggleInteractionMode,
       handleRuntimeModeChange,
       handleInteractionModeChange,
-      skillsPanelOpen,
+      sidePanelOpen,
       sidePanelLabel,
-      toggleSkillsPanel,
+      toggleSidePanel,
       focusComposer,
       scheduleComposerFocus,
       setThreadError,
       onExpandImage,
     } = props;
-
-    // ------------------------------------------------------------------
-    // Skills
-    // ------------------------------------------------------------------
-    const skills = useSkills();
 
     // ------------------------------------------------------------------
     // Store subscriptions (prompt / images / terminal contexts)
@@ -929,6 +920,7 @@ export const ChatComposer = memo(
     const composerTriggerKind = composerTrigger?.kind ?? null;
     const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
     const isPathTrigger = composerTriggerKind === "path";
+    const isSkillTrigger = composerTriggerKind === "skill";
     const [debouncedPathQuery, composerPathQueryDebouncer] = useDebouncedValue(
       pathTriggerQuery,
       { wait: COMPOSER_PATH_QUERY_DEBOUNCE_MS },
@@ -945,6 +937,16 @@ export const ChatComposer = memo(
       }),
     );
     const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
+    const providerSkillsQuery = useQuery(
+      providerSkillsQueryOptions({
+        environmentId,
+        cwd: gitCwd,
+        provider: selectedProvider,
+        providerInstanceId: selectedProviderInstanceId,
+        enabled: isSkillTrigger,
+      }),
+    );
+    const providerSkills = providerSkillsQuery.data?.skills ?? EMPTY_PROVIDER_SKILLS;
 
     const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
       if (!composerTrigger) return [];
@@ -991,17 +993,17 @@ export const ChatComposer = memo(
         return matchedSlashCommands;
       }
       if (composerTrigger.kind === "skill") {
-        return searchProviderSkills(
-          skills.filter((skill) => skill.enabled),
-          composerTrigger.query,
-        )
+        return searchProviderSkills(providerSkills, composerTrigger.query)
           .slice(0, COMPOSER_SKILL_RESULT_LIMIT)
           .map((skill) => ({
             id: `skill:${skill.name}`,
             type: "skill" as const,
             name: skill.name,
-            label: skill.displayName,
-            description: skill.description,
+            label: skill.displayName ?? skill.name,
+            description:
+              skill.shortDescription ??
+              skill.description ??
+              (skill.scope ? `${skill.scope} skill` : "Run provider skill"),
             skill,
           }));
       }
@@ -1023,7 +1025,7 @@ export const ChatComposer = memo(
           label: name,
           description: `${providerLabel} · ${slug}`,
         }));
-    }, [composerTrigger, searchableModelOptions, workspaceEntries, skills]);
+    }, [composerTrigger, providerSkills, searchableModelOptions, workspaceEntries]);
 
     const composerMenuOpen = Boolean(composerTrigger);
     const activeComposerMenuItem = useMemo(
@@ -1112,10 +1114,12 @@ export const ChatComposer = memo(
     ]);
 
     const isComposerMenuLoading =
-      composerTriggerKind === "path" &&
-      ((pathTriggerQuery.length > 0 && composerPathQueryDebouncer.state.isPending) ||
-        workspaceEntriesQuery.isLoading ||
-        workspaceEntriesQuery.isFetching);
+      (composerTriggerKind === "path" &&
+        ((pathTriggerQuery.length > 0 && composerPathQueryDebouncer.state.isPending) ||
+          workspaceEntriesQuery.isLoading ||
+          workspaceEntriesQuery.isFetching)) ||
+      (composerTriggerKind === "skill" &&
+        (providerSkillsQuery.isLoading || providerSkillsQuery.isFetching));
 
     // ------------------------------------------------------------------
     // Provider traits UI
@@ -2246,12 +2250,12 @@ export const ChatComposer = memo(
                   {isComposerFooterCompact ? (
                     <CompactComposerControlsMenu
                       interactionMode={interactionMode}
-                      skillsPanelOpen={skillsPanelOpen}
+                      sidePanelOpen={sidePanelOpen}
                       sidePanelLabel={sidePanelLabel}
                       runtimeMode={runtimeMode}
                       traitsMenuContent={providerTraitsMenuContent}
                       onToggleInteractionMode={toggleInteractionMode}
-                      onToggleSkillsPanel={toggleSkillsPanel}
+                      onToggleSidePanel={toggleSidePanel}
                       onRuntimeModeChange={handleRuntimeModeChange}
                     />
                   ) : (
@@ -2268,11 +2272,11 @@ export const ChatComposer = memo(
                       <ComposerFooterModeControls
                         interactionMode={interactionMode}
                         runtimeMode={runtimeMode}
-                        skillsPanelOpen={skillsPanelOpen}
+                        sidePanelOpen={sidePanelOpen}
                         sidePanelLabel={sidePanelLabel}
                         onToggleInteractionMode={toggleInteractionMode}
                         onRuntimeModeChange={handleRuntimeModeChange}
-                        onToggleSkillsPanel={toggleSkillsPanel}
+                        onToggleSidePanel={toggleSidePanel}
                       />
                     </>
                   )}

@@ -20,6 +20,7 @@ function makeProvider(
     auth: input.auth ?? { status: "authenticated" },
     checkedAt: input.checkedAt ?? "2026-05-19T00:00:00.000Z",
     models: input.models ?? [],
+    skills: input.skills ?? [],
     ...(input.instanceId ? { instanceId: input.instanceId } : {}),
     ...(input.driver ? { driver: ProviderDriverKind.make(input.driver) } : {}),
     ...(input.displayName ? { displayName: input.displayName } : {}),

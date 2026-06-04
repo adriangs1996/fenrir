@@ -136,6 +136,7 @@ export const ServerProvider = Schema.Struct({
   availability: Schema.optional(ServerProviderAvailability),
   unavailableReason: Schema.optional(TrimmedNonEmptyString),
   models: Schema.Array(ServerProviderModel),
+  skills: Schema.Array(ServerProviderSkill).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   versionAdvisory: Schema.optional(ServerProviderVersionAdvisory),
   updateState: Schema.optional(ServerProviderUpdateState),
   mcpCapabilities: Schema.optional(ServerProviderMcpCapabilities),
@@ -352,7 +353,6 @@ export const ServerConfig = Schema.Struct({
   observability: ServerObservability,
   settings: ServerSettings,
   globalActions: Schema.Array(GlobalScript),
-  skills: Schema.Array(ServerProviderSkill),
 });
 export type ServerConfig = typeof ServerConfig.Type;
 
@@ -449,24 +449,12 @@ const ServerConfigStreamGlobalActionsUpdatedEvent = Schema.Struct({
   payload: ServerConfigGlobalActionsUpdatedPayload,
 });
 
-export const ServerConfigSkillsUpdatedPayload = Schema.Struct({
-  skills: Schema.Array(ServerProviderSkill),
-});
-export type ServerConfigSkillsUpdatedPayload = typeof ServerConfigSkillsUpdatedPayload.Type;
-
-const ServerConfigStreamSkillsUpdatedEvent = Schema.Struct({
-  version: Schema.Literal(1),
-  type: Schema.Literal("skillsUpdated"),
-  payload: ServerConfigSkillsUpdatedPayload,
-});
-
 export const ServerConfigStreamEvent = Schema.Union([
   ServerConfigStreamSnapshotEvent,
   ServerConfigStreamKeybindingsUpdatedEvent,
   ServerConfigStreamProviderStatusesEvent,
   ServerConfigStreamSettingsUpdatedEvent,
   ServerConfigStreamGlobalActionsUpdatedEvent,
-  ServerConfigStreamSkillsUpdatedEvent,
 ]);
 export type ServerConfigStreamEvent = typeof ServerConfigStreamEvent.Type;
 

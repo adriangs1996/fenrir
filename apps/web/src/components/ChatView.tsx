@@ -43,7 +43,6 @@ import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
-import { expandSkillReferences, formatSkillReferenceToken } from "../skillReferences";
 import {
   deriveCompletionDividerBeforeEntryId,
   derivePendingApprovals,
@@ -194,7 +193,7 @@ import {
 import { useChatViewScripts } from "./chatView/useChatViewScripts";
 import { type ChatViewTab, useChatViewTabs } from "./chatView/useChatViewTabs";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
-import { useServerConfig, useServerKeybindings, useServerSkills } from "~/rpc/serverState";
+import { useServerConfig, useServerKeybindings } from "~/rpc/serverState";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
 import { useComposerHandleContext } from "../composerHandleContext";
@@ -212,7 +211,7 @@ const IMAGE_ONLY_BOOTSTRAP_PROMPT =
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
-const EMPTY_PROVIDER_SKILLS: ReadonlyArray<{ name: string; displayName: string }> = [];
+const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const ACTION_RUN_OBSERVER_COLS = 120;
 const ACTION_RUN_OBSERVER_ROWS = 30;
@@ -709,28 +708,6 @@ export default function ChatView(props: ChatViewProps) {
     },
     [composerHandleContext],
   );
-  const handleSkillInsert = useCallback(
-    (skillName: string) => {
-      const snapshot = composerRef.current?.readSnapshot();
-      const draft = useComposerDraftStore.getState().getComposerDraft(composerDraftTarget);
-      const current = snapshot?.value ?? draft?.prompt ?? "";
-      const insertion = formatSkillReferenceToken(skillName);
-      const separator = current.length > 0 && !/\s$/.test(current) ? " " : "";
-      const next = `${current}${separator}${insertion} `;
-      const nextCursor = collapseExpandedComposerCursor(next, next.length);
-
-      setComposerDraftPrompt(composerDraftTarget, next);
-      composerRef.current?.resetCursorState({
-        cursor: nextCursor,
-        prompt: next,
-        detectTrigger: true,
-      });
-      window.requestAnimationFrame(() => {
-        composerRef.current?.focusAt(nextCursor);
-      });
-    },
-    [composerDraftTarget, setComposerDraftPrompt],
-  );
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [actionCenterOpen, setActionCenterOpen] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
@@ -953,16 +930,6 @@ export default function ChatView(props: ChatViewProps) {
   const activeProject = useStore(
     useMemo(() => createProjectSelectorByRef(activeProjectRef), [activeProjectRef]),
   );
-
-  // Notify the server when the active project changes so the skill panel
-  // reflects this project's .claude/skills/ directory.
-  const activeSkillProjectCwd = activeProject?.cwd;
-  useEffect(() => {
-    if (!activeSkillProjectCwd) return;
-    const api = readLocalApi();
-    if (!api) return;
-    void api.server.setActiveSkillProject({ cwd: activeSkillProjectCwd });
-  }, [activeSkillProjectCwd]);
 
   // Compute the list of environments this logical project spans, used to
   // drive the environment picker in BranchToolbar.
@@ -1271,11 +1238,9 @@ export default function ChatView(props: ChatViewProps) {
     [activeLatestTurn, derivedActivePlan],
   );
   const planSidebarLabel = sidebarProposedPlan || interactionMode === "plan" ? "Plan" : "Tasks";
-  const hasPlanContent = Boolean(activePlan || sidebarProposedPlan);
   const sidePanelControlLabel = resolveSidePanelControlLabel({
     activeTab: rightPanel.activeTab,
     planLabel: planSidebarLabel,
-    hasPlanContent,
   });
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
@@ -1572,7 +1537,7 @@ export default function ChatView(props: ChatViewProps) {
     : null;
   const gitStatusQuery = useGitStatus({ environmentId, cwd: gitCwd });
   const keybindings = useServerKeybindings();
-  const serverSkills = useServerSkills();
+  const activeProviderSkills = selectedProviderStatus?.skills ?? EMPTY_PROVIDER_SKILLS;
   const activeProviderStatus = useMemo(
     () => providerStatuses.find((status) => status.provider === selectedProvider) ?? null,
     [selectedProvider, providerStatuses],
@@ -1934,19 +1899,16 @@ export default function ChatView(props: ChatViewProps) {
     planSidebarDismissedForTurnRef.current =
       activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
   }, [activePlan?.turnId, closeRightPanel, sidebarProposedPlan?.turnId]);
-  const toggleSkillsPanel = useCallback(() => {
+  const toggleSidePanel = useCallback(() => {
     if (rightPanel.activeTab !== null) {
       closeRightPanel();
       planSidebarDismissedForTurnRef.current =
         activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
       return;
     }
-    // Smart default: if there are tasks/plan content, open the plan tab so
-    // tasks are visible immediately. Otherwise show the skills tab.
-    const hasPlanContent = Boolean(activePlan || sidebarProposedPlan);
     planSidebarDismissedForTurnRef.current = null;
-    rightPanel.openTab(hasPlanContent ? "plan" : "skills");
-  }, [activePlan, closeRightPanel, rightPanel, sidebarProposedPlan]);
+    rightPanel.openTab("plan");
+  }, [activePlan?.turnId, closeRightPanel, rightPanel, sidebarProposedPlan?.turnId]);
 
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -2096,8 +2058,8 @@ export default function ChatView(props: ChatViewProps) {
 
   // Auto-open the plan sidebar when plan/todo steps arrive for the current turn.
   // Don't auto-open for plans carried over from a previous turn (the user can open manually).
-  // Only fires when the right panel is fully closed — if the user has switched to
-  // another tab (diff/skills), respect that choice instead of bouncing back to plan.
+  // Only fires when the right panel is fully closed. If the user has switched
+  // to another tab, respect that choice instead of bouncing back to plan.
   useEffect(() => {
     if (!activePlan) return;
     if (rightPanel.activeTab !== null) return;
@@ -2424,7 +2386,7 @@ export default function ChatView(props: ChatViewProps) {
       if (command === "diff.toggle") {
         event.preventDefault();
         event.stopPropagation();
-        toggleSkillsPanel();
+        toggleSidePanel();
         return;
       }
 
@@ -2486,7 +2448,7 @@ export default function ChatView(props: ChatViewProps) {
     runGlobalScript,
     splitTerminal,
     keybindings,
-    toggleSkillsPanel,
+    toggleSidePanel,
     toggleTerminalVisibility,
     editorAvailable,
     activeEmbeddedEditor,
@@ -2527,7 +2489,7 @@ export default function ChatView(props: ChatViewProps) {
       }
 
       if (command === "diff.toggle") {
-        toggleSkillsPanel();
+        toggleSidePanel();
         return;
       }
 
@@ -2563,7 +2525,7 @@ export default function ChatView(props: ChatViewProps) {
     splitTerminal,
     terminalState.activeTerminalId,
     terminalState.terminalOpen,
-    toggleSkillsPanel,
+    toggleSidePanel,
     toggleTerminalVisibility,
   ]);
 
@@ -2725,9 +2687,8 @@ export default function ChatView(props: ChatViewProps) {
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
     const composerEditorContextsSnapshot = [...useEditorStore.getState().pendingContexts];
-    const skillExpandedPrompt = expandSkillReferences(promptForSend, serverSkills).text;
     const messageTextWithTerminal = appendTerminalContextsToPrompt(
-      skillExpandedPrompt,
+      promptForSend,
       composerTerminalContextsSnapshot,
     );
     const messageTextForSend = appendEditorContextsToPrompt(
@@ -3619,7 +3580,7 @@ export default function ChatView(props: ChatViewProps) {
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
                 workspaceRoot={activeWorkspaceRoot}
-                skills={serverSkills.length > 0 ? serverSkills : EMPTY_PROVIDER_SKILLS}
+                skills={activeProviderSkills}
                 actionRuns={actionRunReceipts}
                 onOpenActionRun={handleOpenActionRun}
                 onRetryActionRun={handleRetryActionRun}
@@ -3713,9 +3674,9 @@ export default function ChatView(props: ChatViewProps) {
                 toggleInteractionMode={toggleInteractionMode}
                 handleRuntimeModeChange={handleRuntimeModeChange}
                 handleInteractionModeChange={handleInteractionModeChange}
-                skillsPanelOpen={rightPanel.activeTab !== null}
+                sidePanelOpen={rightPanel.activeTab !== null}
                 sidePanelLabel={sidePanelControlLabel}
-                toggleSkillsPanel={toggleSkillsPanel}
+                toggleSidePanel={toggleSidePanel}
                 focusComposer={focusComposer}
                 scheduleComposerFocus={scheduleComposerFocus}
                 setThreadError={setThreadError}
@@ -3793,7 +3754,7 @@ export default function ChatView(props: ChatViewProps) {
         </div>
         {/* end chat column */}
 
-        {/* Right panel tabs (Plan / Diff / Skills) and Action Center — desktop inline */}
+        {/* Right panel tabs (Plan / Diff) and Action Center — desktop inline */}
         {actionCenterOpen && activeProjectRef && !shouldUsePlanSidebarSheet ? (
           <ActionRunCenter
             projectRef={activeProjectRef}
@@ -3815,7 +3776,6 @@ export default function ChatView(props: ChatViewProps) {
               timestampFormat,
               onClose: closePlanSidebar,
             }}
-            onSkillInsert={handleSkillInsert}
           />
         ) : null}
       </div>
@@ -3868,7 +3828,6 @@ export default function ChatView(props: ChatViewProps) {
                 onClose: closePlanSidebar,
               }}
               mode="sheet"
-              onSkillInsert={handleSkillInsert}
             />
           )}
         </RightPanelSheet>

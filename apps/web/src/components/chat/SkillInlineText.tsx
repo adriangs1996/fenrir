@@ -75,7 +75,9 @@ function SkillChip(props: { skill: InlineSkill; rawText: string }) {
           className={COMPOSER_INLINE_CHIP_ICON_CLASS_NAME}
           dangerouslySetInnerHTML={{ __html: SKILL_CHIP_ICON_SVG }}
         />
-        <span className={COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME}>{props.skill.displayName}</span>
+        <span className={COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME}>
+          {props.skill.displayName ?? props.skill.name}
+        </span>
       </span>
     </span>
   );

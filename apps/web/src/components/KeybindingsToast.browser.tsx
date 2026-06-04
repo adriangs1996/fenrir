@@ -80,6 +80,7 @@ function createBaseServerConfig(): ServerConfig {
         auth: { status: "authenticated" },
         checkedAt: NOW_ISO,
         models: [],
+        skills: [],
       },
     ],
     availableEditors: [],
@@ -100,7 +101,6 @@ function createBaseServerConfig(): ServerConfig {
       },
     },
     globalActions: [],
-    skills: [],
   };
 }
 

@@ -142,7 +142,7 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
   const screen = await render(
     <CompactComposerControlsMenu
       interactionMode="default"
-      sidePanelLabel="Skills"
+      sidePanelLabel="Plan"
       runtimeMode="approval-required"
       traitsMenuContent={
         <TraitsMenuContent
@@ -155,9 +155,9 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
           onPromptChange={onPromptChange}
         />
       }
-      skillsPanelOpen={false}
+      sidePanelOpen={false}
       onToggleInteractionMode={vi.fn()}
-      onToggleSkillsPanel={vi.fn()}
+      onToggleSidePanel={vi.fn()}
       onRuntimeModeChange={vi.fn()}
     />,
     { container: host },

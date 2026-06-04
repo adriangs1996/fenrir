@@ -19,9 +19,18 @@ export function SidebarRouteNavFooter() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const isRemoteHostRoute = pathname.startsWith("/remote-host");
   const isBrowserLabRoute = pathname === "/browser-lab";
-  const isGitDiffRoute = pathname === "/gitdiff";
+  const isGitDiffRoute = pathname === "/gitdiff" || pathname.endsWith("/gitdiff");
   const isGlobalTerminalRoute = pathname === GLOBAL_TERMINAL_ROUTE;
   const isSettingsRoute = pathname.startsWith("/settings");
+  const activeThreadRouteMatch = /^\/([^/]+)\/([^/]+)(?:\/.*)?$/u.exec(pathname);
+  const activeThreadEnvironmentId = activeThreadRouteMatch?.[1];
+  const activeThreadId = activeThreadRouteMatch?.[2];
+  const hasThreadRouteContext =
+    activeThreadEnvironmentId !== undefined &&
+    activeThreadId !== undefined &&
+    !["browser-lab", "gitdiff", "pair", "remote-host", "settings"].includes(
+      activeThreadEnvironmentId,
+    );
 
   const handlePrimaryWorkspaceClick = useCallback(() => {
     void navigate({ to: isRemoteHostRoute ? "/" : "/remote-host" });
@@ -32,8 +41,15 @@ export function SidebarRouteNavFooter() {
   }, [navigate]);
 
   const handleGitDiffClick = useCallback(() => {
+    if (hasThreadRouteContext) {
+      void navigate({
+        to: "/$environmentId/$threadId/gitdiff",
+        params: { environmentId: activeThreadEnvironmentId, threadId: activeThreadId },
+      });
+      return;
+    }
     void navigate({ to: "/gitdiff" });
-  }, [navigate]);
+  }, [activeThreadEnvironmentId, activeThreadId, hasThreadRouteContext, navigate]);
 
   const handleSettingsClick = useCallback(() => {
     void navigate({ to: "/settings" });

@@ -30,6 +30,63 @@ import type {
   SourceControlRepositoryLookupInput,
 } from "./sourceControl";
 import type {
+  GitHubReviewSnapshot,
+  ReviewAnalysisArtifact,
+  ReviewApplyRawMutationInput,
+  ReviewApplyRawMutationResult,
+  ReviewChunkPayload,
+  ReviewCreateLocalAnnotationReplyInput,
+  ReviewCreateLocalAnnotationThreadInput,
+  ReviewDeleteGitHubDraftInput,
+  ReviewDeleteLocalAnnotationReplyInput,
+  ReviewDeleteLocalAnnotationThreadInput,
+  ReviewDeleteOverviewNoteInput,
+  ReviewDiffFilePatch,
+  ReviewDiffSnapshot,
+  ReviewGenerateAnalysisInput,
+  ReviewGetChunkPayloadInput,
+  ReviewGetDiffSnapshotInput,
+  ReviewGetFilePatchInput,
+  ReviewGetGitHubSnapshotInput,
+  ReviewGetOrCreateSessionInput,
+  ReviewGetSessionInput,
+  ReviewLocalAnnotationReply,
+  ReviewLocalAnnotationThread,
+  ReviewOverviewNote,
+  ReviewRefreshProviderDataInput,
+  ReviewReplyToGitHubThreadInput,
+  ReviewSessionSnapshot,
+  ReviewSessionSummary,
+  ReviewSetLocalThreadResolvedInput,
+  ReviewSetModeInput,
+  ReviewSetProgressInput,
+  ReviewSetScopeInput,
+  ReviewStreamEvent,
+  ReviewSubmitGitHubDraftInput,
+  ReviewUpdateLocalAnnotationReplyInput,
+  ReviewUpdateLocalAnnotationThreadInput,
+  ReviewUpsertGitHubDraftInput,
+  ReviewUpsertOverviewNoteInput,
+} from "./sourceControlReview";
+import type {
+  SourceControlStackAbortOperationInput,
+  SourceControlStackContinueOperationInput,
+  SourceControlStackCreateEntryInput,
+  SourceControlStackDropEntryInput,
+  SourceControlStackGetSnapshotInput,
+  SourceControlStackMutationResult,
+  SourceControlStackPublishInput,
+  SourceControlStackRenameEntryInput,
+  SourceControlStackReorderInput,
+  SourceControlStackRestackInput,
+  SourceControlStackSnapshot,
+  SourceControlStackSplitEntryInput,
+  SourceControlStackSquashEntryInput,
+  SourceControlStackStreamEvent,
+  SourceControlStackSwitchEntryInput,
+  SourceControlStackSyncInput,
+} from "./sourceControlStack";
+import type {
   ProjectListEntriesInput,
   ProjectListEntriesResult,
   ProjectSearchEntriesInput,
@@ -50,6 +107,7 @@ import type {
   ServerTraceDiagnosticsResult,
   ServerUpsertKeybindingResult,
 } from "./server";
+import type { ServerListProviderSkillsInput, ServerListProviderSkillsResult } from "./skill";
 import type {
   TerminalClearInput,
   TerminalCloseInput,
@@ -156,14 +214,6 @@ import type {
   StopRemoteConnectionInput,
   UpdateRemoteHostInput,
 } from "./remoteController";
-import type {
-  ServerProviderSkill,
-  CreateSkillInput,
-  GetSkillDetailsInput,
-  UpdateSkillInput,
-  ResolveSkillConflictInput,
-  ServerSkillDetails,
-} from "./skill";
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "./keybindings";
 
 // ── Editor IPC channels ──────────────────────────────────────
@@ -714,6 +764,9 @@ export interface LocalApi {
   };
   server: {
     getConfig: () => Promise<ServerConfig>;
+    listProviderSkills: (
+      input: ServerListProviderSkillsInput,
+    ) => Promise<ServerListProviderSkillsResult>;
     refreshProviders: (input?: {
       readonly instanceId?: ProviderInstanceId;
     }) => Promise<ServerProviderUpdatedPayload>;
@@ -733,13 +786,6 @@ export interface LocalApi {
     createGlobalAction: (input: CreateGlobalActionInput) => Promise<GlobalScript>;
     updateGlobalAction: (id: string, input: UpdateGlobalActionInput) => Promise<GlobalScript>;
     deleteGlobalAction: (id: string) => Promise<void>;
-    listSkills: () => Promise<ServerProviderSkill[]>;
-    getSkillDetails: (input: GetSkillDetailsInput) => Promise<ServerSkillDetails>;
-    createSkill: (input: CreateSkillInput) => Promise<ServerProviderSkill>;
-    updateSkill: (input: UpdateSkillInput) => Promise<ServerProviderSkill>;
-    deleteSkill: (name: string) => Promise<void>;
-    resolveSkillConflict: (input: ResolveSkillConflictInput) => Promise<ServerProviderSkill>;
-    setActiveSkillProject: (input: { cwd: string }) => Promise<void>;
   };
 }
 
@@ -753,6 +799,11 @@ export interface LocalApi {
  * `environmentId` rather than reaching through the local desktop bridge.
  */
 export interface EnvironmentApi {
+  server: {
+    listProviderSkills: (
+      input: ServerListProviderSkillsInput,
+    ) => Promise<ServerListProviderSkillsResult>;
+  };
   terminal: {
     open: (input: typeof TerminalOpenInput.Encoded) => Promise<TerminalSessionSnapshot>;
     write: (input: typeof TerminalWriteInput.Encoded) => Promise<void>;
@@ -810,6 +861,95 @@ export interface EnvironmentApi {
     publishRepository: (
       input: SourceControlPublishRepositoryInput,
     ) => Promise<SourceControlPublishRepositoryResult>;
+    review: {
+      getOrCreateSession: (input: ReviewGetOrCreateSessionInput) => Promise<ReviewSessionSummary>;
+      getSessionSummary: (input: ReviewGetSessionInput) => Promise<ReviewSessionSummary>;
+      getSessionSnapshot: (input: ReviewGetSessionInput) => Promise<ReviewSessionSnapshot>;
+      setMode: (input: ReviewSetModeInput) => Promise<ReviewSessionSummary>;
+      setScope: (input: ReviewSetScopeInput) => Promise<ReviewSessionSummary>;
+      setProgress: (input: ReviewSetProgressInput) => Promise<ReviewSessionSummary>;
+      createLocalThread: (
+        input: ReviewCreateLocalAnnotationThreadInput,
+      ) => Promise<ReviewLocalAnnotationThread>;
+      updateLocalThread: (
+        input: ReviewUpdateLocalAnnotationThreadInput,
+      ) => Promise<ReviewLocalAnnotationThread>;
+      deleteLocalThread: (input: ReviewDeleteLocalAnnotationThreadInput) => Promise<void>;
+      setLocalThreadResolved: (
+        input: ReviewSetLocalThreadResolvedInput,
+      ) => Promise<ReviewLocalAnnotationThread>;
+      createLocalReply: (
+        input: ReviewCreateLocalAnnotationReplyInput,
+      ) => Promise<ReviewLocalAnnotationReply>;
+      updateLocalReply: (
+        input: ReviewUpdateLocalAnnotationReplyInput,
+      ) => Promise<ReviewLocalAnnotationReply>;
+      deleteLocalReply: (input: ReviewDeleteLocalAnnotationReplyInput) => Promise<void>;
+      upsertOverviewNote: (input: ReviewUpsertOverviewNoteInput) => Promise<ReviewOverviewNote>;
+      deleteOverviewNote: (input: ReviewDeleteOverviewNoteInput) => Promise<void>;
+      getDiffSnapshot: (input: ReviewGetDiffSnapshotInput) => Promise<ReviewDiffSnapshot>;
+      getFilePatch: (input: ReviewGetFilePatchInput) => Promise<ReviewDiffFilePatch | null>;
+      getChunkPayload: (input: ReviewGetChunkPayloadInput) => Promise<ReviewChunkPayload | null>;
+      getGitHubSnapshot: (
+        input: ReviewGetGitHubSnapshotInput,
+      ) => Promise<GitHubReviewSnapshot | null>;
+      upsertGitHubDraft: (input: ReviewUpsertGitHubDraftInput) => Promise<GitHubReviewSnapshot>;
+      applyRawMutation: (
+        input: ReviewApplyRawMutationInput,
+      ) => Promise<ReviewApplyRawMutationResult>;
+      deleteGitHubDraft: (input: ReviewDeleteGitHubDraftInput) => Promise<GitHubReviewSnapshot>;
+      replyToGitHubThread: (input: ReviewReplyToGitHubThreadInput) => Promise<GitHubReviewSnapshot>;
+      submitGitHubDraft: (input: ReviewSubmitGitHubDraftInput) => Promise<GitHubReviewSnapshot>;
+      refreshProviderData: (
+        input: ReviewRefreshProviderDataInput,
+      ) => Promise<ReviewSessionSnapshot>;
+      generateAnalysis: (input: ReviewGenerateAnalysisInput) => Promise<ReviewAnalysisArtifact>;
+      onEvent: (
+        input: ReviewGetSessionInput,
+        callback: (event: ReviewStreamEvent) => void,
+        options?: { onResubscribe?: () => void },
+      ) => () => void;
+    };
+    stack: {
+      getSnapshot: (
+        input: SourceControlStackGetSnapshotInput,
+      ) => Promise<SourceControlStackSnapshot>;
+      createEntry: (
+        input: SourceControlStackCreateEntryInput,
+      ) => Promise<SourceControlStackMutationResult>;
+      switchEntry: (
+        input: SourceControlStackSwitchEntryInput,
+      ) => Promise<SourceControlStackMutationResult>;
+      renameEntry: (
+        input: SourceControlStackRenameEntryInput,
+      ) => Promise<SourceControlStackMutationResult>;
+      dropEntry: (
+        input: SourceControlStackDropEntryInput,
+      ) => Promise<SourceControlStackMutationResult>;
+      reorderEntries: (
+        input: SourceControlStackReorderInput,
+      ) => Promise<SourceControlStackMutationResult>;
+      restack: (input: SourceControlStackRestackInput) => Promise<SourceControlStackMutationResult>;
+      sync: (input: SourceControlStackSyncInput) => Promise<SourceControlStackMutationResult>;
+      squashEntry: (
+        input: SourceControlStackSquashEntryInput,
+      ) => Promise<SourceControlStackMutationResult>;
+      splitEntry: (
+        input: SourceControlStackSplitEntryInput,
+      ) => Promise<SourceControlStackMutationResult>;
+      publish: (input: SourceControlStackPublishInput) => Promise<SourceControlStackMutationResult>;
+      continueOperation: (
+        input: SourceControlStackContinueOperationInput,
+      ) => Promise<SourceControlStackMutationResult>;
+      abortOperation: (
+        input: SourceControlStackAbortOperationInput,
+      ) => Promise<SourceControlStackMutationResult>;
+      onEvent: (
+        input: SourceControlStackGetSnapshotInput,
+        callback: (event: SourceControlStackStreamEvent) => void,
+        options?: { onResubscribe?: () => void },
+      ) => () => void;
+    };
   };
   vcs: {
     listRefs: (input: VcsListRefsInput) => Promise<VcsListRefsResult>;

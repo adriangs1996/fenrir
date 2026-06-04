@@ -329,7 +329,12 @@ function parseDiffChunks(patch: string): ReadonlyArray<ParsedPatchChunk> {
       ...current,
       lines: [
         ...current.lines,
-        { kind: "context", text, oldLineNumber: oldLine, newLineNumber: newLine },
+        {
+          kind: "context",
+          text,
+          oldLineNumber: oldLine,
+          newLineNumber: newLine,
+        },
       ],
     };
     oldLine += 1;
@@ -479,9 +484,17 @@ function buildMetadataCard(input: {
           input.previousPath === null ? [input.path] : [`${input.previousPath} -> ${input.path}`],
       };
     case "delete":
-      return { kind: "delete", title: "Deleted file", summaryLines: [input.path] };
+      return {
+        kind: "delete",
+        title: "Deleted file",
+        summaryLines: [input.path],
+      };
     case "binary":
-      return { kind: "binary", title: "Binary change", summaryLines: [input.path] };
+      return {
+        kind: "binary",
+        title: "Binary change",
+        summaryLines: [input.path],
+      };
     case "permission-only":
       return {
         kind: "permission-only",

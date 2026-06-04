@@ -36,17 +36,20 @@ export function normalizeSourceBranch(headSelector: string): string {
 }
 
 export function sourceBranch(input: {
-  readonly headSelector: string;
+  readonly headSelector?: string;
   readonly source?: SourceControlRefSelector;
 }): string {
-  return input.source?.refName ?? normalizeSourceBranch(input.headSelector);
+  return input.source?.refName ?? normalizeSourceBranch(input.headSelector ?? "");
 }
 
 export function sourceControlRefFromInput(input: {
-  readonly headSelector: string;
+  readonly headSelector?: string;
   readonly source?: SourceControlRefSelector;
 }): SourceControlRefSelector | undefined {
-  return input.source ?? parseSourceControlOwnerRef(input.headSelector);
+  return (
+    input.source ??
+    (input.headSelector ? parseSourceControlOwnerRef(input.headSelector) : undefined)
+  );
 }
 
 export interface SourceControlProviderShape {
@@ -55,7 +58,8 @@ export interface SourceControlProviderShape {
     readonly cwd: string;
     readonly context?: SourceControlProviderContext;
     readonly source?: SourceControlRefSelector;
-    readonly headSelector: string;
+    readonly headSelector?: string;
+    readonly baseRefName?: string;
     readonly state: ChangeRequestState | "all";
     readonly limit?: number;
   }) => Effect.Effect<ReadonlyArray<ChangeRequest>, SourceControlProviderError>;
@@ -73,6 +77,19 @@ export interface SourceControlProviderShape {
     readonly headSelector: string;
     readonly title: string;
     readonly bodyFile: string;
+  }) => Effect.Effect<void, SourceControlProviderError>;
+  readonly updateChangeRequest: (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProviderContext;
+    readonly reference: string;
+    readonly baseRefName?: string;
+    readonly title?: string;
+    readonly bodyFile?: string;
+  }) => Effect.Effect<void, SourceControlProviderError>;
+  readonly closeChangeRequest: (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProviderContext;
+    readonly reference: string;
   }) => Effect.Effect<void, SourceControlProviderError>;
   readonly getRepositoryCloneUrls: (input: {
     readonly cwd: string;

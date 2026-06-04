@@ -9,9 +9,6 @@ import {
   type CreateGlobalActionInput,
   type UpdateGlobalActionInput,
   type ServerSettingsPatch,
-  type CreateSkillInput,
-  type UpdateSkillInput,
-  type ResolveSkillConflictInput,
   WS_METHODS,
 } from "@fenrir/contracts";
 import { Effect, Stream } from "effect";
@@ -86,6 +83,27 @@ interface ReviewRpcClient {
   readonly submitGitHubDraft: (input: unknown) => Promise<unknown>;
   readonly refreshProviderData: (input: unknown) => Promise<unknown>;
   readonly generateAnalysis: (input: unknown) => Promise<unknown>;
+  readonly onEvent: (
+    input: unknown,
+    listener: (event: unknown) => void,
+    options?: StreamSubscriptionOptions,
+  ) => () => void;
+}
+
+interface StackRpcClient {
+  readonly getSnapshot: (input: unknown) => Promise<unknown>;
+  readonly createEntry: (input: unknown) => Promise<unknown>;
+  readonly switchEntry: (input: unknown) => Promise<unknown>;
+  readonly renameEntry: (input: unknown) => Promise<unknown>;
+  readonly dropEntry: (input: unknown) => Promise<unknown>;
+  readonly reorderEntries: (input: unknown) => Promise<unknown>;
+  readonly restack: (input: unknown) => Promise<unknown>;
+  readonly sync: (input: unknown) => Promise<unknown>;
+  readonly squashEntry: (input: unknown) => Promise<unknown>;
+  readonly splitEntry: (input: unknown) => Promise<unknown>;
+  readonly publish: (input: unknown) => Promise<unknown>;
+  readonly continueOperation: (input: unknown) => Promise<unknown>;
+  readonly abortOperation: (input: unknown) => Promise<unknown>;
   readonly onEvent: (
     input: unknown,
     listener: (event: unknown) => void,
@@ -191,6 +209,23 @@ const REVIEW_WS_METHODS = {
   subscribeEvents: "subscribeSourceControlReviewEvents",
 } as const;
 
+const STACK_WS_METHODS = {
+  getSnapshot: "sourceControl.stack.getSnapshot",
+  createEntry: "sourceControl.stack.createEntry",
+  switchEntry: "sourceControl.stack.switchEntry",
+  renameEntry: "sourceControl.stack.renameEntry",
+  dropEntry: "sourceControl.stack.dropEntry",
+  reorderEntries: "sourceControl.stack.reorderEntries",
+  restack: "sourceControl.stack.restack",
+  sync: "sourceControl.stack.sync",
+  squashEntry: "sourceControl.stack.squashEntry",
+  splitEntry: "sourceControl.stack.splitEntry",
+  publish: "sourceControl.stack.publish",
+  continueOperation: "sourceControl.stack.continueOperation",
+  abortOperation: "sourceControl.stack.abortOperation",
+  subscribeEvents: "subscribeSourceControlStackEvents",
+} as const;
+
 export interface WsRpcClient {
   readonly dispose: () => Promise<void>;
   readonly reconnect: () => Promise<void>;
@@ -275,6 +310,7 @@ export interface WsRpcClient {
   };
   readonly server: {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
+    readonly listProviderSkills: RpcUnaryMethod<typeof WS_METHODS.serverListProviderSkills>;
     readonly refreshProviders: (
       input?: RpcInput<typeof WS_METHODS.serverRefreshProviders>,
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverRefreshProviders>>;
@@ -309,21 +345,6 @@ export interface WsRpcClient {
     readonly deleteGlobalAction: (
       id: string,
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverDeleteGlobalAction>>;
-    readonly listSkills: RpcUnaryNoArgMethod<typeof WS_METHODS.serverListSkills>;
-    readonly getSkillDetails: RpcUnaryMethod<typeof WS_METHODS.serverGetSkillDetails>;
-    readonly createSkill: (
-      input: CreateSkillInput,
-    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverCreateSkill>>;
-    readonly updateSkill: (
-      input: UpdateSkillInput,
-    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverUpdateSkill>>;
-    readonly deleteSkill: (
-      name: string,
-    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverDeleteSkill>>;
-    readonly resolveSkillConflict: (
-      input: ResolveSkillConflictInput,
-    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverResolveSkillConflict>>;
-    readonly setActiveSkillProject: RpcUnaryMethod<typeof WS_METHODS.serverSetActiveSkillProject>;
     readonly subscribeConfig: RpcStreamMethod<typeof WS_METHODS.subscribeServerConfig>;
     readonly subscribeLifecycle: RpcStreamMethod<typeof WS_METHODS.subscribeServerLifecycle>;
     readonly subscribeAuthAccess: RpcStreamMethod<typeof WS_METHODS.subscribeAuthAccess>;
@@ -417,6 +438,7 @@ export interface WsRpcClient {
     readonly cloneRepository: RpcUnaryMethod<typeof WS_METHODS.sourceControlCloneRepository>;
     readonly publishRepository: RpcUnaryMethod<typeof WS_METHODS.sourceControlPublishRepository>;
     readonly review: ReviewRpcClient;
+    readonly stack: StackRpcClient;
   };
 }
 
@@ -448,6 +470,13 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       listener,
       options,
     );
+  const stackRequest = (method: string, input: unknown) => reviewRequest(method, input);
+  const stackSubscribe = (
+    method: string,
+    input: unknown,
+    listener: (event: unknown) => void,
+    options?: StreamSubscriptionOptions,
+  ) => reviewSubscribe(method, input, listener, options);
 
   const reviewClient: ReviewRpcClient = {
     getOrCreateSession: (input) => reviewRequest(REVIEW_WS_METHODS.getOrCreateSession, input),
@@ -479,6 +508,24 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
     generateAnalysis: (input) => reviewRequest(REVIEW_WS_METHODS.generateAnalysis, input),
     onEvent: (input, listener, options) =>
       reviewSubscribe(REVIEW_WS_METHODS.subscribeEvents, input, listener, options),
+  };
+
+  const stackClient: StackRpcClient = {
+    getSnapshot: (input) => stackRequest(STACK_WS_METHODS.getSnapshot, input),
+    createEntry: (input) => stackRequest(STACK_WS_METHODS.createEntry, input),
+    switchEntry: (input) => stackRequest(STACK_WS_METHODS.switchEntry, input),
+    renameEntry: (input) => stackRequest(STACK_WS_METHODS.renameEntry, input),
+    dropEntry: (input) => stackRequest(STACK_WS_METHODS.dropEntry, input),
+    reorderEntries: (input) => stackRequest(STACK_WS_METHODS.reorderEntries, input),
+    restack: (input) => stackRequest(STACK_WS_METHODS.restack, input),
+    sync: (input) => stackRequest(STACK_WS_METHODS.sync, input),
+    squashEntry: (input) => stackRequest(STACK_WS_METHODS.squashEntry, input),
+    splitEntry: (input) => stackRequest(STACK_WS_METHODS.splitEntry, input),
+    publish: (input) => stackRequest(STACK_WS_METHODS.publish, input),
+    continueOperation: (input) => stackRequest(STACK_WS_METHODS.continueOperation, input),
+    abortOperation: (input) => stackRequest(STACK_WS_METHODS.abortOperation, input),
+    onEvent: (input, listener, options) =>
+      stackSubscribe(STACK_WS_METHODS.subscribeEvents, input, listener, options),
   };
 
   return {
@@ -631,6 +678,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
     },
     server: {
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
+      listProviderSkills: (input) =>
+        transport.request((client) => client[WS_METHODS.serverListProviderSkills](input)),
       refreshProviders: (input) =>
         transport.request((client) => client[WS_METHODS.serverRefreshProviders](input ?? {})),
       updateProvider: (input) =>
@@ -662,19 +711,6 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         ),
       deleteGlobalAction: (id) =>
         transport.request((client) => client[WS_METHODS.serverDeleteGlobalAction]({ id })),
-      listSkills: () => transport.request((client) => client[WS_METHODS.serverListSkills]({})),
-      getSkillDetails: (input) =>
-        transport.request((client) => client[WS_METHODS.serverGetSkillDetails](input)),
-      createSkill: (input) =>
-        transport.request((client) => client[WS_METHODS.serverCreateSkill](input)),
-      updateSkill: (input) =>
-        transport.request((client) => client[WS_METHODS.serverUpdateSkill](input)),
-      deleteSkill: (name) =>
-        transport.request((client) => client[WS_METHODS.serverDeleteSkill]({ name })),
-      resolveSkillConflict: (input) =>
-        transport.request((client) => client[WS_METHODS.serverResolveSkillConflict](input)),
-      setActiveSkillProject: (input) =>
-        transport.request((client) => client[WS_METHODS.serverSetActiveSkillProject](input)),
       subscribeConfig: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeServerConfig]({}),
@@ -857,6 +893,7 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       publishRepository: (input) =>
         transport.request((client) => client[WS_METHODS.sourceControlPublishRepository](input)),
       review: reviewClient,
+      stack: stackClient,
     },
   };
 }

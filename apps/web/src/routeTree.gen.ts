@@ -33,6 +33,7 @@ import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$e
 import { Route as ChatPlanRunnerFeatureNameRunRouteImport } from './routes/_chat.plan-runner.$featureName.run'
 import { Route as ChatPlanRunnerFeatureNameConfigureRouteImport } from './routes/_chat.plan-runner.$featureName.configure'
 import { Route as ChatPlanRunnerFeatureNamePlanIdRouteImport } from './routes/_chat.plan-runner.$featureName.$planId'
+import { Route as ChatEnvironmentIdThreadIdGitdiffRouteImport } from './routes/_chat.$environmentId.$threadId.gitdiff'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -157,6 +158,12 @@ const ChatPlanRunnerFeatureNamePlanIdRoute =
     path: '/plan-runner/$featureName/$planId',
     getParentRoute: () => ChatRoute,
   } as any)
+const ChatEnvironmentIdThreadIdGitdiffRoute =
+  ChatEnvironmentIdThreadIdGitdiffRouteImport.update({
+    id: '/gitdiff',
+    path: '/gitdiff',
+    getParentRoute: () => ChatEnvironmentIdThreadIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
@@ -176,9 +183,10 @@ export interface FileRoutesByFullPath {
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/vpn': typeof SettingsVpnRoute
   '/remote-host/': typeof RemoteHostIndexRoute
-  '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
+  '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRouteWithChildren
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/plan-runner/$runId': typeof ChatPlanRunnerRunIdRoute
+  '/$environmentId/$threadId/gitdiff': typeof ChatEnvironmentIdThreadIdGitdiffRoute
   '/plan-runner/$featureName/$planId': typeof ChatPlanRunnerFeatureNamePlanIdRoute
   '/plan-runner/$featureName/configure': typeof ChatPlanRunnerFeatureNameConfigureRoute
   '/plan-runner/$featureName/run': typeof ChatPlanRunnerFeatureNameRunRoute
@@ -200,9 +208,10 @@ export interface FileRoutesByTo {
   '/settings/vpn': typeof SettingsVpnRoute
   '/': typeof ChatIndexRoute
   '/remote-host': typeof RemoteHostIndexRoute
-  '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
+  '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRouteWithChildren
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/plan-runner/$runId': typeof ChatPlanRunnerRunIdRoute
+  '/$environmentId/$threadId/gitdiff': typeof ChatEnvironmentIdThreadIdGitdiffRoute
   '/plan-runner/$featureName/$planId': typeof ChatPlanRunnerFeatureNamePlanIdRoute
   '/plan-runner/$featureName/configure': typeof ChatPlanRunnerFeatureNameConfigureRoute
   '/plan-runner/$featureName/run': typeof ChatPlanRunnerFeatureNameRunRoute
@@ -227,9 +236,10 @@ export interface FileRoutesById {
   '/settings/vpn': typeof SettingsVpnRoute
   '/_chat/': typeof ChatIndexRoute
   '/remote-host/': typeof RemoteHostIndexRoute
-  '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
+  '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRouteWithChildren
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/_chat/plan-runner/$runId': typeof ChatPlanRunnerRunIdRoute
+  '/_chat/$environmentId/$threadId/gitdiff': typeof ChatEnvironmentIdThreadIdGitdiffRoute
   '/_chat/plan-runner/$featureName/$planId': typeof ChatPlanRunnerFeatureNamePlanIdRoute
   '/_chat/plan-runner/$featureName/configure': typeof ChatPlanRunnerFeatureNameConfigureRoute
   '/_chat/plan-runner/$featureName/run': typeof ChatPlanRunnerFeatureNameRunRoute
@@ -257,6 +267,7 @@ export interface FileRouteTypes {
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/plan-runner/$runId'
+    | '/$environmentId/$threadId/gitdiff'
     | '/plan-runner/$featureName/$planId'
     | '/plan-runner/$featureName/configure'
     | '/plan-runner/$featureName/run'
@@ -281,6 +292,7 @@ export interface FileRouteTypes {
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/plan-runner/$runId'
+    | '/$environmentId/$threadId/gitdiff'
     | '/plan-runner/$featureName/$planId'
     | '/plan-runner/$featureName/configure'
     | '/plan-runner/$featureName/run'
@@ -307,6 +319,7 @@ export interface FileRouteTypes {
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
     | '/_chat/plan-runner/$runId'
+    | '/_chat/$environmentId/$threadId/gitdiff'
     | '/_chat/plan-runner/$featureName/$planId'
     | '/_chat/plan-runner/$featureName/configure'
     | '/_chat/plan-runner/$featureName/run'
@@ -489,15 +502,37 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatPlanRunnerFeatureNamePlanIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/$environmentId/$threadId/gitdiff': {
+      id: '/_chat/$environmentId/$threadId/gitdiff'
+      path: '/gitdiff'
+      fullPath: '/$environmentId/$threadId/gitdiff'
+      preLoaderRoute: typeof ChatEnvironmentIdThreadIdGitdiffRouteImport
+      parentRoute: typeof ChatEnvironmentIdThreadIdRoute
+    }
   }
 }
+
+interface ChatEnvironmentIdThreadIdRouteChildren {
+  ChatEnvironmentIdThreadIdGitdiffRoute: typeof ChatEnvironmentIdThreadIdGitdiffRoute
+}
+
+const ChatEnvironmentIdThreadIdRouteChildren: ChatEnvironmentIdThreadIdRouteChildren =
+  {
+    ChatEnvironmentIdThreadIdGitdiffRoute:
+      ChatEnvironmentIdThreadIdGitdiffRoute,
+  }
+
+const ChatEnvironmentIdThreadIdRouteWithChildren =
+  ChatEnvironmentIdThreadIdRoute._addFileChildren(
+    ChatEnvironmentIdThreadIdRouteChildren,
+  )
 
 interface ChatRouteChildren {
   ChatBrowserLabRoute: typeof ChatBrowserLabRoute
   ChatGitdiffRoute: typeof ChatGitdiffRoute
   ChatGlobalTerminalRoute: typeof ChatGlobalTerminalRoute
   ChatIndexRoute: typeof ChatIndexRoute
-  ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
+  ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRouteWithChildren
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
   ChatPlanRunnerRunIdRoute: typeof ChatPlanRunnerRunIdRoute
   ChatPlanRunnerFeatureNamePlanIdRoute: typeof ChatPlanRunnerFeatureNamePlanIdRoute
@@ -510,7 +545,7 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatGitdiffRoute: ChatGitdiffRoute,
   ChatGlobalTerminalRoute: ChatGlobalTerminalRoute,
   ChatIndexRoute: ChatIndexRoute,
-  ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
+  ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRouteWithChildren,
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,
   ChatPlanRunnerRunIdRoute: ChatPlanRunnerRunIdRoute,
   ChatPlanRunnerFeatureNamePlanIdRoute: ChatPlanRunnerFeatureNamePlanIdRoute,

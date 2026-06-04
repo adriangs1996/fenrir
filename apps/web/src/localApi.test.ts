@@ -101,6 +101,7 @@ const rpcClientMock = {
   },
   server: {
     getConfig: vi.fn(),
+    listProviderSkills: vi.fn(),
     refreshProviders: vi.fn(),
     updateProvider: vi.fn(),
     upsertKeybinding: vi.fn(),
@@ -381,6 +382,7 @@ const defaultProviders: ReadonlyArray<ServerProvider> = [
     auth: { status: "authenticated" },
     checkedAt: "2026-01-01T00:00:00.000Z",
     models: [],
+    skills: [],
   },
 ];
 
@@ -419,7 +421,6 @@ const baseServerConfig: ServerConfig = {
   },
   settings: DEFAULT_SERVER_SETTINGS,
   globalActions: [],
-  skills: [],
 };
 
 const baseGitStatus: VcsStatusResult = {

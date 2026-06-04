@@ -198,7 +198,6 @@ function createBaseServerConfig(): ServerConfig {
     },
     settings: DEFAULT_SERVER_SETTINGS,
     globalActions: [],
-    skills: [],
   };
 }
 

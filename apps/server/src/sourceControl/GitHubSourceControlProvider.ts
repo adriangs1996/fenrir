@@ -97,7 +97,11 @@ export const make = Effect.fn("makeGitHubSourceControlProvider")(function* () {
 
   const listChangeRequests: SourceControlProvider.SourceControlProviderShape["listChangeRequests"] =
     (input) => {
-      if (input.state === "open") {
+      if (
+        input.state === "open" &&
+        input.headSelector !== undefined &&
+        input.baseRefName === undefined
+      ) {
         return github
           .listOpenPullRequests({
             cwd: input.cwd,
@@ -117,8 +121,8 @@ export const make = Effect.fn("makeGitHubSourceControlProvider")(function* () {
           args: [
             "pr",
             "list",
-            "--head",
-            input.headSelector,
+            ...(input.headSelector === undefined ? [] : ["--head", input.headSelector]),
+            ...(input.baseRefName === undefined ? [] : ["--base", input.baseRefName]),
             "--state",
             stateArg,
             "--limit",
@@ -179,6 +183,38 @@ export const make = Effect.fn("makeGitHubSourceControlProvider")(function* () {
           bodyFile: input.bodyFile,
         })
         .pipe(Effect.mapError((error) => providerError("createChangeRequest", error))),
+    updateChangeRequest: (input) => {
+      const args = [
+        "pr",
+        "edit",
+        input.reference,
+        ...(input.baseRefName === undefined ? [] : ["--base", input.baseRefName]),
+        ...(input.title === undefined ? [] : ["--title", input.title]),
+        ...(input.bodyFile === undefined ? [] : ["--body-file", input.bodyFile]),
+      ];
+      if (args.length === 3) {
+        return Effect.void;
+      }
+      return github
+        .execute({
+          cwd: input.cwd,
+          args,
+        })
+        .pipe(
+          Effect.asVoid,
+          Effect.mapError((error) => providerError("updateChangeRequest", error)),
+        );
+    },
+    closeChangeRequest: (input) =>
+      github
+        .execute({
+          cwd: input.cwd,
+          args: ["pr", "close", input.reference],
+        })
+        .pipe(
+          Effect.asVoid,
+          Effect.mapError((error) => providerError("closeChangeRequest", error)),
+        ),
     getRepositoryCloneUrls: (input) =>
       github
         .getRepositoryCloneUrls(input)

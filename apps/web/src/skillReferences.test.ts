@@ -1,21 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  expandSkillReferences,
-  findSkillReferenceMatches,
-  formatSkillReferenceToken,
-} from "./skillReferences";
-
-const SKILLS = [
-  {
-    name: "docs",
-    body: "Read the docs first.",
-  },
-  {
-    name: "security",
-    body: "Review for security issues.",
-  },
-] as const;
+import { findSkillReferenceMatches, formatSkillReferenceToken } from "./skillReferences";
 
 describe("formatSkillReferenceToken", () => {
   it("formats a skill token with a leading dollar sign", () => {
@@ -39,31 +24,5 @@ describe("findSkillReferenceMatches", () => {
         end: "Use $docs before $security".length,
       },
     ]);
-  });
-});
-
-describe("expandSkillReferences", () => {
-  it("expands matching skill references into their bodies", () => {
-    expect(expandSkillReferences("Use $docs and $security", SKILLS)).toEqual({
-      text: "Use Read the docs first. and Review for security issues.",
-      expandedSkillNames: ["docs", "security"],
-      unresolvedSkillNames: [],
-    });
-  });
-
-  it("leaves unknown skill references intact while reporting them", () => {
-    expect(expandSkillReferences("Use $unknown and $docs", SKILLS)).toEqual({
-      text: "Use $unknown and Read the docs first.",
-      expandedSkillNames: ["docs"],
-      unresolvedSkillNames: ["unknown"],
-    });
-  });
-
-  it("returns the original text when no skill can be resolved", () => {
-    expect(expandSkillReferences("Use $unknown only", SKILLS)).toEqual({
-      text: "Use $unknown only",
-      expandedSkillNames: [],
-      unresolvedSkillNames: ["unknown"],
-    });
   });
 });

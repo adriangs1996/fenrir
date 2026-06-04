@@ -63,6 +63,7 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
         },
       },
     ],
+    skills: [],
   },
   {
     provider: "claudeAgent",
@@ -120,6 +121,7 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
         },
       },
     ],
+    skills: [],
   },
 ];
 
@@ -133,6 +135,7 @@ function buildCodexProvider(models: ServerProvider["models"]): ServerProvider {
     auth: { status: "authenticated" },
     checkedAt: new Date().toISOString(),
     models,
+    skills: [],
   };
 }
 

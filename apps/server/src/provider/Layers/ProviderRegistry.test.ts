@@ -32,12 +32,16 @@ import {
 } from "./CodexProvider";
 import { checkClaudeProviderStatus, parseClaudeAuthStatusFromOutput } from "./ClaudeProvider";
 import { haveProvidersChanged, ProviderRegistryLive } from "./ProviderRegistry";
+import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService, type ServerSettingsShape } from "../../serverSettings";
 import { ProviderRegistry } from "../Services/ProviderRegistry";
 
 // ── Test helpers ────────────────────────────────────────────────────
 
 const encoder = new TextEncoder();
+const TestServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
+  prefix: "fenrir-provider-registry-test",
+});
 
 function mockHandle(result: { stdout: string; stderr: string; code: number }) {
   return ChildProcessSpawner.makeHandle({
@@ -506,6 +510,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             checkedAt: "2026-03-25T00:00:00.000Z",
             version: "1.0.0",
             models: [],
+            skills: [],
           },
           {
             provider: "claudeAgent",
@@ -516,6 +521,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             checkedAt: "2026-03-25T00:00:00.000Z",
             version: "1.0.0",
             models: [],
+            skills: [],
           },
         ] as const satisfies ReadonlyArray<ServerProvider>;
 
@@ -529,6 +535,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
           const providerRegistryLayer = ProviderRegistryLive.pipe(
             Layer.provideMerge(Layer.succeed(ServerSettingsService, serverSettings)),
+            Layer.provideMerge(TestServerConfigLayer),
             Layer.provideMerge(
               mockCommandSpawnerLayer((command, args) => {
                 const joined = args.join(" ");
@@ -612,6 +619,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
                   },
                 }),
               ),
+              Layer.provideMerge(TestServerConfigLayer),
               Layer.provideMerge(
                 mockSpawnerLayer((args) => {
                   const joined = args.join(" ");
@@ -662,6 +670,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
                   },
                 }),
               ),
+              Layer.provideMerge(TestServerConfigLayer),
               Layer.provideMerge(
                 mockSpawnerLayer((args) => {
                   const joined = args.join(" ");

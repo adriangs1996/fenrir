@@ -5,7 +5,6 @@ import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ManagedProcessReactor } from "../Services/ManagedProcessReactor.ts";
-import { SkillProjectReactor } from "../Services/SkillProjectReactor.ts";
 import { ThreadDeletionReactor } from "../Services/ThreadDeletionReactor.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
 import { makeOrchestrationReactor } from "./OrchestrationReactor.ts";
@@ -62,15 +61,6 @@ describe("OrchestrationReactor", () => {
           }),
         ),
         Layer.provideMerge(
-          Layer.succeed(SkillProjectReactor, {
-            start: () => {
-              started.push("skill-project-reactor");
-              return Effect.void;
-            },
-            drain: Effect.void,
-          }),
-        ),
-        Layer.provideMerge(
           Layer.succeed(ManagedProcessReactor, {
             start: () => {
               started.push("managed-process-reactor");
@@ -90,7 +80,6 @@ describe("OrchestrationReactor", () => {
       "provider-command-reactor",
       "checkpoint-reactor",
       "thread-deletion-reactor",
-      "skill-project-reactor",
       "managed-process-reactor",
     ]);
 
