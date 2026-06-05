@@ -2,7 +2,6 @@ import { useCallback } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   GlobeIcon,
-  GitCompareIcon,
   MessageSquareTextIcon,
   ServerIcon,
   SettingsIcon,
@@ -19,18 +18,8 @@ export function SidebarRouteNavFooter() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const isRemoteHostRoute = pathname.startsWith("/remote-host");
   const isBrowserLabRoute = pathname === "/browser-lab";
-  const isGitDiffRoute = pathname === "/gitdiff" || pathname.endsWith("/gitdiff");
   const isGlobalTerminalRoute = pathname === GLOBAL_TERMINAL_ROUTE;
   const isSettingsRoute = pathname.startsWith("/settings");
-  const activeThreadRouteMatch = /^\/([^/]+)\/([^/]+)(?:\/.*)?$/u.exec(pathname);
-  const activeThreadEnvironmentId = activeThreadRouteMatch?.[1];
-  const activeThreadId = activeThreadRouteMatch?.[2];
-  const hasThreadRouteContext =
-    activeThreadEnvironmentId !== undefined &&
-    activeThreadId !== undefined &&
-    !["browser-lab", "gitdiff", "pair", "remote-host", "settings"].includes(
-      activeThreadEnvironmentId,
-    );
 
   const handlePrimaryWorkspaceClick = useCallback(() => {
     void navigate({ to: isRemoteHostRoute ? "/" : "/remote-host" });
@@ -39,17 +28,6 @@ export function SidebarRouteNavFooter() {
   const handleBrowserLabClick = useCallback(() => {
     void navigate({ to: "/browser-lab" });
   }, [navigate]);
-
-  const handleGitDiffClick = useCallback(() => {
-    if (hasThreadRouteContext) {
-      void navigate({
-        to: "/$environmentId/$threadId/gitdiff",
-        params: { environmentId: activeThreadEnvironmentId, threadId: activeThreadId },
-      });
-      return;
-    }
-    void navigate({ to: "/gitdiff" });
-  }, [activeThreadEnvironmentId, activeThreadId, hasThreadRouteContext, navigate]);
 
   const handleSettingsClick = useCallback(() => {
     void navigate({ to: "/settings" });
@@ -90,17 +68,6 @@ export function SidebarRouteNavFooter() {
           >
             <GlobeIcon className="size-3.5" />
             <span className="text-xs">Browser Lab</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            isActive={isGitDiffRoute}
-            size="sm"
-            className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-            onClick={handleGitDiffClick}
-          >
-            <GitCompareIcon className="size-3.5" />
-            <span className="text-xs">Git Diff</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>

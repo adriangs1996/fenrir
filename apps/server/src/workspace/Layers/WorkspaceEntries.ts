@@ -27,7 +27,6 @@ const WORKSPACE_CACHE_MAX_KEYS = 4;
 const WORKSPACE_INDEX_MAX_ENTRIES = 25_000;
 const WORKSPACE_SCAN_READDIR_CONCURRENCY = 32;
 const IGNORED_DIRECTORY_NAMES = new Set([
-  ".git",
   ".convex",
   "node_modules",
   ".next",
@@ -37,6 +36,7 @@ const IGNORED_DIRECTORY_NAMES = new Set([
   "out",
   ".cache",
 ]);
+const ALWAYS_EXCLUDED_DIRECTORY_NAMES = new Set([".git"]);
 
 interface WorkspaceIndex {
   scannedAt: number;
@@ -288,6 +288,12 @@ function isPathInIgnoredDirectory(relativePath: string): boolean {
   return IGNORED_DIRECTORY_NAMES.has(firstSegment);
 }
 
+function isPathInAlwaysExcludedDirectory(relativePath: string): boolean {
+  const firstSegment = relativePath.split("/")[0];
+  if (!firstSegment) return false;
+  return ALWAYS_EXCLUDED_DIRECTORY_NAMES.has(firstSegment);
+}
+
 function directoryAncestorsOf(relativePath: string): string[] {
   const segments = relativePath.split("/").filter((segment) => segment.length > 0);
   if (segments.length <= 1) return [];
@@ -309,6 +315,18 @@ function compareProjectEntries(left: ProjectEntry, right: ProjectEntry): number 
   return left.path.localeCompare(right.path);
 }
 
+const filterIgnoredPaths = (
+  handle: VcsDriverHandle | null,
+  cwd: string,
+  relativePaths: string[],
+): Effect.Effect<string[], never> =>
+  handle
+    ? handle.driver.filterIgnoredPaths(cwd, relativePaths).pipe(
+        Effect.map((paths) => [...paths]),
+        Effect.catch(() => Effect.succeed(relativePaths)),
+      )
+    : Effect.succeed(relativePaths);
+
 export const makeWorkspaceEntries = Effect.gen(function* () {
   const path = yield* Path.Path;
   const vcsRegistry = yield* VcsDriverRegistry;
@@ -316,18 +334,6 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
 
   const resolveWorkspaceVcs = (cwd: string): Effect.Effect<VcsDriverHandle | null> =>
     vcsRegistry.detect({ cwd }).pipe(Effect.catch(() => Effect.succeed(null)));
-
-  const filterIgnoredPaths = (
-    handle: VcsDriverHandle | null,
-    cwd: string,
-    relativePaths: string[],
-  ): Effect.Effect<string[], never> =>
-    handle
-      ? handle.driver.filterIgnoredPaths(cwd, relativePaths).pipe(
-          Effect.map((paths) => [...paths]),
-          Effect.catch(() => Effect.succeed(relativePaths)),
-        )
-      : Effect.succeed(relativePaths);
 
   const buildWorkspaceIndexFromVcs = Effect.fn("WorkspaceEntries.buildWorkspaceIndexFromVcs")(
     function* (cwd: string, handle: VcsDriverHandle | null) {
@@ -345,13 +351,21 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
 
       const listedPaths = [...listedFiles.paths]
         .map((entry) => toPosixPath(entry))
-        .filter((entry) => entry.length > 0 && !isPathInIgnoredDirectory(entry));
+        .filter(
+          (entry) =>
+            entry.length > 0 &&
+            !isPathInAlwaysExcludedDirectory(entry) &&
+            !isPathInIgnoredDirectory(entry),
+        );
       const filePaths = yield* filterIgnoredPaths(handle, cwd, listedPaths);
 
       const directorySet = new Set<string>();
       for (const filePath of filePaths) {
         for (const directoryPath of directoryAncestorsOf(filePath)) {
-          if (!isPathInIgnoredDirectory(directoryPath)) {
+          if (
+            !isPathInAlwaysExcludedDirectory(directoryPath) &&
+            !isPathInIgnoredDirectory(directoryPath)
+          ) {
             directorySet.add(directoryPath);
           }
         }
@@ -447,6 +461,9 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
           if (!dirent.name || dirent.name === "." || dirent.name === "..") {
             continue;
           }
+          if (dirent.isDirectory() && ALWAYS_EXCLUDED_DIRECTORY_NAMES.has(dirent.name)) {
+            continue;
+          }
           if (dirent.isDirectory() && IGNORED_DIRECTORY_NAMES.has(dirent.name)) {
             continue;
           }
@@ -457,7 +474,10 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
           const relativePath = toPosixPath(
             relativeDir ? path.join(relativeDir, dirent.name) : dirent.name,
           );
-          if (isPathInIgnoredDirectory(relativePath)) {
+          if (
+            isPathInAlwaysExcludedDirectory(relativePath) ||
+            isPathInIgnoredDirectory(relativePath)
+          ) {
             continue;
           }
           candidates.push({ dirent, relativePath });
@@ -629,14 +649,17 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
       if (!dirent.isDirectory() && !dirent.isFile()) {
         continue;
       }
-      if (dirent.isDirectory() && IGNORED_DIRECTORY_NAMES.has(dirent.name)) {
+      if (dirent.isDirectory() && ALWAYS_EXCLUDED_DIRECTORY_NAMES.has(dirent.name)) {
         continue;
       }
 
       const childPath = toPosixPath(
         target.relativePath ? path.join(target.relativePath, dirent.name) : dirent.name,
       );
-      if (isPathInIgnoredDirectory(childPath)) {
+      if (isPathInAlwaysExcludedDirectory(childPath)) {
+        continue;
+      }
+      if (!input.includeIgnored && isPathInIgnoredDirectory(childPath)) {
         continue;
       }
 
@@ -652,11 +675,13 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
 
     const handle = yield* resolveWorkspaceVcs(target.normalizedCwd);
     const allowedPaths = new Set(
-      yield* filterIgnoredPaths(
-        handle,
-        target.normalizedCwd,
-        candidates.map((candidate) => candidate.path),
-      ),
+      input.includeIgnored
+        ? candidates.map((candidate) => candidate.path)
+        : yield* filterIgnoredPaths(
+            handle,
+            target.normalizedCwd,
+            candidates.map((candidate) => candidate.path),
+          ),
     );
     const sortedEntries = candidates
       .filter((candidate) => allowedPaths.has(candidate.path))

@@ -191,6 +191,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("thread.jump.1"), "mod+1");
       assert.equal(defaultsByCommand.get("thread.jump.9"), "mod+9");
       assert.equal(defaultsByCommand.get("globalTerminal.open"), "meta+u");
+      assert.equal(defaultsByCommand.get("gitDiff.toggle"), "mod+g");
     }),
   );
 

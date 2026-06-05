@@ -31,8 +31,11 @@ import { readLocalApi } from "../localApi";
 import { resolvePathLinkTarget } from "~/modules/terminal";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import { useTheme } from "../hooks/useTheme";
-import { buildPatchCacheKey } from "../lib/diffRendering";
-import { resolveDiffThemeName } from "../lib/diffRendering";
+import {
+  DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS,
+  buildPatchCacheKey,
+  resolveDiffThemeName,
+} from "../lib/diffRendering";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { selectProjectByRef, useStore } from "../store";
 import { createThreadSelectorByRef } from "../storeSelectors";
@@ -84,9 +87,9 @@ function buildDiffPanelUnsafeCSS(fontFamily: string, fontSize: number): string {
 [data-file],
 [data-error-wrapper],
 [data-virtualizer-buffer] {
-  --diffs-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
-  --diffs-light-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
-  --diffs-dark-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
+  --diffs-bg: var(--background) !important;
+  --diffs-light-bg: var(--background) !important;
+  --diffs-dark-bg: var(--background) !important;
   --diffs-token-light-bg: transparent;
   --diffs-token-dark-bg: transparent;
 
@@ -95,24 +98,12 @@ function buildDiffPanelUnsafeCSS(fontFamily: string, fontSize: number): string {
   --diffs-bg-separator-override: color-mix(in srgb, var(--background) 95%, var(--foreground));
   --diffs-bg-buffer-override: color-mix(in srgb, var(--background) 90%, var(--foreground));
 
-  --diffs-bg-addition-override: color-mix(in srgb, var(--background) 92%, var(--success));
-  --diffs-bg-addition-number-override: color-mix(in srgb, var(--background) 88%, var(--success));
-  --diffs-bg-addition-hover-override: color-mix(in srgb, var(--background) 85%, var(--success));
-  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--background) 80%, var(--success));
-
-  --diffs-bg-deletion-override: color-mix(in srgb, var(--background) 92%, var(--destructive));
-  --diffs-bg-deletion-number-override: color-mix(in srgb, var(--background) 88%, var(--destructive));
-  --diffs-bg-deletion-hover-override: color-mix(in srgb, var(--background) 85%, var(--destructive));
-  --diffs-bg-deletion-emphasis-override: color-mix(
-    in srgb,
-    var(--background) 80%,
-    var(--destructive)
-  );
-
   background-color: var(--diffs-bg) !important;
   font-family: ${fontFamily} !important;
   font-size: ${fontSize}px !important;
 }
+
+${DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS}
 
 [data-file-info] {
   background-color: color-mix(in srgb, var(--card) 94%, var(--foreground)) !important;

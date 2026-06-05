@@ -69,6 +69,11 @@ const rpcClientMock = {
     listEntries: vi.fn(),
     searchEntries: vi.fn(),
     writeFile: vi.fn(),
+    createFile: vi.fn(),
+    createDirectory: vi.fn(),
+    removeEntry: vi.fn(),
+    moveEntry: vi.fn(),
+    copyEntry: vi.fn(),
   },
   filesystem: {
     browse: vi.fn(),

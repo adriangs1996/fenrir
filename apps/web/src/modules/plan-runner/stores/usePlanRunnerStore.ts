@@ -80,8 +80,9 @@ export function selectFeaturePlans(
 /**
  * Hidden-thread policy
  * --------------------
- * Plan-runner runs spawn executor, reviewer, analyzer, and integration threads
- * as internal implementation details. Their snapshots are persisted in
+ * Plan-runner runs spawn executor threads as internal implementation details.
+ * Legacy analyzer/integration thread refs may also exist in persisted runs.
+ * Their snapshots are persisted in
  * orchestration so logs can be reconstructed, but they must NOT appear in
  * normal navigation surfaces (sidebar, archive panel, project counts/previews)
  * and direct route access must be blocked / redirected to the owning run.

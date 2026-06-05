@@ -1,6 +1,7 @@
 import * as React from "react";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@fenrir/contracts/settings";
 import type { SidebarThreadSummary, Thread } from "../types";
+import type { ProjectDrawerView } from "../uiStateStore";
 import { cn } from "../lib/utils";
 import { getThreadSortTimestamp, sortThreads, toSortableTimestamp } from "../lib/threadSort";
 import { isLatestTurnSettled } from "../session-logic";
@@ -293,6 +294,36 @@ export function resolveActiveProjectThreadKeys<
     projectThreads.filter((thread) => thread.archivedAt === null),
     input.sortOrder,
   ).map(input.getThreadKey);
+}
+
+export function resolveProjectDrawerPresentation(input: {
+  activeRouteProjectDrawerView: ProjectDrawerView | null;
+  hasActiveThreadRoute: boolean;
+  hasPinnedCollapsedThread: boolean;
+  projectDrawerView: ProjectDrawerView;
+  projectExpanded: boolean;
+}): {
+  effectiveProjectDrawerView: ProjectDrawerView;
+  renderedProjectDrawerView: ProjectDrawerView;
+  shouldShowProjectDrawerPanel: boolean;
+  shouldShowProjectDrawerRail: boolean;
+} {
+  const hasActiveNonThreadDrawerRoute =
+    input.activeRouteProjectDrawerView !== null && input.activeRouteProjectDrawerView !== "threads";
+  const shouldShowProjectDrawerPanel =
+    input.projectExpanded || input.hasPinnedCollapsedThread || hasActiveNonThreadDrawerRoute;
+  const shouldShowProjectDrawerRail =
+    shouldShowProjectDrawerPanel && (input.hasActiveThreadRoute || hasActiveNonThreadDrawerRoute);
+  const effectiveProjectDrawerView = input.hasPinnedCollapsedThread
+    ? "threads"
+    : input.projectDrawerView;
+
+  return {
+    effectiveProjectDrawerView,
+    renderedProjectDrawerView: shouldShowProjectDrawerRail ? effectiveProjectDrawerView : "threads",
+    shouldShowProjectDrawerPanel,
+    shouldShowProjectDrawerRail,
+  };
 }
 
 export function isContextMenuPointerDown(input: {

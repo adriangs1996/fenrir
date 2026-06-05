@@ -3,15 +3,15 @@ import {
   ArrowUpDownIcon,
   ChevronRightIcon,
   CloudIcon,
-  FilesIcon,
-  FileTextIcon,
+  FolderTreeIcon,
   FolderIcon,
   FolderPlusIcon,
   GitPullRequestIcon,
-  MessageSquareTextIcon,
+  MessagesSquareIcon,
   SquarePenIcon,
   TerminalIcon,
   TriangleAlertIcon,
+  WorkflowIcon,
 } from "lucide-react";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { autoAnimate } from "@formkit/auto-animate";
@@ -131,6 +131,7 @@ import {
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   resolveActiveProjectThreadKeys,
+  resolveProjectDrawerPresentation,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
@@ -146,7 +147,6 @@ import {
   usePlanRunnerStore,
 } from "~/modules/plan-runner";
 import { ProjectFileExplorer } from "~/modules/project-files";
-import { NEW_PLAN_PROMPT } from "~/modules/plan-runner/planPrompts";
 import { readEnvironmentApi } from "../environmentApi";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
@@ -1161,29 +1161,24 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       ) ?? null
     );
   }, [activeRouteThreadKey, projectExpanded, visibleProjectThreads]);
-  const effectiveProjectDrawerView: ProjectDrawerView =
-    pinnedCollapsedThread !== null ? "threads" : projectDrawerView;
-
   useEffect(() => {
-    if (
-      !isActiveProject ||
-      activeRouteProjectDrawerView === null ||
-      activeRouteThreadKey === null
-    ) {
+    if (!isActiveProject || activeRouteProjectDrawerView === null) {
       return;
     }
     setProjectDrawerView(project.cwd, activeRouteProjectDrawerView);
-  }, [
+  }, [activeRouteProjectDrawerView, isActiveProject, project.cwd, setProjectDrawerView]);
+  const {
+    effectiveProjectDrawerView,
+    renderedProjectDrawerView,
+    shouldShowProjectDrawerPanel,
+    shouldShowProjectDrawerRail,
+  } = resolveProjectDrawerPresentation({
     activeRouteProjectDrawerView,
-    activeRouteThreadKey,
-    isActiveProject,
-    project.cwd,
-    setProjectDrawerView,
-  ]);
-  const shouldShowProjectDrawerRail = activeRouteThreadKey !== null;
-  const renderedProjectDrawerView: ProjectDrawerView = shouldShowProjectDrawerRail
-    ? effectiveProjectDrawerView
-    : "threads";
+    hasActiveThreadRoute: activeRouteThreadKey !== null,
+    hasPinnedCollapsedThread: pinnedCollapsedThread !== null,
+    projectDrawerView,
+    projectExpanded,
+  });
   const activeRouteThreadForProject = useMemo(() => {
     if (!activeRouteThreadKey) {
       return null;
@@ -1254,12 +1249,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       ),
       renderedThreads,
       showEmptyThreadState: projectExpanded && visibleProjectThreads.length === 0,
-      shouldShowThreadPanel: projectExpanded || pinnedCollapsedThread !== null,
+      shouldShowThreadPanel: shouldShowProjectDrawerPanel,
     };
   }, [
     isThreadListExpanded,
     pinnedCollapsedThread,
     projectExpanded,
+    shouldShowProjectDrawerPanel,
     projectThreads,
     sidebarThreadPreviewCount,
     threadLastVisitedAts,
@@ -1584,13 +1580,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     [handleCreateProjectDraftClick],
   );
 
-  const handleCreatePlanClick = useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => {
-      handleCreateProjectDraftClick(event, { initialPrompt: NEW_PLAN_PROMPT });
-    },
-    [handleCreateProjectDraftClick],
-  );
-
   const attemptArchiveThread = useCallback(
     async (threadRef: ScopedThreadRef) => {
       try {
@@ -1819,22 +1808,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
               render={
                 <button
                   type="button"
-                  aria-label={`Create plan in ${project.name}`}
-                  data-testid="new-plan-button"
-                  className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-secondary hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                  onClick={handleCreatePlanClick}
-                >
-                  <FileTextIcon className="size-3.5" />
-                </button>
-              }
-            />
-            <TooltipPopup side="top">Create plan</TooltipPopup>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
                   aria-label={`Create new thread in ${project.name}`}
                   data-testid="new-thread-button"
                   className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-secondary hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
@@ -1873,7 +1846,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 shortcutLabel="T"
                 onSelect={handleProjectDrawerViewSelect}
               >
-                <MessageSquareTextIcon className="size-3.5" />
+                <MessagesSquareIcon className="size-3.5" />
               </ProjectDrawerRailButton>
               <ProjectDrawerRailButton
                 view="plans"
@@ -1882,7 +1855,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 shortcutLabel="P"
                 onSelect={handleProjectDrawerViewSelect}
               >
-                <FileTextIcon className="size-3.5" />
+                <WorkflowIcon className="size-3.5" />
               </ProjectDrawerRailButton>
               <ProjectDrawerRailButton
                 view="files"
@@ -1891,7 +1864,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 shortcutLabel="F"
                 onSelect={handleProjectDrawerViewSelect}
               >
-                <FilesIcon className="size-3.5" />
+                <FolderTreeIcon className="size-3.5" />
               </ProjectDrawerRailButton>
             </div>
           ) : null}

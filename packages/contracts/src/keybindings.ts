@@ -36,6 +36,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "terminal.close",
   "globalTerminal.open",
   "diff.toggle",
+  "gitDiff.toggle",
   "chat.new",
   "chat.newLocal",
   "editor.openFavorite",

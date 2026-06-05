@@ -8,20 +8,20 @@
 
 #### `useEditorStore` (Zustand — persisted)
 
-| Selector / Action      | Input                | Output                 | Description                                                              |
-| ---------------------- | -------------------- | ---------------------- | ------------------------------------------------------------------------ |
-| `activeChatTab`        | —                    | `ChatTab`              | `"thread" \| "editor" \| "terminal"` — global, persisted to localStorage |
-| `setActiveChatTab`     | `ChatTab`            | `void`                 | Set active workspace view                                                |
-| `toggleChatTab`        | —                    | `void`                 | Flip between `"thread"` and `"editor"`                                   |
-| `currentFile`          | —                    | `string \| null`       | File path from nvim BufEnter; null when no file buffer                   |
-| `setCurrentFile`       | `string \| null`     | `void`                 | Hydrated by `useEditorEventListener`                                     |
-| `dirtyFiles`           | —                    | `Set<string>`          | Files with unsaved changes (BufModifiedSet)                              |
-| `setDirty`             | `string, boolean`    | `void`                 | Add/remove from dirty set                                                |
-| `pendingContexts`      | —                    | `EditorContextDraft[]` | Editor context selections awaiting next message send                     |
-| `addPendingContext`    | `EditorContextDraft` | `void`                 | Append to pending queue                                                  |
-| `removePendingContext` | `string` (id)        | `void`                 | Remove by id                                                             |
-| `clearPendingContexts` | —                    | `void`                 | Clear all pending contexts                                               |
-| `resetVolatile`        | —                    | `void`                 | Reset `currentFile`, `dirtyFiles`, `pendingContexts`; preserve tab       |
+| Selector / Action      | Input                | Output                 | Description                                                                           |
+| ---------------------- | -------------------- | ---------------------- | ------------------------------------------------------------------------------------- |
+| `activeChatTab`        | —                    | `ChatTab`              | `"thread" \| "gitdiff" \| "editor" \| "terminal"` — global, persisted to localStorage |
+| `setActiveChatTab`     | `ChatTab`            | `void`                 | Set active workspace view                                                             |
+| `toggleChatTab`        | —                    | `void`                 | Flip between `"thread"` and `"editor"`                                                |
+| `currentFile`          | —                    | `string \| null`       | File path from nvim BufEnter; null when no file buffer                                |
+| `setCurrentFile`       | `string \| null`     | `void`                 | Hydrated by `useEditorEventListener`                                                  |
+| `dirtyFiles`           | —                    | `Set<string>`          | Files with unsaved changes (BufModifiedSet)                                           |
+| `setDirty`             | `string, boolean`    | `void`                 | Add/remove from dirty set                                                             |
+| `pendingContexts`      | —                    | `EditorContextDraft[]` | Editor context selections awaiting next message send                                  |
+| `addPendingContext`    | `EditorContextDraft` | `void`                 | Append to pending queue                                                               |
+| `removePendingContext` | `string` (id)        | `void`                 | Remove by id                                                                          |
+| `clearPendingContexts` | —                    | `void`                 | Clear all pending contexts                                                            |
+| `resetVolatile`        | —                    | `void`                 | Reset `currentFile`, `dirtyFiles`, `pendingContexts`; preserve tab                    |
 
 **Storage:** `fenrir:editor` in localStorage. Only `activeChatTab` persisted via `partialize`.
 
@@ -103,7 +103,7 @@ Inline chip with FileCodeIcon, label, and tooltip. Supports expired state with d
 
 | Type                       | Description                                            |
 | -------------------------- | ------------------------------------------------------ |
-| `ChatTab`                  | `"thread" \| "editor"`                                 |
+| `ChatTab`                  | `"thread" \| "gitdiff" \| "editor" \| "terminal"`      |
 | `EditorContextSelection`   | `{ file, lineStart, lineEnd, text }`                   |
 | `EditorContextDraft`       | Selection + `{ id, threadId, createdAt }`              |
 | `ExtractedEditorContexts`  | `{ promptText, contextCount, previewTitle, contexts }` |

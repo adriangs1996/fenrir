@@ -23,6 +23,7 @@ import type {
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 
 const DEFAULT_VCS_STATUS_REFRESH_INTERVAL = Duration.seconds(30);
+export const LOCAL_VCS_STATUS_REFRESH_INTERVAL = Duration.seconds(2);
 const VCS_STATUS_REFRESH_FAILURE_BASE_DELAY = Duration.seconds(30);
 const VCS_STATUS_REFRESH_FAILURE_MAX_DELAY = Duration.minutes(15);
 
@@ -41,10 +42,12 @@ interface CachedVcsStatus {
   readonly remote: CachedValue<VcsStatusRemoteResult | null> | null;
 }
 
-interface ActiveRemotePoller {
+interface ActiveStatusPoller {
   readonly fiber: Fiber.Fiber<void, never>;
   readonly subscriberCount: number;
 }
+
+type ActiveStatusPollerMap = SynchronizedRef.SynchronizedRef<Map<string, ActiveStatusPoller>>;
 
 const EMPTY_VCS_STATUS_REMOTE: VcsStatusRemoteResult = {
   hasUpstream: false,
@@ -105,6 +108,23 @@ function mergeVcsStatusParts(
   };
 }
 
+function shouldRefreshRemoteAfterLocalStatusChange(
+  previous: VcsStatusLocalResult | null,
+  next: VcsStatusLocalResult,
+): boolean {
+  if (previous === null) {
+    return false;
+  }
+  return (
+    previous.isRepo !== next.isRepo ||
+    previous.refName !== next.refName ||
+    previous.isDefaultRef !== next.isDefaultRef ||
+    previous.hasPrimaryRemote !== next.hasPrimaryRemote ||
+    fingerprintStatusPart(previous.sourceControlProvider ?? null) !==
+      fingerprintStatusPart(next.sourceControlProvider ?? null)
+  );
+}
+
 const normalizeCwd = (cwd: string) =>
   Effect.service(FileSystem.FileSystem).pipe(
     Effect.flatMap((fs) => fs.realPath(cwd)),
@@ -124,7 +144,8 @@ export const layer = Layer.effect(
       Scope.close(scope, Exit.void),
     );
     const cacheRef = yield* Ref.make(new Map<string, CachedVcsStatus>());
-    const pollersRef = yield* SynchronizedRef.make(new Map<string, ActiveRemotePoller>());
+    const remotePollersRef = yield* SynchronizedRef.make(new Map<string, ActiveStatusPoller>());
+    const localPollersRef = yield* SynchronizedRef.make(new Map<string, ActiveStatusPoller>());
 
     const getCachedStatus = Effect.fn("VcsStatusBroadcaster.getCachedStatus")(function* (
       cwd: string,
@@ -317,11 +338,45 @@ export const layer = Layer.effect(
       });
     };
 
-    const retainRemotePoller = Effect.fn("VcsStatusBroadcaster.retainRemotePoller")(function* (
+    const makeLocalRefreshLoop = (cwd: string) =>
+      Effect.gen(function* () {
+        const refreshLocalStatusIfChanged = Effect.gen(function* () {
+          const previousLocal = (yield* getCachedStatus(cwd))?.local?.value ?? null;
+          const exit = yield* refreshLocalStatus(cwd).pipe(Effect.exit);
+          if (Exit.isFailure(exit)) {
+            yield* Effect.logDebug("VCS local status refresh failed", {
+              cwd,
+              detail: exit.cause.toString(),
+            });
+            return;
+          }
+
+          if (!shouldRefreshRemoteAfterLocalStatusChange(previousLocal, exit.value)) {
+            return;
+          }
+
+          const remoteExit = yield* refreshRemoteStatus(cwd).pipe(Effect.exit);
+          if (Exit.isFailure(remoteExit)) {
+            yield* Effect.logDebug("VCS remote status refresh after local change failed", {
+              cwd,
+              detail: remoteExit.cause.toString(),
+            });
+          }
+        });
+
+        return yield* Effect.sleep(LOCAL_VCS_STATUS_REFRESH_INTERVAL).pipe(
+          Effect.andThen(refreshLocalStatusIfChanged),
+          Effect.repeat(Schedule.spaced(LOCAL_VCS_STATUS_REFRESH_INTERVAL)),
+          Effect.asVoid,
+        );
+      });
+
+    const retainStatusPoller = Effect.fn("VcsStatusBroadcaster.retainStatusPoller")(function* (
+      activePollersRef: ActiveStatusPollerMap,
       cwd: string,
-      automaticRemoteRefreshInterval: Effect.Effect<Duration.Duration, never>,
+      makeLoop: (cwd: string) => Effect.Effect<void, never>,
     ) {
-      yield* SynchronizedRef.modifyEffect(pollersRef, (activePollers) => {
+      yield* SynchronizedRef.modifyEffect(activePollersRef, (activePollers) => {
         const existing = activePollers.get(cwd);
         if (existing) {
           const nextPollers = new Map(activePollers);
@@ -332,7 +387,7 @@ export const layer = Layer.effect(
           return Effect.succeed([undefined, nextPollers] as const);
         }
 
-        return makeRemoteRefreshLoop(cwd, automaticRemoteRefreshInterval).pipe(
+        return makeLoop(cwd).pipe(
           Effect.forkIn(broadcasterScope),
           Effect.map((fiber) => {
             const nextPollers = new Map(activePollers);
@@ -346,10 +401,11 @@ export const layer = Layer.effect(
       });
     });
 
-    const releaseRemotePoller = Effect.fn("VcsStatusBroadcaster.releaseRemotePoller")(function* (
+    const releaseStatusPoller = Effect.fn("VcsStatusBroadcaster.releaseStatusPoller")(function* (
+      activePollersRef: ActiveStatusPollerMap,
       cwd: string,
     ) {
-      const pollerToInterrupt = yield* SynchronizedRef.modify(pollersRef, (activePollers) => {
+      const pollerToInterrupt = yield* SynchronizedRef.modify(activePollersRef, (activePollers) => {
         const existing = activePollers.get(cwd);
         if (!existing) {
           return [null, activePollers] as const;
@@ -374,6 +430,22 @@ export const layer = Layer.effect(
       }
     });
 
+    const retainLocalPoller = (cwd: string) =>
+      retainStatusPoller(localPollersRef, cwd, makeLocalRefreshLoop);
+
+    const releaseLocalPoller = (cwd: string) => releaseStatusPoller(localPollersRef, cwd);
+
+    const retainRemotePoller = Effect.fn("VcsStatusBroadcaster.retainRemotePoller")(function* (
+      cwd: string,
+      automaticRemoteRefreshInterval: Effect.Effect<Duration.Duration, never>,
+    ) {
+      yield* retainStatusPoller(remotePollersRef, cwd, (loopCwd) =>
+        makeRemoteRefreshLoop(loopCwd, automaticRemoteRefreshInterval),
+      );
+    });
+
+    const releaseRemotePoller = (cwd: string) => releaseStatusPoller(remotePollersRef, cwd);
+
     const streamStatus: VcsStatusBroadcasterShape["streamStatus"] = (input, options) =>
       Stream.unwrap(
         Effect.gen(function* () {
@@ -386,8 +458,12 @@ export const layer = Layer.effect(
             options?.automaticRemoteRefreshInterval ??
               Effect.succeed(DEFAULT_VCS_STATUS_REFRESH_INTERVAL),
           );
+          yield* retainLocalPoller(cwd);
 
-          const release = releaseRemotePoller(cwd).pipe(Effect.ignore, Effect.asVoid);
+          const release = Effect.all([releaseRemotePoller(cwd), releaseLocalPoller(cwd)]).pipe(
+            Effect.ignore,
+            Effect.asVoid,
+          );
 
           return Stream.concat(
             Stream.make({

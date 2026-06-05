@@ -108,6 +108,7 @@ import {
   BotIcon,
   CircleAlertIcon,
   DiffIcon,
+  FileTextIcon,
   PlugIcon,
   ListTodoIcon,
   type LucideIcon,
@@ -117,6 +118,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { proposedPlanTitle } from "../../proposedPlan";
+import { buildNewPlanComposerPrompt } from "~/modules/plan-runner/planPrompts";
 import type { UnifiedSettings } from "@fenrir/contracts/settings";
 import type { SessionPhase, Thread } from "../../types";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
@@ -1047,6 +1049,8 @@ export const ChatComposer = memo(
 
     const isComposerApprovalState = activePendingApproval !== null;
     const activePendingUserInput = pendingUserInputs[0] ?? null;
+    const showCreatePlanPromptButton =
+      !isComposerApprovalState && pendingUserInputs.length === 0 && !showPlanFollowUpPrompt;
 
     // Keyboard shortcuts for command approvals so power users do not have to
     // mouse over to the Approve/Decline buttons. Only active while a command
@@ -1576,6 +1580,30 @@ export const ChatComposer = memo(
         terminalContextIds: composerTerminalContexts.map((context) => context.id),
       };
     }, [composerCursor, composerTerminalContexts, promptRef]);
+
+    const handleCreatePlanPromptClick = useCallback(() => {
+      const snapshot = readComposerSnapshot();
+      const nextPrompt = buildNewPlanComposerPrompt(snapshot.value);
+      const nextCursor = collapseExpandedComposerCursor(nextPrompt, nextPrompt.length);
+
+      if (nextPrompt === snapshot.value) {
+        window.requestAnimationFrame(() => {
+          composerEditorRef.current?.focusAt(nextCursor);
+        });
+        return;
+      }
+
+      promptRef.current = nextPrompt;
+      setPrompt(nextPrompt);
+      setComposerCursor(nextCursor);
+      setComposerTrigger(
+        detectComposerTrigger(nextPrompt, expandCollapsedComposerCursor(nextPrompt, nextCursor)),
+      );
+      setComposerHighlightedItemId(null);
+      window.requestAnimationFrame(() => {
+        composerEditorRef.current?.focusAt(nextCursor);
+      });
+    }, [promptRef, readComposerSnapshot, setPrompt]);
 
     const resolveActiveComposerTrigger = useCallback((): {
       snapshot: { value: string; cursor: number; expandedCursor: number };
@@ -2118,42 +2146,72 @@ export const ChatComposer = memo(
                   />
                 )}
 
-              <ComposerPromptEditor
-                ref={composerEditorRef}
-                value={
-                  isComposerApprovalState
-                    ? ""
-                    : activePendingProgress
-                      ? activePendingProgress.customAnswer
-                      : prompt
-                }
-                cursor={composerCursor}
-                terminalContexts={
-                  !isComposerApprovalState && pendingUserInputs.length === 0
-                    ? composerTerminalContexts
-                    : []
-                }
-                onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
-                onChange={onPromptChange}
-                onCommandKeyDown={onComposerCommandKey}
-                onPaste={onComposerPaste}
-                placeholder={
-                  isComposerApprovalState
-                    ? activePendingApproval?.requestKind === "command" &&
-                      activePendingApproval.detail
-                      ? "Review the command above and approve, decline, or cancel"
-                      : (activePendingApproval?.detail ??
-                        "Resolve this approval request to continue")
-                    : activePendingProgress
-                      ? "Type your own answer, or leave this blank to use the selected option"
-                      : showPlanFollowUpPrompt && activeProposedPlan
-                        ? "Add feedback to refine the plan, or leave this blank to implement it"
-                        : phase === "disconnected"
-                          ? "Ask for follow-up changes or attach images"
-                          : "Ask anything, @tag files/folders, $use skills, or / for commands"
-                }
-                disabled={isConnecting || isComposerApprovalState}
-              />
+              <div className="relative">
+                {showCreatePlanPromptButton ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="xs"
+                          aria-label="Create plan"
+                          data-testid="new-plan-button"
+                          className="absolute top-0 right-0 z-10 h-7 gap-1.5 px-2 shadow-none"
+                          disabled={isConnecting}
+                          onClick={handleCreatePlanPromptClick}
+                        >
+                          <FileTextIcon className="size-3.5" />
+                          <span>Create plan</span>
+                        </Button>
+                      }
+                    />
+                    <TooltipPopup side="top">Add plan prompt</TooltipPopup>
+                  </Tooltip>
+                ) : null}
+                <ComposerPromptEditor
+                  ref={composerEditorRef}
+                  value={
+                    isComposerApprovalState
+                      ? ""
+                      : activePendingProgress
+                        ? activePendingProgress.customAnswer
+                        : prompt
+                  }
+                  cursor={composerCursor}
+                  terminalContexts={
+                    !isComposerApprovalState && pendingUserInputs.length === 0
+                      ? composerTerminalContexts
+                      : []
+                  }
+                  {...(showCreatePlanPromptButton
+                    ? {
+                        className: "pr-[7.75rem]",
+                        placeholderClassName: "pr-[7.75rem]",
+                      }
+                    : {})}
+                  onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
+                  onChange={onPromptChange}
+                  onCommandKeyDown={onComposerCommandKey}
+                  onPaste={onComposerPaste}
+                  placeholder={
+                    isComposerApprovalState
+                      ? activePendingApproval?.requestKind === "command" &&
+                        activePendingApproval.detail
+                        ? "Review the command above and approve, decline, or cancel"
+                        : (activePendingApproval?.detail ??
+                          "Resolve this approval request to continue")
+                      : activePendingProgress
+                        ? "Type your own answer, or leave this blank to use the selected option"
+                        : showPlanFollowUpPrompt && activeProposedPlan
+                          ? "Add feedback to refine the plan, or leave this blank to implement it"
+                          : phase === "disconnected"
+                            ? "Ask for follow-up changes or attach images"
+                            : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                  }
+                  disabled={isConnecting || isComposerApprovalState}
+                />
+              </div>
             </div>
 
             {/* Bottom toolbar */}

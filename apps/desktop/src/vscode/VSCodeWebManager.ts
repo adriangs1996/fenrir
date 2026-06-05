@@ -57,6 +57,7 @@ const VSCODE_FENRIR_SHORTCUT_COMMANDS = new Set<KeybindingCommand>([
   "terminal.new",
   "terminal.close",
   "diff.toggle",
+  "gitDiff.toggle",
   "editor.toggleChatTab",
   "editor.sendSelection",
 ]);

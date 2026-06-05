@@ -46,6 +46,7 @@ import {
 } from "../terminalLinks";
 import {
   isDiffToggleShortcut,
+  isGitDiffToggleShortcut,
   isGlobalTerminalOpenShortcut,
   isTerminalClearShortcut,
   isTerminalCloseShortcut,
@@ -487,6 +488,7 @@ export function TerminalViewport({
         isTerminalCloseShortcut(event, currentKeybindings, options) ||
         isGlobalTerminalOpenShortcut(event, currentKeybindings, options) ||
         isDiffToggleShortcut(event, currentKeybindings, options) ||
+        isGitDiffToggleShortcut(event, currentKeybindings, options) ||
         threadTraversalDirectionFromCommand(
           resolveShortcutCommand(event, currentKeybindings, options),
         ) !== null

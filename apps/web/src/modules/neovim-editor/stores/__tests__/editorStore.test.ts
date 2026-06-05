@@ -22,6 +22,11 @@ describe("editorStore", () => {
       useEditorStore.getState().setActiveChatTab("terminal");
       expect(useEditorStore.getState().activeChatTab).toBe("terminal");
     });
+
+    it("allows the git diff tab", () => {
+      useEditorStore.getState().setActiveChatTab("gitdiff");
+      expect(useEditorStore.getState().activeChatTab).toBe("gitdiff");
+    });
   });
 
   describe("toggleChatTab", () => {

@@ -26,6 +26,19 @@ If a question can be answered by exploring the codebase, explore the codebase in
 
 Feature to plan: \n\n`;
 
+export function buildNewPlanComposerPrompt(currentPrompt: string): string {
+  if (currentPrompt.trim().length === 0) {
+    return NEW_PLAN_PROMPT;
+  }
+  if (
+    currentPrompt.startsWith(NEW_PLAN_PROMPT) ||
+    currentPrompt.startsWith(NEW_PLAN_PROMPT.trimStart())
+  ) {
+    return currentPrompt;
+  }
+  return `${NEW_PLAN_PROMPT}${currentPrompt}`;
+}
+
 export function buildPlanRefinementPrompt(input: { filename: string; content: string }): string {
   return `Here is a plan file I'd like to refine:\n\n# @${input.filename}\n\nPlease update this plan based on the following feedback:\n`;
 }

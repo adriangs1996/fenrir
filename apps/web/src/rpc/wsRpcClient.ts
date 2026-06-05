@@ -209,6 +209,11 @@ export interface WsRpcClient {
     readonly listEntries: RpcUnaryMethod<typeof WS_METHODS.projectsListEntries>;
     readonly searchEntries: RpcUnaryMethod<typeof WS_METHODS.projectsSearchEntries>;
     readonly writeFile: RpcUnaryMethod<typeof WS_METHODS.projectsWriteFile>;
+    readonly createFile: RpcUnaryMethod<typeof WS_METHODS.projectsCreateFile>;
+    readonly createDirectory: RpcUnaryMethod<typeof WS_METHODS.projectsCreateDirectory>;
+    readonly removeEntry: RpcUnaryMethod<typeof WS_METHODS.projectsRemoveEntry>;
+    readonly moveEntry: RpcUnaryMethod<typeof WS_METHODS.projectsMoveEntry>;
+    readonly copyEntry: RpcUnaryMethod<typeof WS_METHODS.projectsCopyEntry>;
   };
   readonly filesystem: {
     readonly browse: RpcUnaryMethod<typeof WS_METHODS.filesystemBrowse>;
@@ -230,7 +235,9 @@ export interface WsRpcClient {
     >;
   };
   readonly gitDiff: {
+    readonly loadFile: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadFile>;
     readonly loadFileIndex: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadFileIndex>;
+    readonly loadStackedFileIndex: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadStackedFileIndex>;
   };
   readonly vcs: {
     readonly pull: RpcUnaryMethod<typeof WS_METHODS.vcsPull>;
@@ -525,6 +532,16 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.projectsSearchEntries](input)),
       writeFile: (input) =>
         transport.request((client) => client[WS_METHODS.projectsWriteFile](input)),
+      createFile: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsCreateFile](input)),
+      createDirectory: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsCreateDirectory](input)),
+      removeEntry: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsRemoveEntry](input)),
+      moveEntry: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsMoveEntry](input)),
+      copyEntry: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsCopyEntry](input)),
     },
     filesystem: {
       browse: (input) => transport.request((client) => client[WS_METHODS.filesystemBrowse](input)),
@@ -559,8 +576,11 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.gitPreparePullRequestThread](input)),
     },
     gitDiff: {
+      loadFile: (input) => transport.request((client) => client[WS_METHODS.gitDiffLoadFile](input)),
       loadFileIndex: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffLoadFileIndex](input)),
+      loadStackedFileIndex: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffLoadStackedFileIndex](input)),
     },
     vcs: {
       pull: (input) => transport.request((client) => client[WS_METHODS.vcsPull](input)),

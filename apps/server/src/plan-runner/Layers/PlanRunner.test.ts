@@ -2,6 +2,7 @@ import * as nodeFs from "node:fs";
 import * as nodePath from "node:path";
 import * as nodeOs from "node:os";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { Effect, FileSystem, Layer, ManagedRuntime, Path, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -10,8 +11,6 @@ import { OrchestrationEngineService } from "../../orchestration/Services/Orchest
 import { PlanRunnerRepository } from "../../persistence/Services/PlanRunnerRepository.ts";
 import { PlanRunnerRepositoryLive } from "../../persistence/Layers/PlanRunnerRepository.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
-import { SourceControlQuery } from "../../sourceControl/Services/SourceControlQuery.ts";
-import { SourceControlWorkflows } from "../../sourceControl/Services/SourceControlWorkflows.ts";
 import { PlanRunnerService } from "../Services/PlanRunner.ts";
 import {
   PlanRunnerLive,
@@ -210,8 +209,6 @@ function buildArchiveRuntime(projectCwd: string) {
         injectExternalEvent: () => Effect.void,
       }),
     ),
-    Layer.provide(Layer.mock(SourceControlQuery)({})),
-    Layer.provide(Layer.mock(SourceControlWorkflows)({})),
   );
 
   return ManagedRuntime.make(testLayer);
@@ -298,6 +295,48 @@ describe("getFeaturePlans", () => {
       expect(result.featureName).toBe("feature-a");
       expect(result.plans).toHaveLength(1);
       expect(result.plans[0]?.filename).toBe("01-step.md");
+    } finally {
+      await rt.dispose();
+    }
+  });
+});
+
+describe("start", () => {
+  it("starts from the project root without an integration thread", async () => {
+    const tempDir = makeTempProject();
+    const rt = buildArchiveRuntime(tempDir);
+    try {
+      const result = await rt.runPromise(
+        Effect.gen(function* () {
+          yield* seedFeature(tempDir, "feature-a", 1);
+
+          const service = yield* PlanRunnerService;
+          const sql = yield* SqlClient.SqlClient;
+          const started = yield* service.start({
+            projectId: testProjectId,
+            featureName: "feature-a",
+          });
+          const stepRows = yield* sql<{
+            readonly stepKey: string;
+            readonly stepKind: string;
+          }>`
+            SELECT step_key AS "stepKey", step_kind AS "stepKind"
+            FROM plan_runner_steps
+            WHERE run_id = ${started.runId}
+            ORDER BY execution_order ASC
+          `;
+
+          return {
+            snapshot: yield* service.getStatus(started.runId),
+            stepRows,
+          };
+        }),
+      );
+
+      expect(result.snapshot.worktreePath).toBeNull();
+      expect(result.snapshot.integrationThreadId).toBeNull();
+      expect(result.stepRows.map((row) => row.stepKind)).toEqual(["analyzer", "plan"]);
+      expect(result.stepRows.map((row) => row.stepKey)).not.toContain("integration");
     } finally {
       await rt.dispose();
     }
@@ -712,8 +751,6 @@ describe("listArchivedFeatures", () => {
           injectExternalEvent: () => Effect.void,
         }),
       ),
-      Layer.provide(Layer.mock(SourceControlQuery)({})),
-      Layer.provide(Layer.mock(SourceControlWorkflows)({})),
     );
 
     const rt = ManagedRuntime.make(testLayer);

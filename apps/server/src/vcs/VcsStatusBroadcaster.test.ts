@@ -10,6 +10,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import { TestClock } from "effect/testing";
 import type {
   VcsStatusLocalResult,
   VcsStatusRemoteResult,
@@ -283,6 +284,68 @@ describe("VcsStatusBroadcaster", () => {
         remote: baseRemoteStatus,
       } satisfies VcsStatusStreamEvent);
     }).pipe(Effect.provide(makeTestLayer(state)));
+  });
+
+  it.effect("polls local status while a stream subscriber is active", () => {
+    const state = {
+      currentLocalStatus: baseLocalStatus,
+      currentRemoteStatus: baseRemoteStatus,
+      localStatusCalls: 0,
+      remoteStatusCalls: 0,
+      localInvalidationCalls: 0,
+      remoteInvalidationCalls: 0,
+    };
+
+    return Effect.gen(function* () {
+      const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+      const snapshotDeferred = yield* Deferred.make<VcsStatusStreamEvent>();
+      const localUpdatedDeferred = yield* Deferred.make<VcsStatusStreamEvent>();
+      const remoteUpdatedDeferred = yield* Deferred.make<VcsStatusStreamEvent>();
+      const streamScope = yield* Scope.make();
+      yield* Stream.runForEach(
+        broadcaster.streamStatus(
+          { cwd: "/repo" },
+          { automaticRemoteRefreshInterval: Effect.succeed(Duration.zero) },
+        ),
+        (event) => {
+          if (event._tag === "snapshot") {
+            return Deferred.succeed(snapshotDeferred, event).pipe(Effect.ignore);
+          }
+          if (event._tag === "localUpdated") {
+            return Deferred.succeed(localUpdatedDeferred, event).pipe(Effect.ignore);
+          }
+          if (event._tag === "remoteUpdated") {
+            return Deferred.succeed(remoteUpdatedDeferred, event).pipe(Effect.ignore);
+          }
+          return Effect.void;
+        },
+      ).pipe(Effect.forkIn(streamScope));
+
+      yield* Deferred.await(snapshotDeferred);
+
+      state.currentLocalStatus = {
+        ...baseLocalStatus,
+        refName: "feature/lazygit-checkout",
+      };
+      yield* TestClock.adjust(VcsStatusBroadcaster.LOCAL_VCS_STATUS_REFRESH_INTERVAL);
+
+      const localUpdated = yield* Deferred.await(localUpdatedDeferred);
+      assert.deepStrictEqual(localUpdated, {
+        _tag: "localUpdated",
+        local: state.currentLocalStatus,
+      } satisfies VcsStatusStreamEvent);
+      const remoteUpdated = yield* Deferred.await(remoteUpdatedDeferred);
+      assert.deepStrictEqual(remoteUpdated, {
+        _tag: "remoteUpdated",
+        remote: baseRemoteStatus,
+      } satisfies VcsStatusStreamEvent);
+      assert.equal(state.localStatusCalls, 2);
+      assert.equal(state.localInvalidationCalls, 1);
+      assert.equal(state.remoteStatusCalls, 1);
+      assert.equal(state.remoteInvalidationCalls, 1);
+
+      yield* Scope.close(streamScope, Exit.void);
+    }).pipe(Effect.provide(Layer.merge(makeTestLayer(state), TestClock.layer())));
   });
 
   it.effect("does not automatically refresh remote status when polling is disabled", () => {

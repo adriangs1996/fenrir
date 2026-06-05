@@ -9,7 +9,20 @@
 import { Schema, Context } from "effect";
 import type { Effect } from "effect";
 
-import type { ProjectWriteFileInput, ProjectWriteFileResult } from "@fenrir/contracts";
+import type {
+  ProjectCopyEntryInput,
+  ProjectCopyEntryResult,
+  ProjectCreateDirectoryInput,
+  ProjectCreateDirectoryResult,
+  ProjectCreateFileInput,
+  ProjectCreateFileResult,
+  ProjectMoveEntryInput,
+  ProjectMoveEntryResult,
+  ProjectRemoveEntryInput,
+  ProjectRemoveEntryResult,
+  ProjectWriteFileInput,
+  ProjectWriteFileResult,
+} from "@fenrir/contracts";
 import { WorkspacePathOutsideRootError } from "./WorkspacePaths.ts";
 
 export class WorkspaceFileSystemError extends Schema.TaggedErrorClass<WorkspaceFileSystemError>()(
@@ -37,6 +50,70 @@ export interface WorkspaceFileSystemShape {
     input: ProjectWriteFileInput,
   ) => Effect.Effect<
     ProjectWriteFileResult,
+    WorkspaceFileSystemError | WorkspacePathOutsideRootError
+  >;
+
+  /**
+   * Create a file relative to the workspace root.
+   *
+   * Creates parent directories as needed, rejects paths that escape the
+   * workspace root, and fails if the target file already exists.
+   */
+  readonly createFile: (
+    input: ProjectCreateFileInput,
+  ) => Effect.Effect<
+    ProjectCreateFileResult,
+    WorkspaceFileSystemError | WorkspacePathOutsideRootError
+  >;
+
+  /**
+   * Create a directory relative to the workspace root.
+   *
+   * Creates parent directories as needed and rejects paths that escape the
+   * workspace root.
+   */
+  readonly createDirectory: (
+    input: ProjectCreateDirectoryInput,
+  ) => Effect.Effect<
+    ProjectCreateDirectoryResult,
+    WorkspaceFileSystemError | WorkspacePathOutsideRootError
+  >;
+
+  /**
+   * Remove a file or directory relative to the workspace root.
+   *
+   * Rejects paths that escape the workspace root.
+   */
+  readonly removeEntry: (
+    input: ProjectRemoveEntryInput,
+  ) => Effect.Effect<
+    ProjectRemoveEntryResult,
+    WorkspaceFileSystemError | WorkspacePathOutsideRootError
+  >;
+
+  /**
+   * Move or rename a file or directory relative to the workspace root.
+   *
+   * Rejects paths that escape the workspace root and fails if the destination
+   * already exists.
+   */
+  readonly moveEntry: (
+    input: ProjectMoveEntryInput,
+  ) => Effect.Effect<
+    ProjectMoveEntryResult,
+    WorkspaceFileSystemError | WorkspacePathOutsideRootError
+  >;
+
+  /**
+   * Copy a file or directory relative to the workspace root.
+   *
+   * Rejects paths that escape the workspace root and fails if the destination
+   * already exists.
+   */
+  readonly copyEntry: (
+    input: ProjectCopyEntryInput,
+  ) => Effect.Effect<
+    ProjectCopyEntryResult,
     WorkspaceFileSystemError | WorkspacePathOutsideRootError
   >;
 }

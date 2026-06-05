@@ -46,8 +46,6 @@ import type {
   PlanRunnerSyntheticLogEntryAppend,
   PlanRunnerSyntheticLogEntryRow,
 } from "../../persistence/Services/PlanRunnerRepository";
-import { SourceControlQuery } from "../../sourceControl/Services/SourceControlQuery";
-import { SourceControlWorkflows } from "../../sourceControl/Services/SourceControlWorkflows";
 import { PlanRunnerService, type PlanRunnerServiceShape } from "../Services/PlanRunner";
 import { parsePlanFrontmatter } from "../frontmatter";
 
@@ -59,14 +57,12 @@ interface PlanRunState {
   projectId: ProjectId;
   branch: string;
   worktreePath: string | null;
-  /** True if we created the worktree (vs reusing existing). Only cleanup what we created. */
-  ownsWorktree: boolean;
   state: FeatureState;
   plans: Map<string, MutablePlanNode>;
   /**
    * Order in which plan steps started. Used to assign execution_order on
-   * first state transition out of `blocked`/`ready`. Analyzer/integration
-   * steps are seeded with their own deterministic order at start-time.
+   * first state transition out of `blocked`/`ready`. The analyzer step is
+   * seeded with its own deterministic order at start-time.
    */
   nextExecutionOrder: number;
   analyzerThreadId: string | null;
@@ -297,7 +293,7 @@ function buildRunRow(run: PlanRunState): PlanRunnerRunRow {
     summary: run.summary,
     branch: run.branch as any,
     worktreePath: run.worktreePath,
-    ownsWorktree: run.ownsWorktree,
+    ownsWorktree: false,
     modelSelection: run.modelSelection,
     maxConcurrency: run.maxConcurrency,
     startedAt: run.startedAt as any,
@@ -396,8 +392,6 @@ export const PlanRunnerLive = Layer.effect(
   PlanRunnerService,
   Effect.gen(function* () {
     const orchestrationEngine = yield* OrchestrationEngineService;
-    const sourceControlQuery = yield* SourceControlQuery;
-    const sourceControlWorkflows = yield* SourceControlWorkflows;
     const fs = yield* FileSystem.FileSystem;
     const pathService = yield* Path.Path;
     const repo = yield* PlanRunnerRepository;
@@ -743,8 +737,8 @@ export const PlanRunnerLive = Layer.effect(
           .pipe(Effect.ignoreCause({ log: true }));
 
         // Assign execution_order the first time a plan transitions out of
-        // ready/blocked. Analyzer + integration steps get their order from
-        // the original snapshot; plans get the next available slot.
+        // ready/blocked. The analyzer step gets its order from the original
+        // snapshot; plans get the next available slot.
         if (
           !plan.executionOrderAssigned &&
           plan.state !== "blocked" &&
@@ -1101,26 +1095,6 @@ export const PlanRunnerLive = Layer.effect(
           .pipe(Effect.ignore);
       });
 
-    /** Remove a worktree we created. Skip if we reused an existing one. */
-    const cleanupWorktree = (run: PlanRunState) =>
-      Effect.gen(function* () {
-        if (!run.worktreePath || !run.ownsWorktree) return;
-        const projectCwd = yield* resolveProjectCwd(run.projectId);
-        yield* sourceControlWorkflows.removeWorktree({
-          cwd: projectCwd,
-          path: run.worktreePath,
-          force: true,
-        });
-      }).pipe(
-        Effect.catch(() =>
-          Effect.logWarning("Failed to cleanup worktree", {
-            runId: run.runId,
-            worktreePath: run.worktreePath,
-          }),
-        ),
-        Effect.asVoid,
-      );
-
     // ── Thread bootstrapping ──────────────────────────────────────────
 
     const bootstrapThreadWithPrompt = (input: {
@@ -1339,23 +1313,6 @@ export const PlanRunnerLive = Layer.effect(
 
       return poll;
     };
-
-    // ── Read last assistant message ───────────────────────────────────
-
-    const readLastAssistantMessage = (
-      threadId: string,
-    ): Effect.Effect<string | null, never, never> =>
-      Effect.gen(function* () {
-        const readModel = yield* orchestrationEngine.getReadModel();
-        const thread = readModel.threads.find((t) => t.id === threadId);
-        if (!thread) return null;
-
-        const messages = [...thread.messages].toReversed();
-        const assistantMsg = messages.find((m) => m.role === "assistant");
-        if (!assistantMsg) return null;
-
-        return assistantMsg.text || null;
-      });
 
     const deriveResumeState = (snapshot: PlanRunSnapshot): FeatureState => {
       const analyzerStep = snapshot.steps.find((step) => step.stepKey === ANALYZER_STEP_KEY);
@@ -1877,35 +1834,39 @@ ${plan.content}`;
           return;
         }
 
-        // Phase 4: Integration — state = "integrating"
+        // Terminalize directly after executor scheduling drains. There is no
+        // separate post-execution agent phase; completed executor work is the
+        // run outcome.
         const donePlans = [...run.plans.values()].filter((p) => p.state === "done");
         const failedPlans = [...run.plans.values()].filter(
           (p) => p.state === "failed" || p.state === "skipped",
         );
+        const hadLegacyIntegrationStep =
+          run.state === "integrating" || run.integrationThreadId !== null;
 
         if (donePlans.length === 0) {
           run.state = "failed";
           run.summary = "No plans completed successfully";
           run.completedAt = now();
-          yield* persistSyntheticStepStateTransition(run, {
-            stepKey: INTEGRATION_STEP_KEY,
-            state: "skipped",
-            startedAt: now(),
-            completedAt: run.completedAt,
-            error: run.summary,
-            failureSummary: run.summary,
-          });
+          if (hadLegacyIntegrationStep) {
+            yield* persistSyntheticStepStateTransition(run, {
+              stepKey: INTEGRATION_STEP_KEY,
+              state: "skipped",
+              completedAt: run.completedAt,
+              error: run.summary,
+              failureSummary: run.summary,
+            });
+          }
           yield* persistRunSummary(run);
-          yield* emitSyntheticLogEntry(run, INTEGRATION_STEP_KEY, {
+          yield* emitSyntheticLogEntry(run, ANALYZER_STEP_KEY, {
             kind: "runner.status",
-            title: `Integration skipped for "${run.featureName}"`,
+            title: `Run failed for "${run.featureName}"`,
             bodyMarkdown: run.summary,
             bodyText: run.summary,
-            copyText: `plan-runner: integration skipped ${run.featureName}`,
+            copyText: `plan-runner: run failed ${run.featureName}`,
             payload: {
-              phase: "step.finished",
-              stepKind: "integration",
-              outcome: "skipped",
+              phase: "run.finished",
+              outcome: "failed",
               reason: "no-done-plans",
             },
             createdAt: now() as any,
@@ -1920,142 +1881,34 @@ ${plan.content}`;
           return;
         }
 
-        if (run.state !== "integrating") {
-          run.state = "integrating";
-          yield* persistRunStateTransition(run);
+        run.state = "completed";
+        run.summary = `Feature "${run.featureName}" completed. ${donePlans.length} plans done, ${failedPlans.length} failed/skipped.`;
+        run.completedAt = now();
+        if (run.analyzerThreadId) {
+          yield* finalizeThread(run.analyzerThreadId);
+        }
+        if (run.integrationThreadId) {
+          yield* finalizeThread(run.integrationThreadId);
           yield* persistSyntheticStepStateTransition(run, {
             stepKey: INTEGRATION_STEP_KEY,
-            state: "running",
-            startedAt: now(),
-            completedAt: null,
+            state: "skipped",
+            completedAt: run.completedAt,
             error: null,
             failureSummary: null,
           });
-          yield* emitSyntheticLogEntry(run, INTEGRATION_STEP_KEY, {
-            kind: "runner.status",
-            title: `Integration started for "${run.featureName}"`,
-            bodyMarkdown: `Reconciling parallel implementations across ${donePlans.length} completed plan${donePlans.length === 1 ? "" : "s"}.`,
-            bodyText: `Integration started for ${run.featureName}.`,
-            copyText: `plan-runner: integration started ${run.featureName}`,
-            payload: {
-              phase: "step.started",
-              stepKind: "integration",
-              donePlans: donePlans.map((p) => p.planId),
-              failedPlans: failedPlans.map((p) => p.planId),
-            },
-            createdAt: now() as any,
-          });
         }
-
-        const doneList = donePlans.map((p) => `- ${p.planId}`).join("\n");
-        const failedList =
-          failedPlans.length > 0
-            ? failedPlans.map((p) => `- ${p.planId}: ${p.error ?? "unknown"}`).join("\n")
-            : "None";
-        const projectCwd = yield* resolveProjectCwd(run.projectId);
-        const workspacePromptContext = buildWorkspacePromptContext({
-          projectCwd,
-          worktreePath: run.worktreePath,
-        });
-
-        const integrationPrompt = `
-You are an integration agent for feature "${run.featureName}".
-Multiple executors implemented plans in parallel. Your job:
-
-${workspacePromptContext}
-
-1. Run full check suite: 
-  - typecheck if the project allows it
-  - linters 
-  - Tests
-2. Fix conflicts between parallel implementations
-3. Check: duplicate imports, conflicting exports, inconsistent naming, missing wiring
-4. Make fixes to get suite passing
-5. If everything is ok and the implementation is in a worktree, then
-  commit the changes with a detailed message.
-
-Completed plans:
-${doneList}
-
-Failed/skipped:
-${failedList}
-
-After all fixes verified: end with INTEGRATION_PASS
-If unresolvable: end with INTEGRATION_FAIL and explain`;
-
-        // Run integration — graceful degradation on failure. Reuse an
-        // existing integration thread on recovery rather than spawn a
-        // duplicate.
-        const integrationResponse: string | null = yield* Effect.gen(function* () {
-          let threadId = run.integrationThreadId;
-          if (!threadId) {
-            const bootstrapped = yield* bootstrapThreadWithPrompt({
-              projectId: run.projectId,
-              title: `[PlanRunner] Integration: ${run.featureName}`,
-              prompt: integrationPrompt,
-              modelSelection: run.modelSelection,
-              branch: run.branch,
-              worktreePath: run.worktreePath,
-            });
-            threadId = bootstrapped.threadId;
-            run.integrationThreadId = threadId;
-            yield* persistInternalThread(run, INTEGRATION_STEP_KEY, threadId, "integration");
-          } else {
-            yield* startThreadTurnWithPrompt({
-              threadId,
-              prompt: integrationPrompt,
-              modelSelection: run.modelSelection,
-            }).pipe(Effect.catch(() => Effect.void));
-          }
-          const integrationTurn = yield* waitForThreadTurnComplete(threadId, run);
-          if (integrationTurn.status !== "completed") {
-            return null;
-          }
-          return yield* readLastAssistantMessage(threadId);
-        }).pipe(Effect.catch(() => Effect.succeed(null)));
-
-        if (run.haltReason !== "none") {
-          return;
-        }
-
-        if (integrationResponse?.includes("INTEGRATION_PASS")) {
-          run.state = "completed";
-          run.summary = `Feature "${run.featureName}" completed. ${donePlans.length} plans done, ${failedPlans.length} failed/skipped.`;
-
-          // Run-level success — archive run-scoped helper threads. Per-plan
-          // executor threads were already archived on completion.
-          if (run.analyzerThreadId) {
-            yield* finalizeThread(run.analyzerThreadId);
-          }
-          if (run.integrationThreadId) {
-            yield* finalizeThread(run.integrationThreadId);
-          }
-        } else {
-          run.state = "failed";
-          run.summary = integrationResponse
-            ? `Integration failed for "${run.featureName}". ${donePlans.length} plans done, ${failedPlans.length} failed/skipped.`
-            : "Integration thread failed to complete";
-        }
-
-        run.completedAt = now();
-        yield* persistSyntheticStepStateTransition(run, {
-          stepKey: INTEGRATION_STEP_KEY,
-          state: run.state === "completed" ? "done" : "failed",
-          completedAt: run.completedAt,
-          error: run.state === "completed" ? null : run.summary,
-          failureSummary: run.state === "completed" ? null : run.summary,
-        });
         yield* persistRunSummary(run);
-        yield* emitSyntheticLogEntry(run, INTEGRATION_STEP_KEY, {
+        yield* emitSyntheticLogEntry(run, ANALYZER_STEP_KEY, {
           kind: "runner.status",
-          title: `Integration ${run.state === "completed" ? "passed" : "failed"} for "${run.featureName}"`,
+          title: `Run completed for "${run.featureName}"`,
           bodyMarkdown: run.summary ?? null,
           bodyText: run.summary,
-          copyText: `plan-runner: integration ${run.state === "completed" ? "passed" : "failed"} ${run.featureName}`,
+          copyText: `plan-runner: completed ${run.featureName}`,
           payload: {
-            phase: "step.finished",
-            stepKind: "integration",
-            outcome: run.state === "completed" ? "done" : "failed",
+            phase: "run.finished",
+            outcome: "done",
+            donePlans: donePlans.map((p) => p.planId),
+            failedPlans: failedPlans.map((p) => p.planId),
           },
           createdAt: now() as any,
         });
@@ -2089,7 +1942,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               }
             }
             yield* persistRunSummary(run);
-            yield* emitSyntheticLogEntry(run, INTEGRATION_STEP_KEY, {
+            yield* emitSyntheticLogEntry(run, ANALYZER_STEP_KEY, {
               kind: "runner.status",
               title: `Run errored for "${run.featureName}"`,
               bodyMarkdown: run.summary,
@@ -2110,8 +1963,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             });
           }),
         ),
-        // Keep worktree on failure (for re-run from failure). On success, keep for user inspection.
-        // Worktree is only cleaned up on cancel or archive.
       );
 
     // ── Plan freeze (read .plans/ once at start time) ─────────────────
@@ -2277,7 +2128,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
           projectId: snapshot.projectId,
           branch: snapshot.branch,
           worktreePath: snapshot.worktreePath,
-          ownsWorktree: false, // Conservative: don't remove a worktree we may not own.
           state: snapshot.state,
           plans,
           nextExecutionOrder,
@@ -2331,7 +2181,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
     const validateRecoverableThreads = (run: PlanRunState) =>
       Effect.gen(function* () {
         type Expected = {
-          kind: "executor" | "integration";
+          kind: "executor";
           planId: string | null;
           id: string;
         };
@@ -2344,13 +2194,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               id: plan.executorThreadId,
             });
           }
-        }
-        if (run.state === "integrating" && run.integrationThreadId) {
-          expectedThreadIds.push({
-            kind: "integration",
-            planId: null,
-            id: run.integrationThreadId,
-          });
         }
         // Trivially ok when nothing is mid-flight (e.g. blocked-only runs).
         if (expectedThreadIds.length === 0) {
@@ -2378,10 +2221,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
           if (!missing) return { ok: true } as const;
 
-          lastDetail =
-            missing.kind === "integration"
-              ? `Integration thread for run "${run.runId}" was lost.`
-              : `Executor thread for plan "${missing.planId}" was lost.`;
+          lastDetail = `Executor thread for plan "${missing.planId}" was lost.`;
 
           if (Date.now() - startedAtMs > MAX_POLL_MS) {
             return { ok: false, detail: lastDetail } as const;
@@ -2394,8 +2234,8 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
      * Reconcile a single recovered run. Orders:
      *  1. Mark feature state = "recovering" + publish synthetic recovery log.
      *  2. Validate live threads. If any are missing → fail run + publish.
-     *  3. Otherwise, restore the prior feature state (executing/integrating)
-     *     and resume `driveExecution` from the last durable point.
+     *  3. Otherwise, restore the prior feature state and resume
+     *     `driveExecution` from the last durable point.
      */
     const recoverRun = (snapshot: PlanRunSnapshot) =>
       Effect.gen(function* () {
@@ -2505,14 +2345,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
         // tracker the executor uses (`run.state`) decides the entry point —
         // analyzer phase is skipped because plans are already frozen +
         // validated in persistence.
-        recoveringRun.state =
-          previousState === "analyzing"
-            ? "analyzing"
-            : previousState === "executing"
-              ? "executing"
-              : previousState === "integrating"
-                ? "integrating"
-                : "executing";
+        recoveringRun.state = previousState === "analyzing" ? "analyzing" : "executing";
 
         yield* persistRunStateTransition(recoveringRun);
 
@@ -2715,73 +2548,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             }
           }
 
-          // Resolve or create worktree — isolated filesystem for this plan run.
-          // The branch may already exist if the user did manual setup first.
-          const existingBranches = yield* sourceControlQuery
-            .listLocalBranchNames(projectCwd)
-            .pipe(Effect.catch(() => Effect.succeed([] as string[])));
-          const branchExists = existingBranches.includes(branchName);
-
-          let worktreePath: string;
-          let ownsWorktree = true;
-
-          if (branchExists) {
-            // Branch already exists — check if it already has a worktree
-            const branchInfo = yield* sourceControlQuery
-              .listBranches({
-                cwd: projectCwd as any,
-                query: branchName as any,
-              })
-              .pipe(Effect.catch(() => Effect.succeed(null)));
-            const existingWorktree = branchInfo?.branches.find(
-              (b) => b.name === branchName && b.worktreePath,
-            );
-
-            if (existingWorktree?.worktreePath) {
-              // Reuse existing worktree — don't remove on cleanup
-              worktreePath = existingWorktree.worktreePath;
-              ownsWorktree = false;
-            } else {
-              // Branch exists but no worktree — create worktree from it
-              const worktreeResult = yield* sourceControlWorkflows
-                .createWorktree({
-                  cwd: projectCwd,
-                  branch: branchName as any,
-                  path: null,
-                })
-                .pipe(
-                  Effect.mapError(
-                    (err: any) =>
-                      new PlanRunnerError({
-                        message:
-                          `Failed to create worktree for existing branch "${branchName}": ${err.message ?? err}` as any,
-                        cause: err,
-                      }),
-                  ),
-                );
-              worktreePath = worktreeResult.worktree.path;
-            }
-          } else {
-            // Branch doesn't exist — create worktree with new branch from HEAD
-            const worktreeResult = yield* sourceControlWorkflows
-              .createWorktree({
-                cwd: projectCwd,
-                branch: "HEAD",
-                newBranch: branchName,
-                path: null,
-              })
-              .pipe(
-                Effect.mapError(
-                  (err: any) =>
-                    new PlanRunnerError({
-                      message:
-                        `Failed to create worktree for "${branchName}": ${err.message ?? err}` as any,
-                      cause: err,
-                    }),
-                ),
-              );
-            worktreePath = worktreeResult.worktree.path;
-          }
+          const worktreePath: string | null = null;
 
           // Construct run state
           const runId = PlanRunIdSchema.make(makeId());
@@ -2809,12 +2576,10 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             });
           }
 
-          // Reserve the first execution_order slots for the bookkeeping
-          // analyzer/integration steps so plan steps line up monotonically
-          // after them.
+          // Reserve the first execution_order slot for the analyzer step so
+          // plan steps line up monotonically after it.
           const analyzerOrder = 0;
-          const integrationOrder = 1;
-          const planBaseOrder = 2;
+          const planBaseOrder = 1;
 
           const run: PlanRunState = {
             runId,
@@ -2822,7 +2587,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             projectId: input.projectId,
             branch: branchName,
             worktreePath,
-            ownsWorktree,
             state: "analyzing",
             plans,
             nextExecutionOrder: planBaseOrder + plans.size,
@@ -2854,7 +2618,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
           const stepRows: PlanRunnerStepRow[] = [
             buildSyntheticStepRow(run, ANALYZER_STEP_KEY, "analyzer", analyzerOrder),
-            buildSyntheticStepRow(run, INTEGRATION_STEP_KEY, "integration", integrationOrder),
           ];
           let nextOrder = planBaseOrder;
           for (const plan of run.plans.values()) {
@@ -3097,8 +2860,7 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
 
           // 7. Build run state — start in "executing" (skip analyzer)
           const analyzerOrder = 0;
-          const integrationOrder = 1;
-          const planBaseOrder = 2;
+          const planBaseOrder = 1;
 
           const run: PlanRunState = {
             runId: newRunId,
@@ -3106,7 +2868,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             projectId: input.projectId,
             branch: snapshot.branch,
             worktreePath: snapshot.worktreePath,
-            ownsWorktree: false, // Reusing prior run's worktree
             state: "executing",
             plans,
             nextExecutionOrder: planBaseOrder + plans.size,
@@ -3130,7 +2891,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
               startedAt: startedAt as any,
               completedAt: startedAt as any,
             },
-            buildSyntheticStepRow(run, INTEGRATION_STEP_KEY, "integration", integrationOrder),
           ];
           let nextOrder = planBaseOrder;
           for (const plan of run.plans.values()) {
@@ -3296,9 +3056,6 @@ If unresolvable: end with INTEGRATION_FAIL and explain`;
             summary: run.summary,
             completedAt: run.completedAt!,
           });
-
-          // Cleanup worktree on cancel
-          yield* cleanupWorktree(run);
         }),
 
       stop: (runId) =>

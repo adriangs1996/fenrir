@@ -2853,6 +2853,58 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("routes websocket rpc project file mutations", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "fenrir-ws-project-mutations-",
+      });
+
+      yield* buildAppUnderTest();
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          Effect.gen(function* () {
+            const directory = yield* client[WS_METHODS.projectsCreateDirectory]({
+              cwd: workspaceDir,
+              relativePath: "src/components",
+            });
+            const file = yield* client[WS_METHODS.projectsCreateFile]({
+              cwd: workspaceDir,
+              relativePath: "src/components/new-file.ts",
+              contents: "export {};\n",
+            });
+            const copied = yield* client[WS_METHODS.projectsCopyEntry]({
+              cwd: workspaceDir,
+              sourceRelativePath: "src/components/new-file.ts",
+              destinationRelativePath: "src/components/new-file.copy.ts",
+            });
+            const moved = yield* client[WS_METHODS.projectsMoveEntry]({
+              cwd: workspaceDir,
+              sourceRelativePath: "src/components/new-file.copy.ts",
+              destinationRelativePath: "src/components/renamed-file.ts",
+            });
+            const removed = yield* client[WS_METHODS.projectsRemoveEntry]({
+              cwd: workspaceDir,
+              relativePath: "src/components",
+            });
+            return { directory, file, copied, moved, removed };
+          }),
+        ),
+      );
+
+      assert.equal(response.directory.relativePath, "src/components");
+      assert.equal(response.file.relativePath, "src/components/new-file.ts");
+      assert.equal(response.copied.relativePath, "src/components/new-file.copy.ts");
+      assert.equal(response.moved.relativePath, "src/components/renamed-file.ts");
+      assert.equal(response.removed.relativePath, "src/components");
+      const removedExists = yield* fs.exists(path.join(workspaceDir, "src", "components"));
+      assert.equal(removedExists, false);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("routes websocket rpc shell.openInEditor", () =>
     Effect.gen(function* () {
       let openedInput: { cwd: string; editor: EditorId } | null = null;

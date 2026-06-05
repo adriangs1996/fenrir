@@ -12,6 +12,7 @@ import {
   isChatNewShortcut,
   isChatNewLocalShortcut,
   isDiffToggleShortcut,
+  isGitDiffToggleShortcut,
   isOpenFavoriteEditorShortcut,
   isSidebarToggleShortcut,
   isTerminalClearShortcut,
@@ -114,6 +115,10 @@ const DEFAULT_BINDINGS = compile([
     shortcut: modShortcut("d"),
     command: "diff.toggle",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
+    shortcut: modShortcut("g"),
+    command: "gitDiff.toggle",
   },
   {
     shortcut: modShortcut("b"),
@@ -322,6 +327,10 @@ describe("shortcutLabelForCommand", () => {
     );
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
     assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "gitDiff.toggle", "Linux"),
+      "Ctrl+G",
+    );
+    assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFavorite", "Linux"),
       "Ctrl+O",
     );
@@ -510,6 +519,21 @@ describe("chat/editor shortcuts", () => {
     );
     assert.isFalse(
       isDiffToggleShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: true },
+      }),
+    );
+  });
+
+  it("matches gitDiff.toggle shortcut across workspace focus", () => {
+    assert.isTrue(
+      isGitDiffToggleShortcut(event({ key: "g", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+    );
+    assert.isTrue(
+      isGitDiffToggleShortcut(event({ key: "g", metaKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
         context: { terminalFocus: true },
       }),

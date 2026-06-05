@@ -5,13 +5,14 @@ import type { DraftId } from "../../composerDraftStore";
 import type { ThreadRouteSearch } from "../../threadRouteSearch";
 import { useEditorStore } from "~/modules/neovim-editor";
 
-export type ChatViewTab = "thread" | "terminal" | "editor";
+export type ChatViewTab = "thread" | "gitdiff" | "terminal" | "editor";
 export type NonTerminalChatViewTab = Exclude<ChatViewTab, "terminal">;
 
 interface UseChatViewTabsInput {
   desktopBridgeAvailable: boolean;
   draftId: DraftId | null;
   editorAvailable: boolean;
+  gitDiffAvailable: boolean;
   rawSearch: ThreadRouteSearch;
   routeKind: "server" | "draft";
   routeThreadRef: ScopedThreadRef;
@@ -49,6 +50,12 @@ export function useChatViewTabs(input: UseChatViewTabsInput): UseChatViewTabsRes
       setActiveChatTab("thread");
     }
   }, [activeChatTab, input.editorAvailable, setActiveChatTab]);
+
+  useEffect(() => {
+    if (!input.gitDiffAvailable && activeChatTab === "gitdiff") {
+      setActiveChatTab("thread");
+    }
+  }, [activeChatTab, input.gitDiffAvailable, setActiveChatTab]);
 
   useEffect(() => {
     if (!input.desktopBridgeAvailable) {

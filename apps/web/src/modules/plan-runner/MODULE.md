@@ -28,10 +28,10 @@ the `archivedFeaturesByProjectId` selector and `archiveFeature` /
 
 ## Hidden-Thread Policy
 
-Plan-runner spawns **executor**, **reviewer**, **analyzer**, and **integration**
-threads as internal implementation details. They are persisted in the
-orchestration store so logs can be reconstructed, but they must NEVER appear in
-user-browsable surfaces.
+Plan-runner spawns **executor** threads as internal implementation details.
+Legacy runs may also contain analyzer or integration thread refs. They are
+persisted in the orchestration store so logs can be reconstructed, but they
+must NEVER appear in user-browsable surfaces.
 
 Concretely:
 

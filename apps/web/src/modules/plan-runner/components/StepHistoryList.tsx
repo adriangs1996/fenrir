@@ -107,10 +107,9 @@ interface StepHistoryListProps {
 }
 
 /**
- * Unified started-step history. Plan steps, the analyzer phase, and the
- * integration phase are rendered in actual execution order. Selection is
- * controlled by the parent so the same viewer is reused for live tabs and
- * historical rows.
+ * Unified started-step history. Plan steps and runner phases are rendered in
+ * actual execution order. Selection is controlled by the parent so the same
+ * viewer is reused for live tabs and historical rows.
  */
 export const StepHistoryList = memo(function StepHistoryList({
   steps,

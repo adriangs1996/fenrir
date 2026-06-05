@@ -698,6 +698,7 @@ interface ComposerPromptEditorProps {
   disabled: boolean;
   placeholder: string;
   className?: string;
+  placeholderClassName?: string;
   onRemoveTerminalContext: (contextId: string) => void;
   onChange: (
     nextValue: string,
@@ -1204,6 +1205,7 @@ function ComposerPromptEditorInner({
   disabled,
   placeholder,
   className,
+  placeholderClassName,
   onRemoveTerminalContext,
   onChange,
   onCommandKeyDown,
@@ -1423,7 +1425,12 @@ function ComposerPromptEditorInner({
           }
           placeholder={
             terminalContexts.length > 0 ? null : (
-              <div className="pointer-events-none absolute inset-0 text-[14px] leading-relaxed text-muted-foreground/35">
+              <div
+                className={cn(
+                  "pointer-events-none absolute inset-0 text-[14px] leading-relaxed text-muted-foreground/35",
+                  placeholderClassName,
+                )}
+              >
                 {placeholder}
               </div>
             )
@@ -1453,6 +1460,7 @@ export const ComposerPromptEditor = forwardRef<
     disabled,
     placeholder,
     className,
+    placeholderClassName,
     onRemoveTerminalContext,
     onChange,
     onCommandKeyDown,
@@ -1491,6 +1499,7 @@ export const ComposerPromptEditor = forwardRef<
         editorRef={ref}
         {...(onCommandKeyDown ? { onCommandKeyDown } : {})}
         {...(className ? { className } : {})}
+        {...(placeholderClassName ? { placeholderClassName } : {})}
       />
     </LexicalComposer>
   );

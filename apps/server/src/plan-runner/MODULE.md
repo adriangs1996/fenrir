@@ -3,7 +3,7 @@
 Orchestrates multi-plan feature implementation: reads `.plans/{feature}/`
 folders, freezes the plan graph at `start()`, persists every state
 transition through `PlanRunnerRepository`, spawns executor threads per
-plan, and runs a final integration pass.
+plan, and terminalizes from executor results.
 
 Persistence is the source of truth. The in-memory `activeRuns` map is a
 hot-cache for the executor fiber; reads fall through to the repository for
@@ -49,9 +49,10 @@ runs that have already terminated and been evicted.
    edits to `.plans/` are intentionally ignored for the run's lifetime.
    Markdown files whose names start with `_` are treated as reference-only
    and excluded from the frozen execution graph.
-3. Resolve or create the `feature/<featureName>` branch + worktree.
+3. Assign the run's logical `feature/<featureName>` branch label. Execution
+   stays in the project root; `start()` does not create a branch or worktree.
 4. Build a fresh `PlanRunnerRunRow` plus seed `PlanRunnerStepRow` rows
-   (`analyzer`, `integration`, one per plan in `blocked`/`ready`).
+   (`analyzer`, one per plan in `blocked`/`ready`).
 5. Capture the **old** run's internal thread refs from
    `PlanRunnerRepository.listInternalThreadRefs` so the orchestration-side
    threads can be deleted after the row is replaced.
@@ -77,7 +78,7 @@ execution cache.
 | Feature state transition           | `updateRunState`                              |
 | Step state transition + retries    | `updateStepState` (bumps `last_updated_at`)   |
 | First run-out-of-`blocked`/`ready` | `setStepExecutionOrder`                       |
-| New executor/integration thread    | `registerInternalThread`                      |
+| New executor thread                | `registerInternalThread`                      |
 | Terminal summary + `completedAt`   | `updateRunState`                              |
 | Recovery synthetic log entry       | `appendSyntheticLogEntry` (`runner.recovery`) |
 
@@ -100,10 +101,11 @@ On layer construction:
      orchestration thread. If any is missing, the run is unrecoverable:
      mark the run failed, persist the failure, publish a terminal
      `planRunner.completed` and drop the recovery gate.
-   - Otherwise, restore the prior feature state (`executing` or
-     `integrating`) and resume `driveExecution` from the persisted point —
-     completed steps are not re-run, and the analyzer phase is skipped
-     because the plan graph was already frozen at the original `start()`.
+   - Otherwise, restore the prior feature state and resume `driveExecution`
+     from the persisted point. Legacy `integrating` runs resume through the
+     executor-completion path. Completed steps are not re-run, and the analyzer
+     phase is skipped because the plan graph was already frozen at the
+     original `start()`.
 4. The `recoveringFeatures` gate is cleared once `driveExecution`
    terminates (success **or** failure), via `Effect.ensuring`.
 
@@ -158,18 +160,16 @@ are untouched.
 | Service                      | Purpose                                                |
 | ---------------------------- | ------------------------------------------------------ |
 | `OrchestrationEngineService` | Thread creation, turn dispatch, read model             |
-| `SourceControlQuery`         | Branch discovery and branch metadata reads             |
-| `SourceControlWorkflows`     | Branch + worktree lifecycle mutations                  |
 | `FileSystem`                 | Read plan files                                        |
 | `Path`                       | Path resolution                                        |
 | `PlanRunnerRepository`       | Durable run/step/internal-thread/synthetic-log storage |
 
 ## Error Taxonomy
 
-| Error                     | When                                                                                     |
-| ------------------------- | ---------------------------------------------------------------------------------------- |
-| `PlanRunnerError`         | Missing plan dir/files, duplicate or recovering run, branch failure, persistence failure |
-| `PlanRunnerNotFoundError` | `getStatus`/`cancel`/`getStepLog` with unknown runId                                     |
+| Error                     | When                                                                     |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `PlanRunnerError`         | Missing plan dir/files, duplicate or recovering run, persistence failure |
+| `PlanRunnerNotFoundError` | `getStatus`/`cancel`/`getStepLog` with unknown runId                     |
 
 ## Filesystem Layout
 
@@ -187,7 +187,6 @@ apps/server/src/plan-runner/
 
 - **Upstream**: `ws.ts` RPC layer (11 handlers + event subscription)
 - **Downstream**: `OrchestrationEngine` (thread lifecycle),
-  `SourceControlQuery` / `SourceControlWorkflows` (branching),
   `PlanRunnerRepository` (persistence)
 - **Layer composition**: Wired into `RuntimeDependenciesLive` in
   `server.ts` with `PersistenceLayerLive` provided so boot recovery can run

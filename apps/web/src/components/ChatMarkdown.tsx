@@ -24,7 +24,11 @@ import { VscodeEntryIcon } from "./chat/VscodeEntryIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { toastManager } from "./ui/toast";
 import { openInPreferredEditor } from "../editorPreferences";
-import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
+import {
+  DIFF_HIGHLIGHTER_THEME_NAMES,
+  resolveDiffThemeName,
+  type DiffThemeName,
+} from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { useTheme } from "../hooks/useTheme";
@@ -132,15 +136,7 @@ function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
   if (cached) return cached;
 
   const promise = getSharedHighlighter({
-    themes: [
-      resolveDiffThemeName("dark"),
-      resolveDiffThemeName("light"),
-      resolveDiffThemeName("catppuccin-mocha"),
-      resolveDiffThemeName("rose-pine"),
-      resolveDiffThemeName("kanagawa-wave"),
-      resolveDiffThemeName("kanagawa-dragon"),
-      resolveDiffThemeName("nord"),
-    ],
+    themes: [...DIFF_HIGHLIGHTER_THEME_NAMES],
     langs: [language as SupportedLanguages],
     preferredHighlighter: "shiki-js",
   }).catch((err) => {

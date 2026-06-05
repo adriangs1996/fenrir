@@ -30,7 +30,14 @@ import {
   VcsSwitchRefInput,
   VcsSwitchRefResult,
 } from "./git";
-import { LoadDiffFileIndexInput, LoadDiffFileIndexResult } from "./gitDiff";
+import {
+  LoadDiffFileInput,
+  LoadDiffFileIndexInput,
+  LoadDiffFileIndexResult,
+  LoadDiffFileResult,
+  LoadStackedDiffFileIndexInput,
+  LoadStackedDiffFileIndexResult,
+} from "./gitDiff";
 import { VcsError } from "./vcs";
 import { KeybindingsConfigError } from "./keybindings";
 import {
@@ -59,9 +66,24 @@ import {
 import { ProjectId, TrimmedNonEmptyString } from "./baseSchemas";
 import { ManagedProcessLogServerMessage } from "./managedProcessLog";
 import {
+  ProjectCopyEntryError,
+  ProjectCopyEntryInput,
+  ProjectCopyEntryResult,
+  ProjectCreateDirectoryError,
+  ProjectCreateDirectoryInput,
+  ProjectCreateDirectoryResult,
+  ProjectCreateFileError,
+  ProjectCreateFileInput,
+  ProjectCreateFileResult,
   ProjectListEntriesError,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
+  ProjectMoveEntryError,
+  ProjectMoveEntryInput,
+  ProjectMoveEntryResult,
+  ProjectRemoveEntryError,
+  ProjectRemoveEntryInput,
+  ProjectRemoveEntryResult,
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -239,6 +261,11 @@ export const WS_METHODS = {
   projectsListEntries: "projects.listEntries",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  projectsCreateFile: "projects.createFile",
+  projectsCreateDirectory: "projects.createDirectory",
+  projectsRemoveEntry: "projects.removeEntry",
+  projectsMoveEntry: "projects.moveEntry",
+  projectsCopyEntry: "projects.copyEntry",
   filesystemBrowse: "filesystem.browse",
 
   // Shell methods
@@ -256,7 +283,9 @@ export const WS_METHODS = {
   gitRunStackedAction: "git.runStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  gitDiffLoadFile: "gitDiff.loadFile",
   gitDiffLoadFileIndex: "gitDiff.loadFileIndex",
+  gitDiffLoadStackedFileIndex: "gitDiff.loadStackedFileIndex",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -550,6 +579,36 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: ProjectWriteFileError,
 });
 
+export const WsProjectsCreateFileRpc = Rpc.make(WS_METHODS.projectsCreateFile, {
+  payload: ProjectCreateFileInput,
+  success: ProjectCreateFileResult,
+  error: ProjectCreateFileError,
+});
+
+export const WsProjectsCreateDirectoryRpc = Rpc.make(WS_METHODS.projectsCreateDirectory, {
+  payload: ProjectCreateDirectoryInput,
+  success: ProjectCreateDirectoryResult,
+  error: ProjectCreateDirectoryError,
+});
+
+export const WsProjectsRemoveEntryRpc = Rpc.make(WS_METHODS.projectsRemoveEntry, {
+  payload: ProjectRemoveEntryInput,
+  success: ProjectRemoveEntryResult,
+  error: ProjectRemoveEntryError,
+});
+
+export const WsProjectsMoveEntryRpc = Rpc.make(WS_METHODS.projectsMoveEntry, {
+  payload: ProjectMoveEntryInput,
+  success: ProjectMoveEntryResult,
+  error: ProjectMoveEntryError,
+});
+
+export const WsProjectsCopyEntryRpc = Rpc.make(WS_METHODS.projectsCopyEntry, {
+  payload: ProjectCopyEntryInput,
+  success: ProjectCopyEntryResult,
+  error: ProjectCopyEntryError,
+});
+
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: OpenInEditorInput,
   error: OpenError,
@@ -602,6 +661,18 @@ export const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePu
 export const WsGitDiffLoadFileIndexRpc = Rpc.make(WS_METHODS.gitDiffLoadFileIndex, {
   payload: LoadDiffFileIndexInput,
   success: LoadDiffFileIndexResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffLoadFileRpc = Rpc.make(WS_METHODS.gitDiffLoadFile, {
+  payload: LoadDiffFileInput,
+  success: LoadDiffFileResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffLoadStackedFileIndexRpc = Rpc.make(WS_METHODS.gitDiffLoadStackedFileIndex, {
+  payload: LoadStackedDiffFileIndexInput,
+  success: LoadStackedDiffFileIndexResult,
   error: GitCommandError,
 });
 
@@ -1420,6 +1491,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsListEntriesRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsCreateFileRpc,
+  WsProjectsCreateDirectoryRpc,
+  WsProjectsRemoveEntryRpc,
+  WsProjectsMoveEntryRpc,
+  WsProjectsCopyEntryRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsSubscribeVcsStatusRpc,
@@ -1429,6 +1505,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
   WsGitDiffLoadFileIndexRpc,
+  WsGitDiffLoadFileRpc,
+  WsGitDiffLoadStackedFileIndexRpc,
   WsVcsListRefsRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,

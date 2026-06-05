@@ -32,7 +32,6 @@ import { Badge } from "~/components/ui/badge";
 import { PlanDagView, type DagPlan } from "./PlanDagView";
 import { LiveStepMonitorPanel } from "./LiveStepMonitorPanel";
 import { PlanRunnerModelSelectionPanel } from "./PlanRunnerModelSelectionPanel";
-import { StepHistoryList } from "./StepHistoryList";
 import { StepLogViewer } from "./StepLogViewer";
 import { stepLabel } from "./stepLabels";
 
@@ -41,12 +40,7 @@ import { stepLabel } from "./stepLabels";
  * `failed` state because failure can occur mid-progression and is rendered
  * separately on the phase strip.
  */
-const PROGRESSION_PHASES: FeatureStateType[] = [
-  "analyzing",
-  "executing",
-  "integrating",
-  "completed",
-];
+const PROGRESSION_PHASES: FeatureStateType[] = ["analyzing", "executing", "completed"];
 
 const PHASE_BADGE_VARIANT: Record<
   string,
@@ -278,8 +272,10 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
   //   • When the panel transitions from absent → present, auto-select the
   //     first running step.
   //   • Keep the user's tab choice while it remains active.
-  //   • When the selected live step disappears, fall through to another live
-  //     tab if any remain, otherwise null (the user can reopen via history).
+  //   • When the selected live step finishes, keep its log selected as history
+  //     unless another live step is available.
+  //   • On a cold historical load, default to the latest started step so the
+  //     log area is useful without the removed history list.
   const prevActiveLenRef = useRef(0);
   useEffect(() => {
     const prevLen = prevActiveLenRef.current;
@@ -292,6 +288,10 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
         if (activeSteps.length > 0 && activeSteps[0]) {
           return { kind: "live", stepKey: activeSteps[0].stepKey };
         }
+        const finishedStep = startedSteps.find((s) => s.stepKey === current.stepKey);
+        if (finishedStep) {
+          return { kind: "history", stepKey: current.stepKey };
+        }
         return null;
       }
       // Panel just appeared — auto-pick first running step. This intentionally
@@ -301,22 +301,33 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
       if (prevLen === 0 && activeSteps.length > 0 && activeSteps[0]) {
         return { kind: "live", stepKey: activeSteps[0].stepKey };
       }
+      if (current?.kind === "history") {
+        return startedSteps.some((s) => s.stepKey === current.stepKey) ? current : null;
+      }
+      const latestStartedStep = startedSteps.at(-1);
+      if (!current && latestStartedStep) {
+        return { kind: "history", stepKey: latestStartedStep.stepKey };
+      }
       return current;
     });
-  }, [activeSteps]);
+  }, [activeSteps, startedSteps]);
 
   // Fetch the log for whatever step is currently selected (live or history).
   // The fetcher dedupes per (runId, stepKey) so reselecting is free.
   const selectedStepKey = selection?.stepKey ?? null;
   useStepLogFetcher(rpcClient, runId, selectedStepKey);
 
-  // Resolve the selected step snapshot for the inline viewer below history.
+  // Resolve the selected step snapshot for the inline viewer.
   // Prefer the started-history list because it includes finished steps; the
   // live tabs are always a subset of it.
   const selectedStep: PlanRunnerStepSnapshot | null = useMemo(() => {
     if (!selection) return null;
-    return startedSteps.find((s) => s.stepKey === selection.stepKey) ?? null;
-  }, [selection, startedSteps]);
+    return (
+      startedSteps.find((s) => s.stepKey === selection.stepKey) ??
+      activeSteps.find((s) => s.stepKey === selection.stepKey) ??
+      null
+    );
+  }, [selection, startedSteps, activeSteps]);
 
   // Log entries cached for the currently-selected step (empty array when
   // nothing is selected). The selector falls back to a stable empty tuple, so
@@ -563,84 +574,74 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
         )}
       </div>
 
-      {/* Main scroll area: graph → live tabs → log viewer → history → summary */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Main area: graph → live tabs → expanded log viewer → summary */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* DAG visualization */}
-        <div className="px-4 pt-2">
-          <PlanDagView
-            plans={dagPlans}
-            maxConcurrency={run.maxConcurrency}
-            onPlanClick={handlePlanClick}
-          />
-        </div>
-
-        {/* Live monitor tab strip — only mounted when there are active steps. */}
-        {showLivePanel && (
-          <div className="mt-2">
-            <LiveStepMonitorPanel
-              activeSteps={activeSteps}
-              selectedStepKey={selection?.kind === "live" ? selection.stepKey : null}
-              onSelect={handleSelectLive}
+        <div className="shrink-0 border-b border-border/60">
+          <div className="px-4 pt-2">
+            <PlanDagView
+              plans={dagPlans}
+              maxConcurrency={run.maxConcurrency}
+              onPlanClick={handlePlanClick}
             />
           </div>
-        )}
 
-        {/* Inline log viewer — single instance for either source. */}
-        {selectedStep && (
-          <div className="px-4 pt-3">
-            <div className="h-96 min-h-0">
-              <StepLogViewer
-                entries={selectedEntries}
-                timestampFormat={timestampFormat}
-                cwd={cwd}
-                loading={isSelectedLogLoading}
-                emptyHint={
-                  selection?.kind === "live"
-                    ? "Waiting for first log entry…"
-                    : "No entries recorded for this step."
-                }
-                title={
-                  <>
-                    <span className="truncate font-medium">{stepLabel(selectedStep)}</span>
-                    <Badge
-                      variant={
-                        selectedStep.state === "failed"
-                          ? "destructive"
-                          : selectedStep.state === "done"
-                            ? "success"
-                            : selection?.kind === "live"
-                              ? "info"
-                              : "outline"
-                      }
-                      size="sm"
-                      className="px-1.5 font-normal lowercase"
-                    >
-                      {selectedStep.state}
-                    </Badge>
-                    {selection?.kind === "history" && (
-                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                        postmortem
-                      </span>
-                    )}
-                  </>
-                }
+          {/* Live monitor tab strip — only mounted when there are active steps. */}
+          {showLivePanel && (
+            <div className="mt-2">
+              <LiveStepMonitorPanel
+                activeSteps={activeSteps}
+                selectedStepKey={selection?.kind === "live" ? selection.stepKey : null}
+                onSelect={handleSelectLive}
               />
             </div>
+          )}
+        </div>
+
+        {/* Inline log viewer — single instance for either source. */}
+        {selectedStep ? (
+          <div className="min-h-0 flex-1 px-4 py-3">
+            <StepLogViewer
+              entries={selectedEntries}
+              timestampFormat={timestampFormat}
+              cwd={cwd}
+              loading={isSelectedLogLoading}
+              emptyHint={
+                selection?.kind === "live"
+                  ? "Waiting for first log entry..."
+                  : "No entries recorded for this step."
+              }
+              title={
+                <>
+                  <span className="truncate font-medium">{stepLabel(selectedStep)}</span>
+                  <Badge
+                    variant={
+                      selectedStep.state === "failed"
+                        ? "destructive"
+                        : selectedStep.state === "done"
+                          ? "success"
+                          : selection?.kind === "live"
+                            ? "info"
+                            : "outline"
+                    }
+                    size="sm"
+                    className="px-1.5 font-normal lowercase"
+                  >
+                    {selectedStep.state}
+                  </Badge>
+                </>
+              }
+            />
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 items-center justify-center px-4 py-6 text-xs text-muted-foreground">
+            Select a started plan in the DAG to view logs.
           </div>
         )}
-
-        {/* Unified started-step history */}
-        <div className="mt-3 border-t border-border/60">
-          <StepHistoryList
-            steps={startedSteps}
-            selectedStepKey={selection?.stepKey ?? null}
-            onSelect={handleSelectHistory}
-          />
-        </div>
 
         {/* Summary */}
         {isTerminal && run.summary && (
-          <div className="mx-4 my-3 rounded-md border p-3">
+          <div className="mx-4 mb-3 rounded-md border p-3">
             <h3 className="mb-1 text-xs font-medium text-muted-foreground">Summary</h3>
             <p className="text-sm">{run.summary}</p>
           </div>

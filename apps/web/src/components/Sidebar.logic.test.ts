@@ -11,6 +11,7 @@ import {
   hasUnseenCompletion,
   isContextMenuPointerDown,
   orderItemsByPreferredIds,
+  resolveProjectDrawerPresentation,
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
@@ -120,6 +121,76 @@ describe("createThreadJumpHintVisibilityController", () => {
     vi.advanceTimersByTime(THREAD_JUMP_HINT_SHOW_DELAY_MS);
 
     expect(visibilityChanges).toEqual([]);
+  });
+});
+
+describe("resolveProjectDrawerPresentation", () => {
+  it("keeps the drawer rail on plan-runner routes without an active thread", () => {
+    expect(
+      resolveProjectDrawerPresentation({
+        activeRouteProjectDrawerView: "plans",
+        hasActiveThreadRoute: false,
+        hasPinnedCollapsedThread: false,
+        projectDrawerView: "plans",
+        projectExpanded: true,
+      }),
+    ).toEqual({
+      effectiveProjectDrawerView: "plans",
+      renderedProjectDrawerView: "plans",
+      shouldShowProjectDrawerPanel: true,
+      shouldShowProjectDrawerRail: true,
+    });
+  });
+
+  it("shows the plan drawer for an active plan-runner route even when the project is collapsed", () => {
+    expect(
+      resolveProjectDrawerPresentation({
+        activeRouteProjectDrawerView: "plans",
+        hasActiveThreadRoute: false,
+        hasPinnedCollapsedThread: false,
+        projectDrawerView: "plans",
+        projectExpanded: false,
+      }),
+    ).toEqual({
+      effectiveProjectDrawerView: "plans",
+      renderedProjectDrawerView: "plans",
+      shouldShowProjectDrawerPanel: true,
+      shouldShowProjectDrawerRail: true,
+    });
+  });
+
+  it("preserves the pinned-thread rail behavior for collapsed active thread routes", () => {
+    expect(
+      resolveProjectDrawerPresentation({
+        activeRouteProjectDrawerView: "threads",
+        hasActiveThreadRoute: true,
+        hasPinnedCollapsedThread: true,
+        projectDrawerView: "files",
+        projectExpanded: false,
+      }),
+    ).toEqual({
+      effectiveProjectDrawerView: "threads",
+      renderedProjectDrawerView: "threads",
+      shouldShowProjectDrawerPanel: true,
+      shouldShowProjectDrawerRail: true,
+    });
+  });
+
+  it("does not introduce a drawer rail for expanded projects without route context", () => {
+    expect(
+      resolveProjectDrawerPresentation({
+        activeRouteProjectDrawerView: null,
+        hasActiveThreadRoute: false,
+        hasPinnedCollapsedThread: false,
+        projectDrawerView: "plans",
+        projectExpanded: true,
+      }),
+    ).toEqual({
+      effectiveProjectDrawerView: "plans",
+      renderedProjectDrawerView: "threads",
+      shouldShowProjectDrawerPanel: true,
+      shouldShowProjectDrawerRail: false,
+    });
   });
 });
 

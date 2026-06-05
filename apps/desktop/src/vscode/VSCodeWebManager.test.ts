@@ -175,6 +175,17 @@ describe("resolveVSCodeFenrirShortcutCommand", () => {
         modKey: true,
       },
     },
+    {
+      command: "gitDiff.toggle",
+      shortcut: {
+        key: "g",
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+        modKey: true,
+      },
+    },
   ] as const;
 
   it("captures Fenrir editor-owned shortcuts inside VS Code", () => {
@@ -195,6 +206,24 @@ describe("resolveVSCodeFenrirShortcutCommand", () => {
         },
       ),
     ).toBe("terminal.toggle");
+
+    expect(
+      resolveVSCodeFenrirShortcutCommand(
+        {
+          key: "g",
+          code: "KeyG",
+          metaKey: true,
+          ctrlKey: false,
+          shiftKey: false,
+          altKey: false,
+        },
+        {
+          keybindings,
+          platform: "MacIntel",
+          context: { terminalFocus: false, terminalOpen: false },
+        },
+      ),
+    ).toBe("gitDiff.toggle");
   });
 
   it("leaves non-editor-owned app shortcuts to VS Code", () => {

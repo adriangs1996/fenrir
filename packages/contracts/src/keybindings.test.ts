@@ -53,6 +53,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedDiffToggle.command, "diff.toggle");
 
+    const parsedGitDiffToggle = yield* decode(KeybindingRule, {
+      key: "mod+g",
+      command: "gitDiff.toggle",
+    });
+    assert.strictEqual(parsedGitDiffToggle.command, "gitDiff.toggle");
+
     const parsedGlobalTerminalOpen = yield* decode(KeybindingRule, {
       key: "meta+u",
       command: "globalTerminal.open",

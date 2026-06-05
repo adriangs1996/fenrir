@@ -50,6 +50,11 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       listEntries: rpcClient.projects.listEntries,
       searchEntries: rpcClient.projects.searchEntries,
       writeFile: rpcClient.projects.writeFile,
+      createFile: rpcClient.projects.createFile,
+      createDirectory: rpcClient.projects.createDirectory,
+      removeEntry: rpcClient.projects.removeEntry,
+      moveEntry: rpcClient.projects.moveEntry,
+      copyEntry: rpcClient.projects.copyEntry,
     },
     filesystem: {
       browse: rpcClient.filesystem.browse,
@@ -76,7 +81,9 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       preparePullRequestThread: rpcClient.git.preparePullRequestThread,
     },
     gitDiff: {
+      loadFile: rpcClient.gitDiff.loadFile,
       loadFileIndex: rpcClient.gitDiff.loadFileIndex,
+      loadStackedFileIndex: rpcClient.gitDiff.loadStackedFileIndex,
     },
     orchestration: {
       getArchivedShellSnapshot: rpcClient.orchestration.getArchivedShellSnapshot,

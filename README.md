@@ -27,7 +27,7 @@ Expect the current state to include:
 
 Even though Fenrir is behind T3Code in overall polish and coverage, it is exploring several features that are not part of the current T3Code baseline:
 
-- **Plan runner** — discovers `.plans/` feature folders, freezes a plan graph, runs executor/analyzer/integration agent threads, persists run state, supports recovery after restarts, and exposes run monitoring in the UI.
+- **Plan runner** — discovers `.plans/` feature folders, freezes a plan graph, runs executor threads, persists run state, supports recovery after restarts, and exposes run monitoring in the UI.
 - **Browser lab and Traffic Lens** — an embedded browser workflow with captured HTTP traffic, request replay, rules/overrides, profiles, cookies, local storage, and session storage inspection.
 - **Managed processes** — project-scoped long-running processes for dev servers and watchers, with tmux-backed restart reconciliation, auto-restart policies, readiness probes, and streamed logs.
 - **Embedded Neovim workspace** — an Electron-backed Neovim pane with project cwd sync, dirty-buffer tracking, and editor selections that can be sent into the agent composer as structured context.

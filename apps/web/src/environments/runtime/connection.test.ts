@@ -145,6 +145,11 @@ function createTestClient(options?: {
       listEntries: vi.fn(async () => ({ entries: [], truncated: false })),
       searchEntries: vi.fn(async () => []),
       writeFile: vi.fn(async () => undefined),
+      createFile: vi.fn(async () => undefined),
+      createDirectory: vi.fn(async () => undefined),
+      removeEntry: vi.fn(async () => undefined),
+      moveEntry: vi.fn(async () => undefined),
+      copyEntry: vi.fn(async () => undefined),
     },
     shell: {
       openInEditor: vi.fn(async () => undefined),

@@ -12,7 +12,54 @@ export const DIFF_THEME_NAMES = {
 
 export type DiffThemeName = (typeof DIFF_THEME_NAMES)[keyof typeof DIFF_THEME_NAMES];
 
+export const DIFF_HIGHLIGHTER_THEME_NAMES = [
+  DIFF_THEME_NAMES.dark,
+  DIFF_THEME_NAMES.light,
+  DIFF_THEME_NAMES["catppuccin-mocha"],
+  DIFF_THEME_NAMES["rose-pine"],
+  DIFF_THEME_NAMES["kanagawa-wave"],
+  DIFF_THEME_NAMES["kanagawa-dragon"],
+  DIFF_THEME_NAMES.nord,
+] as const satisfies readonly DiffThemeName[];
+
 export type DiffThemeInput = SyntaxTheme;
+
+export const DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS = `
+[data-diffs-header],
+[data-diff],
+[data-file],
+[data-error-wrapper],
+[data-virtualizer-buffer] {
+  --diffs-addition-color-override: var(--success-foreground);
+  --diffs-deletion-color-override: var(--destructive-foreground);
+  --diffs-bg-addition-override: var(--success-foreground);
+  --diffs-bg-addition-number-override: var(--success-foreground);
+  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--background) 48%, var(--success-foreground));
+  --diffs-bg-deletion-override: var(--destructive-foreground);
+  --diffs-bg-deletion-number-override: var(--destructive-foreground);
+  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--background) 48%, var(--destructive-foreground));
+}
+
+[data-line-type="change-addition"]:is([data-line], [data-no-newline]) {
+  --mix-light: 78%;
+  --mix-dark: 68%;
+}
+
+[data-line-type="change-addition"]:is([data-column-number], [data-gutter-buffer]) {
+  --mix-light: 70%;
+  --mix-dark: 56%;
+}
+
+[data-line-type="change-deletion"]:is([data-line], [data-no-newline]) {
+  --mix-light: 78%;
+  --mix-dark: 68%;
+}
+
+[data-line-type="change-deletion"]:is([data-column-number], [data-gutter-buffer]) {
+  --mix-light: 70%;
+  --mix-dark: 56%;
+}
+`;
 
 export function resolveDiffThemeName(theme: DiffThemeInput): DiffThemeName {
   return DIFF_THEME_NAMES[theme];

@@ -29,7 +29,7 @@ import { projectScriptCwd, projectScriptRuntimeEnv } from "@fenrir/shared/projec
 import { truncate } from "@fenrir/shared/String";
 import { type LegendListRef } from "@legendapp/list/react";
 import { Debouncer } from "@tanstack/react-pacer";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Equal } from "effect";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
@@ -208,6 +208,11 @@ import {
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
+const LazyGitDiffWorkbench = lazy(() =>
+  import("./gitdiff-workbench/GitDiffWorkbenchRoute").then((module) => ({
+    default: module.GitDiffWorkbench,
+  })),
+);
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
@@ -780,16 +785,6 @@ export default function ChatView(props: ChatViewProps) {
     nvimReady,
     vscodeReady,
   });
-  const { activeChatTab, handleChatTabSelect, lastNonTerminalChatTabRef, setActiveChatTab } =
-    useChatViewTabs({
-      desktopBridgeAvailable,
-      draftId,
-      editorAvailable,
-      rawSearch,
-      routeKind,
-      routeThreadRef,
-    });
-
   const terminalState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadKey, routeThreadRef),
   );
@@ -1551,6 +1546,17 @@ export default function ChatView(props: ChatViewProps) {
       : (storeServerTerminalLaunchContext ?? null);
   // Default true while loading to avoid toolbar flicker.
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
+  const gitDiffAvailable = isServerThread && isGitRepo;
+  const { activeChatTab, handleChatTabSelect, lastNonTerminalChatTabRef, setActiveChatTab } =
+    useChatViewTabs({
+      desktopBridgeAvailable,
+      draftId,
+      editorAvailable,
+      gitDiffAvailable,
+      rawSearch,
+      routeKind,
+      routeThreadRef,
+    });
   const terminalShortcutLabelOptions = useMemo(
     () => ({
       context: {
@@ -1678,11 +1684,14 @@ export default function ChatView(props: ChatViewProps) {
   }, []);
   const resolveTerminalFallbackChatTab = useCallback(() => {
     const previousTab = lastNonTerminalChatTabRef.current;
+    if (previousTab === "gitdiff" && gitDiffAvailable) {
+      return "gitdiff" as const;
+    }
     if (previousTab === "editor" && editorAvailable) {
       return "editor" as const;
     }
     return "thread" as const;
-  }, [editorAvailable, lastNonTerminalChatTabRef]);
+  }, [editorAvailable, gitDiffAvailable, lastNonTerminalChatTabRef]);
   const setTerminalOpen = useCallback(
     (open: boolean) => {
       if (!activeThreadRef) return;
@@ -1732,10 +1741,23 @@ export default function ChatView(props: ChatViewProps) {
         activateTerminalTab({ ensureOpen: true, focus: true });
         return;
       }
+      if (tab === "gitdiff" && !gitDiffAvailable) {
+        return;
+      }
       handleChatTabSelect(tab);
     },
-    [activateTerminalTab, handleChatTabSelect],
+    [activateTerminalTab, gitDiffAvailable, handleChatTabSelect],
   );
+  const toggleGitDiffTab = useCallback(() => {
+    if (activeChatTab === "gitdiff") {
+      setActiveChatTab("thread");
+      return;
+    }
+    if (!gitDiffAvailable) {
+      return;
+    }
+    setActiveChatTab("gitdiff");
+  }, [activeChatTab, gitDiffAvailable, setActiveChatTab]);
   const splitTerminal = useCallback(() => {
     if (!activeThreadRef || hasReachedSplitLimit) return;
     const terminalId = `terminal-${randomUUID()}`;
@@ -2389,6 +2411,13 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "gitDiff.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleGitDiffTab();
+        return;
+      }
+
       if (command === "editor.toggleChatTab") {
         if (!editorAvailable) return;
         event.preventDefault();
@@ -2447,6 +2476,7 @@ export default function ChatView(props: ChatViewProps) {
     runGlobalScript,
     splitTerminal,
     keybindings,
+    toggleGitDiffTab,
     toggleSidePanel,
     toggleTerminalVisibility,
     editorAvailable,
@@ -2492,6 +2522,11 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "gitDiff.toggle") {
+        toggleGitDiffTab();
+        return;
+      }
+
       if (command === "editor.toggleChatTab" && editorAvailable) {
         const editorStore = useEditorStore.getState();
         if (editorStore.activeChatTab === "editor") {
@@ -2524,6 +2559,7 @@ export default function ChatView(props: ChatViewProps) {
     splitTerminal,
     terminalState.activeTerminalId,
     terminalState.terminalOpen,
+    toggleGitDiffTab,
     toggleSidePanel,
     toggleTerminalVisibility,
   ]);
@@ -3513,6 +3549,7 @@ export default function ChatView(props: ChatViewProps) {
           activeProjectName={activeProject?.name}
           activeChatTab={activeChatTab}
           editorAvailable={editorAvailable}
+          gitDiffAvailable={gitDiffAvailable}
           isGitRepo={isGitRepo}
           activeProjectScripts={activeProject?.scripts}
           preferredScriptId={
@@ -3726,6 +3763,19 @@ export default function ChatView(props: ChatViewProps) {
               />
             ) : null}
           </div>
+          {activeChatTab === "gitdiff" && gitDiffAvailable ? (
+            <div className="flex min-h-0 min-w-0 w-full flex-1">
+              <Suspense
+                fallback={
+                  <div className="flex min-h-0 min-w-0 w-full flex-1 items-center justify-center text-sm text-muted-foreground">
+                    Loading Git Diff...
+                  </div>
+                }
+              >
+                <LazyGitDiffWorkbench embedded threadRef={routeThreadRef} />
+              </Suspense>
+            </div>
+          ) : null}
           {activeThreadKey ? (
             <PersistentThreadTerminalDrawer
               threadRef={routeThreadRef}

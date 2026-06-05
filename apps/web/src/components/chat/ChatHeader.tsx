@@ -39,6 +39,7 @@ interface ChatHeaderProps {
   activeProjectName: string | undefined;
   activeChatTab: ChatTab;
   editorAvailable: boolean;
+  gitDiffAvailable: boolean;
   isGitRepo: boolean;
   activeProjectScripts: ProjectScript[] | undefined;
   preferredScriptId: string | null;
@@ -71,6 +72,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeProjectName,
   activeChatTab,
   editorAvailable,
+  gitDiffAvailable,
   isGitRepo,
   activeProjectScripts,
   preferredScriptId,
@@ -137,6 +139,7 @@ export const ChatHeader = memo(function ChatHeader({
       <ChatViewSwitcher
         activeTab={activeChatTab}
         editorAvailable={editorAvailable}
+        gitDiffAvailable={gitDiffAvailable}
         onTabSelect={onChatTabSelect}
       />
       <div className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3">

@@ -19,7 +19,12 @@ import {
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
+  ProjectCopyEntryError,
+  ProjectCreateDirectoryError,
+  ProjectCreateFileError,
   ProjectListEntriesError,
+  ProjectMoveEntryError,
+  ProjectRemoveEntryError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
@@ -114,6 +119,13 @@ import { SourceControlStackService } from "./sourceControl/stack/Services/Source
 import type { SourceControlStackServiceShape } from "./sourceControl/stack/Services/SourceControlStackService";
 
 const ContractWsMethods = WS_METHODS;
+const isWorkspacePathOutsideRootError = Schema.is(WorkspacePathOutsideRootError);
+
+function workspaceFileSystemMutationMessage(cause: unknown, fallback: string): string {
+  return isWorkspacePathOutsideRootError(cause)
+    ? "Workspace file path must stay within the project root."
+    : fallback;
+}
 
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
@@ -1175,15 +1187,101 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(
             WS_METHODS.projectsWriteFile,
             workspaceFileSystem.writeFile(input).pipe(
-              Effect.mapError((cause) => {
-                const message = Schema.is(WorkspacePathOutsideRootError)(cause)
-                  ? "Workspace file path must stay within the project root."
-                  : "Failed to write workspace file";
-                return new ProjectWriteFileError({
-                  message,
-                  cause,
-                });
-              }),
+              Effect.mapError(
+                (cause) =>
+                  new ProjectWriteFileError({
+                    message: workspaceFileSystemMutationMessage(
+                      cause,
+                      "Failed to write workspace file",
+                    ),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsCreateFile]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsCreateFile,
+            workspaceFileSystem.createFile(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectCreateFileError({
+                    message: workspaceFileSystemMutationMessage(
+                      cause,
+                      "Failed to create workspace file",
+                    ),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsCreateDirectory]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsCreateDirectory,
+            workspaceFileSystem.createDirectory(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectCreateDirectoryError({
+                    message: workspaceFileSystemMutationMessage(
+                      cause,
+                      "Failed to create workspace directory",
+                    ),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsRemoveEntry]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsRemoveEntry,
+            workspaceFileSystem.removeEntry(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectRemoveEntryError({
+                    message: workspaceFileSystemMutationMessage(
+                      cause,
+                      "Failed to remove workspace entry",
+                    ),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsMoveEntry]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsMoveEntry,
+            workspaceFileSystem.moveEntry(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectMoveEntryError({
+                    message: workspaceFileSystemMutationMessage(
+                      cause,
+                      "Failed to move workspace entry",
+                    ),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsCopyEntry]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsCopyEntry,
+            workspaceFileSystem.copyEntry(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectCopyEntryError({
+                    message: workspaceFileSystemMutationMessage(
+                      cause,
+                      "Failed to copy workspace entry",
+                    ),
+                    cause,
+                  }),
+              ),
             ),
             { "rpc.aggregate": "workspace" },
           ),
@@ -1330,6 +1428,18 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(WS_METHODS.gitDiffLoadFileIndex, gitDiffCore.loadDiffFileIndex(input), {
             "rpc.aggregate": "git-diff",
           }),
+        [WS_METHODS.gitDiffLoadFile]: (input) =>
+          observeRpcEffect(WS_METHODS.gitDiffLoadFile, gitDiffCore.loadDiffFile(input), {
+            "rpc.aggregate": "git-diff",
+          }),
+        [WS_METHODS.gitDiffLoadStackedFileIndex]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffLoadStackedFileIndex,
+            gitDiffCore.loadStackedDiffFileIndex(input),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
             "rpc.aggregate": "terminal",

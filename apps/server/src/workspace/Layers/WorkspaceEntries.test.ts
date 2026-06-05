@@ -69,7 +69,12 @@ const searchWorkspaceEntries = (input: { cwd: string; query: string; limit: numb
     return yield* workspaceEntries.search(input);
   });
 
-const listWorkspaceEntries = (input: { cwd: string; relativePath?: string; limit: number }) =>
+const listWorkspaceEntries = (input: {
+  cwd: string;
+  includeIgnored?: boolean;
+  relativePath?: string;
+  limit: number;
+}) =>
   Effect.gen(function* () {
     const workspaceEntries = yield* WorkspaceEntries;
     return yield* workspaceEntries.listEntries(input);
@@ -313,6 +318,53 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
           entries: [{ path: "src/a.ts", kind: "file", parentPath: "src" }],
           truncated: true,
         });
+      }),
+    );
+
+    it.effect("hides gitignored entries by default and includes them when requested", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "fenrir-workspace-list-ignored-", git: true });
+        yield* writeTextFile(cwd, ".gitignore", "ignored.txt\nignored-dir/\nnode_modules/\n");
+        yield* writeTextFile(cwd, "src/index.ts", "export {};");
+        yield* writeTextFile(cwd, "ignored.txt", "");
+        yield* writeTextFile(cwd, "ignored-dir/config.json", "{}");
+        yield* writeTextFile(cwd, "node_modules/pkg/index.js", "");
+
+        const hiddenResult = yield* listWorkspaceEntries({ cwd, limit: 100 });
+        const visibleResult = yield* listWorkspaceEntries({
+          cwd,
+          includeIgnored: true,
+          limit: 100,
+        });
+
+        expect(hiddenResult.entries).toEqual([
+          { path: "src", kind: "directory" },
+          { path: ".gitignore", kind: "file" },
+        ]);
+        expect(visibleResult.entries).toEqual([
+          { path: "ignored-dir", kind: "directory" },
+          { path: "node_modules", kind: "directory" },
+          { path: "src", kind: "directory" },
+          { path: ".gitignore", kind: "file" },
+          { path: "ignored.txt", kind: "file" },
+        ]);
+      }),
+    );
+
+    it.effect("keeps git metadata hidden even when ignored entries are included", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({
+          prefix: "fenrir-workspace-list-ignored-git-",
+          git: true,
+        });
+
+        const result = yield* listWorkspaceEntries({
+          cwd,
+          includeIgnored: true,
+          limit: 100,
+        });
+
+        expect(result.entries.some((entry) => entry.path === ".git")).toBe(false);
       }),
     );
 

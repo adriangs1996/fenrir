@@ -55,6 +55,7 @@ function compile(
 const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("j"), command: "terminal.toggle" },
   { shortcut: modShortcut("d"), command: "diff.toggle" },
+  { shortcut: modShortcut("g"), command: "gitDiff.toggle" },
   { shortcut: modShortcut("b"), command: "sidebar.toggle" },
   { shortcut: modShortcut("n"), command: "chat.new" },
   { shortcut: modShortcut("c", { shiftKey: true }), command: "editor.sendSelection" },
@@ -101,6 +102,10 @@ describe("isAppShortcut", () => {
       expect(
         isAppShortcut(kbd({ key: "C", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS),
       ).toBe(true);
+    });
+
+    it("treats Cmd+G as app shortcut on macOS when bound", () => {
+      expect(isAppShortcut(kbd({ key: "g", metaKey: true }), DEFAULT_BINDINGS)).toBe(true);
     });
 
     it("detects Cmd+Shift+C as editor send selection on macOS", () => {

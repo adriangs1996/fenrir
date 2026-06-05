@@ -34,7 +34,6 @@ describe("SidebarRouteNavFooter", () => {
     expect(markup).toContain("Agents Workspace");
     expect(markup).not.toContain("Remote Host");
     expect(markup).toContain("Browser Lab");
-    expect(markup).toContain("Git Diff");
     expect(markup).toContain("Global Terminal");
     expect(markup).toContain("Settings");
   });

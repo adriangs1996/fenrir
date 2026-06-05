@@ -1,6 +1,6 @@
 import { memo } from "react";
 import type { LucideIcon } from "lucide-react";
-import { FileEditIcon, MessageSquareIcon, TerminalSquareIcon } from "lucide-react";
+import { FileEditIcon, GitCompareIcon, MessageSquareIcon, TerminalSquareIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 import type { ChatTab } from "../stores/editorStore";
@@ -8,6 +8,7 @@ import type { ChatTab } from "../stores/editorStore";
 interface Props {
   activeTab: ChatTab;
   editorAvailable: boolean;
+  gitDiffAvailable: boolean;
   onTabSelect: (tab: ChatTab) => void;
 }
 
@@ -22,6 +23,11 @@ const CHAT_VIEW_OPTIONS: ChatViewOption[] = [
     tab: "thread",
     label: "Thread",
     Icon: MessageSquareIcon,
+  },
+  {
+    tab: "gitdiff",
+    label: "Git Diff",
+    Icon: GitCompareIcon,
   },
   {
     tab: "editor",
@@ -43,14 +49,23 @@ const CHAT_VIEW_OPTIONS: ChatViewOption[] = [
 export const ChatViewSwitcher = memo(function ChatViewSwitcher({
   activeTab,
   editorAvailable,
+  gitDiffAvailable,
   onTabSelect,
 }: Props) {
-  const visibleOptions = editorAvailable
-    ? CHAT_VIEW_OPTIONS
-    : CHAT_VIEW_OPTIONS.filter((option) => option.tab !== "editor");
+  const visibleOptions = CHAT_VIEW_OPTIONS.filter((option) => {
+    if (option.tab === "editor") return editorAvailable;
+    if (option.tab === "gitdiff") return gitDiffAvailable;
+    return true;
+  });
   const selectedTab = visibleOptions.some((option) => option.tab === activeTab)
     ? activeTab
     : "thread";
+  const widthClass =
+    visibleOptions.length >= 4
+      ? "w-[180px]"
+      : visibleOptions.length === 3
+        ? "w-[148px]"
+        : "w-[116px]";
 
   return (
     <div
@@ -58,7 +73,7 @@ export const ChatViewSwitcher = memo(function ChatViewSwitcher({
       aria-label="Workspace view"
       className={cn(
         "inline-flex h-8 shrink-0 items-center gap-0.5 rounded-lg border border-border/70 bg-muted/40 p-0.5",
-        editorAvailable ? "w-[148px]" : "w-[116px]",
+        widthClass,
       )}
     >
       {visibleOptions.map((option) => (

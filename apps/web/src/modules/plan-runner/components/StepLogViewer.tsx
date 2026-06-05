@@ -8,9 +8,15 @@ import {
   ScrollTextIcon,
   AlertTriangleIcon,
   RefreshCwIcon,
+  TerminalIcon,
   WrenchIcon,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { LegendList } from "@legendapp/list/react";
+import {
+  extractProviderToolCommand,
+  type ProviderToolCommandPreview,
+} from "@fenrir/shared/providerActivityLog";
+import { memo, useCallback, useMemo, useState } from "react";
 import { type PlanRunnerLogEntry, type PlanRunnerLogEntryKind } from "@fenrir/contracts";
 import { type TimestampFormat } from "@fenrir/contracts/settings";
 import ChatMarkdown from "~/components/ChatMarkdown";
@@ -97,6 +103,10 @@ function asTrimmedString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function getActivityEnvelopePayload(entry: PlanRunnerLogEntry): unknown {
+  return asRecord(entry.payload)?.payload;
+}
+
 function formatActivityMetaLabel(value: string): string {
   return value.replaceAll("_", " ").replaceAll(".", " ");
 }
@@ -106,11 +116,58 @@ function getActivityMeta(entry: PlanRunnerLogEntry): {
   itemType: string | null;
 } {
   const root = asRecord(entry.payload);
-  const nested = asRecord(root?.payload);
+  const nested = asRecord(getActivityEnvelopePayload(entry));
   return {
     kind: asTrimmedString(root?.kind),
     itemType: asTrimmedString(nested?.itemType),
   };
+}
+
+function isContextUpdateEntry(entry: PlanRunnerLogEntry): boolean {
+  if (entry.kind !== "activity") return false;
+  return asTrimmedString(asRecord(entry.payload)?.kind) === "context-window.updated";
+}
+
+function extractBodyCommandPreview(text: string | null): ProviderToolCommandPreview {
+  if (!text) return { command: null, rawCommand: null };
+  let command: string | null = null;
+  let rawCommand: string | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (command === null && /^command:\s*/i.test(trimmed)) {
+      command = trimmed.replace(/^command:\s*/i, "").trim() || null;
+      continue;
+    }
+    if (rawCommand === null && /^raw command:\s*/i.test(trimmed)) {
+      rawCommand = trimmed.replace(/^raw command:\s*/i, "").trim() || null;
+    }
+  }
+  return { command, rawCommand };
+}
+
+function getCommandPreview(entry: PlanRunnerLogEntry): ProviderToolCommandPreview | null {
+  if (entry.kind !== "activity") return null;
+  const payloadPreview = extractProviderToolCommand(getActivityEnvelopePayload(entry));
+  if (payloadPreview.command || payloadPreview.rawCommand) {
+    return payloadPreview;
+  }
+  const bodyPreview = extractBodyCommandPreview(entry.bodyText ?? entry.copyText);
+  return bodyPreview.command || bodyPreview.rawCommand ? bodyPreview : null;
+}
+
+function stripCommandMetadataLines(text: string | null): string | null {
+  if (!text) return null;
+  const lines = text.split(/\r?\n/);
+  let removedAny = false;
+  const retained = lines.filter((line) => {
+    const trimmed = line.trimStart();
+    const shouldRemove = /^(type|command|raw command):\s*/i.test(trimmed);
+    removedAny = removedAny || shouldRemove;
+    return !shouldRemove;
+  });
+  if (!removedAny) return text;
+  const normalized = retained.join("\n").trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 // ─── Copy text ───────────────────────────────────────────────────────────────
@@ -136,7 +193,41 @@ function buildAllCopyBlock(entries: readonly PlanRunnerLogEntry[]): string {
   return entries.map(buildEntryCopyBlock).join("\n\n---\n\n");
 }
 
+const LOG_LIST_FOOTER = <div className="h-2" />;
+
+function logEntryKey(entry: PlanRunnerLogEntry) {
+  return entry.entryId;
+}
+
 // ─── Per-entry row ───────────────────────────────────────────────────────────
+
+const CommandPreviewBlock = memo(function CommandPreviewBlock({
+  preview,
+}: {
+  preview: ProviderToolCommandPreview;
+}) {
+  return (
+    <div className="overflow-hidden rounded-md border border-primary/20 bg-background/70">
+      <div className="flex items-center gap-2 border-b border-border/50 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <TerminalIcon className="size-3 text-primary/80" />
+        Command
+      </div>
+      {preview.command && (
+        <pre className="overflow-x-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[12px] leading-relaxed text-foreground">
+          {preview.command}
+        </pre>
+      )}
+      {preview.rawCommand && preview.rawCommand !== preview.command && (
+        <details className="border-t border-border/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+          <summary className="cursor-pointer select-none font-medium">Raw shell</summary>
+          <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words font-mono leading-relaxed text-muted-foreground">
+            {preview.rawCommand}
+          </pre>
+        </details>
+      )}
+    </div>
+  );
+});
 
 interface EntryRowProps {
   entry: PlanRunnerLogEntry;
@@ -154,6 +245,7 @@ const EntryRow = memo(function EntryRow({
   const cfg = kindCfg(entry.kind);
   const Icon = cfg.icon;
   const activityMeta = entry.kind === "activity" ? getActivityMeta(entry) : null;
+  const commandPreview = useMemo(() => getCommandPreview(entry), [entry]);
 
   // Generated runner prompts (`kind === "prompt"`) are collapsed by default
   // behind a disclosure. Other kinds are always visible.
@@ -184,13 +276,19 @@ const EntryRow = memo(function EntryRow({
       );
     }
     if (entry.kind === "activity") {
-      const formatted =
+      const rawFormatted =
         entry.bodyText ?? entry.bodyMarkdown ?? formatActivityPayload(entry.payload);
-      if (!formatted) return null;
+      const formatted = commandPreview ? stripCommandMetadataLines(rawFormatted) : rawFormatted;
+      if (!formatted && !commandPreview) return null;
       return (
-        <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border/40 bg-muted/30 px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground/85">
-          {formatted}
-        </pre>
+        <div className="space-y-2">
+          {commandPreview && <CommandPreviewBlock preview={commandPreview} />}
+          {formatted && (
+            <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border/40 bg-muted/30 px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground/85">
+              {formatted}
+            </pre>
+          )}
+        </div>
       );
     }
     const text = entry.bodyText ?? entry.bodyMarkdown;
@@ -327,40 +425,25 @@ export const StepLogViewer = memo(function StepLogViewer({
   loading = false,
   className,
 }: StepLogViewerProps) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const stickToBottomRef = useRef(true);
-
-  const updateStickiness = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-  }, []);
-
-  // Auto-scroll-to-bottom on new entries when the user is already near the
-  // bottom. This keeps live tailing feeling natural without yanking the
-  // viewport when the user has scrolled up to inspect history.
-  const lastCountRef = useRef(0);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) {
-      lastCountRef.current = entries.length;
-      return;
-    }
-    const grew = entries.length > lastCountRef.current;
-    lastCountRef.current = entries.length;
-    if (!grew) return;
-    if (stickToBottomRef.current) {
-      // Defer one frame so the new row's measurement is committed.
-      requestAnimationFrame(() => {
-        const next = scrollRef.current;
-        if (!next) return;
-        next.scrollTop = next.scrollHeight;
-      });
-    }
-  }, [entries.length]);
-  useEffect(() => {
-    updateStickiness();
-  }, [entries.length, updateStickiness]);
+  const visibleEntries = useMemo(
+    () => entries.filter((entry) => !isContextUpdateEntry(entry)),
+    [entries],
+  );
+  const emptyText = loading ? "Loading..." : emptyHint;
+  const emptyComponent = useMemo(
+    () => (
+      <div className="flex h-full items-center justify-center px-3 py-6 text-xs text-muted-foreground">
+        {emptyText}
+      </div>
+    ),
+    [emptyText],
+  );
+  const renderItem = useCallback(
+    ({ item }: { item: PlanRunnerLogEntry }) => (
+      <EntryRow entry={item} timestampFormat={timestampFormat} cwd={cwd} isPromptDefaultCollapsed />
+    ),
+    [cwd, timestampFormat],
+  );
 
   return (
     <div
@@ -374,31 +457,22 @@ export const StepLogViewer = memo(function StepLogViewer({
           {title}
         </div>
       )}
-      <ViewerHeader entries={entries} loading={loading} emptyHint={emptyHint} />
-      <div
-        ref={scrollRef}
-        onScroll={updateStickiness}
+      <ViewerHeader entries={visibleEntries} loading={loading} emptyHint={emptyHint} />
+      <LegendList<PlanRunnerLogEntry>
+        data={visibleEntries}
+        keyExtractor={logEntryKey}
+        renderItem={renderItem}
+        estimatedItemSize={118}
+        drawDistance={720}
+        initialScrollAtEnd
+        maintainScrollAtEnd
+        maintainScrollAtEndThreshold={0.12}
+        maintainVisibleContentPosition
+        ListEmptyComponent={emptyComponent}
+        ListFooterComponent={LOG_LIST_FOOTER}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
         data-testid="step-log-viewer-scroll"
-      >
-        {entries.length === 0 ? (
-          <div className="flex h-full items-center justify-center px-3 py-6 text-xs text-muted-foreground">
-            {loading ? "Loading…" : emptyHint}
-          </div>
-        ) : (
-          <div>
-            {entries.map((entry) => (
-              <EntryRow
-                key={entry.entryId}
-                entry={entry}
-                timestampFormat={timestampFormat}
-                cwd={cwd}
-                isPromptDefaultCollapsed
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      />
     </div>
   );
 });

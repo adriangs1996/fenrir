@@ -20,7 +20,14 @@ import type {
   VcsSwitchRefInput,
   VcsSwitchRefResult,
 } from "./git";
-import type { LoadDiffFileIndexInput, LoadDiffFileIndexResult } from "./gitDiff";
+import type {
+  LoadDiffFileInput,
+  LoadDiffFileIndexInput,
+  LoadDiffFileIndexResult,
+  LoadDiffFileResult,
+  LoadStackedDiffFileIndexInput,
+  LoadStackedDiffFileIndexResult,
+} from "./gitDiff";
 import type {
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
@@ -49,8 +56,18 @@ import type {
   SourceControlStackSyncInput,
 } from "./sourceControlStack";
 import type {
+  ProjectCopyEntryInput,
+  ProjectCopyEntryResult,
+  ProjectCreateDirectoryInput,
+  ProjectCreateDirectoryResult,
+  ProjectCreateFileInput,
+  ProjectCreateFileResult,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
+  ProjectMoveEntryInput,
+  ProjectMoveEntryResult,
+  ProjectRemoveEntryInput,
+  ProjectRemoveEntryResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -808,6 +825,11 @@ export interface EnvironmentApi {
     listEntries: (input: ProjectListEntriesInput) => Promise<ProjectListEntriesResult>;
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+    createFile: (input: ProjectCreateFileInput) => Promise<ProjectCreateFileResult>;
+    createDirectory: (input: ProjectCreateDirectoryInput) => Promise<ProjectCreateDirectoryResult>;
+    removeEntry: (input: ProjectRemoveEntryInput) => Promise<ProjectRemoveEntryResult>;
+    moveEntry: (input: ProjectMoveEntryInput) => Promise<ProjectMoveEntryResult>;
+    copyEntry: (input: ProjectCopyEntryInput) => Promise<ProjectCopyEntryResult>;
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
@@ -887,7 +909,11 @@ export interface EnvironmentApi {
     ) => Promise<GitPreparePullRequestThreadResult>;
   };
   gitDiff: {
+    loadFile: (input: LoadDiffFileInput) => Promise<LoadDiffFileResult>;
     loadFileIndex: (input: LoadDiffFileIndexInput) => Promise<LoadDiffFileIndexResult>;
+    loadStackedFileIndex: (
+      input: LoadStackedDiffFileIndexInput,
+    ) => Promise<LoadStackedDiffFileIndexResult>;
   };
   orchestration: {
     getArchivedShellSnapshot: () => Promise<OrchestrationShellSnapshot>;
