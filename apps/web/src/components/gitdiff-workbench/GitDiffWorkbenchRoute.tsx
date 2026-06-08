@@ -181,6 +181,9 @@ type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
 type DiffLineHighlightMode = "inline" | "none";
 type GitDiffViewMode = "stack" | "worktree";
+type GitDiffReviewThreadAnnotation = {
+  readonly threads: readonly ChangeRequestReviewThread[];
+};
 type PersistedGitDiffRepositoryState = {
   readonly mode: GitDiffViewMode;
   readonly selectedPath: string | null;
@@ -191,7 +194,9 @@ type PersistedGitDiffWorkbenchState = PersistedGitDiffRepositoryState & {
   readonly repositoryStates: Record<string, PersistedGitDiffRepositoryState>;
 };
 type BuiltInHunkSeparators = Exclude<HunkSeparators, "custom">;
-type GitDiffFileDiffOptions = NonNullable<ComponentProps<typeof FileDiff>["options"]>;
+type GitDiffFileDiffOptions = NonNullable<
+  ComponentProps<typeof FileDiff<GitDiffReviewThreadAnnotation>>["options"]
+>;
 type GitDiffLineSelection = {
   readonly side: "additions" | "deletions";
   readonly start: number;
@@ -200,9 +205,6 @@ type GitDiffLineSelection = {
 type GitDiffCommentDialogState = {
   readonly selection: GitDiffLineSelection;
   readonly body: string;
-};
-type GitDiffReviewThreadAnnotation = {
-  readonly threads: readonly ChangeRequestReviewThread[];
 };
 
 const HUNK_SEPARATOR_LABELS: Record<BuiltInHunkSeparators, string> = {
@@ -660,7 +662,7 @@ function sortReviewThreads(
 function buildReviewThreadAnnotations(input: {
   readonly threads: readonly ChangeRequestReviewThread[];
   readonly file: Pick<GitDiffFileSummary, "path" | "previousPath">;
-}): readonly DiffLineAnnotation<GitDiffReviewThreadAnnotation>[] {
+}): DiffLineAnnotation<GitDiffReviewThreadAnnotation>[] {
   if (input.threads.length === 0) return [];
 
   const groupedThreads = new Map<string, ChangeRequestReviewThread[]>();
@@ -2750,10 +2752,7 @@ function GitDiffFileWorkbench(props: {
     [props.reviewThreads, props.selectedFile],
   );
   const parsedFileReviewAnnotations = useMemo(() => {
-    const annotations = new Map<
-      string,
-      readonly DiffLineAnnotation<GitDiffReviewThreadAnnotation>[]
-    >();
+    const annotations = new Map<string, DiffLineAnnotation<GitDiffReviewThreadAnnotation>[]>();
     if (renderablePatch?.kind !== "files") {
       return annotations;
     }
@@ -3041,7 +3040,7 @@ function GitDiffFileWorkbench(props: {
                 key={`${fullFileDiff.cacheKey}:${props.diffRenderMode}:${props.diffHunkSeparators}`}
                 className="mt-2"
               >
-                <FileDiff
+                <FileDiff<GitDiffReviewThreadAnnotation>
                   fileDiff={fullFileDiff}
                   lineAnnotations={selectedFileReviewAnnotations}
                   options={diffOptions}
@@ -3064,7 +3063,7 @@ function GitDiffFileWorkbench(props: {
                   data-diff-file-path={resolveParsedFileDiffPath(fileDiff)}
                   className="mt-2"
                 >
-                  <FileDiff
+                  <FileDiff<GitDiffReviewThreadAnnotation>
                     fileDiff={fileDiff}
                     lineAnnotations={
                       parsedFileReviewAnnotations.get(buildParsedFileDiffRenderKey(fileDiff)) ?? []
@@ -3179,7 +3178,7 @@ function GitDiffReviewThreadAnnotationCard(props: {
 }
 
 function ReviewCommentAvatar(props: {
-  readonly avatarUrl?: string;
+  readonly avatarUrl: string | undefined;
   readonly login: string;
 }) {
   if (props.avatarUrl) {

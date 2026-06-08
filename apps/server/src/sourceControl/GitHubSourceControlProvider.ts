@@ -40,6 +40,7 @@ const RawGitHubReviewCommentSchema = Schema.Struct({
   updatedAt: Schema.optional(Schema.NullOr(Schema.String)),
   url: Schema.optional(Schema.NullOr(Schema.String)),
 });
+type RawGitHubReviewComment = typeof RawGitHubReviewCommentSchema.Type;
 const RawGitHubReviewThreadSchema = Schema.Struct({
   id: Schema.String,
   path: Schema.String,
@@ -71,9 +72,7 @@ const RawGitHubReviewThreadPagesSchema = Schema.Union([
   RawGitHubReviewThreadPageSchema,
   Schema.Array(RawGitHubReviewThreadPageSchema),
 ]);
-const decodeRawGitHubReviewThreadPages = Schema.decodeUnknownSync(
-  RawGitHubReviewThreadPagesSchema,
-);
+const decodeRawGitHubReviewThreadPages = Schema.decodeUnknownSync(RawGitHubReviewThreadPagesSchema);
 
 const REVIEW_THREADS_GRAPHQL_QUERY = `
 query FenrirPullRequestReviewThreads(
@@ -241,7 +240,7 @@ function mapGitHubReviewThreadSide(side: string): "additions" | "deletions" | nu
 }
 
 function positiveInteger(value: number | null | undefined): number | null {
-  if (!Number.isInteger(value) || value <= 0) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) return null;
   return value;
 }
 
@@ -261,22 +260,24 @@ function decodeGitHubReviewThreads(raw: string): ReadonlyArray<ChangeRequestRevi
       }
 
       const comments = rawThread.comments.nodes
-        .filter((comment) => comment.id.trim().length > 0)
-        .map((comment) => {
-          const author = comment.author?.login.trim()
-            ? {
-                login: comment.author.login.trim(),
-                ...(comment.author.avatarUrl ? { avatarUrl: comment.author.avatarUrl } : {}),
-              }
-            : { login: "unknown" };
-          return {
-            id: comment.id.trim(),
-            body: comment.body,
-            author,
-            ...(comment.createdAt ? { createdAt: comment.createdAt } : {}),
-            ...(comment.updatedAt ? { updatedAt: comment.updatedAt } : {}),
-            ...(comment.url ? { url: comment.url } : {}),
-          };
+        .filter((comment: RawGitHubReviewComment) => comment.id.trim().length > 0)
+        .map((comment: RawGitHubReviewComment) => {
+          const authorLogin = comment.author?.login.trim();
+          const author = Object.assign(
+            { login: authorLogin ? authorLogin : "unknown" },
+            comment.author?.avatarUrl ? { avatarUrl: comment.author.avatarUrl } : {},
+          );
+
+          return Object.assign(
+            {
+              id: comment.id.trim(),
+              body: comment.body,
+              author,
+            },
+            comment.createdAt ? { createdAt: comment.createdAt } : {},
+            comment.updatedAt ? { updatedAt: comment.updatedAt } : {},
+            comment.url ? { url: comment.url } : {},
+          );
         });
       if (comments.length === 0) {
         continue;

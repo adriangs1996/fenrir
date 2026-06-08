@@ -63,8 +63,7 @@ export const ChangeRequestReviewCommentAuthor = Schema.Struct({
   login: TrimmedNonEmptyString,
   avatarUrl: Schema.optionalKey(Schema.String),
 });
-export type ChangeRequestReviewCommentAuthor =
-  typeof ChangeRequestReviewCommentAuthor.Type;
+export type ChangeRequestReviewCommentAuthor = typeof ChangeRequestReviewCommentAuthor.Type;
 
 export const ChangeRequestReviewComment = Schema.Struct({
   id: TrimmedNonEmptyString,

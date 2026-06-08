@@ -41,6 +41,7 @@ function makeProvider(
     mergeChangeRequest: () => unsupported("mergeChangeRequest"),
     createChangeRequestLineComment: () => unsupported("createChangeRequestLineComment"),
     listChangeRequestChecks: () => unsupported("listChangeRequestChecks"),
+    listChangeRequestReviewThreads: () => unsupported("listChangeRequestReviewThreads"),
     getRepositoryCloneUrls: () => Effect.succeed(CLONE_URLS),
     createRepository: () => Effect.succeed(CLONE_URLS),
     getDefaultBranch: () => Effect.succeed(null),

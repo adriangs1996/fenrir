@@ -202,9 +202,7 @@ export const LoadGitDiffChangeRequestReviewThreadsInput = GitDiffChangeRequestRe
 export type LoadGitDiffChangeRequestReviewThreadsInput =
   typeof LoadGitDiffChangeRequestReviewThreadsInput.Type;
 
-export const LoadGitDiffChangeRequestReviewThreadsResult = Schema.Array(
-  ChangeRequestReviewThread,
-);
+export const LoadGitDiffChangeRequestReviewThreadsResult = Schema.Array(ChangeRequestReviewThread);
 export type LoadGitDiffChangeRequestReviewThreadsResult =
   typeof LoadGitDiffChangeRequestReviewThreadsResult.Type;
 

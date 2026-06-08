@@ -1097,9 +1097,9 @@ describe("GitDiffCoreLive", () => {
             status: "ok",
           });
           expect(yield* gitDiff.loadChangeRequestChecks({ cwd, reference: "3" })).toEqual(checks);
-          expect(
-            yield* gitDiff.loadChangeRequestReviewThreads({ cwd, reference: "3" }),
-          ).toEqual(reviewThreads);
+          expect(yield* gitDiff.loadChangeRequestReviewThreads({ cwd, reference: "3" })).toEqual(
+            reviewThreads,
+          );
           expect(
             yield* gitDiff.commentChangeRequestLines({
               cwd,
