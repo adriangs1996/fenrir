@@ -3,6 +3,8 @@ import type { SyntaxTheme } from "./theme";
 export const DIFF_THEME_NAMES = {
   light: "pierre-light",
   dark: "pierre-dark",
+  "pierre-dark": "pierre-dark",
+  "pierre-dark-soft": "pierre-dark-soft",
   "catppuccin-mocha": "catppuccin-mocha",
   "rose-pine": "rose-pine",
   "kanagawa-wave": "kanagawa-wave",
@@ -15,6 +17,7 @@ export type DiffThemeName = (typeof DIFF_THEME_NAMES)[keyof typeof DIFF_THEME_NA
 export const DIFF_HIGHLIGHTER_THEME_NAMES = [
   DIFF_THEME_NAMES.dark,
   DIFF_THEME_NAMES.light,
+  DIFF_THEME_NAMES["pierre-dark-soft"],
   DIFF_THEME_NAMES["catppuccin-mocha"],
   DIFF_THEME_NAMES["rose-pine"],
   DIFF_THEME_NAMES["kanagawa-wave"],

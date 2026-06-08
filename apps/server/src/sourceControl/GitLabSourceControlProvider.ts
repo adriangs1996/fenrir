@@ -19,6 +19,16 @@ function providerError(
   });
 }
 
+function unsupported(operation: string): Effect.Effect<never, SourceControlProviderError> {
+  return Effect.fail(
+    new SourceControlProviderError({
+      provider: "gitlab",
+      operation,
+      detail: "This GitLab source control operation is not supported yet.",
+    }),
+  );
+}
+
 function toChangeRequest(summary: GitLabCli.GitLabMergeRequestSummary): ChangeRequest {
   return {
     provider: "gitlab",
@@ -157,6 +167,9 @@ export const make = Effect.fn("makeGitLabSourceControlProvider")(function* () {
           Effect.asVoid,
           Effect.mapError((error) => providerError("closeChangeRequest", error)),
         ),
+    mergeChangeRequest: () => unsupported("mergeChangeRequest"),
+    createChangeRequestLineComment: () => unsupported("createChangeRequestLineComment"),
+    listChangeRequestChecks: () => unsupported("listChangeRequestChecks"),
     getRepositoryCloneUrls: (input) =>
       gitlab
         .getRepositoryCloneUrls(input)

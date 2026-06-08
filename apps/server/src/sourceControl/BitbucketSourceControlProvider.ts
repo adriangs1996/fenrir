@@ -20,6 +20,16 @@ function providerError(
   });
 }
 
+function unsupported(operation: string): Effect.Effect<never, SourceControlProviderError> {
+  return Effect.fail(
+    new SourceControlProviderError({
+      provider: "bitbucket",
+      operation,
+      detail: "This Bitbucket source control operation is not supported yet.",
+    }),
+  );
+}
+
 function toChangeRequest(
   summary: BitbucketPullRequests.NormalizedBitbucketPullRequestRecord,
 ): ChangeRequest {
@@ -105,6 +115,9 @@ export const make = Effect.fn("makeBitbucketSourceControlProvider")(function* ()
           reference: input.reference,
         })
         .pipe(Effect.mapError((error) => providerError("closeChangeRequest", error))),
+    mergeChangeRequest: () => unsupported("mergeChangeRequest"),
+    createChangeRequestLineComment: () => unsupported("createChangeRequestLineComment"),
+    listChangeRequestChecks: () => unsupported("listChangeRequestChecks"),
     getRepositoryCloneUrls: (input) =>
       bitbucket
         .getRepositoryCloneUrls(input)

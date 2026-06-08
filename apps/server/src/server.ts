@@ -205,7 +205,15 @@ const GitManagerLayerLive = GitManagerLive.pipe(
   Layer.provideMerge(RoutingTextGenerationLive),
 );
 
-const GitDiffLayerLive = GitDiffCoreLive.pipe(Layer.provideMerge(GitCoreLive));
+const SourceControlLayerLive = SourceControlModuleLive.pipe(
+  Layer.provideMerge(GitManagerLayerLive),
+  Layer.provideMerge(GitCoreLive),
+);
+
+const GitDiffLayerLive = GitDiffCoreLive.pipe(
+  Layer.provideMerge(GitCoreLive),
+  Layer.provideMerge(SourceControlLayerLive),
+);
 
 const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitManagerLayerLive),
@@ -223,11 +231,6 @@ const VcsLayerLive = Layer.empty.pipe(
   Layer.provideMerge(VcsProvisioningServiceLive),
   Layer.provideMerge(GitWorkflowLayerLive),
   Layer.provideMerge(VcsStatusBroadcasterLive.pipe(Layer.provide(GitWorkflowLayerLive))),
-);
-
-const SourceControlLayerLive = SourceControlModuleLive.pipe(
-  Layer.provideMerge(GitManagerLayerLive),
-  Layer.provideMerge(GitCoreLive),
 );
 
 const SourceControlStackLayerLive = SourceControlStackServiceLive.pipe(

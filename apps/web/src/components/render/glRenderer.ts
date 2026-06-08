@@ -390,14 +390,22 @@ export class GLRenderer {
   private hlBg = new Uint32Array(0);
   private hlFlags = new Uint8Array(0);
   private hlDefined = new Uint8Array(0);
-  private defaultColors: DefaultColorsEntry = { fg: 0xe8e8ea, bg: 0x0e0f13, sp: 0xff453a };
+  private defaultColors: DefaultColorsEntry = {
+    fg: 0xe8e8ea,
+    bg: 0x0e0f13,
+    sp: 0xff453a,
+  };
   private defFgU32 = 0;
   private defBgU32 = 0;
   private grids = new Map<number, GridState>();
   private windowsById = new Map<number, WindowEntry>();
   private visibleSorted: WindowEntry[] = [];
   private cursor: CursorEntry | null = null;
-  private readonly cursorGlyphScratch: ResolvedCursorGlyph = { cp: 0, bold: false, italic: false };
+  private readonly cursorGlyphScratch: ResolvedCursorGlyph = {
+    cp: 0,
+    bold: false,
+    italic: false,
+  };
   private redefinedHlEpochs = new Uint32Array(0);
   private redefinedHlEpoch = 0;
   private redefinedHlCount = 0;

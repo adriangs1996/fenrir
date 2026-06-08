@@ -18,6 +18,16 @@ function providerError(
   });
 }
 
+function unsupported(operation: string): Effect.Effect<never, SourceControlProviderError> {
+  return Effect.fail(
+    new SourceControlProviderError({
+      provider: "azure-devops",
+      operation,
+      detail: "This Azure DevOps source control operation is not supported yet.",
+    }),
+  );
+}
+
 function parseAzureAuth(input: SourceControlProviderDiscovery.SourceControlAuthProbeInput) {
   const account = input.stdout.trim().split(/\r?\n/)[0]?.trim();
 
@@ -168,6 +178,9 @@ export const make = Effect.fn("makeAzureDevOpsSourceControlProvider")(function* 
           Effect.asVoid,
           Effect.mapError((error) => providerError("closeChangeRequest", error)),
         ),
+    mergeChangeRequest: () => unsupported("mergeChangeRequest"),
+    createChangeRequestLineComment: () => unsupported("createChangeRequestLineComment"),
+    listChangeRequestChecks: () => unsupported("listChangeRequestChecks"),
     getRepositoryCloneUrls: (input) =>
       azure
         .getRepositoryCloneUrls(input)

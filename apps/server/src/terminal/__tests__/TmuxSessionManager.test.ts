@@ -1,4 +1,6 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, it } from "@effect/vitest";
+import path from "node:path";
 import {
   PtyAdapter,
   PtyAdapterShape,
@@ -10,6 +12,7 @@ import {
 import { Effect, Layer } from "effect";
 import { TmuxSessionManager } from "../Services/TmuxSessionManager";
 import { TmuxSessionManagerLive } from "../Layers/TmuxSessionManager";
+import { ServerConfig } from "../../config";
 
 class FakeTmuxPtyProcess implements PtyProcess {
   readonly writes: string[] = [];
@@ -66,7 +69,15 @@ describe("TmuxSessionManager", () => {
   const makeFakeLayer = (adapter?: FakeTmuxPtyAdapter) => {
     const ptyAdapter = adapter ?? new FakeTmuxPtyAdapter();
     const TestLayer = TmuxSessionManagerLive.pipe(
-      Layer.provide(Layer.succeed(PtyAdapter, ptyAdapter)),
+      Layer.provide(
+        Layer.mergeAll(
+          NodeServices.layer,
+          ServerConfig.layerTest(process.cwd(), { prefix: "fenrir-tmux-session-" }).pipe(
+            Layer.provide(NodeServices.layer),
+          ),
+          Layer.succeed(PtyAdapter, ptyAdapter),
+        ),
+      ),
     );
     return { ptyAdapter, TestLayer };
   };
@@ -108,6 +119,20 @@ describe("TmuxSessionManager", () => {
         "-c",
         "/home/user/project",
       ]);
+    }).pipe(Effect.provide(TestLayer));
+  });
+
+  it.effect("createSession injects Pierre Dark lazygit config into tmux env", () => {
+    const ptyAdapter = new FakeTmuxPtyAdapter();
+    const { TestLayer } = makeFakeLayer(ptyAdapter);
+
+    return Effect.gen(function* () {
+      const manager = yield* TmuxSessionManager;
+
+      yield* manager.createSession("proj-1", "/home/user/project");
+
+      const call = ptyAdapter.spawnCalls[0]!;
+      expect(call.env.LG_CONFIG_FILE).toContain(path.join("lazygit", "pierre-dark.yml"));
     }).pipe(Effect.provide(TestLayer));
   });
 

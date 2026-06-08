@@ -21,6 +21,19 @@ export type SourceControlProviderInfo = typeof SourceControlProviderInfo.Type;
 export const ChangeRequestState = Schema.Literals(["open", "closed", "merged"]);
 export type ChangeRequestState = typeof ChangeRequestState.Type;
 
+export const ChangeRequestLineSide = Schema.Literals(["additions", "deletions"]);
+export type ChangeRequestLineSide = typeof ChangeRequestLineSide.Type;
+
+export const ChangeRequestCheckStatus = Schema.Literals([
+  "pending",
+  "success",
+  "failure",
+  "cancelled",
+  "skipped",
+  "unknown",
+]);
+export type ChangeRequestCheckStatus = typeof ChangeRequestCheckStatus.Type;
+
 export const ChangeRequest = Schema.Struct({
   provider: SourceControlProviderKind,
   number: PositiveInt,
@@ -35,6 +48,16 @@ export const ChangeRequest = Schema.Struct({
   headRepositoryOwnerLogin: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
 });
 export type ChangeRequest = typeof ChangeRequest.Type;
+
+export const ChangeRequestCheck = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  status: ChangeRequestCheckStatus,
+  url: Schema.optionalKey(Schema.String),
+  description: Schema.optionalKey(Schema.String),
+  startedAt: Schema.Option(Schema.DateTimeUtc),
+  completedAt: Schema.Option(Schema.DateTimeUtc),
+});
+export type ChangeRequestCheck = typeof ChangeRequestCheck.Type;
 
 export const SourceControlChangeRequestListInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,

@@ -13,6 +13,8 @@
       (() => {
         const LIGHT_BACKGROUND = "#ffffff";
         const DARK_BACKGROUND = "#161616";
+        const PIERRE_DARK_BACKGROUND = "#0a0a0a";
+        const PIERRE_DARK_SOFT_BACKGROUND = "#101010";
         const CATPPUCCIN_BACKGROUND = "#181825";
         const ROSE_PINE_BACKGROUND = "#191724";
         const KANAGAWA_BACKGROUND = "#1f1f28";
@@ -25,6 +27,8 @@
             storedTheme === "light" ||
             storedTheme === "dark" ||
             storedTheme === "system" ||
+            storedTheme === "pierre-dark" ||
+            storedTheme === "pierre-dark-soft" ||
             storedTheme === "catppuccin-mocha" ||
             storedTheme === "rose-pine" ||
             storedTheme === "kanagawa" ||
@@ -33,12 +37,16 @@
               ? storedTheme
               : "system";
           const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const isPierreDark = theme === "pierre-dark";
+          const isPierreDarkSoft = theme === "pierre-dark-soft";
           const isCatppuccin = theme === "catppuccin-mocha";
           const isRosePine = theme === "rose-pine";
           const isKanagawa = theme === "kanagawa";
           const isKanagawaDragon = theme === "kanagawa-dragon";
           const isNord = theme === "nord";
           const isDark =
+            isPierreDark ||
+            isPierreDarkSoft ||
             isCatppuccin ||
             isRosePine ||
             isKanagawa ||
@@ -47,24 +55,30 @@
             theme === "dark" ||
             (theme === "system" && prefersDark);
           document.documentElement.classList.toggle("dark", isDark);
+          document.documentElement.classList.toggle("pierre-dark", isPierreDark);
+          document.documentElement.classList.toggle("pierre-dark-soft", isPierreDarkSoft);
           document.documentElement.classList.toggle("catppuccin-mocha", isCatppuccin);
           document.documentElement.classList.toggle("rose-pine", isRosePine);
           document.documentElement.classList.toggle("kanagawa", isKanagawa);
           document.documentElement.classList.toggle("kanagawa-dragon", isKanagawaDragon);
           document.documentElement.classList.toggle("nord", isNord);
-          const chromeColor = isCatppuccin
-            ? CATPPUCCIN_BACKGROUND
-            : isRosePine
-              ? ROSE_PINE_BACKGROUND
-              : isKanagawa
-                ? KANAGAWA_BACKGROUND
-                : isKanagawaDragon
-                  ? KANAGAWA_DRAGON_BACKGROUND
-                  : isNord
-                    ? NORD_BACKGROUND
-                    : isDark
-                      ? DARK_BACKGROUND
-                      : LIGHT_BACKGROUND;
+          const chromeColor = isPierreDark
+            ? PIERRE_DARK_BACKGROUND
+            : isPierreDarkSoft
+              ? PIERRE_DARK_SOFT_BACKGROUND
+              : isCatppuccin
+                ? CATPPUCCIN_BACKGROUND
+                : isRosePine
+                  ? ROSE_PINE_BACKGROUND
+                  : isKanagawa
+                    ? KANAGAWA_BACKGROUND
+                    : isKanagawaDragon
+                      ? KANAGAWA_DRAGON_BACKGROUND
+                      : isNord
+                        ? NORD_BACKGROUND
+                        : isDark
+                          ? DARK_BACKGROUND
+                          : LIGHT_BACKGROUND;
           document.documentElement.style.backgroundColor = chromeColor;
           themeColorMeta?.setAttribute("content", chromeColor);
         } catch {
@@ -98,6 +112,16 @@
       html.dark body {
         background: #161616;
         color: #f5f5f5;
+      }
+
+      html.pierre-dark body {
+        background: #0a0a0a;
+        color: #fafafa;
+      }
+
+      html.pierre-dark-soft body {
+        background: #171717;
+        color: #d4d4d4;
       }
 
       html.catppuccin-mocha body {

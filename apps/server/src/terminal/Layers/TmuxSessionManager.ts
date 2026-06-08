@@ -5,6 +5,7 @@ import {
   TmuxSessionManager,
 } from "../Services/TmuxSessionManager";
 import { PtyAdapter, PtyProcess } from "../Services/PTY";
+import { withPierreDarkLazygitThemeEnv } from "./LazygitTheme";
 
 const SESSION_PREFIX = "fenrir-";
 
@@ -22,6 +23,7 @@ export const TmuxSessionManagerLive = Layer.effect(
   TmuxSessionManager,
   Effect.gen(function* () {
     const ptyAdapter = yield* PtyAdapter;
+    const tmuxEnv = yield* withPierreDarkLazygitThemeEnv(process.env as NodeJS.ProcessEnv);
     const attachedProcesses = new Map<string, PtyProcess>();
 
     const execTmux = (args: string[], sessionName: string) =>
@@ -32,7 +34,7 @@ export const TmuxSessionManagerLive = Layer.effect(
           cwd: "/tmp",
           cols: 80,
           rows: 24,
-          env: process.env as NodeJS.ProcessEnv,
+          env: tmuxEnv,
         })
         .pipe(
           Effect.mapError((err) => {
@@ -110,7 +112,7 @@ export const TmuxSessionManagerLive = Layer.effect(
           cwd: "/tmp",
           cols: 80,
           rows: 24,
-          env: process.env as NodeJS.ProcessEnv,
+          env: tmuxEnv,
         });
 
         return yield* Effect.callback<boolean>((resume) => {
@@ -171,7 +173,7 @@ export const TmuxSessionManagerLive = Layer.effect(
             cwd: "/tmp",
             cols,
             rows,
-            env: process.env as NodeJS.ProcessEnv,
+            env: tmuxEnv,
           });
 
           attachedProcesses.set(projectId, attachProc);

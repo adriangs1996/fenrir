@@ -8,6 +8,8 @@ import {
 
 describe("resolveDiffThemeName", () => {
   it("maps custom syntax themes to matching Shiki theme ids", () => {
+    expect(resolveDiffThemeName("pierre-dark")).toBe("pierre-dark");
+    expect(resolveDiffThemeName("pierre-dark-soft")).toBe("pierre-dark-soft");
     expect(resolveDiffThemeName("kanagawa-wave")).toBe("kanagawa-wave");
     expect(resolveDiffThemeName("kanagawa-dragon")).toBe("kanagawa-dragon");
     expect(resolveDiffThemeName("catppuccin-mocha")).toBe("catppuccin-mocha");
@@ -19,6 +21,7 @@ describe("resolveDiffThemeName", () => {
     expect(DIFF_HIGHLIGHTER_THEME_NAMES).toEqual([
       "pierre-dark",
       "pierre-light",
+      "pierre-dark-soft",
       "catppuccin-mocha",
       "rose-pine",
       "kanagawa-wave",

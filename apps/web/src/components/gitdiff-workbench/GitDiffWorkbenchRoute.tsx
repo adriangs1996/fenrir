@@ -1,4 +1,4 @@
-import { parseDiffFromFile, parsePatchFiles } from "@pierre/diffs";
+import { parseDiffFromFile, parsePatchFiles, type SelectedLineRange } from "@pierre/diffs";
 import {
   FileDiff,
   type FileContents,
@@ -8,8 +8,11 @@ import {
 } from "@pierre/diffs/react";
 import {
   buildTerminalFontFamily,
+  type ChangeRequest,
+  type ChangeRequestCheck,
   type DiffTarget,
   type GitDiffFileSummary,
+  type GitDiffIgnoreList,
   type GitDiffStackStep,
   type LoadDiffFileResult,
   type ScopedThreadRef,
@@ -21,25 +24,37 @@ import {
   type GitStatusEntry,
 } from "@pierre/trees";
 import { FileTree as PierreFileTree, useFileTree } from "@pierre/trees/react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import {
+  BanIcon,
+  CheckCircle2Icon,
   ChevronDownIcon,
   Columns2Icon,
+  GitCommitHorizontalIcon,
+  ExternalLinkIcon,
   FileTextIcon,
   GitBranchIcon,
   GitCompareIcon,
+  GitMergeIcon,
   HashIcon,
   HighlighterIcon,
+  MessageSquareIcon,
   PilcrowIcon,
+  PlusIcon,
   RefreshCwIcon,
   Rows3Icon,
   SeparatorHorizontalIcon,
+  Trash2Icon,
   TextWrapIcon,
+  Undo2Icon,
+  UploadIcon,
+  XCircleIcon,
 } from "lucide-react";
 import {
   type ComponentProps,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useCallback,
@@ -52,6 +67,16 @@ import {
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "~/components/ui/dialog";
+import { Input } from "~/components/ui/input";
+import {
   Select,
   SelectItem,
   SelectPopup,
@@ -59,34 +84,60 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import { SidebarInset } from "~/components/ui/sidebar";
+import { Textarea } from "~/components/ui/textarea";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
+import {
+  useDesktopBridgeAvailable,
+  useIsMainWindow,
+  useNvimAvailable,
+  useVSCodeWebAvailable,
+} from "~/hooks/useDesktopBridge";
 import { useSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
+import { openInEmbeddedEditor, openInEmbeddedVSCode } from "~/editorPreferences";
 import {
   DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS,
   buildPatchCacheKey,
   resolveDiffThemeName,
 } from "~/lib/diffRendering";
 import {
+  gitDiffActiveChangeRequestStackedFileIndexQueryOptions,
+  gitDiffChangeRequestChecksQueryOptions,
+  gitDiffCloseChangeRequestMutationOptions,
+  gitDiffCommentChangeRequestLinesMutationOptions,
+  gitDiffCreateIgnoreListMutationOptions,
+  gitDiffDeleteIgnoreListMutationOptions,
   gitDiffFileQueryOptions,
   gitDiffFileIndexQueryOptions,
-  gitDiffStackedFileIndexQueryOptions,
+  gitDiffIgnoreListsQueryOptions,
+  gitDiffMergeChangeRequestMutationOptions,
+  gitDiffRevertChangeRequestLinesMutationOptions,
+  gitDiffStageWorktreeChangesMutationOptions,
+  gitDiffUpdateIgnoreListMutationOptions,
   invalidateGitDiffQueries,
 } from "~/lib/gitDiffReactQuery";
+import { gitRunStackedActionMutationOptions } from "~/lib/gitReactQuery";
 import { useGitStatus } from "~/lib/gitStatusState";
-import { cn } from "~/lib/utils";
+import { readLocalApi } from "~/localApi";
+import { resolveActiveEmbeddedEditor } from "~/modules/neovim-editor";
+import { cn, randomUUID } from "~/lib/utils";
 import { selectProjectByRef, selectThreadByRef, useStore } from "~/store";
 import { resolveThreadRouteRef } from "~/threadRoutes";
 
-const STACK_BASE_REF = "main";
 const GIT_DIFF_FILE_TREE_ROW_HEIGHT = 24;
 const GIT_DIFF_FILE_TREE_MIN_VISIBLE_ROWS = 4;
 const GIT_DIFF_FILE_TREE_MAX_VISIBLE_ROWS = 18;
 const GIT_DIFF_SIDEBAR_SECTION_HEADER_HEIGHT = 44;
 const GIT_DIFF_SIDEBAR_RESIZE_HANDLE_HEIGHT = 10;
+const GIT_DIFF_SIDEBAR_DEFAULT_WIDTH = 352;
+const GIT_DIFF_SIDEBAR_MIN_WIDTH = 280;
+const GIT_DIFF_SIDEBAR_MAX_WIDTH = 720;
 const GIT_DIFF_SIDEBAR_STACK_DEFAULT_HEIGHT = 520;
 const GIT_DIFF_SIDEBAR_STACK_MIN_HEIGHT = 144;
 const GIT_DIFF_SIDEBAR_FILES_MIN_HEIGHT = 120;
+const GIT_DIFF_IGNORE_LIST_DRAG_TYPE = "application/x-fenrir-git-diff-file-path";
+const GIT_DIFF_WORKBENCH_STATE_STORAGE_PREFIX = "fenrir:git-diff-workbench-state:v1";
+const EMPTY_GIT_DIFF_IGNORE_LISTS: readonly GitDiffIgnoreList[] = [];
 
 const GIT_DIFF_FILE_TREE_STYLE = {
   "--trees-bg-override": "transparent",
@@ -119,8 +170,23 @@ const GIT_DIFF_FILE_TREE_STYLE = {
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
 type DiffLineHighlightMode = "inline" | "none";
+type GitDiffViewMode = "stack" | "worktree";
+type PersistedGitDiffWorkbenchState = {
+  readonly mode: GitDiffViewMode;
+  readonly selectedPath: string | null;
+  readonly selectedStackIndex: number | null;
+};
 type BuiltInHunkSeparators = Exclude<HunkSeparators, "custom">;
 type GitDiffFileDiffOptions = NonNullable<ComponentProps<typeof FileDiff>["options"]>;
+type GitDiffLineSelection = {
+  readonly side: "additions" | "deletions";
+  readonly start: number;
+  readonly end: number;
+};
+type GitDiffCommentDialogState = {
+  readonly selection: GitDiffLineSelection;
+  readonly body: string;
+};
 
 const HUNK_SEPARATOR_LABELS: Record<BuiltInHunkSeparators, string> = {
   "line-info": "Line info",
@@ -128,6 +194,60 @@ const HUNK_SEPARATOR_LABELS: Record<BuiltInHunkSeparators, string> = {
   metadata: "Metadata",
   simple: "Simple",
 };
+
+function gitDiffWorkbenchStateStorageKey(input: {
+  readonly environmentId: string | null;
+  readonly projectId: string | null;
+}): string | null {
+  if (!input.environmentId || !input.projectId) return null;
+  return `${GIT_DIFF_WORKBENCH_STATE_STORAGE_PREFIX}:${input.environmentId}:${input.projectId}`;
+}
+
+function isPersistedGitDiffWorkbenchState(value: unknown): value is PersistedGitDiffWorkbenchState {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return (
+    (record.mode === "stack" || record.mode === "worktree") &&
+    (typeof record.selectedPath === "string" || record.selectedPath === null) &&
+    (typeof record.selectedStackIndex === "number" ||
+      record.selectedStackIndex === null ||
+      record.selectedStackIndex === undefined)
+  );
+}
+
+function readPersistedGitDiffWorkbenchState(
+  storageKey: string | null,
+): PersistedGitDiffWorkbenchState | null {
+  if (!storageKey || typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isPersistedGitDiffWorkbenchState(parsed)) return null;
+    return {
+      mode: parsed.mode,
+      selectedPath: parsed.selectedPath,
+      selectedStackIndex:
+        typeof parsed.selectedStackIndex === "number" ? parsed.selectedStackIndex : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedGitDiffWorkbenchState(
+  storageKey: string | null,
+  state: PersistedGitDiffWorkbenchState,
+): void {
+  if (!storageKey || typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(state));
+  } catch {
+    // Storage failure should not block the diff UI.
+  }
+}
 
 type RenderablePatch =
   | {
@@ -246,12 +366,87 @@ function clampStackSectionHeight(height: number, sidebarHeight: number): number 
   return clampNumber(height, GIT_DIFF_SIDEBAR_STACK_MIN_HEIGHT, maxHeight);
 }
 
+function clampSidebarWidth(width: number, viewportWidth: number): number {
+  const maxWidth = Math.min(
+    GIT_DIFF_SIDEBAR_MAX_WIDTH,
+    Math.max(GIT_DIFF_SIDEBAR_MIN_WIDTH, viewportWidth - 420),
+  );
+  return clampNumber(width, GIT_DIFF_SIDEBAR_MIN_WIDTH, maxWidth);
+}
+
+function isAbsoluteFilePath(path: string): boolean {
+  return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+}
+
+function resolveChangedFileEditorPath(cwd: string, filePath: string): string {
+  if (isAbsoluteFilePath(filePath)) return filePath;
+
+  const separator = cwd.includes("\\") && !cwd.includes("/") ? "\\" : "/";
+  const normalizedCwd = cwd.replace(/[\\/]+$/g, "");
+  const normalizedFilePath = filePath.replace(/^[\\/]+/g, "");
+  return `${normalizedCwd}${separator}${normalizedFilePath}`;
+}
+
 function totalInsertions(files: readonly GitDiffFileSummary[]): number {
   return files.reduce((total, file) => total + file.insertions, 0);
 }
 
 function totalDeletions(files: readonly GitDiffFileSummary[]): number {
   return files.reduce((total, file) => total + file.deletions, 0);
+}
+
+function ignoredFilePathSet(ignoreLists: readonly GitDiffIgnoreList[]): ReadonlySet<string> {
+  return new Set(ignoreLists.flatMap((list) => list.filePaths));
+}
+
+function uniqueFilePaths(files: readonly GitDiffFileSummary[]): readonly string[] {
+  return [...new Set(files.map((file) => file.path))].toSorted((left, right) =>
+    left.localeCompare(right),
+  );
+}
+
+function normalizeDiffLineSelection(
+  selection: SelectedLineRange | null,
+): GitDiffLineSelection | null {
+  if (!selection?.side) {
+    return null;
+  }
+  const endSide = selection.endSide ?? selection.side;
+  if (selection.side !== endSide) {
+    return null;
+  }
+  const start = Math.min(selection.start, selection.end);
+  const end = Math.max(selection.start, selection.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < 1) {
+    return null;
+  }
+  return { side: selection.side, start, end };
+}
+
+function formatSelectionLabel(selection: GitDiffLineSelection): string {
+  return selection.start === selection.end
+    ? `${selection.side}:${selection.start}`
+    : `${selection.side}:${selection.start}-${selection.end}`;
+}
+
+function changeRequestReference(changeRequest: ChangeRequest | null): string | null {
+  return changeRequest ? String(changeRequest.number) : null;
+}
+
+function checkStatusTone(status: ChangeRequestCheck["status"]): string {
+  switch (status) {
+    case "success":
+      return "text-emerald-600 dark:text-emerald-400";
+    case "failure":
+    case "cancelled":
+      return "text-rose-600 dark:text-rose-400";
+    case "skipped":
+      return "text-muted-foreground";
+    case "pending":
+      return "text-amber-600 dark:text-amber-400";
+    case "unknown":
+      return "text-muted-foreground";
+  }
 }
 
 function changedFileStatusText(file: GitDiffFileSummary): string {
@@ -379,6 +574,15 @@ type GitDiffSidebarResizeState = {
   rafId: number | null;
 };
 
+type GitDiffSidebarWidthResizeState = {
+  readonly pointerId: number;
+  readonly startX: number;
+  readonly startWidth: number;
+  pendingWidth: number;
+  width: number;
+  rafId: number | null;
+};
+
 export function GitDiffWorkbenchRoute() {
   const params = useParams({ from: "/_chat/$environmentId/$threadId/gitdiff" });
   const threadRef = useMemo(() => resolveThreadRouteRef(params), [params]);
@@ -406,8 +610,17 @@ export function GitDiffWorkbench(props: {
   const queryClient = useQueryClient();
   const environmentId = threadRef?.environmentId ?? null;
   const cwd = thread?.worktreePath ?? project?.cwd ?? null;
+  const gitDiffStateStorageKey = useMemo(
+    () =>
+      gitDiffWorkbenchStateStorageKey({
+        environmentId,
+        projectId: project?.id ?? null,
+      }),
+    [environmentId, project?.id],
+  );
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedStackIndex, setSelectedStackIndex] = useState<number | null>(null);
+  const [diffViewMode, setDiffViewMode] = useState<GitDiffViewMode>("worktree");
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("split");
   const [diffWordWrap, setDiffWordWrap] = useState(false);
   const [diffIgnoreWhitespace, setDiffIgnoreWhitespace] = useState(false);
@@ -417,57 +630,144 @@ export function GitDiffWorkbench(props: {
   const [diffHunkSeparators, setDiffHunkSeparators] = useState<BuiltInHunkSeparators>("line-info");
   const [stackSectionOpen, setStackSectionOpen] = useState(true);
   const [filesSectionOpen, setFilesSectionOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(GIT_DIFF_SIDEBAR_DEFAULT_WIDTH);
   const [stackSectionHeight, setStackSectionHeight] = useState(
     GIT_DIFF_SIDEBAR_STACK_DEFAULT_HEIGHT,
+  );
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
+  const [commitMessage, setCommitMessage] = useState("");
+  const [isIgnoreListDialogOpen, setIsIgnoreListDialogOpen] = useState(false);
+  const [ignoreListName, setIgnoreListName] = useState("Ignored changes");
+  const [commentDialogState, setCommentDialogState] = useState<GitDiffCommentDialogState | null>(
+    null,
   );
   const sidebarRef = useRef<HTMLElement | null>(null);
   const stackSectionRef = useRef<HTMLDivElement | null>(null);
   const sidebarResizeStateRef = useRef<GitDiffSidebarResizeState | null>(null);
+  const sidebarWidthResizeStateRef = useRef<GitDiffSidebarWidthResizeState | null>(null);
+  const allowAutoSelectFirstFileRef = useRef(true);
+  const gitDiffStateRestoredRef = useRef(false);
+  const skipNextGitDiffStatePersistRef = useRef(false);
   const gitStatus = useGitStatus({ environmentId, cwd });
   const { resolvedTheme, syntaxTheme } = useTheme();
   const settings = useSettings();
+  const desktopBridgeAvailable = useDesktopBridgeAvailable();
+  const isMainWindow = useIsMainWindow();
+  const nvimReady = useNvimAvailable();
+  const vscodeReady = useVSCodeWebAvailable();
   const headRef = gitStatus.data?.branch ?? thread?.branch ?? null;
+  const diffFontFamily = useMemo(
+    () => buildTerminalFontFamily(settings.editorFontFamily),
+    [settings.editorFontFamily],
+  );
   const diffUnsafeCSS = useMemo(
-    () =>
-      buildGitDiffWorkbenchUnsafeCSS(
-        buildTerminalFontFamily(settings.terminalFontFamily),
-        settings.terminalFontSize,
-      ),
-    [settings.terminalFontFamily, settings.terminalFontSize],
+    () => buildGitDiffWorkbenchUnsafeCSS(diffFontFamily, settings.editorFontSize),
+    [diffFontFamily, settings.editorFontSize],
+  );
+  const rawDiffFontStyle = useMemo<CSSProperties>(
+    () => ({
+      fontFamily: diffFontFamily,
+      fontSize: `${settings.editorFontSize}px`,
+    }),
+    [diffFontFamily, settings.editorFontSize],
   );
 
   const worktreeQuery = useQuery(
     gitDiffFileIndexQueryOptions({ environmentId, cwd, targetKind: "worktree" }),
   );
+  const stagedQuery = useQuery(
+    gitDiffFileIndexQueryOptions({ environmentId, cwd, targetKind: "staged" }),
+  );
   const stackQuery = useQuery(
-    gitDiffStackedFileIndexQueryOptions({
+    gitDiffActiveChangeRequestStackedFileIndexQueryOptions({
       environmentId,
       cwd,
-      baseRef: STACK_BASE_REF,
-      headRef,
     }),
   );
+  const ignoreListsQuery = useQuery(gitDiffIgnoreListsQueryOptions({ environmentId, cwd }));
+  const createIgnoreListMutation = useMutation(
+    gitDiffCreateIgnoreListMutationOptions({ environmentId, cwd, queryClient }),
+  );
+  const updateIgnoreListMutation = useMutation(
+    gitDiffUpdateIgnoreListMutationOptions({ environmentId, cwd, queryClient }),
+  );
+  const deleteIgnoreListMutation = useMutation(
+    gitDiffDeleteIgnoreListMutationOptions({ environmentId, cwd, queryClient }),
+  );
+  const stageWorktreeChangesMutation = useMutation(
+    gitDiffStageWorktreeChangesMutationOptions({ environmentId, cwd, queryClient }),
+  );
+  const closeChangeRequestMutation = useMutation(
+    gitDiffCloseChangeRequestMutationOptions({ environmentId, cwd, queryClient }),
+  );
+  const mergeChangeRequestMutation = useMutation(
+    gitDiffMergeChangeRequestMutationOptions({ environmentId, cwd, queryClient }),
+  );
+  const commentChangeRequestLinesMutation = useMutation(
+    gitDiffCommentChangeRequestLinesMutationOptions({ environmentId, cwd, queryClient }),
+  );
+  const revertChangeRequestLinesMutation = useMutation(
+    gitDiffRevertChangeRequestLinesMutationOptions({ environmentId, cwd, queryClient }),
+  );
+  const runStackedActionMutation = useMutation(
+    gitRunStackedActionMutationOptions({ environmentId, cwd, queryClient }),
+  );
   const worktreeFiles = useMemo(() => sortFiles(worktreeQuery.data ?? []), [worktreeQuery.data]);
+  const stagedFiles = useMemo(() => sortFiles(stagedQuery.data ?? []), [stagedQuery.data]);
+  const ignoreLists = ignoreListsQuery.data ?? EMPTY_GIT_DIFF_IGNORE_LISTS;
+  const ignoredPaths = useMemo(() => ignoredFilePathSet(ignoreLists), [ignoreLists]);
+  const ignoredFilePaths = useMemo(
+    () => [...ignoredPaths].toSorted((left, right) => left.localeCompare(right)),
+    [ignoredPaths],
+  );
+  const committableStagedFiles = useMemo(
+    () => stagedFiles.filter((file) => !ignoredPaths.has(file.path)),
+    [ignoredPaths, stagedFiles],
+  );
+  const committableStagedFilePaths = useMemo(
+    () => uniqueFilePaths(committableStagedFiles),
+    [committableStagedFiles],
+  );
+  const worktreeDisplayTargetKind =
+    worktreeFiles.length === 0 && stagedFiles.length > 0 ? "staged" : "worktree";
+  const worktreeDisplayFiles = worktreeDisplayTargetKind === "staged" ? stagedFiles : worktreeFiles;
+  const activeChangeRequest = stackQuery.data?.activeChangeRequest ?? null;
   const stackSteps = useMemo(() => sortStackSteps(stackQuery.data?.steps ?? []), [stackQuery.data]);
-  const selectedStackStep =
-    stackSteps.find((step) => step.index === selectedStackIndex) ?? stackSteps.at(-1) ?? null;
+  const isStackView =
+    diffViewMode === "stack" && activeChangeRequest !== null && stackSteps.length > 0;
+  const selectedStackStep = isStackView
+    ? (stackSteps.find((step) => step.index === selectedStackIndex) ?? stackSteps.at(-1) ?? null)
+    : null;
+  const selectedChangeRequest = selectedStackStep?.changeRequest ?? activeChangeRequest;
+  const selectedChangeRequestReference = changeRequestReference(selectedChangeRequest);
+  const checksQuery = useQuery(
+    gitDiffChangeRequestChecksQueryOptions({
+      environmentId,
+      cwd,
+      reference: selectedChangeRequestReference,
+      enabled: isStackView && selectedChangeRequestReference !== null,
+    }),
+  );
   const activeFiles = useMemo(
-    () => sortFiles(selectedStackStep?.files ?? worktreeFiles),
-    [selectedStackStep, worktreeFiles],
+    () => sortFiles(isStackView ? (selectedStackStep?.files ?? []) : worktreeDisplayFiles),
+    [isStackView, selectedStackStep, worktreeDisplayFiles],
   );
   const selectedFile =
     activeFiles.find((file) => file.path === selectedPath) ?? activeFiles[0] ?? null;
-  const activeDiffTarget = useMemo<DiffTarget | null>(
-    () =>
-      selectedStackStep
-        ? {
-            kind: "range",
-            baseRef: selectedStackStep.baseRef,
-            headRef: selectedStackStep.headRef,
-          }
-        : { kind: "worktree" },
-    [selectedStackStep],
-  );
+  const activeDiffTarget = useMemo<DiffTarget | null>(() => {
+    if (!isStackView) {
+      return { kind: worktreeDisplayTargetKind };
+    }
+    if (!selectedStackStep) {
+      return null;
+    }
+    return {
+      kind: "range",
+      baseRef: selectedStackStep.baseRef,
+      headRef: selectedStackStep.headRef,
+    };
+  }, [isStackView, selectedStackStep, worktreeDisplayTargetKind]);
   const selectedFileQuery = useQuery(
     gitDiffFileQueryOptions({
       environmentId,
@@ -480,12 +780,14 @@ export function GitDiffWorkbench(props: {
   );
   const insertionCount = totalInsertions(activeFiles);
   const deletionCount = totalDeletions(activeFiles);
-  const isStackView = selectedStackStep !== null;
   const isDiffFetching =
-    worktreeQuery.isFetching || stackQuery.isFetching || selectedFileQuery.isFetching;
-  const baseRef = stackQuery.data?.baseRef ?? STACK_BASE_REF;
+    (isStackView ? stackQuery.isFetching : worktreeQuery.isFetching) ||
+    (!isStackView && stagedQuery.isFetching) ||
+    selectedFileQuery.isFetching;
+  const activeFileIndexError = isStackView ? stackQuery.error : worktreeQuery.error;
+  const baseRef = stackQuery.data?.baseRef ?? activeChangeRequest?.baseRefName ?? null;
   const stackSidebarItems = useMemo<readonly GitDiffStackSidebarItem[]>(() => {
-    if (stackSteps.length === 0) return [];
+    if (stackSteps.length === 0 || baseRef === null) return [];
 
     return [
       { kind: "base-branch", baseRef },
@@ -546,7 +848,9 @@ export function GitDiffWorkbench(props: {
                   </span>
                   <span className="mt-0.5 flex min-w-0 items-center gap-2 text-xs">
                     <span className="truncate text-muted-foreground">
-                      {stackStepLabel(item.step, stackSteps.length)}
+                      {item.step.changeRequest
+                        ? `PR #${item.step.changeRequest.number}`
+                        : stackStepLabel(item.step, stackSteps.length)}
                     </span>
                     <span className="shrink-0 tabular-nums text-emerald-600 dark:text-emerald-400">
                       +{stepInsertions}
@@ -579,15 +883,43 @@ export function GitDiffWorkbench(props: {
     document.body.style.removeProperty("user-select");
   }, []);
 
+  const stopSidebarWidthResize = useCallback(() => {
+    const resizeState = sidebarWidthResizeStateRef.current;
+    if (!resizeState) return;
+
+    if (resizeState.rafId !== null) {
+      window.cancelAnimationFrame(resizeState.rafId);
+    }
+
+    setSidebarWidth(resizeState.width);
+    sidebarWidthResizeStateRef.current = null;
+    document.body.style.removeProperty("cursor");
+    document.body.style.removeProperty("user-select");
+  }, []);
+
   useEffect(() => {
     return () => {
       const resizeState = sidebarResizeStateRef.current;
       if (resizeState?.rafId != null) {
         window.cancelAnimationFrame(resizeState.rafId);
       }
+      const widthResizeState = sidebarWidthResizeStateRef.current;
+      if (widthResizeState?.rafId != null) {
+        window.cancelAnimationFrame(widthResizeState.rafId);
+      }
       document.body.style.removeProperty("cursor");
       document.body.style.removeProperty("user-select");
     };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleResize = () => {
+      setSidebarWidth((currentWidth) => clampSidebarWidth(currentWidth, window.innerWidth));
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   useEffect(() => {
@@ -675,25 +1007,161 @@ export function GitDiffWorkbench(props: {
     [stopSidebarResize],
   );
 
-  const filesEmptyMessage =
-    stackSteps.length > 0 ? "No files changed in this step." : "No tracked working tree changes.";
-  const filesSectionContent =
-    worktreeQuery.isLoading && stackSteps.length === 0 ? (
-      <div className="px-3 py-4 text-sm text-muted-foreground">Loading changes...</div>
-    ) : activeFiles.length > 0 ? (
-      <div className="min-h-0 flex-1 px-3 pb-3">
-        <ChangedFilesTree
-          files={activeFiles}
-          selectedPath={selectedPath}
-          fillAvailableHeight
-          onSelectedPathChange={setSelectedPath}
-        />
-      </div>
-    ) : (
-      <div className="px-3 py-4 text-sm text-muted-foreground">{filesEmptyMessage}</div>
-    );
+  const handleSidebarWidthResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0) return;
+
+      const sidebar = sidebarRef.current;
+      const viewportWidth = typeof window === "undefined" ? 1200 : window.innerWidth;
+      const initialWidth = clampSidebarWidth(
+        sidebar?.getBoundingClientRect().width || sidebarWidth,
+        viewportWidth,
+      );
+
+      event.preventDefault();
+      event.stopPropagation();
+      sidebarWidthResizeStateRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startWidth: initialWidth,
+        pendingWidth: initialWidth,
+        width: initialWidth,
+        rafId: null,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    },
+    [sidebarWidth],
+  );
+
+  const handleSidebarWidthResizePointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      const resizeState = sidebarWidthResizeStateRef.current;
+      if (!resizeState || resizeState.pointerId !== event.pointerId) return;
+
+      event.preventDefault();
+      const viewportWidth = typeof window === "undefined" ? 1200 : window.innerWidth;
+      resizeState.pendingWidth = clampSidebarWidth(
+        resizeState.startWidth + event.clientX - resizeState.startX,
+        viewportWidth,
+      );
+
+      if (resizeState.rafId !== null) return;
+      resizeState.rafId = window.requestAnimationFrame(() => {
+        const activeResizeState = sidebarWidthResizeStateRef.current;
+        if (!activeResizeState) return;
+
+        activeResizeState.rafId = null;
+        activeResizeState.width = activeResizeState.pendingWidth;
+        setSidebarWidth(activeResizeState.width);
+      });
+    },
+    [],
+  );
+
+  const handleSidebarWidthResizePointerEnd = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      const resizeState = sidebarWidthResizeStateRef.current;
+      if (!resizeState || resizeState.pointerId !== event.pointerId) return;
+
+      event.preventDefault();
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      stopSidebarWidthResize();
+    },
+    [stopSidebarWidthResize],
+  );
+
+  const stackViewSelectable = activeChangeRequest !== null && stackSteps.length > 0;
+  const worktreeActionDisabled =
+    isStackView || worktreeFiles.length === 0 || stageWorktreeChangesMutation.isPending;
+  const commitDisabled =
+    isStackView || committableStagedFilePaths.length === 0 || runStackedActionMutation.isPending;
+  const prActionDisabled =
+    !isStackView ||
+    selectedChangeRequestReference === null ||
+    mergeChangeRequestMutation.isPending ||
+    closeChangeRequestMutation.isPending;
+  const activeFileIndexLoading = isStackView
+    ? stackSteps.length === 0 && stackQuery.isLoading
+    : worktreeQuery.isLoading;
+  const filesEmptyMessage = isStackView
+    ? "No files changed in this stack step."
+    : "No tracked working tree changes.";
 
   useEffect(() => {
+    gitDiffStateRestoredRef.current = false;
+    skipNextGitDiffStatePersistRef.current = true;
+
+    const persistedState = readPersistedGitDiffWorkbenchState(gitDiffStateStorageKey);
+    if (persistedState) {
+      allowAutoSelectFirstFileRef.current = persistedState.selectedPath !== null;
+      setDiffViewMode(persistedState.mode);
+      setSelectedPath(persistedState.selectedPath);
+      setSelectedStackIndex(persistedState.selectedStackIndex);
+    } else {
+      allowAutoSelectFirstFileRef.current = true;
+      setDiffViewMode("worktree");
+      setSelectedPath(null);
+      setSelectedStackIndex(null);
+    }
+
+    gitDiffStateRestoredRef.current = true;
+  }, [gitDiffStateStorageKey]);
+
+  useEffect(() => {
+    if (!gitDiffStateStorageKey || !gitDiffStateRestoredRef.current) return;
+    if (skipNextGitDiffStatePersistRef.current) {
+      skipNextGitDiffStatePersistRef.current = false;
+      return;
+    }
+
+    writePersistedGitDiffWorkbenchState(gitDiffStateStorageKey, {
+      mode: diffViewMode,
+      selectedPath,
+      selectedStackIndex,
+    });
+  }, [diffViewMode, gitDiffStateStorageKey, selectedPath, selectedStackIndex]);
+
+  useEffect(() => {
+    if (
+      diffViewMode !== "stack" ||
+      !cwd ||
+      !stackQuery.isFetched ||
+      stackQuery.isError ||
+      stackQuery.isLoading ||
+      stackQuery.isFetching ||
+      stackViewSelectable
+    ) {
+      return;
+    }
+
+    allowAutoSelectFirstFileRef.current = false;
+    setDiffViewMode("worktree");
+    setSelectedPath(null);
+    setSelectedStackIndex(null);
+    writePersistedGitDiffWorkbenchState(gitDiffStateStorageKey, {
+      mode: "worktree",
+      selectedPath: null,
+      selectedStackIndex: null,
+    });
+  }, [
+    cwd,
+    diffViewMode,
+    gitDiffStateStorageKey,
+    stackQuery.isError,
+    stackQuery.isFetched,
+    stackQuery.isFetching,
+    stackQuery.isLoading,
+    stackViewSelectable,
+  ]);
+
+  useEffect(() => {
+    if (!isStackView) {
+      return;
+    }
     if (stackSteps.length === 0) {
       setSelectedStackIndex(null);
       return;
@@ -704,21 +1172,306 @@ export function GitDiffWorkbench(props: {
     ) {
       setSelectedStackIndex(stackSteps.at(-1)?.index ?? null);
     }
-  }, [selectedStackIndex, stackSteps]);
+  }, [isStackView, selectedStackIndex, stackSteps]);
 
   useEffect(() => {
+    if (
+      diffViewMode === "stack" &&
+      !isStackView &&
+      (!stackQuery.isFetched || stackQuery.isFetching || stackQuery.isLoading || stackQuery.isError)
+    ) {
+      return;
+    }
     if (activeFiles.length === 0) {
       setSelectedPath(null);
       return;
     }
-    if (!selectedPath || !activeFiles.some((file) => file.path === selectedPath)) {
+    if (!selectedPath && !allowAutoSelectFirstFileRef.current) {
+      return;
+    }
+    if (selectedPath && activeFiles.some((file) => file.path === selectedPath)) {
+      return;
+    }
+    if (allowAutoSelectFirstFileRef.current) {
       setSelectedPath(activeFiles[0]?.path ?? null);
     }
-  }, [activeFiles, selectedPath]);
+  }, [
+    activeFiles,
+    diffViewMode,
+    isStackView,
+    selectedPath,
+    stackQuery.isError,
+    stackQuery.isFetched,
+    stackQuery.isFetching,
+    stackQuery.isLoading,
+  ]);
 
   const refresh = () => {
     void invalidateGitDiffQueries(queryClient, { environmentId, cwd });
   };
+
+  const runAction = useCallback(
+    async (action: () => Promise<unknown>) => {
+      setActionError(null);
+      try {
+        await action();
+        await invalidateGitDiffQueries(queryClient, { environmentId, cwd });
+        return true;
+      } catch (error) {
+        setActionError(formatError(error));
+        return false;
+      }
+    },
+    [cwd, environmentId, queryClient],
+  );
+
+  const handleStageWorktreeChanges = useCallback(() => {
+    void runAction(() =>
+      stageWorktreeChangesMutation.mutateAsync({
+        filePaths: uniqueFilePaths(worktreeFiles),
+        ignoredFilePaths,
+      }),
+    );
+  }, [ignoredFilePaths, runAction, stageWorktreeChangesMutation, worktreeFiles]);
+
+  const handleCommitWorktreeChanges = useCallback(() => {
+    if (committableStagedFilePaths.length === 0) return;
+    void runAction(() =>
+      runStackedActionMutation.mutateAsync({
+        actionId: randomUUID(),
+        action: "commit",
+        filePaths: [...committableStagedFilePaths],
+        ...(commitMessage.trim() ? { commitMessage: commitMessage.trim() } : {}),
+      }),
+    ).then((ok) => {
+      if (ok) {
+        setIsCommitDialogOpen(false);
+        setCommitMessage("");
+      }
+    });
+  }, [commitMessage, committableStagedFilePaths, runAction, runStackedActionMutation]);
+
+  const handlePushWorktreeChanges = useCallback(() => {
+    void runAction(() =>
+      runStackedActionMutation.mutateAsync({
+        actionId: randomUUID(),
+        action: "push",
+      }),
+    );
+  }, [runAction, runStackedActionMutation]);
+
+  const handleCreateIgnoreList = useCallback(() => {
+    const name = ignoreListName.trim();
+    if (!name) return;
+    void runAction(() => createIgnoreListMutation.mutateAsync({ name })).then((ok) => {
+      if (ok) {
+        setIsIgnoreListDialogOpen(false);
+        setIgnoreListName("Ignored changes");
+      }
+    });
+  }, [createIgnoreListMutation, ignoreListName, runAction]);
+
+  const updateIgnoreListFiles = useCallback(
+    (list: GitDiffIgnoreList, filePaths: readonly string[]) =>
+      runAction(() =>
+        updateIgnoreListMutation.mutateAsync({
+          id: list.id,
+          filePaths: [...new Set(filePaths)].toSorted((left, right) => left.localeCompare(right)),
+        }),
+      ),
+    [runAction, updateIgnoreListMutation],
+  );
+
+  const handleAddFileToIgnoreList = useCallback(
+    (list: GitDiffIgnoreList, filePath: string) => {
+      void updateIgnoreListFiles(list, [...list.filePaths, filePath]);
+    },
+    [updateIgnoreListFiles],
+  );
+
+  const handleDeleteIgnoreList = useCallback(
+    (id: string) => {
+      void runAction(() => deleteIgnoreListMutation.mutateAsync(id));
+    },
+    [deleteIgnoreListMutation, runAction],
+  );
+
+  const handleMergeSelectedChangeRequest = useCallback(() => {
+    if (!selectedChangeRequestReference) return;
+    void runAction(() =>
+      mergeChangeRequestMutation.mutateAsync({
+        reference: selectedChangeRequestReference,
+      }),
+    );
+  }, [mergeChangeRequestMutation, runAction, selectedChangeRequestReference]);
+
+  const handleCloseSelectedChangeRequest = useCallback(() => {
+    if (!selectedChangeRequestReference) return;
+    void runAction(() => closeChangeRequestMutation.mutateAsync(selectedChangeRequestReference));
+  }, [closeChangeRequestMutation, runAction, selectedChangeRequestReference]);
+
+  const handleCommentSelectedLines = useCallback((selection: GitDiffLineSelection) => {
+    setCommentDialogState({ selection, body: "" });
+  }, []);
+
+  const handleSubmitLineComment = useCallback(() => {
+    if (
+      !selectedFile ||
+      !selectedChangeRequestReference ||
+      commentDialogState === null ||
+      !commentDialogState.body.trim()
+    ) {
+      return;
+    }
+    void runAction(() =>
+      commentChangeRequestLinesMutation.mutateAsync({
+        reference: selectedChangeRequestReference,
+        path: selectedFile.path,
+        body: commentDialogState.body.trim(),
+        side: commentDialogState.selection.side,
+        line: commentDialogState.selection.end,
+        ...(commentDialogState.selection.start !== commentDialogState.selection.end
+          ? { startLine: commentDialogState.selection.start }
+          : {}),
+      }),
+    ).then((ok) => {
+      if (ok) {
+        setCommentDialogState(null);
+      }
+    });
+  }, [
+    commentChangeRequestLinesMutation,
+    commentDialogState,
+    runAction,
+    selectedChangeRequestReference,
+    selectedFile,
+  ]);
+
+  const handleRevertSelectedLines = useCallback(
+    (selection: GitDiffLineSelection) => {
+      if (!selectedFile || !selectedStackStep || !selectedChangeRequestReference) return;
+      void runAction(() =>
+        revertChangeRequestLinesMutation.mutateAsync({
+          reference: selectedChangeRequestReference,
+          baseRef: selectedStackStep.baseRef,
+          headRef: selectedStackStep.headRef,
+          path: selectedFile.path,
+          previousPath: selectedFile.previousPath,
+          selection,
+        }),
+      );
+    },
+    [
+      revertChangeRequestLinesMutation,
+      runAction,
+      selectedChangeRequestReference,
+      selectedFile,
+      selectedStackStep,
+    ],
+  );
+
+  const handleOpenSelectedFile = useCallback(async () => {
+    if (!cwd || !selectedFile) return;
+
+    if (!desktopBridgeAvailable || !isMainWindow || (!nvimReady && !vscodeReady)) {
+      setActionError("Embedded editor unavailable.");
+      return;
+    }
+
+    setActionError(null);
+    try {
+      const nextSelectedStackIndex = selectedStackStep?.index ?? selectedStackIndex;
+      allowAutoSelectFirstFileRef.current = true;
+      setSelectedPath(selectedFile.path);
+      setSelectedStackIndex(nextSelectedStackIndex);
+      writePersistedGitDiffWorkbenchState(gitDiffStateStorageKey, {
+        mode: diffViewMode,
+        selectedPath: selectedFile.path,
+        selectedStackIndex: nextSelectedStackIndex,
+      });
+
+      const editor = resolveActiveEmbeddedEditor({
+        preferredEditor: settings.embeddedEditor,
+        nvimReady,
+        vscodeReady,
+      });
+      const targetPath = resolveChangedFileEditorPath(cwd, selectedFile.path);
+      if (editor === "neovim") {
+        await openInEmbeddedEditor(targetPath);
+      } else {
+        await openInEmbeddedVSCode(targetPath);
+      }
+    } catch (error) {
+      setActionError(formatError(error));
+    }
+  }, [
+    cwd,
+    desktopBridgeAvailable,
+    diffViewMode,
+    gitDiffStateStorageKey,
+    isMainWindow,
+    nvimReady,
+    selectedFile,
+    selectedStackIndex,
+    selectedStackStep,
+    settings.embeddedEditor,
+    vscodeReady,
+  ]);
+
+  const handleSelectedPathChange = useCallback((path: string | null) => {
+    allowAutoSelectFirstFileRef.current = true;
+    setSelectedPath(path);
+  }, []);
+
+  const handleDiffViewModeChange = useCallback((mode: GitDiffViewMode) => {
+    allowAutoSelectFirstFileRef.current = true;
+    setDiffViewMode(mode);
+  }, []);
+
+  const filesSectionContent = activeFileIndexLoading ? (
+    <div className="px-3 py-4 text-sm text-muted-foreground">Loading changes...</div>
+  ) : activeFiles.length > 0 ? (
+    <div className="min-h-0 flex-1 px-3 pb-3">
+      <div className="flex h-full min-h-0 flex-col gap-3">
+        <div className="min-h-0 flex-1">
+          <ChangedFilesTree
+            files={activeFiles}
+            selectedPath={selectedPath}
+            fillAvailableHeight
+            onSelectedPathChange={handleSelectedPathChange}
+          />
+        </div>
+        {!isStackView ? (
+          <GitDiffIgnoreListsPanel
+            ignoreLists={ignoreLists}
+            isBusy={
+              createIgnoreListMutation.isPending ||
+              updateIgnoreListMutation.isPending ||
+              deleteIgnoreListMutation.isPending
+            }
+            selectedFilePath={selectedFile?.path ?? null}
+            onAddFile={handleAddFileToIgnoreList}
+            onCreate={() => setIsIgnoreListDialogOpen(true)}
+            onDelete={handleDeleteIgnoreList}
+            onUpdateFiles={updateIgnoreListFiles}
+          />
+        ) : null}
+      </div>
+    </div>
+  ) : (
+    <div className="px-3 py-4 text-sm text-muted-foreground">{filesEmptyMessage}</div>
+  );
+
+  const openActiveChangeRequest = useCallback(() => {
+    if (!activeChangeRequest) return;
+
+    const api = readLocalApi();
+    if (!api) return;
+
+    void api.shell.openExternal(activeChangeRequest.url).catch((error: unknown) => {
+      console.warn("Failed to open active pull request.", error);
+    });
+  }, [activeChangeRequest]);
 
   if (!thread || !project || !cwd) {
     return (
@@ -738,17 +1491,135 @@ export function GitDiffWorkbench(props: {
             <GitCompareIcon className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold">
-                {selectedStackStep
-                  ? `${stackQuery.data?.baseRef ?? STACK_BASE_REF} -> ${
-                      selectedStackStep.branchName
-                    }`
-                  : "Working tree"}
+                {isStackView
+                  ? selectedStackStep
+                    ? `${selectedStackStep.baseRef} -> ${selectedStackStep.branchName}`
+                    : `${activeChangeRequest?.baseRefName ?? "Base"} -> ${
+                        activeChangeRequest?.headRefName ?? headRef ?? "HEAD"
+                      }`
+                  : worktreeDisplayTargetKind === "staged"
+                    ? "Staged changes"
+                    : "Working tree"}
               </div>
               <div className="truncate text-xs text-muted-foreground">{cwd}</div>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <span className="text-xs text-muted-foreground">
+            {activeChangeRequest ? (
+              <Button
+                aria-label={`Open active pull request #${activeChangeRequest.number}`}
+                className="max-w-[18rem] px-2 text-muted-foreground hover:text-foreground"
+                size="xs"
+                title={`Open #${activeChangeRequest.number}: ${activeChangeRequest.title}`}
+                variant="ghost"
+                onClick={openActiveChangeRequest}
+              >
+                <ExternalLinkIcon className="size-3" />
+                <span className="shrink-0 tabular-nums">#{activeChangeRequest.number}</span>
+                <span className="hidden min-w-0 truncate md:inline">
+                  {activeChangeRequest.title}
+                </span>
+              </Button>
+            ) : null}
+            {!isStackView ? (
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  aria-label="Stage worktree changes"
+                  disabled={worktreeActionDisabled}
+                  size="icon-xs"
+                  title="Stage changes"
+                  variant="ghost"
+                  onClick={handleStageWorktreeChanges}
+                >
+                  <CheckCircle2Icon />
+                </Button>
+                <Button
+                  aria-label="Commit staged changes"
+                  disabled={commitDisabled}
+                  size="icon-xs"
+                  title="Commit staged changes"
+                  variant="ghost"
+                  onClick={() => setIsCommitDialogOpen(true)}
+                >
+                  <GitCommitHorizontalIcon />
+                </Button>
+                <Button
+                  aria-label="Push current branch"
+                  disabled={runStackedActionMutation.isPending}
+                  size="icon-xs"
+                  title="Push"
+                  variant="ghost"
+                  onClick={handlePushWorktreeChanges}
+                >
+                  <UploadIcon />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  aria-label="Merge selected pull request"
+                  disabled={prActionDisabled}
+                  size="icon-xs"
+                  title="Merge pull request"
+                  variant="ghost"
+                  onClick={handleMergeSelectedChangeRequest}
+                >
+                  <GitMergeIcon />
+                </Button>
+                <Button
+                  aria-label="Close selected pull request"
+                  disabled={prActionDisabled}
+                  size="icon-xs"
+                  title="Close pull request"
+                  variant="ghost"
+                  onClick={handleCloseSelectedChangeRequest}
+                >
+                  <XCircleIcon />
+                </Button>
+              </div>
+            )}
+            <ToggleGroup
+              aria-label="Git diff view mode"
+              className="shrink-0 rounded-md border border-border/70 bg-muted/30 p-0.5"
+              variant="default"
+              size="xs"
+              value={[isStackView ? "stack" : "worktree"]}
+              onValueChange={(value) => {
+                const next = value[0];
+                if (next === "stack" && stackViewSelectable) {
+                  handleDiffViewModeChange("stack");
+                } else if (next === "worktree") {
+                  handleDiffViewModeChange("worktree");
+                }
+              }}
+            >
+              <Toggle
+                aria-label="Show stacked branch diff"
+                className="size-6 min-w-6 rounded-[5px] px-0 text-muted-foreground data-pressed:bg-background data-pressed:text-foreground data-pressed:shadow-xs"
+                disabled={!stackViewSelectable}
+                title={
+                  stackViewSelectable
+                    ? "Pull request stack"
+                    : stackQuery.isLoading
+                      ? "Loading active pull request"
+                      : stackQuery.error
+                        ? "Failed to load active pull request"
+                        : "No active pull request"
+                }
+                value="stack"
+              >
+                <GitBranchIcon className="size-3" />
+              </Toggle>
+              <Toggle
+                aria-label="Show normal working tree diff"
+                className="size-6 min-w-6 rounded-[5px] px-0 text-muted-foreground data-pressed:bg-background data-pressed:text-foreground data-pressed:shadow-xs"
+                title="Normal view"
+                value="worktree"
+              >
+                <GitCompareIcon className="size-3" />
+              </Toggle>
+            </ToggleGroup>
+            <span className="min-w-[4.5rem] text-right text-xs tabular-nums text-muted-foreground">
               {activeFiles.length} {activeFiles.length === 1 ? "file" : "files"}
             </span>
             <Button
@@ -763,18 +1634,31 @@ export function GitDiffWorkbench(props: {
           </div>
         </header>
 
-        {worktreeQuery.error || (stackQuery.error && !isStackView) ? (
+        {activeFileIndexError ? (
           <div className="shrink-0 border-b border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive-foreground">
-            {formatError(worktreeQuery.error ?? stackQuery.error)}
+            {formatError(activeFileIndexError)}
           </div>
+        ) : null}
+        {actionError ? (
+          <div className="shrink-0 border-b border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive-foreground">
+            {actionError}
+          </div>
+        ) : null}
+        {isStackView && selectedChangeRequest ? (
+          <GitDiffChangeRequestChecksStrip
+            checks={checksQuery.data ?? []}
+            isFetching={checksQuery.isFetching}
+            pullRequest={selectedChangeRequest}
+          />
         ) : null}
 
         <div className="flex min-h-0 min-w-0 w-full flex-1">
           <aside
             ref={sidebarRef}
-            className="flex min-h-0 w-[22rem] shrink-0 flex-col border-r border-border bg-background"
+            className="relative flex min-h-0 shrink-0 flex-col border-r border-border bg-background"
+            style={{ width: sidebarWidth }}
           >
-            {stackSteps.length > 0 ? (
+            {stackSteps.length > 0 && isStackView && baseRef !== null ? (
               <>
                 <GitDiffSidebarSectionHeader
                   open={stackSectionOpen}
@@ -820,7 +1704,9 @@ export function GitDiffWorkbench(props: {
 
             <GitDiffSidebarSectionHeader
               badge={`+${insertionCount} -${deletionCount}`}
-              className={stackSteps.length > 0 ? "border-t-0" : undefined}
+              className={
+                stackSteps.length > 0 && isStackView && baseRef !== null ? "border-t-0" : undefined
+              }
               open={filesSectionOpen}
               title={`${activeFiles.length} changed ${activeFiles.length === 1 ? "file" : "files"}`}
               onToggle={() => setFilesSectionOpen((open) => !open)}
@@ -830,6 +1716,19 @@ export function GitDiffWorkbench(props: {
                 {filesSectionContent}
               </section>
             ) : null}
+            <button
+              aria-label="Resize git diff sidebar"
+              className="group absolute -right-1 top-0 z-20 flex h-full w-2 cursor-col-resize items-stretch justify-center"
+              tabIndex={-1}
+              title="Drag to resize sidebar"
+              type="button"
+              onPointerCancel={handleSidebarWidthResizePointerEnd}
+              onPointerDown={handleSidebarWidthResizePointerDown}
+              onPointerMove={handleSidebarWidthResizePointerMove}
+              onPointerUp={handleSidebarWidthResizePointerEnd}
+            >
+              <span className="h-full w-px bg-transparent transition-colors group-hover:bg-ring/80" />
+            </button>
           </aside>
 
           <GitDiffFileWorkbench
@@ -841,25 +1740,176 @@ export function GitDiffWorkbench(props: {
             diffRenderMode={diffRenderMode}
             diffUnsafeCSS={diffUnsafeCSS}
             diffWordWrap={diffWordWrap}
+            enableFileDrag={!isStackView}
+            enableLineActions={isStackView && selectedChangeRequestReference !== null}
             error={selectedFileQuery.error}
+            isLineActionPending={
+              commentChangeRequestLinesMutation.isPending ||
+              revertChangeRequestLinesMutation.isPending
+            }
             isLoading={selectedFileQuery.isLoading}
+            onCommentSelectedLines={handleCommentSelectedLines}
             onDiffHunkSeparatorsChange={setDiffHunkSeparators}
             onDiffIgnoreWhitespaceChange={setDiffIgnoreWhitespace}
             onDiffLineHighlightModeChange={setDiffLineHighlightMode}
             onDiffLineNumbersChange={setDiffLineNumbers}
             onDiffRenderModeChange={setDiffRenderMode}
             onDiffWordWrapChange={setDiffWordWrap}
+            onOpenSelectedFile={handleOpenSelectedFile}
+            onRevertSelectedLines={handleRevertSelectedLines}
+            rawDiffFontStyle={rawDiffFontStyle}
             resolvedTheme={resolvedTheme as DiffThemeType}
             selectedFile={selectedFile}
             syntaxTheme={syntaxTheme}
             title={
-              selectedStackStep
-                ? `${selectedStackStep.baseRef} -> ${selectedStackStep.headRef}`
-                : "Working tree"
+              isStackView
+                ? selectedStackStep
+                  ? `${selectedStackStep.baseRef} -> ${selectedStackStep.headRef}`
+                  : `${activeChangeRequest?.baseRefName ?? "Base"} -> ${
+                      activeChangeRequest?.headRefName ?? headRef ?? "HEAD"
+                    }`
+                : worktreeDisplayTargetKind === "staged"
+                  ? "Staged changes"
+                  : "Working tree"
             }
           />
         </div>
       </div>
+      <Dialog
+        open={isCommitDialogOpen}
+        onOpenChange={(open) => {
+          setIsCommitDialogOpen(open);
+          if (!open) {
+            setCommitMessage("");
+          }
+        }}
+      >
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>Commit staged changes</DialogTitle>
+            <DialogDescription>
+              {committableStagedFilePaths.length} files, {ignoredFilePaths.length} ignored.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-3">
+            <Textarea
+              autoFocus
+              placeholder="Leave empty to auto-generate"
+              size="sm"
+              value={commitMessage}
+              onChange={(event) => setCommitMessage(event.target.value)}
+            />
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setIsCommitDialogOpen(false);
+                setCommitMessage("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={commitDisabled || runStackedActionMutation.isPending}
+              size="sm"
+              onClick={handleCommitWorktreeChanges}
+            >
+              Commit
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+      <Dialog
+        open={isIgnoreListDialogOpen}
+        onOpenChange={(open) => {
+          setIsIgnoreListDialogOpen(open);
+          if (!open) {
+            setIgnoreListName("Ignored changes");
+          }
+        }}
+      >
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>Create ignore list</DialogTitle>
+            <DialogDescription>Stored in local git metadata, not in .gitignore.</DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <Input
+              autoFocus
+              size="sm"
+              value={ignoreListName}
+              onChange={(event) => setIgnoreListName(event.target.value)}
+            />
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setIsIgnoreListDialogOpen(false);
+                setIgnoreListName("Ignored changes");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!ignoreListName.trim() || createIgnoreListMutation.isPending}
+              size="sm"
+              onClick={handleCreateIgnoreList}
+            >
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+      <Dialog
+        open={commentDialogState !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCommentDialogState(null);
+          }
+        }}
+      >
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>Comment selected lines</DialogTitle>
+            <DialogDescription>
+              {commentDialogState ? formatSelectionLabel(commentDialogState.selection) : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-3">
+            <Textarea
+              autoFocus
+              placeholder="Comment"
+              size="sm"
+              value={commentDialogState?.body ?? ""}
+              onChange={(event) =>
+                setCommentDialogState((current) =>
+                  current ? { ...current, body: event.target.value } : current,
+                )
+              }
+            />
+          </DialogPanel>
+          <DialogFooter>
+            <Button size="sm" variant="outline" onClick={() => setCommentDialogState(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                commentDialogState === null ||
+                !commentDialogState.body.trim() ||
+                commentChangeRequestLinesMutation.isPending
+              }
+              size="sm"
+              onClick={handleSubmitLineComment}
+            >
+              Comment
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </GitDiffWorkbenchShell>
   );
 }
@@ -912,6 +1962,184 @@ function GitDiffSidebarSectionHeader(props: {
         </Badge>
       ) : null}
     </button>
+  );
+}
+
+function GitDiffChangeRequestChecksStrip(props: {
+  readonly pullRequest: ChangeRequest;
+  readonly checks: readonly ChangeRequestCheck[];
+  readonly isFetching: boolean;
+}) {
+  return (
+    <div className="flex h-9 shrink-0 items-center gap-2 overflow-hidden border-b border-border bg-background px-3 text-xs">
+      <span className="shrink-0 font-medium tabular-nums">PR #{props.pullRequest.number}</span>
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+        {props.checks.length === 0 ? (
+          <span className="truncate text-muted-foreground">
+            {props.isFetching ? "Loading checks..." : "No checks"}
+          </span>
+        ) : (
+          props.checks.slice(0, 8).map((check) => (
+            <span
+              key={`${check.name}:${check.status}`}
+              className="inline-flex min-w-0 max-w-48 items-center gap-1 rounded-md border border-border/70 px-1.5 py-0.5"
+              title={check.description ?? check.name}
+            >
+              <span className={cn("shrink-0", checkStatusTone(check.status))}>
+                {check.status === "success" ? (
+                  <CheckCircle2Icon className="size-3" />
+                ) : check.status === "failure" || check.status === "cancelled" ? (
+                  <XCircleIcon className="size-3" />
+                ) : check.status === "skipped" ? (
+                  <BanIcon className="size-3" />
+                ) : (
+                  <RefreshCwIcon className={cn("size-3", props.isFetching && "animate-spin")} />
+                )}
+              </span>
+              <span className="truncate">{check.name}</span>
+            </span>
+          ))
+        )}
+      </div>
+      {props.checks.length > 8 ? (
+        <span className="shrink-0 text-muted-foreground">+{props.checks.length - 8}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function GitDiffIgnoreListsPanel(props: {
+  readonly ignoreLists: readonly GitDiffIgnoreList[];
+  readonly selectedFilePath: string | null;
+  readonly isBusy: boolean;
+  readonly onCreate: () => void;
+  readonly onDelete: (id: string) => void;
+  readonly onAddFile: (list: GitDiffIgnoreList, filePath: string) => void;
+  readonly onUpdateFiles: (
+    list: GitDiffIgnoreList,
+    filePaths: readonly string[],
+  ) => Promise<boolean>;
+}) {
+  const { onAddFile } = props;
+  const handleDrop = useCallback(
+    (list: GitDiffIgnoreList, event: ReactDragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const filePath =
+        event.dataTransfer.getData(GIT_DIFF_IGNORE_LIST_DRAG_TYPE) ||
+        event.dataTransfer.getData("text/plain");
+      const normalizedPath = filePath.trim();
+      if (normalizedPath.length === 0) return;
+      onAddFile(list, normalizedPath);
+    },
+    [onAddFile],
+  );
+
+  return (
+    <section className="shrink-0 rounded-md border border-border/70 bg-muted/20 p-2">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-muted-foreground">Ignore lists</span>
+        <Button
+          aria-label="Create ignore list"
+          disabled={props.isBusy}
+          size="icon-xs"
+          title="Create ignore list"
+          variant="ghost"
+          onClick={props.onCreate}
+        >
+          <PlusIcon />
+        </Button>
+      </div>
+      <div className="max-h-44 space-y-2 overflow-auto pr-1">
+        {props.ignoreLists.length === 0 ? (
+          <button
+            className="flex h-12 w-full items-center justify-center rounded-md border border-dashed border-border text-xs text-muted-foreground transition-colors hover:bg-muted/50"
+            type="button"
+            onClick={props.onCreate}
+          >
+            Create list
+          </button>
+        ) : (
+          props.ignoreLists.map((list) => (
+            <div
+              key={list.id}
+              className="rounded-md border border-border/70 bg-background/70 p-2"
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "copy";
+              }}
+              onDrop={(event) => handleDrop(list, event)}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-xs font-medium">{list.name}</span>
+                <div className="flex shrink-0 items-center gap-1">
+                  {props.selectedFilePath && !list.filePaths.includes(props.selectedFilePath) ? (
+                    <Button
+                      aria-label={`Add ${props.selectedFilePath} to ${list.name}`}
+                      disabled={props.isBusy}
+                      size="icon-xs"
+                      title="Add selected file"
+                      variant="ghost"
+                      onClick={() => {
+                        if (props.selectedFilePath) {
+                          props.onAddFile(list, props.selectedFilePath);
+                        }
+                      }}
+                    >
+                      <BanIcon />
+                    </Button>
+                  ) : null}
+                  <Button
+                    aria-label={`Delete ${list.name}`}
+                    disabled={props.isBusy}
+                    size="icon-xs"
+                    title="Delete ignore list"
+                    variant="ghost"
+                    onClick={() => props.onDelete(list.id)}
+                  >
+                    <Trash2Icon />
+                  </Button>
+                </div>
+              </div>
+              {list.filePaths.length > 0 ? (
+                <div className="mt-2 space-y-1">
+                  {list.filePaths.slice(0, 5).map((filePath) => (
+                    <div
+                      key={filePath}
+                      className="flex items-center justify-between gap-2 rounded bg-muted/40 px-1.5 py-0.5 font-mono text-[11px]"
+                    >
+                      <span className="min-w-0 truncate">{filePath}</span>
+                      <button
+                        aria-label={`Remove ${filePath}`}
+                        className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                        disabled={props.isBusy}
+                        type="button"
+                        onClick={() => {
+                          void props.onUpdateFiles(
+                            list,
+                            list.filePaths.filter((path) => path !== filePath),
+                          );
+                        }}
+                      >
+                        <XCircleIcon className="size-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {list.filePaths.length > 5 ? (
+                    <div className="px-1.5 text-[11px] text-muted-foreground">
+                      +{list.filePaths.length - 5}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="mt-2 rounded border border-dashed border-border px-2 py-2 text-center text-[11px] text-muted-foreground">
+                  Drop files
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1042,8 +2270,35 @@ function GitDiffFileWorkbench(props: {
   readonly onDiffLineHighlightModeChange: (mode: DiffLineHighlightMode) => void;
   readonly diffHunkSeparators: BuiltInHunkSeparators;
   readonly onDiffHunkSeparatorsChange: (separator: BuiltInHunkSeparators) => void;
+  readonly rawDiffFontStyle: CSSProperties;
+  readonly enableLineActions: boolean;
+  readonly isLineActionPending: boolean;
+  readonly onCommentSelectedLines: (selection: GitDiffLineSelection) => void;
+  readonly onRevertSelectedLines: (selection: GitDiffLineSelection) => void;
+  readonly onOpenSelectedFile: () => void;
+  readonly enableFileDrag: boolean;
 }) {
+  const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(null);
   const errorMessage = props.error ? formatError(props.error) : null;
+  const normalizedSelectedLines = useMemo(
+    () => normalizeDiffLineSelection(selectedLines),
+    [selectedLines],
+  );
+
+  useEffect(() => {
+    setSelectedLines(null);
+  }, [props.selectedFile?.path, props.diff?.path, props.diff?.previousPath]);
+
+  const handleSelectedFileDragStart = useCallback(
+    (event: ReactDragEvent<HTMLElement>) => {
+      if (!props.enableFileDrag || !props.selectedFile) return;
+      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.setData(GIT_DIFF_IGNORE_LIST_DRAG_TYPE, props.selectedFile.path);
+      event.dataTransfer.setData("text/plain", props.selectedFile.path);
+    },
+    [props.enableFileDrag, props.selectedFile],
+  );
+
   const fullFileDiff = useMemo<FileDiffMetadata | null>(() => {
     if (!props.diff || (!props.diff.oldFile && !props.diff.newFile)) {
       return null;
@@ -1085,14 +2340,37 @@ function GitDiffFileWorkbench(props: {
         : null,
     [fullFileDiff, props.diff?.patch, props.resolvedTheme],
   );
+  const handleDiffLineClick = useCallback<NonNullable<GitDiffFileDiffOptions["onLineClick"]>>(
+    (line) => {
+      if (
+        !props.enableLineActions ||
+        (line.lineType !== "change-addition" && line.lineType !== "change-deletion")
+      ) {
+        return;
+      }
+
+      setSelectedLines({
+        end: line.lineNumber,
+        side: line.annotationSide,
+        start: line.lineNumber,
+      });
+    },
+    [props.enableLineActions],
+  );
   const diffOptions = useMemo<GitDiffFileDiffOptions>(
     () => ({
       collapsedContextThreshold: 12,
+      controlledSelection: props.enableLineActions,
       diffStyle: props.diffRenderMode === "split" ? "split" : "unified",
       disableLineNumbers: !props.diffLineNumbers,
+      enableLineSelection: props.enableLineActions,
       expansionLineCount: 80,
       hunkSeparators: props.diffHunkSeparators,
       lineDiffType: props.diffLineHighlightMode === "inline" ? "word-alt" : "none",
+      onLineClick: handleDiffLineClick,
+      onLineSelected: setSelectedLines,
+      onLineSelectionChange: setSelectedLines,
+      onLineSelectionEnd: setSelectedLines,
       overflow: props.diffWordWrap ? "wrap" : "scroll",
       theme: resolveDiffThemeName(props.syntaxTheme),
       themeType: props.resolvedTheme,
@@ -1105,6 +2383,8 @@ function GitDiffFileWorkbench(props: {
       props.diffRenderMode,
       props.diffUnsafeCSS,
       props.diffWordWrap,
+      props.enableLineActions,
+      handleDiffLineClick,
       props.resolvedTheme,
       props.syntaxTheme,
     ],
@@ -1219,6 +2499,46 @@ function GitDiffFileWorkbench(props: {
               </span>
             </>
           ) : null}
+          {props.enableLineActions ? (
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                aria-label="Comment selected lines"
+                disabled={!normalizedSelectedLines || props.isLineActionPending}
+                size="icon-xs"
+                title={
+                  normalizedSelectedLines
+                    ? `Comment ${formatSelectionLabel(normalizedSelectedLines)}`
+                    : "Select changed lines"
+                }
+                variant="ghost"
+                onClick={() => {
+                  if (normalizedSelectedLines) {
+                    props.onCommentSelectedLines(normalizedSelectedLines);
+                  }
+                }}
+              >
+                <MessageSquareIcon />
+              </Button>
+              <Button
+                aria-label="Revert selected lines"
+                disabled={!normalizedSelectedLines || props.isLineActionPending}
+                size="icon-xs"
+                title={
+                  normalizedSelectedLines
+                    ? `Revert ${formatSelectionLabel(normalizedSelectedLines)}`
+                    : "Select changed lines"
+                }
+                variant="ghost"
+                onClick={() => {
+                  if (normalizedSelectedLines) {
+                    props.onRevertSelectedLines(normalizedSelectedLines);
+                  }
+                }}
+              >
+                <Undo2Icon />
+              </Button>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -1227,9 +2547,32 @@ function GitDiffFileWorkbench(props: {
           <div className="grid h-11 grid-cols-[minmax(0,1fr)_auto] items-center border-b border-border px-3">
             <div className="flex min-w-0 items-center gap-2">
               <FileTextIcon className="size-4 shrink-0 text-muted-foreground" />
-              <span className="truncate font-mono text-sm">
+              <button
+                aria-label={
+                  props.selectedFile ? `Open ${props.selectedFile.path} in editor` : undefined
+                }
+                className={cn(
+                  "min-w-0 cursor-pointer truncate rounded-sm text-left font-mono text-sm outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                  !props.selectedFile && "cursor-default text-muted-foreground",
+                )}
+                draggable={props.enableFileDrag && props.selectedFile !== null}
+                title={
+                  props.selectedFile
+                    ? props.enableFileDrag
+                      ? "Open in editor or drag into an ignore list"
+                      : "Open in editor"
+                    : undefined
+                }
+                type="button"
+                onDragStart={handleSelectedFileDragStart}
+                onClick={() => {
+                  if (props.selectedFile) {
+                    props.onOpenSelectedFile();
+                  }
+                }}
+              >
                 {props.selectedFile?.path ?? "Select a changed file"}
-              </span>
+              </button>
               {props.selectedFile ? (
                 <Badge size="sm" variant="secondary">
                   {changedFileStatusText(props.selectedFile)}
@@ -1258,7 +2601,11 @@ function GitDiffFileWorkbench(props: {
                 key={`${fullFileDiff.cacheKey}:${props.diffRenderMode}:${props.diffHunkSeparators}`}
                 className="mt-2"
               >
-                <FileDiff fileDiff={fullFileDiff} options={diffOptions} />
+                <FileDiff
+                  fileDiff={fullFileDiff}
+                  options={diffOptions}
+                  selectedLines={selectedLines}
+                />
               </div>
             </Virtualizer>
           ) : renderablePatch?.kind === "files" ? (
@@ -1275,7 +2622,11 @@ function GitDiffFileWorkbench(props: {
                   data-diff-file-path={resolveParsedFileDiffPath(fileDiff)}
                   className="mt-2"
                 >
-                  <FileDiff fileDiff={fileDiff} options={diffOptions} />
+                  <FileDiff
+                    fileDiff={fileDiff}
+                    options={diffOptions}
+                    selectedLines={selectedLines}
+                  />
                 </div>
               ))}
             </Virtualizer>
@@ -1284,11 +2635,12 @@ function GitDiffFileWorkbench(props: {
               <p className="mb-2 text-xs text-muted-foreground">{renderablePatch.reason}</p>
               <pre
                 className={cn(
-                  "rounded-md border border-border/70 bg-background/70 p-3 font-mono text-xs leading-relaxed text-muted-foreground/90",
+                  "rounded-md border border-border/70 bg-background/70 p-3 leading-relaxed text-muted-foreground/90",
                   props.diffWordWrap
                     ? "overflow-auto whitespace-pre-wrap wrap-break-word"
                     : "overflow-auto",
                 )}
+                style={props.rawDiffFontStyle}
               >
                 {renderablePatch.text}
               </pre>

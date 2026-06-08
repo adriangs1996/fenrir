@@ -2,6 +2,8 @@ import { Context } from "effect";
 import * as Effect from "effect/Effect";
 import type {
   ChangeRequest,
+  ChangeRequestCheck,
+  ChangeRequestLineSide,
   ChangeRequestState,
   SourceControlProviderError,
   SourceControlProviderInfo,
@@ -91,6 +93,27 @@ export interface SourceControlProviderShape {
     readonly context?: SourceControlProviderContext;
     readonly reference: string;
   }) => Effect.Effect<void, SourceControlProviderError>;
+  readonly mergeChangeRequest: (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProviderContext;
+    readonly reference: string;
+    readonly method?: "merge" | "squash" | "rebase";
+  }) => Effect.Effect<void, SourceControlProviderError>;
+  readonly createChangeRequestLineComment: (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProviderContext;
+    readonly reference: string;
+    readonly path: string;
+    readonly body: string;
+    readonly side: ChangeRequestLineSide;
+    readonly line: number;
+    readonly startLine?: number;
+  }) => Effect.Effect<void, SourceControlProviderError>;
+  readonly listChangeRequestChecks: (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProviderContext;
+    readonly reference: string;
+  }) => Effect.Effect<ReadonlyArray<ChangeRequestCheck>, SourceControlProviderError>;
   readonly getRepositoryCloneUrls: (input: {
     readonly cwd: string;
     readonly context?: SourceControlProviderContext;

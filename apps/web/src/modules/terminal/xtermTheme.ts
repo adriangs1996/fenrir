@@ -2,6 +2,8 @@ import { type ITheme } from "@xterm/xterm";
 
 type TerminalThemePalette = Omit<ITheme, "background" | "foreground">;
 type CustomTerminalThemeClassName =
+  | "pierre-dark"
+  | "pierre-dark-soft"
   | "catppuccin-mocha"
   | "rose-pine"
   | "kanagawa"
@@ -9,6 +11,8 @@ type CustomTerminalThemeClassName =
   | "nord";
 
 const CUSTOM_TERMINAL_THEME_CLASS_NAMES = [
+  "pierre-dark",
+  "pierre-dark-soft",
   "catppuccin-mocha",
   "rose-pine",
   "kanagawa",
@@ -65,6 +69,52 @@ const DEFAULT_LIGHT_TERMINAL_PALETTE: TerminalThemePalette = {
 };
 
 const CUSTOM_TERMINAL_THEME_PALETTES = {
+  "pierre-dark": {
+    cursor: "#009fff",
+    selectionBackground: "rgba(0, 159, 255, 0.3)",
+    scrollbarSliderBackground: "rgba(38, 38, 38, 0.72)",
+    scrollbarSliderHoverBackground: "rgba(54, 54, 54, 0.82)",
+    scrollbarSliderActiveBackground: "rgba(64, 64, 64, 0.88)",
+    black: "#171717",
+    red: "#ff2e3f",
+    green: "#0dbe4e",
+    yellow: "#ffca00",
+    blue: "#009fff",
+    magenta: "#e130ac",
+    cyan: "#08c0ef",
+    white: "#bcbcbc",
+    brightBlack: "#171717",
+    brightRed: "#ff2e3f",
+    brightGreen: "#86c427",
+    brightYellow: "#ffca00",
+    brightBlue: "#009fff",
+    brightMagenta: "#e130ac",
+    brightCyan: "#08c0ef",
+    brightWhite: "#bcbcbc",
+  },
+  "pierre-dark-soft": {
+    cursor: "#69b1ff",
+    selectionBackground: "rgba(105, 177, 255, 0.28)",
+    scrollbarSliderBackground: "rgba(44, 44, 44, 0.72)",
+    scrollbarSliderHoverBackground: "rgba(64, 64, 64, 0.82)",
+    scrollbarSliderActiveBackground: "rgba(82, 82, 82, 0.88)",
+    black: "#171717",
+    red: "#ff2e3f",
+    green: "#0dbe4e",
+    yellow: "#ffca00",
+    blue: "#009fff",
+    magenta: "#e130ac",
+    cyan: "#08c0ef",
+    white: "#bcbcbc",
+    brightBlack: "#171717",
+    brightRed: "#ff2e3f",
+    brightGreen: "#86c427",
+    brightYellow: "#ffca00",
+    brightBlue: "#009fff",
+    brightMagenta: "#e130ac",
+    brightCyan: "#08c0ef",
+    brightWhite: "#bcbcbc",
+  },
   "catppuccin-mocha": {
     cursor: "#f5e0dc",
     selectionBackground: "rgba(245, 224, 220, 0.25)",

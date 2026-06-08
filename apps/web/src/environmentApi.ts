@@ -77,13 +77,26 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       init: rpcClient.vcs.init,
     },
     git: {
+      runStackedAction: rpcClient.git.runStackedAction,
       resolvePullRequest: rpcClient.git.resolvePullRequest,
       preparePullRequestThread: rpcClient.git.preparePullRequestThread,
     },
     gitDiff: {
       loadFile: rpcClient.gitDiff.loadFile,
       loadFileIndex: rpcClient.gitDiff.loadFileIndex,
+      loadActiveChangeRequestStackedFileIndex:
+        rpcClient.gitDiff.loadActiveChangeRequestStackedFileIndex,
       loadStackedFileIndex: rpcClient.gitDiff.loadStackedFileIndex,
+      loadIgnoreLists: rpcClient.gitDiff.loadIgnoreLists,
+      createIgnoreList: rpcClient.gitDiff.createIgnoreList,
+      updateIgnoreList: rpcClient.gitDiff.updateIgnoreList,
+      deleteIgnoreList: rpcClient.gitDiff.deleteIgnoreList,
+      stageWorktreeChanges: rpcClient.gitDiff.stageWorktreeChanges,
+      closeChangeRequest: rpcClient.gitDiff.closeChangeRequest,
+      mergeChangeRequest: rpcClient.gitDiff.mergeChangeRequest,
+      loadChangeRequestChecks: rpcClient.gitDiff.loadChangeRequestChecks,
+      commentChangeRequestLines: rpcClient.gitDiff.commentChangeRequestLines,
+      revertChangeRequestLines: rpcClient.gitDiff.revertChangeRequestLines,
     },
     orchestration: {
       getArchivedShellSnapshot: rpcClient.orchestration.getArchivedShellSnapshot,

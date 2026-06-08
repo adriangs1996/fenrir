@@ -932,6 +932,58 @@ it.layer(TestLayer, { excludeTestServices: true })("TerminalManager", (it) => {
     }),
   );
 
+  it.effect("injects Pierre Dark lazygit config into terminal sessions", () =>
+    Effect.gen(function* () {
+      const { stateDir } = yield* ServerConfig;
+      const originalValues = new Map<string, string | undefined>();
+      const setEnv = (key: string, value: string | undefined) => {
+        if (!originalValues.has(key)) {
+          originalValues.set(key, process.env[key]);
+        }
+        if (value === undefined) {
+          delete process.env[key];
+          return;
+        }
+        process.env[key] = value;
+      };
+      const restoreEnv = () => {
+        for (const [key, value] of originalValues) {
+          if (value === undefined) {
+            delete process.env[key];
+          } else {
+            process.env[key] = value;
+          }
+        }
+      };
+
+      const { manager, ptyAdapter, baseDir } = yield* createManager();
+      const homeDir = path.join(baseDir, "home");
+      const userLazygitDir = path.join(homeDir, ".config", "lazygit");
+      const userConfigPath = path.join(userLazygitDir, "config.yml");
+      const themeConfigPath = path.join(stateDir, "lazygit", "pierre-dark.yml");
+
+      yield* makeDirectory(userLazygitDir);
+      yield* writeFileString(userConfigPath, "gui:\n  showIcons: true\n");
+
+      setEnv("HOME", homeDir);
+      setEnv("LG_CONFIG_FILE", undefined);
+      setEnv("CONFIG_DIR", undefined);
+      setEnv("XDG_CONFIG_HOME", undefined);
+
+      try {
+        yield* manager.open(openInput());
+        const spawnInput = ptyAdapter.spawnInputs[0];
+        expect(spawnInput).toBeDefined();
+        if (!spawnInput) return;
+
+        expect(spawnInput.env.LG_CONFIG_FILE).toBe(`${userConfigPath},${themeConfigPath}`);
+        expect(yield* readFileString(themeConfigPath)).toContain("#009fff");
+      } finally {
+        restoreEnv();
+      }
+    }),
+  );
+
   it.effect("injects runtime env overrides into spawned terminals", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();

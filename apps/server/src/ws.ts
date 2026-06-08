@@ -1432,10 +1432,98 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(WS_METHODS.gitDiffLoadFile, gitDiffCore.loadDiffFile(input), {
             "rpc.aggregate": "git-diff",
           }),
+        [WS_METHODS.gitDiffLoadActiveChangeRequestStackedFileIndex]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffLoadActiveChangeRequestStackedFileIndex,
+            gitDiffCore.loadActiveChangeRequestStackedDiffFileIndex(input),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
         [WS_METHODS.gitDiffLoadStackedFileIndex]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitDiffLoadStackedFileIndex,
             gitDiffCore.loadStackedDiffFileIndex(input),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
+        [WS_METHODS.gitDiffLoadIgnoreLists]: (input) =>
+          observeRpcEffect(WS_METHODS.gitDiffLoadIgnoreLists, gitDiffCore.loadIgnoreLists(input), {
+            "rpc.aggregate": "git-diff",
+          }),
+        [WS_METHODS.gitDiffCreateIgnoreList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffCreateIgnoreList,
+            gitDiffCore.createIgnoreList(input),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
+        [WS_METHODS.gitDiffUpdateIgnoreList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffUpdateIgnoreList,
+            gitDiffCore.updateIgnoreList(input),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
+        [WS_METHODS.gitDiffDeleteIgnoreList]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffDeleteIgnoreList,
+            gitDiffCore.deleteIgnoreList(input),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
+        [WS_METHODS.gitDiffStageWorktreeChanges]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffStageWorktreeChanges,
+            gitDiffCore
+              .stageWorktreeChanges(input)
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
+        [WS_METHODS.gitDiffCloseChangeRequest]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffCloseChangeRequest,
+            gitDiffCore.closeChangeRequest(input),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
+        [WS_METHODS.gitDiffMergeChangeRequest]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffMergeChangeRequest,
+            gitDiffCore.mergeChangeRequest(input),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
+        [WS_METHODS.gitDiffLoadChangeRequestChecks]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffLoadChangeRequestChecks,
+            gitDiffCore.loadChangeRequestChecks(input),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
+        [WS_METHODS.gitDiffCommentChangeRequestLines]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffCommentChangeRequestLines,
+            gitDiffCore.commentChangeRequestLines(input),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
+        [WS_METHODS.gitDiffRevertChangeRequestLines]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffRevertChangeRequestLines,
+            gitDiffCore
+              .revertChangeRequestLines(input)
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             {
               "rpc.aggregate": "git-diff",
             },

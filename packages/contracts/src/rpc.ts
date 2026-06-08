@@ -31,12 +31,29 @@ import {
   VcsSwitchRefResult,
 } from "./git";
 import {
+  CommentGitDiffChangeRequestLinesInput,
+  CreateGitDiffIgnoreListInput,
+  DeleteGitDiffIgnoreListInput,
+  GitDiffActionResult,
+  GitDiffChangeRequestReferenceInput,
+  GitDiffMergeChangeRequestInput,
+  LoadActiveChangeRequestStackedDiffFileIndexInput,
+  LoadActiveChangeRequestStackedDiffFileIndexResult,
   LoadDiffFileInput,
   LoadDiffFileIndexInput,
   LoadDiffFileIndexResult,
   LoadDiffFileResult,
+  LoadGitDiffChangeRequestChecksInput,
+  LoadGitDiffChangeRequestChecksResult,
+  LoadGitDiffIgnoreListsInput,
+  LoadGitDiffIgnoreListsResult,
   LoadStackedDiffFileIndexInput,
   LoadStackedDiffFileIndexResult,
+  RevertGitDiffChangeRequestLinesInput,
+  RevertGitDiffChangeRequestLinesResult,
+  StageGitDiffWorktreeChangesInput,
+  StageGitDiffWorktreeChangesResult,
+  UpdateGitDiffIgnoreListInput,
 } from "./gitDiff";
 import { VcsError } from "./vcs";
 import { KeybindingsConfigError } from "./keybindings";
@@ -285,7 +302,18 @@ export const WS_METHODS = {
   gitPreparePullRequestThread: "git.preparePullRequestThread",
   gitDiffLoadFile: "gitDiff.loadFile",
   gitDiffLoadFileIndex: "gitDiff.loadFileIndex",
+  gitDiffLoadActiveChangeRequestStackedFileIndex: "gitDiff.loadActiveChangeRequestStackedFileIndex",
   gitDiffLoadStackedFileIndex: "gitDiff.loadStackedFileIndex",
+  gitDiffLoadIgnoreLists: "gitDiff.loadIgnoreLists",
+  gitDiffCreateIgnoreList: "gitDiff.createIgnoreList",
+  gitDiffUpdateIgnoreList: "gitDiff.updateIgnoreList",
+  gitDiffDeleteIgnoreList: "gitDiff.deleteIgnoreList",
+  gitDiffStageWorktreeChanges: "gitDiff.stageWorktreeChanges",
+  gitDiffCloseChangeRequest: "gitDiff.closeChangeRequest",
+  gitDiffMergeChangeRequest: "gitDiff.mergeChangeRequest",
+  gitDiffLoadChangeRequestChecks: "gitDiff.loadChangeRequestChecks",
+  gitDiffCommentChangeRequestLines: "gitDiff.commentChangeRequestLines",
+  gitDiffRevertChangeRequestLines: "gitDiff.revertChangeRequestLines",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -675,6 +703,84 @@ export const WsGitDiffLoadStackedFileIndexRpc = Rpc.make(WS_METHODS.gitDiffLoadS
   success: LoadStackedDiffFileIndexResult,
   error: GitCommandError,
 });
+
+export const WsGitDiffLoadActiveChangeRequestStackedFileIndexRpc = Rpc.make(
+  WS_METHODS.gitDiffLoadActiveChangeRequestStackedFileIndex,
+  {
+    payload: LoadActiveChangeRequestStackedDiffFileIndexInput,
+    success: LoadActiveChangeRequestStackedDiffFileIndexResult,
+    error: GitCommandError,
+  },
+);
+
+export const WsGitDiffLoadIgnoreListsRpc = Rpc.make(WS_METHODS.gitDiffLoadIgnoreLists, {
+  payload: LoadGitDiffIgnoreListsInput,
+  success: LoadGitDiffIgnoreListsResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffCreateIgnoreListRpc = Rpc.make(WS_METHODS.gitDiffCreateIgnoreList, {
+  payload: CreateGitDiffIgnoreListInput,
+  success: LoadGitDiffIgnoreListsResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffUpdateIgnoreListRpc = Rpc.make(WS_METHODS.gitDiffUpdateIgnoreList, {
+  payload: UpdateGitDiffIgnoreListInput,
+  success: LoadGitDiffIgnoreListsResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffDeleteIgnoreListRpc = Rpc.make(WS_METHODS.gitDiffDeleteIgnoreList, {
+  payload: DeleteGitDiffIgnoreListInput,
+  success: LoadGitDiffIgnoreListsResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffStageWorktreeChangesRpc = Rpc.make(WS_METHODS.gitDiffStageWorktreeChanges, {
+  payload: StageGitDiffWorktreeChangesInput,
+  success: StageGitDiffWorktreeChangesResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffCloseChangeRequestRpc = Rpc.make(WS_METHODS.gitDiffCloseChangeRequest, {
+  payload: GitDiffChangeRequestReferenceInput,
+  success: GitDiffActionResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffMergeChangeRequestRpc = Rpc.make(WS_METHODS.gitDiffMergeChangeRequest, {
+  payload: GitDiffMergeChangeRequestInput,
+  success: GitDiffActionResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffLoadChangeRequestChecksRpc = Rpc.make(
+  WS_METHODS.gitDiffLoadChangeRequestChecks,
+  {
+    payload: LoadGitDiffChangeRequestChecksInput,
+    success: LoadGitDiffChangeRequestChecksResult,
+    error: GitCommandError,
+  },
+);
+
+export const WsGitDiffCommentChangeRequestLinesRpc = Rpc.make(
+  WS_METHODS.gitDiffCommentChangeRequestLines,
+  {
+    payload: CommentGitDiffChangeRequestLinesInput,
+    success: GitDiffActionResult,
+    error: GitCommandError,
+  },
+);
+
+export const WsGitDiffRevertChangeRequestLinesRpc = Rpc.make(
+  WS_METHODS.gitDiffRevertChangeRequestLines,
+  {
+    payload: RevertGitDiffChangeRequestLinesInput,
+    success: RevertGitDiffChangeRequestLinesResult,
+    error: GitCommandError,
+  },
+);
 
 export const WsVcsListRefsRpc = Rpc.make(WS_METHODS.vcsListRefs, {
   payload: VcsListRefsInput,
@@ -1506,7 +1612,18 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitPreparePullRequestThreadRpc,
   WsGitDiffLoadFileIndexRpc,
   WsGitDiffLoadFileRpc,
+  WsGitDiffLoadActiveChangeRequestStackedFileIndexRpc,
   WsGitDiffLoadStackedFileIndexRpc,
+  WsGitDiffLoadIgnoreListsRpc,
+  WsGitDiffCreateIgnoreListRpc,
+  WsGitDiffUpdateIgnoreListRpc,
+  WsGitDiffDeleteIgnoreListRpc,
+  WsGitDiffStageWorktreeChangesRpc,
+  WsGitDiffCloseChangeRequestRpc,
+  WsGitDiffMergeChangeRequestRpc,
+  WsGitDiffLoadChangeRequestChecksRpc,
+  WsGitDiffCommentChangeRequestLinesRpc,
+  WsGitDiffRevertChangeRequestLinesRpc,
   WsVcsListRefsRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,

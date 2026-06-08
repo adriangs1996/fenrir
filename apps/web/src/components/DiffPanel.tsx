@@ -216,13 +216,13 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const navigate = useNavigate();
   const { resolvedTheme, syntaxTheme } = useTheme();
   const settings = useSettings();
+  const diffFontFamily = useMemo(
+    () => buildTerminalFontFamily(settings.editorFontFamily),
+    [settings.editorFontFamily],
+  );
   const diffUnsafeCSS = useMemo(
-    () =>
-      buildDiffPanelUnsafeCSS(
-        buildTerminalFontFamily(settings.terminalFontFamily),
-        settings.terminalFontSize,
-      ),
-    [settings.terminalFontFamily, settings.terminalFontSize],
+    () => buildDiffPanelUnsafeCSS(diffFontFamily, settings.editorFontSize),
+    [diffFontFamily, settings.editorFontSize],
   );
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("stacked");
   const [diffIgnoreWhitespace, setDiffIgnoreWhitespace] = useState(settings.diffIgnoreWhitespace);
@@ -769,8 +769,8 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                         : "overflow-auto",
                     )}
                     style={{
-                      fontFamily: buildTerminalFontFamily(settings.terminalFontFamily),
-                      fontSize: `${settings.terminalFontSize}px`,
+                      fontFamily: diffFontFamily,
+                      fontSize: `${settings.editorFontSize}px`,
                     }}
                   >
                     {renderablePatch.text}

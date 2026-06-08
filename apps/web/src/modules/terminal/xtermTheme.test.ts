@@ -32,6 +32,50 @@ describe("terminalThemeFromApp", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses the Pierre Dark terminal palette when the app theme is active", () => {
+    installDocumentMock(["dark", "pierre-dark"]);
+
+    expect(terminalThemeFromApp()).toEqual(
+      expect.objectContaining({
+        cursor: "#009fff",
+        red: "#ff2e3f",
+        green: "#0dbe4e",
+        blue: "#009fff",
+        scrollbarSliderBackground: "rgba(38, 38, 38, 0.72)",
+      }),
+    );
+  });
+
+  it("keeps Pierre Dark terminal surface colors derived from the xterm mount", () => {
+    installDocumentMock(["dark", "pierre-dark"], {
+      backgroundColor: "rgb(10, 10, 10)",
+      color: "rgb(250, 250, 250)",
+    });
+
+    expect(terminalThemeFromApp()).toEqual(
+      expect.objectContaining({
+        background: "rgb(10, 10, 10)",
+        foreground: "rgb(250, 250, 250)",
+        cursor: "#009fff",
+        red: "#ff2e3f",
+      }),
+    );
+  });
+
+  it("uses the Pierre Dark Soft terminal palette when the app theme is active", () => {
+    installDocumentMock(["dark", "pierre-dark-soft"]);
+
+    expect(terminalThemeFromApp()).toEqual(
+      expect.objectContaining({
+        cursor: "#69b1ff",
+        red: "#ff2e3f",
+        green: "#0dbe4e",
+        blue: "#009fff",
+        scrollbarSliderBackground: "rgba(44, 44, 44, 0.72)",
+      }),
+    );
+  });
+
   it("uses the Catppuccin Mocha terminal palette when the app theme is active", () => {
     installDocumentMock(["dark", "catppuccin-mocha"]);
 

@@ -22,6 +22,7 @@ import {
   terminalRestartsTotal,
   terminalSessionsTotal,
 } from "../../observability/Metrics";
+import { ServerConfig } from "../../config";
 import {
   TerminalCwdError,
   TerminalManager,
@@ -49,6 +50,7 @@ import {
   TerminalProcessLifecycle,
   type TerminalProcessLifecycleShape,
 } from "../Services/ProcessLifecycle";
+import { withPierreDarkLazygitThemeEnvForStateDir } from "./LazygitTheme";
 
 const DEFAULT_HISTORY_LINE_LIMIT = 5_000;
 const DEFAULT_SUBPROCESS_POLL_INTERVAL_MS = 1_000;
@@ -183,8 +185,17 @@ const makeTerminalManager = Effect.fn("makeTerminalManager")(function* () {
 export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWithOptions")(
   function* (options: TerminalManagerOptions) {
     const fileSystem = yield* FileSystem.FileSystem;
+    const serverConfig = yield* Effect.serviceOption(ServerConfig);
     const services = yield* Effect.context();
     const runFork = Effect.runForkWith(services);
+    const withLazygitThemeEnv = (env: NodeJS.ProcessEnv) =>
+      Option.match(serverConfig, {
+        onNone: () => Effect.succeed(env),
+        onSome: (config) =>
+          withPierreDarkLazygitThemeEnvForStateDir(env, config.stateDir).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+          ),
+      });
 
     const subprocessPollIntervalMs =
       options.subprocessPollIntervalMs ?? DEFAULT_SUBPROCESS_POLL_INTERVAL_MS;
@@ -558,9 +569,8 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
           Effect.andThen(
             Effect.gen(function* () {
               const shellCandidates = options.shellResolver.resolve();
-              const terminalEnv = options.shellResolver.createSpawnEnv(
-                process.env,
-                session.runtimeEnv,
+              const terminalEnv = yield* withLazygitThemeEnv(
+                options.shellResolver.createSpawnEnv(process.env, session.runtimeEnv),
               );
               const spawnResult = yield* trySpawn(shellCandidates, terminalEnv, session);
               ptyProcess = spawnResult.process;

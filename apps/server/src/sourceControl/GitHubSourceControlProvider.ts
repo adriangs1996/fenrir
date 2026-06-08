@@ -6,6 +6,8 @@ import * as Schema from "effect/Schema";
 import {
   SourceControlProviderError,
   type ChangeRequest,
+  type ChangeRequestCheck,
+  type ChangeRequestCheckStatus,
   type ChangeRequestState,
 } from "@fenrir/contracts";
 
@@ -14,6 +16,16 @@ import * as GitHubPullRequests from "./gitHubPullRequests.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
 import * as SourceControlProviderDiscovery from "./SourceControlProviderDiscovery.ts";
 const isSourceControlProviderError = Schema.is(SourceControlProviderError);
+
+const RawGitHubCheckSchema = Schema.Struct({
+  name: Schema.String,
+  state: Schema.optional(Schema.String),
+  bucket: Schema.optional(Schema.String),
+  link: Schema.optional(Schema.NullOr(Schema.String)),
+  description: Schema.optional(Schema.NullOr(Schema.String)),
+});
+const RawGitHubChecksSchema = Schema.Array(RawGitHubCheckSchema);
+const decodeRawGitHubChecks = Schema.decodeUnknownSync(RawGitHubChecksSchema);
 
 function providerError(
   operation: string,
@@ -47,6 +59,76 @@ function toChangeRequest(summary: GitHubCli.GitHubPullRequestSummary): ChangeReq
       ? { headRepositoryOwnerLogin: summary.headRepositoryOwnerLogin }
       : {}),
   };
+}
+
+function normalizeChangeRequestReference(reference: string): string {
+  return reference.trim().replace(/^#/, "");
+}
+
+function mapGitHubCheckStatus(raw: string | undefined): ChangeRequestCheckStatus {
+  const normalized = raw?.trim().toLowerCase() ?? "";
+  if (
+    normalized === "pass" ||
+    normalized === "passing" ||
+    normalized === "success" ||
+    normalized === "successful"
+  ) {
+    return "success";
+  }
+  if (
+    normalized === "fail" ||
+    normalized === "failing" ||
+    normalized === "failure" ||
+    normalized === "error" ||
+    normalized === "timed_out" ||
+    normalized === "action_required"
+  ) {
+    return "failure";
+  }
+  if (
+    normalized === "pending" ||
+    normalized === "queued" ||
+    normalized === "in_progress" ||
+    normalized === "waiting" ||
+    normalized === "expected"
+  ) {
+    return "pending";
+  }
+  if (normalized === "cancelled" || normalized === "canceled") {
+    return "cancelled";
+  }
+  if (normalized === "skipped") {
+    return "skipped";
+  }
+  return "unknown";
+}
+
+function decodeGitHubChecks(raw: string): ReadonlyArray<ChangeRequestCheck> {
+  const parsed = JSON.parse(raw) as unknown;
+  const decoded = decodeRawGitHubChecks(parsed);
+  return decoded.map((item) => {
+    const name = item.name.trim() || "Check";
+    const status = mapGitHubCheckStatus(item.state ?? item.bucket);
+    const startedAt = Option.none();
+    const completedAt = Option.none();
+    if (item.link && item.description) {
+      return {
+        name,
+        status,
+        url: item.link,
+        description: item.description,
+        startedAt,
+        completedAt,
+      };
+    }
+    if (item.link) {
+      return { name, status, url: item.link, startedAt, completedAt };
+    }
+    if (item.description) {
+      return { name, status, description: item.description, startedAt, completedAt };
+    }
+    return { name, status, startedAt, completedAt };
+  });
 }
 
 function parseGitHubAuth(input: SourceControlProviderDiscovery.SourceControlAuthProbeInput) {
@@ -214,6 +296,97 @@ export const make = Effect.fn("makeGitHubSourceControlProvider")(function* () {
         .pipe(
           Effect.asVoid,
           Effect.mapError((error) => providerError("closeChangeRequest", error)),
+        ),
+    mergeChangeRequest: (input) =>
+      github
+        .execute({
+          cwd: input.cwd,
+          args: ["pr", "merge", input.reference, `--${input.method ?? "merge"}`],
+        })
+        .pipe(
+          Effect.asVoid,
+          Effect.mapError((error) => providerError("mergeChangeRequest", error)),
+        ),
+    createChangeRequestLineComment: (input) =>
+      Effect.gen(function* () {
+        const reference = normalizeChangeRequestReference(input.reference);
+        const [repositoryResult, headShaResult] = yield* Effect.all(
+          [
+            github.execute({
+              cwd: input.cwd,
+              args: ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+            }),
+            github.execute({
+              cwd: input.cwd,
+              args: ["pr", "view", reference, "--json", "headRefOid", "--jq", ".headRefOid"],
+            }),
+          ],
+          { concurrency: "unbounded" },
+        );
+        const repository = repositoryResult.stdout.trim();
+        const headSha = headShaResult.stdout.trim();
+        if (repository.length === 0 || headSha.length === 0) {
+          return yield* new SourceControlProviderError({
+            provider: "github",
+            operation: "createChangeRequestLineComment",
+            detail: "GitHub CLI did not return repository or PR head commit metadata.",
+          });
+        }
+
+        const side = input.side === "additions" ? "RIGHT" : "LEFT";
+        yield* github.execute({
+          cwd: input.cwd,
+          args: [
+            "api",
+            `repos/${repository}/pulls/${reference}/comments`,
+            "--method",
+            "POST",
+            "-f",
+            `body=${input.body}`,
+            "-f",
+            `commit_id=${headSha}`,
+            "-f",
+            `path=${input.path}`,
+            "-f",
+            `side=${side}`,
+            "-F",
+            `line=${input.line}`,
+            ...(input.startLine !== undefined
+              ? ["-F", `start_line=${input.startLine}`, "-f", `start_side=${side}`]
+              : []),
+          ],
+        });
+      }).pipe(
+        Effect.mapError((error) =>
+          isSourceControlProviderError(error)
+            ? error
+            : providerError("createChangeRequestLineComment", error),
+        ),
+      ),
+    listChangeRequestChecks: (input) =>
+      github
+        .execute({
+          cwd: input.cwd,
+          args: ["pr", "checks", input.reference, "--json", "name,state,bucket,link,description"],
+        })
+        .pipe(
+          Effect.flatMap((result) =>
+            Effect.try({
+              try: () => decodeGitHubChecks(result.stdout.trim() || "[]"),
+              catch: (cause) =>
+                new SourceControlProviderError({
+                  provider: "github",
+                  operation: "listChangeRequestChecks",
+                  detail: "GitHub CLI returned invalid check JSON.",
+                  cause,
+                }),
+            }),
+          ),
+          Effect.mapError((error) =>
+            isSourceControlProviderError(error)
+              ? error
+              : providerError("listChangeRequestChecks", error),
+          ),
         ),
     getRepositoryCloneUrls: (input) =>
       github

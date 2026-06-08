@@ -237,7 +237,26 @@ export interface WsRpcClient {
   readonly gitDiff: {
     readonly loadFile: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadFile>;
     readonly loadFileIndex: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadFileIndex>;
+    readonly loadActiveChangeRequestStackedFileIndex: RpcUnaryMethod<
+      typeof WS_METHODS.gitDiffLoadActiveChangeRequestStackedFileIndex
+    >;
     readonly loadStackedFileIndex: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadStackedFileIndex>;
+    readonly loadIgnoreLists: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadIgnoreLists>;
+    readonly createIgnoreList: RpcUnaryMethod<typeof WS_METHODS.gitDiffCreateIgnoreList>;
+    readonly updateIgnoreList: RpcUnaryMethod<typeof WS_METHODS.gitDiffUpdateIgnoreList>;
+    readonly deleteIgnoreList: RpcUnaryMethod<typeof WS_METHODS.gitDiffDeleteIgnoreList>;
+    readonly stageWorktreeChanges: RpcUnaryMethod<typeof WS_METHODS.gitDiffStageWorktreeChanges>;
+    readonly closeChangeRequest: RpcUnaryMethod<typeof WS_METHODS.gitDiffCloseChangeRequest>;
+    readonly mergeChangeRequest: RpcUnaryMethod<typeof WS_METHODS.gitDiffMergeChangeRequest>;
+    readonly loadChangeRequestChecks: RpcUnaryMethod<
+      typeof WS_METHODS.gitDiffLoadChangeRequestChecks
+    >;
+    readonly commentChangeRequestLines: RpcUnaryMethod<
+      typeof WS_METHODS.gitDiffCommentChangeRequestLines
+    >;
+    readonly revertChangeRequestLines: RpcUnaryMethod<
+      typeof WS_METHODS.gitDiffRevertChangeRequestLines
+    >;
   };
   readonly vcs: {
     readonly pull: RpcUnaryMethod<typeof WS_METHODS.vcsPull>;
@@ -579,8 +598,32 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       loadFile: (input) => transport.request((client) => client[WS_METHODS.gitDiffLoadFile](input)),
       loadFileIndex: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffLoadFileIndex](input)),
+      loadActiveChangeRequestStackedFileIndex: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.gitDiffLoadActiveChangeRequestStackedFileIndex](input),
+        ),
       loadStackedFileIndex: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffLoadStackedFileIndex](input)),
+      loadIgnoreLists: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffLoadIgnoreLists](input)),
+      createIgnoreList: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffCreateIgnoreList](input)),
+      updateIgnoreList: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffUpdateIgnoreList](input)),
+      deleteIgnoreList: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffDeleteIgnoreList](input)),
+      stageWorktreeChanges: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffStageWorktreeChanges](input)),
+      closeChangeRequest: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffCloseChangeRequest](input)),
+      mergeChangeRequest: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffMergeChangeRequest](input)),
+      loadChangeRequestChecks: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffLoadChangeRequestChecks](input)),
+      commentChangeRequestLines: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffCommentChangeRequestLines](input)),
+      revertChangeRequestLines: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffRevertChangeRequestLines](input)),
     },
     vcs: {
       pull: (input) => transport.request((client) => client[WS_METHODS.vcsPull](input)),

@@ -1,14 +1,27 @@
 import type {
+  CommentGitDiffChangeRequestLinesInput,
+  CreateGitDiffIgnoreListInput,
   DiffTarget,
   EnvironmentId,
+  GitDiffActionResult,
   GitDiffFileSummary,
+  GitDiffIgnoreList,
+  GitDiffMergeChangeRequestInput,
+  LoadGitDiffChangeRequestChecksResult,
+  LoadActiveChangeRequestStackedDiffFileIndexInput,
+  LoadActiveChangeRequestStackedDiffFileIndexResult,
   LoadDiffFileInput,
   LoadDiffFileIndexInput,
   LoadDiffFileResult,
   LoadStackedDiffFileIndexInput,
   LoadStackedDiffFileIndexResult,
+  RevertGitDiffChangeRequestLinesInput,
+  RevertGitDiffChangeRequestLinesResult,
+  StageGitDiffWorktreeChangesInput,
+  StageGitDiffWorktreeChangesResult,
+  UpdateGitDiffIgnoreListInput,
 } from "@fenrir/contracts";
-import { queryOptions, type QueryClient } from "@tanstack/react-query";
+import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 
 import { ensureEnvironmentApi } from "../environmentApi";
 
@@ -53,6 +66,34 @@ export const gitDiffQueryKeys = {
     baseRef: string | null,
     headRef: string | null,
   ) => ["git-diff", environmentId, cwd, "stacked-file-index", baseRef, headRef] as const,
+  activeChangeRequestStackedFileIndex: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", environmentId, cwd, "active-change-request-stacked-file-index"] as const,
+  ignoreLists: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", environmentId, cwd, "ignore-lists"] as const,
+  changeRequestChecks: (
+    environmentId: EnvironmentId | null,
+    cwd: string | null,
+    reference: string | null,
+  ) => ["git-diff", environmentId, cwd, "change-request-checks", reference] as const,
+};
+
+export const gitDiffMutationKeys = {
+  createIgnoreList: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "create-ignore-list", environmentId, cwd] as const,
+  updateIgnoreList: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "update-ignore-list", environmentId, cwd] as const,
+  deleteIgnoreList: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "delete-ignore-list", environmentId, cwd] as const,
+  stageWorktreeChanges: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "stage-worktree-changes", environmentId, cwd] as const,
+  closeChangeRequest: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "close-change-request", environmentId, cwd] as const,
+  mergeChangeRequest: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "merge-change-request", environmentId, cwd] as const,
+  commentChangeRequestLines: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "comment-change-request-lines", environmentId, cwd] as const,
+  revertChangeRequestLines: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "revert-change-request-lines", environmentId, cwd] as const,
 };
 
 export function gitDiffFileIndexQueryOptions(input: {
@@ -158,6 +199,264 @@ export function gitDiffStackedFileIndexQueryOptions(input: {
     staleTime: 2_000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: true,
+  });
+}
+
+export function gitDiffActiveChangeRequestStackedFileIndexQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+}) {
+  return queryOptions({
+    queryKey: gitDiffQueryKeys.activeChangeRequestStackedFileIndex(input.environmentId, input.cwd),
+    queryFn: async (): Promise<LoadActiveChangeRequestStackedDiffFileIndexResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Active pull request diff stack is unavailable.");
+      }
+      const request: LoadActiveChangeRequestStackedDiffFileIndexInput = {
+        cwd: input.cwd,
+        detectRenames: true,
+        detectCopies: true,
+      };
+      return ensureEnvironmentApi(
+        input.environmentId,
+      ).gitDiff.loadActiveChangeRequestStackedFileIndex(request);
+    },
+    enabled: input.environmentId !== null && input.cwd !== null,
+    staleTime: 2_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitDiffIgnoreListsQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+}) {
+  return queryOptions({
+    queryKey: gitDiffQueryKeys.ignoreLists(input.environmentId, input.cwd),
+    queryFn: async (): Promise<readonly GitDiffIgnoreList[]> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git diff ignore lists are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.loadIgnoreLists({ cwd: input.cwd });
+    },
+    enabled: input.environmentId !== null && input.cwd !== null,
+    staleTime: 5_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitDiffChangeRequestChecksQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly reference: string | null;
+  readonly enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitDiffQueryKeys.changeRequestChecks(input.environmentId, input.cwd, input.reference),
+    queryFn: async (): Promise<LoadGitDiffChangeRequestChecksResult> => {
+      if (!input.environmentId || !input.cwd || !input.reference) {
+        throw new Error("Pull request checks are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.loadChangeRequestChecks({
+        cwd: input.cwd,
+        reference: input.reference,
+      });
+    },
+    enabled:
+      input.enabled !== false &&
+      input.environmentId !== null &&
+      input.cwd !== null &&
+      input.reference !== null,
+    staleTime: 2_000,
+    refetchInterval: input.enabled === false ? false : 5_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitDiffCreateIgnoreListMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.createIgnoreList(input.environmentId, input.cwd),
+    mutationFn: async (args: Omit<CreateGitDiffIgnoreListInput, "cwd">) => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git diff ignore lists are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.createIgnoreList({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffUpdateIgnoreListMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.updateIgnoreList(input.environmentId, input.cwd),
+    mutationFn: async (args: Omit<UpdateGitDiffIgnoreListInput, "cwd">) => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git diff ignore lists are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.updateIgnoreList({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffDeleteIgnoreListMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.deleteIgnoreList(input.environmentId, input.cwd),
+    mutationFn: async (id: string) => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git diff ignore lists are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.deleteIgnoreList({
+        cwd: input.cwd,
+        id,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffStageWorktreeChangesMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.stageWorktreeChanges(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<StageGitDiffWorktreeChangesInput, "cwd">,
+    ): Promise<StageGitDiffWorktreeChangesResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git staging is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.stageWorktreeChanges({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffCloseChangeRequestMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.closeChangeRequest(input.environmentId, input.cwd),
+    mutationFn: async (reference: string): Promise<GitDiffActionResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Pull request actions are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.closeChangeRequest({
+        cwd: input.cwd,
+        reference,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffMergeChangeRequestMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.mergeChangeRequest(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<GitDiffMergeChangeRequestInput, "cwd">,
+    ): Promise<GitDiffActionResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Pull request actions are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.mergeChangeRequest({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffCommentChangeRequestLinesMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.commentChangeRequestLines(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<CommentGitDiffChangeRequestLinesInput, "cwd">,
+    ): Promise<GitDiffActionResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Pull request line comments are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.commentChangeRequestLines({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffRevertChangeRequestLinesMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.revertChangeRequestLines(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<RevertGitDiffChangeRequestLinesInput, "cwd">,
+    ): Promise<RevertGitDiffChangeRequestLinesResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Pull request line revert is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.revertChangeRequestLines({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
   });
 }
 

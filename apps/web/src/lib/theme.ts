@@ -12,6 +12,14 @@ export const THEME_OPTIONS = [
     label: "Dark",
   },
   {
+    value: "pierre-dark",
+    label: "Pierre Dark",
+  },
+  {
+    value: "pierre-dark-soft",
+    label: "Pierre Dark Soft",
+  },
+  {
     value: "catppuccin-mocha",
     label: "Catppuccin Mocha",
   },
@@ -36,6 +44,14 @@ export const THEME_OPTIONS = [
 export type Theme = (typeof THEME_OPTIONS)[number]["value"];
 
 const CUSTOM_THEME_CONFIG = {
+  "pierre-dark": {
+    className: "pierre-dark",
+    syntaxTheme: "pierre-dark",
+  },
+  "pierre-dark-soft": {
+    className: "pierre-dark-soft",
+    syntaxTheme: "pierre-dark-soft",
+  },
   "catppuccin-mocha": {
     className: "catppuccin-mocha",
     syntaxTheme: "catppuccin-mocha",

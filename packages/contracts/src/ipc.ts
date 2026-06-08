@@ -1,9 +1,12 @@
 import { Schema } from "effect";
 
 import type {
+  GitActionProgressEvent,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
+  GitRunStackedActionInput,
+  GitRunStackedActionResult,
   GitResolvePullRequestResult,
   VcsCreateRefInput,
   VcsCreateRefResult,
@@ -21,12 +24,29 @@ import type {
   VcsSwitchRefResult,
 } from "./git";
 import type {
+  CommentGitDiffChangeRequestLinesInput,
+  CreateGitDiffIgnoreListInput,
+  DeleteGitDiffIgnoreListInput,
+  GitDiffActionResult,
+  GitDiffChangeRequestReferenceInput,
+  GitDiffMergeChangeRequestInput,
+  LoadActiveChangeRequestStackedDiffFileIndexInput,
+  LoadActiveChangeRequestStackedDiffFileIndexResult,
   LoadDiffFileInput,
   LoadDiffFileIndexInput,
   LoadDiffFileIndexResult,
   LoadDiffFileResult,
+  LoadGitDiffChangeRequestChecksInput,
+  LoadGitDiffChangeRequestChecksResult,
+  LoadGitDiffIgnoreListsInput,
+  LoadGitDiffIgnoreListsResult,
   LoadStackedDiffFileIndexInput,
   LoadStackedDiffFileIndexResult,
+  RevertGitDiffChangeRequestLinesInput,
+  RevertGitDiffChangeRequestLinesResult,
+  StageGitDiffWorktreeChangesInput,
+  StageGitDiffWorktreeChangesResult,
+  UpdateGitDiffIgnoreListInput,
 } from "./gitDiff";
 import type {
   SourceControlCloneRepositoryInput,
@@ -903,6 +923,10 @@ export interface EnvironmentApi {
     ) => () => void;
   };
   git: {
+    runStackedAction: (
+      input: GitRunStackedActionInput,
+      options?: { readonly onProgress?: (event: GitActionProgressEvent) => void },
+    ) => Promise<GitRunStackedActionResult>;
     resolvePullRequest: (input: GitPullRequestRefInput) => Promise<GitResolvePullRequestResult>;
     preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
@@ -911,9 +935,36 @@ export interface EnvironmentApi {
   gitDiff: {
     loadFile: (input: LoadDiffFileInput) => Promise<LoadDiffFileResult>;
     loadFileIndex: (input: LoadDiffFileIndexInput) => Promise<LoadDiffFileIndexResult>;
+    loadActiveChangeRequestStackedFileIndex: (
+      input: LoadActiveChangeRequestStackedDiffFileIndexInput,
+    ) => Promise<LoadActiveChangeRequestStackedDiffFileIndexResult>;
     loadStackedFileIndex: (
       input: LoadStackedDiffFileIndexInput,
     ) => Promise<LoadStackedDiffFileIndexResult>;
+    loadIgnoreLists: (input: LoadGitDiffIgnoreListsInput) => Promise<LoadGitDiffIgnoreListsResult>;
+    createIgnoreList: (
+      input: CreateGitDiffIgnoreListInput,
+    ) => Promise<LoadGitDiffIgnoreListsResult>;
+    updateIgnoreList: (
+      input: UpdateGitDiffIgnoreListInput,
+    ) => Promise<LoadGitDiffIgnoreListsResult>;
+    deleteIgnoreList: (
+      input: DeleteGitDiffIgnoreListInput,
+    ) => Promise<LoadGitDiffIgnoreListsResult>;
+    stageWorktreeChanges: (
+      input: StageGitDiffWorktreeChangesInput,
+    ) => Promise<StageGitDiffWorktreeChangesResult>;
+    closeChangeRequest: (input: GitDiffChangeRequestReferenceInput) => Promise<GitDiffActionResult>;
+    mergeChangeRequest: (input: GitDiffMergeChangeRequestInput) => Promise<GitDiffActionResult>;
+    loadChangeRequestChecks: (
+      input: LoadGitDiffChangeRequestChecksInput,
+    ) => Promise<LoadGitDiffChangeRequestChecksResult>;
+    commentChangeRequestLines: (
+      input: CommentGitDiffChangeRequestLinesInput,
+    ) => Promise<GitDiffActionResult>;
+    revertChangeRequestLines: (
+      input: RevertGitDiffChangeRequestLinesInput,
+    ) => Promise<RevertGitDiffChangeRequestLinesResult>;
   };
   orchestration: {
     getArchivedShellSnapshot: () => Promise<OrchestrationShellSnapshot>;

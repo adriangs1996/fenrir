@@ -489,7 +489,50 @@ const buildAppUnderTest = (options?: {
       ...options?.layers?.gitCore,
     });
     const gitDiffCoreLayer = Layer.mock(GitDiffCore)({
+      loadDiffFile: () =>
+        Effect.succeed({
+          path: "README.md",
+          previousPath: null,
+          oldFile: null,
+          newFile: null,
+          patch: "",
+        }),
       loadDiffFileIndex: () => Effect.succeed([]),
+      loadActiveChangeRequestStackedDiffFileIndex: () =>
+        Effect.succeed({
+          activeChangeRequest: null,
+          baseRef: null,
+          headRef: null,
+          steps: [],
+        }),
+      loadStackedDiffFileIndex: () =>
+        Effect.succeed({
+          baseRef: "main",
+          headRef: "HEAD",
+          steps: [],
+        }),
+      loadIgnoreLists: () => Effect.succeed([]),
+      createIgnoreList: () => Effect.succeed([]),
+      updateIgnoreList: () => Effect.succeed([]),
+      deleteIgnoreList: () => Effect.succeed([]),
+      stageWorktreeChanges: () =>
+        Effect.succeed({
+          stagedFilePaths: [],
+          ignoredFilePaths: [],
+        }),
+      closeChangeRequest: () => Effect.succeed({ status: "ok" as const }),
+      mergeChangeRequest: () => Effect.succeed({ status: "ok" as const }),
+      loadChangeRequestChecks: () => Effect.succeed([]),
+      commentChangeRequestLines: () => Effect.succeed({ status: "ok" as const }),
+      revertChangeRequestLines: () =>
+        Effect.succeed({
+          path: "README.md",
+          commitSha: "abc123",
+          push: {
+            status: "skipped_up_to_date" as const,
+            branch: "main",
+          },
+        }),
       ...options?.layers?.gitDiffCore,
     });
     const gitManagerLayer = Layer.mock(GitManager)({
