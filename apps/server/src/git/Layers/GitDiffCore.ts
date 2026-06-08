@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, readlink, writeFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { lstat, mkdir, readdir, readFile, readlink, writeFile } from "node:fs/promises";
 import nodePath from "node:path";
 import { parseDiffFromFile } from "@pierre/diffs";
 import {
   GitCommandError,
   type ChangeRequest,
+  type GitDiffRepository,
   type GitDiffIgnoreList,
   type GitDiffPushResult,
   type GitDiffSelectedLineRange,
@@ -35,6 +37,19 @@ const DIFF_FILE_PATCH_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const ACTIVE_CHANGE_REQUEST_STACK_MAX_DEPTH = 32;
 const GIT_DIFF_IGNORE_LISTS_GIT_PATH = "info/fenrir-diff-ignore-lists.json";
 const DEFAULT_REVERT_COMMIT_SUBJECT_MAX_LENGTH = 72;
+const GIT_DIFF_REPOSITORY_SCAN_MAX_DEPTH = 5;
+const GIT_DIFF_REPOSITORY_SCAN_EXCLUDED_DIRS = new Set([
+  ".cache",
+  ".next",
+  ".turbo",
+  ".venv",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+  "target",
+  "vendor",
+]);
 
 function buildDiffArgs(input: LoadDiffFileIndexInput): ReadonlyArray<string> {
   const args = ["diff", "--numstat", "-z"];
@@ -198,6 +213,89 @@ function gitDiffCommandError(
     cwd,
     detail,
     ...(cause !== undefined ? { cause } : {}),
+  });
+}
+
+function shouldSkipRepositoryScanDirectory(name: string): boolean {
+  return name === ".git" || GIT_DIFF_REPOSITORY_SCAN_EXCLUDED_DIRS.has(name);
+}
+
+async function hasGitMetadata(directoryPath: string): Promise<boolean> {
+  try {
+    const stats = await lstat(nodePath.join(directoryPath, ".git"));
+    return stats.isDirectory() || stats.isFile();
+  } catch {
+    return false;
+  }
+}
+
+function toGitDiffRepository(workspaceCwd: string, repositoryCwd: string): GitDiffRepository {
+  const relativePath = nodePath.relative(workspaceCwd, repositoryCwd).replace(/\\/g, "/");
+  return {
+    cwd: repositoryCwd,
+    relativePath,
+    name:
+      relativePath.length === 0
+        ? nodePath.basename(repositoryCwd)
+        : nodePath.basename(relativePath),
+    isWorkspaceRoot: relativePath.length === 0,
+  };
+}
+
+async function discoverGitRepositories(
+  workspaceCwd: string,
+): Promise<ReadonlyArray<GitDiffRepository>> {
+  const root = nodePath.resolve(workspaceCwd);
+  const rootStats = await lstat(root);
+  if (!rootStats.isDirectory()) {
+    throw new Error(`Workspace path is not a directory: ${workspaceCwd}`);
+  }
+
+  const repositoriesByCwd = new Map<string, GitDiffRepository>();
+
+  const addRepository = (repositoryCwd: string) => {
+    const normalizedCwd = nodePath.resolve(repositoryCwd);
+    repositoriesByCwd.set(normalizedCwd, toGitDiffRepository(root, normalizedCwd));
+  };
+
+  if (await hasGitMetadata(root)) {
+    addRepository(root);
+  }
+
+  const walk = async (directoryPath: string, depth: number): Promise<void> => {
+    if (depth >= GIT_DIFF_REPOSITORY_SCAN_MAX_DEPTH) {
+      return;
+    }
+
+    let entries: Dirent[];
+    try {
+      entries = await readdir(directoryPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || shouldSkipRepositoryScanDirectory(entry.name)) {
+        continue;
+      }
+
+      const childPath = nodePath.join(directoryPath, entry.name);
+      if (await hasGitMetadata(childPath)) {
+        addRepository(childPath);
+        continue;
+      }
+
+      await walk(childPath, depth + 1);
+    }
+  };
+
+  await walk(root, 0);
+
+  return [...repositoriesByCwd.values()].toSorted((left, right) => {
+    if (left.isWorkspaceRoot !== right.isWorkspaceRoot) {
+      return left.isWorkspaceRoot ? -1 : 1;
+    }
+    return left.relativePath.localeCompare(right.relativePath);
   });
 }
 
@@ -418,6 +516,18 @@ export const GitDiffCoreLive = Layer.effect(
   Effect.gen(function* () {
     const gitCore = yield* GitCore;
     const sourceControlProviderRegistry = yield* SourceControlProviderRegistry;
+    const listRepositories = (input: { readonly workspaceCwd: string }) =>
+      Effect.tryPromise({
+        try: () => discoverGitRepositories(input.workspaceCwd),
+        catch: (cause) =>
+          gitDiffCommandError(
+            "GitDiffCore.listRepositories",
+            input.workspaceCwd,
+            "Failed to discover workspace git repositories.",
+            cause,
+          ),
+      });
+
     const readGitRevisionFile = (
       cwd: string,
       ref: string,
@@ -763,7 +873,7 @@ export const GitDiffCoreLive = Layer.effect(
           .mergeChangeRequest({
             cwd: input.cwd,
             reference: input.reference,
-            ...(input.method ? { method: input.method } : {}),
+            method: input.method ?? "squash",
             ...(context ? { context } : {}),
           })
           .pipe(Effect.as({ status: "ok" as const })),
@@ -772,6 +882,18 @@ export const GitDiffCoreLive = Layer.effect(
     const loadChangeRequestChecks = (input: { readonly cwd: string; readonly reference: string }) =>
       providerAction(input.cwd, "GitDiffCore.loadChangeRequestChecks", (provider, context) =>
         provider.listChangeRequestChecks({
+          cwd: input.cwd,
+          reference: input.reference,
+          ...(context ? { context } : {}),
+        }),
+      );
+
+    const loadChangeRequestReviewThreads = (input: {
+      readonly cwd: string;
+      readonly reference: string;
+    }) =>
+      providerAction(input.cwd, "GitDiffCore.loadChangeRequestReviewThreads", (provider, context) =>
+        provider.listChangeRequestReviewThreads({
           cwd: input.cwd,
           reference: input.reference,
           ...(context ? { context } : {}),
@@ -1151,6 +1273,7 @@ export const GitDiffCoreLive = Layer.effect(
       });
 
     return GitDiffCore.of({
+      listRepositories,
       loadDiffFile,
       loadDiffFileIndex,
       loadActiveChangeRequestStackedDiffFileIndex,
@@ -1163,6 +1286,7 @@ export const GitDiffCoreLive = Layer.effect(
       closeChangeRequest,
       mergeChangeRequest,
       loadChangeRequestChecks,
+      loadChangeRequestReviewThreads,
       commentChangeRequestLines,
       revertChangeRequestLines,
     });

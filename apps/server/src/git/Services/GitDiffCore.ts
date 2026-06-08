@@ -14,8 +14,12 @@ import {
   type LoadDiffFileIndexResult,
   type LoadGitDiffChangeRequestChecksInput,
   type LoadGitDiffChangeRequestChecksResult,
+  type LoadGitDiffChangeRequestReviewThreadsInput,
+  type LoadGitDiffChangeRequestReviewThreadsResult,
   type LoadGitDiffIgnoreListsInput,
   type LoadGitDiffIgnoreListsResult,
+  type LoadGitDiffRepositoriesInput,
+  type LoadGitDiffRepositoriesResult,
   type LoadStackedDiffFileIndexInput,
   type LoadStackedDiffFileIndexResult,
   type RevertGitDiffChangeRequestLinesInput,
@@ -28,6 +32,9 @@ import { Context } from "effect";
 import type { Effect } from "effect";
 
 export interface GitDiffCoreShape {
+  readonly listRepositories: (
+    input: LoadGitDiffRepositoriesInput,
+  ) => Effect.Effect<LoadGitDiffRepositoriesResult, GitCommandError>;
   readonly loadDiffFile: (
     input: LoadDiffFileInput,
   ) => Effect.Effect<LoadDiffFileResult, GitCommandError>;
@@ -64,6 +71,9 @@ export interface GitDiffCoreShape {
   readonly loadChangeRequestChecks: (
     input: LoadGitDiffChangeRequestChecksInput,
   ) => Effect.Effect<LoadGitDiffChangeRequestChecksResult, GitCommandError>;
+  readonly loadChangeRequestReviewThreads: (
+    input: LoadGitDiffChangeRequestReviewThreadsInput,
+  ) => Effect.Effect<LoadGitDiffChangeRequestReviewThreadsResult, GitCommandError>;
   readonly commentChangeRequestLines: (
     input: CommentGitDiffChangeRequestLinesInput,
   ) => Effect.Effect<GitDiffActionResult, GitCommandError>;

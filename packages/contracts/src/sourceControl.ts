@@ -59,6 +59,35 @@ export const ChangeRequestCheck = Schema.Struct({
 });
 export type ChangeRequestCheck = typeof ChangeRequestCheck.Type;
 
+export const ChangeRequestReviewCommentAuthor = Schema.Struct({
+  login: TrimmedNonEmptyString,
+  avatarUrl: Schema.optionalKey(Schema.String),
+});
+export type ChangeRequestReviewCommentAuthor =
+  typeof ChangeRequestReviewCommentAuthor.Type;
+
+export const ChangeRequestReviewComment = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  body: Schema.String,
+  author: ChangeRequestReviewCommentAuthor,
+  createdAt: Schema.optionalKey(Schema.String),
+  updatedAt: Schema.optionalKey(Schema.String),
+  url: Schema.optionalKey(Schema.String),
+});
+export type ChangeRequestReviewComment = typeof ChangeRequestReviewComment.Type;
+
+export const ChangeRequestReviewThread = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  path: TrimmedNonEmptyString,
+  side: ChangeRequestLineSide,
+  line: PositiveInt,
+  startLine: Schema.optionalKey(PositiveInt),
+  isResolved: Schema.optionalKey(Schema.Boolean),
+  isOutdated: Schema.optionalKey(Schema.Boolean),
+  comments: Schema.Array(ChangeRequestReviewComment),
+});
+export type ChangeRequestReviewThread = typeof ChangeRequestReviewThread.Type;
+
 export const SourceControlChangeRequestListInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   context: Schema.optionalKey(SourceControlProviderInfo),

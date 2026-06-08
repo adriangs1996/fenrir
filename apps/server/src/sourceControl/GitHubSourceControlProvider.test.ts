@@ -157,3 +157,127 @@ it.effect("creates GitHub PRs through provider-neutral input names", () =>
     });
   }),
 );
+
+it.effect("lists GitHub pull request review threads from GraphQL", () =>
+  Effect.gen(function* () {
+    const executeArgs: Array<ReadonlyArray<string>> = [];
+    const provider = yield* makeProvider({
+      execute: (input) => {
+        executeArgs.push(input.args);
+        if (input.args[0] === "repo") {
+          return Effect.succeed(processResult("fenrir/t3code\n"));
+        }
+
+        return Effect.succeed(
+          processResult(
+            JSON.stringify([
+              {
+                data: {
+                  repository: {
+                    pullRequest: {
+                      reviewThreads: {
+                        nodes: [
+                          {
+                            id: "thread-1",
+                            path: "src/file.ts",
+                            diffSide: "RIGHT",
+                            line: 20,
+                            startLine: 18,
+                            isResolved: false,
+                            isOutdated: false,
+                            comments: {
+                              nodes: [
+                                {
+                                  id: "comment-1",
+                                  body: "Nice",
+                                  author: {
+                                    login: "alice",
+                                    avatarUrl: "https://example.test/alice.png",
+                                  },
+                                  createdAt: "2026-06-08T10:00:00Z",
+                                  updatedAt: "2026-06-08T10:00:00Z",
+                                  url: "https://github.com/fenrir/t3code/pull/42#discussion_r1",
+                                },
+                                {
+                                  id: "comment-2",
+                                  body: "Agreed",
+                                  author: {
+                                    login: "bob",
+                                    avatarUrl: null,
+                                  },
+                                  createdAt: "2026-06-08T10:05:00Z",
+                                  updatedAt: null,
+                                  url: null,
+                                },
+                              ],
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            ]),
+          ),
+        );
+      },
+    });
+
+    const threads = yield* provider.listChangeRequestReviewThreads({
+      cwd: "/repo",
+      reference: "#42",
+    });
+
+    assert.deepStrictEqual(executeArgs[0], [
+      "repo",
+      "view",
+      "--json",
+      "nameWithOwner",
+      "--jq",
+      ".nameWithOwner",
+    ]);
+    assert.deepStrictEqual(executeArgs[1]?.slice(0, 8), [
+      "api",
+      "graphql",
+      "--paginate",
+      "--slurp",
+      "-F",
+      "owner=fenrir",
+      "-F",
+      "name=t3code",
+    ]);
+    assert.deepStrictEqual(threads, [
+      {
+        id: "thread-1",
+        path: "src/file.ts",
+        side: "additions",
+        line: 20,
+        startLine: 18,
+        isResolved: false,
+        isOutdated: false,
+        comments: [
+          {
+            id: "comment-1",
+            body: "Nice",
+            author: {
+              login: "alice",
+              avatarUrl: "https://example.test/alice.png",
+            },
+            createdAt: "2026-06-08T10:00:00Z",
+            updatedAt: "2026-06-08T10:00:00Z",
+            url: "https://github.com/fenrir/t3code/pull/42#discussion_r1",
+          },
+          {
+            id: "comment-2",
+            body: "Agreed",
+            author: {
+              login: "bob",
+            },
+            createdAt: "2026-06-08T10:05:00Z",
+          },
+        ],
+      },
+    ]);
+  }),
+);

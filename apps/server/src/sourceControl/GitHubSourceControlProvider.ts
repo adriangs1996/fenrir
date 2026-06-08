@@ -8,6 +8,7 @@ import {
   type ChangeRequest,
   type ChangeRequestCheck,
   type ChangeRequestCheckStatus,
+  type ChangeRequestReviewThread,
   type ChangeRequestState,
 } from "@fenrir/contracts";
 
@@ -26,6 +27,95 @@ const RawGitHubCheckSchema = Schema.Struct({
 });
 const RawGitHubChecksSchema = Schema.Array(RawGitHubCheckSchema);
 const decodeRawGitHubChecks = Schema.decodeUnknownSync(RawGitHubChecksSchema);
+
+const RawGitHubReviewCommentAuthorSchema = Schema.Struct({
+  login: Schema.String,
+  avatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
+});
+const RawGitHubReviewCommentSchema = Schema.Struct({
+  id: Schema.String,
+  body: Schema.String,
+  author: Schema.NullOr(RawGitHubReviewCommentAuthorSchema),
+  createdAt: Schema.optional(Schema.NullOr(Schema.String)),
+  updatedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  url: Schema.optional(Schema.NullOr(Schema.String)),
+});
+const RawGitHubReviewThreadSchema = Schema.Struct({
+  id: Schema.String,
+  path: Schema.String,
+  diffSide: Schema.String,
+  line: Schema.NullOr(Schema.Number),
+  startLine: Schema.optional(Schema.NullOr(Schema.Number)),
+  isResolved: Schema.Boolean,
+  isOutdated: Schema.optional(Schema.Boolean),
+  comments: Schema.Struct({
+    nodes: Schema.Array(RawGitHubReviewCommentSchema),
+  }),
+});
+const RawGitHubReviewThreadPageSchema = Schema.Struct({
+  data: Schema.Struct({
+    repository: Schema.NullOr(
+      Schema.Struct({
+        pullRequest: Schema.NullOr(
+          Schema.Struct({
+            reviewThreads: Schema.Struct({
+              nodes: Schema.Array(RawGitHubReviewThreadSchema),
+            }),
+          }),
+        ),
+      }),
+    ),
+  }),
+});
+const RawGitHubReviewThreadPagesSchema = Schema.Union([
+  RawGitHubReviewThreadPageSchema,
+  Schema.Array(RawGitHubReviewThreadPageSchema),
+]);
+const decodeRawGitHubReviewThreadPages = Schema.decodeUnknownSync(
+  RawGitHubReviewThreadPagesSchema,
+);
+
+const REVIEW_THREADS_GRAPHQL_QUERY = `
+query FenrirPullRequestReviewThreads(
+  $owner: String!
+  $name: String!
+  $number: Int!
+  $endCursor: String
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100, after: $endCursor) {
+        nodes {
+          id
+          path
+          diffSide
+          line
+          startLine
+          isResolved
+          isOutdated
+          comments(first: 50) {
+            nodes {
+              id
+              body
+              author {
+                login
+                avatarUrl
+              }
+              createdAt
+              updatedAt
+              url
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+}
+`;
 
 function providerError(
   operation: string,
@@ -63,6 +153,18 @@ function toChangeRequest(summary: GitHubCli.GitHubPullRequestSummary): ChangeReq
 
 function normalizeChangeRequestReference(reference: string): string {
   return reference.trim().replace(/^#/, "");
+}
+
+function splitRepositoryNameWithOwner(repository: string): { owner: string; name: string } | null {
+  const trimmed = repository.trim();
+  const separatorIndex = trimmed.indexOf("/");
+  if (separatorIndex <= 0 || separatorIndex >= trimmed.length - 1) {
+    return null;
+  }
+  return {
+    owner: trimmed.slice(0, separatorIndex),
+    name: trimmed.slice(separatorIndex + 1),
+  };
 }
 
 function mapGitHubCheckStatus(raw: string | undefined): ChangeRequestCheckStatus {
@@ -129,6 +231,72 @@ function decodeGitHubChecks(raw: string): ReadonlyArray<ChangeRequestCheck> {
     }
     return { name, status, startedAt, completedAt };
   });
+}
+
+function mapGitHubReviewThreadSide(side: string): "additions" | "deletions" | null {
+  const normalized = side.trim().toUpperCase();
+  if (normalized === "RIGHT") return "additions";
+  if (normalized === "LEFT") return "deletions";
+  return null;
+}
+
+function positiveInteger(value: number | null | undefined): number | null {
+  if (!Number.isInteger(value) || value <= 0) return null;
+  return value;
+}
+
+function decodeGitHubReviewThreads(raw: string): ReadonlyArray<ChangeRequestReviewThread> {
+  const parsed = JSON.parse(raw) as unknown;
+  const decoded = decodeRawGitHubReviewThreadPages(parsed);
+  const pages = Array.isArray(decoded) ? decoded : [decoded];
+  const threads: ChangeRequestReviewThread[] = [];
+
+  for (const page of pages) {
+    const rawThreads = page.data.repository?.pullRequest?.reviewThreads.nodes ?? [];
+    for (const rawThread of rawThreads) {
+      const side = mapGitHubReviewThreadSide(rawThread.diffSide);
+      const line = positiveInteger(rawThread.line);
+      if (side === null || line === null || rawThread.path.trim().length === 0) {
+        continue;
+      }
+
+      const comments = rawThread.comments.nodes
+        .filter((comment) => comment.id.trim().length > 0)
+        .map((comment) => {
+          const author = comment.author?.login.trim()
+            ? {
+                login: comment.author.login.trim(),
+                ...(comment.author.avatarUrl ? { avatarUrl: comment.author.avatarUrl } : {}),
+              }
+            : { login: "unknown" };
+          return {
+            id: comment.id.trim(),
+            body: comment.body,
+            author,
+            ...(comment.createdAt ? { createdAt: comment.createdAt } : {}),
+            ...(comment.updatedAt ? { updatedAt: comment.updatedAt } : {}),
+            ...(comment.url ? { url: comment.url } : {}),
+          };
+        });
+      if (comments.length === 0) {
+        continue;
+      }
+
+      const startLine = positiveInteger(rawThread.startLine);
+      threads.push({
+        id: rawThread.id.trim(),
+        path: rawThread.path.trim(),
+        side,
+        line,
+        ...(startLine !== null && startLine !== line ? { startLine } : {}),
+        isResolved: rawThread.isResolved,
+        ...(rawThread.isOutdated !== undefined ? { isOutdated: rawThread.isOutdated } : {}),
+        comments,
+      });
+    }
+  }
+
+  return threads;
 }
 
 function parseGitHubAuth(input: SourceControlProviderDiscovery.SourceControlAuthProbeInput) {
@@ -388,6 +556,57 @@ export const make = Effect.fn("makeGitHubSourceControlProvider")(function* () {
               : providerError("listChangeRequestChecks", error),
           ),
         ),
+    listChangeRequestReviewThreads: (input) =>
+      Effect.gen(function* () {
+        const reference = normalizeChangeRequestReference(input.reference);
+        const repositoryResult = yield* github.execute({
+          cwd: input.cwd,
+          args: ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+        });
+        const repository = splitRepositoryNameWithOwner(repositoryResult.stdout);
+        if (repository === null) {
+          return yield* new SourceControlProviderError({
+            provider: "github",
+            operation: "listChangeRequestReviewThreads",
+            detail: "GitHub CLI did not return repository metadata.",
+          });
+        }
+
+        const commentsResult = yield* github.execute({
+          cwd: input.cwd,
+          args: [
+            "api",
+            "graphql",
+            "--paginate",
+            "--slurp",
+            "-F",
+            `owner=${repository.owner}`,
+            "-F",
+            `name=${repository.name}`,
+            "-F",
+            `number=${reference}`,
+            "-f",
+            `query=${REVIEW_THREADS_GRAPHQL_QUERY}`,
+          ],
+        });
+
+        return yield* Effect.try({
+          try: () => decodeGitHubReviewThreads(commentsResult.stdout.trim() || "[]"),
+          catch: (cause) =>
+            new SourceControlProviderError({
+              provider: "github",
+              operation: "listChangeRequestReviewThreads",
+              detail: "GitHub CLI returned invalid pull request review thread JSON.",
+              cause,
+            }),
+        });
+      }).pipe(
+        Effect.mapError((error) =>
+          isSourceControlProviderError(error)
+            ? error
+            : providerError("listChangeRequestReviewThreads", error),
+        ),
+      ),
     getRepositoryCloneUrls: (input) =>
       github
         .getRepositoryCloneUrls(input)

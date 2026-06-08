@@ -489,6 +489,7 @@ const buildAppUnderTest = (options?: {
       ...options?.layers?.gitCore,
     });
     const gitDiffCoreLayer = Layer.mock(GitDiffCore)({
+      listRepositories: () => Effect.succeed([]),
       loadDiffFile: () =>
         Effect.succeed({
           path: "README.md",

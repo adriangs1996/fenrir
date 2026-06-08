@@ -38,8 +38,12 @@ import type {
   LoadDiffFileResult,
   LoadGitDiffChangeRequestChecksInput,
   LoadGitDiffChangeRequestChecksResult,
+  LoadGitDiffChangeRequestReviewThreadsInput,
+  LoadGitDiffChangeRequestReviewThreadsResult,
   LoadGitDiffIgnoreListsInput,
   LoadGitDiffIgnoreListsResult,
+  LoadGitDiffRepositoriesInput,
+  LoadGitDiffRepositoriesResult,
   LoadStackedDiffFileIndexInput,
   LoadStackedDiffFileIndexResult,
   RevertGitDiffChangeRequestLinesInput,
@@ -933,6 +937,9 @@ export interface EnvironmentApi {
     ) => Promise<GitPreparePullRequestThreadResult>;
   };
   gitDiff: {
+    listRepositories: (
+      input: LoadGitDiffRepositoriesInput,
+    ) => Promise<LoadGitDiffRepositoriesResult>;
     loadFile: (input: LoadDiffFileInput) => Promise<LoadDiffFileResult>;
     loadFileIndex: (input: LoadDiffFileIndexInput) => Promise<LoadDiffFileIndexResult>;
     loadActiveChangeRequestStackedFileIndex: (
@@ -959,6 +966,9 @@ export interface EnvironmentApi {
     loadChangeRequestChecks: (
       input: LoadGitDiffChangeRequestChecksInput,
     ) => Promise<LoadGitDiffChangeRequestChecksResult>;
+    loadChangeRequestReviewThreads: (
+      input: LoadGitDiffChangeRequestReviewThreadsInput,
+    ) => Promise<LoadGitDiffChangeRequestReviewThreadsResult>;
     commentChangeRequestLines: (
       input: CommentGitDiffChangeRequestLinesInput,
     ) => Promise<GitDiffActionResult>;

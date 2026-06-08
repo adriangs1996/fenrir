@@ -1424,6 +1424,14 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "git" },
           ),
+        [WS_METHODS.gitDiffListRepositories]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffListRepositories,
+            gitDiffCore.listRepositories(input),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
         [WS_METHODS.gitDiffLoadFileIndex]: (input) =>
           observeRpcEffect(WS_METHODS.gitDiffLoadFileIndex, gitDiffCore.loadDiffFileIndex(input), {
             "rpc.aggregate": "git-diff",
@@ -1506,6 +1514,14 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(
             WS_METHODS.gitDiffLoadChangeRequestChecks,
             gitDiffCore.loadChangeRequestChecks(input),
+            {
+              "rpc.aggregate": "git-diff",
+            },
+          ),
+        [WS_METHODS.gitDiffLoadChangeRequestReviewThreads]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.gitDiffLoadChangeRequestReviewThreads,
+            gitDiffCore.loadChangeRequestReviewThreads(input),
             {
               "rpc.aggregate": "git-diff",
             },

@@ -82,6 +82,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       preparePullRequestThread: rpcClient.git.preparePullRequestThread,
     },
     gitDiff: {
+      listRepositories: rpcClient.gitDiff.listRepositories,
       loadFile: rpcClient.gitDiff.loadFile,
       loadFileIndex: rpcClient.gitDiff.loadFileIndex,
       loadActiveChangeRequestStackedFileIndex:
@@ -95,6 +96,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       closeChangeRequest: rpcClient.gitDiff.closeChangeRequest,
       mergeChangeRequest: rpcClient.gitDiff.mergeChangeRequest,
       loadChangeRequestChecks: rpcClient.gitDiff.loadChangeRequestChecks,
+      loadChangeRequestReviewThreads: rpcClient.gitDiff.loadChangeRequestReviewThreads,
       commentChangeRequestLines: rpcClient.gitDiff.commentChangeRequestLines,
       revertChangeRequestLines: rpcClient.gitDiff.revertChangeRequestLines,
     },

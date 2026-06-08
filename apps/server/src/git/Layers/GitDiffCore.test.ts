@@ -3,7 +3,11 @@ import { ServerConfig } from "../../config";
 import { GitCoreLive } from "./GitCore";
 import { GitDiffCoreLive } from "./GitDiffCore";
 import { GitDiffCore } from "../Services/GitDiffCore";
-import type { ChangeRequest, ChangeRequestCheck } from "@fenrir/contracts";
+import type {
+  ChangeRequest,
+  ChangeRequestCheck,
+  ChangeRequestReviewThread,
+} from "@fenrir/contracts";
 import { execFileSync } from "child_process";
 import { Effect, Layer, Option } from "effect";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
@@ -41,6 +45,7 @@ function makeSourceControlProviderRegistryLayer(input?: {
   readonly changeRequests?: ReadonlyArray<ChangeRequest>;
   readonly defaultBranch?: string;
   readonly checks?: ReadonlyArray<ChangeRequestCheck>;
+  readonly reviewThreads?: ReadonlyArray<ChangeRequestReviewThread>;
   readonly calls?: {
     readonly close?: string[];
     readonly merge?: Array<{
@@ -60,6 +65,7 @@ function makeSourceControlProviderRegistryLayer(input?: {
   const changeRequests = input?.changeRequests ?? [];
   const defaultBranch = input?.defaultBranch ?? "main";
   const checks = input?.checks ?? [];
+  const reviewThreads = input?.reviewThreads ?? [];
   const provider: SourceControlProviderShape = {
     kind: "github",
     listChangeRequests: (request) =>
@@ -108,6 +114,7 @@ function makeSourceControlProviderRegistryLayer(input?: {
         });
       }),
     listChangeRequestChecks: () => Effect.succeed(checks),
+    listChangeRequestReviewThreads: () => Effect.succeed(reviewThreads),
     getRepositoryCloneUrls: () =>
       Effect.succeed({
         nameWithOwner: "fenrir/test",
@@ -184,12 +191,14 @@ const PROVIDER_TEST_CALLS = {
   }>,
 };
 const PROVIDER_TEST_CHECKS: ChangeRequestCheck[] = [];
+const PROVIDER_TEST_REVIEW_THREADS: ChangeRequestReviewThread[] = [];
 
 function resetProviderTestFixtures() {
   PROVIDER_TEST_CALLS.close.length = 0;
   PROVIDER_TEST_CALLS.merge.length = 0;
   PROVIDER_TEST_CALLS.comment.length = 0;
   PROVIDER_TEST_CHECKS.length = 0;
+  PROVIDER_TEST_REVIEW_THREADS.length = 0;
 }
 
 const TestLayer = GitDiffCoreLive.pipe(
@@ -199,6 +208,7 @@ const TestLayer = GitDiffCoreLive.pipe(
       changeRequests: UI_STACK_CHANGE_REQUESTS,
       calls: PROVIDER_TEST_CALLS,
       checks: PROVIDER_TEST_CHECKS,
+      reviewThreads: PROVIDER_TEST_REVIEW_THREADS,
     }),
   ),
   Layer.provide(ServerConfigLayer),
@@ -371,6 +381,51 @@ function byPath<T extends { readonly path: string }>(files: ReadonlyArray<T>) {
 }
 
 describe("GitDiffCoreLive", () => {
+  it.layer(TestLayer)("discovers git repositories inside an orchestration workspace", (it) => {
+    it.effect("includes ignored nested repositories and skips heavy dependency directories", () =>
+      Effect.gen(function* () {
+        const workspace = makeCommittedRepo({
+          ".gitignore": "services/\nnode_modules/\n",
+          "README.md": "workspace\n",
+        });
+        const serviceRepo = path.join(workspace, "services/api");
+        const dependencyRepo = path.join(workspace, "node_modules/package");
+        mkdirSync(serviceRepo, { recursive: true });
+        mkdirSync(dependencyRepo, { recursive: true });
+        git(serviceRepo, "init", "-b", "main");
+        writeFile(serviceRepo, "api.txt", "api\n");
+        git(serviceRepo, "add", ".");
+        git(serviceRepo, "commit", "-m", "service initial");
+        git(dependencyRepo, "init", "-b", "main");
+
+        try {
+          const gitDiff = yield* GitDiffCore;
+          const repositories = yield* gitDiff.listRepositories({ workspaceCwd: workspace });
+
+          expect(repositories.map((repository) => repository.relativePath)).toEqual([
+            "",
+            "services/api",
+          ]);
+          expect(repositories[0]).toEqual(
+            expect.objectContaining({
+              cwd: workspace,
+              isWorkspaceRoot: true,
+            }),
+          );
+          expect(repositories[1]).toEqual(
+            expect.objectContaining({
+              cwd: serviceRepo,
+              name: "api",
+              isWorkspaceRoot: false,
+            }),
+          );
+        } finally {
+          rmSync(workspace, { recursive: true, force: true });
+        }
+      }),
+    );
+  });
+
   it.layer(TestLayer)("loads unstaged file summaries from a real git repo", (it) => {
     it.effect("returns changed files without patch text", () =>
       Effect.gen(function* () {
@@ -1001,7 +1056,7 @@ describe("GitDiffCoreLive", () => {
       }),
     );
 
-    it.effect("delegates pull request actions and check loading to the provider", () =>
+    it.effect("delegates pull request actions, checks, and review threads to the provider", () =>
       Effect.gen(function* () {
         const cwd = makeCommittedRepo({ "src/base.ts": "base\n" });
         const checks = [
@@ -1012,19 +1067,39 @@ describe("GitDiffCoreLive", () => {
             completedAt: Option.none(),
           },
         ];
+        const reviewThreads: ChangeRequestReviewThread[] = [
+          {
+            id: "thread-1",
+            path: "src/base.ts",
+            side: "additions",
+            line: 2,
+            isResolved: false,
+            comments: [
+              {
+                id: "comment-1",
+                body: "Nice",
+                author: { login: "reviewer" },
+              },
+            ],
+          },
+        ];
 
         try {
           resetProviderTestFixtures();
           PROVIDER_TEST_CHECKS.push(...checks);
+          PROVIDER_TEST_REVIEW_THREADS.push(...reviewThreads);
 
           const gitDiff = yield* GitDiffCore;
           expect(yield* gitDiff.closeChangeRequest({ cwd, reference: "3" })).toEqual({
             status: "ok",
           });
-          expect(
-            yield* gitDiff.mergeChangeRequest({ cwd, reference: "3", method: "squash" }),
-          ).toEqual({ status: "ok" });
+          expect(yield* gitDiff.mergeChangeRequest({ cwd, reference: "3" })).toEqual({
+            status: "ok",
+          });
           expect(yield* gitDiff.loadChangeRequestChecks({ cwd, reference: "3" })).toEqual(checks);
+          expect(
+            yield* gitDiff.loadChangeRequestReviewThreads({ cwd, reference: "3" }),
+          ).toEqual(reviewThreads);
           expect(
             yield* gitDiff.commentChangeRequestLines({
               cwd,

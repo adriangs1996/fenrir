@@ -118,6 +118,7 @@ export const make = Effect.fn("makeBitbucketSourceControlProvider")(function* ()
     mergeChangeRequest: () => unsupported("mergeChangeRequest"),
     createChangeRequestLineComment: () => unsupported("createChangeRequestLineComment"),
     listChangeRequestChecks: () => unsupported("listChangeRequestChecks"),
+    listChangeRequestReviewThreads: () => unsupported("listChangeRequestReviewThreads"),
     getRepositoryCloneUrls: (input) =>
       bitbucket
         .getRepositoryCloneUrls(input)

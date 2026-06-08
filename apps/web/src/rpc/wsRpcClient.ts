@@ -235,6 +235,7 @@ export interface WsRpcClient {
     >;
   };
   readonly gitDiff: {
+    readonly listRepositories: RpcUnaryMethod<typeof WS_METHODS.gitDiffListRepositories>;
     readonly loadFile: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadFile>;
     readonly loadFileIndex: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadFileIndex>;
     readonly loadActiveChangeRequestStackedFileIndex: RpcUnaryMethod<
@@ -250,6 +251,9 @@ export interface WsRpcClient {
     readonly mergeChangeRequest: RpcUnaryMethod<typeof WS_METHODS.gitDiffMergeChangeRequest>;
     readonly loadChangeRequestChecks: RpcUnaryMethod<
       typeof WS_METHODS.gitDiffLoadChangeRequestChecks
+    >;
+    readonly loadChangeRequestReviewThreads: RpcUnaryMethod<
+      typeof WS_METHODS.gitDiffLoadChangeRequestReviewThreads
     >;
     readonly commentChangeRequestLines: RpcUnaryMethod<
       typeof WS_METHODS.gitDiffCommentChangeRequestLines
@@ -595,6 +599,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.gitPreparePullRequestThread](input)),
     },
     gitDiff: {
+      listRepositories: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffListRepositories](input)),
       loadFile: (input) => transport.request((client) => client[WS_METHODS.gitDiffLoadFile](input)),
       loadFileIndex: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffLoadFileIndex](input)),
@@ -620,6 +626,10 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.gitDiffMergeChangeRequest](input)),
       loadChangeRequestChecks: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffLoadChangeRequestChecks](input)),
+      loadChangeRequestReviewThreads: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.gitDiffLoadChangeRequestReviewThreads](input),
+        ),
       commentChangeRequestLines: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffCommentChangeRequestLines](input)),
       revertChangeRequestLines: (input) =>

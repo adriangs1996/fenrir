@@ -181,6 +181,7 @@ export const make = Effect.fn("makeAzureDevOpsSourceControlProvider")(function* 
     mergeChangeRequest: () => unsupported("mergeChangeRequest"),
     createChangeRequestLineComment: () => unsupported("createChangeRequestLineComment"),
     listChangeRequestChecks: () => unsupported("listChangeRequestChecks"),
+    listChangeRequestReviewThreads: () => unsupported("listChangeRequestReviewThreads"),
     getRepositoryCloneUrls: (input) =>
       azure
         .getRepositoryCloneUrls(input)

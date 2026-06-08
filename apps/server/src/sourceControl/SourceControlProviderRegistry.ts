@@ -75,6 +75,7 @@ function unsupportedProvider(
     mergeChangeRequest: () => unsupported("mergeChangeRequest"),
     createChangeRequestLineComment: () => unsupported("createChangeRequestLineComment"),
     listChangeRequestChecks: () => unsupported("listChangeRequestChecks"),
+    listChangeRequestReviewThreads: () => unsupported("listChangeRequestReviewThreads"),
     getRepositoryCloneUrls: () => unsupported("getRepositoryCloneUrls"),
     createRepository: () => unsupported("createRepository"),
     getDefaultBranch: () => unsupported("getDefaultBranch"),
@@ -165,6 +166,11 @@ function bindProviderContext(
       }),
     listChangeRequestChecks: (input) =>
       provider.listChangeRequestChecks({
+        ...input,
+        context: input.context ?? context,
+      }),
+    listChangeRequestReviewThreads: (input) =>
+      provider.listChangeRequestReviewThreads({
         ...input,
         context: input.context ?? context,
       }),

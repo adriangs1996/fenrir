@@ -1,6 +1,11 @@
 import { Schema } from "effect";
 import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
-import { ChangeRequest, ChangeRequestCheck, ChangeRequestLineSide } from "./sourceControl";
+import {
+  ChangeRequest,
+  ChangeRequestCheck,
+  ChangeRequestLineSide,
+  ChangeRequestReviewThread,
+} from "./sourceControl";
 
 export const DiffTarget = Schema.Union([
   Schema.Struct({
@@ -16,6 +21,22 @@ export const DiffTarget = Schema.Union([
   }),
 ]);
 export type DiffTarget = typeof DiffTarget.Type;
+
+export const LoadGitDiffRepositoriesInput = Schema.Struct({
+  workspaceCwd: TrimmedNonEmptyString,
+});
+export type LoadGitDiffRepositoriesInput = typeof LoadGitDiffRepositoriesInput.Type;
+
+export const GitDiffRepository = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: Schema.String,
+  name: TrimmedNonEmptyString,
+  isWorkspaceRoot: Schema.Boolean,
+});
+export type GitDiffRepository = typeof GitDiffRepository.Type;
+
+export const LoadGitDiffRepositoriesResult = Schema.Array(GitDiffRepository);
+export type LoadGitDiffRepositoriesResult = typeof LoadGitDiffRepositoriesResult.Type;
 
 export const LoadDiffFileIndexInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
@@ -176,6 +197,16 @@ export type LoadGitDiffChangeRequestChecksInput = typeof LoadGitDiffChangeReques
 
 export const LoadGitDiffChangeRequestChecksResult = Schema.Array(ChangeRequestCheck);
 export type LoadGitDiffChangeRequestChecksResult = typeof LoadGitDiffChangeRequestChecksResult.Type;
+
+export const LoadGitDiffChangeRequestReviewThreadsInput = GitDiffChangeRequestReferenceInput;
+export type LoadGitDiffChangeRequestReviewThreadsInput =
+  typeof LoadGitDiffChangeRequestReviewThreadsInput.Type;
+
+export const LoadGitDiffChangeRequestReviewThreadsResult = Schema.Array(
+  ChangeRequestReviewThread,
+);
+export type LoadGitDiffChangeRequestReviewThreadsResult =
+  typeof LoadGitDiffChangeRequestReviewThreadsResult.Type;
 
 export const CommentGitDiffChangeRequestLinesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,

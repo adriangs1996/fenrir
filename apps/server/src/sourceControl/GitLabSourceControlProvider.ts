@@ -170,6 +170,7 @@ export const make = Effect.fn("makeGitLabSourceControlProvider")(function* () {
     mergeChangeRequest: () => unsupported("mergeChangeRequest"),
     createChangeRequestLineComment: () => unsupported("createChangeRequestLineComment"),
     listChangeRequestChecks: () => unsupported("listChangeRequestChecks"),
+    listChangeRequestReviewThreads: () => unsupported("listChangeRequestReviewThreads"),
     getRepositoryCloneUrls: (input) =>
       gitlab
         .getRepositoryCloneUrls(input)

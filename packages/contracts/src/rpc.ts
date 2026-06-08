@@ -45,8 +45,12 @@ import {
   LoadDiffFileResult,
   LoadGitDiffChangeRequestChecksInput,
   LoadGitDiffChangeRequestChecksResult,
+  LoadGitDiffChangeRequestReviewThreadsInput,
+  LoadGitDiffChangeRequestReviewThreadsResult,
   LoadGitDiffIgnoreListsInput,
   LoadGitDiffIgnoreListsResult,
+  LoadGitDiffRepositoriesInput,
+  LoadGitDiffRepositoriesResult,
   LoadStackedDiffFileIndexInput,
   LoadStackedDiffFileIndexResult,
   RevertGitDiffChangeRequestLinesInput,
@@ -300,6 +304,7 @@ export const WS_METHODS = {
   gitRunStackedAction: "git.runStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  gitDiffListRepositories: "gitDiff.listRepositories",
   gitDiffLoadFile: "gitDiff.loadFile",
   gitDiffLoadFileIndex: "gitDiff.loadFileIndex",
   gitDiffLoadActiveChangeRequestStackedFileIndex: "gitDiff.loadActiveChangeRequestStackedFileIndex",
@@ -312,6 +317,7 @@ export const WS_METHODS = {
   gitDiffCloseChangeRequest: "gitDiff.closeChangeRequest",
   gitDiffMergeChangeRequest: "gitDiff.mergeChangeRequest",
   gitDiffLoadChangeRequestChecks: "gitDiff.loadChangeRequestChecks",
+  gitDiffLoadChangeRequestReviewThreads: "gitDiff.loadChangeRequestReviewThreads",
   gitDiffCommentChangeRequestLines: "gitDiff.commentChangeRequestLines",
   gitDiffRevertChangeRequestLines: "gitDiff.revertChangeRequestLines",
 
@@ -692,6 +698,12 @@ export const WsGitDiffLoadFileIndexRpc = Rpc.make(WS_METHODS.gitDiffLoadFileInde
   error: GitCommandError,
 });
 
+export const WsGitDiffListRepositoriesRpc = Rpc.make(WS_METHODS.gitDiffListRepositories, {
+  payload: LoadGitDiffRepositoriesInput,
+  success: LoadGitDiffRepositoriesResult,
+  error: GitCommandError,
+});
+
 export const WsGitDiffLoadFileRpc = Rpc.make(WS_METHODS.gitDiffLoadFile, {
   payload: LoadDiffFileInput,
   success: LoadDiffFileResult,
@@ -760,6 +772,15 @@ export const WsGitDiffLoadChangeRequestChecksRpc = Rpc.make(
   {
     payload: LoadGitDiffChangeRequestChecksInput,
     success: LoadGitDiffChangeRequestChecksResult,
+    error: GitCommandError,
+  },
+);
+
+export const WsGitDiffLoadChangeRequestReviewThreadsRpc = Rpc.make(
+  WS_METHODS.gitDiffLoadChangeRequestReviewThreads,
+  {
+    payload: LoadGitDiffChangeRequestReviewThreadsInput,
+    success: LoadGitDiffChangeRequestReviewThreadsResult,
     error: GitCommandError,
   },
 );
@@ -1610,6 +1631,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
+  WsGitDiffListRepositoriesRpc,
   WsGitDiffLoadFileIndexRpc,
   WsGitDiffLoadFileRpc,
   WsGitDiffLoadActiveChangeRequestStackedFileIndexRpc,
@@ -1622,6 +1644,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitDiffCloseChangeRequestRpc,
   WsGitDiffMergeChangeRequestRpc,
   WsGitDiffLoadChangeRequestChecksRpc,
+  WsGitDiffLoadChangeRequestReviewThreadsRpc,
   WsGitDiffCommentChangeRequestLinesRpc,
   WsGitDiffRevertChangeRequestLinesRpc,
   WsVcsListRefsRpc,

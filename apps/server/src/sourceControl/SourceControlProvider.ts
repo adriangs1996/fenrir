@@ -4,6 +4,7 @@ import type {
   ChangeRequest,
   ChangeRequestCheck,
   ChangeRequestLineSide,
+  ChangeRequestReviewThread,
   ChangeRequestState,
   SourceControlProviderError,
   SourceControlProviderInfo,
@@ -114,6 +115,11 @@ export interface SourceControlProviderShape {
     readonly context?: SourceControlProviderContext;
     readonly reference: string;
   }) => Effect.Effect<ReadonlyArray<ChangeRequestCheck>, SourceControlProviderError>;
+  readonly listChangeRequestReviewThreads: (input: {
+    readonly cwd: string;
+    readonly context?: SourceControlProviderContext;
+    readonly reference: string;
+  }) => Effect.Effect<ReadonlyArray<ChangeRequestReviewThread>, SourceControlProviderError>;
   readonly getRepositoryCloneUrls: (input: {
     readonly cwd: string;
     readonly context?: SourceControlProviderContext;

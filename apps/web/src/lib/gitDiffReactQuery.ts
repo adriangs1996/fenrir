@@ -7,12 +7,16 @@ import type {
   GitDiffFileSummary,
   GitDiffIgnoreList,
   GitDiffMergeChangeRequestInput,
+  LoadGitDiffChangeRequestReviewThreadsInput,
+  LoadGitDiffChangeRequestReviewThreadsResult,
   LoadGitDiffChangeRequestChecksResult,
   LoadActiveChangeRequestStackedDiffFileIndexInput,
   LoadActiveChangeRequestStackedDiffFileIndexResult,
   LoadDiffFileInput,
   LoadDiffFileIndexInput,
   LoadDiffFileResult,
+  LoadGitDiffRepositoriesInput,
+  LoadGitDiffRepositoriesResult,
   LoadStackedDiffFileIndexInput,
   LoadStackedDiffFileIndexResult,
   RevertGitDiffChangeRequestLinesInput,
@@ -39,6 +43,8 @@ function gitDiffTargetQueryKey(target: DiffTarget | null) {
 
 export const gitDiffQueryKeys = {
   all: ["git-diff"] as const,
+  repositories: (environmentId: EnvironmentId | null, workspaceCwd: string | null) =>
+    ["git-diff", environmentId, workspaceCwd, "repositories"] as const,
   fileIndex: (
     environmentId: EnvironmentId | null,
     cwd: string | null,
@@ -75,6 +81,11 @@ export const gitDiffQueryKeys = {
     cwd: string | null,
     reference: string | null,
   ) => ["git-diff", environmentId, cwd, "change-request-checks", reference] as const,
+  changeRequestReviewThreads: (
+    environmentId: EnvironmentId | null,
+    cwd: string | null,
+    reference: string | null,
+  ) => ["git-diff", environmentId, cwd, "change-request-review-threads", reference] as const,
 };
 
 export const gitDiffMutationKeys = {
@@ -95,6 +106,28 @@ export const gitDiffMutationKeys = {
   revertChangeRequestLines: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", "mutation", "revert-change-request-lines", environmentId, cwd] as const,
 };
+
+export function gitDiffRepositoriesQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly workspaceCwd: string | null;
+}) {
+  return queryOptions({
+    queryKey: gitDiffQueryKeys.repositories(input.environmentId, input.workspaceCwd),
+    queryFn: async (): Promise<LoadGitDiffRepositoriesResult> => {
+      if (!input.environmentId || !input.workspaceCwd) {
+        throw new Error("Git repositories are unavailable.");
+      }
+      const request: LoadGitDiffRepositoriesInput = {
+        workspaceCwd: input.workspaceCwd,
+      };
+      return ensureEnvironmentApi(input.environmentId).gitDiff.listRepositories(request);
+    },
+    enabled: input.environmentId !== null && input.workspaceCwd !== null,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+  });
+}
 
 export function gitDiffFileIndexQueryOptions(input: {
   readonly environmentId: EnvironmentId | null;
@@ -263,6 +296,42 @@ export function gitDiffChangeRequestChecksQueryOptions(input: {
         cwd: input.cwd,
         reference: input.reference,
       });
+    },
+    enabled:
+      input.enabled !== false &&
+      input.environmentId !== null &&
+      input.cwd !== null &&
+      input.reference !== null,
+    staleTime: 2_000,
+    refetchInterval: input.enabled === false ? false : 5_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitDiffChangeRequestReviewThreadsQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly reference: string | null;
+  readonly enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitDiffQueryKeys.changeRequestReviewThreads(
+      input.environmentId,
+      input.cwd,
+      input.reference,
+    ),
+    queryFn: async (): Promise<LoadGitDiffChangeRequestReviewThreadsResult> => {
+      if (!input.environmentId || !input.cwd || !input.reference) {
+        throw new Error("Pull request review comments are unavailable.");
+      }
+      const request: LoadGitDiffChangeRequestReviewThreadsInput = {
+        cwd: input.cwd,
+        reference: input.reference,
+      };
+      return ensureEnvironmentApi(input.environmentId).gitDiff.loadChangeRequestReviewThreads(
+        request,
+      );
     },
     enabled:
       input.enabled !== false &&
