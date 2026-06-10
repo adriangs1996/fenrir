@@ -1,4 +1,3 @@
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -6,77 +5,15 @@ import {
   GitCommandError,
   GitManagerError,
   type GitManagerServiceError,
-  type GitPreparePullRequestThreadInput,
-  type GitPreparePullRequestThreadResult,
-  type GitPullRequestRefInput,
-  type GitResolvePullRequestResult,
-  type GitRunStackedActionInput,
-  type GitRunStackedActionResult,
-  type VcsCreateRefInput,
-  type VcsCreateRefResult,
-  type VcsCreateWorktreeInput,
-  type VcsCreateWorktreeResult,
-  type VcsListRefsInput,
   type VcsListRefsResult,
-  type VcsPullResult,
-  type VcsRemoveWorktreeInput,
-  type VcsStatusInput,
   type VcsStatusLocalResult,
   type VcsStatusRemoteResult,
   type VcsStatusResult,
-  type VcsSwitchRefInput,
-  type VcsSwitchRefResult,
 } from "@fenrir/contracts";
-import { GitCore } from "./Services/GitCore.ts";
-import { GitManager, type GitRunStackedActionOptions } from "./Services/GitManager.ts";
-import { VcsDriverRegistry } from "../vcs/VcsDriverRegistry.ts";
-
-export interface GitWorkflowServiceShape {
-  readonly status: (
-    input: VcsStatusInput,
-  ) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
-  readonly localStatus: (
-    input: VcsStatusInput,
-  ) => Effect.Effect<VcsStatusLocalResult, GitManagerServiceError>;
-  readonly remoteStatus: (
-    input: VcsStatusInput,
-  ) => Effect.Effect<VcsStatusRemoteResult | null, GitManagerServiceError>;
-  readonly invalidateLocalStatus: (cwd: string) => Effect.Effect<void, never>;
-  readonly invalidateRemoteStatus: (cwd: string) => Effect.Effect<void, never>;
-  readonly invalidateStatus: (cwd: string) => Effect.Effect<void, never>;
-  readonly pullCurrentBranch: (cwd: string) => Effect.Effect<VcsPullResult, GitCommandError>;
-  readonly runStackedAction: (
-    input: GitRunStackedActionInput,
-    options?: GitRunStackedActionOptions,
-  ) => Effect.Effect<GitRunStackedActionResult, GitManagerServiceError>;
-  readonly resolvePullRequest: (
-    input: GitPullRequestRefInput,
-  ) => Effect.Effect<GitResolvePullRequestResult, GitManagerServiceError>;
-  readonly preparePullRequestThread: (
-    input: GitPreparePullRequestThreadInput,
-  ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
-  readonly listRefs: (input: VcsListRefsInput) => Effect.Effect<VcsListRefsResult, GitCommandError>;
-  readonly createWorktree: (
-    input: VcsCreateWorktreeInput,
-  ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
-  readonly removeWorktree: (input: VcsRemoveWorktreeInput) => Effect.Effect<void, GitCommandError>;
-  readonly createRef: (
-    input: VcsCreateRefInput,
-  ) => Effect.Effect<VcsCreateRefResult, GitCommandError>;
-  readonly switchRef: (
-    input: VcsSwitchRefInput,
-  ) => Effect.Effect<VcsSwitchRefResult, GitCommandError>;
-  readonly renameBranch: (input: {
-    readonly cwd: string;
-    readonly oldBranch: string;
-    readonly newBranch: string;
-  }) => Effect.Effect<{ readonly branch: string }, GitManagerServiceError>;
-}
-
-export class GitWorkflowService extends Context.Service<
-  GitWorkflowService,
-  GitWorkflowServiceShape
->()("fenrir/git/GitWorkflowService") {}
+import { GitCore } from "../Services/GitCore.ts";
+import { GitManager } from "../Services/GitManager.ts";
+import { GitWorkflowService } from "../Services/GitWorkflowService.ts";
+import { VcsDriverRegistry } from "../../vcs/VcsDriverRegistry.ts";
 
 const unsupportedGitWorkflow = (operation: string, cwd: string, detail: string) =>
   new GitManagerError({
@@ -208,7 +145,7 @@ function toVcsListRefs(input: {
   };
 }
 
-export const make = Effect.fn("makeGitWorkflowService")(function* () {
+export const makeGitWorkflowService = Effect.fn("makeGitWorkflowService")(function* () {
   const registry = yield* VcsDriverRegistry;
   const gitCore = yield* GitCore;
   const gitManager = yield* GitManager;
@@ -433,4 +370,4 @@ export const make = Effect.fn("makeGitWorkflowService")(function* () {
   });
 });
 
-export const layer = Layer.effect(GitWorkflowService, make());
+export const GitWorkflowServiceLive = Layer.effect(GitWorkflowService, makeGitWorkflowService());

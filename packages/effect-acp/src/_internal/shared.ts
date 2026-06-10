@@ -7,6 +7,8 @@ import * as AcpSchema from "../_generated/schema.gen.ts";
 import * as AcpError from "../errors.ts";
 
 const formatSchemaIssue = SchemaIssue.makeFormatterDefault();
+const isAcpSchemaError = Schema.is(AcpSchema.Error);
+const isAcpRequestError = Schema.is(AcpError.AcpRequestError);
 
 export const callRpc = <A>(
   effect: Effect.Effect<A, RpcClientError.RpcClientError | AcpSchema.Error>,
@@ -20,7 +22,7 @@ export const callRpc = <A>(
         }),
       ),
     ),
-    Effect.catchIf(Schema.is(AcpSchema.Error), (error) =>
+    Effect.catchIf(isAcpSchemaError, (error) =>
       Effect.fail(AcpError.AcpRequestError.fromProtocolError(error)),
     ),
   );
@@ -35,7 +37,7 @@ export const runHandler = Effect.fnUntraced(function* <A, B>(
   }
   return yield* handler(payload).pipe(
     Effect.mapError((error) =>
-      Schema.is(AcpError.AcpRequestError)(error)
+      isAcpRequestError(error)
         ? error.toProtocolError()
         : AcpError.AcpRequestError.internalError(error.message).toProtocolError(),
     ),

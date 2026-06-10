@@ -23,11 +23,14 @@ function toPersistenceError(operation: string) {
     });
 }
 
+const isProviderDriverKind = Schema.is(ProviderDriverKind);
+const isProviderInstanceId = Schema.is(ProviderInstanceId);
+
 function decodeProviderDriverKind(
   providerName: string,
   operation: string,
 ): Effect.Effect<ProviderDriverKind, ProviderSessionDirectoryPersistenceError> {
-  if (Schema.is(ProviderDriverKind)(providerName)) {
+  if (isProviderDriverKind(providerName)) {
     return Effect.succeed(ProviderDriverKind.make(providerName));
   }
   return Effect.fail(
@@ -37,8 +40,6 @@ function decodeProviderDriverKind(
     }),
   );
 }
-
-const isProviderInstanceId = Schema.is(ProviderInstanceId);
 
 function resolvePersistedProviderInstanceId(
   provider: ProviderDriverKind,

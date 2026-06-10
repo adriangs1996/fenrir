@@ -84,6 +84,45 @@ type ServerNotificationHandler = (
   payload: unknown,
 ) => Effect.Effect<void, CodexError.CodexAppServerError>;
 
+const getServerRequestParamSchema = <M extends CodexRpc.ServerRequestMethod>(
+  method: M,
+):
+  | Schema.Codec<CodexRpc.ServerRequestParamsByMethod[M], CodexRpc.ServerRequestParamsByMethod[M]>
+  | undefined => CodexRpc.SERVER_REQUEST_PARAMS[method] as never;
+
+const getServerRequestResponseSchema = <M extends CodexRpc.ServerRequestMethod>(
+  method: M,
+):
+  | Schema.Codec<
+      CodexRpc.ServerRequestResponsesByMethod[M],
+      CodexRpc.ServerRequestResponsesByMethod[M]
+    >
+  | undefined => CodexRpc.SERVER_REQUEST_RESPONSES[method] as never;
+
+const getClientRequestParamSchema = <M extends CodexRpc.ClientRequestMethod>(
+  method: M,
+):
+  | Schema.Codec<CodexRpc.ClientRequestParamsByMethod[M], CodexRpc.ClientRequestParamsByMethod[M]>
+  | undefined => CodexRpc.CLIENT_REQUEST_PARAMS[method] as never;
+
+const getClientRequestResponseSchema = <M extends CodexRpc.ClientRequestMethod>(
+  method: M,
+):
+  | Schema.Codec<
+      CodexRpc.ClientRequestResponsesByMethod[M],
+      CodexRpc.ClientRequestResponsesByMethod[M]
+    >
+  | undefined => CodexRpc.CLIENT_REQUEST_RESPONSES[method] as never;
+
+const getClientNotificationParamSchema = <M extends CodexRpc.ClientNotificationMethod>(
+  method: M,
+):
+  | Schema.Codec<
+      CodexRpc.ClientNotificationParamsByMethod[M],
+      CodexRpc.ClientNotificationParamsByMethod[M]
+    >
+  | undefined => CodexRpc.CLIENT_NOTIFICATION_PARAMS[method] as never;
+
 export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make")(function* (
   stdio: Stdio.Stdio,
   options: CodexAppServerClientOptions = {},
@@ -97,45 +136,6 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
   let unknownNotificationHandler:
     | ((method: string, params: unknown) => Effect.Effect<void, CodexError.CodexAppServerError>)
     | undefined;
-
-  const getServerRequestParamSchema = <M extends CodexRpc.ServerRequestMethod>(
-    method: M,
-  ):
-    | Schema.Codec<CodexRpc.ServerRequestParamsByMethod[M], CodexRpc.ServerRequestParamsByMethod[M]>
-    | undefined => CodexRpc.SERVER_REQUEST_PARAMS[method] as never;
-
-  const getServerRequestResponseSchema = <M extends CodexRpc.ServerRequestMethod>(
-    method: M,
-  ):
-    | Schema.Codec<
-        CodexRpc.ServerRequestResponsesByMethod[M],
-        CodexRpc.ServerRequestResponsesByMethod[M]
-      >
-    | undefined => CodexRpc.SERVER_REQUEST_RESPONSES[method] as never;
-
-  const getClientRequestParamSchema = <M extends CodexRpc.ClientRequestMethod>(
-    method: M,
-  ):
-    | Schema.Codec<CodexRpc.ClientRequestParamsByMethod[M], CodexRpc.ClientRequestParamsByMethod[M]>
-    | undefined => CodexRpc.CLIENT_REQUEST_PARAMS[method] as never;
-
-  const getClientRequestResponseSchema = <M extends CodexRpc.ClientRequestMethod>(
-    method: M,
-  ):
-    | Schema.Codec<
-        CodexRpc.ClientRequestResponsesByMethod[M],
-        CodexRpc.ClientRequestResponsesByMethod[M]
-      >
-    | undefined => CodexRpc.CLIENT_REQUEST_RESPONSES[method] as never;
-
-  const getClientNotificationParamSchema = <M extends CodexRpc.ClientNotificationMethod>(
-    method: M,
-  ):
-    | Schema.Codec<
-        CodexRpc.ClientNotificationParamsByMethod[M],
-        CodexRpc.ClientNotificationParamsByMethod[M]
-      >
-    | undefined => CodexRpc.CLIENT_NOTIFICATION_PARAMS[method] as never;
 
   const dispatchNotification = (
     notification: CodexProtocol.CodexAppServerIncomingNotification,

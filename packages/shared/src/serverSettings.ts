@@ -12,6 +12,7 @@ import { deepMerge } from "./Struct";
 import { fromLenientJson } from "./schemaJson";
 
 const ServerSettingsJson = fromLenientJson(ServerSettings);
+const decodeServerSettingsJson = Schema.decodeUnknownSync(ServerSettingsJson);
 
 export interface PersistedServerObservabilitySettings {
   readonly otlpTracesUrl: string | undefined;
@@ -41,7 +42,7 @@ export function parsePersistedServerObservabilitySettings(
   raw: string,
 ): PersistedServerObservabilitySettings {
   try {
-    const decoded = Schema.decodeUnknownSync(ServerSettingsJson)(raw);
+    const decoded = decodeServerSettingsJson(raw);
     return extractPersistedServerObservabilitySettings(decoded);
   } catch {
     return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined };

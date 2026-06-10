@@ -12,10 +12,12 @@ describe("findLigatureMatch", () => {
     const cellHl = Uint32Array.from([7, 7, 7, 7]);
 
     expect(findLigatureMatch(cellChars, cellHl, 0, cellChars.length, 0)).toEqual({
+      id: 0,
       text: "!==",
       span: 3,
     });
     expect(findLigatureMatch(cellChars, cellHl, 0, cellChars.length, 1)).toEqual({
+      id: 1,
       text: "===",
       span: 3,
     });

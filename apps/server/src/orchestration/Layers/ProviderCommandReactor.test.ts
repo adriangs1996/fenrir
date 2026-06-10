@@ -51,6 +51,9 @@ const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalReques
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 
+const unsupportedProviderCall = <A>() =>
+  Effect.die(new Error("Unsupported provider call in test")) as Effect.Effect<A, never>;
+
 const deriveServerPathsSync = (baseDir: string, devUrl: URL | undefined) =>
   Effect.runSync(deriveServerPaths(baseDir, devUrl).pipe(Effect.provide(NodeServices.layer)));
 
@@ -228,7 +231,6 @@ describe("ProviderCommandReactor", () => {
       ),
     );
 
-    const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
     const service: ProviderServiceShape = {
       startSession: startSession as ProviderServiceShape["startSession"],
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
@@ -241,7 +243,7 @@ describe("ProviderCommandReactor", () => {
         Effect.succeed({
           sessionModelSwitch: input?.sessionModelSwitch ?? "in-session",
         }),
-      rollbackConversation: () => unsupported(),
+      rollbackConversation: () => unsupportedProviderCall(),
       get streamEvents() {
         return Stream.fromPubSub(runtimeEventPubSub);
       },

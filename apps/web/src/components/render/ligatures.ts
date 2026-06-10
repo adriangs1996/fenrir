@@ -73,7 +73,7 @@ export function findLigatureMatch(
       if (cellHl[base + col + offset] !== hlId) continue candidateLoop;
       if (cellChars[base + col + offset] !== candidate.cps[offset]) continue candidateLoop;
     }
-    return candidate;
+    return { id: candidate.id, text: candidate.text, span };
   }
 
   return null;

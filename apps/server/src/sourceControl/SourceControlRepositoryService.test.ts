@@ -22,15 +22,15 @@ const CLONE_URLS = {
   sshUrl: "git@github.com:octocat/t3code.git",
 };
 
+const unsupported = (operation: string) =>
+  Effect.die(`unexpected provider operation ${operation}`) as Effect.Effect<
+    never,
+    SourceControlProviderError
+  >;
+
 function makeProvider(
   overrides: Partial<SourceControlProvider.SourceControlProviderShape> = {},
 ): SourceControlProvider.SourceControlProviderShape {
-  const unsupported = (operation: string) =>
-    Effect.die(`unexpected provider operation ${operation}`) as Effect.Effect<
-      never,
-      SourceControlProviderError
-    >;
-
   return {
     kind: "github",
     listChangeRequests: () => unsupported("listChangeRequests"),

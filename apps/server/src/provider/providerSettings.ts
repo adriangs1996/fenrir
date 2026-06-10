@@ -13,6 +13,9 @@ import {
 import { deepMerge } from "@fenrir/shared/Struct";
 import { Effect, Schema } from "effect";
 
+const decodeDefaultOpenCodeSettings = Schema.decodeSync(OpenCodeSettings);
+const decodeDefaultCursorSettings = Schema.decodeSync(CursorSettings);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -101,7 +104,7 @@ export const resolveOpenCodeInstanceSettings = (
   resolveMergedSettings({
     provider: "opencode",
     providerInstanceId,
-    base: Schema.decodeSync(OpenCodeSettings)({}),
+    base: decodeDefaultOpenCodeSettings({}),
     schema: OpenCodeSettings,
     entry: getExactInstanceEntry(settings, providerInstanceId, "opencode"),
   });
@@ -113,7 +116,7 @@ export const resolveCursorInstanceSettings = (
   resolveMergedSettings({
     provider: "cursor",
     providerInstanceId,
-    base: Schema.decodeSync(CursorSettings)({}),
+    base: decodeDefaultCursorSettings({}),
     schema: CursorSettings,
     entry: getExactInstanceEntry(settings, providerInstanceId, "cursor"),
   });

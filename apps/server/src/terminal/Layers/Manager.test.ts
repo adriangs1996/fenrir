@@ -278,6 +278,25 @@ const TestLayer = Layer.mergeAll(
   ),
 );
 
+const makeDirectory = (filePath: string) =>
+  Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) =>
+    fs.makeDirectory(filePath, { recursive: true }),
+  );
+
+const chmod = (filePath: string, mode: number) =>
+  Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) => fs.chmod(filePath, mode));
+
+const pathExists = (filePath: string) =>
+  Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) => fs.exists(filePath));
+
+const readFileString = (filePath: string) =>
+  Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) => fs.readFileString(filePath));
+
+const writeFileString = (filePath: string, contents: string) =>
+  Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) =>
+    fs.writeFileString(filePath, contents),
+  );
+
 it.layer(TestLayer, { excludeTestServices: true })("TerminalManager", (it) => {
   it.effect("spawns lazily and reuses running terminal per thread", () =>
     Effect.gen(function* () {
@@ -295,25 +314,6 @@ it.layer(TestLayer, { excludeTestServices: true })("TerminalManager", (it) => {
       expect(ptyAdapter.spawnInputs).toHaveLength(1);
     }),
   );
-
-  const makeDirectory = (filePath: string) =>
-    Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) =>
-      fs.makeDirectory(filePath, { recursive: true }),
-    );
-
-  const chmod = (filePath: string, mode: number) =>
-    Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) => fs.chmod(filePath, mode));
-
-  const pathExists = (filePath: string) =>
-    Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) => fs.exists(filePath));
-
-  const readFileString = (filePath: string) =>
-    Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) => fs.readFileString(filePath));
-
-  const writeFileString = (filePath: string, contents: string) =>
-    Effect.flatMap(Effect.service(FileSystem.FileSystem), (fs) =>
-      fs.writeFileString(filePath, contents),
-    );
 
   it.effect("preserves non-notFound cwd stat failures", () =>
     Effect.gen(function* () {

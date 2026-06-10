@@ -71,7 +71,10 @@ import {
 import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
 import { GitDiffCore, type GitDiffCoreShape } from "./git/Services/GitDiffCore.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
-import { GitWorkflowService, type GitWorkflowServiceShape } from "./git/GitWorkflowService.ts";
+import {
+  GitWorkflowService,
+  type GitWorkflowServiceShape,
+} from "./git/Services/GitWorkflowService.ts";
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
 import { Open, type OpenShape } from "./open.ts";
 import {

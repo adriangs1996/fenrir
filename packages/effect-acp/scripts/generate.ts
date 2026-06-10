@@ -237,14 +237,23 @@ const generateSchemas = Effect.fn("generateSchemas")(function* (skipDownload: bo
     [...generatedEntries.values()].join("\n\n"),
     "",
   ].join("\n");
+  const encodeAgentMethodsJson = Schema.encodeEffect(
+    Schema.fromJsonString(MetaJsonSchema.fields.agentMethods),
+  );
+  const encodeClientMethodsJson = Schema.encodeEffect(
+    Schema.fromJsonString(MetaJsonSchema.fields.clientMethods),
+  );
+  const encodeProtocolVersionJson = Schema.encodeEffect(
+    Schema.fromJsonString(MetaJsonSchema.fields.version),
+  );
 
   const metaOutput = [
     ...prelude,
-    `export const AGENT_METHODS = ${yield* Schema.encodeEffect(Schema.fromJsonString(MetaJsonSchema.fields.agentMethods))(upstreamMeta.agentMethods)} as const;`,
+    `export const AGENT_METHODS = ${yield* encodeAgentMethodsJson(upstreamMeta.agentMethods)} as const;`,
     "",
-    `export const CLIENT_METHODS = ${yield* Schema.encodeEffect(Schema.fromJsonString(MetaJsonSchema.fields.clientMethods))(upstreamMeta.clientMethods)} as const;`,
+    `export const CLIENT_METHODS = ${yield* encodeClientMethodsJson(upstreamMeta.clientMethods)} as const;`,
     "",
-    `export const PROTOCOL_VERSION = ${yield* Schema.encodeEffect(Schema.fromJsonString(MetaJsonSchema.fields.version))(upstreamMeta.version)} as const;`,
+    `export const PROTOCOL_VERSION = ${yield* encodeProtocolVersionJson(upstreamMeta.version)} as const;`,
     "",
   ].join("\n");
 

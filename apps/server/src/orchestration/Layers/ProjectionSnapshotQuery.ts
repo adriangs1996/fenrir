@@ -104,6 +104,85 @@ const ProjectionCountsRowSchema = Schema.Struct({
   projectCount: Schema.Number,
   threadCount: Schema.Number,
 });
+const decodeBootstrapSnapshotValue = Schema.decodeUnknownEffect(OrchestrationBootstrapSnapshot);
+const decodeShellSnapshotValue = Schema.decodeUnknownEffect(OrchestrationShellSnapshot);
+
+function buildLatestTurnByThread(
+  rows: ReadonlyArray<typeof ProjectionLatestTurnDbRowSchema.Type>,
+): Map<string, OrchestrationLatestTurn> {
+  const latestTurnByThread = new Map<string, OrchestrationLatestTurn>();
+  for (const row of rows) {
+    if (latestTurnByThread.has(row.threadId)) {
+      continue;
+    }
+    latestTurnByThread.set(row.threadId, {
+      turnId: row.turnId,
+      state:
+        row.state === "error"
+          ? "error"
+          : row.state === "interrupted"
+            ? "interrupted"
+            : row.state === "completed"
+              ? "completed"
+              : "running",
+      requestedAt: row.requestedAt,
+      startedAt: row.startedAt,
+      completedAt: row.completedAt,
+      assistantMessageId: row.assistantMessageId,
+      ...(row.sourceProposedPlanThreadId !== null && row.sourceProposedPlanId !== null
+        ? {
+            sourceProposedPlan: {
+              threadId: row.sourceProposedPlanThreadId,
+              planId: row.sourceProposedPlanId,
+            },
+          }
+        : {}),
+    });
+  }
+  return latestTurnByThread;
+}
+
+function buildSessionByThread(
+  rows: ReadonlyArray<typeof ProjectionThreadSessionDbRowSchema.Type>,
+): Map<string, OrchestrationSession> {
+  const sessionsByThread = new Map<string, OrchestrationSession>();
+  for (const row of rows) {
+    sessionsByThread.set(row.threadId, {
+      threadId: row.threadId,
+      status: row.status,
+      providerName: row.providerName,
+      ...(row.providerInstanceId !== null ? { providerInstanceId: row.providerInstanceId } : {}),
+      runtimeMode: row.runtimeMode,
+      activeTurnId: row.activeTurnId,
+      lastError: row.lastError,
+      updatedAt: row.updatedAt,
+    });
+  }
+  return sessionsByThread;
+}
+
+function decodeBootstrapSnapshot(snapshot: {
+  readonly snapshotSequence: number;
+  readonly projects: ReadonlyArray<OrchestrationProject>;
+  readonly threads: ReadonlyArray<OrchestrationThreadShell>;
+  readonly updatedAt: string;
+}) {
+  return decodeBootstrapSnapshotValue(snapshot).pipe(
+    Effect.mapError(toPersistenceDecodeError("ProjectionSnapshotQuery.decodeBootstrapSnapshot")),
+  );
+}
+
+function decodeShellSnapshot(snapshot: {
+  readonly snapshotSequence: number;
+  readonly projects: ReadonlyArray<OrchestrationProject>;
+  readonly threads: ReadonlyArray<OrchestrationThreadShell>;
+  readonly updatedAt: string;
+}) {
+  return decodeShellSnapshotValue(snapshot).pipe(
+    Effect.mapError(toPersistenceDecodeError("ProjectionSnapshotQuery.decodeShellSnapshot")),
+  );
+}
+
 const ProjectionBootstrapThreadSummaryRowSchema = Schema.Struct({
   threadId: ThreadId,
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
@@ -633,60 +712,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const buildLatestTurnByThread = (
-    rows: ReadonlyArray<typeof ProjectionLatestTurnDbRowSchema.Type>,
-  ): Map<string, OrchestrationLatestTurn> => {
-    const latestTurnByThread = new Map<string, OrchestrationLatestTurn>();
-    for (const row of rows) {
-      if (latestTurnByThread.has(row.threadId)) {
-        continue;
-      }
-      latestTurnByThread.set(row.threadId, {
-        turnId: row.turnId,
-        state:
-          row.state === "error"
-            ? "error"
-            : row.state === "interrupted"
-              ? "interrupted"
-              : row.state === "completed"
-                ? "completed"
-                : "running",
-        requestedAt: row.requestedAt,
-        startedAt: row.startedAt,
-        completedAt: row.completedAt,
-        assistantMessageId: row.assistantMessageId,
-        ...(row.sourceProposedPlanThreadId !== null && row.sourceProposedPlanId !== null
-          ? {
-              sourceProposedPlan: {
-                threadId: row.sourceProposedPlanThreadId,
-                planId: row.sourceProposedPlanId,
-              },
-            }
-          : {}),
-      });
-    }
-    return latestTurnByThread;
-  };
-
-  const buildSessionByThread = (
-    rows: ReadonlyArray<typeof ProjectionThreadSessionDbRowSchema.Type>,
-  ): Map<string, OrchestrationSession> => {
-    const sessionsByThread = new Map<string, OrchestrationSession>();
-    for (const row of rows) {
-      sessionsByThread.set(row.threadId, {
-        threadId: row.threadId,
-        status: row.status,
-        providerName: row.providerName,
-        ...(row.providerInstanceId !== null ? { providerInstanceId: row.providerInstanceId } : {}),
-        runtimeMode: row.runtimeMode,
-        activeTurnId: row.activeTurnId,
-        lastError: row.lastError,
-        updatedAt: row.updatedAt,
-      });
-    }
-    return sessionsByThread;
-  };
-
   const buildThreadMessagesByThread = (
     rows: ReadonlyArray<typeof ProjectionThreadMessageDbRowSchema.Type>,
   ): {
@@ -905,26 +930,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   }) =>
     decodeReadModel(snapshot).pipe(
       Effect.mapError(toPersistenceDecodeError("ProjectionSnapshotQuery.decodeSnapshot")),
-    );
-
-  const decodeBootstrapSnapshot = (snapshot: {
-    readonly snapshotSequence: number;
-    readonly projects: ReadonlyArray<OrchestrationProject>;
-    readonly threads: ReadonlyArray<OrchestrationThreadShell>;
-    readonly updatedAt: string;
-  }) =>
-    Schema.decodeUnknownEffect(OrchestrationBootstrapSnapshot)(snapshot).pipe(
-      Effect.mapError(toPersistenceDecodeError("ProjectionSnapshotQuery.decodeBootstrapSnapshot")),
-    );
-
-  const decodeShellSnapshot = (snapshot: {
-    readonly snapshotSequence: number;
-    readonly projects: ReadonlyArray<OrchestrationProject>;
-    readonly threads: ReadonlyArray<OrchestrationThreadShell>;
-    readonly updatedAt: string;
-  }) =>
-    Schema.decodeUnknownEffect(OrchestrationShellSnapshot)(snapshot).pipe(
-      Effect.mapError(toPersistenceDecodeError("ProjectionSnapshotQuery.decodeShellSnapshot")),
     );
 
   const getBootstrapSnapshot: ProjectionSnapshotQueryShape["getBootstrapSnapshot"] = () =>

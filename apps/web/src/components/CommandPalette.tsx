@@ -80,6 +80,7 @@ import {
   selectSidebarThreadsAcrossEnvironments,
   useStore,
 } from "../store";
+import type { Project } from "../types";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
 import {
   isTerminalFocused,
@@ -126,6 +127,16 @@ import type { ChatComposerHandle } from "./chat/ChatComposer";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 const BROWSE_STALE_TIME_MS = 30_000;
+
+function renderProjectFaviconIcon(project: Project): ReactNode {
+  return (
+    <ProjectFavicon
+      environmentId={project.environmentId}
+      cwd={project.cwd}
+      className={ITEM_ICON_CLASS}
+    />
+  );
+}
 
 interface AddProjectEnvironmentOption {
   readonly environmentId: EnvironmentId;
@@ -630,13 +641,7 @@ function OpenCommandPaletteDialog() {
       buildProjectActionItems({
         projects,
         valuePrefix: "project",
-        icon: (project) => (
-          <ProjectFavicon
-            environmentId={project.environmentId}
-            cwd={project.cwd}
-            className={ITEM_ICON_CLASS}
-          />
-        ),
+        icon: renderProjectFaviconIcon,
         runProject: openProjectFromSearch,
       }),
     [openProjectFromSearch, projects],
@@ -647,13 +652,7 @@ function OpenCommandPaletteDialog() {
       buildProjectActionItems({
         projects,
         valuePrefix: "new-thread-in",
-        icon: (project) => (
-          <ProjectFavicon
-            environmentId={project.environmentId}
-            cwd={project.cwd}
-            className={ITEM_ICON_CLASS}
-          />
-        ),
+        icon: renderProjectFaviconIcon,
         runProject: async (project) => {
           await startNewThreadInProjectFromContext(
             {

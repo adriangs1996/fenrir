@@ -49,7 +49,7 @@ import { BrowserLabControlHttpLive } from "./browserLab/browserLabControlHttp";
 import { BrowserLabControlServiceLive } from "./browserLab/Layers/BrowserLabControlService";
 import { RemoteHostMcpHttpLive } from "./mcp/remoteHostMcpHttp";
 import { PlanRunnerLive } from "./plan-runner/Layers/PlanRunner";
-import { layer as GitWorkflowServiceLive } from "./git/GitWorkflowService";
+import { GitWorkflowServiceLive } from "./git/Layers/GitWorkflowService";
 import { GitManagerLive } from "./git/Layers/GitManager";
 import { VcsDriverRegistryLive } from "./vcs/VcsDriverRegistry";
 import { layer as VcsProvisioningServiceLive } from "./vcs/VcsProvisioningService";

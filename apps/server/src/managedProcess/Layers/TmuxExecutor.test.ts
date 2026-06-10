@@ -32,6 +32,32 @@ nodeFs.mkdirSync(testStateDir, { recursive: true });
 /** Stable project ID shared across all test inputs */
 const TEST_PROJECT = `tmux-test-${process.pid}`;
 
+function findManagedProcessTmuxSession(windowName: string): string | undefined {
+  try {
+    const sessions = execFileSync("tmux", ["list-sessions", "-F", "#{session_name}"], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 5_000,
+    }).trim();
+    for (const session of sessions.split("\n")) {
+      if (!session.startsWith("fenrir-mp-")) continue;
+      const windows = execFileSync(
+        "tmux",
+        ["list-windows", "-t", session, "-F", "#{window_name}"],
+        {
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+          timeout: 5_000,
+        },
+      ).trim();
+      if (windows.split("\n").includes(windowName)) return session;
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
 afterAll(() => {
   // Clean up test state dir
   try {
@@ -366,30 +392,8 @@ describe.skipIf(!hasTmux)("TmuxExecutor", () => {
             expect(handleA.nativeKey).not.toBe(handleB.nativeKey);
 
             // Both in the same fenrir-mp-* session
-            const findSession = (windowName: string): string | undefined => {
-              try {
-                const sessions = execFileSync("tmux", ["list-sessions", "-F", "#{session_name}"], {
-                  encoding: "utf-8",
-                  stdio: ["pipe", "pipe", "pipe"],
-                  timeout: 5_000,
-                }).trim();
-                for (const session of sessions.split("\n")) {
-                  if (!session.startsWith("fenrir-mp-")) continue;
-                  const windows = execFileSync(
-                    "tmux",
-                    ["list-windows", "-t", session, "-F", "#{window_name}"],
-                    { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], timeout: 5_000 },
-                  ).trim();
-                  if (windows.split("\n").includes(windowName)) return session;
-                }
-              } catch {
-                // ignore
-              }
-              return undefined;
-            };
-
-            const sessionA = findSession(handleA.nativeKey);
-            const sessionB = findSession(handleB.nativeKey);
+            const sessionA = findManagedProcessTmuxSession(handleA.nativeKey);
+            const sessionB = findManagedProcessTmuxSession(handleB.nativeKey);
             expect(sessionA).toBeDefined();
             expect(sessionA).toBe(sessionB);
 

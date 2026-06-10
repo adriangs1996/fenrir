@@ -25,6 +25,9 @@ export const LegacyCodexFields = Schema.Struct({
 });
 export type LegacyCodexFields = typeof LegacyCodexFields.Type;
 
+const isCodexReasoningEffort = Schema.is(CodexReasoningEffort);
+const decodeProviderOptionSelectionsOption = Schema.decodeUnknownOption(ProviderOptionSelections);
+
 export function providerModelOptionsFromSelection(
   modelSelection: ModelSelection | null | undefined,
 ): ProviderModelOptions | null {
@@ -186,7 +189,7 @@ export function normalizeProviderModelOptions(
 
   if (provider === "codex" && legacy) {
     const legacySelections: ProviderOptionSelection[] = [];
-    if (Schema.is(CodexReasoningEffort)(legacy.effort)) {
+    if (isCodexReasoningEffort(legacy.effort)) {
       legacySelections.push({ id: "reasoningEffort", value: legacy.effort });
     }
     if (
@@ -206,7 +209,7 @@ export function normalizeProviderModelOptions(
 function decodeProviderOptionSelections(
   value: unknown,
 ): ReadonlyArray<ProviderOptionSelection> | undefined {
-  const decoded = Schema.decodeUnknownOption(ProviderOptionSelections)(value);
+  const decoded = decodeProviderOptionSelectionsOption(value);
   if (decoded._tag === "None") {
     return undefined;
   }

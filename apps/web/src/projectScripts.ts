@@ -7,6 +7,9 @@ import {
 } from "@fenrir/contracts";
 import { Schema } from "effect";
 
+const isProjectScriptRunCommand = Schema.is(SCRIPT_RUN_COMMAND_PATTERN);
+const isGlobalScriptRunCommand = Schema.is(GLOBAL_SCRIPT_RUN_COMMAND_PATTERN);
+
 function normalizeScriptId(value: string): string {
   const cleaned = value
     .trim()
@@ -27,7 +30,7 @@ export const commandForProjectScript = (scriptId: string): KeybindingCommand =>
 
 export function projectScriptIdFromCommand(command: string): string | null {
   const trimmed = command.trim();
-  if (!Schema.is(SCRIPT_RUN_COMMAND_PATTERN)(trimmed)) {
+  if (!isProjectScriptRunCommand(trimmed)) {
     return null;
   }
   const [prefix, , suffix] = SCRIPT_RUN_COMMAND_PATTERN.parts;
@@ -70,7 +73,7 @@ export const commandForGlobalScript = (scriptId: string): KeybindingCommand =>
 
 export function globalScriptIdFromCommand(command: string): string | null {
   const trimmed = command.trim();
-  if (!Schema.is(GLOBAL_SCRIPT_RUN_COMMAND_PATTERN)(trimmed)) {
+  if (!isGlobalScriptRunCommand(trimmed)) {
     return null;
   }
   const [prefix, , suffix] = GLOBAL_SCRIPT_RUN_COMMAND_PATTERN.parts;

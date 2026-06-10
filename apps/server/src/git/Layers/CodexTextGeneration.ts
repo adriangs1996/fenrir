@@ -41,6 +41,22 @@ import {
 
 const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "low";
 const CODEX_TIMEOUT_MS = 180_000;
+
+const readCodexStreamAsString = <E>(
+  operation: string,
+  stream: Stream.Stream<Uint8Array, E>,
+): Effect.Effect<string, TextGenerationError> =>
+  stream.pipe(
+    Stream.decodeText(),
+    Stream.runFold(
+      () => "",
+      (acc, chunk) => acc + chunk,
+    ),
+    Effect.mapError((cause) =>
+      normalizeCliError("codex", operation, cause, "Failed to collect process output"),
+    ),
+  );
+
 const makeCodexTextGeneration = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -51,21 +67,6 @@ const makeCodexTextGeneration = Effect.gen(function* () {
   type MaterializedImageAttachments = {
     readonly imagePaths: ReadonlyArray<string>;
   };
-
-  const readStreamAsString = <E>(
-    operation: string,
-    stream: Stream.Stream<Uint8Array, E>,
-  ): Effect.Effect<string, TextGenerationError> =>
-    stream.pipe(
-      Stream.decodeText(),
-      Stream.runFold(
-        () => "",
-        (acc, chunk) => acc + chunk,
-      ),
-      Effect.mapError((cause) =>
-        normalizeCliError("codex", operation, cause, "Failed to collect process output"),
-      ),
-    );
 
   const writeTempFile = (
     operation: string,
@@ -218,8 +219,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
 
       const [stdout, stderr, exitCode] = yield* Effect.all(
         [
-          readStreamAsString(operation, child.stdout),
-          readStreamAsString(operation, child.stderr),
+          readCodexStreamAsString(operation, child.stdout),
+          readCodexStreamAsString(operation, child.stderr),
           child.exitCode.pipe(
             Effect.mapError((cause) =>
               normalizeCliError("codex", operation, cause, "Failed to read Codex CLI exit code"),

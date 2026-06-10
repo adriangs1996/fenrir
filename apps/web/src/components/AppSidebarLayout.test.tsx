@@ -4,8 +4,12 @@ import { describe, expect, it, vi } from "vitest";
 import { AppSidebarLayout } from "./AppSidebarLayout";
 
 vi.mock("@tanstack/react-router", () => ({
-  useLocation: ({ select }: { select: (location: { pathname: string }) => string }) =>
-    select({ pathname: "/" }),
+  useLocation: (options?: {
+    select?: (location: { href: string; pathname: string }) => string;
+  }) => {
+    const location = { href: "/", pathname: "/" };
+    return options?.select ? options.select(location) : location;
+  },
   useNavigate: () => vi.fn(),
 }));
 

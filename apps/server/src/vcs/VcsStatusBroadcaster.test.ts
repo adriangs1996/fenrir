@@ -18,7 +18,7 @@ import type {
   VcsStatusStreamEvent,
 } from "@fenrir/contracts";
 
-import * as GitWorkflowService from "../git/GitWorkflowService.ts";
+import * as GitWorkflowService from "../git/Services/GitWorkflowService.ts";
 import * as VcsStatusBroadcaster from "./VcsStatusBroadcaster.ts";
 
 const baseLocalStatus: VcsStatusLocalResult = {

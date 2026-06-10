@@ -136,6 +136,20 @@ export interface OpenCodeRuntimeShape {
   ) => Effect.Effect<OpenCodeInventory, OpenCodeRuntimeError>;
 }
 
+const createOpenCodeSdkClient: OpenCodeRuntimeShape["createOpenCodeSdkClient"] = (input) =>
+  createOpencodeClient({
+    baseUrl: input.baseUrl,
+    directory: input.directory,
+    ...(input.serverPassword
+      ? {
+          headers: {
+            Authorization: `Basic ${Buffer.from(`opencode:${input.serverPassword}`, "utf8").toString("base64")}`,
+          },
+        }
+      : {}),
+    throwOnError: true,
+  });
+
 function parseServerUrlFromOutput(output: string): string | null {
   for (const line of output.split("\n")) {
     if (!line.startsWith(OPENCODE_SERVER_READY_PREFIX)) {
@@ -582,20 +596,6 @@ const makeOpenCodeRuntime = Effect.gen(function* () {
       })),
     );
   };
-
-  const createOpenCodeSdkClient: OpenCodeRuntimeShape["createOpenCodeSdkClient"] = (input) =>
-    createOpencodeClient({
-      baseUrl: input.baseUrl,
-      directory: input.directory,
-      ...(input.serverPassword
-        ? {
-            headers: {
-              Authorization: `Basic ${Buffer.from(`opencode:${input.serverPassword}`, "utf8").toString("base64")}`,
-            },
-          }
-        : {}),
-      throwOnError: true,
-    });
 
   const loadProviders = (client: OpencodeClient) =>
     runOpenCodeSdk("provider.list", () => client.provider.list()).pipe(

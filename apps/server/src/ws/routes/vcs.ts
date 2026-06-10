@@ -7,7 +7,7 @@ import {
   WS_METHODS,
 } from "@fenrir/contracts";
 
-import { GitWorkflowService } from "../../git/GitWorkflowService";
+import { GitWorkflowService } from "../../git/Services/GitWorkflowService";
 import { ServerSettingsService } from "../../serverSettings";
 import { VcsProvisioningService } from "../../vcs/VcsProvisioningService";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster";

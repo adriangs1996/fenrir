@@ -38,6 +38,28 @@ import {
 } from "../Utils.ts";
 
 const OPENCODE_TEXT_GENERATION_IDLE_TTL = "30 seconds";
+const openCodeJsonDecoderBySchema = new WeakMap<
+  Schema.Top,
+  (input: string) => Effect.Effect<unknown, Schema.SchemaError, never>
+>();
+
+function decodeOpenCodeJsonOutput<S extends Schema.Top>(
+  schema: S,
+  rawOutput: string,
+): Effect.Effect<S["Type"], Schema.SchemaError, S["DecodingServices"]> {
+  let decode = openCodeJsonDecoderBySchema.get(schema);
+  if (!decode) {
+    decode = Schema.decodeEffect(Schema.fromJsonString(schema)) as unknown as (
+      input: string,
+    ) => Effect.Effect<unknown, Schema.SchemaError, never>;
+    openCodeJsonDecoderBySchema.set(schema, decode);
+  }
+  return decode(extractJsonObject(rawOutput)) as Effect.Effect<
+    S["Type"],
+    Schema.SchemaError,
+    S["DecodingServices"]
+  >;
+}
 
 function getOpenCodePromptErrorMessage(error: unknown): string | null {
   if (!error || typeof error !== "object") {
@@ -345,9 +367,7 @@ const makeOpenCodeTextGeneration = Effect.gen(function* () {
             releaseSharedServer,
           );
 
-    return yield* Schema.decodeEffect(Schema.fromJsonString(input.outputSchemaJson))(
-      extractJsonObject(rawOutput),
-    ).pipe(
+    return yield* decodeOpenCodeJsonOutput(input.outputSchemaJson, rawOutput).pipe(
       Effect.catchTag("SchemaError", (cause) =>
         Effect.fail(
           new TextGenerationError({

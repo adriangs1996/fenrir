@@ -46,6 +46,15 @@ const WebSocketClaims = Schema.Struct({
 });
 type WebSocketClaims = typeof WebSocketClaims.Type;
 
+const decodeSessionClaims = Schema.decodeUnknownSync(SessionClaims);
+const decodeWebSocketClaims = Schema.decodeUnknownSync(WebSocketClaims);
+
+const toSessionCredentialError = (message: string) => (cause: unknown) =>
+  new SessionCredentialError({
+    message,
+    cause,
+  });
+
 function createDefaultClientMetadata(): AuthClientMetadata {
   return {
     deviceType: "unknown",
@@ -83,12 +92,6 @@ export const makeSessionCredentialService = Effect.gen(function* () {
   const signingSecret = yield* secretStore.getOrCreateRandom(SIGNING_SECRET_NAME, 32);
   const connectedSessionsRef = yield* Ref.make(new Map<string, number>());
   const changesPubSub = yield* PubSub.unbounded<SessionCredentialChange>();
-
-  const toSessionCredentialError = (message: string) => (cause: unknown) =>
-    new SessionCredentialError({
-      message,
-      cause,
-    });
 
   const emitUpsert = (clientSession: AuthClientSession) =>
     PubSub.publish(changesPubSub, {
@@ -260,8 +263,7 @@ export const makeSessionCredentialService = Effect.gen(function* () {
       }
 
       const claims = yield* Effect.try({
-        try: () =>
-          Schema.decodeUnknownSync(SessionClaims)(JSON.parse(base64UrlDecodeUtf8(encodedPayload))),
+        try: () => decodeSessionClaims(JSON.parse(base64UrlDecodeUtf8(encodedPayload))),
         catch: (cause) =>
           new SessionCredentialError({
             message: "Invalid session token payload.",
@@ -349,10 +351,7 @@ export const makeSessionCredentialService = Effect.gen(function* () {
       }
 
       const claims = yield* Effect.try({
-        try: () =>
-          Schema.decodeUnknownSync(WebSocketClaims)(
-            JSON.parse(base64UrlDecodeUtf8(encodedPayload)),
-          ),
+        try: () => decodeWebSocketClaims(JSON.parse(base64UrlDecodeUtf8(encodedPayload))),
         catch: (cause) =>
           new SessionCredentialError({
             message: "Invalid websocket token payload.",

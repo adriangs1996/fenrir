@@ -115,6 +115,7 @@ interface SyntheticStepStatePatch {
 const ANALYZER_STEP_KEY = "analyzer";
 const INTEGRATION_STEP_KEY = "integration";
 const planStepKey = (planId: string) => `plan:${planId}`;
+const isPlanRunnerError = Schema.is(PlanRunnerError);
 
 export function isExecutablePlanFile(filename: string): boolean {
   return filename.endsWith(".md") && !filename.match(/README/i) && !filename.startsWith("_");
@@ -241,6 +242,127 @@ function now(): string {
 const featureKey = (projectId: ProjectId, featureName: string) => `${projectId}:${featureName}`;
 
 const stepLogKey = (runId: PlanRunId, stepKey: string) => `${runId}:${stepKey}`;
+
+/**
+ * Build a normalized log entry from a persisted synthetic row. Centralized
+ * so the live-publish path and the read-side `getStepLog` projection
+ * agree on field shape.
+ */
+function syntheticRowToLogEntry(
+  row: PlanRunnerSyntheticLogEntryRow,
+  sequence: number,
+): PlanRunnerLogEntry {
+  const fallbackTitle = "Plan runner event";
+  const title = (row.title ?? fallbackTitle).trim() || fallbackTitle;
+  const copy = (row.copyText ?? row.title ?? row.bodyText ?? title).trim() || title;
+  return {
+    entryId: PlanRunnerLogEntryId.make(`${row.runId}:${row.stepKey}:syn:${row.sequence}`),
+    runId: row.runId,
+    stepKey: row.stepKey,
+    kind: row.kind,
+    sequence: NonNegativeInt.make(sequence),
+    createdAt: row.createdAt,
+    threadId: null,
+    threadRole: null,
+    title: title as PlanRunnerLogEntry["title"],
+    bodyMarkdown: row.bodyMarkdown,
+    bodyText: row.bodyText,
+    copyText: copy,
+    payload: row.payload,
+  };
+}
+
+/**
+ * Build a normalized log entry from an orchestration message. Returns
+ * `null` for messages that should not appear in the merged step log
+ * (system messages, empty bodies, mid-stream snapshots).
+ */
+function messageToLogEntry(input: {
+  runId: PlanRunId;
+  stepKey: string;
+  threadId: string;
+  threadRole: PlanRunnerThreadRole;
+  messageId: string;
+  role: "user" | "assistant" | "system";
+  text: string;
+  streaming: boolean;
+  turnId: string | null;
+  createdAt: string;
+  sequence: number;
+}): PlanRunnerLogEntry | null {
+  if (input.role === "system") return null;
+  if (input.streaming) return null;
+  const text = (input.text ?? "").trim();
+  if (text.length === 0) return null;
+  const kind: PlanRunnerLogEntryKind = input.role === "user" ? "prompt" : "assistant";
+  const title = kind === "prompt" ? "User prompt" : "Assistant message";
+  return {
+    entryId: PlanRunnerLogEntryId.make(`${input.runId}:${input.stepKey}:msg:${input.messageId}`),
+    runId: input.runId,
+    stepKey: input.stepKey as PlanRunnerLogEntry["stepKey"],
+    kind,
+    sequence: NonNegativeInt.make(input.sequence),
+    createdAt: input.createdAt,
+    threadId: ThreadId.make(input.threadId),
+    threadRole: input.threadRole,
+    title: title as PlanRunnerLogEntry["title"],
+    bodyMarkdown: input.text,
+    bodyText: input.text,
+    copyText: input.text,
+    payload: {
+      messageId: input.messageId,
+      role: input.role,
+      turnId: input.turnId,
+    },
+  };
+}
+
+function activityToLogEntry(input: {
+  runId: PlanRunId;
+  stepKey: string;
+  threadId: string;
+  threadRole: PlanRunnerThreadRole;
+  activityId: string;
+  kind: string;
+  tone: string;
+  summary: string;
+  payload: unknown;
+  turnId: string | null;
+  activitySequence: number | null;
+  createdAt: string;
+  sequence: number;
+}): PlanRunnerLogEntry | null {
+  const summary = (input.summary ?? "").trim();
+  const display = formatProviderActivityLogDisplay({
+    kind: input.kind,
+    summary,
+    payload: input.payload,
+  });
+  if (summary.length === 0 && display.title === "Activity" && display.bodyText === null) {
+    return null;
+  }
+  return {
+    entryId: PlanRunnerLogEntryId.make(`${input.runId}:${input.stepKey}:act:${input.activityId}`),
+    runId: input.runId,
+    stepKey: input.stepKey as PlanRunnerLogEntry["stepKey"],
+    kind: "activity",
+    sequence: NonNegativeInt.make(input.sequence),
+    createdAt: input.createdAt,
+    threadId: ThreadId.make(input.threadId),
+    threadRole: input.threadRole,
+    title: display.title as PlanRunnerLogEntry["title"],
+    bodyMarkdown: null,
+    bodyText: display.bodyText,
+    copyText: display.copyText,
+    payload: {
+      kind: input.kind,
+      tone: input.tone,
+      payload: input.payload,
+      turnId: input.turnId,
+      sequence: input.activitySequence,
+    },
+  };
+}
 
 const TERMINAL_FEATURE_STATES: ReadonlyArray<FeatureState> = ["completed", "failed"] as const;
 const ACTIVE_FEATURE_STATES: ReadonlyArray<FeatureState> = [
@@ -547,35 +669,6 @@ export const PlanRunnerLive = Layer.effect(
       });
 
     /**
-     * Build a normalized log entry from a persisted synthetic row. Centralized
-     * so the live-publish path and the read-side `getStepLog` projection
-     * agree on field shape.
-     */
-    const syntheticRowToLogEntry = (
-      row: PlanRunnerSyntheticLogEntryRow,
-      sequence: number,
-    ): PlanRunnerLogEntry => {
-      const fallbackTitle = "Plan runner event";
-      const title = (row.title ?? fallbackTitle).trim() || fallbackTitle;
-      const copy = (row.copyText ?? row.title ?? row.bodyText ?? title).trim() || title;
-      return {
-        entryId: PlanRunnerLogEntryId.make(`${row.runId}:${row.stepKey}:syn:${row.sequence}`),
-        runId: row.runId,
-        stepKey: row.stepKey,
-        kind: row.kind,
-        sequence: NonNegativeInt.make(sequence),
-        createdAt: row.createdAt,
-        threadId: null,
-        threadRole: null,
-        title: title as PlanRunnerLogEntry["title"],
-        bodyMarkdown: row.bodyMarkdown,
-        bodyText: row.bodyText,
-        copyText: copy,
-        payload: row.payload,
-      };
-    };
-
-    /**
      * Persist a synthetic log entry and (best-effort) publish it as a live
      * append. Failures to persist or publish never abort the runner — the
      * read-side projection re-derives history from the durable rows on the
@@ -604,102 +697,6 @@ export const PlanRunnerLive = Layer.effect(
           entry,
         });
       });
-
-    /**
-     * Build a normalized log entry from an orchestration message. Returns
-     * `null` for messages that should not appear in the merged step log
-     * (system messages, empty bodies, mid-stream snapshots).
-     */
-    const messageToLogEntry = (input: {
-      runId: PlanRunId;
-      stepKey: string;
-      threadId: string;
-      threadRole: PlanRunnerThreadRole;
-      messageId: string;
-      role: "user" | "assistant" | "system";
-      text: string;
-      streaming: boolean;
-      turnId: string | null;
-      createdAt: string;
-      sequence: number;
-    }): PlanRunnerLogEntry | null => {
-      if (input.role === "system") return null;
-      if (input.streaming) return null;
-      const text = (input.text ?? "").trim();
-      if (text.length === 0) return null;
-      const kind: PlanRunnerLogEntryKind = input.role === "user" ? "prompt" : "assistant";
-      const title = kind === "prompt" ? "User prompt" : "Assistant message";
-      return {
-        entryId: PlanRunnerLogEntryId.make(
-          `${input.runId}:${input.stepKey}:msg:${input.messageId}`,
-        ),
-        runId: input.runId,
-        stepKey: input.stepKey as PlanRunnerLogEntry["stepKey"],
-        kind,
-        sequence: NonNegativeInt.make(input.sequence),
-        createdAt: input.createdAt,
-        threadId: ThreadId.make(input.threadId),
-        threadRole: input.threadRole,
-        title: title as PlanRunnerLogEntry["title"],
-        bodyMarkdown: input.text,
-        bodyText: input.text,
-        copyText: input.text,
-        payload: {
-          messageId: input.messageId,
-          role: input.role,
-          turnId: input.turnId,
-        },
-      };
-    };
-
-    const activityToLogEntry = (input: {
-      runId: PlanRunId;
-      stepKey: string;
-      threadId: string;
-      threadRole: PlanRunnerThreadRole;
-      activityId: string;
-      kind: string;
-      tone: string;
-      summary: string;
-      payload: unknown;
-      turnId: string | null;
-      activitySequence: number | null;
-      createdAt: string;
-      sequence: number;
-    }): PlanRunnerLogEntry | null => {
-      const summary = (input.summary ?? "").trim();
-      const display = formatProviderActivityLogDisplay({
-        kind: input.kind,
-        summary,
-        payload: input.payload,
-      });
-      if (summary.length === 0 && display.title === "Activity" && display.bodyText === null) {
-        return null;
-      }
-      return {
-        entryId: PlanRunnerLogEntryId.make(
-          `${input.runId}:${input.stepKey}:act:${input.activityId}`,
-        ),
-        runId: input.runId,
-        stepKey: input.stepKey as PlanRunnerLogEntry["stepKey"],
-        kind: "activity",
-        sequence: NonNegativeInt.make(input.sequence),
-        createdAt: input.createdAt,
-        threadId: ThreadId.make(input.threadId),
-        threadRole: input.threadRole,
-        title: display.title as PlanRunnerLogEntry["title"],
-        bodyMarkdown: null,
-        bodyText: display.bodyText,
-        copyText: display.copyText,
-        payload: {
-          kind: input.kind,
-          tone: input.tone,
-          payload: input.payload,
-          turnId: input.turnId,
-          sequence: input.activitySequence,
-        },
-      };
-    };
 
     // ── Persistence helpers (write-through cache) ─────────────────────
 
@@ -3237,7 +3234,7 @@ ${plan.content}`;
           return { features };
         }).pipe(
           Effect.catch((err) => {
-            if (Schema.is(PlanRunnerError)(err)) return Effect.fail(err);
+            if (isPlanRunnerError(err)) return Effect.fail(err);
             return Effect.fail(
               new PlanRunnerError({
                 message: "Failed to list features" as any,
@@ -3328,7 +3325,7 @@ ${plan.content}`;
           return { featureName: input.featureName, plans };
         }).pipe(
           Effect.catch((err) => {
-            if (Schema.is(PlanRunnerError)(err)) return Effect.fail(err);
+            if (isPlanRunnerError(err)) return Effect.fail(err);
             return Effect.fail(
               new PlanRunnerError({
                 message: "Failed to read feature plans" as any,
@@ -3641,7 +3638,7 @@ ${plan.content}`;
           return { archivedDirName: dstName };
         }).pipe(
           Effect.catch((err) => {
-            if (Schema.is(PlanRunnerError)(err)) return Effect.fail(err);
+            if (isPlanRunnerError(err)) return Effect.fail(err);
             return Effect.fail(
               new PlanRunnerError({
                 message:
@@ -3704,7 +3701,7 @@ ${plan.content}`;
           return { featureName: displayName };
         }).pipe(
           Effect.catch((err) => {
-            if (Schema.is(PlanRunnerError)(err)) return Effect.fail(err);
+            if (isPlanRunnerError(err)) return Effect.fail(err);
             return Effect.fail(
               new PlanRunnerError({
                 message:
@@ -3739,7 +3736,7 @@ ${plan.content}`;
           return { features: allFeatures };
         }).pipe(
           Effect.catch((err) => {
-            if (Schema.is(PlanRunnerError)(err)) return Effect.fail(err);
+            if (isPlanRunnerError(err)) return Effect.fail(err);
             return Effect.fail(
               new PlanRunnerError({
                 message:
@@ -3818,7 +3815,7 @@ ${plan.content}`;
           return { featureName: input.newFeatureName };
         }).pipe(
           Effect.catch((err) => {
-            if (Schema.is(PlanRunnerError)(err)) return Effect.fail(err);
+            if (isPlanRunnerError(err)) return Effect.fail(err);
             return Effect.fail(
               new PlanRunnerError({
                 message:

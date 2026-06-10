@@ -19,6 +19,8 @@ interface SavedEnvironmentRegistryDocument {
   readonly records: readonly PersistedSavedEnvironmentStorageRecord[];
 }
 
+const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
+
 export interface DesktopSecretStorage {
   readonly isEncryptionAvailable: () => boolean;
   readonly encryptString: (value: string) => Buffer;
@@ -72,7 +74,7 @@ export function readClientSettings(settingsPath: string): ClientSettings | null 
     return null;
   }
   try {
-    return Schema.decodeUnknownSync(ClientSettingsSchema)(raw);
+    return decodeClientSettings(raw);
   } catch {
     return null;
   }

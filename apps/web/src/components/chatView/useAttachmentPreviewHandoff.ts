@@ -52,9 +52,10 @@ export function useAttachmentPreviewHandoff(input: {
     setAttachmentPreviewHandoffByMessageId({});
   }, []);
   useEffect(() => {
+    const optimisticUserMessages = optimisticUserMessagesRef.current;
     return () => {
       clearAttachmentPreviewHandoffs();
-      for (const message of optimisticUserMessagesRef.current) {
+      for (const message of optimisticUserMessages) {
         revokeUserMessagePreviewUrls(message);
       }
     };

@@ -3,6 +3,9 @@ import { Schema } from "effect";
 
 import type { BuiltInProviderDriver } from "./ProviderDriver.ts";
 
+const decodeDefaultCodexSettings = Schema.decodeSync(CodexSettings);
+const decodeDefaultClaudeSettings = Schema.decodeSync(ClaudeSettings);
+
 export const CodexBuiltInDriver = {
   driverKind: ProviderDriverKind.make("codex"),
   legacyProvider: "codex",
@@ -11,7 +14,7 @@ export const CodexBuiltInDriver = {
     supportsMultipleInstances: true,
   },
   configSchema: CodexSettings,
-  defaultConfig: () => Schema.decodeSync(CodexSettings)({}),
+  defaultConfig: () => decodeDefaultCodexSettings({}),
 } satisfies BuiltInProviderDriver;
 
 export const ClaudeBuiltInDriver = {
@@ -22,7 +25,7 @@ export const ClaudeBuiltInDriver = {
     supportsMultipleInstances: true,
   },
   configSchema: ClaudeSettings,
-  defaultConfig: () => Schema.decodeSync(ClaudeSettings)({}),
+  defaultConfig: () => decodeDefaultClaudeSettings({}),
 } satisfies BuiltInProviderDriver;
 
 export const BUILT_IN_DRIVERS: ReadonlyArray<BuiltInProviderDriver> = [

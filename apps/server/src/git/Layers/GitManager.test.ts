@@ -891,6 +891,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         hasUpstream: false,
         aheadCount: 0,
         behindCount: 0,
+        aheadOfDefaultCount: 0,
         pr: null,
       });
     }),
@@ -920,6 +921,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         hasUpstream: false,
         aheadCount: 0,
         behindCount: 0,
+        aheadOfDefaultCount: 0,
         pr: null,
       });
     }),

@@ -60,6 +60,16 @@ function makeDirectory(
   });
 }
 
+function okGitProcessResult(stdout = "") {
+  return Effect.succeed({
+    code: 0,
+    stdout,
+    stderr: "",
+    stdoutTruncated: false,
+    stderrTruncated: false,
+  });
+}
+
 /** Run a raw git command for test setup (not under test). */
 function git(
   cwd: string,
@@ -830,15 +840,6 @@ it.layer(TestLayer)("git integration", (it) => {
 
     it.effect("coalesces upstream refreshes across sibling worktrees on the same remote", () =>
       Effect.gen(function* () {
-        const ok = (stdout = "") =>
-          Effect.succeed({
-            code: 0,
-            stdout,
-            stderr: "",
-            stdoutTruncated: false,
-            stderrTruncated: false,
-          });
-
         let fetchCount = 0;
         const core = yield* makeIsolatedGitCore((input) => {
           if (
@@ -847,15 +848,15 @@ it.layer(TestLayer)("git integration", (it) => {
             input.args[2] === "--symbolic-full-name" &&
             input.args[3] === "@{upstream}"
           ) {
-            return ok(
+            return okGitProcessResult(
               input.cwd === "/repo/worktrees/pr-123" ? "origin/feature/pr-123\n" : "origin/main\n",
             );
           }
           if (input.args[0] === "remote") {
-            return ok("origin\n");
+            return okGitProcessResult("origin\n");
           }
           if (input.args[0] === "rev-parse" && input.args[1] === "--git-common-dir") {
-            return ok("/repo/.git\n");
+            return okGitProcessResult("/repo/.git\n");
           }
           if (input.args[0] === "--git-dir" && input.args[2] === "fetch") {
             fetchCount += 1;
@@ -868,10 +869,10 @@ it.layer(TestLayer)("git integration", (it) => {
               "--no-tags",
               "origin",
             ]);
-            return ok();
+            return okGitProcessResult();
           }
           if (input.operation === "GitCore.statusDetails.status") {
-            return ok(
+            return okGitProcessResult(
               input.cwd === "/repo/worktrees/pr-123"
                 ? "# branch.head feature/pr-123\n# branch.upstream origin/feature/pr-123\n# branch.ab +0 -0\n"
                 : "# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n",
@@ -881,10 +882,10 @@ it.layer(TestLayer)("git integration", (it) => {
             input.operation === "GitCore.statusDetails.unstagedNumstat" ||
             input.operation === "GitCore.statusDetails.stagedNumstat"
           ) {
-            return ok();
+            return okGitProcessResult();
           }
           if (input.operation === "GitCore.statusDetails.defaultRef") {
-            return ok("refs/remotes/origin/main\n");
+            return okGitProcessResult("refs/remotes/origin/main\n");
           }
           return Effect.fail(
             new GitCommandError({
@@ -906,15 +907,6 @@ it.layer(TestLayer)("git integration", (it) => {
       "briefly backs off failed upstream refreshes across sibling worktrees on one remote",
       () =>
         Effect.gen(function* () {
-          const ok = (stdout = "") =>
-            Effect.succeed({
-              code: 0,
-              stdout,
-              stderr: "",
-              stdoutTruncated: false,
-              stderrTruncated: false,
-            });
-
           let fetchCount = 0;
           const core = yield* makeIsolatedGitCore((input) => {
             if (
@@ -923,17 +915,17 @@ it.layer(TestLayer)("git integration", (it) => {
               input.args[2] === "--symbolic-full-name" &&
               input.args[3] === "@{upstream}"
             ) {
-              return ok(
+              return okGitProcessResult(
                 input.cwd === "/repo/worktrees/pr-123"
                   ? "origin/feature/pr-123\n"
                   : "origin/main\n",
               );
             }
             if (input.args[0] === "remote") {
-              return ok("origin\n");
+              return okGitProcessResult("origin\n");
             }
             if (input.args[0] === "rev-parse" && input.args[1] === "--git-common-dir") {
-              return ok("/repo/.git\n");
+              return okGitProcessResult("/repo/.git\n");
             }
             if (input.args[0] === "--git-dir" && input.args[2] === "fetch") {
               fetchCount += 1;
@@ -947,7 +939,7 @@ it.layer(TestLayer)("git integration", (it) => {
               );
             }
             if (input.operation === "GitCore.statusDetails.status") {
-              return ok(
+              return okGitProcessResult(
                 input.cwd === "/repo/worktrees/pr-123"
                   ? "# branch.head feature/pr-123\n# branch.upstream origin/feature/pr-123\n# branch.ab +0 -0\n"
                   : "# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n",
@@ -957,10 +949,10 @@ it.layer(TestLayer)("git integration", (it) => {
               input.operation === "GitCore.statusDetails.unstagedNumstat" ||
               input.operation === "GitCore.statusDetails.stagedNumstat"
             ) {
-              return ok();
+              return okGitProcessResult();
             }
             if (input.operation === "GitCore.statusDetails.defaultRef") {
-              return ok("refs/remotes/origin/main\n");
+              return okGitProcessResult("refs/remotes/origin/main\n");
             }
             return Effect.fail(
               new GitCommandError({
@@ -1710,6 +1702,7 @@ it.layer(TestLayer)("git integration", (it) => {
           hasUpstream: false,
           aheadCount: 0,
           behindCount: 0,
+          aheadOfDefaultCount: 0,
         });
         expect(localStatus).toEqual(status);
       }),

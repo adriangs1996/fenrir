@@ -54,6 +54,9 @@ const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 
+const unsupportedProviderCall = <A>() =>
+  Effect.die(new Error("Unsupported provider call in test")) as Effect.Effect<A, never>;
+
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
   readonly eventId: EventId;
@@ -88,17 +91,16 @@ function createProviderServiceHarness() {
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
   const runtimeSessions: ProviderSession[] = [];
 
-  const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
   const service: ProviderServiceShape = {
-    startSession: () => unsupported(),
-    sendTurn: () => unsupported(),
-    interruptTurn: () => unsupported(),
-    respondToRequest: () => unsupported(),
-    respondToUserInput: () => unsupported(),
-    stopSession: () => unsupported(),
+    startSession: () => unsupportedProviderCall(),
+    sendTurn: () => unsupportedProviderCall(),
+    interruptTurn: () => unsupportedProviderCall(),
+    respondToRequest: () => unsupportedProviderCall(),
+    respondToUserInput: () => unsupportedProviderCall(),
+    stopSession: () => unsupportedProviderCall(),
     listSessions: () => Effect.succeed([...runtimeSessions]),
     getCapabilities: () => Effect.succeed({ sessionModelSwitch: "in-session" }),
-    rollbackConversation: () => unsupported(),
+    rollbackConversation: () => unsupportedProviderCall(),
     get streamEvents() {
       return Stream.fromPubSub(runtimeEventPubSub);
     },

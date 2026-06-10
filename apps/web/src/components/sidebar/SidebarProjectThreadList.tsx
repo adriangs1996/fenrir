@@ -1,6 +1,5 @@
 import { ArchiveIcon, CloudIcon, GitPullRequestIcon, TerminalIcon } from "lucide-react";
 import React, { useCallback, memo, useMemo } from "react";
-import { useShallow } from "zustand/react/shallow";
 import type { ScopedThreadRef } from "@fenrir/contracts";
 import { scopedThreadKey, scopeProjectRef, scopeThreadRef } from "@fenrir/client-runtime";
 import { usePrimaryEnvironmentId } from "../../environments/primary";

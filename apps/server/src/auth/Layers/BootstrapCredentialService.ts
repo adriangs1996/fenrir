@@ -33,6 +33,19 @@ const DEFAULT_ONE_TIME_TOKEN_TTL_MINUTES = Duration.minutes(5);
 const PAIRING_TOKEN_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const PAIRING_TOKEN_LENGTH = 12;
 
+const invalidBootstrapCredentialError = (message: string) =>
+  new BootstrapCredentialError({
+    message,
+    status: 401,
+  });
+
+const internalBootstrapCredentialError = (message: string, cause: unknown) =>
+  new BootstrapCredentialError({
+    message,
+    status: 500,
+    cause,
+  });
+
 const generatePairingToken = (): string => {
   const randomBytes = crypto.getRandomValues(new Uint8Array(PAIRING_TOKEN_LENGTH));
 
@@ -44,19 +57,6 @@ export const makeBootstrapCredentialService = Effect.gen(function* () {
   const pairingLinks = yield* AuthPairingLinkRepository;
   const seededGrantsRef = yield* Ref.make(new Map<string, StoredBootstrapGrant>());
   const changesPubSub = yield* PubSub.unbounded<BootstrapCredentialChange>();
-
-  const invalidBootstrapCredentialError = (message: string) =>
-    new BootstrapCredentialError({
-      message,
-      status: 401,
-    });
-
-  const internalBootstrapCredentialError = (message: string, cause: unknown) =>
-    new BootstrapCredentialError({
-      message,
-      status: 500,
-      cause,
-    });
 
   const seedGrant = (credential: string, grant: StoredBootstrapGrant) =>
     Ref.update(seededGrantsRef, (current) => {

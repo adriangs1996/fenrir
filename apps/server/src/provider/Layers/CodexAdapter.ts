@@ -50,6 +50,7 @@ import { resolveEffectiveCodexSettings } from "../providerSettings";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "codex" as const;
+const decodeProviderApprovalDecision = Schema.decodeUnknownSync(ProviderApprovalDecision);
 
 const getCodexSelection = (selection: ProviderSendTurnInput["modelSelection"] | undefined) =>
   selection && isCodexModelSelection(selection) ? selection : undefined;
@@ -930,7 +931,7 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "item/requestApproval/decision" && event.requestId) {
-    const decision = Schema.decodeUnknownSync(ProviderApprovalDecision)(payload?.decision);
+    const decision = decodeProviderApprovalDecision(payload?.decision);
     const requestType =
       event.requestKind !== undefined
         ? toRequestTypeFromKind(event.requestKind)

@@ -104,6 +104,7 @@ export class ServerSettingsService extends Context.Service<
 const ServerSettingsJson = fromLenientJson(ServerSettings);
 const encodeServerSettings = Schema.encodeUnknownEffect(ServerSettings);
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
+const decodeServerSettingsJsonExit = Schema.decodeUnknownExit(ServerSettingsJson);
 
 const PROVIDER_ORDER: readonly ProviderKind[] = ["codex", "claudeAgent"];
 
@@ -280,7 +281,7 @@ const makeServerSettings = Effect.gen(function* () {
     }
 
     const raw = yield* readRawConfig;
-    const decoded = Schema.decodeUnknownExit(ServerSettingsJson)(raw);
+    const decoded = decodeServerSettingsJsonExit(raw);
     if (decoded._tag === "Failure") {
       yield* Effect.logWarning("failed to parse settings.json, using defaults", {
         path: settingsPath,

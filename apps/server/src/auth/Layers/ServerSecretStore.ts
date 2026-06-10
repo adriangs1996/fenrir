@@ -10,6 +10,12 @@ import {
   type ServerSecretStoreShape,
 } from "../Services/ServerSecretStore.ts";
 
+const isMissingSecretFileError = (cause: unknown): cause is PlatformError.PlatformError =>
+  cause instanceof PlatformError.PlatformError && cause.reason._tag === "NotFound";
+
+const isAlreadyExistsSecretFileError = (cause: unknown): cause is PlatformError.PlatformError =>
+  cause instanceof PlatformError.PlatformError && cause.reason._tag === "AlreadyExists";
+
 export const makeServerSecretStore = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -27,12 +33,6 @@ export const makeServerSecretStore = Effect.gen(function* () {
   );
 
   const resolveSecretPath = (name: string) => path.join(serverConfig.secretsDir, `${name}.bin`);
-
-  const isMissingSecretFileError = (cause: unknown): cause is PlatformError.PlatformError =>
-    cause instanceof PlatformError.PlatformError && cause.reason._tag === "NotFound";
-
-  const isAlreadyExistsSecretFileError = (cause: unknown): cause is PlatformError.PlatformError =>
-    cause instanceof PlatformError.PlatformError && cause.reason._tag === "AlreadyExists";
 
   const get: ServerSecretStoreShape["get"] = (name) =>
     fileSystem.readFile(resolveSecretPath(name)).pipe(

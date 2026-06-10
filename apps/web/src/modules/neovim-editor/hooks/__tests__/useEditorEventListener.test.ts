@@ -5,6 +5,13 @@ import {
   shouldSubscribe,
 } from "../useEditorEventListener";
 
+function makeStore() {
+  return {
+    setCurrentFile: vi.fn(),
+    setDirty: vi.fn(),
+  };
+}
+
 describe("shouldSubscribe", () => {
   it("returns true when both bridge and main window", () => {
     expect(shouldSubscribe(true, true)).toBe(true);
@@ -24,13 +31,6 @@ describe("shouldSubscribe", () => {
 });
 
 describe("handleEditorEvent", () => {
-  function makeStore() {
-    return {
-      setCurrentFile: vi.fn(),
-      setDirty: vi.fn(),
-    };
-  }
-
   it("buf_enter sets currentFile via store", () => {
     const store = makeStore();
     const dispatch = vi.fn();

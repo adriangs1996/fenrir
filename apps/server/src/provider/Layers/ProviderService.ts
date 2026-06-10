@@ -63,6 +63,27 @@ const ProviderRollbackConversationInput = Schema.Struct({
   threadId: ThreadId,
   numTurns: NonNegativeInt,
 });
+const ProviderMcpServerIds = Schema.Array(McpServerId);
+const isModelSelection = Schema.is(ModelSelection);
+const isProviderMcpServerIds = Schema.is(ProviderMcpServerIds);
+const providerInputDecoderBySchema = new WeakMap<
+  Schema.Top,
+  (payload: unknown) => Effect.Effect<unknown, Schema.SchemaError, never>
+>();
+
+function decodeProviderInput<S extends Schema.Top>(
+  schema: S,
+  payload: unknown,
+): Effect.Effect<S["Type"], Schema.SchemaError, S["DecodingServices"]> {
+  let decode = providerInputDecoderBySchema.get(schema);
+  if (!decode) {
+    decode = Schema.decodeUnknownEffect(schema) as unknown as (
+      payload: unknown,
+    ) => Effect.Effect<unknown, Schema.SchemaError, never>;
+    providerInputDecoderBySchema.set(schema, decode);
+  }
+  return decode(payload) as Effect.Effect<S["Type"], Schema.SchemaError, S["DecodingServices"]>;
+}
 
 function toValidationError(
   operation: string,
@@ -81,7 +102,7 @@ const decodeInputOrValidationError = <S extends Schema.Top>(input: {
   readonly schema: S;
   readonly payload: unknown;
 }) =>
-  Schema.decodeUnknownEffect(input.schema)(input.payload).pipe(
+  decodeProviderInput(input.schema, input.payload).pipe(
     Effect.mapError(
       (schemaError) =>
         new ProviderValidationError({
@@ -149,7 +170,7 @@ function readPersistedModelSelection(
     return undefined;
   }
   const raw = "modelSelection" in runtimePayload ? runtimePayload.modelSelection : undefined;
-  return Schema.is(ModelSelection)(raw) ? raw : undefined;
+  return isModelSelection(raw) ? raw : undefined;
 }
 
 function readPersistedCwd(
@@ -171,7 +192,7 @@ function readPersistedMcpServerIds(
     return [];
   }
   const raw = "mcpServerIds" in runtimePayload ? runtimePayload.mcpServerIds : undefined;
-  return Schema.is(Schema.Array(McpServerId))(raw) ? raw : [];
+  return isProviderMcpServerIds(raw) ? raw : [];
 }
 
 function validateMcpCapability(input: {

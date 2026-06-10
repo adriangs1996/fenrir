@@ -90,6 +90,44 @@ function evict(buf: InstanceBuffer): void {
   }
 }
 
+function openFdSafe(dirPath: string, filePath: string): number | null {
+  try {
+    nodeFs.mkdirSync(dirPath, { recursive: true });
+    return nodeFs.openSync(filePath, "a");
+  } catch (e) {
+    // Log but don't propagate disk errors
+    console.warn(`LogBuffer: failed to open log file ${filePath}:`, e);
+    return null;
+  }
+}
+
+function closeFdSafe(fd: number | null): void {
+  if (fd === null) return;
+  try {
+    nodeFs.fsyncSync(fd);
+    nodeFs.closeSync(fd);
+  } catch {
+    // best-effort
+  }
+}
+
+function writeSafe(fd: number | null, bytes: string): void {
+  if (fd === null) return;
+  try {
+    nodeFs.writeSync(fd, bytes);
+  } catch (e) {
+    console.warn("LogBuffer: disk write failed:", e);
+  }
+}
+
+function rotateSafe(logPath: string, previousLogPath: string): void {
+  try {
+    nodeFs.renameSync(logPath, previousLogPath);
+  } catch {
+    // Previous may not exist, or rename may fail — best-effort
+  }
+}
+
 // ── Implementation ──
 
 const makeLogBuffer = Effect.gen(function* () {
@@ -114,44 +152,6 @@ const makeLogBuffer = Effect.gen(function* () {
       previousLogPath: nodePath.join(dir, `${processDefId}.log.previous`),
       dir,
     };
-  }
-
-  function openFdSafe(dirPath: string, filePath: string): number | null {
-    try {
-      nodeFs.mkdirSync(dirPath, { recursive: true });
-      return nodeFs.openSync(filePath, "a");
-    } catch (e) {
-      // Log but don't propagate disk errors
-      console.warn(`LogBuffer: failed to open log file ${filePath}:`, e);
-      return null;
-    }
-  }
-
-  function closeFdSafe(fd: number | null): void {
-    if (fd === null) return;
-    try {
-      nodeFs.fsyncSync(fd);
-      nodeFs.closeSync(fd);
-    } catch {
-      // best-effort
-    }
-  }
-
-  function writeSafe(fd: number | null, bytes: string): void {
-    if (fd === null) return;
-    try {
-      nodeFs.writeSync(fd, bytes);
-    } catch (e) {
-      console.warn("LogBuffer: disk write failed:", e);
-    }
-  }
-
-  function rotateSafe(logPath: string, previousLogPath: string): void {
-    try {
-      nodeFs.renameSync(logPath, previousLogPath);
-    } catch {
-      // Previous may not exist, or rename may fail — best-effort
-    }
   }
 
   const open: LogBufferShape["open"] = (input) =>

@@ -96,6 +96,7 @@ export function createRenderRuntime(deps: RenderRuntimeDeps): RenderRuntime {
   const renderLoop = new RenderLoop({
     fps: 60,
     emit: (frame: Frame) => {
+      // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Electron MessagePortMain does not take a targetOrigin argument.
       renderFramePort?.postMessage(frame);
     },
   });

@@ -10,7 +10,6 @@ import {
   type ProjectId,
   type ProviderApprovalDecision,
   type ServerProvider,
-  type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
   type ThreadId,
   type TurnId,
@@ -82,7 +81,6 @@ import {
   DEFAULT_RUNTIME_MODE,
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
-  type Thread,
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { useMediaQuery } from "../hooks/useMediaQuery";

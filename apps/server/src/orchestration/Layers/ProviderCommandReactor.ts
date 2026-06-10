@@ -90,6 +90,8 @@ const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0
 const DEFAULT_THREAD_TITLE = "New thread";
 const PROVIDER_REACTOR_QUEUE_WARN_MS = 15_000;
 const PROVIDER_REACTOR_PROCESS_WARN_MS = 30_000;
+const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
+const isProviderKind = Schema.is(ProviderKind);
 
 function shouldLogProviderLifecycleEvent(event: ProviderIntentEvent): boolean {
   return (
@@ -119,7 +121,7 @@ function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolea
 
 function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
   const error = Cause.squash(cause);
-  if (Schema.is(ProviderAdapterRequestError)(error)) {
+  if (isProviderAdapterRequestError(error)) {
     const detail = error.detail.toLowerCase();
     return (
       detail.includes("unknown pending approval request") ||
@@ -135,7 +137,7 @@ function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderService
 
 function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
   const error = Cause.squash(cause);
-  if (Schema.is(ProviderAdapterRequestError)(error)) {
+  if (isProviderAdapterRequestError(error)) {
     return error.detail.toLowerCase().includes("unknown pending user-input request");
   }
   return Cause.pretty(cause).toLowerCase().includes("unknown pending user-input request");
@@ -300,9 +302,7 @@ const make = Effect.gen(function* () {
     }
 
     const desiredRuntimeMode = thread.runtimeMode;
-    const currentProvider: ProviderKind | undefined = Schema.is(ProviderKind)(
-      thread.session?.providerName,
-    )
+    const currentProvider: ProviderKind | undefined = isProviderKind(thread.session?.providerName)
       ? thread.session.providerName
       : undefined;
     const requestedModelSelection = options?.modelSelection;

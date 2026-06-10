@@ -426,6 +426,8 @@ function matchesWhenClause(
   return evaluateWhenNode(whenAst, context);
 }
 
+const isGlobalScriptRunCommand = Schema.is(GLOBAL_SCRIPT_RUN_COMMAND_PATTERN);
+
 export function resolveShortcutCommand(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,
@@ -449,5 +451,5 @@ export function isProjectScriptKeybindingCommand(command: string): boolean {
 }
 
 export function isGlobalScriptKeybindingCommand(command: string): boolean {
-  return Schema.is(GLOBAL_SCRIPT_RUN_COMMAND_PATTERN)(command);
+  return isGlobalScriptRunCommand(command);
 }

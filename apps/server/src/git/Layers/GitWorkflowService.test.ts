@@ -2,17 +2,18 @@ import { assert, describe, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import { GitCore, type GitCoreShape } from "./Services/GitCore.ts";
-import { GitManager, type GitManagerShape } from "./Services/GitManager.ts";
-import * as GitWorkflowService from "./GitWorkflowService.ts";
-import { VcsDriverRegistry, type VcsDriverRegistryShape } from "../vcs/VcsDriverRegistry.ts";
+import { GitCore, type GitCoreShape } from "../Services/GitCore.ts";
+import { GitManager, type GitManagerShape } from "../Services/GitManager.ts";
+import { GitWorkflowService } from "../Services/GitWorkflowService.ts";
+import { GitWorkflowServiceLive } from "./GitWorkflowService.ts";
+import { VcsDriverRegistry, type VcsDriverRegistryShape } from "../../vcs/VcsDriverRegistry.ts";
 
 function makeLayer(input: {
   readonly registry: Partial<VcsDriverRegistryShape>;
   readonly gitCore?: Partial<GitCoreShape>;
   readonly gitManager?: Partial<GitManagerShape>;
 }) {
-  return GitWorkflowService.layer.pipe(
+  return GitWorkflowServiceLive.pipe(
     Layer.provide(Layer.mock(VcsDriverRegistry)(input.registry)),
     Layer.provide(Layer.mock(GitCore)(input.gitCore ?? {})),
     Layer.provide(Layer.mock(GitManager)(input.gitManager ?? {})),
@@ -22,7 +23,7 @@ function makeLayer(input: {
 describe("GitWorkflowService", () => {
   it.effect("returns an empty local status when no VCS repository is detected", () =>
     Effect.gen(function* () {
-      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const workflow = yield* GitWorkflowService;
       const status = yield* workflow.localStatus({ cwd: "/not-a-repo" });
 
       assert.deepStrictEqual(status, {
@@ -50,7 +51,7 @@ describe("GitWorkflowService", () => {
 
   it.effect("returns an empty full status when no VCS repository is detected", () =>
     Effect.gen(function* () {
-      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const workflow = yield* GitWorkflowService;
       const status = yield* workflow.status({ cwd: "/not-a-repo" });
 
       assert.deepStrictEqual(status, {
@@ -87,7 +88,7 @@ describe("GitWorkflowService", () => {
     const status = vi.fn();
 
     return Effect.gen(function* () {
-      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const workflow = yield* GitWorkflowService;
       yield* workflow.localStatus({ cwd: "/not-a-repo" });
       yield* workflow.remoteStatus({ cwd: "/not-a-repo" });
       yield* workflow.status({ cwd: "/not-a-repo" });
@@ -113,7 +114,7 @@ describe("GitWorkflowService", () => {
 
   it.effect("returns an empty ref list when no VCS repository is detected", () =>
     Effect.gen(function* () {
-      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const workflow = yield* GitWorkflowService;
       const refs = yield* workflow.listRefs({ cwd: "/not-a-repo" });
 
       assert.deepStrictEqual(refs, {

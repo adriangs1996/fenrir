@@ -68,6 +68,10 @@ const VCS_ICONS: Partial<Record<VcsDriverKind, Icon>> = {
   jj: JujutsuIcon,
 };
 
+function handleSourceControlDiscoveryScan() {
+  void refreshSourceControlDiscovery();
+}
+
 const SOURCE_CONTROL_SKELETON_ROWS = ["primary", "secondary"] as const;
 const GIT_FETCH_INTERVAL_STEP_SECONDS = 5;
 
@@ -443,9 +447,6 @@ export function SourceControlSettingsPanel() {
   const hasDiscoveryItems =
     result.versionControlSystems.length > 0 || result.sourceControlProviders.length > 0;
   const isInitialScanPending = discovery.isPending && discovery.data === null;
-  const handleScan = () => {
-    void refreshSourceControlDiscovery();
-  };
   const scanButton = (
     <Tooltip>
       <TooltipTrigger
@@ -454,7 +455,7 @@ export function SourceControlSettingsPanel() {
             size="icon-xs"
             variant="ghost"
             className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
-            onClick={handleScan}
+            onClick={handleSourceControlDiscoveryScan}
             disabled={discovery.isPending}
             aria-label="Rescan server environment"
           >
@@ -500,7 +501,7 @@ export function SourceControlSettingsPanel() {
         <EmptySourceControlDiscovery
           error={discovery.error}
           isPending={discovery.isPending}
-          onScan={handleScan}
+          onScan={handleSourceControlDiscoveryScan}
         />
       )}
     </SettingsPageContainer>

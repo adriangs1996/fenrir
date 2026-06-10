@@ -347,15 +347,17 @@ function parseCodexSkillsListResponse(
     const shortDescription =
       skill.shortDescription ?? skill.interface?.shortDescription ?? undefined;
 
-    return {
-      name: skill.name,
-      path: skill.path,
-      enabled: skill.enabled,
-      ...(skill.description ? { description: skill.description } : {}),
-      ...(skill.scope ? { scope: skill.scope } : {}),
-      ...(skill.interface?.displayName ? { displayName: skill.interface.displayName } : {}),
-      ...(shortDescription ? { shortDescription } : {}),
-    } satisfies ServerProviderSkill;
+    return Object.assign(
+      {
+        name: skill.name,
+        path: skill.path,
+        enabled: skill.enabled,
+      },
+      skill.description ? { description: skill.description } : {},
+      skill.scope ? { scope: skill.scope } : {},
+      skill.interface?.displayName ? { displayName: skill.interface.displayName } : {},
+      shortDescription ? { shortDescription } : {},
+    ) satisfies ServerProviderSkill;
   });
 }
 

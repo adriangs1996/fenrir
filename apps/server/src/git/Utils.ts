@@ -7,6 +7,8 @@ import { Schema } from "effect";
 
 import { TextGenerationError } from "@fenrir/contracts";
 
+const isTextGenerationError = Schema.is(TextGenerationError);
+
 /** Convert an Effect Schema to a flat JSON Schema object, inlining `$defs` when present. */
 export function toJsonSchemaObject(schema: Schema.Top): unknown {
   const document = Schema.toJsonSchemaDocument(schema);
@@ -132,7 +134,7 @@ export function normalizeCliError(
   error: unknown,
   fallback: string,
 ): TextGenerationError {
-  if (Schema.is(TextGenerationError)(error)) {
+  if (isTextGenerationError(error)) {
     return error;
   }
 

@@ -308,6 +308,16 @@ interface BufferedNotificationHandler<A> {
   readonly pending: Array<A>;
 }
 
+const runNotificationHandlers = <A>(
+  registration: BufferedNotificationHandler<A>,
+  notification: A,
+) =>
+  Effect.forEach(
+    registration.handlers,
+    (handler) => handler(notification).pipe(Effect.catch(() => Effect.void)),
+    { discard: true },
+  );
+
 export const make = Effect.fn("effect-acp/AcpClient.make")(function* (
   stdio: Stdio.Stdio,
   options: AcpClientOptions = {},
@@ -332,16 +342,6 @@ export const make = Effect.fn("effect-acp/AcpClient.make")(function* (
   let unknownExtNotificationHandler:
     | ((method: string, params: unknown) => Effect.Effect<void, AcpError.AcpError>)
     | undefined;
-
-  const runNotificationHandlers = <A>(
-    registration: BufferedNotificationHandler<A>,
-    notification: A,
-  ) =>
-    Effect.forEach(
-      registration.handlers,
-      (handler) => handler(notification).pipe(Effect.catch(() => Effect.void)),
-      { discard: true },
-    );
 
   const flushBufferedNotifications = <A>(registration: BufferedNotificationHandler<A>) =>
     Effect.suspend(() => {

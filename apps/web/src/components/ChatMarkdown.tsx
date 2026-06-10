@@ -4,10 +4,12 @@ import type { ServerProviderSkill } from "@fenrir/contracts";
 import React, {
   Children,
   Suspense,
+  createContext,
   type MouseEvent as ReactMouseEvent,
   isValidElement,
   use,
   useCallback,
+  useContext,
   memo,
   useEffect,
   useMemo,
@@ -272,6 +274,8 @@ const MARKDOWN_FILE_LINK_CLASS_NAME =
 const MARKDOWN_FILE_LINK_ICON_CLASS_NAME = "chat-markdown-file-link-icon size-3.5 shrink-0";
 const MARKDOWN_FILE_LINK_LABEL_CLASS_NAME = "chat-markdown-file-link-label truncate";
 
+type MarkdownFileLinkMeta = NonNullable<ReturnType<typeof resolveMarkdownFileLinkMeta>>;
+
 function pathParentSegments(path: string): string[] {
   const normalized = path.replaceAll("\\", "/");
   const segments = normalized.split("/").filter((segment) => segment.length > 0);
@@ -513,6 +517,154 @@ function MarkdownImagePlaceholder({ label, alt }: { label: string; alt: string |
   );
 }
 
+interface ChatMarkdownRenderContextValue {
+  readonly diffThemeName: DiffThemeName;
+  readonly fileLinkParentSuffixByPath: ReadonlyMap<string, string>;
+  readonly fileLinkTheme: "light" | "dark";
+  readonly imageById: ReadonlyMap<string, ChatImageAttachment>;
+  readonly images: ReadonlyArray<ChatImageAttachment>;
+  readonly isStreaming: boolean;
+  readonly markdownFileLinkMetaByHref: ReadonlyMap<string, MarkdownFileLinkMeta>;
+  readonly onImageExpand: ((preview: ExpandedImagePreview) => void) | undefined;
+  readonly skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
+}
+
+const ChatMarkdownRenderContext = createContext<ChatMarkdownRenderContextValue | null>(null);
+
+function useChatMarkdownRenderContext(): ChatMarkdownRenderContextValue {
+  const context = useContext(ChatMarkdownRenderContext);
+  if (!context) {
+    throw new Error("ChatMarkdown render context is missing");
+  }
+  return context;
+}
+
+function MarkdownParagraph({
+  node: _node,
+  children,
+  ...props
+}: React.ComponentPropsWithoutRef<"p"> & { node?: unknown }) {
+  const { skills } = useChatMarkdownRenderContext();
+  return <p {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</p>;
+}
+
+function MarkdownListItem({
+  node: _node,
+  children,
+  ...props
+}: React.ComponentPropsWithoutRef<"li"> & { node?: unknown }) {
+  const { skills } = useChatMarkdownRenderContext();
+  return <li {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</li>;
+}
+
+function MarkdownAnchor({
+  node: _node,
+  href,
+  ...props
+}: React.ComponentPropsWithoutRef<"a"> & { node?: unknown }) {
+  const { fileLinkParentSuffixByPath, fileLinkTheme, markdownFileLinkMetaByHref } =
+    useChatMarkdownRenderContext();
+  const normalizedHref = href ? normalizeMarkdownLinkHrefKey(href) : "";
+  const fileLinkMeta = normalizedHref ? markdownFileLinkMetaByHref.get(normalizedHref) : null;
+  if (!fileLinkMeta) {
+    return <a {...props} href={href} target="_blank" rel="noopener noreferrer" />;
+  }
+
+  const parentSuffix = fileLinkParentSuffixByPath.get(fileLinkMeta.filePath);
+  const labelParts = [fileLinkMeta.basename];
+  if (typeof parentSuffix === "string" && parentSuffix.length > 0) {
+    labelParts.push(parentSuffix);
+  }
+  if (fileLinkMeta.line) {
+    labelParts.push(
+      `L${fileLinkMeta.line}${fileLinkMeta.column ? `:C${fileLinkMeta.column}` : ""}`,
+    );
+  }
+
+  return (
+    <MarkdownFileLink
+      href={href ?? fileLinkMeta.targetPath}
+      targetPath={fileLinkMeta.targetPath}
+      displayPath={fileLinkMeta.displayPath}
+      filePath={fileLinkMeta.filePath}
+      label={labelParts.join(" · ")}
+      theme={fileLinkTheme}
+      className={props.className}
+    />
+  );
+}
+
+function MarkdownImage({
+  node: _node,
+  src,
+  alt,
+}: React.ComponentPropsWithoutRef<"img"> & { node?: unknown }) {
+  const { imageById, images, onImageExpand } = useChatMarkdownRenderContext();
+  const imageId = parseFenrirImageId(src);
+  if (imageId) {
+    const image = imageById.get(imageId);
+    if (!image?.previewUrl) {
+      return <MarkdownImagePlaceholder label="Image unavailable" alt={alt} />;
+    }
+
+    return (
+      <button
+        type="button"
+        className="chat-markdown-image-button"
+        aria-label={`Preview ${image.name}`}
+        onClick={() => {
+          const preview = buildExpandedImagePreview(images, image.id);
+          if (!preview) return;
+          onImageExpand?.(preview);
+        }}
+      >
+        <img src={image.previewUrl} alt={alt || image.name} className="chat-markdown-image" />
+      </button>
+    );
+  }
+
+  if (isRemoteImageSrc(src)) {
+    return <MarkdownImagePlaceholder label="Remote image blocked" alt={alt} />;
+  }
+
+  return <MarkdownImagePlaceholder label="Image unavailable" alt={alt} />;
+}
+
+function MarkdownPre({
+  node: _node,
+  children,
+  ...props
+}: React.ComponentPropsWithoutRef<"pre"> & { node?: unknown }) {
+  const { diffThemeName, isStreaming } = useChatMarkdownRenderContext();
+  const codeBlock = extractCodeBlock(children);
+  if (!codeBlock) {
+    return <pre {...props}>{children}</pre>;
+  }
+
+  return (
+    <MarkdownCodeBlock code={codeBlock.code}>
+      <CodeHighlightErrorBoundary fallback={<pre {...props}>{children}</pre>}>
+        <Suspense fallback={<pre {...props}>{children}</pre>}>
+          <SuspenseShikiCodeBlock
+            className={codeBlock.className}
+            code={codeBlock.code}
+            themeName={diffThemeName}
+            isStreaming={isStreaming}
+          />
+        </Suspense>
+      </CodeHighlightErrorBoundary>
+    </MarkdownCodeBlock>
+  );
+}
+
+const MARKDOWN_COMPONENTS: Components = {
+  p: MarkdownParagraph,
+  li: MarkdownListItem,
+  a: MarkdownAnchor,
+  img: MarkdownImage,
+  pre: MarkdownPre,
+};
+
 function ChatMarkdown({
   text,
   cwd,
@@ -556,95 +708,17 @@ function ChatMarkdown({
     }
     return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
   }, []);
-  const markdownComponents = useMemo<Components>(
+  const markdownRenderContext = useMemo<ChatMarkdownRenderContextValue>(
     () => ({
-      p({ node: _node, children, ...props }) {
-        return <p {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</p>;
-      },
-      li({ node: _node, children, ...props }) {
-        return <li {...props}>{renderSkillInlineMarkdownChildren(children, skills)}</li>;
-      },
-      a({ node: _node, href, ...props }) {
-        const normalizedHref = href ? normalizeMarkdownLinkHrefKey(href) : "";
-        const fileLinkMeta = normalizedHref ? markdownFileLinkMetaByHref.get(normalizedHref) : null;
-        if (!fileLinkMeta) {
-          return <a {...props} href={href} target="_blank" rel="noopener noreferrer" />;
-        }
-
-        const parentSuffix = fileLinkParentSuffixByPath.get(fileLinkMeta.filePath);
-        const labelParts = [fileLinkMeta.basename];
-        if (typeof parentSuffix === "string" && parentSuffix.length > 0) {
-          labelParts.push(parentSuffix);
-        }
-        if (fileLinkMeta.line) {
-          labelParts.push(
-            `L${fileLinkMeta.line}${fileLinkMeta.column ? `:C${fileLinkMeta.column}` : ""}`,
-          );
-        }
-
-        return (
-          <MarkdownFileLink
-            href={href ?? fileLinkMeta.targetPath}
-            targetPath={fileLinkMeta.targetPath}
-            displayPath={fileLinkMeta.displayPath}
-            filePath={fileLinkMeta.filePath}
-            label={labelParts.join(" · ")}
-            theme={fileLinkTheme}
-            className={props.className}
-          />
-        );
-      },
-      img({ node: _node, src, alt }) {
-        const imageId = parseFenrirImageId(src);
-        if (imageId) {
-          const image = imageById.get(imageId);
-          if (!image?.previewUrl) {
-            return <MarkdownImagePlaceholder label="Image unavailable" alt={alt} />;
-          }
-
-          return (
-            <button
-              type="button"
-              className="chat-markdown-image-button"
-              aria-label={`Preview ${image.name}`}
-              onClick={() => {
-                const preview = buildExpandedImagePreview(images, image.id);
-                if (!preview) return;
-                onImageExpand?.(preview);
-              }}
-            >
-              <img src={image.previewUrl} alt={alt || image.name} className="chat-markdown-image" />
-            </button>
-          );
-        }
-
-        if (isRemoteImageSrc(src)) {
-          return <MarkdownImagePlaceholder label="Remote image blocked" alt={alt} />;
-        }
-
-        return <MarkdownImagePlaceholder label="Image unavailable" alt={alt} />;
-      },
-      pre({ node: _node, children, ...props }) {
-        const codeBlock = extractCodeBlock(children);
-        if (!codeBlock) {
-          return <pre {...props}>{children}</pre>;
-        }
-
-        return (
-          <MarkdownCodeBlock code={codeBlock.code}>
-            <CodeHighlightErrorBoundary fallback={<pre {...props}>{children}</pre>}>
-              <Suspense fallback={<pre {...props}>{children}</pre>}>
-                <SuspenseShikiCodeBlock
-                  className={codeBlock.className}
-                  code={codeBlock.code}
-                  themeName={diffThemeName}
-                  isStreaming={isStreaming}
-                />
-              </Suspense>
-            </CodeHighlightErrorBoundary>
-          </MarkdownCodeBlock>
-        );
-      },
+      diffThemeName,
+      fileLinkParentSuffixByPath,
+      fileLinkTheme,
+      imageById,
+      images,
+      isStreaming,
+      markdownFileLinkMetaByHref,
+      onImageExpand,
+      skills,
     }),
     [
       diffThemeName,
@@ -661,13 +735,15 @@ function ChatMarkdown({
 
   return (
     <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={markdownComponents}
-        urlTransform={markdownUrlTransform}
-      >
-        {text}
-      </ReactMarkdown>
+      <ChatMarkdownRenderContext.Provider value={markdownRenderContext}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={MARKDOWN_COMPONENTS}
+          urlTransform={markdownUrlTransform}
+        >
+          {text}
+        </ReactMarkdown>
+      </ChatMarkdownRenderContext.Provider>
     </div>
   );
 }

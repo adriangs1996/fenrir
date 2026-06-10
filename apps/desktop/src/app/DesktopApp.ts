@@ -45,7 +45,7 @@ import {
 import { resolveDesktopServerExposure } from "../backend/DesktopServerExposure";
 import { syncShellEnvironment } from "../shell/DesktopShellEnvironment";
 import { DesktopUpdaterController } from "../updates/DesktopUpdaterController";
-import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./DesktopRuntimeArch";
+import { resolveDesktopRuntimeInfo } from "./DesktopRuntimeArch";
 import { stopVpn } from "../vpnManager";
 import { createTrafficLensManager, type TrafficLensManager } from "../window/DesktopWindow";
 import { NeovimSource } from "../neovim";

@@ -52,6 +52,11 @@ function appendTruncationMarker(text: string, truncated: boolean, appendMarker: 
   return `${text}${OUTPUT_TRUNCATED_MARKER}`;
 }
 
+const isVcsProcessExitError = Schema.is(VcsProcessExitError);
+const isVcsProcessTimeoutError = Schema.is(VcsProcessTimeoutError);
+const isVcsOutputDecodeError = Schema.is(VcsOutputDecodeError);
+const isVcsProcessSpawnError = Schema.is(VcsProcessSpawnError);
+
 const makeVcsProcess = Effect.sync(() =>
   VcsProcess.of({
     run: (input) =>
@@ -115,10 +120,10 @@ const makeVcsProcess = Effect.sync(() =>
           } satisfies VcsProcessOutput;
         },
         catch: (cause) =>
-          Schema.is(VcsProcessExitError)(cause) ||
-          Schema.is(VcsProcessTimeoutError)(cause) ||
-          Schema.is(VcsOutputDecodeError)(cause) ||
-          Schema.is(VcsProcessSpawnError)(cause)
+          isVcsProcessExitError(cause) ||
+          isVcsProcessTimeoutError(cause) ||
+          isVcsOutputDecodeError(cause) ||
+          isVcsProcessSpawnError(cause)
             ? cause
             : new VcsProcessSpawnError({
                 operation: input.operation,

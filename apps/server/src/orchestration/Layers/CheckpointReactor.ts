@@ -65,6 +65,15 @@ function checkpointStatusFromRuntime(status: string | undefined): "ready" | "mis
 const serverCommandId = (tag: string): CommandId =>
   CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
 
+function sessionWithCwdOption(
+  session: { readonly threadId: ThreadId; readonly cwd?: string | null | undefined } | undefined,
+): Option.Option<{ readonly threadId: ThreadId; readonly cwd: string }> {
+  if (!session?.cwd) {
+    return Option.none();
+  }
+  return Option.some({ threadId: session.threadId, cwd: session.cwd });
+}
+
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
@@ -131,18 +140,9 @@ const make = Effect.gen(function* () {
 
     const sessions = yield* providerService.listSessions();
 
-    const findSessionWithCwd = (
-      session: (typeof sessions)[number] | undefined,
-    ): Option.Option<{ readonly threadId: ThreadId; readonly cwd: string }> => {
-      if (!session?.cwd) {
-        return Option.none();
-      }
-      return Option.some({ threadId: session.threadId, cwd: session.cwd });
-    };
-
     if (thread) {
       const projectedSession = sessions.find((session) => session.threadId === thread.id);
-      const fromProjected = findSessionWithCwd(projectedSession);
+      const fromProjected = sessionWithCwdOption(projectedSession);
       if (Option.isSome(fromProjected)) {
         return fromProjected;
       }

@@ -37,6 +37,7 @@ const PersistedInstanceRecordSchema = Schema.Struct({
 });
 
 const InstancesFileSchema = Schema.Array(PersistedInstanceRecordSchema);
+const decodeInstancesFileExit = Schema.decodeUnknownExit(InstancesFileSchema);
 
 // ── Helpers ──
 
@@ -100,7 +101,7 @@ const makeInstanceStore = Effect.gen(function* () {
         return [];
       }
 
-      const decoded = Schema.decodeUnknownExit(InstancesFileSchema)(parsed);
+      const decoded = decodeInstancesFileExit(parsed);
       if (decoded._tag === "Failure") {
         yield* Effect.logWarning("InstanceStore: schema validation failed, returning empty list", {
           path: fp,

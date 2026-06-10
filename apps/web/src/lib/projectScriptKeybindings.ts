@@ -7,6 +7,7 @@ import {
 import { Schema } from "effect";
 
 export const PROJECT_SCRIPT_KEYBINDING_INVALID_MESSAGE = "Invalid keybinding.";
+const decodeKeybindingRuleOption = Schema.decodeUnknownOption(KeybindingRuleSchema);
 
 function normalizeProjectScriptKeybindingInput(
   keybinding: string | null | undefined,
@@ -22,7 +23,7 @@ export function decodeProjectScriptKeybindingRule(input: {
   const normalizedKey = normalizeProjectScriptKeybindingInput(input.keybinding);
   if (!normalizedKey) return null;
 
-  const decoded = Schema.decodeUnknownOption(KeybindingRuleSchema)({
+  const decoded = decodeKeybindingRuleOption({
     key: normalizedKey,
     command: input.command,
   });

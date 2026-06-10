@@ -25,7 +25,7 @@ import {
   type SourceControlStackStreamEvent,
 } from "@fenrir/contracts/sourceControlStack";
 
-import { GitWorkflowService } from "../../../git/GitWorkflowService.ts";
+import { GitWorkflowService } from "../../../git/Services/GitWorkflowService.ts";
 import { GitCore } from "../../../git/Services/GitCore.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { SourceControlProviderRegistry } from "../../SourceControlProviderRegistry.ts";

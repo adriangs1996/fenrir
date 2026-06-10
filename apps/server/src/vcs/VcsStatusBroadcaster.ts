@@ -20,7 +20,7 @@ import type {
   VcsStatusStreamEvent,
 } from "@fenrir/contracts";
 
-import { GitWorkflowService } from "../git/GitWorkflowService.ts";
+import { GitWorkflowService } from "../git/Services/GitWorkflowService.ts";
 
 const DEFAULT_VCS_STATUS_REFRESH_INTERVAL = Duration.seconds(30);
 export const LOCAL_VCS_STATUS_REFRESH_INTERVAL = Duration.seconds(2);
