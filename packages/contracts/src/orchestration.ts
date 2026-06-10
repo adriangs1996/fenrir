@@ -55,6 +55,7 @@ export const DEFAULT_PROVIDER_KIND: ProviderKind = "codex";
 
 export const CodexModelSelection = Schema.Struct({
   provider: Schema.Literal("codex"),
+  instanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(ProviderOptionSelections),
 });
@@ -65,6 +66,7 @@ export const isCodexModelSelection = (
 
 export const ClaudeModelSelection = Schema.Struct({
   provider: Schema.Literal("claudeAgent"),
+  instanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(ProviderOptionSelections),
 });
@@ -75,6 +77,7 @@ export const isClaudeModelSelection = (
 
 export const ExternalModelSelection = Schema.Struct({
   provider: TrimmedNonEmptyString,
+  instanceId: Schema.optionalKey(ProviderInstanceId),
   model: TrimmedNonEmptyString,
   options: Schema.optionalKey(ProviderOptionSelections),
 });

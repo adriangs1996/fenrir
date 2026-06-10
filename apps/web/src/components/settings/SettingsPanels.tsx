@@ -1299,7 +1299,8 @@ export function GeneralSettingsPanel() {
     providerInstanceMap,
     updateSettings,
   ]);
-  const logsDirectoryPath = observability?.logsDirectoryPath ?? null;
+  const diagnosticsDirectoryPath =
+    observability?.diagnosticsDirectoryPath ?? observability?.logsDirectoryPath ?? null;
   const diagnosticsDescription = (() => {
     const exports: string[] = [];
     if (observability?.otlpTracesEnabled && observability.otlpTracesUrl) {
@@ -1366,8 +1367,12 @@ export function GeneralSettingsPanel() {
   }, [keybindingsConfigPath, openInPreferredEditor]);
 
   const openLogsDirectory = useCallback(() => {
-    openInPreferredEditor("logsDirectory", logsDirectoryPath, "Unable to open logs folder.");
-  }, [logsDirectoryPath, openInPreferredEditor]);
+    openInPreferredEditor(
+      "logsDirectory",
+      diagnosticsDirectoryPath,
+      "Unable to open diagnostics folder.",
+    );
+  }, [diagnosticsDirectoryPath, openInPreferredEditor]);
 
   const openKeybindingsError = openPathErrorByTarget.keybindings ?? null;
   const openDiagnosticsError = openPathErrorByTarget.logsDirectory ?? null;
@@ -2884,7 +2889,7 @@ export function GeneralSettingsPanel() {
           status={
             <>
               <span className="block break-all font-mono text-[11px] text-foreground">
-                {logsDirectoryPath ?? "Resolving logs directory..."}
+                {diagnosticsDirectoryPath ?? "Resolving diagnostics directory..."}
               </span>
               {openDiagnosticsError ? (
                 <span className="mt-1 block text-destructive">{openDiagnosticsError}</span>
@@ -2895,7 +2900,7 @@ export function GeneralSettingsPanel() {
             <Button
               size="xs"
               variant="outline"
-              disabled={!logsDirectoryPath || isOpeningLogsDirectory}
+              disabled={!diagnosticsDirectoryPath || isOpeningLogsDirectory}
               onClick={openLogsDirectory}
             >
               {isOpeningLogsDirectory ? "Opening..." : "Open logs folder"}

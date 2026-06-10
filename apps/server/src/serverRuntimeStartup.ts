@@ -287,6 +287,11 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
   yield* Effect.addFinalizer(() => Scope.close(reactorScope, Exit.void));
 
   const startup = Effect.gen(function* () {
+    yield* Effect.logInfo("diagnostics directory registered", {
+      diagnosticsDirectoryPath: serverConfig.logsDir,
+      traceFilePath: serverConfig.serverTracePath,
+    });
+
     yield* Effect.logDebug("startup phase: starting keybindings runtime");
     yield* runStartupPhase(
       "keybindings.start",

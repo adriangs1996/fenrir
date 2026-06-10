@@ -642,6 +642,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           providers,
           availableEditors: resolveAvailableEditors(),
           observability: {
+            diagnosticsDirectoryPath: config.logsDir,
             logsDirectoryPath: config.logsDir,
             localTracingEnabled: true,
             ...(config.otlpTracesUrl !== undefined ? { otlpTracesUrl: config.otlpTracesUrl } : {}),

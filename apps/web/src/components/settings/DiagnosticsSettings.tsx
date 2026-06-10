@@ -272,16 +272,19 @@ export function DiagnosticsSettingsPanel() {
   const processData = processDiagnostics.data;
   const historyData = processHistory.data;
 
+  const diagnosticsDirectoryPath =
+    observability?.diagnosticsDirectoryPath ?? observability?.logsDirectoryPath;
+
   const openLogsDirectory = async () => {
-    const logsDirectoryPath = observability?.logsDirectoryPath;
-    if (!logsDirectoryPath) return;
+    if (!diagnosticsDirectoryPath) return;
     try {
-      await openInPreferredEditor(ensureLocalApi(), logsDirectoryPath);
+      await openInPreferredEditor(ensureLocalApi(), diagnosticsDirectoryPath);
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Unable to open logs folder",
-        description: error instanceof Error ? error.message : "Unknown error opening logs folder.",
+        title: "Unable to open diagnostics folder",
+        description:
+          error instanceof Error ? error.message : "Unknown error opening diagnostics folder.",
       });
     }
   };

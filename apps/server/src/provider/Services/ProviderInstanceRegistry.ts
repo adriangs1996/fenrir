@@ -7,6 +7,7 @@ import type {
 import { Context } from "effect";
 import type { Effect, Stream } from "effect";
 
+import type { TextGenerationShape } from "../../git/Services/TextGeneration.ts";
 import type { ServerProviderShape } from "./ServerProvider.ts";
 
 export interface ProviderInstanceRecord {
@@ -15,6 +16,7 @@ export interface ProviderInstanceRecord {
   readonly instanceId: ProviderInstanceId;
   readonly displayName?: string;
   readonly snapshot: ServerProviderShape;
+  readonly textGeneration: TextGenerationShape;
 }
 
 export interface ProviderInstanceRegistryShape {

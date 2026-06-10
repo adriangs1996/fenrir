@@ -104,7 +104,9 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
     };
 
     const claudeSettings = yield* serverSettingsService.getSettings.pipe(
-      Effect.flatMap(resolveEffectiveClaudeSettings),
+      Effect.flatMap((settings) =>
+        resolveEffectiveClaudeSettings(settings, modelSelection.instanceId),
+      ),
       Effect.catch(() => Effect.undefined),
     );
 

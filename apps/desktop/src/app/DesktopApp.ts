@@ -104,8 +104,6 @@ import { FENRIR_EXIT_LUA, FENRIR_INIT_LUA, NeovimSource } from "../neovim";
 import { probeNvim } from "../neovim/probe";
 import { createVSCodeWebManager, probeVSCodeWeb, type VSCodeWebManager } from "../vscode";
 
-syncShellEnvironment();
-
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const SET_THEME_CHANNEL = "desktop:set-theme";
@@ -298,6 +296,7 @@ let vscodeWebManagerOwner: BrowserWindow | null = null;
 let browserLabControlSocket: WebSocket | null = null;
 let browserLabControlReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let browserLabControlReconnectAttempt = 0;
+let desktopShellEnvironmentSynced = false;
 let nvimSession: {
   client: any;
   proc: ChildProcess.ChildProcessWithoutNullStreams;
@@ -483,6 +482,19 @@ function relaunchDesktopApp(reason: string): void {
 function writeDesktopLogHeader(message: string): void {
   if (!desktopLogSink) return;
   desktopLogSink.write(`[${logTimestamp()}] [${logScope("desktop")}] ${message}\n`);
+}
+
+function ensureDesktopShellEnvironmentSynced(reason: string): void {
+  if (desktopShellEnvironmentSynced) return;
+
+  desktopShellEnvironmentSynced = true;
+  const normalizedReason = sanitizeLogValue(reason);
+  const startedAt = Date.now();
+  writeDesktopLogHeader(`shell environment sync start reason=${normalizedReason}`);
+  syncShellEnvironment();
+  writeDesktopLogHeader(
+    `shell environment sync complete reason=${normalizedReason} durationMs=${Date.now() - startedAt}`,
+  );
 }
 
 function writeBackendSessionBoundary(phase: "START" | "END", details: string): void {
@@ -1101,6 +1113,7 @@ function initializePackagedLogging(): void {
     });
     installStdIoCapture();
     writeDesktopLogHeader(`runtime log capture enabled logDir=${LOG_DIR}`);
+    writeDesktopLogHeader(`diagnostics directory registered path=${LOG_DIR}`);
   } catch (error) {
     // Logging setup should never block app startup.
     console.error("[desktop] failed to initialize packaged logging", error);
@@ -2336,6 +2349,7 @@ function registerIpcHandlers(): void {
     if (typeof profileId !== "string") {
       throw new Error("Invalid VPN profile ID.");
     }
+    ensureDesktopShellEnvironmentSynced("vpn-connect");
     if (!checkOpenvpnInstalled()) {
       throw new Error(
         "OpenVPN is not installed. Install it with `brew install openvpn` (macOS) or your package manager.",
@@ -2877,6 +2891,7 @@ function registerIpcHandlers(): void {
       }
 
       const { attach } = await import("neovim");
+      ensureDesktopShellEnvironmentSynced("neovim-attach");
       const nvimBin =
         process.env.PATH?.split(":")
           .map((p) => Path.join(p, "nvim"))
@@ -3009,29 +3024,38 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(NVIM_AVAILABLE_CHANNEL);
   ipcMain.handle(NVIM_AVAILABLE_CHANNEL, async () => {
+    ensureDesktopShellEnvironmentSynced("neovim-probe");
     const result = await probeNvim();
     return result.available;
   });
 
   ipcMain.removeHandler(NVIM_PROBE_DETAIL_CHANNEL);
-  ipcMain.handle(NVIM_PROBE_DETAIL_CHANNEL, async () => probeNvim());
+  ipcMain.handle(NVIM_PROBE_DETAIL_CHANNEL, async () => {
+    ensureDesktopShellEnvironmentSynced("neovim-probe-detail");
+    return probeNvim();
+  });
 
   // ---- Embedded VS Code ----
 
   ipcMain.removeHandler(VSCODE_AVAILABLE_CHANNEL);
   ipcMain.handle(VSCODE_AVAILABLE_CHANNEL, async () => {
+    ensureDesktopShellEnvironmentSynced("vscode-probe");
     const result = await probeVSCodeWeb();
     return result.available;
   });
 
   ipcMain.removeHandler(VSCODE_PROBE_DETAIL_CHANNEL);
-  ipcMain.handle(VSCODE_PROBE_DETAIL_CHANNEL, async () => probeVSCodeWeb());
+  ipcMain.handle(VSCODE_PROBE_DETAIL_CHANNEL, async () => {
+    ensureDesktopShellEnvironmentSynced("vscode-probe-detail");
+    return probeVSCodeWeb();
+  });
 
   ipcMain.removeHandler(VSCODE_START_CHANNEL);
   ipcMain.handle(VSCODE_START_CHANNEL, async (_event, cwd: unknown) => {
     if (typeof cwd !== "string" || cwd.length === 0) {
       throw new Error("Invalid VS Code cwd.");
     }
+    ensureDesktopShellEnvironmentSynced("vscode-start");
     return ensureVSCodeWebManager().ensureStarted(cwd);
   });
 
@@ -3044,6 +3068,7 @@ function registerIpcHandlers(): void {
     if (typeof input.path !== "string" || input.path.length === 0) {
       throw new Error("VS Code file path is required.");
     }
+    ensureDesktopShellEnvironmentSynced("vscode-open-file");
     return ensureVSCodeWebManager().openFile({
       path: input.path,
       ...(typeof input.line === "number" ? { line: input.line } : {}),
@@ -3512,10 +3537,6 @@ function createWindow(): BrowserWindow {
 }
 
 function resolveDesktopWindowUrl(): string {
-  if (backendHttpUrl) {
-    return backendHttpUrl;
-  }
-
   return `${DESKTOP_SCHEME}://app`;
 }
 
@@ -3592,11 +3613,22 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
-  await waitForBackendHttpReady(backendHttpUrl);
-  writeDesktopLogHeader("bootstrap backend ready");
   mainWindow = createWindow();
   ensureTrafficLensManager();
   writeDesktopLogHeader("bootstrap main window created");
+  void waitForBackendHttpReady(backendHttpUrl)
+    .then(() => {
+      writeDesktopLogHeader("bootstrap backend ready");
+    })
+    .catch((error) => {
+      if (isBackendReadinessAborted(error)) {
+        return;
+      }
+      writeDesktopLogHeader(
+        `bootstrap backend readiness warning message=${formatErrorMessage(error)}`,
+      );
+      console.warn("[desktop] backend readiness check timed out during bootstrap", error);
+    });
 }
 
 app.on("before-quit", () => {
@@ -3625,8 +3657,6 @@ app
     configureApplicationMenu();
     registerDesktopProtocol();
     configureAutoUpdater();
-    // Kick off nvim probe early so result is cached before renderer mounts.
-    void probeNvim().catch(() => undefined);
     void bootstrap().catch((error) => {
       if (isBackendReadinessAborted(error) && isQuitting) {
         return;

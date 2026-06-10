@@ -158,7 +158,9 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     const outputPath = yield* writeTempFile(operation, "codex-output", "");
 
     const codexSettings = yield* serverSettingsService.getSettings.pipe(
-      Effect.flatMap(resolveEffectiveCodexSettings),
+      Effect.flatMap((settings) =>
+        resolveEffectiveCodexSettings(settings, modelSelection.instanceId),
+      ),
       Effect.catch(() => Effect.undefined),
     );
 

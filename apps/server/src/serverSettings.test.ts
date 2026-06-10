@@ -1,5 +1,10 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { DEFAULT_SERVER_SETTINGS, ServerSettingsPatch } from "@fenrir/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ServerSettingsPatch,
+} from "@fenrir/contracts";
 import { assert, it } from "@effect/vitest";
 import { Duration, Effect, FileSystem, Layer, Schema } from "effect";
 import { ServerConfig } from "./config";
@@ -154,6 +159,41 @@ it.layer(NodeServices.layer)("server settings", (it) => {
               : "codex",
           model: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.model,
         },
+      });
+
+      assert.deepEqual(next.textGenerationModelSelection, {
+        provider: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.provider,
+        model: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.model,
+      });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("falls back when the selected text generation instance is removed", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+      const instanceId = ProviderInstanceId.make("codex_work");
+
+      const selected = yield* serverSettings.updateSettings({
+        providerInstances: {
+          [instanceId]: {
+            driver: ProviderDriverKind.make("codex"),
+          },
+        },
+        textGenerationModelSelection: {
+          provider: "codex",
+          instanceId,
+          model: "gpt-5.4",
+        },
+      });
+
+      assert.deepEqual(selected.textGenerationModelSelection, {
+        provider: "codex",
+        instanceId,
+        model: "gpt-5.4",
+      });
+
+      const next = yield* serverSettings.updateSettings({
+        providerInstances: {},
       });
 
       assert.deepEqual(next.textGenerationModelSelection, {

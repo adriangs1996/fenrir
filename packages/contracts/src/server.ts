@@ -150,6 +150,7 @@ export const isProviderAvailable = (snapshot: ServerProvider): boolean =>
   snapshot.availability !== "unavailable";
 
 export const ServerObservability = Schema.Struct({
+  diagnosticsDirectoryPath: Schema.optionalKey(TrimmedNonEmptyString),
   logsDirectoryPath: TrimmedNonEmptyString,
   localTracingEnabled: Schema.Boolean,
   otlpTracesUrl: Schema.optional(TrimmedNonEmptyString),

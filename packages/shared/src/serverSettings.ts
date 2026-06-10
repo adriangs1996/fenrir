@@ -51,7 +51,10 @@ export function parsePersistedServerObservabilitySettings(
 function shouldReplaceTextGenerationModelSelection(
   patch: ServerSettingsPatch["textGenerationModelSelection"] | undefined,
 ): boolean {
-  return Boolean(patch && (patch.provider !== undefined || patch.model !== undefined));
+  return Boolean(
+    patch &&
+    (patch.provider !== undefined || patch.instanceId !== undefined || patch.model !== undefined),
+  );
 }
 
 function optionSelectionsToEntries(
@@ -250,6 +253,7 @@ export function applyServerSettingsPatch(
     ...next,
     textGenerationModelSelection: {
       provider: selectionPatch.provider ?? current.textGenerationModelSelection.provider,
+      ...(selectionPatch.instanceId !== undefined ? { instanceId: selectionPatch.instanceId } : {}),
       model: selectionPatch.model ?? current.textGenerationModelSelection.model,
       ...(selectionPatch.options ? { options: selectionPatch.options } : {}),
     },

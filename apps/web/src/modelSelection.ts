@@ -12,6 +12,7 @@ import { UnifiedSettings } from "@fenrir/contracts/settings";
 import {
   getDefaultServerModel,
   getProviderModels,
+  getProviderSnapshotByInstanceId,
   getSelectableProviderKinds,
   resolveSelectableProvider,
 } from "./providerModels";
@@ -186,6 +187,8 @@ export function resolveAppModelSelectionState(
     model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
   };
   const provider = resolveSelectableProvider(providers, selection.provider);
+  const selectedInstance = getProviderSnapshotByInstanceId(providers, selection.instanceId);
+  const instanceId = selectedInstance?.enabled ? selection.instanceId : undefined;
 
   // When the provider changed due to fallback (e.g. selected provider was disabled),
   // don't carry over the old provider's model — use the fallback provider's default.
@@ -204,6 +207,7 @@ export function resolveAppModelSelectionState(
 
   return {
     provider,
+    ...(instanceId !== undefined ? { instanceId } : {}),
     model,
     ...(modelOptionsForDispatch ? { options: modelOptionsForDispatch } : {}),
   };

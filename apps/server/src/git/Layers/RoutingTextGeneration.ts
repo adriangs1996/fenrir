@@ -1,91 +1,78 @@
 /**
- * RoutingTextGeneration – Dispatches text generation requests to either the
- * Codex CLI or Claude CLI implementation based on the provider in each
- * request input.
+ * RoutingTextGeneration - dispatches Git text generation through configured
+ * provider instances.
  *
- * Requests are forwarded to the concrete layer matching
- * `modelSelection.provider`; unknown providers fall through to Codex.
+ * The selection's explicit `instanceId` wins. Legacy selections that only have
+ * `provider` route to that provider's default instance id.
  *
  * @module RoutingTextGeneration
  */
-import { Effect, Layer, Context } from "effect";
+import {
+  defaultInstanceIdForDriver,
+  type ModelSelection,
+  type ProviderInstanceId,
+  TextGenerationError,
+} from "@fenrir/contracts";
+import { Effect, Layer } from "effect";
 
+import { ProviderInstanceRegistry } from "../../provider/Services/ProviderInstanceRegistry.ts";
 import { TextGeneration, type TextGenerationShape } from "../Services/TextGeneration.ts";
-import { OpenCodeRuntimeLive } from "../../provider/opencodeRuntime.ts";
-import { CodexTextGenerationLive } from "./CodexTextGeneration.ts";
-import { ClaudeTextGenerationLive } from "./ClaudeTextGeneration.ts";
-import { OpenCodeTextGenerationLive } from "./OpenCodeTextGeneration.ts";
 
-// ---------------------------------------------------------------------------
-// Internal service tags so both concrete layers can coexist.
-// ---------------------------------------------------------------------------
+type TextGenerationOperation =
+  | "generateCommitMessage"
+  | "generatePrContent"
+  | "generateBranchName"
+  | "generateThreadTitle"
+  | "extractDependencies";
 
-class CodexTextGen extends Context.Service<CodexTextGen, TextGenerationShape>()(
-  "t3/git/Layers/RoutingTextGeneration/CodexTextGen",
-) {}
-
-class ClaudeTextGen extends Context.Service<ClaudeTextGen, TextGenerationShape>()(
-  "t3/git/Layers/RoutingTextGeneration/ClaudeTextGen",
-) {}
-
-class OpenCodeTextGen extends Context.Service<OpenCodeTextGen, TextGenerationShape>()(
-  "t3/git/Layers/RoutingTextGeneration/OpenCodeTextGen",
-) {}
-
-// ---------------------------------------------------------------------------
-// Routing implementation
-// ---------------------------------------------------------------------------
+function resolveModelSelectionInstanceId(selection: ModelSelection): ProviderInstanceId {
+  return selection.instanceId ?? defaultInstanceIdForDriver(selection.provider);
+}
 
 const makeRoutingTextGeneration = Effect.gen(function* () {
-  const codex = yield* CodexTextGen;
-  const claude = yield* ClaudeTextGen;
-  const openCode = yield* OpenCodeTextGen;
+  const registry = yield* ProviderInstanceRegistry;
 
-  const route = (provider?: string): TextGenerationShape => {
-    if (provider === "claudeAgent") return claude;
-    if (provider === "opencode") return openCode;
-    return codex;
-  };
+  const resolveTextGeneration = (
+    operation: TextGenerationOperation,
+    modelSelection: ModelSelection,
+  ) =>
+    registry.getInstance(resolveModelSelectionInstanceId(modelSelection)).pipe(
+      Effect.flatMap((instance) =>
+        instance
+          ? Effect.succeed(instance.textGeneration)
+          : Effect.fail(
+              new TextGenerationError({
+                operation,
+                detail: `No provider instance registered for id '${resolveModelSelectionInstanceId(
+                  modelSelection,
+                )}'.`,
+              }),
+            ),
+      ),
+    );
 
   return {
     generateCommitMessage: (input) =>
-      route(input.modelSelection.provider).generateCommitMessage(input),
-    generatePrContent: (input) => route(input.modelSelection.provider).generatePrContent(input),
-    generateBranchName: (input) => route(input.modelSelection.provider).generateBranchName(input),
-    generateThreadTitle: (input) => route(input.modelSelection.provider).generateThreadTitle(input),
-    extractDependencies: (input) => route(input.modelSelection.provider).extractDependencies(input),
+      resolveTextGeneration("generateCommitMessage", input.modelSelection).pipe(
+        Effect.flatMap((textGeneration) => textGeneration.generateCommitMessage(input)),
+      ),
+    generatePrContent: (input) =>
+      resolveTextGeneration("generatePrContent", input.modelSelection).pipe(
+        Effect.flatMap((textGeneration) => textGeneration.generatePrContent(input)),
+      ),
+    generateBranchName: (input) =>
+      resolveTextGeneration("generateBranchName", input.modelSelection).pipe(
+        Effect.flatMap((textGeneration) => textGeneration.generateBranchName(input)),
+      ),
+    generateThreadTitle: (input) =>
+      resolveTextGeneration("generateThreadTitle", input.modelSelection).pipe(
+        Effect.flatMap((textGeneration) => textGeneration.generateThreadTitle(input)),
+      ),
+    extractDependencies: (input) =>
+      resolveTextGeneration("extractDependencies", input.modelSelection).pipe(
+        Effect.flatMap((textGeneration) => textGeneration.extractDependencies(input)),
+      ),
   } satisfies TextGenerationShape;
 });
 
-const InternalCodexLayer = Layer.effect(
-  CodexTextGen,
-  Effect.gen(function* () {
-    const svc = yield* TextGeneration;
-    return svc;
-  }),
-).pipe(Layer.provide(CodexTextGenerationLive));
-
-const InternalClaudeLayer = Layer.effect(
-  ClaudeTextGen,
-  Effect.gen(function* () {
-    const svc = yield* TextGeneration;
-    return svc;
-  }),
-).pipe(Layer.provide(ClaudeTextGenerationLive));
-
-const InternalOpenCodeLayer = Layer.effect(
-  OpenCodeTextGen,
-  Effect.gen(function* () {
-    const svc = yield* TextGeneration;
-    return svc;
-  }),
-).pipe(Layer.provide(OpenCodeTextGenerationLive.pipe(Layer.provideMerge(OpenCodeRuntimeLive))));
-
-export const RoutingTextGenerationLive = Layer.effect(
-  TextGeneration,
-  makeRoutingTextGeneration,
-).pipe(
-  Layer.provide(InternalCodexLayer),
-  Layer.provide(InternalClaudeLayer),
-  Layer.provide(InternalOpenCodeLayer),
-);
+export const RoutingTextGenerationLive = Layer.effect(TextGeneration, makeRoutingTextGeneration);

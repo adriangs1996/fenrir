@@ -18,6 +18,7 @@ import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.t
 import { ProviderAdapterRegistryLive } from "./ProviderAdapterRegistry.ts";
 import { ProviderUnsupportedError } from "../Errors.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import type { TextGenerationShape } from "../../git/Services/TextGeneration.ts";
 
 const fakeCodexAdapter: CodexAdapterShape = {
   provider: "codex",
@@ -87,12 +88,21 @@ const fakeCursorAdapter: CursorAdapterShape = {
   streamEvents: Stream.empty,
 };
 
+const unusedTextGeneration: TextGenerationShape = {
+  generateCommitMessage: () => Effect.die("unused"),
+  generatePrContent: () => Effect.die("unused"),
+  generateBranchName: () => Effect.die("unused"),
+  generateThreadTitle: () => Effect.die("unused"),
+  extractDependencies: () => Effect.die("unused"),
+};
+
 function makeInstanceRegistryLayer(options?: { includeCodexWork?: boolean }) {
   const instances = [
     {
       provider: "codex" as const,
       driverKind: ProviderDriverKind.make("codex"),
       instanceId: defaultInstanceIdForDriver("codex"),
+      textGeneration: unusedTextGeneration,
       snapshot: {
         getSnapshot: Effect.die("unused"),
         refresh: Effect.die("unused"),
@@ -103,6 +113,7 @@ function makeInstanceRegistryLayer(options?: { includeCodexWork?: boolean }) {
       provider: ProviderDriverKind.make("cursor"),
       driverKind: ProviderDriverKind.make("cursor"),
       instanceId: defaultInstanceIdForDriver("cursor"),
+      textGeneration: unusedTextGeneration,
       snapshot: {
         getSnapshot: Effect.die("unused"),
         refresh: Effect.die("unused"),
@@ -113,6 +124,7 @@ function makeInstanceRegistryLayer(options?: { includeCodexWork?: boolean }) {
       provider: "claudeAgent" as const,
       driverKind: ProviderDriverKind.make("claudeAgent"),
       instanceId: defaultInstanceIdForDriver("claudeAgent"),
+      textGeneration: unusedTextGeneration,
       snapshot: {
         getSnapshot: Effect.die("unused"),
         refresh: Effect.die("unused"),
@@ -126,6 +138,7 @@ function makeInstanceRegistryLayer(options?: { includeCodexWork?: boolean }) {
             driverKind: ProviderDriverKind.make("codex"),
             instanceId: ProviderInstanceId.make("codex_work"),
             displayName: "Codex Work",
+            textGeneration: unusedTextGeneration,
             snapshot: {
               getSnapshot: Effect.die("unused"),
               refresh: Effect.die("unused"),

@@ -1,7 +1,12 @@
 import { Effect, Exit, Fiber, Layer, Schema, Scope } from "effect";
 import * as Semaphore from "effect/Semaphore";
 
-import { TextGenerationError, type ChatAttachment, type ModelSelection } from "@fenrir/contracts";
+import {
+  defaultInstanceIdForDriver,
+  TextGenerationError,
+  type ChatAttachment,
+  type ModelSelection,
+} from "@fenrir/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@fenrir/shared/git";
 import { getModelSelectionStringOptionValue } from "@fenrir/shared/model";
 
@@ -239,7 +244,10 @@ const makeOpenCodeTextGeneration = Effect.gen(function* () {
     readonly modelSelection: ModelSelection;
     readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
-    if (input.modelSelection.provider !== "opencode") {
+    if (
+      input.modelSelection.provider !== "opencode" &&
+      input.modelSelection.instanceId === undefined
+    ) {
       return yield* new TextGenerationError({
         operation: input.operation,
         detail: "Invalid model selection.",
@@ -255,7 +263,12 @@ const makeOpenCodeTextGeneration = Effect.gen(function* () {
     }
 
     const openCodeSettings = yield* serverSettingsService.getSettings.pipe(
-      Effect.flatMap(resolveOpenCodeInstanceSettings),
+      Effect.flatMap((settings) =>
+        resolveOpenCodeInstanceSettings(
+          settings,
+          input.modelSelection.instanceId ?? defaultInstanceIdForDriver("opencode"),
+        ),
+      ),
       Effect.mapError(
         (cause) =>
           new TextGenerationError({

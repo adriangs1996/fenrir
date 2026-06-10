@@ -5,7 +5,7 @@ import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas";
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER, ProviderOptionSelections } from "./model";
 import { McpServerDefinition, McpServerId } from "./mcp";
 import { ModelSelection, ProviderSelectionKind } from "./orchestration";
-import { ProviderInstanceConfigMap } from "./providerInstance";
+import { ProviderInstanceConfigMap, ProviderInstanceId } from "./providerInstance";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -411,18 +411,12 @@ export const DEFAULT_UNIFIED_SETTINGS: UnifiedSettings = {
 
 // ── Server Settings Patch (replace with a Schema.deepPartial if available) ──────────────────────────────────────────
 
-const ModelSelectionPatch = Schema.Union([
-  Schema.Struct({
-    provider: Schema.optionalKey(Schema.Literal("codex")),
-    model: Schema.optionalKey(TrimmedNonEmptyString),
-    options: Schema.optionalKey(ProviderOptionSelections),
-  }),
-  Schema.Struct({
-    provider: Schema.optionalKey(Schema.Literal("claudeAgent")),
-    model: Schema.optionalKey(TrimmedNonEmptyString),
-    options: Schema.optionalKey(ProviderOptionSelections),
-  }),
-]);
+const ModelSelectionPatch = Schema.Struct({
+  provider: Schema.optionalKey(TrimmedNonEmptyString),
+  instanceId: Schema.optionalKey(ProviderInstanceId),
+  model: Schema.optionalKey(TrimmedNonEmptyString),
+  options: Schema.optionalKey(ProviderOptionSelections),
+});
 
 const CodexSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),

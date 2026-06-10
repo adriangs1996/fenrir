@@ -62,6 +62,7 @@ import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRun
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
 import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor";
+import { ProviderInstanceRegistryLive } from "./provider/Layers/ProviderInstanceRegistry";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { ProviderMaintenanceRunnerLive } from "./provider/providerMaintenanceRunner";
 import { GlobalActionsLive } from "./globalActions";
@@ -193,6 +194,10 @@ const ProviderRuntimeLifecycleLayerLive = ProviderRuntimeLifecycleLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
+const TextGenerationLayerLive = RoutingTextGenerationLive.pipe(
+  Layer.provideMerge(ProviderInstanceRegistryLive),
+);
+
 const PersistenceLayerLive = Layer.empty.pipe(
   Layer.provideMerge(PlanRunnerRepositoryLive),
   Layer.provideMerge(SqlitePersistenceLayerLive),
@@ -202,7 +207,7 @@ const GitManagerLayerLive = GitManagerLive.pipe(
   Layer.provideMerge(ProjectSetupScriptRunnerLive),
   Layer.provideMerge(GitCoreLive),
   Layer.provideMerge(GitHubCliLive),
-  Layer.provideMerge(RoutingTextGenerationLive),
+  Layer.provideMerge(TextGenerationLayerLive),
 );
 
 const SourceControlLayerLive = SourceControlModuleLive.pipe(
@@ -306,7 +311,7 @@ const CoreInfrastructureLive = ReactorLayerLive.pipe(
       Layer.provideMerge(SourceControlLayerLive),
       Layer.provide(OrchestrationLayerLive),
       Layer.provide(ServerSettingsLive),
-      Layer.provide(RoutingTextGenerationLive),
+      Layer.provide(TextGenerationLayerLive),
       Layer.provide(PersistenceLayerLive),
     ),
   ),

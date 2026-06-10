@@ -1,20 +1,26 @@
 import {
   DEFAULT_SERVER_SETTINGS,
   defaultInstanceIdForDriver,
+  type ModelSelection,
   type ProviderInstanceConfig,
   ProviderInstanceId,
   ProviderDriverKind,
   type ProviderKind,
   type ServerProvider,
   type ServerSettings,
+  TextGenerationError,
 } from "@fenrir/contracts";
 import { deepMerge } from "@fenrir/shared/Struct";
-import { Effect, Equal, Layer, PubSub, Ref, Schema, Stream } from "effect";
+import { Context, Effect, Equal, Layer, PubSub, Ref, Schema, Stream } from "effect";
 
 import { ClaudeProviderLive } from "./ClaudeProvider.ts";
 import { CodexProviderLive } from "./CodexProvider.ts";
 import { checkCursorProviderStatus, makePendingCursorProvider } from "./CursorProvider.ts";
 import { checkOpenCodeProviderStatus, makePendingOpenCodeProvider } from "./OpenCodeProvider.ts";
+import { ClaudeTextGenerationLive } from "../../git/Layers/ClaudeTextGeneration.ts";
+import { CodexTextGenerationLive } from "../../git/Layers/CodexTextGeneration.ts";
+import { OpenCodeTextGenerationLive } from "../../git/Layers/OpenCodeTextGeneration.ts";
+import { TextGeneration, type TextGenerationShape } from "../../git/Services/TextGeneration.ts";
 import { OpenCodeRuntime, OpenCodeRuntimeLive } from "../opencodeRuntime.ts";
 import { BUILT_IN_DRIVERS } from "../builtInDrivers.ts";
 import type { BuiltInProviderDriver } from "../ProviderDriver.ts";
@@ -37,6 +43,96 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 type SnapshotSource = CodexProviderShape | ClaudeProviderShape;
 const OPENCODE_DRIVER = ProviderDriverKind.make("opencode");
 const CURSOR_DRIVER = ProviderDriverKind.make("cursor");
+
+class CodexTextGen extends Context.Service<CodexTextGen, TextGenerationShape>()(
+  "t3/provider/Layers/ProviderInstanceRegistry/CodexTextGen",
+) {}
+
+class ClaudeTextGen extends Context.Service<ClaudeTextGen, TextGenerationShape>()(
+  "t3/provider/Layers/ProviderInstanceRegistry/ClaudeTextGen",
+) {}
+
+class OpenCodeTextGen extends Context.Service<OpenCodeTextGen, TextGenerationShape>()(
+  "t3/provider/Layers/ProviderInstanceRegistry/OpenCodeTextGen",
+) {}
+
+type TextGenerationOperation =
+  | "generateCommitMessage"
+  | "generatePrContent"
+  | "generateBranchName"
+  | "generateThreadTitle"
+  | "extractDependencies";
+
+function textGenerationProviderForDriver(
+  driverKind: string,
+  fallback: ModelSelection["provider"],
+): ModelSelection["provider"] {
+  switch (driverKind) {
+    case "codex":
+      return "codex";
+    case "claudeAgent":
+      return "claudeAgent";
+    case "opencode":
+      return "opencode";
+    default:
+      return fallback;
+  }
+}
+
+function bindTextGenerationToInstance(input: {
+  readonly instanceId: ProviderInstanceId;
+  readonly driverKind: string;
+  readonly textGeneration: TextGenerationShape;
+}): TextGenerationShape {
+  const withInstanceSelection = <T extends { readonly modelSelection: ModelSelection }>(
+    request: T,
+  ): T =>
+    ({
+      ...request,
+      modelSelection: {
+        ...request.modelSelection,
+        provider: textGenerationProviderForDriver(
+          input.driverKind,
+          request.modelSelection.provider,
+        ),
+        instanceId: input.instanceId,
+      },
+    }) as T;
+
+  return {
+    generateCommitMessage: (request) =>
+      input.textGeneration.generateCommitMessage(withInstanceSelection(request)),
+    generatePrContent: (request) =>
+      input.textGeneration.generatePrContent(withInstanceSelection(request)),
+    generateBranchName: (request) =>
+      input.textGeneration.generateBranchName(withInstanceSelection(request)),
+    generateThreadTitle: (request) =>
+      input.textGeneration.generateThreadTitle(withInstanceSelection(request)),
+    extractDependencies: (request) =>
+      input.textGeneration.extractDependencies(withInstanceSelection(request)),
+  } satisfies TextGenerationShape;
+}
+
+function makeUnsupportedTextGeneration(input: {
+  readonly instanceId: ProviderInstanceId;
+  readonly driverKind: string;
+}): TextGenerationShape {
+  const fail = <A>(operation: TextGenerationOperation): Effect.Effect<A, TextGenerationError> =>
+    Effect.fail(
+      new TextGenerationError({
+        operation,
+        detail: `Provider instance '${input.instanceId}' (${input.driverKind}) does not support text generation.`,
+      }),
+    );
+
+  return {
+    generateCommitMessage: () => fail("generateCommitMessage"),
+    generatePrContent: () => fail("generatePrContent"),
+    generateBranchName: () => fail("generateBranchName"),
+    generateThreadTitle: () => fail("generateThreadTitle"),
+    extractDependencies: () => fail("extractDependencies"),
+  } satisfies TextGenerationShape;
+}
 
 function toProviderInstanceConfigMap(
   settings: ServerSettings,
@@ -139,6 +235,9 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
   const codexProvider = yield* CodexProvider;
   const claudeProvider = yield* ClaudeProvider;
   const openCodeRuntime = yield* OpenCodeRuntime;
+  const codexTextGeneration = yield* CodexTextGen;
+  const claudeTextGeneration = yield* ClaudeTextGen;
+  const openCodeTextGeneration = yield* OpenCodeTextGen;
   const serverSettings = yield* ServerSettingsService;
   const changesPubSub = yield* Effect.acquireRelease(PubSub.unbounded<void>(), PubSub.shutdown);
 
@@ -148,6 +247,34 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
   };
 
   const driverByKind = new Map(BUILT_IN_DRIVERS.map((driver) => [driver.driverKind, driver]));
+
+  const textGenerationForInstance = (
+    driverKind: ProviderDriverKind,
+    instanceId: ProviderInstanceId,
+  ): TextGenerationShape => {
+    switch (driverKind) {
+      case "codex":
+        return bindTextGenerationToInstance({
+          instanceId,
+          driverKind,
+          textGeneration: codexTextGeneration,
+        });
+      case "claudeAgent":
+        return bindTextGenerationToInstance({
+          instanceId,
+          driverKind,
+          textGeneration: claudeTextGeneration,
+        });
+      case "opencode":
+        return bindTextGenerationToInstance({
+          instanceId,
+          driverKind,
+          textGeneration: openCodeTextGeneration,
+        });
+      default:
+        return makeUnsupportedTextGeneration({ instanceId, driverKind });
+    }
+  };
 
   const wrapSnapshotShape = (input: {
     readonly provider: ProviderKind;
@@ -213,6 +340,7 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
       driverKind: input.driver.driverKind,
       instanceId: input.instanceId,
       ...(input.entry?.displayName ? { displayName: input.entry.displayName } : {}),
+      textGeneration: textGenerationForInstance(input.driver.driverKind, input.instanceId),
       snapshot: wrapSnapshotShape({
         provider: input.driver.legacyProvider,
         driverKind: input.driver.driverKind,
@@ -231,6 +359,7 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
     driverKind: OPENCODE_DRIVER,
     instanceId: input.instanceId,
     ...(input.entry.displayName ? { displayName: input.entry.displayName } : {}),
+    textGeneration: textGenerationForInstance(OPENCODE_DRIVER, input.instanceId),
     snapshot: {
       getSnapshot: serverSettings.getSettings.pipe(
         Effect.flatMap((settings) =>
@@ -282,6 +411,7 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
     driverKind: CURSOR_DRIVER,
     instanceId: input.instanceId,
     ...(input.entry.displayName ? { displayName: input.entry.displayName } : {}),
+    textGeneration: textGenerationForInstance(CURSOR_DRIVER, input.instanceId),
     snapshot: {
       getSnapshot: serverSettings.getSettings.pipe(
         Effect.flatMap((settings) =>
@@ -443,11 +573,35 @@ const makeProviderInstanceRegistry = Effect.gen(function* () {
   } satisfies ProviderInstanceRegistryShape;
 });
 
+const InternalCodexTextGenerationLayer = Layer.effect(
+  CodexTextGen,
+  Effect.gen(function* () {
+    return yield* TextGeneration;
+  }),
+).pipe(Layer.provide(CodexTextGenerationLive));
+
+const InternalClaudeTextGenerationLayer = Layer.effect(
+  ClaudeTextGen,
+  Effect.gen(function* () {
+    return yield* TextGeneration;
+  }),
+).pipe(Layer.provide(ClaudeTextGenerationLive));
+
+const InternalOpenCodeTextGenerationLayer = Layer.effect(
+  OpenCodeTextGen,
+  Effect.gen(function* () {
+    return yield* TextGeneration;
+  }),
+).pipe(Layer.provide(OpenCodeTextGenerationLive));
+
 export const ProviderInstanceRegistryLive = Layer.effect(
   ProviderInstanceRegistry,
   makeProviderInstanceRegistry,
 ).pipe(
   Layer.provideMerge(CodexProviderLive),
   Layer.provideMerge(ClaudeProviderLive),
+  Layer.provideMerge(InternalCodexTextGenerationLayer),
+  Layer.provideMerge(InternalClaudeTextGenerationLayer),
+  Layer.provideMerge(InternalOpenCodeTextGenerationLayer),
   Layer.provideMerge(OpenCodeRuntimeLive),
 );

@@ -106,6 +106,10 @@ const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
 
 const PROVIDER_ORDER: readonly ProviderKind[] = ["codex", "claudeAgent"];
 
+function providerKindFromInstanceId(instanceId: string): ProviderKind | null {
+  return isBuiltInProviderKind(instanceId) ? instanceId : null;
+}
+
 const normalizeServerSettings = (
   settings: ServerSettings,
 ): Effect.Effect<ServerSettings, ServerSettingsError> =>
@@ -144,6 +148,19 @@ const encodeServerSettingsForPersistence = (
  */
 function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
   const selection = settings.textGenerationModelSelection;
+  const selectedInstanceId = selection.instanceId ?? defaultInstanceIdForDriver(selection.provider);
+  const instanceConfig = settings.providerInstances[selectedInstanceId];
+  if (instanceConfig !== undefined) {
+    return (instanceConfig.enabled ?? true) ? settings : fallbackTextGenerationProvider(settings);
+  }
+
+  if (selection.instanceId !== undefined) {
+    const selectedProvider = providerKindFromInstanceId(selectedInstanceId);
+    return selectedProvider !== null && settings.providers[selectedProvider].enabled
+      ? settings
+      : fallbackTextGenerationProvider(settings);
+  }
+
   if (isBuiltInProviderKind(selection.provider) && settings.providers[selection.provider].enabled) {
     return settings;
   }
@@ -156,6 +173,10 @@ function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings
     }
   }
 
+  return fallbackTextGenerationProvider(settings);
+}
+
+function fallbackTextGenerationProvider(settings: ServerSettings): ServerSettings {
   const fallback = PROVIDER_ORDER.find((p) => settings.providers[p].enabled);
   if (!fallback) {
     // No providers enabled — return as-is; callers will report the error.
