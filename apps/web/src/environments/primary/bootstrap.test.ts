@@ -145,6 +145,17 @@ describe("environmentBootstrap", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5735/.well-known/t3/environment");
   });
 
+  it("does not fetch descriptor urls from the packaged desktop app protocol", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    installTestBrowser("t3://app/");
+
+    await expect(resolveInitialPrimaryEnvironmentDescriptor()).rejects.toThrow(
+      "Unable to resolve the primary environment HTTP base URL.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("uses the vite proxy for desktop-managed loopback descriptor requests during local dev", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(BASE_ENVIRONMENT));
     vi.stubGlobal("fetch", fetchMock);

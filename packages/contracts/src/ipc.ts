@@ -219,13 +219,8 @@ import type {
 } from "./remoteController";
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "./keybindings";
 
-// ── Editor IPC channels ──────────────────────────────────────
-export const EDITOR_OPEN_FILE_CHANNEL = "fenrir:editor:openFile";
-export const EDITOR_EVENT_CHANNEL = "fenrir:editor:event";
-export const EDITOR_SEND_TO_COMPOSER_CHANNEL = "fenrir:editor:sendToComposer";
-export const EDITOR_CMD_CHANNEL = "fenrir:editor:cmd";
-export const EDITOR_INVOKE_BRIDGE_CHANNEL = "fenrir:editor:invokeBridge";
-export const VSCODE_SHORTCUT_COMMAND_CHANNEL = "fenrir:vscode:shortcutCommand";
+// Editor IPC channel names live in ./ipcChannels (single source of truth for
+// every desktop IPC channel string).
 
 // ── Editor IPC payloads ──────────────────────────────────────
 export const EditorOpenFileInput = Schema.Struct({

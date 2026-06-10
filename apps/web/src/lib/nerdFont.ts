@@ -6,23 +6,25 @@
  * `Symbols Nerd Font Mono` face isn't decoded yet, the renderer measures
  * with a fallback face and PUA icon glyphs render as boxes.
  *
- * `document.fonts.load()` returns a promise that resolves once the face is
- * ready. Callers can `await ensureNerdFontLoaded()` then re-fit / re-measure
- * to upgrade glyph rendering once the font is available.
+ * The face is registered programmatically via the `FontFace` API instead of
+ * a CSS `@font-face` rule. A CSS rule only exists once the stylesheet is
+ * parsed; in the packaged desktop app the `<link>` stylesheet can land after
+ * this module evaluates, and `document.fonts.load()` silently no-ops when no
+ * face matches (and `document.fonts.check()` returns true for an unknown
+ * family). Canvas renderers never trigger CSS font loading on their own, so
+ * the face would stay unloaded forever and icons would never appear.
+ * Registering the face here removes that race entirely.
  *
- * The `@font-face` declaration lives in `apps/web/src/index.css`; the family
- * name must stay in sync with `NERD_FONT_FALLBACK_FAMILIES` in
+ * The family name must stay in sync with `NERD_FONT_FALLBACK_FAMILIES` in
  * `packages/contracts/src/fonts.ts`.
  */
 
-const NERD_FONT_FAMILY = '"Symbols Nerd Font Mono"';
-const NERD_FONT_LOG_SCOPE = "[nerd-font]";
-// Probe character: U+E0A0 is the Powerline branch glyph — present in any
-// Symbols Nerd Font release. Loading at a representative size primes the
-// browser's font cache for terminal/editor use.
-const PROBE_TEXT = "\uE0A0";
-const PROBE_SPEC = `16px ${NERD_FONT_FAMILY}`;
+import nerdFontUrl from "../assets/fonts/SymbolsNerdFontMono-Regular.ttf";
 
+const NERD_FONT_FAMILY = "Symbols Nerd Font Mono";
+const NERD_FONT_LOG_SCOPE = "[nerd-font]";
+
+let registeredFace: FontFace | null = null;
 let cachedPromise: Promise<boolean> | null = null;
 let loadFailureWarningEmitted = false;
 
@@ -34,26 +36,45 @@ function warnNerdFontLoadFailure(message: string, error?: unknown): void {
   console.warn(`${NERD_FONT_LOG_SCOPE} ${message}`, error ?? "");
 }
 
+function registerNerdFontFace(): FontFace | null {
+  if (registeredFace) {
+    return registeredFace;
+  }
+  if (typeof document === "undefined" || typeof FontFace === "undefined" || !document.fonts?.add) {
+    return null;
+  }
+  registeredFace = new FontFace(NERD_FONT_FAMILY, `url("${nerdFontUrl}") format("truetype")`, {
+    style: "normal",
+    weight: "normal",
+    display: "swap",
+  });
+  document.fonts.add(registeredFace);
+  return registeredFace;
+}
+
 export function isNerdFontLoaded(): boolean {
-  if (typeof document === "undefined" || !document.fonts?.check) {
+  const face = registerNerdFontFace();
+  // Non-browser environments (tests, SSR) have no fonts to wait for.
+  if (!face) {
     return true;
   }
-  return document.fonts.check(PROBE_SPEC, PROBE_TEXT);
+  return face.status === "loaded";
 }
 
 export function ensureNerdFontLoaded(): Promise<boolean> {
   if (cachedPromise) return cachedPromise;
-  if (typeof document === "undefined" || !document.fonts?.load) {
+  const face = registerNerdFontFace();
+  if (!face) {
     cachedPromise = Promise.resolve(true);
     return cachedPromise;
   }
-  cachedPromise = document.fonts
-    .load(PROBE_SPEC, PROBE_TEXT)
+  cachedPromise = face
+    .load()
     .then(() => {
-      const loaded = isNerdFontLoaded();
+      const loaded = face.status === "loaded";
       if (!loaded) {
         warnNerdFontLoadFailure(
-          "Bundled Symbols Nerd Font Mono did not report as loaded after document.fonts.load().",
+          "Bundled Symbols Nerd Font Mono did not report as loaded after FontFace.load().",
         );
       }
       return loaded;

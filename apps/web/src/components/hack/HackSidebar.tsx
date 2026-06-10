@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 
 import { usePrimaryEnvironmentId } from "../../environments/primary";
-import { readEnvironmentApi } from "../../environmentApi";
+import { runEnvironmentRpc } from "../../hooks/useRpc";
 import { useRawTcpStore } from "../../rawTcpStore";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -18,12 +18,11 @@ export function HackSidebar() {
   const navigate = useNavigate();
 
   const stopListener = async (listenerId: string) => {
-    if (!environmentId) return;
-    const api = readEnvironmentApi(environmentId);
-    if (!api) return;
-    await api.rawTcp.stopListener({
-      listenerId: listenerId as never,
-    });
+    await runEnvironmentRpc(environmentId, (api) =>
+      api.rawTcp.stopListener({
+        listenerId: listenerId as never,
+      }),
+    );
   };
 
   const listenerList = Object.values(listeners);

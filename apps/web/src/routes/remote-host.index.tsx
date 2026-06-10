@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { Button } from "../components/ui/button";
 import { usePrimaryEnvironmentId } from "../environments/primary";
-import { readEnvironmentApi } from "../environmentApi";
+import { runEnvironmentRpc } from "../hooks/useRpc";
 import { useRemoteControllerStore } from "../remoteControllerStore";
 import { useRemoteControllerSync } from "../components/remote-host/useRemoteControllerSync";
 
@@ -17,21 +17,19 @@ function RemoteHostIndexRouteView() {
   const [creating, setCreating] = useState(false);
 
   const createLocalShell = async () => {
-    if (!environmentId) return;
-    const api = readEnvironmentApi(environmentId);
-    if (!api) return;
-
     setCreating(true);
     try {
-      const host = await api.remoteController.createHost({
-        label: "Local shell",
-        transport: {
-          type: "command-template",
-          command: "sh",
-          args: ["-lc", "{command}"],
-        },
+      await runEnvironmentRpc(environmentId, async (api) => {
+        const host = await api.remoteController.createHost({
+          label: "Local shell",
+          transport: {
+            type: "command-template",
+            command: "sh",
+            args: ["-lc", "{command}"],
+          },
+        });
+        await navigate({ to: "/remote-host/$hostId", params: { hostId: host.hostId } });
       });
-      await navigate({ to: "/remote-host/$hostId", params: { hostId: host.hostId } });
     } finally {
       setCreating(false);
     }

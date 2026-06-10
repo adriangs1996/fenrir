@@ -37,6 +37,7 @@ import {
   ThreadId,
 } from "@fenrir/contracts";
 import { formatProviderActivityLogDisplay } from "@fenrir/shared/providerActivityLog";
+import { watchDirectoryDebounced } from "../../fileWatcher.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine";
 import { PlanRunnerRepository } from "../../persistence/Services/PlanRunnerRepository";
 import type {
@@ -1031,10 +1032,11 @@ export const PlanRunnerLive = Layer.effect(
         if (!plansDirExists) return;
 
         // Debounced watch on .plans/ — editors fire multiple events per save
-        const debouncedEvents = fs.watch(plansDir).pipe(Stream.debounce(Duration.millis(200)));
-
-        yield* Stream.runForEach(debouncedEvents, () =>
-          Effect.gen(function* () {
+        yield* watchDirectoryDebounced({
+          directory: plansDir,
+          debounce: Duration.millis(200),
+          scope: watcherScope,
+          onChange: Effect.gen(function* () {
             // Invalidate all feature plan caches for this project
             yield* Ref.update(featurePlansCache, (m) => {
               const next = new Map(m);
@@ -1061,8 +1063,8 @@ export const PlanRunnerLive = Layer.effect(
               projectId,
               features: archived,
             });
-          }).pipe(Effect.ignoreCause({ log: true })),
-        ).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(watcherScope), Effect.asVoid);
+          }),
+        }).pipe(Effect.provideService(FileSystem.FileSystem, fs));
       });
 
     // ── Thread lifecycle helpers ─────────────────────────────────────

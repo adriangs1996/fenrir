@@ -32,8 +32,8 @@ import {
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { useTheme } from "../hooks/useTheme";
+import { runLocalRpc } from "../hooks/useRpc";
 import { resolveMarkdownFileLinkMeta, rewriteMarkdownFileUriHref } from "../markdown-links";
-import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
 import type { ChatImageAttachment } from "../types";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -356,21 +356,9 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   className,
 }: MarkdownFileLinkProps) {
   const handleOpen = useCallback(() => {
-    const api = readLocalApi();
-    if (!api) {
-      toastManager.add({
-        type: "error",
-        title: "Open in editor is unavailable",
-      });
-      return;
-    }
-
-    void openInPreferredEditor(api, targetPath).catch((error) => {
-      toastManager.add({
-        type: "error",
-        title: "Unable to open file",
-        description: error instanceof Error ? error.message : "An error occurred.",
-      });
+    void runLocalRpc((api) => openInPreferredEditor(api, targetPath), {
+      unavailableToast: { title: "Open in editor is unavailable" },
+      errorToast: { title: "Unable to open file" },
     });
   }, [targetPath]);
 
@@ -407,16 +395,15 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       event.preventDefault();
       event.stopPropagation();
 
-      const api = readLocalApi();
-      if (!api) return;
-
-      const clicked = await api.contextMenu.show(
-        [
-          { id: "open", label: "Open in editor" },
-          { id: "copy-relative", label: "Copy relative path" },
-          { id: "copy-full", label: "Copy full path" },
-        ] as const,
-        { x: event.clientX, y: event.clientY },
+      const clicked = await runLocalRpc((api) =>
+        api.contextMenu.show(
+          [
+            { id: "open", label: "Open in editor" },
+            { id: "copy-relative", label: "Copy relative path" },
+            { id: "copy-full", label: "Copy full path" },
+          ] as const,
+          { x: event.clientX, y: event.clientY },
+        ),
       );
 
       if (clicked === "open") {

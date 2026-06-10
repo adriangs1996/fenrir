@@ -46,12 +46,14 @@ describe("refreshTerminalFontMetrics", () => {
   it("forces xterm to re-measure font metrics and refresh rows", () => {
     const terminal = createTerminalMock();
     const fitAddon = { fit: vi.fn() };
+    const webglAddon = { clearTextureAtlas: vi.fn() };
 
-    refreshTerminalFontMetrics(terminal, fitAddon);
+    refreshTerminalFontMetrics(terminal, fitAddon, webglAddon);
 
     expect(terminal._core?._charSizeService?.measure).toHaveBeenCalledTimes(1);
     expect(terminal._core?._renderService?.handleCharSizeChanged).toHaveBeenCalledTimes(1);
     expect(terminal._core?._renderService?.clear).toHaveBeenCalledTimes(1);
+    expect(webglAddon.clearTextureAtlas).toHaveBeenCalledTimes(1);
     expect(terminal.clearTextureAtlas).toHaveBeenCalledTimes(1);
     expect(fitAddon.fit).toHaveBeenCalledTimes(1);
     expect(terminal.refresh).toHaveBeenCalledWith(0, 23);

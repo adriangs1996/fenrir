@@ -3,6 +3,7 @@
 import { scopeProjectRef, scopeThreadRef } from "@fenrir/client-runtime";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
+  type EnvironmentApi,
   type EnvironmentId,
   type FilesystemBrowseResult,
   type ProjectId,
@@ -10,7 +11,7 @@ import {
   type SourceControlProviderKind,
   type SourceControlRepositoryInfo,
 } from "@fenrir/contracts";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import {
   ArrowDownIcon,
@@ -40,6 +41,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import { readEnvironmentApi } from "../environmentApi";
+import { environmentRpcQueryFn, useEnvironmentRpcQuery } from "../hooks/useRpc";
 import { readPrimaryEnvironmentDescriptor, usePrimaryEnvironmentId } from "../environments/primary";
 import {
   useSavedEnvironmentRegistryStore,
@@ -521,32 +523,25 @@ function OpenCommandPaletteDialog() {
   );
 
   const fetchBrowseResult = useCallback(
-    async (partialPath: string): Promise<FilesystemBrowseResult | null> => {
-      if (!browseEnvironmentId) return null;
-      const api = readEnvironmentApi(browseEnvironmentId);
-      if (!api) return null;
-      return api.filesystem.browse({
+    (api: EnvironmentApi, partialPath: string): Promise<FilesystemBrowseResult> =>
+      api.filesystem.browse({
         partialPath,
         ...(currentProjectCwdForBrowse ? { cwd: currentProjectCwdForBrowse } : {}),
-      });
-    },
-    [browseEnvironmentId, currentProjectCwdForBrowse],
+      }),
+    [currentProjectCwdForBrowse],
   );
 
-  const browseResultQuery = useQuery({
+  const browseResultQuery = useEnvironmentRpcQuery({
+    environmentId: browseEnvironmentId,
     queryKey: [
       "filesystemBrowse",
       browseEnvironmentId,
       browseDirectoryPath,
       currentProjectCwdForBrowse,
     ],
-    queryFn: () => fetchBrowseResult(browseDirectoryPath),
+    queryFn: (api) => fetchBrowseResult(api, browseDirectoryPath),
     staleTime: BROWSE_STALE_TIME_MS,
-    enabled:
-      isBrowsing &&
-      browseDirectoryPath.length > 0 &&
-      browseEnvironmentId !== null &&
-      !relativePathNeedsActiveProject,
+    enabled: isBrowsing && browseDirectoryPath.length > 0 && !relativePathNeedsActiveProject,
   });
   const browseResult = browseResultQuery.data;
   const browseEntries = browseResult?.entries ?? EMPTY_BROWSE_ENTRIES;
@@ -568,7 +563,9 @@ function OpenCommandPaletteDialog() {
           partialPath,
           currentProjectCwdForBrowse,
         ],
-        queryFn: () => fetchBrowseResult(partialPath),
+        queryFn: environmentRpcQueryFn(browseEnvironmentId, (api) =>
+          fetchBrowseResult(api, partialPath),
+        ),
         staleTime: BROWSE_STALE_TIME_MS,
       });
     },

@@ -33,6 +33,7 @@ import { PlanDagView, type DagPlan } from "./PlanDagView";
 import { LiveStepMonitorPanel } from "./LiveStepMonitorPanel";
 import { PlanRunnerModelSelectionPanel } from "./PlanRunnerModelSelectionPanel";
 import { StepLogViewer } from "./StepLogViewer";
+import { formatElapsed } from "./formatElapsed";
 import { stepLabel } from "./stepLabels";
 
 /**
@@ -53,16 +54,6 @@ const PHASE_BADGE_VARIANT: Record<
   completed: "success",
   failed: "destructive",
 };
-
-function formatElapsed(startedAt: string, completedAt: string | null): string {
-  const start = new Date(startedAt).getTime();
-  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
-  const seconds = Math.floor((end - start) / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remaining = seconds % 60;
-  return `${minutes}m ${remaining}s`;
-}
 
 interface PlanRunnerRunViewProps {
   runId: string;

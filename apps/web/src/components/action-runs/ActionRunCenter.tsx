@@ -17,7 +17,7 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
-import { readEnvironmentApi } from "~/environmentApi";
+import { runEnvironmentRpc } from "~/hooks/useRpc";
 import {
   actionRunElapsedLabel,
   actionRunStatusLabel,
@@ -118,16 +118,15 @@ export const ActionRunCenter = memo(function ActionRunCenter({
     if (!previousRun || previousRun.id === selectedRun?.id) return;
     if (previousRun.status !== "starting" && previousRun.status !== "running") return;
 
-    const api = readEnvironmentApi(threadRef.environmentId);
-    if (!api) return;
-
     const timeoutId = window.setTimeout(() => {
-      void api.terminal.attachTmux({
-        projectId: previousRun.tmuxProjectId,
-        cwd: previousRun.cwd,
-        cols: ACTION_RUN_OBSERVER_COLS,
-        rows: ACTION_RUN_OBSERVER_ROWS,
-      });
+      void runEnvironmentRpc(threadRef.environmentId, (api) =>
+        api.terminal.attachTmux({
+          projectId: previousRun.tmuxProjectId,
+          cwd: previousRun.cwd,
+          cols: ACTION_RUN_OBSERVER_COLS,
+          rows: ACTION_RUN_OBSERVER_ROWS,
+        }),
+      );
     }, 0);
     return () => {
       window.clearTimeout(timeoutId);
@@ -137,17 +136,16 @@ export const ActionRunCenter = memo(function ActionRunCenter({
   const handleCancel = useCallback(
     async (run: ActionRun) => {
       requestCancel(run.id);
-      const api = readEnvironmentApi(threadRef.environmentId);
-      if (!api) return;
-      try {
-        await api.terminal.writeTmux({ projectId: run.tmuxProjectId, data: "\u0003" });
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not cancel action",
-          description: error instanceof Error ? error.message : "Terminal write failed.",
-        });
-      }
+      await runEnvironmentRpc(
+        threadRef.environmentId,
+        (api) => api.terminal.writeTmux({ projectId: run.tmuxProjectId, data: "\u0003" }),
+        {
+          errorToast: {
+            title: "Could not cancel action",
+            fallbackDescription: "Terminal write failed.",
+          },
+        },
+      );
     },
     [requestCancel, threadRef.environmentId],
   );

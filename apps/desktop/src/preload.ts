@@ -12,132 +12,124 @@ import type {
   VSCodeShortcutState,
 } from "@fenrir/contracts";
 
-const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
-const CONFIRM_CHANNEL = "desktop:confirm";
-const SET_THEME_CHANNEL = "desktop:set-theme";
-const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
-const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
-const MENU_ACTION_CHANNEL = "desktop:menu-action";
-const UPDATE_STATE_CHANNEL = "desktop:update-state";
-const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
-const UPDATE_CHECK_CHANNEL = "desktop:update-check";
-const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
-const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
-const GET_LOCAL_ENVIRONMENT_BOOTSTRAP_CHANNEL = "desktop:get-local-environment-bootstrap";
-const GET_CLIENT_SETTINGS_CHANNEL = "desktop:get-client-settings";
-const SET_CLIENT_SETTINGS_CHANNEL = "desktop:set-client-settings";
-const GET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL = "desktop:get-saved-environment-registry";
-const SET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL = "desktop:set-saved-environment-registry";
-const GET_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:get-saved-environment-secret";
-const SET_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:set-saved-environment-secret";
-const REMOVE_SAVED_ENVIRONMENT_SECRET_CHANNEL = "desktop:remove-saved-environment-secret";
-const GET_SERVER_EXPOSURE_STATE_CHANNEL = "desktop:get-server-exposure-state";
-const SET_SERVER_EXPOSURE_MODE_CHANNEL = "desktop:set-server-exposure-mode";
-const VPN_GET_STATE_CHANNEL = "desktop:vpn-get-state";
-const VPN_GET_PROFILES_CHANNEL = "desktop:vpn-get-profiles";
-const VPN_ADD_PROFILE_CHANNEL = "desktop:vpn-add-profile";
-const VPN_REMOVE_PROFILE_CHANNEL = "desktop:vpn-remove-profile";
-const VPN_CONNECT_CHANNEL = "desktop:vpn-connect";
-const VPN_DISCONNECT_CHANNEL = "desktop:vpn-disconnect";
-const VPN_STATE_CHANNEL = "desktop:vpn-state";
-const PICK_FILE_CHANNEL = "desktop:pick-file";
-const TRAFFIC_LENS_CREATE_TAB_CHANNEL = "desktop:traffic-lens-create-tab";
-const TRAFFIC_LENS_CLOSE_TAB_CHANNEL = "desktop:traffic-lens-close-tab";
-const TRAFFIC_LENS_NAVIGATE_CHANNEL = "desktop:traffic-lens-navigate";
-const TRAFFIC_LENS_GO_BACK_CHANNEL = "desktop:traffic-lens-go-back";
-const TRAFFIC_LENS_GO_FORWARD_CHANNEL = "desktop:traffic-lens-go-forward";
-const TRAFFIC_LENS_RELOAD_CHANNEL = "desktop:traffic-lens-reload";
-const TRAFFIC_LENS_GET_TABS_CHANNEL = "desktop:traffic-lens-get-tabs";
-const TRAFFIC_LENS_SET_TAB_VIEW_MODE_CHANNEL = "desktop:traffic-lens-set-tab-view-mode";
-const TRAFFIC_LENS_SET_TAB_MOBILE_PRESET_CHANNEL = "desktop:traffic-lens-set-tab-mobile-preset";
-const TRAFFIC_LENS_SET_BOUNDS_CHANNEL = "desktop:traffic-lens-set-bounds";
-const TRAFFIC_LENS_SHOW_TAB_CHANNEL = "desktop:traffic-lens-show-tab";
-const TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL = "desktop:traffic-lens-hide-all-tabs";
-const TRAFFIC_LENS_TAB_EVENT_CHANNEL = "desktop:traffic-lens-tab-event";
-const TRAFFIC_LENS_CREATE_TAB_IN_PROFILE_CHANNEL = "desktop:traffic-lens-create-tab-in-profile";
-const TRAFFIC_LENS_LIST_RULES_CHANNEL = "desktop:traffic-lens-list-rules";
-const TRAFFIC_LENS_CREATE_RULE_CHANNEL = "desktop:traffic-lens-create-rule";
-const TRAFFIC_LENS_UPDATE_RULE_CHANNEL = "desktop:traffic-lens-update-rule";
-const TRAFFIC_LENS_DELETE_RULE_CHANNEL = "desktop:traffic-lens-delete-rule";
-const TRAFFIC_LENS_SET_RULE_ENABLED_CHANNEL = "desktop:traffic-lens-set-rule-enabled";
-const TRAFFIC_LENS_LIST_PAUSED_CHANNEL = "desktop:traffic-lens-list-paused";
-const TRAFFIC_LENS_CONTINUE_PAUSED_CHANNEL = "desktop:traffic-lens-continue-paused";
-const TRAFFIC_LENS_DROP_PAUSED_CHANNEL = "desktop:traffic-lens-drop-paused";
-const TRAFFIC_LENS_LIST_PROFILES_CHANNEL = "desktop:traffic-lens-list-profiles";
-const TRAFFIC_LENS_CREATE_PROFILE_CHANNEL = "desktop:traffic-lens-create-profile";
-const TRAFFIC_LENS_UPDATE_PROFILE_CHANNEL = "desktop:traffic-lens-update-profile";
-const TRAFFIC_LENS_DELETE_PROFILE_CHANNEL = "desktop:traffic-lens-delete-profile";
-const TRAFFIC_LENS_GET_COOKIES_CHANNEL = "desktop:traffic-lens-get-cookies";
-const TRAFFIC_LENS_SET_COOKIE_CHANNEL = "desktop:traffic-lens-set-cookie";
-const TRAFFIC_LENS_DELETE_COOKIE_CHANNEL = "desktop:traffic-lens-delete-cookie";
-const TRAFFIC_LENS_GET_STORAGE_CHANNEL = "desktop:traffic-lens-get-storage";
-const TRAFFIC_LENS_SET_STORAGE_ENTRY_CHANNEL = "desktop:traffic-lens-set-storage-entry";
-const TRAFFIC_LENS_DELETE_STORAGE_ENTRY_CHANNEL = "desktop:traffic-lens-delete-storage-entry";
-const TRAFFIC_LENS_LIST_STORAGE_ORIGINS_CHANNEL = "desktop:traffic-lens-list-storage-origins";
-const TRAFFIC_LENS_CAPTURE_STORAGE_ORIGIN_CHANNEL = "desktop:traffic-lens-capture-storage-origin";
-const TRAFFIC_LENS_GET_APPLICABLE_COOKIES_CHANNEL = "desktop:traffic-lens-get-applicable-cookies";
-const TRAFFIC_LENS_SET_COOKIE_FOR_ORIGIN_CHANNEL = "desktop:traffic-lens-set-cookie-for-origin";
-const TRAFFIC_LENS_DELETE_COOKIE_FOR_ORIGIN_CHANNEL =
-  "desktop:traffic-lens-delete-cookie-for-origin";
-const TRAFFIC_LENS_GET_LOCAL_STORAGE_CHANNEL = "desktop:traffic-lens-get-local-storage";
-const TRAFFIC_LENS_SET_LOCAL_STORAGE_ITEM_CHANNEL = "desktop:traffic-lens-set-local-storage-item";
-const TRAFFIC_LENS_DELETE_LOCAL_STORAGE_ITEM_CHANNEL =
-  "desktop:traffic-lens-delete-local-storage-item";
-const TRAFFIC_LENS_CLEAR_LOCAL_STORAGE_CHANNEL = "desktop:traffic-lens-clear-local-storage";
-const TRAFFIC_LENS_GET_LIVE_SESSION_STORAGE_CHANNEL =
-  "desktop:traffic-lens-get-live-session-storage";
-const TRAFFIC_LENS_SET_LIVE_SESSION_STORAGE_ITEM_CHANNEL =
-  "desktop:traffic-lens-set-live-session-storage-item";
-const TRAFFIC_LENS_DELETE_LIVE_SESSION_STORAGE_ITEM_CHANNEL =
-  "desktop:traffic-lens-delete-live-session-storage-item";
-const TRAFFIC_LENS_CLEAR_LIVE_SESSION_STORAGE_CHANNEL =
-  "desktop:traffic-lens-clear-live-session-storage";
-const TRAFFIC_LENS_LIST_SESSION_STORAGE_SNAPSHOTS_CHANNEL =
-  "desktop:traffic-lens-list-session-storage-snapshots";
-const TRAFFIC_LENS_GET_SESSION_STORAGE_SNAPSHOT_CHANNEL =
-  "desktop:traffic-lens-get-session-storage-snapshot";
-const TRAFFIC_LENS_UPDATE_SESSION_STORAGE_SNAPSHOT_CHANNEL =
-  "desktop:traffic-lens-update-session-storage-snapshot";
-const TRAFFIC_LENS_REHYDRATE_SESSION_STORAGE_SNAPSHOT_CHANNEL =
-  "desktop:traffic-lens-rehydrate-session-storage-snapshot";
-const TRAFFIC_LENS_LIST_OVERRIDES_CHANNEL = "desktop:traffic-lens-list-overrides";
-const TRAFFIC_LENS_CREATE_OVERRIDE_CHANNEL = "desktop:traffic-lens-create-override";
-const TRAFFIC_LENS_UPDATE_OVERRIDE_CHANNEL = "desktop:traffic-lens-update-override";
-const TRAFFIC_LENS_DELETE_OVERRIDE_CHANNEL = "desktop:traffic-lens-delete-override";
-const TRAFFIC_LENS_SET_OVERRIDE_ENABLED_CHANNEL = "desktop:traffic-lens-set-override-enabled";
-const TRAFFIC_LENS_PAUSED_EVENT_CHANNEL = "desktop:traffic-lens-paused-event";
-const TRAFFIC_LENS_STORAGE_CHANGED_CHANNEL = "desktop:traffic-lens-storage-changed";
-const TRAFFIC_LENS_STORAGE_EVENT_CHANNEL = "desktop:traffic-lens-storage-event";
-const NEOVIM_ATTACH_CHANNEL = "desktop:neovim-attach";
-const NEOVIM_DETACH_CHANNEL = "desktop:neovim-detach";
-const NEOVIM_INPUT_CHANNEL = "desktop:neovim-input";
-const NEOVIM_RESIZE_CHANNEL = "desktop:neovim-resize";
-const NEOVIM_REDRAW_CHANNEL = "desktop:neovim-redraw";
-const NEOVIM_SET_CWD_CHANNEL = "desktop:neovim-set-cwd";
-const RENDER_START_CHANNEL = "desktop:render-start";
-const RENDER_STOP_CHANNEL = "desktop:render-stop";
-const RENDER_SET_FPS_CHANNEL = "desktop:render-set-fps";
-const RENDER_SYNC_VIEWPORT_CHANNEL = "desktop:render-sync-viewport";
-const RENDER_INPUT_CHANNEL = "desktop:render-input";
-const RENDER_FRAME_CHANNEL = "desktop:render-frame";
-const RENDER_FRAME_PORT_CHANNEL = "desktop:render-frame-port";
-const RENDER_SET_EDITOR_FONT_METRICS_CHANNEL = "desktop:render-set-editor-font-metrics";
-const NVIM_AVAILABLE_CHANNEL = "desktop:nvim-available";
-const NVIM_PROBE_DETAIL_CHANNEL = "desktop:nvim-probe-detail";
-const VSCODE_AVAILABLE_CHANNEL = "desktop:vscode-available";
-const VSCODE_PROBE_DETAIL_CHANNEL = "desktop:vscode-probe-detail";
-const VSCODE_START_CHANNEL = "desktop:vscode-start";
-const VSCODE_OPEN_FILE_CHANNEL = "desktop:vscode-open-file";
-const VSCODE_SET_BOUNDS_CHANNEL = "desktop:vscode-set-bounds";
-const VSCODE_SHOW_CHANNEL = "desktop:vscode-show";
-const VSCODE_HIDE_CHANNEL = "desktop:vscode-hide";
-const VSCODE_SET_SHORTCUT_STATE_CHANNEL = "desktop:vscode-set-shortcut-state";
-const VSCODE_SHORTCUT_COMMAND_CHANNEL = "fenrir:vscode:shortcutCommand";
-const EDITOR_OPEN_FILE_CHANNEL = "fenrir:editor:openFile";
-const EDITOR_EVENT_CHANNEL = "fenrir:editor:event";
-const EDITOR_SEND_TO_COMPOSER_CHANNEL = "fenrir:editor:sendToComposer";
-const EDITOR_CMD_CHANNEL = "fenrir:editor:cmd";
-const EDITOR_INVOKE_BRIDGE_CHANNEL = "fenrir:editor:invokeBridge";
+import {
+  PICK_FOLDER_CHANNEL,
+  CONFIRM_CHANNEL,
+  SET_THEME_CHANNEL,
+  CONTEXT_MENU_CHANNEL,
+  OPEN_EXTERNAL_CHANNEL,
+  MENU_ACTION_CHANNEL,
+  UPDATE_STATE_CHANNEL,
+  UPDATE_GET_STATE_CHANNEL,
+  UPDATE_CHECK_CHANNEL,
+  UPDATE_DOWNLOAD_CHANNEL,
+  UPDATE_INSTALL_CHANNEL,
+  GET_LOCAL_ENVIRONMENT_BOOTSTRAP_CHANNEL,
+  GET_CLIENT_SETTINGS_CHANNEL,
+  SET_CLIENT_SETTINGS_CHANNEL,
+  GET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL,
+  SET_SAVED_ENVIRONMENT_REGISTRY_CHANNEL,
+  GET_SAVED_ENVIRONMENT_SECRET_CHANNEL,
+  SET_SAVED_ENVIRONMENT_SECRET_CHANNEL,
+  REMOVE_SAVED_ENVIRONMENT_SECRET_CHANNEL,
+  GET_SERVER_EXPOSURE_STATE_CHANNEL,
+  SET_SERVER_EXPOSURE_MODE_CHANNEL,
+  VPN_GET_STATE_CHANNEL,
+  VPN_GET_PROFILES_CHANNEL,
+  VPN_ADD_PROFILE_CHANNEL,
+  VPN_REMOVE_PROFILE_CHANNEL,
+  VPN_CONNECT_CHANNEL,
+  VPN_DISCONNECT_CHANNEL,
+  VPN_STATE_CHANNEL,
+  PICK_FILE_CHANNEL,
+  TRAFFIC_LENS_CREATE_TAB_CHANNEL,
+  TRAFFIC_LENS_CLOSE_TAB_CHANNEL,
+  TRAFFIC_LENS_NAVIGATE_CHANNEL,
+  TRAFFIC_LENS_GO_BACK_CHANNEL,
+  TRAFFIC_LENS_GO_FORWARD_CHANNEL,
+  TRAFFIC_LENS_RELOAD_CHANNEL,
+  TRAFFIC_LENS_GET_TABS_CHANNEL,
+  TRAFFIC_LENS_SET_TAB_VIEW_MODE_CHANNEL,
+  TRAFFIC_LENS_SET_TAB_MOBILE_PRESET_CHANNEL,
+  TRAFFIC_LENS_SET_BOUNDS_CHANNEL,
+  TRAFFIC_LENS_SHOW_TAB_CHANNEL,
+  TRAFFIC_LENS_HIDE_ALL_TABS_CHANNEL,
+  TRAFFIC_LENS_TAB_EVENT_CHANNEL,
+  TRAFFIC_LENS_CREATE_TAB_IN_PROFILE_CHANNEL,
+  TRAFFIC_LENS_LIST_RULES_CHANNEL,
+  TRAFFIC_LENS_CREATE_RULE_CHANNEL,
+  TRAFFIC_LENS_UPDATE_RULE_CHANNEL,
+  TRAFFIC_LENS_DELETE_RULE_CHANNEL,
+  TRAFFIC_LENS_SET_RULE_ENABLED_CHANNEL,
+  TRAFFIC_LENS_LIST_PAUSED_CHANNEL,
+  TRAFFIC_LENS_CONTINUE_PAUSED_CHANNEL,
+  TRAFFIC_LENS_DROP_PAUSED_CHANNEL,
+  TRAFFIC_LENS_LIST_PROFILES_CHANNEL,
+  TRAFFIC_LENS_CREATE_PROFILE_CHANNEL,
+  TRAFFIC_LENS_UPDATE_PROFILE_CHANNEL,
+  TRAFFIC_LENS_DELETE_PROFILE_CHANNEL,
+  TRAFFIC_LENS_GET_COOKIES_CHANNEL,
+  TRAFFIC_LENS_SET_COOKIE_CHANNEL,
+  TRAFFIC_LENS_DELETE_COOKIE_CHANNEL,
+  TRAFFIC_LENS_GET_STORAGE_CHANNEL,
+  TRAFFIC_LENS_SET_STORAGE_ENTRY_CHANNEL,
+  TRAFFIC_LENS_DELETE_STORAGE_ENTRY_CHANNEL,
+  TRAFFIC_LENS_LIST_STORAGE_ORIGINS_CHANNEL,
+  TRAFFIC_LENS_CAPTURE_STORAGE_ORIGIN_CHANNEL,
+  TRAFFIC_LENS_GET_APPLICABLE_COOKIES_CHANNEL,
+  TRAFFIC_LENS_SET_COOKIE_FOR_ORIGIN_CHANNEL,
+  TRAFFIC_LENS_DELETE_COOKIE_FOR_ORIGIN_CHANNEL,
+  TRAFFIC_LENS_GET_LOCAL_STORAGE_CHANNEL,
+  TRAFFIC_LENS_SET_LOCAL_STORAGE_ITEM_CHANNEL,
+  TRAFFIC_LENS_DELETE_LOCAL_STORAGE_ITEM_CHANNEL,
+  TRAFFIC_LENS_CLEAR_LOCAL_STORAGE_CHANNEL,
+  TRAFFIC_LENS_GET_LIVE_SESSION_STORAGE_CHANNEL,
+  TRAFFIC_LENS_SET_LIVE_SESSION_STORAGE_ITEM_CHANNEL,
+  TRAFFIC_LENS_DELETE_LIVE_SESSION_STORAGE_ITEM_CHANNEL,
+  TRAFFIC_LENS_CLEAR_LIVE_SESSION_STORAGE_CHANNEL,
+  TRAFFIC_LENS_LIST_SESSION_STORAGE_SNAPSHOTS_CHANNEL,
+  TRAFFIC_LENS_GET_SESSION_STORAGE_SNAPSHOT_CHANNEL,
+  TRAFFIC_LENS_UPDATE_SESSION_STORAGE_SNAPSHOT_CHANNEL,
+  TRAFFIC_LENS_REHYDRATE_SESSION_STORAGE_SNAPSHOT_CHANNEL,
+  TRAFFIC_LENS_LIST_OVERRIDES_CHANNEL,
+  TRAFFIC_LENS_CREATE_OVERRIDE_CHANNEL,
+  TRAFFIC_LENS_UPDATE_OVERRIDE_CHANNEL,
+  TRAFFIC_LENS_DELETE_OVERRIDE_CHANNEL,
+  TRAFFIC_LENS_SET_OVERRIDE_ENABLED_CHANNEL,
+  TRAFFIC_LENS_PAUSED_EVENT_CHANNEL,
+  TRAFFIC_LENS_STORAGE_CHANGED_CHANNEL,
+  TRAFFIC_LENS_STORAGE_EVENT_CHANNEL,
+  NEOVIM_ATTACH_CHANNEL,
+  NEOVIM_DETACH_CHANNEL,
+  NEOVIM_INPUT_CHANNEL,
+  NEOVIM_RESIZE_CHANNEL,
+  NEOVIM_REDRAW_CHANNEL,
+  NEOVIM_SET_CWD_CHANNEL,
+  RENDER_START_CHANNEL,
+  RENDER_STOP_CHANNEL,
+  RENDER_SET_FPS_CHANNEL,
+  RENDER_SYNC_VIEWPORT_CHANNEL,
+  RENDER_INPUT_CHANNEL,
+  RENDER_FRAME_CHANNEL,
+  RENDER_FRAME_PORT_CHANNEL,
+  RENDER_SET_EDITOR_FONT_METRICS_CHANNEL,
+  NVIM_AVAILABLE_CHANNEL,
+  NVIM_PROBE_DETAIL_CHANNEL,
+  VSCODE_AVAILABLE_CHANNEL,
+  VSCODE_PROBE_DETAIL_CHANNEL,
+  VSCODE_START_CHANNEL,
+  VSCODE_OPEN_FILE_CHANNEL,
+  VSCODE_SET_BOUNDS_CHANNEL,
+  VSCODE_SHOW_CHANNEL,
+  VSCODE_HIDE_CHANNEL,
+  VSCODE_SET_SHORTCUT_STATE_CHANNEL,
+  VSCODE_SHORTCUT_COMMAND_CHANNEL,
+  EDITOR_OPEN_FILE_CHANNEL,
+  EDITOR_EVENT_CHANNEL,
+  EDITOR_SEND_TO_COMPOSER_CHANNEL,
+  EDITOR_CMD_CHANNEL,
+  EDITOR_INVOKE_BRIDGE_CHANNEL,
+} from "@fenrir/contracts/ipcChannels";
 
 const mainWindowFlag = process.argv.find((a) => a.startsWith("--fenrir-main-window="));
 const isMainWindow = mainWindowFlag === "--fenrir-main-window=1";

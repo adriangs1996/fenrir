@@ -15,6 +15,10 @@ interface InternalTerminal extends Terminal {
   _core?: TerminalInternalCore;
 }
 
+interface TextureAtlasRefreshTarget {
+  clearTextureAtlas?: () => void;
+}
+
 function preserveBottomScroll(terminal: Terminal, refresh: () => void): void {
   const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
   refresh();
@@ -32,6 +36,7 @@ function preserveBottomScroll(terminal: Terminal, refresh: () => void): void {
 export function refreshTerminalFontMetrics(
   terminal: Terminal,
   fitAddon: Pick<FitAddon, "fit"> | null | undefined,
+  textureAtlasTarget?: TextureAtlasRefreshTarget | null,
 ): void {
   const internalTerminal = terminal as InternalTerminal;
 
@@ -40,6 +45,7 @@ export function refreshTerminalFontMetrics(
       internalTerminal._core?._charSizeService?.measure?.();
       internalTerminal._core?._renderService?.handleCharSizeChanged?.();
       internalTerminal._core?._renderService?.clear?.();
+      textureAtlasTarget?.clearTextureAtlas?.();
       terminal.clearTextureAtlas?.();
       fitAddon?.fit();
       terminal.refresh(0, Math.max(terminal.rows - 1, 0));
@@ -52,6 +58,7 @@ export function refreshTerminalFontMetrics(
 export function observeTerminalFontMetrics(
   terminal: Terminal,
   fitAddon: Pick<FitAddon, "fit"> | null | undefined,
+  textureAtlasTarget?: TextureAtlasRefreshTarget | null,
 ): () => void {
   if (typeof window === "undefined") {
     return () => undefined;
@@ -60,7 +67,7 @@ export function observeTerminalFontMetrics(
   let disposed = false;
   const refresh = () => {
     if (!disposed) {
-      refreshTerminalFontMetrics(terminal, fitAddon);
+      refreshTerminalFontMetrics(terminal, fitAddon, textureAtlasTarget);
     }
   };
 

@@ -282,7 +282,6 @@ async function discoverGitRepositories(
       const childPath = nodePath.join(directoryPath, entry.name);
       if (await hasGitMetadata(childPath)) {
         addRepository(childPath);
-        continue;
       }
 
       await walk(childPath, depth + 1);

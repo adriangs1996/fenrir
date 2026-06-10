@@ -30,6 +30,11 @@
       "import": "./src/settings.ts",
       "require": "./src/settings.ts"
     },
+    "./ipcChannels": {
+      "types": "./src/ipcChannels.ts",
+      "import": "./src/ipcChannels.ts",
+      "require": "./src/ipcChannels.ts"
+    },
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts",

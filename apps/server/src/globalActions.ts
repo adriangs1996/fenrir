@@ -35,6 +35,7 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
+import { watchFileDebounced } from "./fileWatcher.ts";
 
 // ---------------------------------------------------------------------------
 // Service shape
@@ -251,35 +252,22 @@ export const makeGlobalActions = Effect.gen(function* () {
   // -- File watcher -------------------------------------------------------
 
   const startWatcher = Effect.gen(function* () {
-    const actionsDir = pathService.dirname(globalActionsPath);
-    const actionsFile = pathService.basename(globalActionsPath);
-    const actionsPathResolved = pathService.resolve(globalActionsPath);
-
     yield* fs
-      .makeDirectory(actionsDir, { recursive: true })
+      .makeDirectory(pathService.dirname(globalActionsPath), { recursive: true })
       .pipe(
         Effect.mapError(
           (cause) => new GlobalActionsError("failed to prepare global-actions directory", cause),
         ),
       );
 
-    const revalidateAndEmitSafely = revalidateAndEmit.pipe(Effect.ignoreCause({ log: true }));
-
-    const debouncedEvents = fs.watch(actionsDir).pipe(
-      Stream.filter((event) => {
-        return (
-          event.path === actionsFile ||
-          event.path === globalActionsPath ||
-          pathService.resolve(actionsDir, event.path) === actionsPathResolved
-        );
-      }),
-      Stream.debounce(Duration.millis(100)),
-    );
-
-    yield* Stream.runForEach(debouncedEvents, () => revalidateAndEmitSafely).pipe(
-      Effect.ignoreCause({ log: true }),
-      Effect.forkIn(watcherScope),
-      Effect.asVoid,
+    yield* watchFileDebounced({
+      filePath: globalActionsPath,
+      debounce: Duration.millis(100),
+      scope: watcherScope,
+      onChange: revalidateAndEmit,
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, pathService),
     );
   });
 

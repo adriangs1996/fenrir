@@ -82,6 +82,21 @@ export function syncShellEnvironment(
         env[name] = shellEnvironment[name];
       }
     }
+
+    // GUI launches (Finder/Dock) carry no locale, and many setups only get
+    // LANG from the terminal emulator — so the login shell probe can come
+    // back empty too. Without a UTF-8 locale, tmux substitutes "_" for every
+    // non-ASCII glyph in attached clients and shells disable multibyte
+    // handling. Fall back to a UTF-8 locale rather than running in C.
+    if (!env.LANG && !env.LC_ALL && !env.LC_CTYPE) {
+      if (platform === "darwin") {
+        // macOS accepts a bare charset for LC_CTYPE (Terminal.app sets the
+        // same); it enables UTF-8 without guessing a language/region.
+        env.LC_CTYPE = "UTF-8";
+      } else {
+        env.LANG = "C.UTF-8";
+      }
+    }
   } catch (error) {
     logWarning("Failed to synchronize the desktop shell environment.", error);
   }

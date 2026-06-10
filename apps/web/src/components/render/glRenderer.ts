@@ -513,7 +513,24 @@ export class GLRenderer {
 
   setCellMetrics(metrics: CellMetrics): void {
     this.metrics = metrics;
-    this.atlas = new GlyphAtlas(metrics, this.dpr);
+    this.rebuildGlyphAtlas();
+  }
+
+  /**
+   * Drop every cached glyph and re-rasterize from the retained grid state.
+   * Needed when a font face finishes loading after glyphs were already
+   * rasterized with a fallback face (e.g. the bundled nerd-font landing
+   * after the first frames) — cell metrics may be unchanged, so no
+   * `setCellMetrics` frame arrives, but the atlas contents are stale.
+   */
+  invalidateGlyphAtlas(): void {
+    if (!this.metrics) return;
+    this.rebuildGlyphAtlas();
+  }
+
+  private rebuildGlyphAtlas(): void {
+    if (!this.metrics) return;
+    this.atlas = new GlyphAtlas(this.metrics, this.dpr);
     // (Re)allocate texture storage at the new dimensions. Pass a zeroed
     // buffer so unread regions are well-defined (any cell sampling outside
     // a written slot still gets mask = 0 → bg).

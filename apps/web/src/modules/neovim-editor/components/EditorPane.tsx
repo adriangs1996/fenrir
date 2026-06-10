@@ -94,7 +94,7 @@ export function EditorPane({
       {selectedEditor === "neovim" ? (
         <div className="min-h-0 flex-1">
           <RenderSurface
-            fps={120}
+            fps={60}
             keybindings={keybindings}
             terminalOpen={terminalOpen}
             visible={visible}

@@ -23,7 +23,7 @@ import {
   Zed,
 } from "../Icons";
 import { isMacPlatform, isWindowsPlatform } from "~/lib/utils";
-import { readLocalApi } from "~/localApi";
+import { runLocalRpc } from "~/hooks/useRpc";
 import {
   useDesktopBridgeAvailable,
   useIsMainWindow,
@@ -154,9 +154,7 @@ export const OpenInPicker = memo(function OpenInPicker({
       } else if (editor === "fenrir-embedded-vscode") {
         void openInEmbeddedVSCode(openInCwd);
       } else {
-        const api = readLocalApi();
-        if (!api) return;
-        void api.shell.openInEditor(openInCwd, editor);
+        void runLocalRpc((api) => api.shell.openInEditor(openInCwd, editor));
       }
       setPreferredEditor(editor);
     },
@@ -189,9 +187,7 @@ export const OpenInPicker = memo(function OpenInPicker({
         return;
       }
 
-      const api = readLocalApi();
-      if (!api) return;
-      void api.shell.openInEditor(openInCwd, favoriteEditor);
+      void runLocalRpc((api) => api.shell.openInEditor(openInCwd, favoriteEditor));
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

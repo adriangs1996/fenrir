@@ -2,6 +2,7 @@ export * from "./baseSchemas";
 export * from "./auth";
 export * from "./environment";
 export * from "./ipc";
+export * from "./ipcChannels";
 export * from "./terminal";
 export * from "./provider";
 export * from "./providerInstance";

@@ -16,7 +16,7 @@ import {
   type ReactNode,
 } from "react";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { deriveTimelineEntries, formatElapsed } from "../../session-logic";
+import { deriveTimelineEntries } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
@@ -67,14 +67,14 @@ import {
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@fenrir/contracts/settings";
-import { formatTimestamp } from "../../timestampFormat";
+import { formatElapsed, formatTimestamp } from "../../lib/formatting";
 
 import {
   buildInlineTerminalContextText,
   formatInlineTerminalContextHeaderLabel as formatInlineTerminalContextLabel,
   textContainsInlineTerminalContextLabels,
 } from "~/modules/terminal";
-import { formatWorkspaceRelativePath } from "../../filePathDisplay";
+import { formatWorkspaceRelativePath } from "../../lib/formatting";
 import { SkillInlineText } from "./SkillInlineText";
 import {
   actionRunElapsedLabel,

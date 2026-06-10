@@ -1,5 +1,7 @@
 import { type TimestampFormat } from "@fenrir/contracts/settings";
 
+import { splitPathAndPosition } from "../modules/terminal";
+
 export function getTimestampFormatOptions(
   timestampFormat: TimestampFormat,
   includeSeconds: boolean,
@@ -157,4 +159,82 @@ export function formatExpiresInLabel(isoDate: string, nowMs: number = Date.now()
   if (minutes > 0) tail.push(`${minutes}m`);
   if (seconds > 0) tail.push(`${seconds}s`);
   return tail.length > 0 ? `Expires in ${days}d ${tail.join(" ")}` : `Expires in ${days}d`;
+}
+
+export function formatDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs < 0) return "0ms";
+  if (durationMs < 1_000) return `${Math.max(1, Math.round(durationMs))}ms`;
+  if (durationMs < 10_000) return `${(durationMs / 1_000).toFixed(1)}s`;
+  if (durationMs < 60_000) return `${Math.round(durationMs / 1_000)}s`;
+  const minutes = Math.floor(durationMs / 60_000);
+  const seconds = Math.round((durationMs % 60_000) / 1_000);
+  if (seconds === 0) return `${minutes}m`;
+  if (seconds === 60) return `${minutes + 1}m`;
+  return `${minutes}m ${seconds}s`;
+}
+
+export function formatElapsed(startIso: string, endIso: string | undefined): string | null {
+  if (!endIso) return null;
+  const startedAt = Date.parse(startIso);
+  const endedAt = Date.parse(endIso);
+  if (Number.isNaN(startedAt) || Number.isNaN(endedAt) || endedAt < startedAt) {
+    return null;
+  }
+  return formatDuration(endedAt - startedAt);
+}
+
+function normalizePathSeparators(path: string): string {
+  return path.replaceAll("\\", "/");
+}
+
+function canonicalizeWindowsDrivePath(path: string): string {
+  return /^\/[A-Za-z]:\//.test(path) ? path.slice(1) : path;
+}
+
+function trimTrailingPathSeparators(path: string): string {
+  return path.replace(/[\\/]+$/, "");
+}
+
+function basenameOfPath(path: string): string {
+  const separatorIndex = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return separatorIndex >= 0 ? path.slice(separatorIndex + 1) : path;
+}
+
+function stripRelativePrefixes(path: string): string {
+  return path.replace(/^\.\/+/, "").replace(/^\/+/, "");
+}
+
+export function formatWorkspaceRelativePath(
+  pathWithPosition: string,
+  workspaceRoot: string | undefined,
+): string {
+  const { path, line, column } = splitPathAndPosition(pathWithPosition);
+  const normalizedPath = canonicalizeWindowsDrivePath(normalizePathSeparators(path));
+
+  let displayPath = normalizedPath;
+  if (workspaceRoot) {
+    const normalizedWorkspaceRoot = canonicalizeWindowsDrivePath(
+      normalizePathSeparators(trimTrailingPathSeparators(workspaceRoot)),
+    );
+    const workspaceLabel = basenameOfPath(normalizedWorkspaceRoot);
+    const pathForCompare = normalizedPath.toLowerCase();
+    const workspaceForCompare = normalizedWorkspaceRoot.toLowerCase();
+    const workspaceWithSeparator = `${workspaceForCompare}/`;
+    const workspaceLabelWithSeparator = `${workspaceLabel.toLowerCase()}/`;
+
+    if (pathForCompare === workspaceForCompare) {
+      displayPath = workspaceLabel;
+    } else if (pathForCompare.startsWith(workspaceWithSeparator)) {
+      const relativeSuffix = normalizedPath.slice(normalizedWorkspaceRoot.length + 1);
+      displayPath = `${workspaceLabel}/${relativeSuffix}`;
+    } else if (!normalizedPath.startsWith("/")) {
+      const relativePath = stripRelativePrefixes(normalizedPath);
+      displayPath = pathForCompare.startsWith(workspaceLabelWithSeparator)
+        ? normalizedPath
+        : `${workspaceLabel}/${relativePath}`;
+    }
+  }
+
+  if (!line) return displayPath;
+  return `${displayPath}:${line}${column ? `:${column}` : ""}`;
 }

@@ -33,7 +33,7 @@ import {
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { type TerminalContextSelection } from "../terminalContext";
 import { openInPreferredEditor } from "~/editorPreferences";
-import { ensureNerdFontLoaded, waitForNerdFontLoad } from "~/lib/nerdFont";
+import { ensureTerminalFontLoaded, waitForTerminalFontLoad } from "../xtermFontLoad";
 import { terminalThemeFromApp } from "../xtermTheme";
 import { observeTerminalFontMetrics, refreshTerminalFontMetrics } from "../xtermFontRefresh";
 import {
@@ -230,6 +230,7 @@ export function TerminalViewport({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const serializeAddonRef = useRef<SerializeAddon | null>(null);
+  const webglAddonRef = useRef<WebglAddon | null>(null);
   const environmentId = threadRef.environmentId;
   const hasHandledExitRef = useRef(false);
   const selectionPointerRef = useRef<{ x: number; y: number } | null>(null);
@@ -253,43 +254,63 @@ export function TerminalViewport({
     terminalFontSize: s.terminalFontSize,
     terminalLineHeight: s.terminalLineHeight,
   }));
+  const terminalFontStack = useMemo(
+    () => buildTerminalFontFamily(terminalFontFamily),
+    [terminalFontFamily],
+  );
+  const terminalFontLoadOptions = useMemo(
+    () => ({
+      fontFamily: terminalFontStack,
+      fontSize: terminalFontSize,
+      fontWeight: TERMINAL_FONT_WEIGHT_NORMAL,
+    }),
+    [terminalFontSize, terminalFontStack],
+  );
   const clientSettingsHydrated = useClientSettingsHydrated();
-  const [nerdFontReady, setNerdFontReady] = useState(false);
-  const [nerdFontMountDegraded, setNerdFontMountDegraded] = useState(false);
+  const [terminalFontReady, setTerminalFontReady] = useState(false);
+  const [terminalFontMountDegraded, setTerminalFontMountDegraded] = useState(false);
   const thread = useStore(useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]));
   const projectId = projectIdProp ?? thread?.projectId;
   const prevProjectIdRef = useRef(projectId);
 
   useEffect(() => {
+    if (!clientSettingsHydrated || terminalRef.current) return;
+
     let cancelled = false;
-    void waitForNerdFontLoad().then((loaded) => {
+    setTerminalFontReady(false);
+    void waitForTerminalFontLoad(terminalFontLoadOptions).then((loaded) => {
       if (!cancelled) {
-        setNerdFontMountDegraded(!loaded);
+        setTerminalFontMountDegraded(!loaded);
         if (!loaded) {
           console.warn(
-            `${TERMINAL_FONT_LOG_SCOPE} Symbols Nerd Font fallback was not ready before terminal mount. Prompt icons may render incorrectly until the font finishes loading.`,
+            `${TERMINAL_FONT_LOG_SCOPE} Configured terminal font stack was not ready before terminal mount. Prompt glyphs may render incorrectly until the font finishes loading.`,
           );
         }
-        setNerdFontReady(true);
+        setTerminalFontReady(true);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [clientSettingsHydrated, terminalFontLoadOptions]);
 
   // Reactively update terminal font when settings change
   useEffect(() => {
     const activeTerminal = terminalRef.current;
     const activeFitAddon = fitAddonRef.current;
     if (!activeTerminal) return;
-    activeTerminal.options.fontFamily = buildTerminalFontFamily(terminalFontFamily);
+    activeTerminal.options.fontFamily = terminalFontStack;
     activeTerminal.options.fontSize = terminalFontSize;
     activeTerminal.options.lineHeight = terminalLineHeight;
     activeTerminal.options.fontWeight = TERMINAL_FONT_WEIGHT_NORMAL;
     activeTerminal.options.fontWeightBold = TERMINAL_FONT_WEIGHT_NORMAL;
-    refreshTerminalFontMetrics(activeTerminal, activeFitAddon);
-  }, [terminalFontFamily, terminalFontSize, terminalLineHeight]);
+    refreshTerminalFontMetrics(activeTerminal, activeFitAddon, webglAddonRef.current);
+
+    void ensureTerminalFontLoaded(terminalFontLoadOptions).then(() => {
+      if (terminalRef.current !== activeTerminal) return;
+      refreshTerminalFontMetrics(activeTerminal, activeFitAddon, webglAddonRef.current);
+    });
+  }, [terminalFontLoadOptions, terminalFontSize, terminalFontStack, terminalLineHeight]);
 
   useEffect(() => {
     keybindingsRef.current = keybindings;
@@ -297,7 +318,7 @@ export function TerminalViewport({
 
   useEffect(() => {
     const mount = containerRef.current;
-    if (!mount || !nerdFontReady || !clientSettingsHydrated) return;
+    if (!mount || !terminalFontReady || !clientSettingsHydrated) return;
 
     let disposed = false;
     const api = readEnvironmentApi(environmentId);
@@ -318,7 +339,7 @@ export function TerminalViewport({
       lineHeight: terminalLineHeight,
       fontSize: terminalFontSize,
       scrollback: 5_000,
-      fontFamily: buildTerminalFontFamily(terminalFontFamily),
+      fontFamily: terminalFontStack,
       fontWeight: TERMINAL_FONT_WEIGHT_NORMAL,
       fontWeightBold: TERMINAL_FONT_WEIGHT_NORMAL,
       rescaleOverlappingGlyphs: true,
@@ -355,12 +376,13 @@ export function TerminalViewport({
       );
       webglAddon = null;
     }
-    const disposeFontMetricsObserver = observeTerminalFontMetrics(terminal, fitAddon);
-    refreshTerminalFontMetrics(terminal, fitAddon);
-    if (nerdFontMountDegraded) {
+    webglAddonRef.current = webglAddon;
+    const disposeFontMetricsObserver = observeTerminalFontMetrics(terminal, fitAddon, webglAddon);
+    refreshTerminalFontMetrics(terminal, fitAddon, webglAddon);
+    if (terminalFontMountDegraded) {
       writeSystemMessage(
         terminal,
-        "Symbols Nerd Font fallback is still loading; prompt icons may be temporarily missing.",
+        "Terminal font stack is still loading; prompt glyphs may be temporarily missing.",
       );
     }
 
@@ -369,20 +391,19 @@ export function TerminalViewport({
     serializeAddonRef.current = serializeAddon;
     onTerminalMount?.(terminal);
 
-    // xterm measures cell width at open() time using whatever fonts are
-    // currently decoded. The bundled `Symbols Nerd Font Mono` fetch may not
-    // be ready yet, so re-fit once it lands to refresh metrics and force a
-    // glyph re-rasterize for previously-rendered icon codepoints.
-    void ensureNerdFontLoaded().then((loaded) => {
+    // xterm's WebGL renderer rasterizes glyphs into an atlas. If the configured
+    // font stack finishes loading after open(), clear the atlas and redraw so
+    // prompt symbols are rasterized from the final font face.
+    void ensureTerminalFontLoaded(terminalFontLoadOptions).then((loaded) => {
       if (disposed) return;
       if (!loaded) {
         writeSystemMessage(
           terminal,
-          "Symbols Nerd Font fallback failed to load; icon glyphs may be missing.",
+          "Terminal font stack failed to load; prompt glyphs may be missing.",
         );
         return;
       }
-      refreshTerminalFontMetrics(terminal, fitAddon);
+      refreshTerminalFontMetrics(terminal, fitAddon, webglAddon);
     });
 
     const clearSelectionAction = () => {
@@ -867,6 +888,9 @@ export function TerminalViewport({
       disposeFontMetricsObserver();
       webglContextLossDisposable?.dispose();
       webglContextLossDisposable = null;
+      if (webglAddonRef.current === webglAddon) {
+        webglAddonRef.current = null;
+      }
       webglAddon = null;
       unsubscribeTerminalEvents();
       window.clearTimeout(fitTimer);
@@ -897,9 +921,9 @@ export function TerminalViewport({
     terminalId,
     threadId,
     mode,
-    nerdFontMountDegraded,
+    terminalFontMountDegraded,
     projectId,
-    nerdFontReady,
+    terminalFontReady,
   ]);
 
   useEffect(() => {

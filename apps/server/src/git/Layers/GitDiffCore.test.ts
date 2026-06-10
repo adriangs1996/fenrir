@@ -389,13 +389,19 @@ describe("GitDiffCoreLive", () => {
           "README.md": "workspace\n",
         });
         const serviceRepo = path.join(workspace, "services/api");
+        const nestedServiceRepo = path.join(serviceRepo, "packages/worker");
         const dependencyRepo = path.join(workspace, "node_modules/package");
         mkdirSync(serviceRepo, { recursive: true });
+        mkdirSync(nestedServiceRepo, { recursive: true });
         mkdirSync(dependencyRepo, { recursive: true });
         git(serviceRepo, "init", "-b", "main");
         writeFile(serviceRepo, "api.txt", "api\n");
         git(serviceRepo, "add", ".");
         git(serviceRepo, "commit", "-m", "service initial");
+        git(nestedServiceRepo, "init", "-b", "main");
+        writeFile(nestedServiceRepo, "worker.txt", "worker\n");
+        git(nestedServiceRepo, "add", ".");
+        git(nestedServiceRepo, "commit", "-m", "worker initial");
         git(dependencyRepo, "init", "-b", "main");
 
         try {
@@ -405,6 +411,7 @@ describe("GitDiffCoreLive", () => {
           expect(repositories.map((repository) => repository.relativePath)).toEqual([
             "",
             "services/api",
+            "services/api/packages/worker",
           ]);
           expect(repositories[0]).toEqual(
             expect.objectContaining({
@@ -416,6 +423,13 @@ describe("GitDiffCoreLive", () => {
             expect.objectContaining({
               cwd: serviceRepo,
               name: "api",
+              isWorkspaceRoot: false,
+            }),
+          );
+          expect(repositories[2]).toEqual(
+            expect.objectContaining({
+              cwd: nestedServiceRepo,
+              name: "worker",
               isWorkspaceRoot: false,
             }),
           );

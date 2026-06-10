@@ -5,6 +5,7 @@ const shared = {
   outDir: "dist-electron",
   sourcemap: true,
   outExtensions: () => ({ js: ".js" }),
+  noExternal: (id: string) => id.startsWith("@fenrir/"),
 };
 
 export default defineConfig([
@@ -12,7 +13,6 @@ export default defineConfig([
     ...shared,
     entry: ["src/main.ts"],
     clean: true,
-    noExternal: (id) => id.startsWith("@fenrir/"),
   },
   {
     ...shared,

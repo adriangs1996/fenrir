@@ -44,9 +44,9 @@ import {
 import { Input } from "~/components/ui/input";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { toastManager } from "~/components/ui/toast";
-import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { formatRelativeTimeLabel } from "~/lib/formatting";
 import { useUiStateStore } from "~/uiStateStore";
-import { readLocalApi } from "~/localApi";
+import { runLocalRpc } from "~/hooks/useRpc";
 
 type FeatureSummary = typeof FeatureSummarySchema.Type;
 type PlanFileSummary = typeof PlanFileSummarySchema.Type;
@@ -222,19 +222,19 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
       event.preventDefault();
       event.stopPropagation();
       void (async () => {
-        const api = readLocalApi();
-        if (!api) return;
-        const clicked = await api.contextMenu.show(
-          [
-            { id: "rename", label: "Rename feature", disabled: !canRename },
-            {
-              id: "archive",
-              label: "Archive feature",
-              disabled: !canArchive,
-              destructive: true,
-            },
-          ],
-          { x: event.clientX, y: event.clientY },
+        const clicked = await runLocalRpc((api) =>
+          api.contextMenu.show(
+            [
+              { id: "rename", label: "Rename feature", disabled: !canRename },
+              {
+                id: "archive",
+                label: "Archive feature",
+                disabled: !canArchive,
+                destructive: true,
+              },
+            ],
+            { x: event.clientX, y: event.clientY },
+          ),
         );
         if (clicked === "rename") {
           handleRename();

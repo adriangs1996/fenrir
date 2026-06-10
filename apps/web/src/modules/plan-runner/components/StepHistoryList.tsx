@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { type PlanRunnerStepSnapshot, type PlanState } from "@fenrir/contracts";
 import { cn } from "~/lib/utils";
+import { formatElapsed } from "./formatElapsed";
 import { stepLabel } from "./stepLabels";
 
 // ─── State icon ──────────────────────────────────────────────────────────────
@@ -26,19 +27,6 @@ function StateIcon({ state }: { state: PlanState }) {
   const cfg = STATE_CFG[state] ?? STATE_CFG.blocked;
   const Icon = cfg.icon;
   return <Icon className={cn("size-3.5 shrink-0", cfg.cls)} />;
-}
-
-// ─── Elapsed ─────────────────────────────────────────────────────────────────
-
-function formatElapsed(startedAt: string | null, completedAt: string | null): string | null {
-  if (!startedAt) return null;
-  const start = new Date(startedAt).getTime();
-  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
-  const seconds = Math.floor((end - start) / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remaining = seconds % 60;
-  return `${minutes}m ${remaining}s`;
 }
 
 // ─── Row ─────────────────────────────────────────────────────────────────────

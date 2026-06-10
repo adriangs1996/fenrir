@@ -42,6 +42,7 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { writeFileStringAtomically } from "./atomicWrite.ts";
+import { watchFileDebounced } from "./fileWatcher.ts";
 import { ServerConfig } from "./config";
 import { type DeepPartial, deepMerge } from "@fenrir/shared/Struct";
 import { fromLenientJson } from "@fenrir/shared/schemaJson";
@@ -332,11 +333,7 @@ const makeServerSettings = Effect.gen(function* () {
   );
 
   const startWatcher = Effect.gen(function* () {
-    const settingsDir = pathService.dirname(settingsPath);
-    const settingsFile = pathService.basename(settingsPath);
-    const settingsPathResolved = pathService.resolve(settingsPath);
-
-    yield* fs.makeDirectory(settingsDir, { recursive: true }).pipe(
+    yield* fs.makeDirectory(pathService.dirname(settingsPath), { recursive: true }).pipe(
       Effect.mapError(
         (cause) =>
           new ServerSettingsError({
@@ -347,26 +344,14 @@ const makeServerSettings = Effect.gen(function* () {
       ),
     );
 
-    const revalidateAndEmitSafely = revalidateAndEmit.pipe(Effect.ignoreCause({ log: true }));
-
-    // Debounce watch events so the file is fully written before we read it.
-    // Editors emit multiple events per save (truncate, write, rename) and
-    // `fs.watch` can fire before the content has been flushed to disk.
-    const debouncedSettingsEvents = fs.watch(settingsDir).pipe(
-      Stream.filter((event) => {
-        return (
-          event.path === settingsFile ||
-          event.path === settingsPath ||
-          pathService.resolve(settingsDir, event.path) === settingsPathResolved
-        );
-      }),
-      Stream.debounce(Duration.millis(100)),
-    );
-
-    yield* Stream.runForEach(debouncedSettingsEvents, () => revalidateAndEmitSafely).pipe(
-      Effect.ignoreCause({ log: true }),
-      Effect.forkIn(watcherScope),
-      Effect.asVoid,
+    yield* watchFileDebounced({
+      filePath: settingsPath,
+      debounce: Duration.millis(100),
+      scope: watcherScope,
+      onChange: revalidateAndEmit,
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, pathService),
     );
   });
 

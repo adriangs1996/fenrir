@@ -22,7 +22,7 @@ import {
   useProcessResourceHistory,
 } from "../../lib/processDiagnosticsState";
 import { useTraceDiagnostics } from "../../lib/traceDiagnosticsState";
-import { formatRelativeTime } from "../../timestampFormat";
+import { formatRelativeTime } from "../../lib/formatting";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";

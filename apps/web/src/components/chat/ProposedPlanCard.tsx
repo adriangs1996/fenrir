@@ -25,7 +25,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { toastManager } from "../ui/toast";
-import { readEnvironmentApi } from "~/environmentApi";
+import { runEnvironmentRpc } from "~/hooks/useRpc";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 
 export const ProposedPlanCard = memo(function ProposedPlanCard({
@@ -85,9 +85,8 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   };
 
   const handleSaveToWorkspace = () => {
-    const api = readEnvironmentApi(environmentId);
     const relativePath = savePath.trim();
-    if (!api || !workspaceRoot) {
+    if (!workspaceRoot) {
       return;
     }
     if (!relativePath) {
@@ -99,13 +98,23 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
     }
 
     setIsSavingToWorkspace(true);
-    void api.projects
-      .writeFile({
-        cwd: workspaceRoot,
-        relativePath,
-        contents: saveContents,
-      })
+    void runEnvironmentRpc(
+      environmentId,
+      (api) =>
+        api.projects.writeFile({
+          cwd: workspaceRoot,
+          relativePath,
+          contents: saveContents,
+        }),
+      {
+        errorToast: {
+          title: "Could not save plan",
+          fallbackDescription: "An error occurred while saving.",
+        },
+      },
+    )
       .then((result) => {
+        if (!result) return;
         setIsSaveDialogOpen(false);
         toastManager.add({
           type: "success",
@@ -113,21 +122,9 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
           description: result.relativePath,
         });
       })
-      .catch((error) => {
-        toastManager.add({
-          type: "error",
-          title: "Could not save plan",
-          description: error instanceof Error ? error.message : "An error occurred while saving.",
-        });
-      })
-      .then(
-        () => {
-          setIsSavingToWorkspace(false);
-        },
-        () => {
-          setIsSavingToWorkspace(false);
-        },
-      );
+      .finally(() => {
+        setIsSavingToWorkspace(false);
+      });
   };
 
   return (

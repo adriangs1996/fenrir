@@ -87,6 +87,10 @@
     "./toolActivity": {
       "types": "./src/toolActivity.ts",
       "import": "./src/toolActivity.ts"
+    },
+    "./jsonFile": {
+      "types": "./src/jsonFile.ts",
+      "import": "./src/jsonFile.ts"
     }
   },
   "scripts": {

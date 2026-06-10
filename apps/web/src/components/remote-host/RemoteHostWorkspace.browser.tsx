@@ -57,6 +57,7 @@ vi.mock("../../environments/primary", () => ({
   takePairingTokenFromUrl: () => null,
   __resetServerAuthBootstrapForTests: () => undefined,
   resolvePrimaryEnvironmentHttpUrl: (path: string) => path,
+  resolvePrimaryWebSocketConnectionUrl: () => "ws://localhost/test",
   isLoopbackHostname: () => true,
 }));
 

@@ -51,6 +51,7 @@ import {
 import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
 import { writeFileStringAtomically } from "./atomicWrite.ts";
+import { watchFileDebounced } from "./fileWatcher.ts";
 import { fromLenientJson } from "@fenrir/shared/schemaJson";
 
 export const ResolvedKeybindingFromConfig = KeybindingRule.pipe(
@@ -686,11 +687,7 @@ const makeKeybindings = Effect.gen(function* () {
   );
 
   const startWatcher = Effect.gen(function* () {
-    const keybindingsConfigDir = path.dirname(keybindingsConfigPath);
-    const keybindingsConfigFile = path.basename(keybindingsConfigPath);
-    const keybindingsConfigPathResolved = path.resolve(keybindingsConfigPath);
-
-    yield* fs.makeDirectory(keybindingsConfigDir, { recursive: true }).pipe(
+    yield* fs.makeDirectory(path.dirname(keybindingsConfigPath), { recursive: true }).pipe(
       Effect.mapError(
         (cause) =>
           new KeybindingsConfigError({
@@ -701,26 +698,14 @@ const makeKeybindings = Effect.gen(function* () {
       ),
     );
 
-    const revalidateAndEmitSafely = revalidateAndEmit.pipe(Effect.ignoreCause({ log: true }));
-
-    // Debounce watch events so the file is fully written before we read it.
-    // Editors emit multiple events per save (truncate, write, rename) and
-    // `fs.watch` can fire before the content has been flushed to disk.
-    const debouncedKeybindingsEvents = fs.watch(keybindingsConfigDir).pipe(
-      Stream.filter((event) => {
-        return (
-          event.path === keybindingsConfigFile ||
-          event.path === keybindingsConfigPath ||
-          path.resolve(keybindingsConfigDir, event.path) === keybindingsConfigPathResolved
-        );
-      }),
-      Stream.debounce(Duration.millis(100)),
-    );
-
-    yield* Stream.runForEach(debouncedKeybindingsEvents, () => revalidateAndEmitSafely).pipe(
-      Effect.ignoreCause({ log: true }),
-      Effect.forkIn(watcherScope),
-      Effect.asVoid,
+    yield* watchFileDebounced({
+      filePath: keybindingsConfigPath,
+      debounce: Duration.millis(100),
+      scope: watcherScope,
+      onChange: revalidateAndEmit,
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, path),
     );
   });
 

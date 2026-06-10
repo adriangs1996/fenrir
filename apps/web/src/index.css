@@ -1,28 +1,12 @@
 @import "tailwindcss";
 
 /*
- * Bundled nerd-font for icon glyphs (git branch, language logos, powerline,
- * etc.). Browser walks `font-family` chains per-codepoint, so this only
- * supplies PUA icon glyphs the user's chosen base font lacks — base font
- * still wins for ASCII and other normal codepoints.
- *
- * Family name must match `NERD_FONT_FALLBACK_FAMILIES` in
- * `packages/contracts/src/fonts.ts`. `font-display: swap` avoids blocking
- * paint while the font loads.
- *
- * The font lives under `src/assets/fonts/` (not `public/`) so Vite runs it
- * through the asset pipeline — the URL gets fingerprinted and emitted next
- * to the CSS bundle. A relative `url()` then resolves correctly regardless
- * of how the renderer is loaded (Vite dev server, packaged `t3://` custom
- * protocol, or the embedded HTTP server in the installed desktop app).
+ * The bundled "Symbols Nerd Font Mono" face is registered programmatically in
+ * `src/lib/nerdFont.ts` (FontFace API) instead of a CSS `@font-face` rule —
+ * a CSS rule races stylesheet parsing against module evaluation in the
+ * packaged desktop app, and `document.fonts.load()` silently no-ops when the
+ * rule hasn't been parsed yet. See that module for details.
  */
-@font-face {
-  font-family: "Symbols Nerd Font Mono";
-  src: url("./assets/fonts/SymbolsNerdFontMono-Regular.ttf") format("truetype");
-  font-weight: normal;
-  font-style: normal;
-  font-display: swap;
-}
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant pierre-dark (&:is(.pierre-dark, .pierre-dark *));

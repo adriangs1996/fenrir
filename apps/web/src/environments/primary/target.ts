@@ -7,13 +7,17 @@ export interface PrimaryEnvironmentTarget {
 }
 
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
+const FETCHABLE_HTTP_PROTOCOLS = new Set(["http:", "https:"]);
 
 function getDesktopLocalEnvironmentBootstrap(): DesktopEnvironmentBootstrap | null {
   return window.desktopBridge?.getLocalEnvironmentBootstrap() ?? null;
 }
 
 function normalizeBaseUrl(rawValue: string): string {
-  return new URL(rawValue, window.location.origin).toString();
+  if (window.location.origin !== "null") {
+    return new URL(rawValue, window.location.origin).toString();
+  }
+  return new URL(rawValue).toString();
 }
 
 function swapBaseUrlProtocol(
@@ -109,6 +113,19 @@ function resolveWindowOriginPrimaryTarget(): PrimaryEnvironmentTarget {
   };
 }
 
+function canUseWindowOriginAsPrimaryTarget(): boolean {
+  const protocol = window.location.protocol;
+  if (protocol) {
+    return FETCHABLE_HTTP_PROTOCOLS.has(protocol);
+  }
+
+  try {
+    return FETCHABLE_HTTP_PROTOCOLS.has(new URL(window.location.origin).protocol);
+  } catch {
+    return false;
+  }
+}
+
 function resolveDesktopPrimaryTarget(): PrimaryEnvironmentTarget | null {
   const desktopBootstrap = getDesktopLocalEnvironmentBootstrap();
   if (!desktopBootstrap) {
@@ -150,9 +167,15 @@ export function resolvePrimaryEnvironmentHttpUrl(
 }
 
 export function readPrimaryEnvironmentTarget(): PrimaryEnvironmentTarget | null {
-  return (
-    resolveDesktopPrimaryTarget() ??
-    resolveConfiguredPrimaryTarget() ??
-    resolveWindowOriginPrimaryTarget()
-  );
+  const desktopTarget = resolveDesktopPrimaryTarget();
+  if (desktopTarget) {
+    return desktopTarget;
+  }
+
+  const configuredTarget = resolveConfiguredPrimaryTarget();
+  if (configuredTarget) {
+    return configuredTarget;
+  }
+
+  return canUseWindowOriginAsPrimaryTarget() ? resolveWindowOriginPrimaryTarget() : null;
 }

@@ -23,7 +23,7 @@ import ChatMarkdown from "~/components/ChatMarkdown";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { formatTimestamp } from "~/timestampFormat";
+import { formatTimestamp } from "~/lib/formatting";
 import { cn } from "~/lib/utils";
 
 // ─── Kind presentation ───────────────────────────────────────────────────────

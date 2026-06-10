@@ -8,6 +8,7 @@ import {
   CircleDotIcon,
   ZapIcon,
 } from "lucide-react";
+import { formatElapsed } from "./formatElapsed";
 
 // ── Public types ───────────────────────────────────────────────────────────
 
@@ -203,22 +204,6 @@ function computeLayout(plans: readonly DagPlan[]) {
   }
 
   return { nodes, edges, columnCount: sortedColKeys.length };
-}
-
-// ── Elapsed time formatter ────────────────────────────────────────────────
-
-function formatElapsed(
-  startedAt: string | null | undefined,
-  completedAt: string | null | undefined,
-): string | null {
-  if (!startedAt) return null;
-  const start = new Date(startedAt).getTime();
-  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
-  const seconds = Math.floor((end - start) / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remaining = seconds % 60;
-  return `${minutes}m ${remaining}s`;
 }
 
 // ── Status icon ───────────────────────────────────────────────────────────

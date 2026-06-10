@@ -1,4 +1,5 @@
 import type {
+  AuthBearerBootstrapResult,
   AuthBootstrapInput,
   AuthBootstrapResult,
   AuthClientMetadata,
@@ -8,6 +9,7 @@ import type {
   AuthRevokePairingLinkInput,
   AuthSessionId,
   AuthSessionState,
+  AuthWebSocketTokenResult,
 } from "@fenrir/contracts";
 
 import {
@@ -49,8 +51,10 @@ type ServerAuthGateState =
     };
 
 let bootstrapPromise: Promise<ServerAuthGateState> | null = null;
+let primaryBearerSessionTokenFallback: string | null = null;
 const AUTH_SESSION_ESTABLISH_TIMEOUT_MS = 2_000;
 const AUTH_SESSION_ESTABLISH_STEP_MS = 100;
+const PRIMARY_DESKTOP_BEARER_SESSION_STORAGE_KEY = "fenrir.primaryDesktopBearerSessionToken";
 
 export function peekPairingTokenFromUrl(): string | null {
   return getPairingTokenFromUrl(new URL(window.location.href));
@@ -81,18 +85,77 @@ function getDesktopBootstrapCredential(): string | null {
     : null;
 }
 
+function isDesktopAppOrigin(): boolean {
+  return window.location.protocol === "t3:";
+}
+
+export function readPrimaryBearerSessionToken(): string | null {
+  if (!isDesktopAppOrigin()) {
+    return null;
+  }
+
+  try {
+    const token = window.sessionStorage?.getItem(PRIMARY_DESKTOP_BEARER_SESSION_STORAGE_KEY);
+    return token && token.length > 0 ? token : primaryBearerSessionTokenFallback;
+  } catch {
+    return primaryBearerSessionTokenFallback;
+  }
+}
+
+function writePrimaryBearerSessionToken(token: string): void {
+  primaryBearerSessionTokenFallback = token;
+  try {
+    window.sessionStorage?.setItem(PRIMARY_DESKTOP_BEARER_SESSION_STORAGE_KEY, token);
+  } catch {
+    // Session storage may be unavailable for custom app protocols in some runtimes.
+  }
+}
+
+function clearPrimaryBearerSessionToken(): void {
+  primaryBearerSessionTokenFallback = null;
+  try {
+    window.sessionStorage?.removeItem(PRIMARY_DESKTOP_BEARER_SESSION_STORAGE_KEY);
+  } catch {
+    // Session storage may be unavailable for custom app protocols in some runtimes.
+  }
+}
+
+function primaryAuthRequestInit(init?: RequestInit): RequestInit {
+  const bearerToken = readPrimaryBearerSessionToken();
+  const headers = new Headers(init?.headers);
+  if (bearerToken) {
+    headers.set("authorization", `Bearer ${bearerToken}`);
+  }
+
+  const requestInit: RequestInit = {
+    ...init,
+    credentials: bearerToken ? "omit" : "include",
+  };
+  if ([...headers.keys()].length > 0) {
+    requestInit.headers = Object.fromEntries(headers.entries());
+  }
+
+  return requestInit;
+}
+
 export async function fetchSessionState(): Promise<AuthSessionState> {
   return retryTransientBootstrap(async () => {
-    const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/auth/session"), {
-      credentials: "include",
-    });
+    const bearerToken = readPrimaryBearerSessionToken();
+    const response = await fetch(
+      resolvePrimaryEnvironmentHttpUrl("/api/auth/session"),
+      primaryAuthRequestInit(),
+    );
     if (!response.ok) {
       throw new BootstrapHttpError(
         `Failed to load server auth session state (${response.status}).`,
         response.status,
       );
     }
-    return (await response.json()) as AuthSessionState;
+    const session = (await response.json()) as AuthSessionState;
+    if (bearerToken && !session.authenticated) {
+      clearPrimaryBearerSessionToken();
+    }
+    return session;
   });
 }
 
@@ -122,6 +185,31 @@ async function exchangeBootstrapCredential(credential: string): Promise<AuthBoot
     }
 
     return (await response.json()) as AuthBootstrapResult;
+  });
+}
+
+async function exchangeBootstrapCredentialForBearerSession(
+  credential: string,
+): Promise<AuthBearerBootstrapResult> {
+  return retryTransientBootstrap(async () => {
+    const payload: AuthBootstrapInput = { credential };
+    const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/auth/bootstrap/bearer"), {
+      body: JSON.stringify(payload),
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new BootstrapHttpError(
+        message || `Failed to bootstrap bearer auth session (${response.status}).`,
+        response.status,
+      );
+    }
+
+    return (await response.json()) as AuthBearerBootstrapResult;
   });
 }
 
@@ -208,7 +296,12 @@ async function bootstrapServerAuth(): Promise<ServerAuthGateState> {
   }
 
   try {
-    await exchangeBootstrapCredential(bootstrapCredential);
+    if (isDesktopAppOrigin()) {
+      const bearerSession = await exchangeBootstrapCredentialForBearerSession(bootstrapCredential);
+      writePrimaryBearerSessionToken(bearerSession.sessionToken);
+    } else {
+      await exchangeBootstrapCredential(bootstrapCredential);
+    }
     await waitForAuthenticatedSessionAfterBootstrap();
     return { status: "authenticated" };
   } catch (error) {
@@ -226,7 +319,12 @@ export async function submitServerAuthCredential(credential: string): Promise<vo
     throw new Error("Enter a pairing token to continue.");
   }
 
-  await exchangeBootstrapCredential(trimmedCredential);
+  if (isDesktopAppOrigin()) {
+    const bearerSession = await exchangeBootstrapCredentialForBearerSession(trimmedCredential);
+    writePrimaryBearerSessionToken(bearerSession.sessionToken);
+  } else {
+    await exchangeBootstrapCredential(trimmedCredential);
+  }
   bootstrapPromise = null;
   stripPairingTokenFromUrl();
 }
@@ -236,14 +334,16 @@ export async function createServerPairingCredential(
 ): Promise<AuthPairingCredentialResult> {
   const trimmedLabel = label?.trim();
   const payload: AuthCreatePairingCredentialInput = trimmedLabel ? { label: trimmedLabel } : {};
-  const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/auth/pairing-token"), {
-    body: JSON.stringify(payload),
-    credentials: "include",
-    headers: {
-      "content-type": "application/json",
-    },
-    method: "POST",
-  });
+  const response = await fetch(
+    resolvePrimaryEnvironmentHttpUrl("/api/auth/pairing-token"),
+    primaryAuthRequestInit({
+      body: JSON.stringify(payload),
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+    }),
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -255,9 +355,10 @@ export async function createServerPairingCredential(
 }
 
 export async function listServerPairingLinks(): Promise<ReadonlyArray<ServerPairingLinkRecord>> {
-  const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/auth/pairing-links"), {
-    credentials: "include",
-  });
+  const response = await fetch(
+    resolvePrimaryEnvironmentHttpUrl("/api/auth/pairing-links"),
+    primaryAuthRequestInit(),
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -270,14 +371,16 @@ export async function listServerPairingLinks(): Promise<ReadonlyArray<ServerPair
 
 export async function revokeServerPairingLink(id: string): Promise<void> {
   const payload: AuthRevokePairingLinkInput = { id };
-  const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/auth/pairing-links/revoke"), {
-    body: JSON.stringify(payload),
-    credentials: "include",
-    headers: {
-      "content-type": "application/json",
-    },
-    method: "POST",
-  });
+  const response = await fetch(
+    resolvePrimaryEnvironmentHttpUrl("/api/auth/pairing-links/revoke"),
+    primaryAuthRequestInit({
+      body: JSON.stringify(payload),
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+    }),
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -289,9 +392,10 @@ export async function revokeServerPairingLink(id: string): Promise<void> {
 export async function listServerClientSessions(): Promise<
   ReadonlyArray<ServerClientSessionRecord>
 > {
-  const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/auth/clients"), {
-    credentials: "include",
-  });
+  const response = await fetch(
+    resolvePrimaryEnvironmentHttpUrl("/api/auth/clients"),
+    primaryAuthRequestInit(),
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -304,14 +408,16 @@ export async function listServerClientSessions(): Promise<
 
 export async function revokeServerClientSession(sessionId: AuthSessionId): Promise<void> {
   const payload: AuthRevokeClientSessionInput = { sessionId };
-  const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/auth/clients/revoke"), {
-    body: JSON.stringify(payload),
-    credentials: "include",
-    headers: {
-      "content-type": "application/json",
-    },
-    method: "POST",
-  });
+  const response = await fetch(
+    resolvePrimaryEnvironmentHttpUrl("/api/auth/clients/revoke"),
+    primaryAuthRequestInit({
+      body: JSON.stringify(payload),
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+    }),
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -323,10 +429,9 @@ export async function revokeServerClientSession(sessionId: AuthSessionId): Promi
 export async function revokeOtherServerClientSessions(): Promise<number> {
   const response = await fetch(
     resolvePrimaryEnvironmentHttpUrl("/api/auth/clients/revoke-others"),
-    {
-      credentials: "include",
+    primaryAuthRequestInit({
       method: "POST",
-    },
+    }),
   );
 
   if (!response.ok) {
@@ -340,6 +445,31 @@ export async function revokeOtherServerClientSessions(): Promise<number> {
 
   const result = (await response.json()) as { revokedCount?: number };
   return result.revokedCount ?? 0;
+}
+
+export async function resolvePrimaryWebSocketConnectionUrl(wsBaseUrl: string): Promise<string> {
+  const bearerToken = readPrimaryBearerSessionToken();
+  if (!bearerToken) {
+    return wsBaseUrl;
+  }
+
+  const response = await fetch(
+    resolvePrimaryEnvironmentHttpUrl("/api/auth/ws-token"),
+    primaryAuthRequestInit({
+      method: "POST",
+    }),
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(response, `Failed to issue websocket token (${response.status}).`),
+    );
+  }
+
+  const issued = (await response.json()) as AuthWebSocketTokenResult;
+  const url = new URL(wsBaseUrl);
+  url.searchParams.set("wsToken", issued.token);
+  return url.toString();
 }
 
 export async function resolveInitialServerAuthGateState(): Promise<ServerAuthGateState> {
@@ -358,4 +488,5 @@ export async function resolveInitialServerAuthGateState(): Promise<ServerAuthGat
 
 export function __resetServerAuthBootstrapForTests() {
   bootstrapPromise = null;
+  clearPrimaryBearerSessionToken();
 }

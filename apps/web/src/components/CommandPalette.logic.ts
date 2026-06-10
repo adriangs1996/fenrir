@@ -2,7 +2,7 @@ import { type FilesystemBrowseEntry, type KeybindingCommand } from "@fenrir/cont
 import type { SidebarThreadSortOrder } from "@fenrir/contracts/settings";
 import { type ReactNode } from "react";
 import { sortThreads } from "../lib/threadSort";
-import { formatRelativeTimeLabel } from "../timestampFormat";
+import { formatRelativeTimeLabel } from "../lib/formatting";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 
 export const RECENT_THREAD_LIMIT = 12;

@@ -16,7 +16,7 @@ import {
 import { cn } from "~/lib/utils";
 import type { ActivePlanState } from "../session-logic";
 import type { LatestProposedPlanState } from "../session-logic";
-import { formatTimestamp } from "../timestampFormat";
+import { formatTimestamp } from "../lib/formatting";
 import {
   proposedPlanTitle,
   buildProposedPlanMarkdownFilename,
@@ -25,7 +25,7 @@ import {
   stripDisplayedPlanMarkdown,
 } from "../proposedPlan";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
-import { readEnvironmentApi } from "~/environmentApi";
+import { runEnvironmentRpc } from "~/hooks/useRpc";
 import { toastManager } from "./ui/toast";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 
@@ -133,34 +133,28 @@ const PlanSidebar = memo(function PlanSidebar({
   }, [planMarkdown]);
 
   const handleSaveToWorkspace = useCallback(() => {
-    const api = readEnvironmentApi(environmentId);
-    if (!api || !workspaceRoot || !planMarkdown) return;
+    if (!workspaceRoot || !planMarkdown) return;
     const filename = buildProposedPlanMarkdownFilename(planMarkdown);
     setIsSavingToWorkspace(true);
-    void api.projects
-      .writeFile({
-        cwd: workspaceRoot,
-        relativePath: filename,
-        contents: normalizePlanMarkdownForExport(planMarkdown),
-      })
+    void runEnvironmentRpc(
+      environmentId,
+      (api) =>
+        api.projects.writeFile({
+          cwd: workspaceRoot,
+          relativePath: filename,
+          contents: normalizePlanMarkdownForExport(planMarkdown),
+        }),
+      { errorToast: { title: "Could not save plan" } },
+    )
       .then((result) => {
+        if (!result) return;
         toastManager.add({
           type: "success",
           title: "Plan saved",
           description: result.relativePath,
         });
       })
-      .catch((error) => {
-        toastManager.add({
-          type: "error",
-          title: "Could not save plan",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        });
-      })
-      .then(
-        () => setIsSavingToWorkspace(false),
-        () => setIsSavingToWorkspace(false),
-      );
+      .finally(() => setIsSavingToWorkspace(false));
   }, [environmentId, planMarkdown, workspaceRoot]);
 
   return (

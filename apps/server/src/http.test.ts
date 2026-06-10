@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isLoopbackHostname, resolveDevRedirectUrl } from "./http.ts";
+import { isAllowedBrowserClientOrigin, isLoopbackHostname, resolveDevRedirectUrl } from "./http.ts";
 
 describe("http dev routing", () => {
   it("treats localhost and loopback addresses as local", () => {
@@ -14,6 +14,14 @@ describe("http dev routing", () => {
     expect(isLoopbackHostname("192.168.86.35")).toBe(false);
     expect(isLoopbackHostname("10.0.0.24")).toBe(false);
     expect(isLoopbackHostname("example.local")).toBe(false);
+  });
+
+  it("allows browser client origins that need credentialed CORS", () => {
+    expect(isAllowedBrowserClientOrigin("t3://app")).toBe(true);
+    expect(isAllowedBrowserClientOrigin("http://localhost:5733")).toBe(true);
+    expect(isAllowedBrowserClientOrigin("http://192.168.86.35:3773")).toBe(true);
+    expect(isAllowedBrowserClientOrigin("file://app")).toBe(false);
+    expect(isAllowedBrowserClientOrigin("not a url")).toBe(false);
   });
 
   it("preserves path and query when redirecting to the dev server", () => {

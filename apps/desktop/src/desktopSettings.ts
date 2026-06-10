@@ -1,6 +1,5 @@
-import * as FS from "node:fs";
-import * as Path from "node:path";
 import type { DesktopServerExposureMode } from "@fenrir/contracts";
+import { readJsonFile, writeJsonFileAtomic } from "@fenrir/shared/jsonFile";
 
 export interface DesktopSettings {
   readonly serverExposureMode: DesktopServerExposureMode;
@@ -23,29 +22,17 @@ export function setDesktopServerExposurePreference(
 }
 
 export function readDesktopSettings(settingsPath: string): DesktopSettings {
-  try {
-    if (!FS.existsSync(settingsPath)) {
-      return DEFAULT_DESKTOP_SETTINGS;
-    }
-
-    const raw = FS.readFileSync(settingsPath, "utf8");
-    const parsed = JSON.parse(raw) as {
-      readonly serverExposureMode?: unknown;
-    };
-
-    return {
-      serverExposureMode:
-        parsed.serverExposureMode === "network-accessible" ? "network-accessible" : "local-only",
-    };
-  } catch {
+  const parsed = readJsonFile<{ readonly serverExposureMode?: unknown }>(settingsPath);
+  if (parsed === null) {
     return DEFAULT_DESKTOP_SETTINGS;
   }
+
+  return {
+    serverExposureMode:
+      parsed.serverExposureMode === "network-accessible" ? "network-accessible" : "local-only",
+  };
 }
 
 export function writeDesktopSettings(settingsPath: string, settings: DesktopSettings): void {
-  const directory = Path.dirname(settingsPath);
-  const tempPath = `${settingsPath}.${process.pid}.${Date.now()}.tmp`;
-  FS.mkdirSync(directory, { recursive: true });
-  FS.writeFileSync(tempPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-  FS.renameSync(tempPath, settingsPath);
+  writeJsonFileAtomic(settingsPath, settings);
 }

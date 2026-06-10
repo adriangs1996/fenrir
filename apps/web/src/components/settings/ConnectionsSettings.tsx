@@ -10,7 +10,7 @@ import { DateTime } from "effect";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
-import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
+import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../lib/formatting";
 import {
   SettingsPageContainer,
   SettingsRow,

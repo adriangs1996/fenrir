@@ -16,8 +16,27 @@ type TestWindow = {
   history: {
     replaceState: (_data: unknown, _unused: string, url: string) => void;
   };
+  sessionStorage: Storage;
   desktopBridge?: DesktopBridge;
 };
+
+function createTestSessionStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => {
+      values.delete(key);
+    },
+    setItem: (key, value) => {
+      values.set(key, value);
+    },
+  };
+}
 
 function installTestBrowser(url: string) {
   const testWindow: TestWindow = {
@@ -27,6 +46,7 @@ function installTestBrowser(url: string) {
         testWindow.location = new URL(nextUrl, testWindow.location.href);
       },
     },
+    sessionStorage: createTestSessionStorage(),
   };
 
   vi.stubGlobal("window", testWindow);
@@ -175,6 +195,19 @@ describe("resolveInitialServerAuthGateState", () => {
     });
   });
 
+  it("does not fetch auth urls from the packaged desktop app protocol", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    installTestBrowser("t3://app/");
+
+    const { resolveInitialServerAuthGateState } = await import("./environments/primary");
+
+    await expect(resolveInitialServerAuthGateState()).rejects.toThrow(
+      "Unable to resolve the primary environment HTTP base URL.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("uses the vite proxy for desktop-managed loopback auth requests during local dev", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
       sessionResponse({
@@ -213,6 +246,120 @@ describe("resolveInitialServerAuthGateState", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:5733/api/auth/session", {
       credentials: "include",
+    });
+  });
+
+  it("bootstraps packaged desktop auth with a bearer session token", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        sessionResponse({
+          authenticated: false,
+          auth: {
+            policy: "desktop-managed-local",
+            bootstrapMethods: ["desktop-bootstrap"],
+            sessionMethods: ["browser-session-cookie", "bearer-session-token"],
+            sessionCookieName: "t3_session",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          authenticated: true,
+          role: "owner",
+          sessionMethod: "bearer-session-token",
+          sessionToken: "desktop-bearer-token",
+          expiresAt: "2026-04-05T00:00:00.000Z",
+        }),
+      )
+      .mockResolvedValueOnce(
+        sessionResponse({
+          authenticated: true,
+          auth: {
+            policy: "desktop-managed-local",
+            bootstrapMethods: ["desktop-bootstrap"],
+            sessionMethods: ["browser-session-cookie", "bearer-session-token"],
+            sessionCookieName: "t3_session",
+          },
+          role: "owner",
+          sessionMethod: "bearer-session-token",
+          expiresAt: "2026-04-05T00:00:00.000Z",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const testWindow = installTestBrowser("t3://app/");
+    testWindow.desktopBridge = {
+      getLocalEnvironmentBootstrap: () => ({
+        label: "Local environment",
+        httpBaseUrl: "http://127.0.0.1:3773",
+        wsBaseUrl: "ws://127.0.0.1:3773",
+        bootstrapToken: "desktop-bootstrap-token",
+      }),
+    } as DesktopBridge;
+
+    const { resolveInitialServerAuthGateState, readPrimaryBearerSessionToken } =
+      await import("./environments/primary");
+
+    await expect(resolveInitialServerAuthGateState()).resolves.toEqual({
+      status: "authenticated",
+    });
+    expect(readPrimaryBearerSessionToken()).toBe("desktop-bearer-token");
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://127.0.0.1:3773/api/auth/session", {
+      credentials: "include",
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:3773/api/auth/bootstrap/bearer",
+      {
+        body: JSON.stringify({ credential: "desktop-bootstrap-token" }),
+        headers: {
+          "content-type": "application/json",
+        },
+        method: "POST",
+      },
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://127.0.0.1:3773/api/auth/session", {
+      credentials: "omit",
+      headers: {
+        authorization: "Bearer desktop-bearer-token",
+      },
+    });
+  });
+
+  it("issues primary websocket tokens with the packaged desktop bearer session", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({
+        token: "ws-token",
+        expiresAt: "2026-04-05T00:00:00.000Z",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const testWindow = installTestBrowser("t3://app/");
+    testWindow.desktopBridge = {
+      getLocalEnvironmentBootstrap: () => ({
+        label: "Local environment",
+        httpBaseUrl: "http://127.0.0.1:3773",
+        wsBaseUrl: "ws://127.0.0.1:3773",
+      }),
+    } as DesktopBridge;
+    testWindow.sessionStorage.setItem(
+      "fenrir.primaryDesktopBearerSessionToken",
+      "desktop-bearer-token",
+    );
+
+    const { resolvePrimaryWebSocketConnectionUrl } = await import("./environments/primary");
+
+    await expect(resolvePrimaryWebSocketConnectionUrl("ws://127.0.0.1:3773")).resolves.toBe(
+      "ws://127.0.0.1:3773/?wsToken=ws-token",
+    );
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:3773/api/auth/ws-token", {
+      credentials: "omit",
+      headers: {
+        authorization: "Bearer desktop-bearer-token",
+      },
+      method: "POST",
     });
   });
 

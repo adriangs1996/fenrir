@@ -27,16 +27,13 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 ## Maintainability
 
-Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
-
-Try to always follow the same architecture for features, using the same Software Layers for each slice if possible
-
-## Package Roles
-
-- `apps/server`: Node.js WebSocket server. Serves the React web app, and manages provider sessions.
-- `apps/web`: React/Vite UI. Owns session UX, conversation/event rendering, and client-side state. Connects to the server via WebSocket.
-- `packages/contracts`: Shared effect/Schema schemas and TypeScript contracts for provider events, WebSocket protocol, and model/session types. Keep this package schema-only — no runtime logic.
-- `packages/shared`: Shared runtime utilities consumed by both server and web. Uses explicit subpath exports (e.g. `@fenrir/shared/git`) — no barrel index.
+- Long term maintainability is a core priority.
+- Before adding new functionality, first check if there is shared logic that can be extracted to a separate module or already defined
+  functions you can use.
+- Avoid duplication.
+- Duplicated logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
+- Always follow the same architecture for features, using the same Software Layers for each slice if possible.
+- If a functionality needs server interaction, prefer expose it through websocket and only use Electron IPC if is absolutely necessary.
 
 ## Libraries
 

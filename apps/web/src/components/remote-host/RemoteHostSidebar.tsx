@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { usePrimaryEnvironmentId } from "../../environments/primary";
 import { isElectron } from "../../env";
-import { readEnvironmentApi } from "../../environmentApi";
+import { rpcErrorMessage, runEnvironmentRpc } from "../../hooks/useRpc";
 import { useRemoteControllerStore } from "../../remoteControllerStore";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -69,38 +69,34 @@ export function RemoteHostSidebar() {
   }, [connections, selectedHostId]);
 
   const createHost = async () => {
-    if (!environmentId) return;
-    const api = readEnvironmentApi(environmentId);
-    if (!api) return;
-
     setCreating(true);
     setError(null);
     try {
-      const host = await api.remoteController.createHost({
-        label,
-        transport: {
-          type: "command-template",
-          command,
-          args: parseRemoteHostArgsText(argsText),
-        },
+      await runEnvironmentRpc(environmentId, async (api) => {
+        const host = await api.remoteController.createHost({
+          label,
+          transport: {
+            type: "command-template",
+            command,
+            args: parseRemoteHostArgsText(argsText),
+          },
+        });
+        await navigate({ to: "/remote-host/$hostId", params: { hostId: host.hostId } });
       });
-      await navigate({ to: "/remote-host/$hostId", params: { hostId: host.hostId } });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to create host");
+      setError(rpcErrorMessage(cause, "Failed to create host"));
     } finally {
       setCreating(false);
     }
   };
 
   const deleteHost = async (hostId: string) => {
-    if (!environmentId) return;
-    const api = readEnvironmentApi(environmentId);
-    if (!api) return;
-
-    await api.remoteController.deleteHost({ hostId: hostId as never });
-    if (selectedHostId === hostId) {
-      await navigate({ to: "/remote-host" });
-    }
+    await runEnvironmentRpc(environmentId, async (api) => {
+      await api.remoteController.deleteHost({ hostId: hostId as never });
+      if (selectedHostId === hostId) {
+        await navigate({ to: "/remote-host" });
+      }
+    });
   };
 
   return (

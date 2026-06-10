@@ -284,6 +284,32 @@ export function RenderSurface({
     };
   }, [editorPrefsKey, editorPrefs]);
 
+  // Re-rasterize the glyph atlas when font faces finish loading. Glyphs are
+  // cached in the atlas with whatever face was available at rasterize time;
+  // if the bundled nerd-font (or the user's editor font) loads afterwards,
+  // cell metrics usually don't change, so no `cellMetrics` frame arrives and
+  // the stale fallback glyphs would otherwise stick around forever.
+  useEffect(() => {
+    let cancelled = false;
+    const invalidate = () => {
+      if (cancelled) return;
+      rendererRef.current?.invalidateGlyphAtlas();
+      compositeNeededRef.current = true;
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(composite);
+      }
+    };
+    void ensureNerdFontLoaded().then((loaded) => {
+      if (loaded) invalidate();
+    });
+    const fonts = typeof document === "undefined" ? null : document.fonts;
+    fonts?.addEventListener?.("loadingdone", invalidate);
+    return () => {
+      cancelled = true;
+      fonts?.removeEventListener?.("loadingdone", invalidate);
+    };
+  }, []);
+
   useEffect(() => {
     const bridge = window.desktopBridge;
     if (!bridge) {

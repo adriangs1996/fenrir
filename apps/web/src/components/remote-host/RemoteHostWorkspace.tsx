@@ -9,7 +9,7 @@ import {
 import { cn } from "../../lib/utils";
 import { isElectron } from "../../env";
 import { usePrimaryEnvironmentId } from "../../environments/primary";
-import { readEnvironmentApi } from "../../environmentApi";
+import { rpcErrorMessage, runEnvironmentRpc } from "../../hooks/useRpc";
 import { useRemoteControllerStore } from "../../remoteControllerStore";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -128,29 +128,31 @@ export function RemoteHostWorkspace({ hostId }: Props) {
     sidebarOpen,
   });
 
-  const api = environmentId ? readEnvironmentApi(environmentId) : undefined;
-
   const connect = async () => {
-    if (!api || !host) return;
+    if (!host) return;
     setBusy(true);
     setError(null);
     try {
-      await api.remoteController.startConnection({ hostId: host.hostId });
+      await runEnvironmentRpc(environmentId, (api) =>
+        api.remoteController.startConnection({ hostId: host.hostId }),
+      );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to start connection");
+      setError(rpcErrorMessage(cause, "Failed to start connection"));
     } finally {
       setBusy(false);
     }
   };
 
   const disconnect = async () => {
-    if (!api || !activeConnection) return;
+    if (!activeConnection) return;
     setBusy(true);
     setError(null);
     try {
-      await api.remoteController.stopConnection({ connectionId: activeConnection.connectionId });
+      await runEnvironmentRpc(environmentId, (api) =>
+        api.remoteController.stopConnection({ connectionId: activeConnection.connectionId }),
+      );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to stop connection");
+      setError(rpcErrorMessage(cause, "Failed to stop connection"));
     } finally {
       setBusy(false);
     }
@@ -179,18 +181,20 @@ export function RemoteHostWorkspace({ hostId }: Props) {
       }
     }
 
-    if (!api || !activeConnection) return;
+    if (!activeConnection) return;
     setBusy(true);
     setError(null);
-    setCommand((current) => (current.trim() === trimmed ? "" : current));
-    focusCommandInput();
     try {
-      await api.remoteController.sendCommand({
-        connectionId: activeConnection.connectionId,
-        command: trimmed,
+      await runEnvironmentRpc(environmentId, (api) => {
+        setCommand((current) => (current.trim() === trimmed ? "" : current));
+        focusCommandInput();
+        return api.remoteController.sendCommand({
+          connectionId: activeConnection.connectionId,
+          command: trimmed,
+        });
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to send command");
+      setError(rpcErrorMessage(cause, "Failed to send command"));
     } finally {
       setBusy(false);
       focusCommandInput();

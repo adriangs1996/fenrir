@@ -17,6 +17,8 @@ import {
   type ChangeRequestCheck,
   type ChangeRequestReviewThread,
   type DiffTarget,
+  type EnvironmentId,
+  type GitBranch,
   type GitDiffFileSummary,
   type GitDiffIgnoreList,
   type GitDiffRepository,
@@ -31,7 +33,7 @@ import {
   type GitStatusEntry,
 } from "@pierre/trees";
 import { FileTree as PierreFileTree, useFileTree } from "@pierre/trees/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import {
   BanIcon,
@@ -65,14 +67,26 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
   useState,
+  useTransition,
 } from "react";
 
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import {
+  Combobox,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxStatus,
+  ComboboxTrigger,
+} from "~/components/ui/combobox";
 import {
   Dialog,
   DialogDescription,
@@ -99,6 +113,7 @@ import {
   useNvimAvailable,
   useVSCodeWebAvailable,
 } from "~/hooks/useDesktopBridge";
+import { readEnvironmentApi } from "~/environmentApi";
 import { useSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { openInEmbeddedEditor, openInEmbeddedVSCode } from "~/editorPreferences";
@@ -125,13 +140,18 @@ import {
   gitDiffUpdateIgnoreListMutationOptions,
   invalidateGitDiffQueries,
 } from "~/lib/gitDiffReactQuery";
-import { gitRunStackedActionMutationOptions } from "~/lib/gitReactQuery";
+import {
+  gitQueryKeys,
+  gitRunStackedActionMutationOptions,
+  vcsRefSearchInfiniteQueryOptions,
+} from "~/lib/gitReactQuery";
 import { useGitStatus } from "~/lib/gitStatusState";
-import { readLocalApi } from "~/localApi";
+import { runLocalRpc } from "~/hooks/useRpc";
 import { resolveActiveEmbeddedEditor } from "~/modules/neovim-editor";
 import { cn, randomUUID } from "~/lib/utils";
 import { selectProjectByRef, selectThreadByRef, useStore } from "~/store";
-import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { toastManager } from "~/components/ui/toast";
+import { formatRelativeTimeLabel } from "~/lib/formatting";
 import { resolveThreadRouteRef } from "~/threadRoutes";
 
 const GIT_DIFF_FILE_TREE_ROW_HEIGHT = 24;
@@ -352,10 +372,15 @@ function mergeGitDiffRepositories(input: {
 
 function findBestRepositoryCwd(input: {
   readonly repositories: readonly GitDiffRepository[];
+  readonly repositoriesResolved: boolean;
   readonly selectedRepositoryCwd: string | null;
   readonly preferredCwd: string | null;
   readonly workspaceCwd: string | null;
 }): string | null {
+  if (input.selectedRepositoryCwd && !input.repositoriesResolved) {
+    return input.selectedRepositoryCwd;
+  }
+
   if (input.repositories.length === 0) {
     return input.workspaceCwd;
   }
@@ -799,6 +824,171 @@ type GitDiffSidebarWidthResizeState = {
   rafId: number | null;
 };
 
+function gitDiffBranchActionErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Failed to switch branch.";
+}
+
+function gitDiffBranchBadge(branch: GitBranch, cwd: string): string | null {
+  if (branch.current) return "current";
+  if (
+    branch.worktreePath &&
+    normalizeFilesystemPath(branch.worktreePath) !== normalizeFilesystemPath(cwd)
+  ) {
+    return "worktree";
+  }
+  if (branch.isRemote) return "remote";
+  if (branch.isDefault) return "default";
+  return null;
+}
+
+function GitDiffRepositoryBranchSelector(props: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string;
+  readonly currentBranch: string | null;
+}) {
+  const { currentBranch, cwd, environmentId } = props;
+  const queryClient = useQueryClient();
+  const [isOpen, setIsOpen] = useState(false);
+  const [branchQuery, setBranchQuery] = useState("");
+  const deferredBranchQuery = useDeferredValue(branchQuery);
+  const [isBranchActionPending, startBranchActionTransition] = useTransition();
+  const trimmedDeferredBranchQuery = deferredBranchQuery.trim();
+  const {
+    data: branchesSearchData,
+    isPending: isBranchesPending,
+    isFetchingNextPage,
+    hasNextPage,
+  } = useInfiniteQuery(
+    vcsRefSearchInfiniteQueryOptions({
+      environmentId,
+      cwd,
+      query: trimmedDeferredBranchQuery,
+      enabled: isOpen || trimmedDeferredBranchQuery.length > 0,
+    }),
+  );
+  const branches = useMemo(
+    () => branchesSearchData?.pages.flatMap((page) => page.refs) ?? [],
+    [branchesSearchData?.pages],
+  );
+  const branchNames = useMemo(() => branches.map((branch) => branch.name), [branches]);
+  const branchByName = useMemo(
+    () => new Map(branches.map((branch) => [branch.name, branch] as const)),
+    [branches],
+  );
+  const resolvedCurrentBranch =
+    currentBranch ?? branches.find((branch) => branch.current)?.name ?? null;
+  const totalBranchCount = branchesSearchData?.pages[0]?.totalCount ?? 0;
+  const branchStatusText = isBranchesPending
+    ? "Loading branches..."
+    : isFetchingNextPage
+      ? "Loading more branches..."
+      : hasNextPage
+        ? `Showing ${branches.length} of ${totalBranchCount} branches`
+        : null;
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setIsOpen(nextOpen);
+      if (!nextOpen) {
+        setBranchQuery("");
+        return;
+      }
+      void queryClient.invalidateQueries({ queryKey: gitQueryKeys.refs(environmentId, cwd) });
+    },
+    [cwd, environmentId, queryClient],
+  );
+
+  const selectBranch = useCallback(
+    (branchName: string) => {
+      if (!environmentId || isBranchActionPending) {
+        return;
+      }
+
+      const branch = branchByName.get(branchName);
+      const api = readEnvironmentApi(environmentId);
+      if (!branch || !api) {
+        return;
+      }
+
+      setIsOpen(false);
+      setBranchQuery("");
+      startBranchActionTransition(async () => {
+        try {
+          await api.vcs.switchRef({ cwd, refName: branch.name });
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: gitQueryKeys.refs(environmentId, cwd) }),
+            invalidateGitDiffQueries(queryClient, { environmentId, cwd }),
+          ]);
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: "Failed to switch branch.",
+            description: gitDiffBranchActionErrorMessage(error),
+          });
+        }
+      });
+    },
+    [branchByName, cwd, environmentId, isBranchActionPending, queryClient],
+  );
+
+  return (
+    <Combobox
+      items={branchNames}
+      filteredItems={branchNames}
+      autoHighlight
+      open={isOpen}
+      value={resolvedCurrentBranch}
+      onOpenChange={handleOpenChange}
+    >
+      <ComboboxTrigger
+        render={<Button variant="ghost" size="xs" />}
+        className="max-w-[20rem] text-muted-foreground hover:text-foreground"
+        disabled={!environmentId || isBranchActionPending}
+      >
+        <GitBranchIcon className="size-3" />
+        <span className="truncate font-mono">{resolvedCurrentBranch ?? "Select branch"}</span>
+        <ChevronDownIcon />
+      </ComboboxTrigger>
+      <ComboboxPopup align="start" className="w-80">
+        <div className="border-b p-1">
+          <ComboboxInput
+            className="[&_input]:font-sans rounded-md"
+            inputClassName="ring-0"
+            placeholder="Search branches..."
+            showTrigger={false}
+            size="sm"
+            value={branchQuery}
+            onChange={(event) => setBranchQuery(event.target.value)}
+          />
+        </div>
+        <ComboboxEmpty>No branches found.</ComboboxEmpty>
+        <ComboboxList className="max-h-56">
+          {branches.map((branch, index) => {
+            const badge = gitDiffBranchBadge(branch, cwd);
+            return (
+              <ComboboxItem
+                hideIndicator
+                key={branch.name}
+                index={index}
+                value={branch.name}
+                onClick={() => selectBranch(branch.name)}
+              >
+                <div className="flex w-full items-center justify-between gap-2">
+                  <span className="truncate">{branch.name}</span>
+                  {badge ? (
+                    <span className="shrink-0 text-[10px] text-muted-foreground/45">{badge}</span>
+                  ) : null}
+                </div>
+              </ComboboxItem>
+            );
+          })}
+        </ComboboxList>
+        {branchStatusText ? <ComboboxStatus>{branchStatusText}</ComboboxStatus> : null}
+      </ComboboxPopup>
+    </Combobox>
+  );
+}
+
 export function GitDiffWorkbenchRoute() {
   const params = useParams({ from: "/_chat/$environmentId/$threadId/gitdiff" });
   const threadRef = useMemo(() => resolveThreadRouteRef(params), [params]);
@@ -872,6 +1062,7 @@ export function GitDiffWorkbench(props: {
   const repositoriesQuery = useQuery(
     gitDiffRepositoriesQueryOptions({ environmentId, workspaceCwd }),
   );
+  const repositoriesResolved = repositoriesQuery.isFetched || repositoriesQuery.isError;
   const repositoryOptions = useMemo(
     () =>
       mergeGitDiffRepositories({
@@ -884,11 +1075,18 @@ export function GitDiffWorkbench(props: {
     () =>
       findBestRepositoryCwd({
         repositories: repositoryOptions,
+        repositoriesResolved,
         selectedRepositoryCwd,
         preferredCwd: preferredRepositoryCwd,
         workspaceCwd,
       }),
-    [preferredRepositoryCwd, repositoryOptions, selectedRepositoryCwd, workspaceCwd],
+    [
+      preferredRepositoryCwd,
+      repositoriesResolved,
+      repositoryOptions,
+      selectedRepositoryCwd,
+      workspaceCwd,
+    ],
   );
   const selectedRepository = useMemo(
     () => repositoryOptions.find((repository) => repository.cwd === cwd) ?? null,
@@ -1340,7 +1538,7 @@ export function GitDiffWorkbench(props: {
     closeChangeRequestMutation.isPending;
   const activeFileIndexLoading = isStackView
     ? stackSteps.length === 0 && stackQuery.isLoading
-    : worktreeQuery.isLoading;
+    : worktreeQuery.isLoading || stagedQuery.isLoading;
   const filesEmptyMessage = isStackView
     ? "No files changed in this stack step."
     : "No tracked working tree changes.";
@@ -1490,6 +1688,9 @@ export function GitDiffWorkbench(props: {
       return;
     }
     if (activeFiles.length === 0) {
+      if (activeFileIndexLoading) {
+        return;
+      }
       setSelectedPath(null);
       return;
     }
@@ -1511,6 +1712,7 @@ export function GitDiffWorkbench(props: {
     stackQuery.isFetched,
     stackQuery.isFetching,
     stackQuery.isLoading,
+    activeFileIndexLoading,
   ]);
 
   const refresh = () => {
@@ -1808,12 +2010,11 @@ export function GitDiffWorkbench(props: {
   const openActiveChangeRequest = useCallback(() => {
     if (!activeChangeRequest) return;
 
-    const api = readLocalApi();
-    if (!api) return;
-
-    void api.shell.openExternal(activeChangeRequest.url).catch((error: unknown) => {
-      console.warn("Failed to open active pull request.", error);
-    });
+    void runLocalRpc((api) => api.shell.openExternal(activeChangeRequest.url)).catch(
+      (error: unknown) => {
+        console.warn("Failed to open active pull request.", error);
+      },
+    );
   }, [activeChangeRequest]);
 
   if (!thread || !project || !cwd) {
@@ -1873,6 +2074,11 @@ export function GitDiffWorkbench(props: {
                     {selectedRepositoryLabel}
                   </Badge>
                 )}
+                <GitDiffRepositoryBranchSelector
+                  environmentId={environmentId}
+                  cwd={cwd}
+                  currentBranch={gitStatus.data?.branch ?? null}
+                />
               </div>
             </div>
           </div>

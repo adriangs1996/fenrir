@@ -201,6 +201,60 @@ describe("syncShellEnvironment", () => {
     expect(env.LC_CTYPE).toBe("en_US.UTF-8");
   });
 
+  it("falls back to a UTF-8 LC_CTYPE on macOS when no locale is available anywhere", () => {
+    const env: NodeJS.ProcessEnv = {
+      PATH: "/usr/bin",
+    };
+    const readEnvironment = vi.fn(() => ({
+      PATH: "/opt/homebrew/bin:/usr/bin",
+    }));
+
+    syncShellEnvironment(env, {
+      platform: "darwin",
+      readEnvironment,
+      userShell: "/bin/zsh",
+    });
+
+    expect(env.LC_CTYPE).toBe("UTF-8");
+    expect(env.LANG).toBeUndefined();
+  });
+
+  it("falls back to C.UTF-8 LANG on linux when no locale is available anywhere", () => {
+    const env: NodeJS.ProcessEnv = {
+      PATH: "/usr/bin",
+    };
+    const readEnvironment = vi.fn(() => ({
+      PATH: "/usr/local/bin:/usr/bin",
+    }));
+
+    syncShellEnvironment(env, {
+      platform: "linux",
+      readEnvironment,
+      userShell: "/bin/zsh",
+    });
+
+    expect(env.LANG).toBe("C.UTF-8");
+  });
+
+  it("does not override an inherited locale with the UTF-8 fallback", () => {
+    const env: NodeJS.ProcessEnv = {
+      PATH: "/usr/bin",
+      LANG: "es_ES.UTF-8",
+    };
+    const readEnvironment = vi.fn(() => ({
+      PATH: "/opt/homebrew/bin:/usr/bin",
+    }));
+
+    syncShellEnvironment(env, {
+      platform: "darwin",
+      readEnvironment,
+      userShell: "/bin/zsh",
+    });
+
+    expect(env.LANG).toBe("es_ES.UTF-8");
+    expect(env.LC_CTYPE).toBeUndefined();
+  });
+
   it("preserves inherited shell-specific environment variables", () => {
     const env: NodeJS.ProcessEnv = {
       SHELL: "/bin/zsh",

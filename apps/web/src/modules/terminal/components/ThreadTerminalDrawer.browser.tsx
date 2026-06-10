@@ -10,7 +10,7 @@ const {
   terminalDisposeSpy,
   fitAddonFitSpy,
   fitAddonLoadSpy,
-  waitForNerdFontLoadMock,
+  waitForTerminalFontLoadMock,
   environmentApiById,
   readEnvironmentApiMock,
   readLocalApiMock,
@@ -19,7 +19,7 @@ const {
   terminalDisposeSpy: vi.fn(),
   fitAddonFitSpy: vi.fn(),
   fitAddonLoadSpy: vi.fn(),
-  waitForNerdFontLoadMock: vi.fn(() => Promise.resolve(true)),
+  waitForTerminalFontLoadMock: vi.fn(() => Promise.resolve(true)),
   environmentApiById: new Map<string, { terminal: { open: ReturnType<typeof vi.fn> } }>(),
   readEnvironmentApiMock: vi.fn((environmentId: string) => environmentApiById.get(environmentId)),
   readLocalApiMock: vi.fn<
@@ -149,9 +149,9 @@ vi.mock("~/localApi", () => ({
   readLocalApi: readLocalApiMock,
 }));
 
-vi.mock("~/lib/nerdFont", () => ({
-  ensureNerdFontLoaded: vi.fn(() => Promise.resolve(true)),
-  waitForNerdFontLoad: waitForNerdFontLoadMock,
+vi.mock("../xtermFontLoad", () => ({
+  ensureTerminalFontLoaded: vi.fn(() => Promise.resolve(true)),
+  waitForTerminalFontLoad: waitForTerminalFontLoadMock,
 }));
 
 import { TerminalViewport } from "./ThreadTerminalDrawer";
@@ -254,8 +254,8 @@ describe("TerminalViewport", () => {
     terminalDisposeSpy.mockClear();
     fitAddonFitSpy.mockClear();
     fitAddonLoadSpy.mockClear();
-    waitForNerdFontLoadMock.mockReset();
-    waitForNerdFontLoadMock.mockResolvedValue(true);
+    waitForTerminalFontLoadMock.mockReset();
+    waitForTerminalFontLoadMock.mockResolvedValue(true);
   });
 
   it("does not create a terminal when APIs are unavailable", async () => {
@@ -275,9 +275,9 @@ describe("TerminalViewport", () => {
     }
   });
 
-  it("waits for the nerd font before constructing the terminal", async () => {
+  it("waits for the terminal font stack before constructing the terminal", async () => {
     let resolveFont: (() => void) | undefined;
-    waitForNerdFontLoadMock.mockImplementationOnce(
+    waitForTerminalFontLoadMock.mockImplementationOnce(
       () =>
         new Promise<boolean>((resolve) => {
           resolveFont = () => resolve(true);
@@ -293,7 +293,7 @@ describe("TerminalViewport", () => {
 
     try {
       await vi.waitFor(() => {
-        expect(waitForNerdFontLoadMock).toHaveBeenCalledTimes(1);
+        expect(waitForTerminalFontLoadMock).toHaveBeenCalledTimes(1);
       });
       expect(terminalConstructorSpy).not.toHaveBeenCalled();
 

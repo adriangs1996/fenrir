@@ -1,11 +1,9 @@
-import * as FS from "node:fs";
-import * as Path from "node:path";
-
 import {
   ClientSettingsSchema,
   type ClientSettings,
   type PersistedSavedEnvironmentRecord,
 } from "@fenrir/contracts";
+import { readJsonFile, writeJsonFileAtomic } from "@fenrir/shared/jsonFile";
 import { Predicate } from "effect";
 import * as Schema from "effect/Schema";
 
@@ -25,25 +23,6 @@ export interface DesktopSecretStorage {
   readonly isEncryptionAvailable: () => boolean;
   readonly encryptString: (value: string) => Buffer;
   readonly decryptString: (value: Buffer) => string;
-}
-
-function readJsonFile<T>(filePath: string): T | null {
-  try {
-    if (!FS.existsSync(filePath)) {
-      return null;
-    }
-    return JSON.parse(FS.readFileSync(filePath, "utf8")) as T;
-  } catch {
-    return null;
-  }
-}
-
-function writeJsonFile(filePath: string, value: unknown): void {
-  const directory = Path.dirname(filePath);
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  FS.mkdirSync(directory, { recursive: true });
-  FS.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  FS.renameSync(tempPath, filePath);
 }
 
 function isPersistedSavedEnvironmentStorageRecord(
@@ -100,7 +79,7 @@ export function readClientSettings(settingsPath: string): ClientSettings | null 
 }
 
 export function writeClientSettings(settingsPath: string, settings: ClientSettings): void {
-  writeJsonFile(settingsPath, { settings } satisfies ClientSettingsDocument);
+  writeJsonFileAtomic(settingsPath, { settings } satisfies ClientSettingsDocument);
 }
 
 export function readSavedEnvironmentRegistry(
@@ -123,7 +102,7 @@ export function writeSavedEnvironmentRegistry(
         : [],
     ),
   );
-  writeJsonFile(registryPath, {
+  writeJsonFileAtomic(registryPath, {
     records: records.map((record) => {
       const encryptedBearerToken = encryptedBearerTokenById.get(record.environmentId);
       return encryptedBearerToken
@@ -179,7 +158,7 @@ export function writeSavedEnvironmentSecret(input: {
 
   let found = false;
 
-  writeJsonFile(input.registryPath, {
+  writeJsonFileAtomic(input.registryPath, {
     records: document.records.map((record) => {
       if (record.environmentId !== input.environmentId) {
         return record;
@@ -217,7 +196,7 @@ export function removeSavedEnvironmentSecret(input: {
     return;
   }
 
-  writeJsonFile(input.registryPath, {
+  writeJsonFileAtomic(input.registryPath, {
     records: document.records.map((record) => {
       if (record.environmentId !== input.environmentId) {
         return record;
