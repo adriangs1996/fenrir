@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildKeybindingCommandOptions,
   buildKeybindingRows,
   commandLabel,
   keybindingFromKeyboardEvent,
@@ -13,6 +14,11 @@ describe("KeybindingsSettings.logic", () => {
   it("labels project and global script commands", () => {
     expect(commandLabel("script.deploy.run")).toBe("Run Script: Deploy");
     expect(commandLabel("global-script.fix.run")).toBe("Run Global Script: Fix");
+  });
+
+  it("uses user-facing labels for editor and git diff toggles", () => {
+    expect(commandLabel("editor.toggleChatTab")).toBe("Editor: Toggle");
+    expect(commandLabel("gitDiff.toggle")).toBe("Git Diff: Toggle");
   });
 
   it("marks default rows as default and custom rows as custom", () => {
@@ -52,6 +58,35 @@ describe("KeybindingsSettings.logic", () => {
     expect(rows.find((row) => row.command === "chat.new" && row.key === "mod+p")?.source).toBe(
       "Custom",
     );
+  });
+
+  it("includes supported static commands even when they are unbound", () => {
+    const rows = buildKeybindingRows(
+      [
+        {
+          command: "commandPalette.toggle",
+          shortcut: {
+            key: "k",
+            metaKey: false,
+            ctrlKey: false,
+            shiftKey: false,
+            altKey: false,
+            modKey: true,
+          },
+        },
+      ],
+      "",
+    );
+
+    const gitDiffRow = rows.find((row) => row.command === "gitDiff.toggle");
+    expect(gitDiffRow?.source).toBe("Unbound");
+    expect(gitDiffRow?.key).toBe("");
+    expect(gitDiffRow?.defaultKey).toBe("mod+g");
+  });
+
+  it("offers supported static commands when adding a binding", () => {
+    expect(buildKeybindingCommandOptions([])).toContain("editor.toggleChatTab");
+    expect(buildKeybindingCommandOptions([])).toContain("gitDiff.toggle");
   });
 
   it("parses when expressions and reports unknown variables", () => {

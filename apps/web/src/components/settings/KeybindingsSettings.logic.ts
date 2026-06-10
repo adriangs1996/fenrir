@@ -4,6 +4,8 @@ import {
   type KeybindingWhenNode,
   type ResolvedKeybindingRule,
   type ResolvedKeybindingsConfig,
+  STATIC_KEYBINDING_COMMANDS,
+  type StaticKeybindingCommand,
 } from "@fenrir/contracts";
 import {
   DEFAULT_RESOLVED_KEYBINDINGS,
@@ -13,7 +15,7 @@ import {
 } from "@fenrir/shared/keybindings";
 import { isMacPlatform } from "../../lib/utils";
 
-export type KeybindingSource = "Default" | "Custom" | "Project" | "Global";
+export type KeybindingSource = "Default" | "Custom" | "Project" | "Global" | "Unbound";
 export const DEFAULT_WHEN_VARIABLE = "terminalFocus";
 
 export interface KeybindingRow {
@@ -24,7 +26,7 @@ export interface KeybindingRow {
   readonly source: KeybindingSource;
   readonly defaultKey: string | null;
   readonly defaultWhen: string;
-  readonly binding: ResolvedKeybindingRule;
+  readonly binding: ResolvedKeybindingRule | null;
   readonly conflicts: ReadonlyArray<string>;
 }
 
@@ -39,6 +41,15 @@ for (const binding of DEFAULT_RESOLVED_KEYBINDINGS) {
 }
 
 const KNOWN_WHEN_VARIABLES = new Set(DEFAULT_WHEN_VARIABLES);
+const STATIC_KEYBINDING_COMMAND_SET = new Set<KeybindingCommand>(STATIC_KEYBINDING_COMMANDS);
+const STATIC_COMMAND_LABELS: Partial<Record<StaticKeybindingCommand, string>> = {
+  "editor.toggleChatTab": "Editor: Toggle",
+  "gitDiff.toggle": "Git Diff: Toggle",
+};
+
+function isStaticKeybindingCommand(command: KeybindingCommand): command is StaticKeybindingCommand {
+  return STATIC_KEYBINDING_COMMAND_SET.has(command);
+}
 
 export function shortcutToKeybindingInput(shortcut: KeybindingShortcut): string {
   const parts: string[] = [];
@@ -131,6 +142,10 @@ function defaultBindingForBinding(
   );
 }
 
+function defaultBindingForCommand(command: KeybindingCommand): ResolvedKeybindingRule | undefined {
+  return DEFAULT_RESOLVED_KEYBINDINGS.find((entry) => entry.command === command);
+}
+
 function keybindingRowId(command: KeybindingCommand, key: string, when: string): string {
   return `${command}\u0000${key}\u0000${when}`;
 }
@@ -160,7 +175,7 @@ export function buildKeybindingRows(
   query: string,
 ): ReadonlyArray<KeybindingRow> {
   const normalizedQuery = query.trim().toLowerCase();
-  const rows = keybindings.map((binding, index) => {
+  const rows: KeybindingRow[] = keybindings.map((binding, index) => {
     const defaultBinding = defaultBindingForBinding(binding);
     const key = shortcutToKeybindingInput(binding.shortcut);
     const when = whenAstToExpression(binding.whenAst);
@@ -177,6 +192,25 @@ export function buildKeybindingRows(
       conflicts: [],
     } satisfies KeybindingRow;
   });
+
+  const boundStaticCommands = new Set(
+    rows.filter((row) => isStaticKeybindingCommand(row.command)).map((row) => row.command),
+  );
+  for (const command of STATIC_KEYBINDING_COMMANDS) {
+    if (boundStaticCommands.has(command)) continue;
+    const defaultBinding = defaultBindingForCommand(command);
+    rows.push({
+      id: `${keybindingRowId(command, "", "")}\u0000unbound`,
+      command,
+      key: "",
+      when: "",
+      source: "Unbound",
+      defaultKey: defaultBinding ? shortcutToKeybindingInput(defaultBinding.shortcut) : null,
+      defaultWhen: whenAstToExpression(defaultBinding?.whenAst),
+      binding: null,
+      conflicts: [],
+    });
+  }
 
   const rowsWithConflicts = rows.map((row) => {
     const conflicts = keybindingConflictLabels(rows, {
@@ -269,6 +303,9 @@ export function buildKeybindingCommandOptions(
   keybindings: ResolvedKeybindingsConfig,
 ): ReadonlyArray<KeybindingCommandOption> {
   const commands = new Set<KeybindingCommand>();
+  for (const command of STATIC_KEYBINDING_COMMANDS) {
+    commands.add(command);
+  }
   for (const binding of DEFAULT_RESOLVED_KEYBINDINGS) {
     commands.add(binding.command);
   }
@@ -281,6 +318,11 @@ export function buildKeybindingCommandOptions(
 }
 
 export function commandLabel(command: KeybindingCommand): string {
+  if (isStaticKeybindingCommand(command)) {
+    const label = STATIC_COMMAND_LABELS[command];
+    if (label) return label;
+  }
+
   const raw = String(command);
   if (isProjectScriptKeybindingCommand(raw)) {
     return `Run Script: ${titleCaseCommandSegment(raw.slice("script.".length, -".run".length))}`;

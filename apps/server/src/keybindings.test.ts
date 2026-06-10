@@ -257,6 +257,33 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
+  it.effect("ignores obsolete keybinding commands without reporting validation issues", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const { keybindingsConfigPath } = yield* ServerConfig;
+      yield* fs.writeFileString(
+        keybindingsConfigPath,
+        JSON.stringify([
+          { key: "mod+j", command: "terminal.toggle" },
+          { key: "mod+shift+p", command: "sourceControl.review.previousItem" },
+        ]),
+      );
+
+      const configState = yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        return yield* keybindings.loadConfigState;
+      });
+
+      assert.deepEqual(configState.issues, []);
+      assert.isTrue(configState.keybindings.some((entry) => entry.command === "terminal.toggle"));
+      assert.isFalse(
+        configState.keybindings.some(
+          (entry) => String(entry.command) === "sourceControl.review.previousItem",
+        ),
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
   it.effect(
     "upserts missing default keybindings on startup without overriding existing command rules",
     () =>
@@ -287,6 +314,35 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         }
         assert.isTrue(byCommand.has("script.run-tests.run"));
       }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("removes obsolete keybinding commands on startup", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const { keybindingsConfigPath } = yield* ServerConfig;
+      yield* fs.writeFileString(
+        keybindingsConfigPath,
+        JSON.stringify([
+          { key: "mod+shift+t", command: "terminal.toggle" },
+          { key: "mod+shift+p", command: "sourceControl.review.previousItem" },
+        ]),
+      );
+
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+      });
+
+      const persistedRaw = yield* fs.readFileString(keybindingsConfigPath);
+      assert.isFalse(persistedRaw.includes("sourceControl.review.previousItem"));
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      const byCommand = new Map(persisted.map((entry) => [entry.command, entry]));
+      assert.equal(byCommand.get("terminal.toggle")?.key, "mod+shift+t");
+      for (const defaultRule of DEFAULT_KEYBINDINGS) {
+        assert.isTrue(byCommand.has(defaultRule.command), `expected ${defaultRule.command}`);
+      }
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
   it.effect("migrates exact old thread traversal defaults on startup", () =>

@@ -56,8 +56,9 @@ function makeDraftState(
   commands: ReadonlyArray<KeybindingCommand>,
 ): DraftState {
   const fallbackCommand = commands[0] ?? "commandPalette.toggle";
+  const hasExistingBinding = row !== null && row.source !== "Unbound";
   return {
-    mode: row ? "edit" : "create",
+    mode: hasExistingBinding ? "edit" : "create",
     rowId: row?.id ?? "new",
     initialRow: row,
     command: row?.command ?? fallbackCommand,
@@ -75,6 +76,8 @@ function sourceBadgeVariant(source: KeybindingRow["source"]): "info" | "outline"
     case "Project":
     case "Global":
       return "info";
+    case "Unbound":
+      return "outline";
   }
 }
 
@@ -283,7 +286,9 @@ function KeybindingEditor({
       ) : null}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {draft.initialRow && draft.initialRow.source !== "Default" ? (
+        {draft.initialRow &&
+        draft.initialRow.source !== "Default" &&
+        draft.initialRow.source !== "Unbound" ? (
           <Button size="xs" variant="destructive-outline" disabled={busy} onClick={onDelete}>
             <Trash2Icon className="size-3.5" />
             Delete
@@ -365,7 +370,7 @@ export function KeybindingsSettings() {
         key: canonicalKey,
         command: nextDraft.command,
         ...(when.length > 0 ? { when } : {}),
-        ...(nextDraft.initialRow
+        ...(nextDraft.initialRow && nextDraft.initialRow.source !== "Unbound"
           ? {
               replace:
                 nextDraft.initialRow.when.trim().length > 0
@@ -544,7 +549,9 @@ export function KeybindingsSettings() {
               ) : (
                 rows.map((row) => {
                   const isBusy = busyRowId === row.id;
-                  const shortcutLabel = formatShortcutLabel(row.binding.shortcut);
+                  const shortcutLabel = row.binding
+                    ? formatShortcutLabel(row.binding.shortcut)
+                    : "Unbound";
                   const isEditing = draft?.rowId === row.id;
                   return (
                     <div key={row.id} className="px-4 py-4 sm:px-5">
@@ -584,7 +591,7 @@ export function KeybindingsSettings() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
-                          {row.source !== "Default" ? (
+                          {row.source !== "Default" && row.source !== "Unbound" ? (
                             <Button
                               size="xs"
                               variant="outline"
@@ -602,7 +609,7 @@ export function KeybindingsSettings() {
                             onClick={() => setDraft(makeDraftState(row, commands))}
                           >
                             <Edit3Icon className="size-3.5" />
-                            {isEditing ? "Editing" : "Edit"}
+                            {isEditing ? "Editing" : row.source === "Unbound" ? "Add" : "Edit"}
                           </Button>
                         </div>
                       </div>

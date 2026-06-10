@@ -139,6 +139,19 @@ const THREAD_TRAVERSAL_DEFAULT_MIGRATIONS = [
   nextKey: string;
 }>;
 
+const OBSOLETE_KEYBINDING_COMMANDS = new Set([
+  "sourceControl.review.previousItem",
+  "sourceControl.review.nextItem",
+]);
+
+function obsoleteKeybindingCommand(entry: unknown): string | null {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  const command = (entry as Record<string, unknown>).command;
+  return typeof command === "string" && OBSOLETE_KEYBINDING_COMMANDS.has(command) ? command : null;
+}
+
 function migrateThreadTraversalDefaultKeybindings(rules: readonly KeybindingRule[]): {
   keybindings: readonly KeybindingRule[];
   changed: boolean;
@@ -453,11 +466,12 @@ const makeKeybindings = Effect.gen(function* () {
     {
       readonly keybindings: readonly KeybindingRule[];
       readonly issues: readonly ServerConfigIssue[];
+      readonly removedObsoleteEntries: boolean;
     },
     KeybindingsConfigError
   > {
     if (!(yield* readConfigExists)) {
-      return { keybindings: [], issues: [] };
+      return { keybindings: [], issues: [], removedObsoleteEntries: false };
     }
 
     const rawConfig = yield* readRawConfig;
@@ -467,12 +481,25 @@ const makeKeybindings = Effect.gen(function* () {
       return {
         keybindings: [],
         issues: [malformedConfigIssue(detail)],
+        removedObsoleteEntries: false,
       };
     }
 
     const keybindings: KeybindingRule[] = [];
     const issues: ServerConfigIssue[] = [];
+    let removedObsoleteEntries = false;
     for (const [index, entry] of decodedEntries.value.entries()) {
+      const obsoleteCommand = obsoleteKeybindingCommand(entry);
+      if (obsoleteCommand) {
+        removedObsoleteEntries = true;
+        yield* Effect.logWarning("removing obsolete keybinding entry", {
+          path: keybindingsConfigPath,
+          index,
+          command: obsoleteCommand,
+        });
+        continue;
+      }
+
       const decodedRule = Schema.decodeUnknownExit(KeybindingRule)(entry);
       if (decodedRule._tag === "Failure") {
         const detail = Cause.pretty(decodedRule.cause);
@@ -501,7 +528,7 @@ const makeKeybindings = Effect.gen(function* () {
       keybindings.push(decodedRule.value);
     }
 
-    return { keybindings, issues };
+    return { keybindings, issues, removedObsoleteEntries };
   });
 
   const writeConfigAtomically = (rules: readonly KeybindingRule[]) => {
@@ -622,7 +649,11 @@ const makeKeybindings = Effect.gen(function* () {
           reason: "shortcut context already used by existing rule",
         });
       }
-      if (missingDefaults.length === 0 && !migratedConfig.changed) {
+      if (
+        missingDefaults.length === 0 &&
+        !migratedConfig.changed &&
+        !runtimeConfig.removedObsoleteEntries
+      ) {
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }
