@@ -8,7 +8,6 @@ import {
   FileDiff,
   type FileContents,
   type FileDiffMetadata,
-  type HunkSeparators,
   Virtualizer,
 } from "@pierre/diffs/react";
 import {
@@ -35,6 +34,7 @@ import {
 import { FileTree as PierreFileTree, useFileTree } from "@pierre/trees/react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
+import { useShallow } from "zustand/react/shallow";
 import {
   BanIcon,
   CheckCircle2Icon,
@@ -66,6 +66,7 @@ import {
   type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type SetStateAction,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -153,20 +154,26 @@ import { selectProjectByRef, selectThreadByRef, useStore } from "~/store";
 import { toastManager } from "~/components/ui/toast";
 import { formatRelativeTimeLabel } from "~/lib/formatting";
 import { resolveThreadRouteRef } from "~/threadRoutes";
+import {
+  gitDiffWorkbenchScopeKey,
+  selectGitDiffWorkbenchScopeState,
+  useGitDiffWorkbenchStore,
+  type GitDiffWorkbenchHunkSeparators,
+  type GitDiffWorkbenchLineHighlightMode,
+  type GitDiffWorkbenchRenderMode,
+  type GitDiffWorkbenchViewMode,
+} from "./gitDiffWorkbenchStore";
 
 const GIT_DIFF_FILE_TREE_ROW_HEIGHT = 24;
 const GIT_DIFF_FILE_TREE_MIN_VISIBLE_ROWS = 4;
 const GIT_DIFF_FILE_TREE_MAX_VISIBLE_ROWS = 18;
 const GIT_DIFF_SIDEBAR_SECTION_HEADER_HEIGHT = 44;
 const GIT_DIFF_SIDEBAR_RESIZE_HANDLE_HEIGHT = 10;
-const GIT_DIFF_SIDEBAR_DEFAULT_WIDTH = 352;
 const GIT_DIFF_SIDEBAR_MIN_WIDTH = 280;
 const GIT_DIFF_SIDEBAR_MAX_WIDTH = 720;
-const GIT_DIFF_SIDEBAR_STACK_DEFAULT_HEIGHT = 520;
 const GIT_DIFF_SIDEBAR_STACK_MIN_HEIGHT = 144;
 const GIT_DIFF_SIDEBAR_FILES_MIN_HEIGHT = 120;
 const GIT_DIFF_IGNORE_LIST_DRAG_TYPE = "application/x-fenrir-git-diff-file-path";
-const GIT_DIFF_WORKBENCH_STATE_STORAGE_PREFIX = "fenrir:git-diff-workbench-state:v1";
 const EMPTY_GIT_DIFF_IGNORE_LISTS: readonly GitDiffIgnoreList[] = [];
 
 const GIT_DIFF_FILE_TREE_STYLE = {
@@ -197,23 +204,14 @@ const GIT_DIFF_FILE_TREE_STYLE = {
   "--trees-status-renamed-override": "var(--warning)",
 } as CSSProperties;
 
-type DiffRenderMode = "stacked" | "split";
+type DiffRenderMode = GitDiffWorkbenchRenderMode;
 type DiffThemeType = "light" | "dark";
-type DiffLineHighlightMode = "inline" | "none";
-type GitDiffViewMode = "stack" | "worktree";
+type DiffLineHighlightMode = GitDiffWorkbenchLineHighlightMode;
+type GitDiffViewMode = GitDiffWorkbenchViewMode;
 type GitDiffReviewThreadAnnotation = {
   readonly threads: readonly ChangeRequestReviewThread[];
 };
-type PersistedGitDiffRepositoryState = {
-  readonly mode: GitDiffViewMode;
-  readonly selectedPath: string | null;
-  readonly selectedStackIndex: number | null;
-};
-type PersistedGitDiffWorkbenchState = PersistedGitDiffRepositoryState & {
-  readonly selectedRepositoryCwd: string | null;
-  readonly repositoryStates: Record<string, PersistedGitDiffRepositoryState>;
-};
-type BuiltInHunkSeparators = Exclude<HunkSeparators, "custom">;
+type BuiltInHunkSeparators = GitDiffWorkbenchHunkSeparators;
 type GitDiffFileDiffOptions = NonNullable<
   ComponentProps<typeof FileDiff<GitDiffReviewThreadAnnotation>>["options"]
 >;
@@ -233,92 +231,6 @@ const HUNK_SEPARATOR_LABELS: Record<BuiltInHunkSeparators, string> = {
   metadata: "Metadata",
   simple: "Simple",
 };
-
-function gitDiffWorkbenchStateStorageKey(input: {
-  readonly environmentId: string | null;
-  readonly projectId: string | null;
-}): string | null {
-  if (!input.environmentId || !input.projectId) return null;
-  return `${GIT_DIFF_WORKBENCH_STATE_STORAGE_PREFIX}:${input.environmentId}:${input.projectId}`;
-}
-
-function isPersistedGitDiffRepositoryState(
-  value: unknown,
-): value is PersistedGitDiffRepositoryState {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  return (
-    (record.mode === "stack" || record.mode === "worktree") &&
-    (typeof record.selectedPath === "string" || record.selectedPath === null) &&
-    (typeof record.selectedStackIndex === "number" ||
-      record.selectedStackIndex === null ||
-      record.selectedStackIndex === undefined)
-  );
-}
-
-function isPersistedGitDiffWorkbenchState(value: unknown): value is PersistedGitDiffWorkbenchState {
-  if (!isPersistedGitDiffRepositoryState(value)) {
-    return false;
-  }
-
-  const record = value as Record<string, unknown>;
-  return (
-    (typeof record.selectedRepositoryCwd === "string" ||
-      record.selectedRepositoryCwd === null ||
-      record.selectedRepositoryCwd === undefined) &&
-    (record.repositoryStates === undefined ||
-      (typeof record.repositoryStates === "object" && record.repositoryStates !== null))
-  );
-}
-
-function readPersistedGitDiffWorkbenchState(
-  storageKey: string | null,
-): PersistedGitDiffWorkbenchState | null {
-  if (!storageKey || typeof window === "undefined") return null;
-
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isPersistedGitDiffWorkbenchState(parsed)) return null;
-    const rawRepositoryStates =
-      parsed.repositoryStates && typeof parsed.repositoryStates === "object"
-        ? parsed.repositoryStates
-        : {};
-    const repositoryStates = Object.fromEntries(
-      Object.entries(rawRepositoryStates).filter(
-        (entry): entry is [string, PersistedGitDiffRepositoryState] =>
-          isPersistedGitDiffRepositoryState(entry[1]),
-      ),
-    );
-    return {
-      mode: parsed.mode,
-      selectedPath: parsed.selectedPath,
-      selectedStackIndex:
-        typeof parsed.selectedStackIndex === "number" ? parsed.selectedStackIndex : null,
-      selectedRepositoryCwd:
-        typeof parsed.selectedRepositoryCwd === "string" ? parsed.selectedRepositoryCwd : null,
-      repositoryStates,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writePersistedGitDiffWorkbenchState(
-  storageKey: string | null,
-  state: PersistedGitDiffWorkbenchState,
-): void {
-  if (!storageKey || typeof window === "undefined") return;
-
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(state));
-  } catch {
-    // Storage failure should not block the diff UI.
-  }
-}
 
 function normalizeFilesystemPath(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/g, "");
@@ -753,7 +665,9 @@ function buildChangedFilesTreeData(files: readonly GitDiffFileSummary[]) {
     filePathSet,
     gitStatus,
     paths,
-    preparedInput: prepareFileTreeInput(paths, { flattenEmptyDirectories: true }),
+    preparedInput: prepareFileTreeInput(paths, {
+      flattenEmptyDirectories: true,
+    }),
     visibleRowCount: paths.length,
   };
 }
@@ -893,7 +807,9 @@ function GitDiffRepositoryBranchSelector(props: {
         setBranchQuery("");
         return;
       }
-      void queryClient.invalidateQueries({ queryKey: gitQueryKeys.refs(environmentId, cwd) });
+      void queryClient.invalidateQueries({
+        queryKey: gitQueryKeys.refs(environmentId, cwd),
+      });
     },
     [cwd, environmentId, queryClient],
   );
@@ -916,7 +832,9 @@ function GitDiffRepositoryBranchSelector(props: {
         try {
           await api.vcs.switchRef({ cwd, refName: branch.name });
           await Promise.all([
-            queryClient.invalidateQueries({ queryKey: gitQueryKeys.refs(environmentId, cwd) }),
+            queryClient.invalidateQueries({
+              queryKey: gitQueryKeys.refs(environmentId, cwd),
+            }),
             invalidateGitDiffQueries(queryClient, { environmentId, cwd }),
           ]);
         } catch (error) {
@@ -1017,31 +935,55 @@ export function GitDiffWorkbench(props: {
   const environmentId = threadRef?.environmentId ?? null;
   const workspaceCwd = project?.cwd ?? thread?.worktreePath ?? null;
   const preferredRepositoryCwd = thread?.worktreePath ?? project?.cwd ?? null;
-  const gitDiffStateStorageKey = useMemo(
+  const gitDiffScopeKey = useMemo(
     () =>
-      gitDiffWorkbenchStateStorageKey({
+      gitDiffWorkbenchScopeKey({
         environmentId,
         projectId: project?.id ?? null,
       }),
     [environmentId, project?.id],
   );
-  const [selectedRepositoryCwd, setSelectedRepositoryCwd] = useState<string | null>(null);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [selectedStackIndex, setSelectedStackIndex] = useState<number | null>(null);
-  const [diffViewMode, setDiffViewMode] = useState<GitDiffViewMode>("worktree");
-  const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("split");
-  const [diffWordWrap, setDiffWordWrap] = useState(false);
-  const [diffIgnoreWhitespace, setDiffIgnoreWhitespace] = useState(false);
-  const [diffLineNumbers, setDiffLineNumbers] = useState(true);
-  const [diffLineHighlightMode, setDiffLineHighlightMode] =
-    useState<DiffLineHighlightMode>("inline");
-  const [diffHunkSeparators, setDiffHunkSeparators] = useState<BuiltInHunkSeparators>("line-info");
-  const [stackSectionOpen, setStackSectionOpen] = useState(true);
-  const [filesSectionOpen, setFilesSectionOpen] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(GIT_DIFF_SIDEBAR_DEFAULT_WIDTH);
-  const [stackSectionHeight, setStackSectionHeight] = useState(
-    GIT_DIFF_SIDEBAR_STACK_DEFAULT_HEIGHT,
+  const {
+    diffHunkSeparators,
+    diffIgnoreWhitespace,
+    diffLineHighlightMode,
+    diffLineNumbers,
+    diffRenderMode,
+    diffViewMode,
+    diffWordWrap,
+    filesSectionOpen,
+    selectedPath,
+    selectedRepositoryCwd,
+    selectedStackIndex,
+    sidebarWidth,
+    stackSectionHeight,
+    stackSectionOpen,
+  } = useGitDiffWorkbenchStore(
+    useShallow((state) => {
+      const scopeState = selectGitDiffWorkbenchScopeState(state, gitDiffScopeKey);
+      return {
+        diffHunkSeparators: scopeState.preferences.diffHunkSeparators,
+        diffIgnoreWhitespace: scopeState.preferences.diffIgnoreWhitespace,
+        diffLineHighlightMode: scopeState.preferences.diffLineHighlightMode,
+        diffLineNumbers: scopeState.preferences.diffLineNumbers,
+        diffRenderMode: scopeState.preferences.diffRenderMode,
+        diffViewMode: scopeState.mode,
+        diffWordWrap: scopeState.preferences.diffWordWrap,
+        filesSectionOpen: scopeState.preferences.filesSectionOpen,
+        selectedPath: scopeState.selectedPath,
+        selectedRepositoryCwd: scopeState.selectedRepositoryCwd,
+        selectedStackIndex: scopeState.selectedStackIndex,
+        sidebarWidth: scopeState.preferences.sidebarWidth,
+        stackSectionHeight: scopeState.preferences.stackSectionHeight,
+        stackSectionOpen: scopeState.preferences.stackSectionOpen,
+      };
+    }),
   );
+  const selectGitDiffRepository = useGitDiffWorkbenchStore((state) => state.selectRepository);
+  const updateGitDiffRepositoryState = useGitDiffWorkbenchStore(
+    (state) => state.updateRepositoryState,
+  );
+  const updateGitDiffPreferences = useGitDiffWorkbenchStore((state) => state.updatePreferences);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
@@ -1055,9 +997,6 @@ export function GitDiffWorkbench(props: {
   const sidebarResizeStateRef = useRef<GitDiffSidebarResizeState | null>(null);
   const sidebarWidthResizeStateRef = useRef<GitDiffSidebarWidthResizeState | null>(null);
   const allowAutoSelectFirstFileRef = useRef(true);
-  const gitDiffStateRestoredRef = useRef(false);
-  const skipNextGitDiffStatePersistRef = useRef(false);
-  const persistedRepositoryStatesRef = useRef<Record<string, PersistedGitDiffRepositoryState>>({});
   const lastAppliedRepositoryCwdRef = useRef<string | null>(null);
   const repositoriesQuery = useQuery(
     gitDiffRepositoriesQueryOptions({ environmentId, workspaceCwd }),
@@ -1093,6 +1032,85 @@ export function GitDiffWorkbench(props: {
     [cwd, repositoryOptions],
   );
   const selectedRepositoryLabel = selectedRepository?.cwd ?? cwd ?? "Repository";
+  const setCurrentRepositoryState = useCallback(
+    (patch: {
+      readonly mode?: GitDiffViewMode;
+      readonly selectedPath?: string | null;
+      readonly selectedStackIndex?: number | null;
+    }) => updateGitDiffRepositoryState(gitDiffScopeKey, cwd, patch),
+    [cwd, gitDiffScopeKey, updateGitDiffRepositoryState],
+  );
+  const setSelectedPath = useCallback(
+    (path: string | null) => setCurrentRepositoryState({ selectedPath: path }),
+    [setCurrentRepositoryState],
+  );
+  const setSelectedStackIndex = useCallback(
+    (index: number | null) => setCurrentRepositoryState({ selectedStackIndex: index }),
+    [setCurrentRepositoryState],
+  );
+  const setDiffViewMode = useCallback(
+    (mode: GitDiffViewMode) => setCurrentRepositoryState({ mode }),
+    [setCurrentRepositoryState],
+  );
+  const setDiffRenderMode = useCallback(
+    (diffRenderMode: DiffRenderMode) =>
+      updateGitDiffPreferences(gitDiffScopeKey, { diffRenderMode }),
+    [gitDiffScopeKey, updateGitDiffPreferences],
+  );
+  const setDiffWordWrap = useCallback(
+    (diffWordWrap: boolean) => updateGitDiffPreferences(gitDiffScopeKey, { diffWordWrap }),
+    [gitDiffScopeKey, updateGitDiffPreferences],
+  );
+  const setDiffIgnoreWhitespace = useCallback(
+    (diffIgnoreWhitespace: boolean) =>
+      updateGitDiffPreferences(gitDiffScopeKey, { diffIgnoreWhitespace }),
+    [gitDiffScopeKey, updateGitDiffPreferences],
+  );
+  const setDiffLineNumbers = useCallback(
+    (diffLineNumbers: boolean) => updateGitDiffPreferences(gitDiffScopeKey, { diffLineNumbers }),
+    [gitDiffScopeKey, updateGitDiffPreferences],
+  );
+  const setDiffLineHighlightMode = useCallback(
+    (diffLineHighlightMode: DiffLineHighlightMode) =>
+      updateGitDiffPreferences(gitDiffScopeKey, { diffLineHighlightMode }),
+    [gitDiffScopeKey, updateGitDiffPreferences],
+  );
+  const setDiffHunkSeparators = useCallback(
+    (diffHunkSeparators: BuiltInHunkSeparators) =>
+      updateGitDiffPreferences(gitDiffScopeKey, { diffHunkSeparators }),
+    [gitDiffScopeKey, updateGitDiffPreferences],
+  );
+  const setStackSectionOpen = useCallback(
+    (action: SetStateAction<boolean>) =>
+      updateGitDiffPreferences(gitDiffScopeKey, (preferences) => ({
+        stackSectionOpen:
+          typeof action === "function" ? action(preferences.stackSectionOpen) : action,
+      })),
+    [gitDiffScopeKey, updateGitDiffPreferences],
+  );
+  const setFilesSectionOpen = useCallback(
+    (action: SetStateAction<boolean>) =>
+      updateGitDiffPreferences(gitDiffScopeKey, (preferences) => ({
+        filesSectionOpen:
+          typeof action === "function" ? action(preferences.filesSectionOpen) : action,
+      })),
+    [gitDiffScopeKey, updateGitDiffPreferences],
+  );
+  const setSidebarWidth = useCallback(
+    (action: SetStateAction<number>) =>
+      updateGitDiffPreferences(gitDiffScopeKey, (preferences) => ({
+        sidebarWidth: typeof action === "function" ? action(preferences.sidebarWidth) : action,
+      })),
+    [gitDiffScopeKey, updateGitDiffPreferences],
+  );
+  const setStackSectionHeight = useCallback(
+    (action: SetStateAction<number>) =>
+      updateGitDiffPreferences(gitDiffScopeKey, (preferences) => ({
+        stackSectionHeight:
+          typeof action === "function" ? action(preferences.stackSectionHeight) : action,
+      })),
+    [gitDiffScopeKey, updateGitDiffPreferences],
+  );
   const gitStatus = useGitStatus({ environmentId, cwd });
   const { resolvedTheme, syntaxTheme } = useTheme();
   const settings = useSettings();
@@ -1118,7 +1136,11 @@ export function GitDiffWorkbench(props: {
   );
 
   const worktreeQuery = useQuery(
-    gitDiffFileIndexQueryOptions({ environmentId, cwd, targetKind: "worktree" }),
+    gitDiffFileIndexQueryOptions({
+      environmentId,
+      cwd,
+      targetKind: "worktree",
+    }),
   );
   const stagedQuery = useQuery(
     gitDiffFileIndexQueryOptions({ environmentId, cwd, targetKind: "staged" }),
@@ -1140,19 +1162,39 @@ export function GitDiffWorkbench(props: {
     gitDiffDeleteIgnoreListMutationOptions({ environmentId, cwd, queryClient }),
   );
   const stageWorktreeChangesMutation = useMutation(
-    gitDiffStageWorktreeChangesMutationOptions({ environmentId, cwd, queryClient }),
+    gitDiffStageWorktreeChangesMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
   );
   const closeChangeRequestMutation = useMutation(
-    gitDiffCloseChangeRequestMutationOptions({ environmentId, cwd, queryClient }),
+    gitDiffCloseChangeRequestMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
   );
   const mergeChangeRequestMutation = useMutation(
-    gitDiffMergeChangeRequestMutationOptions({ environmentId, cwd, queryClient }),
+    gitDiffMergeChangeRequestMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
   );
   const commentChangeRequestLinesMutation = useMutation(
-    gitDiffCommentChangeRequestLinesMutationOptions({ environmentId, cwd, queryClient }),
+    gitDiffCommentChangeRequestLinesMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
   );
   const revertChangeRequestLinesMutation = useMutation(
-    gitDiffRevertChangeRequestLinesMutationOptions({ environmentId, cwd, queryClient }),
+    gitDiffRevertChangeRequestLinesMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
   );
   const runStackedActionMutation = useMutation(
     gitRunStackedActionMutationOptions({ environmentId, cwd, queryClient }),
@@ -1304,12 +1346,8 @@ export function GitDiffWorkbench(props: {
                         ? `PR #${item.step.changeRequest.number}`
                         : stackStepLabel(item.step, stackSteps.length)}
                     </span>
-                    <span className="shrink-0 tabular-nums text-emerald-600 dark:text-emerald-400">
-                      +{stepInsertions}
-                    </span>
-                    <span className="shrink-0 tabular-nums text-rose-600 dark:text-rose-400">
-                      -{stepDeletions}
-                    </span>
+                    <span className="shrink-0 tabular-nums text-success">+{stepInsertions}</span>
+                    <span className="shrink-0 tabular-nums text-destructive">-{stepDeletions}</span>
                   </span>
                 </span>
               </button>
@@ -1318,7 +1356,7 @@ export function GitDiffWorkbench(props: {
         }
       }
     },
-    [selectedStackStep, stackSteps.length],
+    [selectedStackStep, setSelectedStackIndex, stackSteps.length],
   );
 
   const stopSidebarResize = useCallback(() => {
@@ -1333,7 +1371,7 @@ export function GitDiffWorkbench(props: {
     sidebarResizeStateRef.current = null;
     document.body.style.removeProperty("cursor");
     document.body.style.removeProperty("user-select");
-  }, []);
+  }, [setStackSectionHeight]);
 
   const stopSidebarWidthResize = useCallback(() => {
     const resizeState = sidebarWidthResizeStateRef.current;
@@ -1347,7 +1385,7 @@ export function GitDiffWorkbench(props: {
     sidebarWidthResizeStateRef.current = null;
     document.body.style.removeProperty("cursor");
     document.body.style.removeProperty("user-select");
-  }, []);
+  }, [setSidebarWidth]);
 
   useEffect(() => {
     return () => {
@@ -1362,7 +1400,7 @@ export function GitDiffWorkbench(props: {
       document.body.style.removeProperty("cursor");
       document.body.style.removeProperty("user-select");
     };
-  }, []);
+  }, [setSidebarWidth]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1372,7 +1410,7 @@ export function GitDiffWorkbench(props: {
     };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  }, [setSidebarWidth]);
 
   useEffect(() => {
     const sidebar = sidebarRef.current;
@@ -1388,7 +1426,7 @@ export function GitDiffWorkbench(props: {
     return () => {
       resizeObserver.disconnect();
     };
-  }, []);
+  }, [setStackSectionHeight]);
 
   const handleSidebarResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -1442,7 +1480,7 @@ export function GitDiffWorkbench(props: {
         setStackSectionHeight(activeResizeState.height);
       });
     },
-    [],
+    [setStackSectionHeight],
   );
 
   const handleSidebarResizePointerEnd = useCallback(
@@ -1509,7 +1547,7 @@ export function GitDiffWorkbench(props: {
         setSidebarWidth(activeResizeState.width);
       });
     },
-    [],
+    [setSidebarWidth],
   );
 
   const handleSidebarWidthResizePointerEnd = useCallback(
@@ -1544,80 +1582,26 @@ export function GitDiffWorkbench(props: {
     : "No tracked working tree changes.";
 
   useEffect(() => {
-    gitDiffStateRestoredRef.current = false;
-    skipNextGitDiffStatePersistRef.current = true;
-    lastAppliedRepositoryCwdRef.current = null;
-
-    const persistedState = readPersistedGitDiffWorkbenchState(gitDiffStateStorageKey);
-    if (persistedState) {
-      persistedRepositoryStatesRef.current = persistedState.repositoryStates;
-      setSelectedRepositoryCwd(persistedState.selectedRepositoryCwd);
-      const repositoryState = persistedState.selectedRepositoryCwd
-        ? persistedState.repositoryStates[persistedState.selectedRepositoryCwd]
-        : null;
-      const initialState = repositoryState ?? persistedState;
-      allowAutoSelectFirstFileRef.current = initialState.selectedPath !== null;
-      setDiffViewMode(initialState.mode);
-      setSelectedPath(initialState.selectedPath);
-      setSelectedStackIndex(initialState.selectedStackIndex);
-    } else {
-      persistedRepositoryStatesRef.current = {};
-      setSelectedRepositoryCwd(null);
-      allowAutoSelectFirstFileRef.current = true;
-      setDiffViewMode("worktree");
-      setSelectedPath(null);
-      setSelectedStackIndex(null);
-    }
-
-    gitDiffStateRestoredRef.current = true;
-  }, [gitDiffStateStorageKey]);
-
-  useEffect(() => {
-    if (!gitDiffStateRestoredRef.current || !cwd || lastAppliedRepositoryCwdRef.current === cwd) {
+    if (!cwd) {
       return;
     }
 
-    lastAppliedRepositoryCwdRef.current = cwd;
-    setSelectedRepositoryCwd(cwd);
-    const repositoryState = persistedRepositoryStatesRef.current[cwd];
-    if (repositoryState) {
-      allowAutoSelectFirstFileRef.current = repositoryState.selectedPath !== null;
-      setDiffViewMode(repositoryState.mode);
-      setSelectedPath(repositoryState.selectedPath);
-      setSelectedStackIndex(repositoryState.selectedStackIndex);
+    const appliedRepositoryKey = `${gitDiffScopeKey ?? "none"}\0${cwd}`;
+    if (lastAppliedRepositoryCwdRef.current === appliedRepositoryKey) {
       return;
     }
 
-    allowAutoSelectFirstFileRef.current = true;
-    setDiffViewMode("worktree");
-    setSelectedPath(null);
-    setSelectedStackIndex(null);
-  }, [cwd]);
-
-  useEffect(() => {
-    if (!gitDiffStateStorageKey || !gitDiffStateRestoredRef.current) return;
-    if (!cwd) return;
-    if (skipNextGitDiffStatePersistRef.current) {
-      skipNextGitDiffStatePersistRef.current = false;
-      return;
-    }
-
-    const repositoryState = {
-      mode: diffViewMode,
-      selectedPath,
-      selectedStackIndex,
-    };
-    const repositoryStates = {
-      ...persistedRepositoryStatesRef.current,
-      [cwd]: repositoryState,
-    };
-    persistedRepositoryStatesRef.current = repositoryStates;
-    writePersistedGitDiffWorkbenchState(gitDiffStateStorageKey, {
-      ...repositoryState,
-      selectedRepositoryCwd: cwd,
-      repositoryStates,
-    });
-  }, [cwd, diffViewMode, gitDiffStateStorageKey, selectedPath, selectedStackIndex]);
+    lastAppliedRepositoryCwdRef.current = appliedRepositoryKey;
+    const scopeState = selectGitDiffWorkbenchScopeState(
+      useGitDiffWorkbenchStore.getState(),
+      gitDiffScopeKey,
+    );
+    const repositoryState = scopeState.repositoryStates[cwd];
+    allowAutoSelectFirstFileRef.current = repositoryState
+      ? repositoryState.selectedPath !== null
+      : true;
+    selectGitDiffRepository(gitDiffScopeKey, cwd);
+  }, [cwd, gitDiffScopeKey, selectGitDiffRepository]);
 
   useEffect(() => {
     if (
@@ -1633,29 +1617,15 @@ export function GitDiffWorkbench(props: {
     }
 
     allowAutoSelectFirstFileRef.current = false;
-    setDiffViewMode("worktree");
-    setSelectedPath(null);
-    setSelectedStackIndex(null);
-    const repositoryStates = {
-      ...persistedRepositoryStatesRef.current,
-      [cwd]: {
-        mode: "worktree" as const,
-        selectedPath: null,
-        selectedStackIndex: null,
-      },
-    };
-    persistedRepositoryStatesRef.current = repositoryStates;
-    writePersistedGitDiffWorkbenchState(gitDiffStateStorageKey, {
+    setCurrentRepositoryState({
       mode: "worktree",
       selectedPath: null,
       selectedStackIndex: null,
-      selectedRepositoryCwd: cwd,
-      repositoryStates,
     });
   }, [
     cwd,
     diffViewMode,
-    gitDiffStateStorageKey,
+    setCurrentRepositoryState,
     stackQuery.isError,
     stackQuery.isFetched,
     stackQuery.isFetching,
@@ -1677,7 +1647,7 @@ export function GitDiffWorkbench(props: {
     ) {
       setSelectedStackIndex(stackSteps.at(-1)?.index ?? null);
     }
-  }, [isStackView, selectedStackIndex, stackSteps]);
+  }, [isStackView, selectedStackIndex, setSelectedStackIndex, stackSteps]);
 
   useEffect(() => {
     if (
@@ -1708,6 +1678,7 @@ export function GitDiffWorkbench(props: {
     diffViewMode,
     isStackView,
     selectedPath,
+    setSelectedPath,
     stackQuery.isError,
     stackQuery.isFetched,
     stackQuery.isFetching,
@@ -1895,23 +1866,6 @@ export function GitDiffWorkbench(props: {
       allowAutoSelectFirstFileRef.current = true;
       setSelectedPath(selectedFile.path);
       setSelectedStackIndex(nextSelectedStackIndex);
-      const repositoryState = {
-        mode: diffViewMode,
-        selectedPath: selectedFile.path,
-        selectedStackIndex: nextSelectedStackIndex,
-      };
-      const repositoryStates = cwd
-        ? {
-            ...persistedRepositoryStatesRef.current,
-            [cwd]: repositoryState,
-          }
-        : persistedRepositoryStatesRef.current;
-      persistedRepositoryStatesRef.current = repositoryStates;
-      writePersistedGitDiffWorkbenchState(gitDiffStateStorageKey, {
-        ...repositoryState,
-        selectedRepositoryCwd: cwd,
-        repositoryStates,
-      });
 
       const editor = resolveActiveEmbeddedEditor({
         preferredEditor: settings.embeddedEditor,
@@ -1930,47 +1884,43 @@ export function GitDiffWorkbench(props: {
   }, [
     cwd,
     desktopBridgeAvailable,
-    diffViewMode,
-    gitDiffStateStorageKey,
     isMainWindow,
     nvimReady,
     selectedFile,
     selectedStackIndex,
     selectedStackStep,
+    setSelectedPath,
+    setSelectedStackIndex,
     settings.embeddedEditor,
     vscodeReady,
   ]);
 
-  const handleSelectedPathChange = useCallback((path: string | null) => {
-    allowAutoSelectFirstFileRef.current = true;
-    setSelectedPath(path);
-  }, []);
+  const handleSelectedPathChange = useCallback(
+    (path: string | null) => {
+      allowAutoSelectFirstFileRef.current = true;
+      setSelectedPath(path);
+    },
+    [setSelectedPath],
+  );
 
-  const handleDiffViewModeChange = useCallback((mode: GitDiffViewMode) => {
-    allowAutoSelectFirstFileRef.current = true;
-    setDiffViewMode(mode);
-  }, []);
+  const handleDiffViewModeChange = useCallback(
+    (mode: GitDiffViewMode) => {
+      allowAutoSelectFirstFileRef.current = true;
+      setDiffViewMode(mode);
+    },
+    [setDiffViewMode],
+  );
 
   const handleRepositoryCwdChange = useCallback(
     (nextRepositoryCwd: string) => {
       if (!repositoryOptions.some((repository) => repository.cwd === nextRepositoryCwd)) {
         return;
       }
-      if (cwd) {
-        persistedRepositoryStatesRef.current = {
-          ...persistedRepositoryStatesRef.current,
-          [cwd]: {
-            mode: diffViewMode,
-            selectedPath,
-            selectedStackIndex,
-          },
-        };
-      }
       allowAutoSelectFirstFileRef.current = true;
       setActionError(null);
-      setSelectedRepositoryCwd(nextRepositoryCwd);
+      selectGitDiffRepository(gitDiffScopeKey, nextRepositoryCwd);
     },
-    [cwd, diffViewMode, repositoryOptions, selectedPath, selectedStackIndex],
+    [gitDiffScopeKey, repositoryOptions, selectGitDiffRepository],
   );
 
   const filesSectionContent = activeFileIndexLoading ? (
@@ -2785,7 +2735,10 @@ function ChangedFilesTree(props: {
 
     if (props.selectedPath && treeData.filePathSet.has(props.selectedPath)) {
       model.getItem(props.selectedPath)?.select();
-      model.scrollToPath(props.selectedPath, { focus: false, offset: "nearest" });
+      model.scrollToPath(props.selectedPath, {
+        focus: false,
+        offset: "nearest",
+      });
     }
   }, [model, props.selectedPath, treeData.filePathSet]);
 
