@@ -1,4 +1,10 @@
 import { type ITheme } from "@xterm/xterm";
+import {
+  DRACULA_PRO_THEME_NAMES,
+  DRACULA_PRO_VARIANTS,
+  type DraculaProPalette,
+  type DraculaProThemeName,
+} from "../../lib/draculaProThemeData";
 
 type TerminalThemePalette = Omit<ITheme, "background" | "foreground">;
 type CustomTerminalThemeClassName =
@@ -8,6 +14,8 @@ type CustomTerminalThemeClassName =
   | "rose-pine"
   | "kanagawa"
   | "kanagawa-dragon"
+  | "tokyonight-moon"
+  | DraculaProThemeName
   | "nord";
 
 const CUSTOM_TERMINAL_THEME_CLASS_NAMES = [
@@ -17,6 +25,8 @@ const CUSTOM_TERMINAL_THEME_CLASS_NAMES = [
   "rose-pine",
   "kanagawa",
   "kanagawa-dragon",
+  "tokyonight-moon",
+  ...DRACULA_PRO_THEME_NAMES,
   "nord",
 ] as const satisfies readonly CustomTerminalThemeClassName[];
 
@@ -67,6 +77,49 @@ const DEFAULT_LIGHT_TERMINAL_PALETTE: TerminalThemePalette = {
   brightCyan: "rgb(70, 149, 164)",
   brightWhite: "rgb(236, 240, 246)",
 };
+
+function hexToRgba(hex: string, alpha: number): string {
+  const numericColor = Number.parseInt(hex.slice(1), 16);
+  const red = (numericColor >> 16) & 255;
+  const green = (numericColor >> 8) & 255;
+  const blue = numericColor & 255;
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+function createDraculaProTerminalPalette(palette: DraculaProPalette): TerminalThemePalette {
+  return {
+    cursor: palette.fg,
+    cursorAccent: palette.bg,
+    selectionBackground: palette.selection,
+    selectionForeground: palette.fg,
+    scrollbarSliderBackground: hexToRgba(palette.selection, 0.55),
+    scrollbarSliderHoverBackground: hexToRgba(palette.comment, 0.72),
+    scrollbarSliderActiveBackground: hexToRgba(palette.comment, 0.82),
+    black: palette.selection,
+    red: palette.red,
+    green: palette.green,
+    yellow: palette.yellow,
+    blue: palette.purple,
+    magenta: palette.pink,
+    cyan: palette.cyan,
+    white: palette.fg,
+    brightBlack: palette.comment,
+    brightRed: "#FFAA99",
+    brightGreen: "#A2FF99",
+    brightYellow: "#FFFF99",
+    brightBlue: "#AA99FF",
+    brightMagenta: "#FF99CC",
+    brightCyan: "#99FFEE",
+    brightWhite: "#FFFFFF",
+  };
+}
+
+const DRACULA_PRO_TERMINAL_THEME_PALETTES = Object.fromEntries(
+  DRACULA_PRO_VARIANTS.map((variant) => [
+    variant.name,
+    createDraculaProTerminalPalette(variant.palette),
+  ]),
+) as Record<DraculaProThemeName, TerminalThemePalette>;
 
 const CUSTOM_TERMINAL_THEME_PALETTES = {
   "pierre-dark": {
@@ -207,6 +260,32 @@ const CUSTOM_TERMINAL_THEME_PALETTES = {
     brightCyan: "#7aa89f",
     brightWhite: "#c5c9c5",
   },
+  "tokyonight-moon": {
+    cursor: "#c8d3f5",
+    cursorAccent: "#222436",
+    selectionBackground: "#2d3f76",
+    selectionForeground: "#c8d3f5",
+    scrollbarSliderBackground: "rgba(68, 74, 115, 0.55)",
+    scrollbarSliderHoverBackground: "rgba(84, 92, 126, 0.72)",
+    scrollbarSliderActiveBackground: "rgba(115, 122, 162, 0.82)",
+    black: "#1b1d2b",
+    red: "#ff757f",
+    green: "#c3e88d",
+    yellow: "#ffc777",
+    blue: "#82aaff",
+    magenta: "#c099ff",
+    cyan: "#86e1fc",
+    white: "#828bb8",
+    brightBlack: "#444a73",
+    brightRed: "#ff8d94",
+    brightGreen: "#c7fb6d",
+    brightYellow: "#ffd8ab",
+    brightBlue: "#9ab8ff",
+    brightMagenta: "#caabff",
+    brightCyan: "#b2ebff",
+    brightWhite: "#c8d3f5",
+  },
+  ...DRACULA_PRO_TERMINAL_THEME_PALETTES,
   nord: {
     cursor: "#d8dee9",
     selectionBackground: "rgba(136, 192, 208, 0.25)",

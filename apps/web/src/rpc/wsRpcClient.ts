@@ -247,6 +247,10 @@ export interface WsRpcClient {
     readonly updateIgnoreList: RpcUnaryMethod<typeof WS_METHODS.gitDiffUpdateIgnoreList>;
     readonly deleteIgnoreList: RpcUnaryMethod<typeof WS_METHODS.gitDiffDeleteIgnoreList>;
     readonly stageWorktreeChanges: RpcUnaryMethod<typeof WS_METHODS.gitDiffStageWorktreeChanges>;
+    readonly unstageStagedChanges: RpcUnaryMethod<typeof WS_METHODS.gitDiffUnstageStagedChanges>;
+    readonly discardWorktreeChanges: RpcUnaryMethod<
+      typeof WS_METHODS.gitDiffDiscardWorktreeChanges
+    >;
     readonly closeChangeRequest: RpcUnaryMethod<typeof WS_METHODS.gitDiffCloseChangeRequest>;
     readonly mergeChangeRequest: RpcUnaryMethod<typeof WS_METHODS.gitDiffMergeChangeRequest>;
     readonly loadChangeRequestChecks: RpcUnaryMethod<
@@ -620,6 +624,10 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.gitDiffDeleteIgnoreList](input)),
       stageWorktreeChanges: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffStageWorktreeChanges](input)),
+      unstageStagedChanges: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffUnstageStagedChanges](input)),
+      discardWorktreeChanges: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffDiscardWorktreeChanges](input)),
       closeChangeRequest: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffCloseChangeRequest](input)),
       mergeChangeRequest: (input) =>

@@ -55,6 +55,20 @@ export const makeGitDiffRoutes = (deps: { readonly refreshGitStatus: RefreshGitS
             .stageWorktreeChanges(input)
             .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
       ),
+      [WS_METHODS.gitDiffUnstageStagedChanges]: gitDiff.effect(
+        WS_METHODS.gitDiffUnstageStagedChanges,
+        (input) =>
+          gitDiffCore
+            .unstageStagedChanges(input)
+            .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
+      [WS_METHODS.gitDiffDiscardWorktreeChanges]: gitDiff.effect(
+        WS_METHODS.gitDiffDiscardWorktreeChanges,
+        (input) =>
+          gitDiffCore
+            .discardWorktreeChanges(input)
+            .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
       [WS_METHODS.gitDiffCloseChangeRequest]: gitDiff.effect(
         WS_METHODS.gitDiffCloseChangeRequest,
         (input) => gitDiffCore.closeChangeRequest(input),

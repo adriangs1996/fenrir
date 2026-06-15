@@ -1,3 +1,5 @@
+import { DRACULA_PRO_CUSTOM_THEME_CONFIG, DRACULA_PRO_THEME_OPTIONS } from "./draculaProThemeData";
+
 export const THEME_OPTIONS = [
   {
     value: "system",
@@ -36,6 +38,11 @@ export const THEME_OPTIONS = [
     label: "Kanagawa Dragon",
   },
   {
+    value: "tokyonight-moon",
+    label: "Tokyonight Moon",
+  },
+  ...DRACULA_PRO_THEME_OPTIONS,
+  {
     value: "nord",
     label: "Nord",
   },
@@ -68,6 +75,11 @@ const CUSTOM_THEME_CONFIG = {
     className: "kanagawa-dragon",
     syntaxTheme: "kanagawa-dragon",
   },
+  "tokyonight-moon": {
+    className: "tokyonight-moon",
+    syntaxTheme: "tokyonight-moon",
+  },
+  ...DRACULA_PRO_CUSTOM_THEME_CONFIG,
   nord: {
     className: "nord",
     syntaxTheme: "nord",

@@ -1070,6 +1070,58 @@ describe("GitDiffCoreLive", () => {
       }),
     );
 
+    it.effect("unstages selected staged changes while leaving edits in the worktree", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/file.txt": "base\n" });
+
+        try {
+          writeFile(cwd, "src/file.txt", "changed\n");
+          git(cwd, "add", "src/file.txt");
+
+          const gitDiff = yield* GitDiffCore;
+          const result = yield* gitDiff.unstageStagedChanges({
+            cwd,
+            filePaths: ["src/file.txt"],
+          });
+
+          expect(result).toEqual({
+            unstagedFilePaths: ["src/file.txt"],
+          });
+          expect(gitOutput(cwd, "diff", "--cached", "--name-only")).toBe("");
+          expect(gitOutput(cwd, "diff", "--name-only")).toBe("src/file.txt");
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("discards selected worktree changes without unstaging indexed content", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/file.txt": "base\n" });
+
+        try {
+          writeFile(cwd, "src/file.txt", "staged\n");
+          git(cwd, "add", "src/file.txt");
+          writeFile(cwd, "src/file.txt", "worktree\n");
+
+          const gitDiff = yield* GitDiffCore;
+          const result = yield* gitDiff.discardWorktreeChanges({
+            cwd,
+            filePaths: ["src/file.txt"],
+          });
+
+          expect(result).toEqual({
+            discardedFilePaths: ["src/file.txt"],
+          });
+          expect(readFileSync(path.join(cwd, "src/file.txt"), "utf8")).toBe("staged\n");
+          expect(gitOutput(cwd, "diff", "--name-only")).toBe("");
+          expect(gitOutput(cwd, "diff", "--cached", "--name-only")).toBe("src/file.txt");
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
     it.effect("delegates pull request actions, checks, and review threads to the provider", () =>
       Effect.gen(function* () {
         const cwd = makeCommittedRepo({ "src/base.ts": "base\n" });

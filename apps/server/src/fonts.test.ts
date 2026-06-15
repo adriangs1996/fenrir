@@ -5,6 +5,7 @@ import {
   parseFcListOutput,
   parsePowerShellOutput,
   parseSystemProfilerOutput,
+  SYSTEM_FONTS_COMMAND_MAX_BUFFER_BYTES,
 } from "./fonts";
 
 describe("parseFcListOutput", () => {
@@ -140,6 +141,12 @@ describe("parseSystemProfilerOutput", () => {
     expect(parseSystemProfilerOutput(output)).toEqual([
       { family: "CommitMonodev", category: "monospace" },
     ]);
+  });
+});
+
+describe("font command execution", () => {
+  it("allows native macOS font profiler output larger than Node's exec default", () => {
+    expect(SYSTEM_FONTS_COMMAND_MAX_BUFFER_BYTES).toBeGreaterThan(1024 * 1024);
   });
 });
 

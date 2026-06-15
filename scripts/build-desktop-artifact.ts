@@ -154,6 +154,10 @@ function resolvePythonForNodeGyp(): string | undefined {
   return executable;
 }
 
+function resolveElectronBuilderCli(repoRoot: string): string {
+  return join(repoRoot, "node_modules", "electron-builder", "cli.js");
+}
+
 interface ResolvedBuildOptions {
   readonly platform: typeof BuildPlatform.Type;
   readonly target: string;
@@ -738,14 +742,18 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* Effect.log(
     `[desktop-artifact] Building ${options.platform}/${options.target} (arch=${options.arch}, version=${appVersion})...`,
   );
+  const electronBuilderCli = resolveElectronBuilderCli(repoRoot);
+  if (!(yield* fs.exists(electronBuilderCli))) {
+    return yield* new BuildScriptError({
+      message: `Missing electron-builder CLI at ${electronBuilderCli}. Run 'bun install' first.`,
+    });
+  }
   yield* runCommand(
     ChildProcess.make({
       cwd: stageAppDir,
       env: buildEnv,
       ...commandOutputOptions(options.verbose),
-      // Windows needs shell mode to resolve .cmd shims.
-      shell: process.platform === "win32",
-    })`bunx electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`,
+    })`${process.execPath} ${electronBuilderCli} ${platformConfig.cliFlag} --${options.arch} --publish never`,
   );
 
   const stageDistDir = path.join(stageAppDir, "dist");

@@ -120,7 +120,7 @@ function clearPrimaryBearerSessionToken(): void {
   }
 }
 
-function primaryAuthRequestInit(init?: RequestInit): RequestInit {
+export function primaryAuthRequestInit(init?: RequestInit): RequestInit {
   const bearerToken = readPrimaryBearerSessionToken();
   const headers = new Headers(init?.headers);
   if (bearerToken) {

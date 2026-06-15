@@ -4,6 +4,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "~/lib/storage";
 
 export type GitDiffWorkbenchViewMode = "stack" | "worktree";
+export type GitDiffWorkbenchTargetKind = "worktree" | "staged";
 export type GitDiffWorkbenchRenderMode = "stacked" | "split";
 export type GitDiffWorkbenchLineHighlightMode = "inline" | "none";
 export type GitDiffWorkbenchHunkSeparators =
@@ -15,6 +16,7 @@ export type GitDiffWorkbenchHunkSeparators =
 export type GitDiffWorkbenchRepositoryState = {
   readonly mode: GitDiffWorkbenchViewMode;
   readonly selectedPath: string | null;
+  readonly selectedTargetKind: GitDiffWorkbenchTargetKind;
   readonly selectedStackIndex: number | null;
 };
 
@@ -58,6 +60,7 @@ interface GitDiffWorkbenchStoreState {
 const DEFAULT_REPOSITORY_STATE: GitDiffWorkbenchRepositoryState = {
   mode: "worktree",
   selectedPath: null,
+  selectedTargetKind: "worktree",
   selectedStackIndex: null,
 };
 
@@ -94,7 +97,25 @@ export function selectGitDiffWorkbenchScopeState(
   scopeKey: string | null,
 ): GitDiffWorkbenchScopeState {
   if (!scopeKey) return DEFAULT_GIT_DIFF_WORKBENCH_SCOPE_STATE;
-  return state.scopes[scopeKey] ?? DEFAULT_GIT_DIFF_WORKBENCH_SCOPE_STATE;
+  const scopeState = state.scopes[scopeKey];
+  if (!scopeState) return DEFAULT_GIT_DIFF_WORKBENCH_SCOPE_STATE;
+
+  const repositoryStates = Object.fromEntries(
+    Object.entries(scopeState.repositoryStates ?? {}).map(([cwd, repositoryState]) => [
+      cwd,
+      normalizeRepositoryState(repositoryState),
+    ]),
+  );
+
+  return {
+    ...scopeState,
+    ...normalizeRepositoryState(scopeState),
+    repositoryStates,
+    preferences: {
+      ...DEFAULT_GIT_DIFF_WORKBENCH_PREFERENCES,
+      ...scopeState.preferences,
+    },
+  };
 }
 
 function createScopeState(): GitDiffWorkbenchScopeState {
@@ -103,6 +124,19 @@ function createScopeState(): GitDiffWorkbenchScopeState {
     selectedRepositoryCwd: null,
     repositoryStates: {},
     preferences: { ...DEFAULT_GIT_DIFF_WORKBENCH_PREFERENCES },
+  };
+}
+
+function normalizeRepositoryState(
+  state: Partial<GitDiffWorkbenchRepositoryState> | undefined,
+): GitDiffWorkbenchRepositoryState {
+  return {
+    ...DEFAULT_REPOSITORY_STATE,
+    ...state,
+    selectedTargetKind:
+      state?.selectedTargetKind === "staged" || state?.selectedTargetKind === "worktree"
+        ? state.selectedTargetKind
+        : DEFAULT_REPOSITORY_STATE.selectedTargetKind,
   };
 }
 
@@ -118,7 +152,7 @@ export const useGitDiffWorkbenchStore = create<GitDiffWorkbenchStoreState>()(
         if (!scopeKey) return;
         set((state) => {
           const scopeState = state.scopes[scopeKey] ?? createScopeState();
-          const repositoryState = scopeState.repositoryStates[cwd] ?? DEFAULT_REPOSITORY_STATE;
+          const repositoryState = normalizeRepositoryState(scopeState.repositoryStates[cwd]);
           return {
             scopes: {
               ...state.scopes,
@@ -141,11 +175,12 @@ export const useGitDiffWorkbenchStore = create<GitDiffWorkbenchStoreState>()(
               ? {
                   mode: scopeState.mode,
                   selectedPath: scopeState.selectedPath,
+                  selectedTargetKind: scopeState.selectedTargetKind,
                   selectedStackIndex: scopeState.selectedStackIndex,
                 }
               : DEFAULT_REPOSITORY_STATE);
           const repositoryState = {
-            ...currentRepositoryState,
+            ...normalizeRepositoryState(currentRepositoryState),
             ...patch,
           };
           return {

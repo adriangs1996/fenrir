@@ -5,6 +5,8 @@ import {
   CommentGitDiffChangeRequestLinesInput,
   CreateGitDiffIgnoreListInput,
   DeleteGitDiffIgnoreListInput,
+  DiscardGitDiffWorktreeChangesInput,
+  DiscardGitDiffWorktreeChangesResult,
   GitDiffActionResult,
   GitDiffChangeRequestReferenceInput,
   GitDiffMergeChangeRequestInput,
@@ -28,6 +30,8 @@ import {
   RevertGitDiffChangeRequestLinesResult,
   StageGitDiffWorktreeChangesInput,
   StageGitDiffWorktreeChangesResult,
+  UnstageGitDiffStagedChangesInput,
+  UnstageGitDiffStagedChangesResult,
   UpdateGitDiffIgnoreListInput,
 } from "../gitDiff";
 import { WS_METHODS } from "./methods";
@@ -94,6 +98,21 @@ export const WsGitDiffStageWorktreeChangesRpc = Rpc.make(WS_METHODS.gitDiffStage
   success: StageGitDiffWorktreeChangesResult,
   error: GitCommandError,
 });
+
+export const WsGitDiffUnstageStagedChangesRpc = Rpc.make(WS_METHODS.gitDiffUnstageStagedChanges, {
+  payload: UnstageGitDiffStagedChangesInput,
+  success: UnstageGitDiffStagedChangesResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffDiscardWorktreeChangesRpc = Rpc.make(
+  WS_METHODS.gitDiffDiscardWorktreeChanges,
+  {
+    payload: DiscardGitDiffWorktreeChangesInput,
+    success: DiscardGitDiffWorktreeChangesResult,
+    error: GitCommandError,
+  },
+);
 
 export const WsGitDiffCloseChangeRequestRpc = Rpc.make(WS_METHODS.gitDiffCloseChangeRequest, {
   payload: GitDiffChangeRequestReferenceInput,

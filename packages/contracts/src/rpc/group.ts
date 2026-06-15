@@ -5,6 +5,7 @@ import {
   WsGitDiffCommentChangeRequestLinesRpc,
   WsGitDiffCreateIgnoreListRpc,
   WsGitDiffDeleteIgnoreListRpc,
+  WsGitDiffDiscardWorktreeChangesRpc,
   WsGitDiffListRepositoriesRpc,
   WsGitDiffLoadActiveChangeRequestStackedFileIndexRpc,
   WsGitDiffLoadChangeRequestChecksRpc,
@@ -16,6 +17,7 @@ import {
   WsGitDiffMergeChangeRequestRpc,
   WsGitDiffRevertChangeRequestLinesRpc,
   WsGitDiffStageWorktreeChangesRpc,
+  WsGitDiffUnstageStagedChangesRpc,
   WsGitDiffUpdateIgnoreListRpc,
 } from "./gitDiff";
 import {
@@ -239,6 +241,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitDiffUpdateIgnoreListRpc,
   WsGitDiffDeleteIgnoreListRpc,
   WsGitDiffStageWorktreeChangesRpc,
+  WsGitDiffUnstageStagedChangesRpc,
+  WsGitDiffDiscardWorktreeChangesRpc,
   WsGitDiffCloseChangeRequestRpc,
   WsGitDiffMergeChangeRequestRpc,
   WsGitDiffLoadChangeRequestChecksRpc,

@@ -1,20 +1,19 @@
 import { useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SystemFont } from "@fenrir/contracts";
+import { primaryAuthRequestInit } from "../environments/primary";
 import { resolvePrimaryEnvironmentHttpUrl } from "../environments/primary/target";
 
 const SYSTEM_FONTS_STALE_TIME_MS = 10_000;
 const SYSTEM_FONTS_GC_TIME_MS = 60_000;
 const SYSTEM_FONTS_QUERY_KEY = ["system-fonts"] as const;
 
-async function fetchFonts(refresh = false): Promise<SystemFont[]> {
+export async function fetchSystemFonts(refresh = false): Promise<SystemFont[]> {
   const url = resolvePrimaryEnvironmentHttpUrl(
     "/api/fonts",
     refresh ? { refresh: "1" } : undefined,
   );
-  const response = await fetch(url, {
-    credentials: "include",
-  });
+  const response = await fetch(url, primaryAuthRequestInit());
 
   if (!response.ok) {
     throw new Error(`Failed to fetch fonts: ${response.status}`);
@@ -28,7 +27,7 @@ export function useFonts() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { data: fonts = [], isLoading } = useQuery({
     queryKey: SYSTEM_FONTS_QUERY_KEY,
-    queryFn: () => fetchFonts(),
+    queryFn: () => fetchSystemFonts(),
     staleTime: SYSTEM_FONTS_STALE_TIME_MS,
     gcTime: SYSTEM_FONTS_GC_TIME_MS,
     retry: 2,
@@ -39,7 +38,7 @@ export function useFonts() {
     try {
       await queryClient.fetchQuery({
         queryKey: SYSTEM_FONTS_QUERY_KEY,
-        queryFn: () => fetchFonts(true),
+        queryFn: () => fetchSystemFonts(true),
         staleTime: 0,
       });
     } finally {

@@ -27,6 +27,8 @@ import type {
   CommentGitDiffChangeRequestLinesInput,
   CreateGitDiffIgnoreListInput,
   DeleteGitDiffIgnoreListInput,
+  DiscardGitDiffWorktreeChangesInput,
+  DiscardGitDiffWorktreeChangesResult,
   GitDiffActionResult,
   GitDiffChangeRequestReferenceInput,
   GitDiffMergeChangeRequestInput,
@@ -50,6 +52,8 @@ import type {
   RevertGitDiffChangeRequestLinesResult,
   StageGitDiffWorktreeChangesInput,
   StageGitDiffWorktreeChangesResult,
+  UnstageGitDiffStagedChangesInput,
+  UnstageGitDiffStagedChangesResult,
   UpdateGitDiffIgnoreListInput,
 } from "./gitDiff";
 import type {
@@ -956,6 +960,12 @@ export interface EnvironmentApi {
     stageWorktreeChanges: (
       input: StageGitDiffWorktreeChangesInput,
     ) => Promise<StageGitDiffWorktreeChangesResult>;
+    unstageStagedChanges: (
+      input: UnstageGitDiffStagedChangesInput,
+    ) => Promise<UnstageGitDiffStagedChangesResult>;
+    discardWorktreeChanges: (
+      input: DiscardGitDiffWorktreeChangesInput,
+    ) => Promise<DiscardGitDiffWorktreeChangesResult>;
     closeChangeRequest: (input: GitDiffChangeRequestReferenceInput) => Promise<GitDiffActionResult>;
     mergeChangeRequest: (input: GitDiffMergeChangeRequestInput) => Promise<GitDiffActionResult>;
     loadChangeRequestChecks: (

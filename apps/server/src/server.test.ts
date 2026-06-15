@@ -524,6 +524,14 @@ const buildAppUnderTest = (options?: {
           stagedFilePaths: [],
           ignoredFilePaths: [],
         }),
+      unstageStagedChanges: () =>
+        Effect.succeed({
+          unstagedFilePaths: [],
+        }),
+      discardWorktreeChanges: () =>
+        Effect.succeed({
+          discardedFilePaths: [],
+        }),
       closeChangeRequest: () => Effect.succeed({ status: "ok" as const }),
       mergeChangeRequest: () => Effect.succeed({ status: "ok" as const }),
       loadChangeRequestChecks: () => Effect.succeed([]),

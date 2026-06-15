@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { RegisteredCustomThemes } from "@pierre/diffs";
 import {
   DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS,
   DIFF_HIGHLIGHTER_THEME_NAMES,
   buildPatchCacheKey,
   resolveDiffThemeName,
 } from "./diffRendering";
+import { DRACULA_PRO_THEME_NAMES } from "./draculaProThemeData";
 
 describe("resolveDiffThemeName", () => {
   it("maps custom syntax themes to matching Shiki theme ids", () => {
@@ -15,6 +17,11 @@ describe("resolveDiffThemeName", () => {
     expect(resolveDiffThemeName("catppuccin-mocha")).toBe("catppuccin-mocha");
     expect(resolveDiffThemeName("rose-pine")).toBe("rose-pine");
     expect(resolveDiffThemeName("nord")).toBe("nord");
+    expect(resolveDiffThemeName("tokyonight-moon")).toBe("tokyonight-moon");
+    expect(resolveDiffThemeName("dracula-pro")).toBe("dracula-pro");
+    for (const themeName of DRACULA_PRO_THEME_NAMES) {
+      expect(resolveDiffThemeName(themeName)).toBe(themeName);
+    }
   });
 
   it("preloads every Shiki theme used by app syntax themes", () => {
@@ -26,8 +33,18 @@ describe("resolveDiffThemeName", () => {
       "rose-pine",
       "kanagawa-wave",
       "kanagawa-dragon",
+      "tokyonight-moon",
+      ...DRACULA_PRO_THEME_NAMES,
       "nord",
     ]);
+  });
+
+  it("registers custom Shiki themes", () => {
+    expect(RegisteredCustomThemes.has("tokyonight-moon")).toBe(true);
+    expect(RegisteredCustomThemes.has("dracula-pro")).toBe(true);
+    for (const themeName of DRACULA_PRO_THEME_NAMES) {
+      expect(RegisteredCustomThemes.has(themeName)).toBe(true);
+    }
   });
 });
 

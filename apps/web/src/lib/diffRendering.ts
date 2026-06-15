@@ -1,4 +1,17 @@
 import type { SyntaxTheme } from "./theme";
+import { DRACULA_PRO_THEME_NAMES, type DraculaProThemeName } from "./draculaProThemeData";
+import { registerDraculaProDiffThemes } from "./draculaProShikiThemes";
+import {
+  registerTokyonightMoonDiffTheme,
+  TOKYONIGHT_MOON_DIFF_THEME_NAME,
+} from "./tokyonightMoonShikiTheme";
+
+registerTokyonightMoonDiffTheme();
+registerDraculaProDiffThemes();
+
+const DRACULA_PRO_DIFF_THEME_NAMES = Object.fromEntries(
+  DRACULA_PRO_THEME_NAMES.map((themeName) => [themeName, themeName]),
+) as { readonly [ThemeName in DraculaProThemeName]: ThemeName };
 
 export const DIFF_THEME_NAMES = {
   light: "pierre-light",
@@ -9,6 +22,8 @@ export const DIFF_THEME_NAMES = {
   "rose-pine": "rose-pine",
   "kanagawa-wave": "kanagawa-wave",
   "kanagawa-dragon": "kanagawa-dragon",
+  "tokyonight-moon": TOKYONIGHT_MOON_DIFF_THEME_NAME,
+  ...DRACULA_PRO_DIFF_THEME_NAMES,
   nord: "nord",
 } as const;
 
@@ -22,6 +37,8 @@ export const DIFF_HIGHLIGHTER_THEME_NAMES = [
   DIFF_THEME_NAMES["rose-pine"],
   DIFF_THEME_NAMES["kanagawa-wave"],
   DIFF_THEME_NAMES["kanagawa-dragon"],
+  DIFF_THEME_NAMES["tokyonight-moon"],
+  ...DRACULA_PRO_THEME_NAMES,
   DIFF_THEME_NAMES.nord,
 ] as const satisfies readonly DiffThemeName[];
 

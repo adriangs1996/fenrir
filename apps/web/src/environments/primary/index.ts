@@ -20,6 +20,7 @@ export {
   listServerClientSessions,
   listServerPairingLinks,
   peekPairingTokenFromUrl,
+  primaryAuthRequestInit,
   readPrimaryBearerSessionToken,
   resolveInitialServerAuthGateState,
   resolvePrimaryWebSocketConnectionUrl,

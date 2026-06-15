@@ -102,6 +102,8 @@ const rpcClientMock = {
     updateIgnoreList: vi.fn(),
     deleteIgnoreList: vi.fn(),
     stageWorktreeChanges: vi.fn(),
+    unstageStagedChanges: vi.fn(),
+    discardWorktreeChanges: vi.fn(),
     closeChangeRequest: vi.fn(),
     mergeChangeRequest: vi.fn(),
     loadChangeRequestChecks: vi.fn(),

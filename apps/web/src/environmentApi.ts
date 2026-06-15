@@ -93,6 +93,8 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       updateIgnoreList: rpcClient.gitDiff.updateIgnoreList,
       deleteIgnoreList: rpcClient.gitDiff.deleteIgnoreList,
       stageWorktreeChanges: rpcClient.gitDiff.stageWorktreeChanges,
+      unstageStagedChanges: rpcClient.gitDiff.unstageStagedChanges,
+      discardWorktreeChanges: rpcClient.gitDiff.discardWorktreeChanges,
       closeChangeRequest: rpcClient.gitDiff.closeChangeRequest,
       mergeChangeRequest: rpcClient.gitDiff.mergeChangeRequest,
       loadChangeRequestChecks: rpcClient.gitDiff.loadChangeRequestChecks,

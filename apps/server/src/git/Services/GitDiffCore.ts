@@ -3,6 +3,8 @@ import {
   type CommentGitDiffChangeRequestLinesInput,
   type CreateGitDiffIgnoreListInput,
   type DeleteGitDiffIgnoreListInput,
+  type DiscardGitDiffWorktreeChangesInput,
+  type DiscardGitDiffWorktreeChangesResult,
   type GitDiffActionResult,
   type GitDiffChangeRequestReferenceInput,
   type GitDiffMergeChangeRequestInput,
@@ -26,6 +28,8 @@ import {
   type RevertGitDiffChangeRequestLinesResult,
   type StageGitDiffWorktreeChangesInput,
   type StageGitDiffWorktreeChangesResult,
+  type UnstageGitDiffStagedChangesInput,
+  type UnstageGitDiffStagedChangesResult,
   type UpdateGitDiffIgnoreListInput,
 } from "@fenrir/contracts";
 import { Context } from "effect";
@@ -62,6 +66,12 @@ export interface GitDiffCoreShape {
   readonly stageWorktreeChanges: (
     input: StageGitDiffWorktreeChangesInput,
   ) => Effect.Effect<StageGitDiffWorktreeChangesResult, GitCommandError>;
+  readonly unstageStagedChanges: (
+    input: UnstageGitDiffStagedChangesInput,
+  ) => Effect.Effect<UnstageGitDiffStagedChangesResult, GitCommandError>;
+  readonly discardWorktreeChanges: (
+    input: DiscardGitDiffWorktreeChangesInput,
+  ) => Effect.Effect<DiscardGitDiffWorktreeChangesResult, GitCommandError>;
   readonly closeChangeRequest: (
     input: GitDiffChangeRequestReferenceInput,
   ) => Effect.Effect<GitDiffActionResult, GitCommandError>;

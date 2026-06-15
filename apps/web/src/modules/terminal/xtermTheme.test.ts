@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DRACULA_PRO_VARIANTS } from "../../lib/draculaProThemeData";
 import { terminalThemeFromApp } from "./xtermTheme";
 
 function installDocumentMock(
@@ -116,6 +117,40 @@ describe("terminalThemeFromApp", () => {
         scrollbarSliderBackground: "rgba(98, 94, 90, 0.4)",
       }),
     );
+  });
+
+  it("uses the Tokyonight Moon terminal palette when the app theme is active", () => {
+    installDocumentMock(["dark", "tokyonight-moon"]);
+
+    expect(terminalThemeFromApp()).toEqual(
+      expect.objectContaining({
+        cursor: "#c8d3f5",
+        red: "#ff757f",
+        green: "#c3e88d",
+        blue: "#82aaff",
+        scrollbarSliderBackground: "rgba(68, 74, 115, 0.55)",
+      }),
+    );
+  });
+
+  it("uses Dracula Pro terminal palettes when app variants are active", () => {
+    for (const variant of DRACULA_PRO_VARIANTS) {
+      installDocumentMock(["dark", variant.name]);
+
+      expect(terminalThemeFromApp()).toEqual(
+        expect.objectContaining({
+          cursor: "#F8F8F2",
+          black: variant.palette.selection,
+          brightBlack: variant.palette.comment,
+          red: "#FF9580",
+          green: "#8AFF80",
+          blue: "#9580FF",
+          scrollbarSliderBackground: expect.stringContaining("rgba("),
+        }),
+      );
+
+      vi.unstubAllGlobals();
+    }
   });
 
   it("uses the Nord terminal palette when the app theme is active", () => {

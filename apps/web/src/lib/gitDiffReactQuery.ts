@@ -1,6 +1,8 @@
 import type {
   CommentGitDiffChangeRequestLinesInput,
   CreateGitDiffIgnoreListInput,
+  DiscardGitDiffWorktreeChangesInput,
+  DiscardGitDiffWorktreeChangesResult,
   DiffTarget,
   EnvironmentId,
   GitDiffActionResult,
@@ -23,6 +25,8 @@ import type {
   RevertGitDiffChangeRequestLinesResult,
   StageGitDiffWorktreeChangesInput,
   StageGitDiffWorktreeChangesResult,
+  UnstageGitDiffStagedChangesInput,
+  UnstageGitDiffStagedChangesResult,
   UpdateGitDiffIgnoreListInput,
 } from "@fenrir/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
@@ -97,6 +101,10 @@ export const gitDiffMutationKeys = {
     ["git-diff", "mutation", "delete-ignore-list", environmentId, cwd] as const,
   stageWorktreeChanges: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", "mutation", "stage-worktree-changes", environmentId, cwd] as const,
+  unstageStagedChanges: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "unstage-staged-changes", environmentId, cwd] as const,
+  discardWorktreeChanges: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "discard-worktree-changes", environmentId, cwd] as const,
   closeChangeRequest: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", "mutation", "close-change-request", environmentId, cwd] as const,
   mergeChangeRequest: (environmentId: EnvironmentId | null, cwd: string | null) =>
@@ -425,6 +433,54 @@ export function gitDiffStageWorktreeChangesMutationOptions(input: {
         throw new Error("Git staging is unavailable.");
       }
       return ensureEnvironmentApi(input.environmentId).gitDiff.stageWorktreeChanges({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffUnstageStagedChangesMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.unstageStagedChanges(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<UnstageGitDiffStagedChangesInput, "cwd">,
+    ): Promise<UnstageGitDiffStagedChangesResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git unstaging is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.unstageStagedChanges({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffDiscardWorktreeChangesMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.discardWorktreeChanges(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<DiscardGitDiffWorktreeChangesInput, "cwd">,
+    ): Promise<DiscardGitDiffWorktreeChangesResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git discard is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.discardWorktreeChanges({
         cwd: input.cwd,
         ...args,
       });

@@ -824,6 +824,57 @@ export const GitDiffCoreLive = Layer.effect(
         };
       });
 
+    const unstageStagedChanges = (input: {
+      readonly cwd: string;
+      readonly filePaths: ReadonlyArray<string>;
+    }) =>
+      Effect.gen(function* () {
+        const unstagedFilePaths = normalizeRelativePaths(input.cwd, input.filePaths);
+        if (unstagedFilePaths.length > 0) {
+          yield* gitCore
+            .execute({
+              operation: "GitDiffCore.unstageStagedChanges",
+              cwd: input.cwd,
+              args: ["reset", "--", ...unstagedFilePaths],
+            })
+            .pipe(Effect.asVoid);
+        }
+
+        return {
+          unstagedFilePaths,
+        };
+      });
+
+    const discardWorktreeChanges = (input: {
+      readonly cwd: string;
+      readonly filePaths: ReadonlyArray<string>;
+    }) =>
+      Effect.gen(function* () {
+        const discardedFilePaths = normalizeRelativePaths(input.cwd, input.filePaths);
+        if (discardedFilePaths.length > 0) {
+          yield* gitCore
+            .execute({
+              operation: "GitDiffCore.discardWorktreeChanges.restore",
+              cwd: input.cwd,
+              args: ["restore", "--worktree", "--", ...discardedFilePaths],
+              allowNonZeroExit: true,
+            })
+            .pipe(Effect.asVoid);
+          yield* gitCore
+            .execute({
+              operation: "GitDiffCore.discardWorktreeChanges.clean",
+              cwd: input.cwd,
+              args: ["clean", "-fd", "--", ...discardedFilePaths],
+              allowNonZeroExit: true,
+            })
+            .pipe(Effect.asVoid);
+        }
+
+        return {
+          discardedFilePaths,
+        };
+      });
+
     const resolveProviderHandle = (cwd: string, operation: string) =>
       sourceControlProviderRegistry.resolveHandle({ cwd }).pipe(
         Effect.mapError((error) => toGitDiffProviderError(operation, cwd, error)),
@@ -1282,6 +1333,8 @@ export const GitDiffCoreLive = Layer.effect(
       updateIgnoreList,
       deleteIgnoreList,
       stageWorktreeChanges,
+      unstageStagedChanges,
+      discardWorktreeChanges,
       closeChangeRequest,
       mergeChangeRequest,
       loadChangeRequestChecks,

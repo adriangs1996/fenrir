@@ -70,6 +70,7 @@
     "@effect/language-service": "catalog:",
     "@oxlint/plugins": "^1.68.0",
     "@types/node": "^24.13.1",
+    "electron-builder": "26.15.3",
     "oxfmt": "^0.40.0",
     "oxlint": "^1.68.0",
     "turbo": "^2.9.16",

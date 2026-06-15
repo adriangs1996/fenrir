@@ -38,6 +38,8 @@ export const WS_METHODS = {
   gitDiffUpdateIgnoreList: "gitDiff.updateIgnoreList",
   gitDiffDeleteIgnoreList: "gitDiff.deleteIgnoreList",
   gitDiffStageWorktreeChanges: "gitDiff.stageWorktreeChanges",
+  gitDiffUnstageStagedChanges: "gitDiff.unstageStagedChanges",
+  gitDiffDiscardWorktreeChanges: "gitDiff.discardWorktreeChanges",
   gitDiffCloseChangeRequest: "gitDiff.closeChangeRequest",
   gitDiffMergeChangeRequest: "gitDiff.mergeChangeRequest",
   gitDiffLoadChangeRequestChecks: "gitDiff.loadChangeRequestChecks",

@@ -15,6 +15,13 @@
 @custom-variant rose-pine (&:is(.rose-pine, .rose-pine *));
 @custom-variant kanagawa (&:is(.kanagawa, .kanagawa *));
 @custom-variant kanagawa-dragon (&:is(.kanagawa-dragon, .kanagawa-dragon *));
+@custom-variant tokyonight-moon (&:is(.tokyonight-moon, .tokyonight-moon *));
+@custom-variant dracula-pro (&:is(.dracula-pro, .dracula-pro *));
+@custom-variant dracula-pro-blade (&:is(.dracula-pro-blade, .dracula-pro-blade *));
+@custom-variant dracula-pro-buffy (&:is(.dracula-pro-buffy, .dracula-pro-buffy *));
+@custom-variant dracula-pro-lincoln (&:is(.dracula-pro-lincoln, .dracula-pro-lincoln *));
+@custom-variant dracula-pro-morbius (&:is(.dracula-pro-morbius, .dracula-pro-morbius *));
+@custom-variant dracula-pro-van-helsing (&:is(.dracula-pro-van-helsing, .dracula-pro-van-helsing *));
 @custom-variant nord (&:is(.nord, .nord *));
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */
 @custom-variant wco (&:is(.wco, .wco *));
@@ -475,6 +482,56 @@
     --fenrir-sky: #8ba4b0;
   }
 
+  @variant tokyonight-moon {
+    color-scheme: dark;
+
+    --background: #222436;
+    --app-chrome-background: #191b29;
+    --foreground: #c8d3f5;
+    --tokyonight-moon-surface: #1e2030;
+    --tokyonight-moon-overlay: #2f334d;
+
+    --card: var(--tokyonight-moon-surface);
+    --card-foreground: #c8d3f5;
+    --popover: var(--tokyonight-moon-overlay);
+    --popover-foreground: #c8d3f5;
+
+    --sidebar: var(--tokyonight-moon-surface);
+    --sidebar-foreground: #c8d3f5;
+    --sidebar-border: #191b29;
+    --sidebar-accent: var(--tokyonight-moon-overlay);
+    --sidebar-accent-foreground: #c8d3f5;
+
+    --primary: #82aaff;
+    --primary-foreground: #191b29;
+    --secondary: var(--tokyonight-moon-overlay);
+    --secondary-foreground: #c8d3f5;
+    --muted: var(--tokyonight-moon-overlay);
+    --muted-foreground: #828bb8;
+    --accent: #394b70;
+    --accent-foreground: #c8d3f5;
+
+    --destructive: #ff757f;
+    --destructive-foreground: #ff757f;
+    --info: #86e1fc;
+    --info-foreground: #86e1fc;
+    --success: #c3e88d;
+    --success-foreground: #c3e88d;
+    --warning: #ffc777;
+    --warning-foreground: #ffc777;
+
+    --border: #3b4261;
+    --border-strong: #444a73;
+    --input: var(--tokyonight-moon-overlay);
+    --ring: #82aaff;
+
+    --fenrir-mauve: #c099ff;
+    --fenrir-peach: #ff966c;
+    --fenrir-teal: #4fd6be;
+    --fenrir-pink: #fca7ea;
+    --fenrir-sky: #89ddff;
+  }
+
   @variant nord {
     color-scheme: dark;
 
@@ -523,6 +580,119 @@
     --fenrir-pink: #bf616a; /* nord11 */
     --fenrir-sky: #88c0d0; /* nord8 */
   }
+}
+
+:root.dracula-pro {
+  --dracula-pro-bg: #22212c;
+  --dracula-pro-bgdark: #17161d;
+  --dracula-pro-bgdarker: #0b0b0f;
+  --dracula-pro-bglight: #2e2b3b;
+  --dracula-pro-bglighter: #393649;
+  --dracula-pro-comment: #7970a9;
+  --dracula-pro-selection: #454158;
+}
+
+:root.dracula-pro-blade {
+  --dracula-pro-bg: #212c2a;
+  --dracula-pro-bgdark: #161d1c;
+  --dracula-pro-bgdarker: #0b0f0e;
+  --dracula-pro-bglight: #2b3b38;
+  --dracula-pro-bglighter: #364946;
+  --dracula-pro-comment: #70a99f;
+  --dracula-pro-selection: #415854;
+}
+
+:root.dracula-pro-buffy {
+  --dracula-pro-bg: #2a212c;
+  --dracula-pro-bgdark: #1c161d;
+  --dracula-pro-bgdarker: #0e0b0f;
+  --dracula-pro-bglight: #382b3b;
+  --dracula-pro-bglighter: #463649;
+  --dracula-pro-comment: #9f70a9;
+  --dracula-pro-selection: #544158;
+}
+
+:root.dracula-pro-lincoln {
+  --dracula-pro-bg: #2c2a21;
+  --dracula-pro-bgdark: #1d1c16;
+  --dracula-pro-bgdarker: #0f0e0b;
+  --dracula-pro-bglight: #3b382b;
+  --dracula-pro-bglighter: #494636;
+  --dracula-pro-comment: #a99f70;
+  --dracula-pro-selection: #585441;
+}
+
+:root.dracula-pro-morbius {
+  --dracula-pro-bg: #2c2122;
+  --dracula-pro-bgdark: #1d1617;
+  --dracula-pro-bgdarker: #0f0b0b;
+  --dracula-pro-bglight: #3b2b2e;
+  --dracula-pro-bglighter: #493639;
+  --dracula-pro-comment: #a97079;
+  --dracula-pro-selection: #584145;
+}
+
+:root.dracula-pro-van-helsing {
+  --dracula-pro-bg: #0b0d0f;
+  --dracula-pro-bgdark: #070809;
+  --dracula-pro-bgdarker: #000000;
+  --dracula-pro-bglight: #111417;
+  --dracula-pro-bglighter: #161a1d;
+  --dracula-pro-comment: #708ca9;
+  --dracula-pro-selection: #414d58;
+}
+
+:root.dark.dracula-pro,
+:root.dark.dracula-pro-blade,
+:root.dark.dracula-pro-buffy,
+:root.dark.dracula-pro-lincoln,
+:root.dark.dracula-pro-morbius,
+:root.dark.dracula-pro-van-helsing {
+  color-scheme: dark;
+
+  --background: var(--dracula-pro-bg);
+  --app-chrome-background: var(--dracula-pro-bgdark);
+  --foreground: #f8f8f2;
+
+  --card: var(--dracula-pro-bglight);
+  --card-foreground: #f8f8f2;
+  --popover: var(--dracula-pro-bglighter);
+  --popover-foreground: #f8f8f2;
+
+  --sidebar: var(--dracula-pro-bgdark);
+  --sidebar-foreground: #f8f8f2;
+  --sidebar-border: var(--dracula-pro-bgdarker);
+  --sidebar-accent: var(--dracula-pro-bglight);
+  --sidebar-accent-foreground: #f8f8f2;
+
+  --primary: #9580ff;
+  --primary-foreground: var(--dracula-pro-bgdarker);
+  --secondary: var(--dracula-pro-bglight);
+  --secondary-foreground: #f8f8f2;
+  --muted: var(--dracula-pro-bglight);
+  --muted-foreground: var(--dracula-pro-comment);
+  --accent: var(--dracula-pro-selection);
+  --accent-foreground: #f8f8f2;
+
+  --destructive: #ff9580;
+  --destructive-foreground: #ff9580;
+  --info: #80ffea;
+  --info-foreground: #80ffea;
+  --success: #8aff80;
+  --success-foreground: #8aff80;
+  --warning: #ffff80;
+  --warning-foreground: #ffff80;
+
+  --border: var(--dracula-pro-selection);
+  --border-strong: var(--dracula-pro-bglighter);
+  --input: var(--dracula-pro-bglight);
+  --ring: #9580ff;
+
+  --fenrir-mauve: #9580ff;
+  --fenrir-peach: #ffca80;
+  --fenrir-teal: #80ffea;
+  --fenrir-pink: #ff80bf;
+  --fenrir-sky: #80ffea;
 }
 
 body {
@@ -655,6 +825,62 @@ code {
 
 .kanagawa-dragon ::-webkit-scrollbar-thumb:hover {
   background: rgba(98, 94, 90, 0.5);
+}
+
+.tokyonight-moon ::-webkit-scrollbar-thumb {
+  background: rgba(68, 74, 115, 0.55);
+}
+
+.tokyonight-moon ::-webkit-scrollbar-thumb:hover {
+  background: rgba(84, 92, 126, 0.72);
+}
+
+.dracula-pro ::-webkit-scrollbar-thumb {
+  background: rgba(69, 65, 88, 0.55);
+}
+
+.dracula-pro ::-webkit-scrollbar-thumb:hover {
+  background: rgba(121, 112, 169, 0.72);
+}
+
+.dracula-pro-blade ::-webkit-scrollbar-thumb {
+  background: rgba(65, 88, 84, 0.55);
+}
+
+.dracula-pro-blade ::-webkit-scrollbar-thumb:hover {
+  background: rgba(112, 169, 159, 0.72);
+}
+
+.dracula-pro-buffy ::-webkit-scrollbar-thumb {
+  background: rgba(84, 65, 88, 0.55);
+}
+
+.dracula-pro-buffy ::-webkit-scrollbar-thumb:hover {
+  background: rgba(159, 112, 169, 0.72);
+}
+
+.dracula-pro-lincoln ::-webkit-scrollbar-thumb {
+  background: rgba(88, 84, 65, 0.55);
+}
+
+.dracula-pro-lincoln ::-webkit-scrollbar-thumb:hover {
+  background: rgba(169, 159, 112, 0.72);
+}
+
+.dracula-pro-morbius ::-webkit-scrollbar-thumb {
+  background: rgba(88, 65, 69, 0.55);
+}
+
+.dracula-pro-morbius ::-webkit-scrollbar-thumb:hover {
+  background: rgba(169, 112, 121, 0.72);
+}
+
+.dracula-pro-van-helsing ::-webkit-scrollbar-thumb {
+  background: rgba(65, 77, 88, 0.55);
+}
+
+.dracula-pro-van-helsing ::-webkit-scrollbar-thumb:hover {
+  background: rgba(112, 140, 169, 0.72);
 }
 
 .nord ::-webkit-scrollbar-thumb {

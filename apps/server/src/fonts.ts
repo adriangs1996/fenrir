@@ -5,6 +5,11 @@ import type { SystemFont } from "@fenrir/contracts";
 const execAsync = promisify(exec);
 
 const SYSTEM_FONTS_CACHE_TTL_MS = 10_000;
+export const SYSTEM_FONTS_COMMAND_MAX_BUFFER_BYTES = 32 * 1024 * 1024;
+const FC_LIST_TIMEOUT_MS = 10_000;
+const SYSTEM_PROFILER_TIMEOUT_MS = 60_000;
+const POWERSHELL_TIMEOUT_MS = 15_000;
+const MACOS_SYSTEM_PROFILER_COMMAND = "/usr/sbin/system_profiler";
 
 type SystemFontsCacheEntry = {
   readonly fonts: SystemFont[];
@@ -17,6 +22,13 @@ type GetSystemFontsOptions = {
 
 let cachedFonts: SystemFontsCacheEntry | null = null;
 let inFlightFontsPromise: Promise<SystemFont[]> | null = null;
+
+function systemFontCommandOptions(timeout: number) {
+  return {
+    timeout,
+    maxBuffer: SYSTEM_FONTS_COMMAND_MAX_BUFFER_BYTES,
+  };
+}
 
 const MONOSPACE_KEYWORDS = [
   "mono",
@@ -188,20 +200,33 @@ async function discoverFonts(): Promise<SystemFont[]> {
   const platform = process.platform;
 
   try {
-    if (platform === "darwin" || platform === "linux") {
+    if (platform === "darwin") {
       try {
-        const { stdout } = await execAsync('fc-list --format="%{family}:%{style}:%{spacing}\\n"', {
-          timeout: 10_000,
-        });
+        const { stdout } = await execAsync(
+          'fc-list --format="%{family}:%{style}:%{spacing}\\n"',
+          systemFontCommandOptions(FC_LIST_TIMEOUT_MS),
+        );
+        const fonts = parseFcListOutput(stdout);
+        if (fonts.length > 0) return fonts;
+      } catch {
+        // Fall back to the native macOS profiler below.
+      }
+
+      const { stdout } = await execAsync(
+        `${MACOS_SYSTEM_PROFILER_COMMAND} SPFontsDataType -json`,
+        systemFontCommandOptions(SYSTEM_PROFILER_TIMEOUT_MS),
+      );
+      return parseSystemProfilerOutput(stdout);
+    }
+
+    if (platform === "linux") {
+      try {
+        const { stdout } = await execAsync(
+          'fc-list --format="%{family}:%{style}:%{spacing}\\n"',
+          systemFontCommandOptions(FC_LIST_TIMEOUT_MS),
+        );
         return parseFcListOutput(stdout);
       } catch {
-        if (platform === "darwin") {
-          // Fallback: use system_profiler (slower but always available on macOS)
-          const { stdout } = await execAsync("system_profiler SPFontsDataType -json", {
-            timeout: 15_000,
-          });
-          return parseSystemProfilerOutput(stdout);
-        }
         return [];
       }
     }
@@ -209,7 +234,7 @@ async function discoverFonts(): Promise<SystemFont[]> {
     if (platform === "win32") {
       const { stdout } = await execAsync(
         'powershell -NoProfile -Command "Add-Type -AssemblyName System.Drawing; (New-Object System.Drawing.Text.InstalledFontCollection).Families | ForEach-Object { $_.Name }"',
-        { timeout: 15_000 },
+        systemFontCommandOptions(POWERSHELL_TIMEOUT_MS),
       );
       return parsePowerShellOutput(stdout);
     }

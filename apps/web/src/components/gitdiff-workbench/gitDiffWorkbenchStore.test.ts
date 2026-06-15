@@ -42,6 +42,7 @@ describe("gitDiffWorkbenchStore", () => {
     store.updateRepositoryState(scopeKey, "/repo-a", {
       mode: "stack",
       selectedPath: "src/a.ts",
+      selectedTargetKind: "staged",
       selectedStackIndex: 2,
     });
     store.selectRepository(scopeKey, "/repo-b");
@@ -54,6 +55,7 @@ describe("gitDiffWorkbenchStore", () => {
     expect(state.selectedRepositoryCwd).toBe("/repo-a");
     expect(state.mode).toBe("stack");
     expect(state.selectedPath).toBe("src/a.ts");
+    expect(state.selectedTargetKind).toBe("staged");
     expect(state.selectedStackIndex).toBe(2);
     expect(state.repositoryStates["/repo-b"]?.selectedPath).toBe("src/b.ts");
   });

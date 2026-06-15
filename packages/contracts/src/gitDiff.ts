@@ -174,6 +174,28 @@ export const StageGitDiffWorktreeChangesResult = Schema.Struct({
 });
 export type StageGitDiffWorktreeChangesResult = typeof StageGitDiffWorktreeChangesResult.Type;
 
+export const UnstageGitDiffStagedChangesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  filePaths: Schema.Array(TrimmedNonEmptyString),
+});
+export type UnstageGitDiffStagedChangesInput = typeof UnstageGitDiffStagedChangesInput.Type;
+
+export const UnstageGitDiffStagedChangesResult = Schema.Struct({
+  unstagedFilePaths: Schema.Array(TrimmedNonEmptyString),
+});
+export type UnstageGitDiffStagedChangesResult = typeof UnstageGitDiffStagedChangesResult.Type;
+
+export const DiscardGitDiffWorktreeChangesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  filePaths: Schema.Array(TrimmedNonEmptyString),
+});
+export type DiscardGitDiffWorktreeChangesInput = typeof DiscardGitDiffWorktreeChangesInput.Type;
+
+export const DiscardGitDiffWorktreeChangesResult = Schema.Struct({
+  discardedFilePaths: Schema.Array(TrimmedNonEmptyString),
+});
+export type DiscardGitDiffWorktreeChangesResult = typeof DiscardGitDiffWorktreeChangesResult.Type;
+
 export const GitDiffChangeRequestReferenceInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   reference: TrimmedNonEmptyString,
