@@ -133,7 +133,6 @@ import {
 import {
   appendEditorContextsToPrompt,
   EditorPane,
-  type EditorWorkerItem,
   formatEditorContextLabel,
   type EditorContextDraft,
   useEditorStore,
@@ -203,6 +202,7 @@ import {
   type ActionRun,
 } from "~/modules/action-runs";
 import { isEditorTransientThread } from "~/threadVisibility";
+import { EDITOR_TRANSIENT_THREAD_DELETE_DELAY_MS, toEditorWorkerItem } from "~/editorPromptWorkers";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -217,38 +217,6 @@ const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const ACTION_RUN_OBSERVER_COLS = 120;
 const ACTION_RUN_OBSERVER_ROWS = 30;
-const EDITOR_TRANSIENT_THREAD_DELETE_DELAY_MS = 1_500;
-
-function latestAssistantDetail(messages: readonly ChatMessage[]): string | null {
-  const message = messages.findLast((entry) => entry.role === "assistant" && entry.text.trim());
-  if (!message) return null;
-  return truncate(message.text.replace(/\s+/g, " "), 120);
-}
-
-function toEditorWorkerItem(thread: Thread): EditorWorkerItem {
-  const pendingApprovals = derivePendingApprovals(thread.activities).length > 0;
-  const pendingUserInputs = derivePendingUserInputs(thread.activities).length > 0;
-  const latestTurnSettled = isLatestTurnSettled(thread.latestTurn, thread.session);
-  const hasError = thread.error !== null || thread.latestTurn?.state === "error";
-  const status: EditorWorkerItem["status"] = hasError
-    ? "error"
-    : pendingApprovals || pendingUserInputs
-      ? "waiting"
-      : latestTurnSettled
-        ? "completed"
-        : thread.latestTurn?.startedAt
-          ? "running"
-          : "queued";
-
-  return {
-    id: thread.id,
-    title: thread.title,
-    status,
-    detail: hasError ? thread.error : latestAssistantDetail(thread.messages),
-    canInterrupt: status === "queued" || status === "running" || status === "waiting",
-  };
-}
-
 function formatOutgoingPrompt(params: {
   provider: ProviderSelectionKind;
   model: string | null;
@@ -2145,6 +2113,9 @@ export default function ChatView(props: ChatViewProps) {
       }
 
       if (command === "editor.runPrompt") {
+        if (activeChatTab === "gitdiff" && gitDiffAvailable) {
+          return;
+        }
         if (!editorAvailable) return;
         event.preventDefault();
         event.stopPropagation();
@@ -2199,6 +2170,7 @@ export default function ChatView(props: ChatViewProps) {
     activeChatTab,
     activeThreadId,
     commandPaletteOpen,
+    gitDiffAvailable,
     closeTerminal,
     createNewTerminal,
     activateTerminalTab,

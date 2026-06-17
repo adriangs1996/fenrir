@@ -27,7 +27,9 @@ import {
   type GitDiffStash,
   type LoadDiffFileResult,
   type ScopedThreadRef,
+  type ThreadId,
 } from "@fenrir/contracts";
+import { truncate } from "@fenrir/shared/String";
 import { LegendList } from "@legendapp/list/react";
 import {
   prepareFileTreeInput,
@@ -41,6 +43,7 @@ import { useShallow } from "zustand/react/shallow";
 import {
   BanIcon,
   ArchiveIcon,
+  BotIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
   Columns2Icon,
@@ -124,6 +127,7 @@ import { readEnvironmentApi } from "~/environmentApi";
 import { useSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { openInEmbeddedEditor, openInEmbeddedVSCode } from "~/editorPreferences";
+import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
 import {
   DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS,
   buildPatchCacheKey,
@@ -170,12 +174,22 @@ import {
 } from "~/lib/gitReactQuery";
 import { useGitStatus } from "~/lib/gitStatusState";
 import { runLocalRpc } from "~/hooks/useRpc";
-import { resolveActiveEmbeddedEditor } from "~/modules/neovim-editor";
-import { cn, randomUUID } from "~/lib/utils";
-import { selectProjectByRef, selectThreadByRef, useStore } from "~/store";
+import { EditorPromptWorkersOverlay, resolveActiveEmbeddedEditor } from "~/modules/neovim-editor";
+import { cn, newCommandId, newMessageId, newThreadId, randomUUID } from "~/lib/utils";
+import {
+  selectProjectByRef,
+  selectThreadByRef,
+  selectThreadsAcrossEnvironments,
+  type AppState,
+  useStore,
+} from "~/store";
 import { toastManager } from "~/components/ui/toast";
 import { formatRelativeTimeLabel } from "~/lib/formatting";
 import { resolveThreadRouteRef } from "~/threadRoutes";
+import { useServerKeybindings } from "~/rpc/serverState";
+import { toEditorWorkerItem } from "~/editorPromptWorkers";
+import { isEditorTransientThread } from "~/threadVisibility";
+import type { Thread } from "~/types";
 import {
   gitDiffWorkbenchScopeKey,
   selectGitDiffWorkbenchScopeState,
@@ -186,6 +200,14 @@ import {
   type GitDiffWorkbenchTargetKind,
   type GitDiffWorkbenchViewMode,
 } from "./gitDiffWorkbenchStore";
+import {
+  appendGitDiffReviewContextToPrompt,
+  extractGitDiffReviewSelectionText,
+  formatGitDiffReviewContextLabels,
+  formatGitDiffReviewContextTitle,
+  type GitDiffReviewLineSelection,
+  type GitDiffReviewPromptContext,
+} from "./gitDiffReviewPromptContext";
 
 const GIT_DIFF_FILE_TREE_ROW_HEIGHT = 24;
 const GIT_DIFF_FILE_TREE_MIN_VISIBLE_ROWS = 4;
@@ -1107,6 +1129,12 @@ export function GitDiffWorkbench(props: {
   const [commentDialogState, setCommentDialogState] = useState<GitDiffCommentDialogState | null>(
     null,
   );
+  const [selectedDiffLineSelection, setSelectedDiffLineSelection] =
+    useState<GitDiffReviewLineSelection | null>(null);
+  const [gitDiffPromptOpen, setGitDiffPromptOpen] = useState(false);
+  const [gitDiffPromptDraft, setGitDiffPromptDraft] = useState("");
+  const [gitDiffPromptContext, setGitDiffPromptContext] =
+    useState<GitDiffReviewPromptContext | null>(null);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const stackSectionRef = useRef<HTMLDivElement | null>(null);
   const sidebarResizeStateRef = useRef<GitDiffSidebarResizeState | null>(null);
@@ -1238,7 +1266,30 @@ export function GitDiffWorkbench(props: {
   const isMainWindow = useIsMainWindow();
   const nvimReady = useNvimAvailable();
   const vscodeReady = useVSCodeWebAvailable();
+  const keybindings = useServerKeybindings();
   const headRef = gitStatus.data?.branch ?? thread?.branch ?? null;
+  const activeThreadId = thread?.id ?? null;
+  const editorWorkerThreads = useStore(
+    useShallow(
+      useMemo(
+        () => (state: AppState) => {
+          if (!activeThreadId) return [] as Thread[];
+          return selectThreadsAcrossEnvironments(state).filter(
+            (workerThread) =>
+              workerThread.environmentId === environmentId &&
+              isEditorTransientThread(workerThread) &&
+              workerThread.owner?.kind === "editorPrompt" &&
+              workerThread.owner.parentThreadId === activeThreadId,
+          );
+        },
+        [activeThreadId, environmentId],
+      ),
+    ),
+  );
+  const editorWorkers = useMemo(
+    () => editorWorkerThreads.map(toEditorWorkerItem),
+    [editorWorkerThreads],
+  );
   const diffFontFamily = useMemo(
     () => buildTerminalFontFamily(settings.editorFontFamily),
     [settings.editorFontFamily],
@@ -1526,6 +1577,56 @@ export function GitDiffWorkbench(props: {
       previousPath: selectedFile?.previousPath ?? null,
       enabled: selectedFile !== null && !selectedFile.binary,
     }),
+  );
+  const selectedFilePath = selectedFile?.path ?? null;
+  const selectedFilePreviousPath = selectedFile?.previousPath ?? null;
+  const selectedFileReviewThreads = useMemo(() => {
+    if (!selectedFilePath) {
+      return [];
+    }
+
+    return sortReviewThreads(
+      (reviewThreadsQuery.data ?? []).filter((thread) =>
+        reviewThreadMatchesFile(thread, {
+          path: selectedFilePath,
+          previousPath: selectedFilePreviousPath,
+        }),
+      ),
+    );
+  }, [reviewThreadsQuery.data, selectedFilePath, selectedFilePreviousPath]);
+  const createGitDiffReviewPromptContext = useCallback((): GitDiffReviewPromptContext | null => {
+    if (!cwd || !project || !selectedFile) {
+      return null;
+    }
+
+    return {
+      filePath: selectedFile.path,
+      previousPath: selectedFile.previousPath,
+      repositoryCwd: cwd,
+      projectCwd: project.cwd,
+      threadWorktreePath: thread?.worktreePath ?? null,
+      branch: headRef,
+      target: activeDiffTarget,
+      selection: selectedDiffLineSelection,
+      reviewThreads: selectedFileReviewThreads,
+    };
+  }, [
+    activeDiffTarget,
+    cwd,
+    headRef,
+    project,
+    selectedDiffLineSelection,
+    selectedFileReviewThreads,
+    selectedFile,
+    thread?.worktreePath,
+  ]);
+  const gitDiffPromptContextLabels = useMemo(
+    () => (gitDiffPromptContext ? formatGitDiffReviewContextLabels(gitDiffPromptContext) : []),
+    [gitDiffPromptContext],
+  );
+  const runPromptShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "editor.runPrompt"),
+    [keybindings],
   );
   const insertionCount = totalInsertions(activeFiles);
   const deletionCount = totalDeletions(activeFiles);
@@ -2050,6 +2151,10 @@ export function GitDiffWorkbench(props: {
     activeFileIndexLoading,
   ]);
 
+  useEffect(() => {
+    setSelectedDiffLineSelection(null);
+  }, [activeDiffTarget, selectedFile?.path, selectedFile?.previousPath]);
+
   const refresh = () => {
     void repositoriesQuery.refetch();
     void invalidateGitDiffQueries(queryClient, { environmentId, cwd });
@@ -2462,6 +2567,181 @@ export function GitDiffWorkbench(props: {
     vscodeReady,
   ]);
 
+  const openGitDiffReviewPrompt = useCallback(() => {
+    const context = createGitDiffReviewPromptContext();
+    if (!context) {
+      toastManager.add({
+        type: "error",
+        title: "Could not open review prompt",
+        description: "Select a changed file before starting a review prompt.",
+      });
+      return;
+    }
+
+    setGitDiffPromptContext(context);
+    setGitDiffPromptOpen(true);
+  }, [createGitDiffReviewPromptContext]);
+
+  const closeGitDiffReviewPrompt = useCallback(() => {
+    setGitDiffPromptOpen(false);
+    setGitDiffPromptContext(null);
+  }, []);
+
+  const submitGitDiffReviewPrompt = useCallback(async () => {
+    const promptText = gitDiffPromptDraft.trim();
+    const context = gitDiffPromptContext ?? createGitDiffReviewPromptContext();
+    if (promptText.length === 0 || !environmentId || !thread || !project || !context) {
+      return;
+    }
+
+    const api = readEnvironmentApi(environmentId);
+    if (!api) {
+      return;
+    }
+
+    const createdAt = new Date().toISOString();
+    const nextThreadId = newThreadId();
+    const modelSelection = thread.modelSelection;
+    const mcpServerIds = [...(thread.mcpServerIds ?? [])];
+    const promptWithReviewContext = appendGitDiffReviewContextToPrompt(promptText, context);
+    const title = truncate(`${formatGitDiffReviewContextTitle(context)}: ${promptText}`);
+
+    setGitDiffPromptOpen(false);
+    setGitDiffPromptDraft("");
+    setGitDiffPromptContext(null);
+
+    await api.orchestration
+      .dispatchCommand({
+        type: "thread.turn.start",
+        commandId: newCommandId(),
+        threadId: nextThreadId,
+        message: {
+          messageId: newMessageId(),
+          role: "user",
+          text: promptWithReviewContext,
+          attachments: [],
+        },
+        modelSelection,
+        providerInstanceId: modelSelection.instanceId,
+        titleSeed: title,
+        runtimeMode: thread.runtimeMode,
+        interactionMode: thread.interactionMode,
+        mcpServerIds,
+        bootstrap: {
+          createThread: {
+            projectId: project.id,
+            title,
+            modelSelection,
+            runtimeMode: thread.runtimeMode,
+            interactionMode: thread.interactionMode,
+            mcpServerIds,
+            branch: headRef,
+            worktreePath: thread.worktreePath,
+            visibility: "editorTransient",
+            owner: { kind: "editorPrompt", parentThreadId: thread.id },
+            deleteOnSettled: true,
+            createdAt,
+          },
+        },
+        createdAt,
+      })
+      .catch((error: unknown) => {
+        setGitDiffPromptDraft(promptText);
+        setGitDiffPromptContext(context);
+        setGitDiffPromptOpen(true);
+        toastManager.add({
+          type: "error",
+          title: "Could not start review prompt",
+          description:
+            error instanceof Error ? error.message : "An error occurred while creating the worker.",
+        });
+      });
+  }, [
+    createGitDiffReviewPromptContext,
+    environmentId,
+    gitDiffPromptContext,
+    gitDiffPromptDraft,
+    headRef,
+    project,
+    thread,
+  ]);
+
+  const interruptEditorWorker = useCallback(
+    (workerId: string) => {
+      if (!environmentId) {
+        return;
+      }
+      const api = readEnvironmentApi(environmentId);
+      if (!api) {
+        return;
+      }
+      void api.orchestration
+        .dispatchCommand({
+          type: "thread.turn.interrupt",
+          commandId: newCommandId(),
+          threadId: workerId as ThreadId,
+          createdAt: new Date().toISOString(),
+        })
+        .catch((error: unknown) => {
+          toastManager.add({
+            type: "error",
+            title: "Could not interrupt worker",
+            description:
+              error instanceof Error ? error.message : "The worker interruption was not sent.",
+          });
+        });
+    },
+    [environmentId],
+  );
+
+  const dismissEditorWorker = useCallback(
+    (workerId: string) => {
+      if (!environmentId) {
+        return;
+      }
+      const api = readEnvironmentApi(environmentId);
+      if (!api) {
+        return;
+      }
+      void api.orchestration
+        .dispatchCommand({
+          type: "thread.delete",
+          commandId: newCommandId(),
+          threadId: workerId as ThreadId,
+        })
+        .catch(() => undefined);
+    },
+    [environmentId],
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handlePromptShortcut = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || isEditableKeyboardTarget(event.target)) {
+        return;
+      }
+
+      const command = resolveShortcutCommand(event, keybindings);
+      if (command !== "editor.runPrompt") {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (gitDiffPromptOpen) {
+        void submitGitDiffReviewPrompt();
+        return;
+      }
+      openGitDiffReviewPrompt();
+    };
+
+    window.addEventListener("keydown", handlePromptShortcut, true);
+    return () => window.removeEventListener("keydown", handlePromptShortcut, true);
+  }, [gitDiffPromptOpen, keybindings, openGitDiffReviewPrompt, submitGitDiffReviewPrompt]);
+
   const handleSelectedPathChange = useCallback(
     (path: string | null, targetKind?: GitDiffWorkbenchTargetKind) => {
       allowAutoSelectFirstFileRef.current = true;
@@ -2649,7 +2929,18 @@ export function GitDiffWorkbench(props: {
 
   return (
     <GitDiffWorkbenchShell embedded={embedded}>
-      <div className="flex h-full min-h-0 min-w-0 w-full flex-col bg-background">
+      <div className="relative flex h-full min-h-0 min-w-0 w-full flex-col bg-background">
+        <EditorPromptWorkersOverlay
+          promptOpen={gitDiffPromptOpen}
+          promptDraft={gitDiffPromptDraft}
+          promptContextLabels={gitDiffPromptContextLabels}
+          workers={editorWorkers}
+          onPromptDraftChange={setGitDiffPromptDraft}
+          onPromptCancel={closeGitDiffReviewPrompt}
+          onPromptSubmit={submitGitDiffReviewPrompt}
+          onWorkerInterrupt={interruptEditorWorker}
+          onWorkerDismiss={dismissEditorWorker}
+        />
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">
             <GitCompareIcon className="size-4 shrink-0 text-muted-foreground" />
@@ -2998,14 +3289,18 @@ export function GitDiffWorkbench(props: {
             onDiffLineNumbersChange={setDiffLineNumbers}
             onDiffRenderModeChange={setDiffRenderMode}
             onDiffWordWrapChange={setDiffWordWrap}
+            enableLineSelection
             canCommitSelectedFile={selectedStagedFileIsCommittable}
             onCommitSelectedFile={handleCommitSelectedFile}
             onDiscardSelectedFile={handleDiscardSelectedFile}
             onOpenSelectedFile={handleOpenSelectedFile}
+            onPromptOpen={openGitDiffReviewPrompt}
             onRevertSelectedLines={handleRevertSelectedLines}
+            onSelectedLineSelectionChange={setSelectedDiffLineSelection}
             onStageSelectedFile={handleStageSelectedFile}
             onStashSelectedFile={handleCreateSelectedFileStash}
             onUnstageSelectedFile={handleUnstageSelectedFile}
+            promptShortcutLabel={runPromptShortcutLabel}
             rawDiffFontStyle={rawDiffFontStyle}
             resolvedTheme={resolvedTheme as DiffThemeType}
             reviewThreads={isStackView ? (reviewThreadsQuery.data ?? []) : []}
@@ -3846,11 +4141,13 @@ function GitDiffFileWorkbench(props: {
   readonly onDiffHunkSeparatorsChange: (separator: BuiltInHunkSeparators) => void;
   readonly rawDiffFontStyle: CSSProperties;
   readonly enableLineActions: boolean;
+  readonly enableLineSelection: boolean;
   readonly isLineActionPending: boolean;
   readonly selectedTargetKind: GitDiffWorkbenchTargetKind | null;
   readonly isFileActionPending: boolean;
   readonly onCommentSelectedLines: (selection: GitDiffLineSelection) => void;
   readonly onRevertSelectedLines: (selection: GitDiffLineSelection) => void;
+  readonly onSelectedLineSelectionChange: (selection: GitDiffReviewLineSelection | null) => void;
   readonly canCommitSelectedFile: boolean;
   readonly onCommitSelectedFile: () => void;
   readonly onStageSelectedFile: () => void;
@@ -3858,22 +4155,38 @@ function GitDiffFileWorkbench(props: {
   readonly onUnstageSelectedFile: () => void;
   readonly onDiscardSelectedFile: () => void;
   readonly onOpenSelectedFile: () => void;
+  readonly onPromptOpen: () => void;
+  readonly promptShortcutLabel: string | null;
   readonly enableFileDrag: boolean;
   readonly reviewThreads: readonly ChangeRequestReviewThread[];
 }) {
   const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(null);
+  const { onSelectedLineSelectionChange } = props;
   const errorMessage = props.error ? formatError(props.error) : null;
   const normalizedSelectedLines = useMemo(
     () => normalizeDiffLineSelection(selectedLines),
     [selectedLines],
   );
+  const selectedReviewLineSelection = useMemo<GitDiffReviewLineSelection | null>(() => {
+    if (!normalizedSelectedLines) {
+      return null;
+    }
+    return {
+      ...normalizedSelectedLines,
+      text: extractGitDiffReviewSelectionText(props.diff, normalizedSelectedLines),
+    };
+  }, [normalizedSelectedLines, props.diff]);
 
   useEffect(() => {
     setSelectedLines(null);
   }, [props.selectedFile?.path, props.diff?.path, props.diff?.previousPath]);
 
   useEffect(() => {
-    if (!props.enableLineActions || selectedLines === null || typeof window === "undefined") {
+    onSelectedLineSelectionChange(selectedReviewLineSelection);
+  }, [onSelectedLineSelectionChange, selectedReviewLineSelection]);
+
+  useEffect(() => {
+    if (!props.enableLineSelection || selectedLines === null || typeof window === "undefined") {
       return;
     }
 
@@ -3893,7 +4206,7 @@ function GitDiffFileWorkbench(props: {
 
     window.addEventListener("keydown", handleEscapeKeyDown);
     return () => window.removeEventListener("keydown", handleEscapeKeyDown);
-  }, [props.enableLineActions, selectedLines]);
+  }, [props.enableLineSelection, selectedLines]);
 
   const handleSelectedFileDragStart = useCallback(
     (event: ReactDragEvent<HTMLElement>) => {
@@ -3987,7 +4300,7 @@ function GitDiffFileWorkbench(props: {
   const handleDiffLineClick = useCallback<NonNullable<GitDiffFileDiffOptions["onLineClick"]>>(
     (line) => {
       if (
-        !props.enableLineActions ||
+        !props.enableLineSelection ||
         (line.lineType !== "change-addition" && line.lineType !== "change-deletion")
       ) {
         return;
@@ -3999,15 +4312,15 @@ function GitDiffFileWorkbench(props: {
         start: line.lineNumber,
       });
     },
-    [props.enableLineActions],
+    [props.enableLineSelection],
   );
   const diffOptions = useMemo<GitDiffFileDiffOptions>(
     () => ({
       collapsedContextThreshold: 12,
-      controlledSelection: props.enableLineActions,
+      controlledSelection: props.enableLineSelection,
       diffStyle: props.diffRenderMode === "split" ? "split" : "unified",
       disableLineNumbers: !props.diffLineNumbers,
-      enableLineSelection: props.enableLineActions,
+      enableLineSelection: props.enableLineSelection,
       expansionLineCount: 80,
       hunkSeparators: props.diffHunkSeparators,
       lineDiffType: props.diffLineHighlightMode === "inline" ? "word-alt" : "none",
@@ -4027,7 +4340,7 @@ function GitDiffFileWorkbench(props: {
       props.diffRenderMode,
       props.diffUnsafeCSS,
       props.diffWordWrap,
-      props.enableLineActions,
+      props.enableLineSelection,
       handleDiffLineClick,
       props.resolvedTheme,
       props.syntaxTheme,
@@ -4143,6 +4456,22 @@ function GitDiffFileWorkbench(props: {
               </span>
             </>
           ) : null}
+          <Button
+            aria-label="Run agent prompt with review context"
+            disabled={!props.selectedFile}
+            size="icon-xs"
+            title={
+              props.selectedFile
+                ? `Run prompt with review context${
+                    props.promptShortcutLabel ? ` (${props.promptShortcutLabel})` : ""
+                  }`
+                : "Select a changed file"
+            }
+            variant="ghost"
+            onClick={props.onPromptOpen}
+          >
+            <BotIcon />
+          </Button>
           {props.enableLineActions ? (
             <div className="flex shrink-0 items-center gap-1">
               <Button

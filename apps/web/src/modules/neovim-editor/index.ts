@@ -44,5 +44,9 @@ export {
   ComposerPendingEditorContexts,
 } from "./components/ComposerPendingEditorContexts";
 export { EditorContextInlineChip } from "./components/EditorContextInlineChip";
-export { EditorPane, type EditorWorkerItem } from "./components/EditorPane";
+export {
+  EditorPane,
+  EditorPromptWorkersOverlay,
+  type EditorWorkerItem,
+} from "./components/EditorPane";
 export { ChatViewSwitcher } from "./components/ChatViewSwitcher";

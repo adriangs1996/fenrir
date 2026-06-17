@@ -166,7 +166,7 @@ export function EditorPane({
   );
 }
 
-function EditorPromptWorkersOverlay({
+export function EditorPromptWorkersOverlay({
   promptOpen,
   promptDraft,
   promptContextLabels,
