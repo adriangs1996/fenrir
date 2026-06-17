@@ -208,6 +208,7 @@ export interface WsRpcClient {
   readonly projects: {
     readonly listEntries: RpcUnaryMethod<typeof WS_METHODS.projectsListEntries>;
     readonly searchEntries: RpcUnaryMethod<typeof WS_METHODS.projectsSearchEntries>;
+    readonly readFile: RpcUnaryMethod<typeof WS_METHODS.projectsReadFile>;
     readonly writeFile: RpcUnaryMethod<typeof WS_METHODS.projectsWriteFile>;
     readonly createFile: RpcUnaryMethod<typeof WS_METHODS.projectsCreateFile>;
     readonly createDirectory: RpcUnaryMethod<typeof WS_METHODS.projectsCreateDirectory>;
@@ -368,6 +369,9 @@ export interface WsRpcClient {
       typeof WS_METHODS.trafficLensClearPersistedOrigin
     >;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeTrafficLensEvents>;
+  };
+  readonly localServers: {
+    readonly subscribe: RpcStreamMethod<typeof WS_METHODS.subscribeLocalServers>;
   };
   readonly planRunner: {
     readonly listFeatures: RpcUnaryMethod<typeof WS_METHODS.planRunnerListFeatures>;
@@ -569,6 +573,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.projectsListEntries](input)),
       searchEntries: (input) =>
         transport.request((client) => client[WS_METHODS.projectsSearchEntries](input)),
+      readFile: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsReadFile](input)),
       writeFile: (input) =>
         transport.request((client) => client[WS_METHODS.projectsWriteFile](input)),
       createFile: (input) =>
@@ -809,6 +815,14 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       onEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeTrafficLensEvents]({}),
+          listener,
+          options,
+        ),
+    },
+    localServers: {
+      subscribe: (listener, options) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeLocalServers]({}),
           listener,
           options,
         ),

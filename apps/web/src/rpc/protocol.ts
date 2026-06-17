@@ -21,6 +21,7 @@ export interface WsProtocolLifecycleHandlers {
   readonly isActive?: () => boolean;
   readonly onAttempt?: (socketUrl: string) => void;
   readonly onOpen?: () => void;
+  readonly onHeartbeatPong?: () => void;
   readonly onError?: (message: string) => void;
   readonly onClose?: (details: { readonly code: number; readonly reason: string }) => void;
 }
@@ -53,6 +54,7 @@ function defaultLifecycleHandlers(): Required<WsProtocolLifecycleHandlers> {
     isActive: () => true,
     onAttempt: recordWsConnectionAttempt,
     onOpen: recordWsConnectionOpened,
+    onHeartbeatPong: () => undefined,
     onError: (message) => {
       clearAllTrackedRpcRequests();
       recordWsConnectionErrored(message);
@@ -85,6 +87,13 @@ function composeLifecycleHandlers(
       }
       defaults.onOpen();
       handlers?.onOpen?.();
+    },
+    onHeartbeatPong: () => {
+      if (!isActive()) {
+        return;
+      }
+      defaults.onHeartbeatPong();
+      handlers?.onHeartbeatPong?.();
     },
     onError: (message) => {
       if (!isActive()) {
@@ -141,6 +150,16 @@ export function createWsRpcProtocolLayer(
         },
         { once: true },
       );
+      socket.addEventListener("message", (event) => {
+        try {
+          const message = JSON.parse(String(event.data)) as { readonly _tag?: string };
+          if (message._tag === "Pong") {
+            lifecycle.onHeartbeatPong();
+          }
+        } catch {
+          // Ignore malformed messages here; the Effect RPC parser owns protocol errors.
+        }
+      });
       socket.addEventListener(
         "close",
         (event) => {

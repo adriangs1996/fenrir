@@ -54,6 +54,67 @@ function expectWorkspaceFileSystemError(error: unknown): asserts error is Worksp
 }
 
 it.layer(TestLayer)("WorkspaceFileSystemLive", (it) => {
+  describe("readFile", () => {
+    it.effect("reads files relative to the workspace root", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "docs/readme.md", "# Readme\n");
+
+        const result = yield* workspaceFileSystem.readFile({
+          cwd,
+          relativePath: "docs/readme.md",
+        });
+
+        expect(result).toEqual({
+          relativePath: "docs/readme.md",
+          contents: "# Readme\n",
+          byteLength: 9,
+          truncated: false,
+        });
+      }),
+    );
+
+    it.effect("truncates reads at the requested byte budget", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "large.txt", "abcdef");
+
+        const result = yield* workspaceFileSystem.readFile({
+          cwd,
+          relativePath: "large.txt",
+          maxBytes: 3,
+        });
+
+        expect(result).toEqual({
+          relativePath: "large.txt",
+          contents: "abc",
+          byteLength: 6,
+          truncated: true,
+        });
+      }),
+    );
+
+    it.effect("rejects reads outside the workspace root", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+
+        const error = yield* workspaceFileSystem
+          .readFile({
+            cwd,
+            relativePath: "../escape.md",
+          })
+          .pipe(Effect.flip);
+
+        expect(error.message).toContain(
+          "Workspace file path must be relative to the project root: ../escape.md",
+        );
+      }),
+    );
+  });
+
   describe("writeFile", () => {
     it.effect("writes files relative to the workspace root", () =>
       Effect.gen(function* () {

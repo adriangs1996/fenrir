@@ -1,5 +1,12 @@
 import * as Schema from "effect/Schema";
-import { ChevronDownIcon, ChevronUpIcon, GlobeIcon } from "lucide-react";
+import type { DiscoveredLocalServer } from "@fenrir/contracts";
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  ExternalLinkIcon,
+  GlobeIcon,
+  RadioTowerIcon,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -38,10 +45,16 @@ import {
 } from "~/modules/traffic-lens";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime/service";
 import {
+  subscribeToLocalServers,
+  useLocalServersStore,
+  type LocalServersEnvironmentState,
+} from "~/localServersStore";
+import {
   toOverrideInput,
   toProfileInput,
   toRuleInput,
 } from "~/modules/traffic-lens/workbenchModels";
+import { createBrowserLabTab } from "./openBrowserLabUrl";
 
 const BROWSER_LAB_DEFAULT_URL = "https://example.com";
 const BROWSER_LAB_DOCK_HEIGHT_KEY = "fenrir:browser-lab:dock-height";
@@ -86,7 +99,6 @@ export function BrowserLabRouteView() {
   const repeaterDetail = useTrafficLensStore((state) => state.repeaterDetail);
   const pausedCount = useTrafficLensStore((state) => Object.keys(state.pausedRequests).length);
   const findingCount = useTrafficLensStore((state) => state.findings.length);
-  const selectedProfileId = useTrafficLensStore((state) => state.selectedProfileId);
   const dockHeight = useTrafficLensStore((state) => state.dockHeight);
   const dockCollapsed = useTrafficLensStore((state) => state.dockCollapsed);
   const setActiveTab = useTrafficLensStore((state) => state.setActiveTab);
@@ -111,13 +123,18 @@ export function BrowserLabRouteView() {
   const resizeStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const workbenchBodyRef = useRef<HTMLDivElement>(null);
   const [maxDockHeight, setMaxDockHeight] = useState<number>(1024);
-  const rpcClient = useMemo(() => {
+  const primaryEnvironmentConnection = useMemo(() => {
     try {
-      return getPrimaryEnvironmentConnection().client;
+      return getPrimaryEnvironmentConnection();
     } catch {
       return null;
     }
   }, []);
+  const rpcClient = primaryEnvironmentConnection?.client ?? null;
+  const localServersEnvironmentId = primaryEnvironmentConnection?.environmentId ?? null;
+  const localServersState = useLocalServersStore((state) =>
+    localServersEnvironmentId ? (state.byEnvironmentId[localServersEnvironmentId] ?? null) : null,
+  );
   const tabList = useMemo(() => Object.values(tabs), [tabs]);
 
   useEffect(() => {
@@ -166,31 +183,49 @@ export function BrowserLabRouteView() {
     return () => observer.disconnect();
   }, []);
 
-  const handleCreateTab = useCallback(async () => {
-    const bridge = window.desktopBridge;
-    if (!bridge) {
-      setBootstrapState("error");
-      setBootstrapError("Browser Lab requires the Electron desktop app.");
+  useEffect(() => {
+    if (!primaryEnvironmentConnection || !desktopBridgeAvailable || !isMainWindow) {
       return;
     }
 
-    try {
-      const snapshot = ensureTrafficLensTabSnapshot(
-        selectedProfileId && selectedProfileId !== "default"
-          ? await bridge.trafficLensCreateTabInProfile({
-              profileId: selectedProfileId,
-              url: BROWSER_LAB_DEFAULT_URL,
-            })
-          : await bridge.trafficLensCreateTab(BROWSER_LAB_DEFAULT_URL),
-      );
-      setActiveTab(snapshot.tabId);
-      setBootstrapState("ready");
-      setBootstrapError(null);
-    } catch (error) {
-      setBootstrapState("error");
-      setBootstrapError(error instanceof Error ? error.message : "Could not create browser tab.");
-    }
-  }, [selectedProfileId, setActiveTab]);
+    return subscribeToLocalServers({
+      client: primaryEnvironmentConnection.client,
+      environmentId: primaryEnvironmentConnection.environmentId,
+    });
+  }, [desktopBridgeAvailable, isMainWindow, primaryEnvironmentConnection]);
+
+  const createBrowserTab = useCallback(
+    async (url: string) => {
+      const bridge = window.desktopBridge;
+      if (!bridge) {
+        setBootstrapState("error");
+        setBootstrapError("Browser Lab requires the Electron desktop app.");
+        return;
+      }
+
+      try {
+        const snapshot = await createBrowserLabTab(url);
+        setActiveTab(snapshot.tabId);
+        setBootstrapState("ready");
+        setBootstrapError(null);
+      } catch (error) {
+        setBootstrapState("error");
+        setBootstrapError(error instanceof Error ? error.message : "Could not create browser tab.");
+      }
+    },
+    [setActiveTab],
+  );
+
+  const handleCreateTab = useCallback(async () => {
+    await createBrowserTab(BROWSER_LAB_DEFAULT_URL);
+  }, [createBrowserTab]);
+
+  const handleOpenLocalServer = useCallback(
+    (server: DiscoveredLocalServer) => {
+      void createBrowserTab(server.url);
+    },
+    [createBrowserTab],
+  );
 
   const handleOpenExternal = useCallback(() => {
     if (!activeTabId) {
@@ -472,6 +507,7 @@ export function BrowserLabRouteView() {
             <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
               <TrafficLensTabBar onCreateTab={() => void handleCreateTab()} />
               <TrafficLensAddressBar onOpenExternal={handleOpenExternal} />
+              <LocalServersStrip state={localServersState} onOpen={handleOpenLocalServer} />
               <div
                 ref={workbenchBodyRef}
                 className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
@@ -528,6 +564,84 @@ export function BrowserLabRouteView() {
         </div>
       </div>
     </SidebarInset>
+  );
+}
+
+function localServerLabel(server: DiscoveredLocalServer): string {
+  if (server.terminal) {
+    return server.terminal.terminalId === "default"
+      ? "Terminal"
+      : `Terminal ${server.terminal.terminalId}`;
+  }
+  if (server.processName) {
+    return server.pid ? `${server.processName} pid ${server.pid}` : server.processName;
+  }
+  return `Port ${server.port}`;
+}
+
+function LocalServersStrip(props: {
+  state: LocalServersEnvironmentState | null;
+  onOpen: (server: DiscoveredLocalServer) => void;
+}) {
+  if (props.state === null || props.state.status === "idle") {
+    return null;
+  }
+
+  const servers = props.state.snapshot?.servers ?? [];
+  const statusLabel =
+    props.state.status === "connecting"
+      ? "Scanning"
+      : props.state.status === "error"
+        ? "Unavailable"
+        : servers.length === 1
+          ? "1 server"
+          : `${servers.length} servers`;
+
+  return (
+    <div className="flex shrink-0 flex-col gap-2 border-b border-border/70 bg-muted/20 px-3 py-2 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 shrink-0 items-center gap-2 text-xs text-muted-foreground">
+        <RadioTowerIcon className="size-4 shrink-0" />
+        <span className="font-medium text-foreground">Local servers</span>
+        <span className="rounded-md border border-border/70 bg-background/80 px-1.5 py-0.5 text-[11px]">
+          {statusLabel}
+        </span>
+      </div>
+      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+        {props.state.status === "error" ? (
+          <span className="truncate text-xs text-muted-foreground">
+            {props.state.error ?? "Scanner unavailable"}
+          </span>
+        ) : servers.length === 0 ? (
+          <span className="truncate text-xs text-muted-foreground">No local listeners</span>
+        ) : (
+          servers.map((server) => (
+            <button
+              key={`${server.host}:${server.port}`}
+              type="button"
+              title={`Open ${server.url}`}
+              aria-label={`Open ${server.url}`}
+              className="group flex h-11 min-w-48 max-w-64 shrink-0 items-center gap-2 rounded-md border border-border/70 bg-background/80 px-2 text-left shadow-xs/5 transition-colors hover:border-primary/40 hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              onClick={() => props.onOpen(server)}
+            >
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-emerald-500/20 bg-emerald-500/10">
+                <span className="size-2 rounded-full bg-emerald-500" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-medium text-foreground">
+                  {localServerLabel(server)}
+                </span>
+                <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                  {server.terminal
+                    ? `${server.url} · ${server.processName ?? `pid ${server.pid ?? "unknown"}`}`
+                    : server.url}
+                </span>
+              </span>
+              <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+            </button>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 

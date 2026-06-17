@@ -161,6 +161,10 @@ import {
 import { RawTcpListenerService } from "./raw-tcp/Services/RawTcpListenerService.ts";
 import { TrafficLensService } from "./traffic-lens/Services/TrafficLensService.ts";
 import { TrafficLensStorageService } from "./traffic-lens-storage/Services/TrafficLensStorageService.ts";
+import {
+  LocalServerDiscovery,
+  type LocalServerDiscoveryShape,
+} from "./localServers/Services/LocalServerDiscovery.ts";
 import { ManagedProcessManager } from "./managedProcess/Services/Manager.ts";
 import {
   ImportResolver,
@@ -452,6 +456,7 @@ const buildAppUnderTest = (options?: {
     importResolver?: Partial<ImportResolverShape>;
     browserLabControlService?: Partial<BrowserLabControlServiceShape>;
     remoteControllerService?: Partial<RemoteControllerServiceShape>;
+    localServerDiscovery?: Partial<LocalServerDiscoveryShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -903,6 +908,17 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provide(
         Layer.mergeAll(
+          Layer.mock(LocalServerDiscovery)({
+            scan: Effect.succeed({
+              servers: [],
+              scannedAt: "1970-01-01T00:00:00.000Z",
+            }),
+            subscribe: () => Effect.succeed(() => {}),
+            registerTerminalProcesses: () => Effect.void,
+            unregisterTerminal: () => Effect.void,
+            unregisterThread: () => Effect.void,
+            ...options?.layers?.localServerDiscovery,
+          }),
           Layer.mock(TrafficLensService)({
             ingestTraffic: () => Effect.void,
             queryTraffic: () => Effect.succeed([]),
@@ -2651,6 +2667,49 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("routes websocket rpc subscribeLocalServers streams snapshots", () =>
+    Effect.gen(function* () {
+      const snapshot = {
+        servers: [
+          {
+            host: "localhost",
+            port: 5173,
+            url: "http://localhost:5173",
+            processName: "vite",
+            pid: 1234,
+            source: "lsof" as const,
+            terminal: null,
+          },
+        ],
+        scannedAt: "2026-06-17T00:00:00.000Z",
+      };
+
+      yield* buildAppUnderTest({
+        layers: {
+          localServerDiscovery: {
+            scan: Effect.succeed(snapshot),
+            subscribe: (listener) =>
+              Effect.sync(() => {
+                listener(snapshot);
+                return () => {};
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const events = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.subscribeLocalServers]({}).pipe(Stream.take(1), Stream.runCollect),
+        ),
+      );
+
+      const [first] = Array.from(events);
+      assert.equal(first?.servers[0]?.url, "http://localhost:5173");
+      assert.equal(first?.servers[0]?.processName, "vite");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("rejects websocket rpc handshake when session authentication is missing", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -2888,6 +2947,38 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         { path: "README.md", kind: "file" },
       ]);
       assert.equal(response.truncated, false);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc projects.readFile", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "fenrir-ws-project-read-",
+      });
+      yield* fs.makeDirectory(path.join(workspaceDir, "docs"), { recursive: true });
+      yield* fs.writeFileString(path.join(workspaceDir, "docs", "readme.md"), "# Readme\n");
+
+      yield* buildAppUnderTest();
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.projectsReadFile]({
+            cwd: workspaceDir,
+            relativePath: "docs/readme.md",
+            maxBytes: 1024,
+          }),
+        ),
+      );
+
+      assert.deepEqual(response, {
+        relativePath: "docs/readme.md",
+        contents: "# Readme\n",
+        byteLength: 9,
+        truncated: false,
+      });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -4632,6 +4723,15 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("routes websocket rpc terminal methods", () =>
     Effect.gen(function* () {
+      const registeredTerminalProcesses: Array<{
+        readonly threadId: string;
+        readonly terminalId: string;
+        readonly processIds: ReadonlyArray<number>;
+      }> = [];
+      const unregisteredTerminals: Array<{
+        readonly threadId: string;
+        readonly terminalId: string;
+      }> = [];
       const snapshot = {
         threadId: "thread-1",
         terminalId: "default",
@@ -4655,6 +4755,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             restart: () => Effect.succeed(snapshot),
             close: () => Effect.void,
           },
+          localServerDiscovery: {
+            registerTerminalProcesses: (input) =>
+              Effect.sync(() => {
+                registeredTerminalProcesses.push(input);
+              }),
+            unregisterTerminal: (input) =>
+              Effect.sync(() => {
+                unregisteredTerminals.push(input);
+              }),
+          },
         },
       });
 
@@ -4670,6 +4780,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.equal(opened.terminalId, "default");
+      assert.deepEqual(registeredTerminalProcesses[0], {
+        threadId: "thread-1",
+        terminalId: "default",
+        processIds: [1234],
+      });
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
@@ -4713,6 +4828,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.equal(restarted.terminalId, "default");
+      assert.deepEqual(registeredTerminalProcesses[1], {
+        threadId: "thread-1",
+        terminalId: "default",
+        processIds: [1234],
+      });
 
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
@@ -4722,6 +4842,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           }),
         ),
       );
+      assert.deepEqual(unregisteredTerminals, [{ threadId: "thread-1", terminalId: "default" }]);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

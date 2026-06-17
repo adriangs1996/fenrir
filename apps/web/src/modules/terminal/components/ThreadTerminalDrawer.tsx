@@ -5,6 +5,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import {
   CheckIcon,
   CopyIcon,
+  GlobeIcon,
   Plus,
   SquareSplitHorizontal,
   TerminalSquare,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import {
   type ResolvedKeybindingsConfig,
+  type DiscoveredLocalServer,
   type ScopedThreadRef,
   type TerminalEvent,
   type TerminalSessionSnapshot,
@@ -21,6 +23,7 @@ import {
 } from "@fenrir/contracts";
 import { Terminal } from "@xterm/xterm";
 import {
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useCallback,
@@ -30,6 +33,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { type TerminalContextSelection } from "../terminalContext";
 import { openInPreferredEditor } from "~/editorPreferences";
@@ -65,6 +69,14 @@ import { createThreadSelectorByRef } from "~/storeSelectors";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { extractLastCommandOutput } from "../extractLastCommandOutput";
 import { useClientSettingsHydrated, useSettings } from "~/hooks/useSettings";
+import { useOpenBrowserLabUrl } from "~/modules/browser-lab/openBrowserLabUrl";
+import {
+  formatLocalServerShortLabel,
+  selectLocalServersForTerminal,
+  selectPreferredLocalServer,
+  type LocalServersStoreState,
+  useLocalServersStore,
+} from "~/localServersStore";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
@@ -1032,6 +1044,61 @@ function TerminalActionButton({ label, className, onClick, children }: TerminalA
   );
 }
 
+interface TerminalLocalServerButtonProps {
+  server: DiscoveredLocalServer;
+  className: string;
+  showPortLabel?: boolean;
+  onOpen: (url: string) => void;
+}
+
+function TerminalLocalServerButton({
+  server,
+  className,
+  showPortLabel = false,
+  onOpen,
+}: TerminalLocalServerButtonProps) {
+  const handleClick = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onOpen(server.url);
+    },
+    [onOpen, server.url],
+  );
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        openOnHover
+        render={
+          <button
+            type="button"
+            className={`${className} focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring`}
+            onClick={handleClick}
+            aria-label={`Open ${server.url} in Browser Lab`}
+          />
+        }
+      >
+        <GlobeIcon className="size-3 shrink-0" />
+        {showPortLabel ? (
+          <span className="truncate font-mono text-[10px]">
+            {formatLocalServerShortLabel(server)}
+          </span>
+        ) : null}
+      </PopoverTrigger>
+      <PopoverPopup
+        tooltipStyle
+        side="bottom"
+        sideOffset={6}
+        align="center"
+        className="pointer-events-none select-none"
+      >
+        Open {server.url}
+      </PopoverPopup>
+    </Popover>
+  );
+}
+
 export default function ThreadTerminalDrawer({
   threadRef,
   threadId,
@@ -1058,6 +1125,7 @@ export default function ThreadTerminalDrawer({
   keybindings,
   layoutMode = "drawer",
 }: ThreadTerminalDrawerProps) {
+  const environmentId = threadRef.environmentId;
   const [drawerHeight, setDrawerHeight] = useState(() => clampDrawerHeight(height));
   const [resizeEpoch, setResizeEpoch] = useState(0);
   const drawerHeightRef = useRef(drawerHeight);
@@ -1172,6 +1240,37 @@ export default function ThreadTerminalDrawer({
         normalizedTerminalIds.map((terminalId, index) => [terminalId, `Terminal ${index + 1}`]),
       ),
     [normalizedTerminalIds],
+  );
+  const preferredLocalServersByTerminalIndex = useLocalServersStore(
+    useShallow(
+      useMemo(
+        () => (state: LocalServersStoreState) =>
+          normalizedTerminalIds.map((terminalId) =>
+            selectPreferredLocalServer(
+              selectLocalServersForTerminal(state, environmentId, threadId, terminalId),
+            ),
+          ),
+        [environmentId, normalizedTerminalIds, threadId],
+      ),
+    ),
+  );
+  const preferredLocalServerByTerminalId = useMemo(() => {
+    const next = new Map<string, DiscoveredLocalServer>();
+    for (const [index, terminalId] of normalizedTerminalIds.entries()) {
+      const server = preferredLocalServersByTerminalIndex[index];
+      if (server) {
+        next.set(terminalId, server);
+      }
+    }
+    return next;
+  }, [normalizedTerminalIds, preferredLocalServersByTerminalIndex]);
+  const activeLocalServer = preferredLocalServerByTerminalId.get(resolvedActiveTerminalId) ?? null;
+  const openBrowserLabUrl = useOpenBrowserLabUrl();
+  const handleOpenLocalServerUrl = useCallback(
+    (url: string) => {
+      void openBrowserLabUrl(url);
+    },
+    [openBrowserLabUrl],
   );
   const splitTerminalActionLabel = hasReachedSplitLimit
     ? `Split Terminal (max ${MAX_TERMINALS_PER_GROUP} per group)`
@@ -1334,6 +1433,16 @@ export default function ThreadTerminalDrawer({
       {!hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
           <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background/70">
+            {activeLocalServer ? (
+              <>
+                <TerminalLocalServerButton
+                  className="inline-flex items-center gap-1 p-1 text-emerald-500 transition-colors hover:bg-emerald-500/10 hover:text-emerald-400"
+                  server={activeLocalServer}
+                  onOpen={handleOpenLocalServerUrl}
+                />
+                <div className="h-4 w-px bg-border/80" />
+              </>
+            ) : null}
             <TerminalActionButton
               className="p-1 text-foreground/90 transition-colors hover:bg-accent"
               onClick={handleCopyLastOutput}
@@ -1464,6 +1573,13 @@ export default function ThreadTerminalDrawer({
                       <CopyIcon className="size-3.25" />
                     )}
                   </TerminalActionButton>
+                  {activeLocalServer ? (
+                    <TerminalLocalServerButton
+                      className="inline-flex h-full items-center gap-1 border-l border-border/70 px-1 text-emerald-500 transition-colors hover:bg-emerald-500/10 hover:text-emerald-400"
+                      server={activeLocalServer}
+                      onOpen={handleOpenLocalServerUrl}
+                    />
+                  ) : null}
                   <TerminalActionButton
                     className={`inline-flex h-full items-center border-l border-border/70 px-1 text-foreground/90 transition-colors ${
                       hasReachedSplitLimit
@@ -1523,6 +1639,8 @@ export default function ThreadTerminalDrawer({
                       >
                         {terminalGroup.terminalIds.map((terminalId) => {
                           const isActive = terminalId === resolvedActiveTerminalId;
+                          const localServer =
+                            preferredLocalServerByTerminalId.get(terminalId) ?? null;
                           const closeTerminalLabel = `Close ${
                             terminalLabelById.get(terminalId) ?? "terminal"
                           }${isActive && closeShortcutLabel ? ` (${closeShortcutLabel})` : ""}`;
@@ -1548,6 +1666,14 @@ export default function ThreadTerminalDrawer({
                                   {terminalLabelById.get(terminalId) ?? "Terminal"}
                                 </span>
                               </button>
+                              {localServer ? (
+                                <TerminalLocalServerButton
+                                  className="inline-flex h-4 max-w-12 items-center gap-0.5 rounded px-0.5 text-emerald-500 transition-colors hover:bg-emerald-500/10 hover:text-emerald-400"
+                                  server={localServer}
+                                  showPortLabel
+                                  onOpen={handleOpenLocalServerUrl}
+                                />
+                              ) : null}
                               {normalizedTerminalIds.length > 1 && (
                                 <Popover>
                                   <PopoverTrigger

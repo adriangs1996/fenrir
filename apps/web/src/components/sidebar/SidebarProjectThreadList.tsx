@@ -1,11 +1,19 @@
-import { ArchiveIcon, CloudIcon, GitPullRequestIcon, TerminalIcon } from "lucide-react";
+import { ArchiveIcon, CloudIcon, GitPullRequestIcon, GlobeIcon, TerminalIcon } from "lucide-react";
 import React, { useCallback, memo, useMemo } from "react";
 import type { ScopedThreadRef } from "@fenrir/contracts";
 import { scopedThreadKey, scopeProjectRef, scopeThreadRef } from "@fenrir/client-runtime";
+import { useShallow } from "zustand/react/shallow";
 import { usePrimaryEnvironmentId } from "../../environments/primary";
 import { cn } from "../../lib/utils";
 import { selectProjectByRef, useStore } from "../../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "~/modules/terminal";
+import { useOpenBrowserLabUrl } from "~/modules/browser-lab/openBrowserLabUrl";
+import {
+  selectLocalServersForThread,
+  selectPreferredLocalServer,
+  type LocalServersStoreState,
+  useLocalServersStore,
+} from "~/localServersStore";
 import { useUiStateStore } from "../../uiStateStore";
 import { useGitStatus } from "../../lib/gitStatusState";
 import { formatRelativeTimeLabel } from "../../lib/formatting";
@@ -93,6 +101,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   } = props;
   const threadRef = scopeThreadRef(thread.environmentId, thread.id);
   const threadKey = scopedThreadKey(threadRef);
+  const localServers = useLocalServersStore(
+    useShallow(
+      useMemo(
+        () => (state: LocalServersStoreState) =>
+          selectLocalServersForThread(state, thread.environmentId, thread.id),
+        [thread.environmentId, thread.id],
+      ),
+    ),
+  );
+  const preferredLocalServer = selectPreferredLocalServer(localServers);
+  const preferredLocalServerUrl = preferredLocalServer?.url ?? null;
+  const openBrowserLabUrl = useOpenBrowserLabUrl();
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
   const runningTerminalIds = useTerminalStateStore(
@@ -261,6 +281,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     },
     [],
   );
+  const handleOpenLocalServerClick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!preferredLocalServerUrl) return;
+      void openBrowserLabUrl(preferredLocalServerUrl);
+    },
+    [openBrowserLabUrl, preferredLocalServerUrl],
+  );
   const handleConfirmArchiveClick = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault();
@@ -359,6 +388,25 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           )}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {preferredLocalServer ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    data-thread-selection-safe
+                    aria-label={`Open ${preferredLocalServer.url} in Browser Lab`}
+                    className="inline-flex size-4 cursor-pointer items-center justify-center rounded-sm text-emerald-500 transition-colors hover:bg-emerald-500/10 hover:text-emerald-400 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                    onPointerDown={stopPropagationOnPointerDown}
+                    onClick={handleOpenLocalServerClick}
+                  >
+                    <GlobeIcon className="size-3" />
+                  </button>
+                }
+              />
+              <TooltipPopup side="top">{preferredLocalServer.url}</TooltipPopup>
+            </Tooltip>
+          ) : null}
           {terminalStatus && (
             <span
               role="img"

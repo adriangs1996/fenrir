@@ -45,6 +45,7 @@ import { RemoteController } from "./puppeteer/Layers/RemoteController";
 import { RemoteConnectionManagerLive } from "./puppeteer/Layers/RemoteConnectionManager";
 import { TrafficLensServiceLive } from "./traffic-lens/Layers/TrafficLensService";
 import { TrafficLensStorageServiceLive } from "./traffic-lens-storage/Layers/TrafficLensStorageService";
+import { LocalServerDiscoveryLive } from "./localServers/Layers/LocalServerDiscovery";
 import { BrowserLabControlHttpLive } from "./browserLab/browserLabControlHttp";
 import { BrowserLabControlServiceLive } from "./browserLab/Layers/BrowserLabControlService";
 import { RemoteHostMcpHttpLive } from "./mcp/remoteHostMcpHttp";
@@ -305,6 +306,7 @@ const CoreInfrastructureLive = ReactorLayerLive.pipe(
   Layer.provideMerge(RemoteController.pipe(Layer.provide(RemoteConnectionManagerLive))),
   Layer.provideMerge(TrafficLensServiceLive),
   Layer.provideMerge(TrafficLensStorageServiceLive),
+  Layer.provideMerge(LocalServerDiscoveryLive),
   Layer.provideMerge(BrowserLabControlServiceLive),
   Layer.provideMerge(
     PlanRunnerLive.pipe(

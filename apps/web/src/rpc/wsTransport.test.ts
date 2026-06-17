@@ -299,6 +299,59 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("tracks heartbeat freshness from websocket pongs", async () => {
+    const nowSpy = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const onHeartbeatPong = vi.fn();
+    const transport = createTransport("ws://localhost:3020", { onHeartbeatPong });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    expect(transport.isHeartbeatFresh()).toBe(false);
+
+    const socket = getSocket();
+    socket.open();
+    socket.serverMessage(JSON.stringify({ _tag: "Pong" }));
+
+    await waitFor(() => {
+      expect(onHeartbeatPong).toHaveBeenCalledOnce();
+    });
+
+    expect(transport.isHeartbeatFresh()).toBe(true);
+    expect(transport.isHeartbeatFresh(500)).toBe(true);
+
+    nowSpy.mockReturnValue(1_501);
+    expect(transport.isHeartbeatFresh(500)).toBe(false);
+
+    await transport.dispose();
+  });
+
+  it("clears heartbeat freshness when reconnecting", async () => {
+    vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const onHeartbeatPong = vi.fn();
+    const transport = createTransport("ws://localhost:3020", { onHeartbeatPong });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const firstSocket = getSocket();
+    firstSocket.open();
+    firstSocket.serverMessage(JSON.stringify({ _tag: "Pong" }));
+
+    await waitFor(() => {
+      expect(onHeartbeatPong).toHaveBeenCalledOnce();
+    });
+    expect(transport.isHeartbeatFresh()).toBe(true);
+
+    await transport.reconnect();
+
+    expect(transport.isHeartbeatFresh()).toBe(false);
+
+    await transport.dispose();
+  });
+
   it("reconnects the websocket session without disposing the transport", async () => {
     const transport = createTransport("ws://localhost:3020");
 

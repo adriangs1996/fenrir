@@ -144,6 +144,12 @@ function createTestClient(options?: {
     projects: {
       listEntries: vi.fn(async () => ({ entries: [], truncated: false })),
       searchEntries: vi.fn(async () => []),
+      readFile: vi.fn(async () => ({
+        relativePath: "README.md",
+        contents: "",
+        byteLength: 0,
+        truncated: false,
+      })),
       writeFile: vi.fn(async () => undefined),
       createFile: vi.fn(async () => undefined),
       createDirectory: vi.fn(async () => undefined),

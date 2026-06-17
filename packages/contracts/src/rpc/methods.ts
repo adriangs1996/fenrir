@@ -5,6 +5,7 @@ export const WS_METHODS = {
   projectsRemove: "projects.remove",
   projectsListEntries: "projects.listEntries",
   projectsSearchEntries: "projects.searchEntries",
+  projectsReadFile: "projects.readFile",
   projectsWriteFile: "projects.writeFile",
   projectsCreateFile: "projects.createFile",
   projectsCreateDirectory: "projects.createDirectory",
@@ -93,6 +94,7 @@ export const WS_METHODS = {
   subscribeServerConfig: "subscribeServerConfig",
   subscribeServerLifecycle: "subscribeServerLifecycle",
   subscribeAuthAccess: "subscribeAuthAccess",
+  subscribeLocalServers: "subscribeLocalServers",
 
   // Tmux manager
   terminalAttachTmux: "terminal.attachTmux",

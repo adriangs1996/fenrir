@@ -44,6 +44,7 @@ import {
   WsManagedProcessUpsertDefinitionRpc,
   WsManagedProcessWriteStdinRpc,
 } from "./managedProcess";
+import { WsSubscribeLocalServersRpc } from "./localServers";
 import {
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetArchivedShellSnapshotRpc,
@@ -82,6 +83,7 @@ import {
   WsProjectsCreateFileRpc,
   WsProjectsListEntriesRpc,
   WsProjectsMoveEntryRpc,
+  WsProjectsReadFileRpc,
   WsProjectsRemoveEntryRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
@@ -229,6 +231,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerDeleteGlobalActionRpc,
   WsProjectsListEntriesRpc,
   WsProjectsSearchEntriesRpc,
+  WsProjectsReadFileRpc,
   WsProjectsWriteFileRpc,
   WsProjectsCreateFileRpc,
   WsProjectsCreateDirectoryRpc,
@@ -290,6 +293,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerConfigRpc,
   WsSubscribeServerLifecycleRpc,
   WsSubscribeAuthAccessRpc,
+  WsSubscribeLocalServersRpc,
   WsOrchestrationGetBootstrapSnapshotRpc,
   WsServerUpdateProviderRpc,
   WsOrchestrationGetArchivedShellSnapshotRpc,

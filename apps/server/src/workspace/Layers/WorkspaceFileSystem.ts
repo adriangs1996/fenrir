@@ -7,8 +7,10 @@ import {
 } from "../Services/WorkspaceFileSystem.ts";
 import { WorkspaceEntries } from "../Services/WorkspaceEntries.ts";
 import { WorkspacePaths } from "../Services/WorkspacePaths.ts";
+import { collectUint8StreamText } from "../../stream/collectUint8StreamText.ts";
 
 const RESERVED_WORKSPACE_MUTATION_DIRECTORIES = new Set([".git"]);
+const DEFAULT_WORKSPACE_READ_FILE_MAX_BYTES = 1024 * 1024;
 
 function isReservedWorkspaceMutationPath(relativePath: string): boolean {
   const firstSegment = relativePath.replaceAll("\\", "/").split("/")[0];
@@ -20,6 +22,21 @@ function isSameOrNestedRelativePath(sourceRelativePath: string, destinationRelat
   const sourcePath = sourceRelativePath.replaceAll("\\", "/").replace(/\/+$/g, "");
   const destinationPath = destinationRelativePath.replaceAll("\\", "/").replace(/\/+$/g, "");
   return destinationPath === sourcePath || destinationPath.startsWith(`${sourcePath}/`);
+}
+
+function fileSystemErrorMessage(cause: unknown): string {
+  if (cause instanceof Error) {
+    return cause.message;
+  }
+  if (
+    cause &&
+    typeof cause === "object" &&
+    "message" in cause &&
+    typeof cause.message === "string"
+  ) {
+    return cause.message;
+  }
+  return "File system operation failed.";
 }
 
 export const makeWorkspaceFileSystem = Effect.gen(function* () {
@@ -46,6 +63,37 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
     }
     return target;
   });
+
+  const resolveReadTarget = Effect.fn("WorkspaceFileSystem.resolveReadTarget")(function* (
+    input: { cwd: string; relativePath: string },
+    operation: string,
+  ) {
+    const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+    });
+    if (isReservedWorkspaceMutationPath(target.relativePath)) {
+      return yield* new WorkspaceFileSystemError({
+        cwd: input.cwd,
+        relativePath: input.relativePath,
+        operation,
+        detail: "Reserved workspace metadata paths cannot be read.",
+      });
+    }
+    return target;
+  });
+
+  const mapFileSystemError = (input: { cwd: string; relativePath: string }, operation: string) =>
+    Effect.mapError(
+      (cause: unknown) =>
+        new WorkspaceFileSystemError({
+          cwd: input.cwd,
+          relativePath: input.relativePath,
+          operation,
+          detail: fileSystemErrorMessage(cause),
+          cause,
+        }),
+    );
 
   const makeParentDirectory = Effect.fn("WorkspaceFileSystem.makeParentDirectory")(
     function* (input: { cwd: string; relativePath: string; absolutePath: string }) {
@@ -120,6 +168,39 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
     yield* workspaceEntries.invalidate(input.cwd);
     return { relativePath: target.relativePath };
   });
+
+  const readFile: WorkspaceFileSystemShape["readFile"] = Effect.fn("WorkspaceFileSystem.readFile")(
+    function* (input) {
+      const target = yield* resolveReadTarget(input, "workspaceFileSystem.readFile");
+      const maxBytes = input.maxBytes ?? DEFAULT_WORKSPACE_READ_FILE_MAX_BYTES;
+      const stat = yield* fileSystem
+        .stat(target.absolutePath)
+        .pipe(mapFileSystemError(input, "workspaceFileSystem.readFile"));
+      if (stat.type !== "File") {
+        return yield* new WorkspaceFileSystemError({
+          cwd: input.cwd,
+          relativePath: input.relativePath,
+          operation: "workspaceFileSystem.readFile",
+          detail: "Path is not a file.",
+        });
+      }
+
+      const collected = yield* collectUint8StreamText({
+        stream: fileSystem.stream(target.absolutePath, {
+          bytesToRead: maxBytes + 1,
+        }),
+        maxBytes,
+      }).pipe(mapFileSystemError(input, "workspaceFileSystem.readFile"));
+      const byteLength = Math.min(Number(stat.size), Number.MAX_SAFE_INTEGER);
+
+      return {
+        relativePath: target.relativePath,
+        contents: collected.text,
+        byteLength,
+        truncated: collected.truncated || byteLength > maxBytes,
+      };
+    },
+  );
 
   const createFile: WorkspaceFileSystemShape["createFile"] = Effect.fn(
     "WorkspaceFileSystem.createFile",
@@ -289,6 +370,7 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
   });
 
   return {
+    readFile,
     writeFile,
     createFile,
     createDirectory,

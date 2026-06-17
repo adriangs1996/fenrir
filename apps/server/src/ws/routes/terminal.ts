@@ -2,6 +2,7 @@ import { Effect, Queue, Stream } from "effect";
 
 import { type TerminalEvent, TmuxError, WS_METHODS } from "@fenrir/contracts";
 
+import { LocalServerDiscovery } from "../../localServers/Services/LocalServerDiscovery";
 import { TerminalManager } from "../../terminal/Services/Manager";
 import { TmuxSessionManager } from "../../terminal/Services/TmuxSessionManager";
 import { makeRpcDomain } from "../handlers";
@@ -9,9 +10,39 @@ import { makeRpcDomain } from "../handlers";
 export const makeTerminalRoutes = Effect.gen(function* () {
   const terminalManager = yield* TerminalManager;
   const tmuxSessionManager = yield* TmuxSessionManager;
+  const localServerDiscovery = yield* LocalServerDiscovery;
   const activeTmuxProcesses = new Map<string, { pid: number }>();
 
   const terminal = makeRpcDomain("terminal");
+  const syncTerminalOwner = (event: TerminalEvent) => {
+    switch (event.type) {
+      case "started":
+      case "restarted": {
+        const pid = event.snapshot.pid;
+        if (pid === null) {
+          return localServerDiscovery.unregisterTerminal({
+            threadId: event.threadId,
+            terminalId: event.terminalId,
+          });
+        }
+        return localServerDiscovery.registerTerminalProcesses({
+          threadId: event.threadId,
+          terminalId: event.terminalId,
+          processIds: [pid],
+        });
+      }
+      case "exited":
+      case "error":
+        return localServerDiscovery.unregisterTerminal({
+          threadId: event.threadId,
+          terminalId: event.terminalId,
+        });
+      case "activity":
+      case "cleared":
+      case "output":
+        return Effect.void;
+    }
+  };
 
   return {
     [WS_METHODS.terminalDetachTmux]: terminal.effect(WS_METHODS.terminalDetachTmux, (input) =>
@@ -102,7 +133,20 @@ export const makeTerminalRoutes = Effect.gen(function* () {
     ),
 
     [WS_METHODS.terminalOpen]: terminal.effect(WS_METHODS.terminalOpen, (input) =>
-      terminalManager.open(input),
+      terminalManager.open(input).pipe(
+        Effect.tap((snapshot) =>
+          snapshot.pid === null
+            ? localServerDiscovery.unregisterTerminal({
+                threadId: snapshot.threadId,
+                terminalId: snapshot.terminalId,
+              })
+            : localServerDiscovery.registerTerminalProcesses({
+                threadId: snapshot.threadId,
+                terminalId: snapshot.terminalId,
+                processIds: [snapshot.pid],
+              }),
+        ),
+      ),
     ),
     [WS_METHODS.terminalWrite]: terminal.effect(WS_METHODS.terminalWrite, (input) =>
       terminalManager.write(input),
@@ -114,17 +158,44 @@ export const makeTerminalRoutes = Effect.gen(function* () {
       terminalManager.clear(input),
     ),
     [WS_METHODS.terminalRestart]: terminal.effect(WS_METHODS.terminalRestart, (input) =>
-      terminalManager.restart(input),
+      terminalManager.restart(input).pipe(
+        Effect.tap((snapshot) =>
+          snapshot.pid === null
+            ? localServerDiscovery.unregisterTerminal({
+                threadId: snapshot.threadId,
+                terminalId: snapshot.terminalId,
+              })
+            : localServerDiscovery.registerTerminalProcesses({
+                threadId: snapshot.threadId,
+                terminalId: snapshot.terminalId,
+                processIds: [snapshot.pid],
+              }),
+        ),
+      ),
     ),
     [WS_METHODS.terminalClose]: terminal.effect(WS_METHODS.terminalClose, (input) =>
-      terminalManager.close(input),
+      terminalManager.close(input).pipe(
+        Effect.tap(() =>
+          input.terminalId
+            ? localServerDiscovery.unregisterTerminal({
+                threadId: input.threadId,
+                terminalId: input.terminalId,
+              })
+            : localServerDiscovery.unregisterThread({ threadId: input.threadId }),
+        ),
+      ),
     ),
     [WS_METHODS.subscribeTerminalEvents]: terminal.stream(
       WS_METHODS.subscribeTerminalEvents,
       (_input) =>
         Stream.callback<TerminalEvent>((queue) =>
           Effect.acquireRelease(
-            terminalManager.subscribe((event) => Queue.offer(queue, event)),
+            terminalManager.subscribe((event) =>
+              syncTerminalOwner(event).pipe(
+                Effect.catchCause(() => Effect.void),
+                Effect.andThen(Queue.offer(queue, event)),
+              ),
+            ),
             (unsubscribe) => Effect.sync(unsubscribe),
           ),
         ),

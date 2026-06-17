@@ -109,6 +109,8 @@ import type {
   ProjectListEntriesResult,
   ProjectMoveEntryInput,
   ProjectMoveEntryResult,
+  ProjectReadFileInput,
+  ProjectReadFileResult,
   ProjectRemoveEntryInput,
   ProjectRemoveEntryResult,
   ProjectSearchEntriesInput,
@@ -878,6 +880,7 @@ export interface EnvironmentApi {
   projects: {
     listEntries: (input: ProjectListEntriesInput) => Promise<ProjectListEntriesResult>;
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
+    readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
     createFile: (input: ProjectCreateFileInput) => Promise<ProjectCreateFileResult>;
     createDirectory: (input: ProjectCreateDirectoryInput) => Promise<ProjectCreateDirectoryResult>;

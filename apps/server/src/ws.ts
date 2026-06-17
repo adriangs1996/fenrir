@@ -10,6 +10,7 @@ import { SessionCredentialService } from "./auth/Services/SessionCredentialServi
 import { ProviderMaintenanceRunnerLive } from "./provider/providerMaintenanceRunner";
 import { makeAuthRoutes } from "./ws/routes/auth";
 import { makeGitDiffRoutes } from "./ws/routes/gitDiff";
+import { makeLocalServersRoutes } from "./ws/routes/localServers";
 import { makeManagedProcessRoutes } from "./ws/routes/managedProcess";
 import { makeOrchestrationRoutes } from "./ws/routes/orchestration";
 import { makePlanRunnerRoutes } from "./ws/routes/planRunner";
@@ -40,6 +41,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const rawTcpRoutes = yield* makeRawTcpRoutes;
       const remoteControllerRoutes = yield* makeRemoteControllerRoutes;
       const trafficLensRoutes = yield* makeTrafficLensRoutes;
+      const localServersRoutes = yield* makeLocalServersRoutes;
       const planRunnerRoutes = yield* makePlanRunnerRoutes;
       const managedProcessRoutes = yield* makeManagedProcessRoutes;
 
@@ -55,6 +57,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         ...rawTcpRoutes,
         ...remoteControllerRoutes,
         ...trafficLensRoutes,
+        ...localServersRoutes,
         ...planRunnerRoutes,
         ...managedProcessRoutes,
         ...sourceControlStackRoutes,

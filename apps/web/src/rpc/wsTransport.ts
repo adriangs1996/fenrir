@@ -55,6 +55,7 @@ export class WsTransport {
   private reconnectChain: Promise<void> = Promise.resolve();
   private nextSessionId = 0;
   private activeSessionId = 0;
+  private lastHeartbeatPongAt: number | null = null;
   private session: TransportSession;
 
   constructor(
@@ -193,6 +194,7 @@ export class WsTransport {
       }
 
       clearAllTrackedRpcRequests();
+      this.lastHeartbeatPongAt = null;
       const previousSession = this.session;
       this.session = this.createSession();
       await this.closeSession(previousSession);
@@ -202,8 +204,10 @@ export class WsTransport {
     await reconnectOperation;
   }
 
-  isHeartbeatFresh(_maxAgeMs = 15_000): boolean {
-    return false;
+  isHeartbeatFresh(maxAgeMs = 15_000): boolean {
+    return (
+      this.lastHeartbeatPongAt !== null && performance.now() - this.lastHeartbeatPongAt <= maxAgeMs
+    );
   }
 
   async dispose() {
@@ -224,11 +228,19 @@ export class WsTransport {
     const sessionId = this.nextSessionId + 1;
     this.nextSessionId = sessionId;
     this.activeSessionId = sessionId;
+    const lifecycleHandlers = this.lifecycleHandlers;
     const runtime = ManagedRuntime.make(
       Layer.mergeAll(
         createWsRpcProtocolLayer(this.url, {
-          ...this.lifecycleHandlers,
-          isActive: () => !this.disposed && this.activeSessionId === sessionId,
+          ...lifecycleHandlers,
+          isActive: () =>
+            !this.disposed &&
+            this.activeSessionId === sessionId &&
+            (lifecycleHandlers?.isActive?.() ?? true),
+          onHeartbeatPong: () => {
+            this.lastHeartbeatPongAt = performance.now();
+            lifecycleHandlers?.onHeartbeatPong?.();
+          },
         }),
         ClientTracingLive,
       ),

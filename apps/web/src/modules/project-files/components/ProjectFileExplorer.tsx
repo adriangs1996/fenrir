@@ -1,6 +1,12 @@
-import type { EnvironmentId, ProjectEntry } from "@fenrir/contracts";
+import type { EnvironmentId, ProjectEntry, ProjectReadFileResult } from "@fenrir/contracts";
+import { useParams } from "@tanstack/react-router";
 import type { ContextMenuItem, ContextMenuOpenContext } from "@pierre/trees";
-import { FileTree as PierreFileTree, useFileTree, useFileTreeSelection } from "@pierre/trees/react";
+import {
+  FileTree as PierreFileTree,
+  useFileTree,
+  useFileTreeSearch,
+  useFileTreeSelection,
+} from "@pierre/trees/react";
 import {
   ClipboardPasteIcon,
   CopyIcon,
@@ -10,8 +16,10 @@ import {
   FolderIcon,
   FolderOpenIcon,
   FolderPlusIcon,
+  MessageSquarePlusIcon,
   PencilIcon,
   RefreshCwIcon,
+  SearchIcon,
   ScissorsIcon,
   Trash2Icon,
   TriangleAlertIcon,
@@ -54,10 +62,19 @@ import {
   useNvimAvailable,
   useVSCodeWebAvailable,
 } from "~/hooks/useDesktopBridge";
+import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useSettings } from "~/hooks/useSettings";
 import { readLocalApi } from "~/localApi";
-import { cn } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
 import { resolveActiveEmbeddedEditor } from "~/modules/neovim-editor/embeddedEditor";
+import { useEditorStore } from "~/modules/neovim-editor";
+import type { EditorContextDraft } from "~/modules/neovim-editor";
+import { resolveThreadRouteTarget } from "~/threadRoutes";
+import {
+  PROJECT_FILE_PREVIEW_MAX_BYTES,
+  ProjectFilePreviewDialog,
+  type ProjectFilePreviewRequest,
+} from "./ProjectFilePreviewDialog";
 
 const DIRECTORY_ENTRY_LIMIT = 300;
 const PROJECT_FILE_TREE_ROW_HEIGHT = 24;
@@ -140,18 +157,48 @@ export const ProjectFileExplorer = memo(function ProjectFileExplorer({
   const nvimReady = useNvimAvailable();
   const vscodeReady = useVSCodeWebAvailable();
   const preferredEmbeddedEditor = useSettings((state) => state.embeddedEditor);
+  const currentEditorFile = useEditorStore((state) => state.currentFile);
+  const routeTarget = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteTarget(params),
+  });
+  const composerTargetId =
+    routeTarget?.kind === "server"
+      ? routeTarget.threadRef.threadId
+      : (routeTarget?.draftId ?? null);
   const [includeIgnoredEntries, setIncludeIgnoredEntries] = useState(false);
   const [fileClipboard, setFileClipboard] = useState<ProjectFileClipboard | null>(null);
   const [fileNameDialogRequest, setFileNameDialogRequest] =
     useState<ProjectFileNameDialogRequest | null>(null);
+  const [previewRequest, setPreviewRequest] = useState<ProjectFilePreviewRequest | null>(null);
+  const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<ProjectEntry>({
+    onCopy: (entry) => {
+      toastManager.add({
+        type: "success",
+        title: "Relative path copied",
+        description: entry.path,
+      });
+    },
+    onError: (error) => {
+      toastManager.add({
+        type: "error",
+        title: "Failed to copy relative path",
+        description: error.message,
+      });
+    },
+  });
   const { model: treeModel } = useFileTree({
     density: "compact",
+    fileTreeSearchMode: "hide-non-matches",
     icons: "complete",
     initialExpansion: "closed",
     itemHeight: PROJECT_FILE_TREE_ROW_HEIGHT,
     paths: [],
+    search: true,
+    searchBlurBehavior: "retain",
     stickyFolders: true,
   });
+  const treeSearch = useFileTreeSearch(treeModel);
   const selectedTreePaths = useFileTreeSelection(treeModel);
   const [expandedDirectories, setExpandedDirectories] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -166,6 +213,7 @@ export const ProjectFileExplorer = memo(function ProjectFileExplorer({
   const fileNameDialogResolverRef = useRef<((value: string | null) => void) | null>(null);
   const knownTreePathsRef = useRef(new Set<string>());
   const generationRef = useRef(0);
+  const previewRequestIdRef = useRef(0);
 
   const replaceTreeEntries = useCallback(
     (entries: readonly ProjectEntry[]) => {
@@ -336,6 +384,11 @@ export const ProjectFileExplorer = memo(function ProjectFileExplorer({
     }
     return entryByTreePathRef.current.get(selectedTreePath) ?? null;
   }, [selectedTreePaths]);
+  const selectedFileEntry = selectedEntry?.kind === "file" ? selectedEntry : null;
+  const activeFileRelativePath = useMemo(
+    () => toWorkspaceRelativePath(currentEditorFile, workspaceRoot),
+    [currentEditorFile, workspaceRoot],
+  );
 
   const readProjectApi = useCallback(() => {
     const api = readEnvironmentApi(environmentId);
@@ -609,6 +662,144 @@ export const ProjectFileExplorer = memo(function ProjectFileExplorer({
     [bridgeAvailable, mainWindow, nvimReady, preferredEmbeddedEditor, vscodeReady, workspaceRoot],
   );
 
+  const previewFile = useCallback((entry: ProjectEntry) => {
+    if (entry.kind !== "file") {
+      return;
+    }
+    previewRequestIdRef.current += 1;
+    setPreviewRequest({
+      id: previewRequestIdRef.current,
+      entry,
+    });
+  }, []);
+
+  const copyRelativePath = useCallback(
+    (entry: ProjectEntry) => {
+      copyPathToClipboard(entry.path, entry);
+    },
+    [copyPathToClipboard],
+  );
+
+  const addFileResultToComposer = useCallback(
+    (entry: ProjectEntry, result: ProjectReadFileResult) => {
+      if (!composerTargetId) {
+        toastManager.add({
+          type: "error",
+          title: "Composer unavailable",
+          description: "Open a thread or draft before adding file context.",
+        });
+        return;
+      }
+
+      const text = result.contents;
+      if (text.trim().length === 0) {
+        toastManager.add({
+          type: "warning",
+          title: "File is empty",
+          description: entry.path,
+        });
+        return;
+      }
+
+      const lineCount = Math.max(1, text.split("\n").length);
+      useEditorStore.getState().addPendingContext({
+        id: randomUUID(),
+        threadId: composerTargetId as EditorContextDraft["threadId"],
+        createdAt: new Date().toISOString(),
+        file: joinWorkspacePath(workspaceRoot, entry.path),
+        lineStart: 1,
+        lineEnd: lineCount,
+        text,
+      });
+      useEditorStore.getState().setActiveChatTab("thread");
+      requestAnimationFrame(() => {
+        document.querySelector<HTMLElement>("[data-composer-textarea]")?.focus();
+      });
+
+      toastManager.add({
+        type: result.truncated ? "warning" : "success",
+        title: result.truncated ? "Truncated file added to composer" : "File added to composer",
+        description: entry.path,
+      });
+    },
+    [composerTargetId, workspaceRoot],
+  );
+
+  const addFileToComposer = useCallback(
+    async (entry: ProjectEntry) => {
+      if (entry.kind !== "file") {
+        return;
+      }
+
+      try {
+        const result = await readProjectApi().projects.readFile({
+          cwd: workspaceRoot,
+          relativePath: entry.path,
+          maxBytes: PROJECT_FILE_PREVIEW_MAX_BYTES,
+        });
+        addFileResultToComposer(entry, result);
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Failed to add file to composer",
+          description: errorMessage(error),
+        });
+      }
+    },
+    [addFileResultToComposer, readProjectApi, workspaceRoot],
+  );
+
+  const revealRelativeFilePath = useCallback(
+    async (relativePath: string) => {
+      const normalizedPath = relativePath.replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
+      if (!normalizedPath) {
+        return;
+      }
+
+      const parentDirectories = parentDirectoryChain(normalizedPath);
+      for (const parentDirectory of parentDirectories) {
+        const directoryItem = treeModel.getItem(toDirectoryTreePath(parentDirectory));
+        if (!directoryItem || !("expand" in directoryItem)) {
+          await loadDirectory(parentDirectory);
+        } else {
+          directoryItem.expand();
+        }
+        const status = directoryLoadStatusRef.current.get(parentDirectory) ?? "idle";
+        if (status === "idle" || status === "error") {
+          await loadDirectory(parentDirectory);
+        }
+      }
+
+      const treePath = normalizedPath;
+      const item = treeModel.getItem(treePath);
+      if (!item) {
+        toastManager.add({
+          type: "warning",
+          title: "File not found in tree",
+          description: normalizedPath,
+        });
+        return;
+      }
+      for (const selectedPath of treeModel.getSelectedPaths()) {
+        treeModel.getItem(selectedPath)?.deselect();
+      }
+      item.select();
+      treeModel.scrollToPath(treePath, { focus: true, offset: "center" });
+    },
+    [loadDirectory, treeModel],
+  );
+
+  const revealActiveFile = useCallback(() => {
+    if (!activeFileRelativePath) {
+      toastManager.add({
+        type: "warning",
+        title: "No active project file",
+      });
+      return;
+    }
+    void revealRelativeFilePath(activeFileRelativePath);
+  }, [activeFileRelativePath, revealRelativeFilePath]);
+
   const handleTreeClickCapture = useCallback(
     (event: MouseEvent<HTMLElement>) => {
       const itemElement = event.nativeEvent.composedPath().find(isTreeItemElement);
@@ -623,9 +814,9 @@ export const ProjectFileExplorer = memo(function ProjectFileExplorer({
       if (!entry || entry.kind !== "file") {
         return;
       }
-      void openFile(entry);
+      previewFile(entry);
     },
-    [openFile],
+    [previewFile],
   );
 
   const renderTreeContextMenu = useCallback(
@@ -640,14 +831,27 @@ export const ProjectFileExplorer = memo(function ProjectFileExplorer({
           context={context}
           entry={entry}
           onCopy={copyEntry}
+          onCopyRelativePath={copyRelativePath}
           onCut={cutEntry}
+          onAddToComposer={addFileToComposer}
           onDelete={deleteEntry}
           onPaste={pasteEntry}
+          onPreview={previewFile}
           onRename={renameEntry}
         />
       );
     },
-    [copyEntry, cutEntry, deleteEntry, fileClipboard, pasteEntry, renameEntry],
+    [
+      addFileToComposer,
+      copyEntry,
+      copyRelativePath,
+      cutEntry,
+      deleteEntry,
+      fileClipboard,
+      pasteEntry,
+      previewFile,
+      renameEntry,
+    ],
   );
 
   const rootState = directoryStateByPath[""] ?? IDLE_DIRECTORY_STATE;
@@ -710,6 +914,27 @@ export const ProjectFileExplorer = memo(function ProjectFileExplorer({
             <span className="min-w-0 flex-1 truncate" title={workspaceRoot}>
               {workspaceLabel}
             </span>
+            <ProjectFileExplorerToolbarButton
+              active={treeSearch.isOpen}
+              label="Search files"
+              onClick={() => treeSearch.open()}
+            >
+              <SearchIcon className="size-3" />
+            </ProjectFileExplorerToolbarButton>
+            <ProjectFileExplorerToolbarButton
+              disabled={!selectedFileEntry}
+              label="Preview selected file"
+              onClick={() => selectedFileEntry && previewFile(selectedFileEntry)}
+            >
+              <EyeIcon className="size-3" />
+            </ProjectFileExplorerToolbarButton>
+            <ProjectFileExplorerToolbarButton
+              disabled={!activeFileRelativePath}
+              label="Reveal active file"
+              onClick={revealActiveFile}
+            >
+              <FolderOpenIcon className="size-3" />
+            </ProjectFileExplorerToolbarButton>
             <ProjectFileExplorerToolbarButton
               label="New file"
               onClick={() => void createEntry("file")}
@@ -811,16 +1036,28 @@ export const ProjectFileExplorer = memo(function ProjectFileExplorer({
         onCancel={() => closeFileNameDialog(null)}
         onSubmit={closeFileNameDialog}
       />
+      <ProjectFilePreviewDialog
+        environmentId={environmentId}
+        request={previewRequest}
+        workspaceRoot={workspaceRoot}
+        onAddToComposer={addFileResultToComposer}
+        onClose={() => setPreviewRequest(null)}
+        onOpenFile={openFile}
+      />
     </>
   );
 });
 
 function ProjectFileExplorerToolbarButton({
+  active = false,
   children,
+  disabled = false,
   label,
   onClick,
 }: {
+  active?: boolean;
   children: ReactNode;
+  disabled?: boolean;
   label: string;
   onClick: () => void;
 }) {
@@ -831,7 +1068,12 @@ function ProjectFileExplorerToolbarButton({
           <button
             type="button"
             aria-label={label}
-            className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+            aria-pressed={active || undefined}
+            disabled={disabled}
+            className={cn(
+              "inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
+              active && "bg-accent text-foreground",
+            )}
             onClick={onClick}
           />
         }
@@ -921,19 +1163,25 @@ function ProjectFileTreeContextMenu({
   clipboard,
   context,
   entry,
+  onAddToComposer,
   onCopy,
+  onCopyRelativePath,
   onCut,
   onDelete,
   onPaste,
+  onPreview,
   onRename,
 }: {
   clipboard: ProjectFileClipboard | null;
   context: ContextMenuOpenContext;
   entry: ProjectEntry;
+  onAddToComposer: (entry: ProjectEntry) => Promise<void>;
   onCopy: (entry: ProjectEntry) => void;
+  onCopyRelativePath: (entry: ProjectEntry) => void;
   onCut: (entry: ProjectEntry) => void;
   onDelete: (entry: ProjectEntry) => Promise<void>;
   onPaste: (entry: ProjectEntry) => Promise<void>;
+  onPreview: (entry: ProjectEntry) => void;
   onRename: (entry: ProjectEntry) => Promise<void>;
 }) {
   const pasteLabel = clipboard ? `Paste ${basenameFromPath(clipboard.entry.path)}` : "Paste";
@@ -951,6 +1199,24 @@ function ProjectFileTreeContextMenu({
       className="min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg/5"
       style={getProjectFileTreeContextMenuStyle(context.anchorRect)}
     >
+      <ProjectFileTreeContextMenuButton
+        disabled={entry.kind !== "file"}
+        icon={<EyeIcon />}
+        label="Preview"
+        onClick={() => runAction(() => onPreview(entry))}
+      />
+      <ProjectFileTreeContextMenuButton
+        disabled={entry.kind !== "file"}
+        icon={<MessageSquarePlusIcon />}
+        label="Add to composer"
+        onClick={() => runAction(() => onAddToComposer(entry))}
+      />
+      <ProjectFileTreeContextMenuButton
+        icon={<CopyIcon />}
+        label="Copy relative path"
+        onClick={() => runAction(() => onCopyRelativePath(entry))}
+      />
+      <div className="mx-1 my-1 h-px bg-border" />
       <ProjectFileTreeContextMenuButton
         icon={<PencilIcon />}
         label="Rename"
@@ -1179,6 +1445,16 @@ function parentPathFromRelativePath(relativePath: string): string {
   return separatorIndex >= 0 ? normalizedPath.slice(0, separatorIndex) : "";
 }
 
+function parentDirectoryChain(relativePath: string): string[] {
+  const normalizedPath = relativePath.replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
+  const segments = normalizedPath.split("/").filter((segment) => segment.length > 0);
+  const directories: string[] = [];
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    directories.push(segments.slice(0, index + 1).join("/"));
+  }
+  return directories;
+}
+
 function joinRelativePath(parentPath: string, childPath: string): string {
   const normalizedParent = parentPath.replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
   const normalizedChild = childPath.replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
@@ -1205,4 +1481,20 @@ function joinWorkspacePath(workspaceRoot: string, relativePath: string): string 
   const separator = workspaceRoot.includes("\\") && !workspaceRoot.includes("/") ? "\\" : "/";
   const normalizedRoot = workspaceRoot.replace(/[\\/]+$/g, "");
   return `${normalizedRoot}${separator}${relativePath.replaceAll("/", separator)}`;
+}
+
+function toWorkspaceRelativePath(filePath: string | null, workspaceRoot: string): string | null {
+  if (!filePath) {
+    return null;
+  }
+  const normalizedRoot = workspaceRoot.replaceAll("\\", "/").replace(/\/+$/g, "");
+  const normalizedFile = filePath.replaceAll("\\", "/");
+  if (normalizedFile === normalizedRoot) {
+    return null;
+  }
+  if (!normalizedFile.startsWith(`${normalizedRoot}/`)) {
+    return null;
+  }
+  const relativePath = normalizedFile.slice(normalizedRoot.length + 1).replace(/^\/+|\/+$/g, "");
+  return relativePath.length > 0 ? relativePath : null;
 }

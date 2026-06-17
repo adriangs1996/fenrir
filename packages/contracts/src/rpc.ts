@@ -9,6 +9,7 @@ export * from "./rpc/orchestration";
 export * from "./rpc/rawTcp";
 export * from "./rpc/remoteController";
 export * from "./rpc/trafficLens";
+export * from "./rpc/localServers";
 export * from "./rpc/planRunner";
 export * from "./rpc/managedProcess";
 export * from "./rpc/sourceControlStack";

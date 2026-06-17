@@ -83,9 +83,11 @@ import { useServerKeybindings } from "../rpc/serverState";
 import { deriveLogicalProjectKey } from "../logicalProject";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import {
+  getPrimaryEnvironmentConnection,
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
+import { subscribeToLocalServers } from "../localServersStore";
 import type { Project, SidebarThreadSummary } from "../types";
 import { isUserBrowsableThread } from "../threadVisibility";
 
@@ -188,6 +190,13 @@ export default function Sidebar() {
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const platform = navigator.platform;
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const primaryEnvironmentConnection = useMemo(() => {
+    try {
+      return getPrimaryEnvironmentConnection();
+    } catch {
+      return null;
+    }
+  }, []);
   const savedEnvironmentRegistry = useSavedEnvironmentRegistryStore((s) => s.byId);
   const savedEnvironmentRuntimeById = useSavedEnvironmentRuntimeStore((s) => s.byId);
   const orderedProjects = useMemo(() => {
@@ -747,6 +756,17 @@ export default function Sidebar() {
     updateThreadJumpHintsVisibility,
     commandPaletteOpen,
   ]);
+
+  useEffect(() => {
+    if (!isElectron || !primaryEnvironmentConnection) {
+      return;
+    }
+
+    return subscribeToLocalServers({
+      client: primaryEnvironmentConnection.client,
+      environmentId: primaryEnvironmentConnection.environmentId,
+    });
+  }, [primaryEnvironmentConnection]);
 
   useEffect(() => {
     const onMouseDown = (event: globalThis.MouseEvent) => {

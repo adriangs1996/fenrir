@@ -7,6 +7,7 @@ import {
   ProjectCreateFileError,
   ProjectListEntriesError,
   ProjectMoveEntryError,
+  ProjectReadFileError,
   ProjectRemoveEntryError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
@@ -22,6 +23,12 @@ import { makeRpcDomain } from "../handlers";
 const isWorkspacePathOutsideRootError = Schema.is(WorkspacePathOutsideRootError);
 
 function workspaceFileSystemMutationMessage(cause: unknown, fallback: string): string {
+  return isWorkspacePathOutsideRootError(cause)
+    ? "Workspace file path must stay within the project root."
+    : fallback;
+}
+
+function workspaceFileSystemReadMessage(cause: unknown, fallback: string): string {
   return isWorkspacePathOutsideRootError(cause)
     ? "Workspace file path must stay within the project root."
     : fallback;
@@ -58,6 +65,17 @@ export const makeWorkspaceRoutes = Effect.gen(function* () {
               }),
           ),
         ),
+    ),
+    [WS_METHODS.projectsReadFile]: workspace.effect(WS_METHODS.projectsReadFile, (input) =>
+      workspaceFileSystem.readFile(input).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProjectReadFileError({
+              message: workspaceFileSystemReadMessage(cause, "Failed to read workspace file"),
+              cause,
+            }),
+        ),
+      ),
     ),
     [WS_METHODS.projectsWriteFile]: workspace.effect(WS_METHODS.projectsWriteFile, (input) =>
       workspaceFileSystem.writeFile(input).pipe(
