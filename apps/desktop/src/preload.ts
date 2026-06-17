@@ -107,6 +107,7 @@ import {
   NEOVIM_RESIZE_CHANNEL,
   NEOVIM_REDRAW_CHANNEL,
   NEOVIM_SET_CWD_CHANNEL,
+  NEOVIM_SET_THEME_CHANNEL,
   RENDER_START_CHANNEL,
   RENDER_STOP_CHANNEL,
   RENDER_SET_FPS_CHANNEL,
@@ -380,6 +381,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   neovimResize: (cols: number, rows: number) =>
     ipcRenderer.invoke(NEOVIM_RESIZE_CHANNEL, cols, rows),
   neovimSetCwd: (cwd: string) => ipcRenderer.invoke(NEOVIM_SET_CWD_CHANNEL, cwd),
+  neovimSetTheme: (selection) => ipcRenderer.invoke(NEOVIM_SET_THEME_CHANNEL, selection),
   onNeovimRedraw: (listener: (events: unknown[]) => void) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, events: unknown) => {
       if (!Array.isArray(events)) return;

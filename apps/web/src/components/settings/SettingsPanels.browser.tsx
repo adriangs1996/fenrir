@@ -458,6 +458,7 @@ const createDesktopBridgeStub = (overrides?: {
     neovimInput: vi.fn().mockResolvedValue(undefined),
     neovimResize: vi.fn().mockResolvedValue(undefined),
     neovimSetCwd: vi.fn().mockResolvedValue(undefined),
+    neovimSetTheme: vi.fn().mockResolvedValue(undefined),
     onNeovimRedraw: () => () => {},
     renderStart: vi.fn().mockResolvedValue(undefined),
     renderStop: vi.fn().mockResolvedValue(undefined),

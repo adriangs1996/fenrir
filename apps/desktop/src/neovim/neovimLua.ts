@@ -133,6 +133,25 @@ _G.fenrir.private.bridge = M
 return true
 `.trim();
 
+// ─────────────────────────────────────────────────────────────
+// theme.lua — apply app-selected colorscheme
+// ─────────────────────────────────────────────────────────────
+export const FENRIR_APPLY_THEME_LUA = `
+local colorscheme = ...
+if type(colorscheme) ~= "string" or #colorscheme == 0 then
+  return false
+end
+
+vim.g.fenrir_colorscheme = colorscheme
+local ok, err = pcall(vim.cmd.colorscheme, colorscheme)
+if not ok then
+  vim.notify("[fenrir] colorscheme failed: " .. tostring(err), vim.log.levels.WARN)
+  return false
+end
+
+return true
+`.trim();
+
 export const FENRIR_SESSION_AUTOSAVE_DELAY_MS = 250;
 export const FENRIR_SESSION_AUTOSAVE_EVENTS = [
   "BufEnter",

@@ -8,6 +8,7 @@ vi.mock("electron", () => ({
 
 import { domKeyToVimNotation, NeovimSource } from "./NeovimSource";
 import {
+  FENRIR_APPLY_THEME_LUA,
   FENRIR_SESSION_AUTOSAVE_DELAY_MS,
   FENRIR_SESSION_AUTOSAVE_EVENTS,
   FENRIR_SESSION_LUA,
@@ -35,6 +36,24 @@ describe("NeovimSource", () => {
     source.handleInput({ kind: "paste", text: "console.log('hi')\n" });
 
     expect(request).toHaveBeenCalledWith("nvim_paste", ["console.log('hi')\n", false, -1]);
+  });
+
+  it("applies the selected app colorscheme to a running nvim", async () => {
+    const source = createSource();
+    const request = vi.fn().mockResolvedValue(true);
+    (source as any).client = { request };
+    (source as any).started = true;
+
+    await source.setTheme({
+      appTheme: "dracula-pro-van-helsing",
+      syntaxTheme: "dracula-pro-van-helsing",
+      colorscheme: "dracula_pro_van_helsing",
+    });
+
+    expect(request).toHaveBeenCalledWith("nvim_exec_lua", [
+      FENRIR_APPLY_THEME_LUA,
+      ["dracula_pro_van_helsing"],
+    ]);
   });
 
   it("emits binary grid deltas preserving supplementary-plane glyphs", () => {

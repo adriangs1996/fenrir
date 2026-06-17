@@ -165,7 +165,7 @@ import type {
   ProjectScriptIcon,
 } from "./orchestration";
 import type { EnvironmentId } from "./baseSchemas";
-import { EditorId } from "./editor";
+import { EditorId, type NeovimThemeSelection } from "./editor";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import { ClientSettings, ServerSettings, ServerSettingsPatch } from "./settings";
 import type { VpnConnectionState, VpnProfile, VpnProfileId } from "./vpn";
@@ -571,6 +571,7 @@ export interface DesktopBridge {
    * Triggers a respawn of the embedded nvim if one is already running.
    */
   neovimSetCwd: (cwd: string) => Promise<void>;
+  neovimSetTheme: (selection: NeovimThemeSelection) => Promise<void>;
 
   // Bridge availability detection
   /** True when this BrowserWindow is the main (first) window. */

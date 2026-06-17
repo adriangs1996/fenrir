@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { DRACULA_PRO_THEME_NAMES } from "./draculaProThemeData";
-import { isTheme, resolveDesktopTheme, resolveThemeState, THEME_OPTIONS } from "./theme";
+import {
+  isTheme,
+  resolveDesktopTheme,
+  resolveNeovimThemeName,
+  resolveThemeState,
+  THEME_OPTIONS,
+} from "./theme";
 
 describe("theme", () => {
   it("registers custom dark theme options", () => {
@@ -79,5 +85,13 @@ describe("theme", () => {
       });
       expect(resolveDesktopTheme(themeName)).toBe("dark");
     }
+  });
+
+  it("maps app syntax themes to Neovim colorscheme names", () => {
+    expect(resolveNeovimThemeName("light")).toBe("pierre-light");
+    expect(resolveNeovimThemeName("dark")).toBe("fenrir-dark");
+    expect(resolveNeovimThemeName("pierre-dark-soft")).toBe("pierre-dark-soft");
+    expect(resolveNeovimThemeName("dracula-pro-van-helsing")).toBe("dracula_pro_van_helsing");
+    expect(resolveNeovimThemeName("kanagawa-wave")).toBe("kanagawa");
   });
 });

@@ -46,6 +46,12 @@ export const OpenInEditorInput = Schema.Struct({
 });
 export type OpenInEditorInput = typeof OpenInEditorInput.Type;
 
+export interface NeovimThemeSelection {
+  readonly appTheme: string;
+  readonly syntaxTheme: string;
+  readonly colorscheme: string;
+}
+
 export class OpenError extends Schema.TaggedErrorClass<OpenError>()("OpenError", {
   message: Schema.String,
   cause: Schema.optional(Schema.Defect),

@@ -3,6 +3,7 @@ import {
   CUSTOM_THEME_CLASS_NAMES,
   isTheme,
   resolveDesktopTheme,
+  resolveNeovimThemeName,
   resolveThemeState,
   type Theme,
 } from "../lib/theme";
@@ -24,6 +25,7 @@ const DYNAMIC_THEME_COLOR_SELECTOR = `meta[name="${THEME_COLOR_META_NAME}"][data
 let listeners: Array<() => void> = [];
 let lastSnapshot: ThemeSnapshot | null = null;
 let lastDesktopTheme: Theme | null = null;
+let lastNeovimColorscheme: string | null = null;
 
 function emitChange() {
   for (const listener of listeners) listener();
@@ -98,7 +100,8 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
   if (suppressTransitions) {
     document.documentElement.classList.add("no-transitions");
   }
-  const { customThemeClassName, resolvedTheme } = resolveThemeState(theme, getSystemDark());
+  const themeState = resolveThemeState(theme, getSystemDark());
+  const { customThemeClassName, resolvedTheme } = themeState;
   const isDark = resolvedTheme === "dark";
   document.documentElement.classList.toggle("dark", isDark);
   for (const className of CUSTOM_THEME_CLASS_NAMES) {
@@ -106,6 +109,7 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
   }
   syncBrowserChromeTheme();
   syncDesktopTheme(theme);
+  syncNeovimTheme(theme, themeState.syntaxTheme);
   if (suppressTransitions) {
     // Force a reflow so the no-transitions class takes effect before removal
     // oxlint-disable-next-line no-unused-expressions
@@ -130,6 +134,35 @@ function syncDesktopTheme(theme: Theme) {
       lastDesktopTheme = null;
     }
   });
+}
+
+function syncNeovimTheme(
+  theme: Theme,
+  syntaxTheme: ReturnType<typeof resolveThemeState>["syntaxTheme"],
+) {
+  if (typeof window === "undefined") return;
+  const bridge = window.desktopBridge;
+  if (!bridge?.neovimSetTheme) {
+    return;
+  }
+
+  const colorscheme = resolveNeovimThemeName(syntaxTheme);
+  if (lastNeovimColorscheme === colorscheme) {
+    return;
+  }
+
+  lastNeovimColorscheme = colorscheme;
+  void bridge
+    .neovimSetTheme({
+      appTheme: theme,
+      syntaxTheme,
+      colorscheme,
+    })
+    .catch(() => {
+      if (lastNeovimColorscheme === colorscheme) {
+        lastNeovimColorscheme = null;
+      }
+    });
 }
 
 // Apply immediately on module load to prevent flash

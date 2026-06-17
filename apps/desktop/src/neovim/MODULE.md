@@ -25,14 +25,28 @@
 
 All Lua strings live as TS template literals in `neovimLua.ts`. Canonical `.lua` sources in `lua/` are kept in sync manually.
 
-| Export               | Registers                                                                                                                                                                                         |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FENRIR_INIT_LUA`    | `vim.g.fenrir = true`, `_G.fenrir.private` namespace, sources `ginit.vim`                                                                                                                         |
-| `FENRIR_EXIT_LUA`    | Graceful `:qa!` (or `:confirm qa` if `vim.g.fenrir_confirm_quit`). Currently unused by NeovimSource directly                                                                                      |
-| `FENRIR_BRIDGE_LUA`  | `_G.fenrir.private.bridge.{open_file, send_selection}`                                                                                                                                            |
-| `FENRIR_SESSION_LUA` | `_G.fenrir.private.session.{save, schedule_save, restore}`; host invokes restore explicitly after bootstrap; Lua autosaves session state after buffer/window/tab/cwd changes and on `VimLeavePre` |
-| `FENRIR_CMD_LUA`     | `:Fenrir <subcommand>` user command (focus-chat, send, save-and-quit, new-thread, submit, open, log)                                                                                              |
-| `FENRIR_EVENTS_LUA`  | `FenrirEvents` augroup: BufEnter, BufWritePost, BufModifiedSet → `vim.rpcnotify(0, "fenrir_autocmd", …)` (avoids `_event` suffix swallowed by neovim Node client)                                 |
+| Export                   | Registers                                                                                                                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FENRIR_INIT_LUA`        | `vim.g.fenrir = true`, `_G.fenrir.private` namespace, sources `ginit.vim`                                                                                                                         |
+| `FENRIR_EXIT_LUA`        | Graceful `:qa!` (or `:confirm qa` if `vim.g.fenrir_confirm_quit`). Currently unused by NeovimSource directly                                                                                      |
+| `FENRIR_BRIDGE_LUA`      | `_G.fenrir.private.bridge.{open_file, send_selection}`                                                                                                                                            |
+| `FENRIR_APPLY_THEME_LUA` | Applies the app-selected `:colorscheme` after bootstrap and during live theme changes                                                                                                             |
+| `FENRIR_SESSION_LUA`     | `_G.fenrir.private.session.{save, schedule_save, restore}`; host invokes restore explicitly after bootstrap; Lua autosaves session state after buffer/window/tab/cwd changes and on `VimLeavePre` |
+| `FENRIR_CMD_LUA`         | `:Fenrir <subcommand>` user command (focus-chat, send, save-and-quit, new-thread, submit, open, log)                                                                                              |
+| `FENRIR_EVENTS_LUA`      | `FenrirEvents` augroup: BufEnter, BufWritePost, BufModifiedSet → `vim.rpcnotify(0, "fenrir_autocmd", …)` (avoids `_event` suffix swallowed by neovim Node client)                                 |
+
+### Embedded Theme Runtime
+
+`themeRuntime.ts` materializes the bundled Fenrir Dark, Pierre, and Dracula Pro runtime files into
+`app.getPath("userData")/neovim/theme-runtime` and prepends that directory to
+Neovim's `runtimepath` and `packpath` before user init runs. `fenrirDarkThemeRuntime.ts`
+contains the hand-authored Fenrir default dark colorscheme for the app's built-in
+dark theme. The bundled files in `embeddedThemeRuntime.ts` are generated from the
+user's `~/.config/nvim` theme files:
+
+- `colors/fenrir-dark.lua`, `lua/fenrir_dark/init.lua`, and `lua/lualine/themes/fenrir-dark.lua`
+- `colors/pierre*.lua`, `lua/pierre/init.lua`, and `lua/lualine/themes/pierre*.lua`
+- `colors/dracula_pro*.lua`, `lua/dracula_pro/init.lua`, and `lua/lualine/themes/dracula_pro*.lua`
 
 ### IPC Channels
 
@@ -43,6 +57,7 @@ Channels defined in `main.ts` and mirrored in `preload.ts`. Editor-level channel
 | `desktop:neovim-redraw`        | main → renderer | `unknown[][]`          | Raw redraw batches from nvim          |
 | `desktop:nvim-available`       | renderer → main | `boolean`              | Probe nvim binary existence (cached)  |
 | `desktop:nvim-probe-detail`    | renderer → main | `NvimProbeResult`      | Full probe result (version, binary)   |
+| `desktop:neovim-set-theme`     | renderer → main | `NeovimThemeSelection` | Apply app-selected colorscheme        |
 | `desktop:render-start`         | renderer → main | `void`                 | Start RenderLoop tick                 |
 | `desktop:render-stop`          | renderer → main | `void`                 | Stop RenderLoop tick                  |
 | `desktop:render-frame`         | main → renderer | `Frame`                | Damage-tracked frame from SceneSource |
@@ -66,6 +81,7 @@ Channels defined in `main.ts` and mirrored in `preload.ts`. Editor-level channel
 - `EditorEvent` — Union: `buf_enter` | `buf_write_post` | `buf_modified_set`
 - `EditorSendToComposer` — `{ file: string, lineStart: number, lineEnd: number, text: string }`
 - `EditorCmd` — `{ subcommand: "focus-chat" | "new-thread" | "submit" }`
+- `NeovimThemeSelection` — `{ appTheme: string, syntaxTheme: string, colorscheme: string }`
 - `NvimProbeResult` — `{ available: boolean, version: string | null, binary: string | null, error: string | null }`
 - `EditorFontMetrics` — `{ width, height, ascent, font, fontWeight, ligatures }`
 - `Frame` (= `NeovimFrame`) — `{ kind, seq, cellMetrics?, hl?, defaultColors?, resizedGrids?, closedGrids?, gridDeltas?, windows?, cursor? }`
@@ -99,11 +115,15 @@ apps/desktop/src/neovim/
   index.ts                # Public barrel: NeovimSource, FENRIR_INIT_LUA, FENRIR_EXIT_LUA
   NeovimSource.ts         # SceneSource impl, grid/window state, damage tracking, Lua bootstrapping
   neovimLua.ts            # Lua string constants (init, exit, bridge, session, cmd, events)
+  embeddedThemeRuntime.ts # Generated Pierre/Dracula Pro runtime files copied from ~/.config/nvim
+  fenrirDarkThemeRuntime.ts # Fenrir default dark colorscheme and integrations
+  themeRuntime.ts         # Writes embedded theme files and builds runtimepath --cmd
   probe.ts                # probeNvim(), getCachedProbeResult(), _resetCachedProbeResult()
   probe.test.ts           # Probe tests (success, exit codes, spawn errors, timeout, cache)
   lua/
     init.lua              # Canonical source for FENRIR_INIT_LUA
     exit.lua              # Canonical source for FENRIR_EXIT_LUA
+    theme.lua             # Canonical source for FENRIR_APPLY_THEME_LUA
 ```
 
 ## Integration Points
@@ -117,6 +137,7 @@ apps/desktop/src/neovim/
 ### For implementers (working INSIDE this module):
 
 - Lua strings live as TS template literals in `neovimLua.ts` — keeps the build single-file and dependency-free. Canonical `.lua` files in `lua/` are reference copies; keep them in sync manually.
+- Keep `embeddedThemeRuntime.ts` synchronized with the source theme files whenever the Pierre or Dracula Pro definitions change. Keep `fenrirDarkThemeRuntime.ts` synchronized with Fenrir's default dark app palette.
 - All app→nvim Lua calls go through `_G.fenrir.private.*` namespace — do not pollute global vim namespace.
 - All nvim→app messages are `vim.rpcnotify(0, "fenrir_<topic>", payload)` — single-arg Lua table payloads consumed by `client.on("notification", ...)`.
 - Session files use SHA256(cwd) keying — never collide between worktrees.

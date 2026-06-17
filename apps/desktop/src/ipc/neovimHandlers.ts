@@ -10,14 +10,17 @@ import {
   NEOVIM_REDRAW_CHANNEL,
   NEOVIM_RESIZE_CHANNEL,
   NEOVIM_SET_CWD_CHANNEL,
+  NEOVIM_SET_THEME_CHANNEL,
   NVIM_AVAILABLE_CHANNEL,
   NVIM_PROBE_DETAIL_CHANNEL,
+  type NeovimThemeSelection,
 } from "@fenrir/contracts";
 
 import { FENRIR_EXIT_LUA, FENRIR_INIT_LUA, NeovimSource } from "../neovim";
 import { probeNvim } from "../neovim/probe";
+import { createEmbeddedThemeRuntimeCommand } from "../neovim/themeRuntime";
 import { registerHandler } from "./registerHandler";
-import { requireNonEmptyString, requireNumber, requireString } from "./validators";
+import { requireNonEmptyString, requireNumber, requireObject, requireString } from "./validators";
 
 export interface NeovimHandlersDeps {
   readonly getMainWindow: () => BrowserWindow | null;
@@ -44,6 +47,26 @@ function sanitizeForIpc(val: unknown): unknown {
     return Buffer.from((val as any).data).readUInt32BE(0);
   }
   return val;
+}
+
+function nvimStartupArgs(): string[] {
+  const args = ["--embed"];
+  try {
+    args.push("--cmd", createEmbeddedThemeRuntimeCommand());
+  } catch (error) {
+    console.warn("[neovim:main] embedded theme runtime setup failed:", error);
+  }
+  args.push("--cmd", "tnoremap <Esc> <C-\\><C-n>");
+  return args;
+}
+
+function requireNeovimThemeSelection(value: unknown): NeovimThemeSelection {
+  const payload = requireObject("neovim theme selection", value);
+  return {
+    appTheme: requireNonEmptyString("neovim theme appTheme", payload.appTheme),
+    syntaxTheme: requireNonEmptyString("neovim theme syntaxTheme", payload.syntaxTheme),
+    colorscheme: requireNonEmptyString("neovim theme colorscheme", payload.colorscheme),
+  };
 }
 
 export function registerNeovimHandlers(deps: NeovimHandlersDeps): NeovimIpcController {
@@ -132,7 +155,7 @@ export function registerNeovimHandlers(deps: NeovimHandlersDeps): NeovimIpcContr
           .map((p) => Path.join(p, "nvim"))
           .find((p) => FS.existsSync(p)) ?? "nvim";
       console.log("[neovim:main] spawning nvim at:", nvimBin);
-      const proc = ChildProcess.spawn(nvimBin, ["--embed", "--cmd", "tnoremap <Esc> <C-\\><C-n>"], {
+      const proc = ChildProcess.spawn(nvimBin, nvimStartupArgs(), {
         cwd: validCwd,
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -250,6 +273,10 @@ export function registerNeovimHandlers(deps: NeovimHandlersDeps): NeovimIpcContr
 
   registerHandler(NEOVIM_SET_CWD_CHANNEL, async (_event, cwd: unknown) => {
     await deps.neovimSource.setCwd(requireNonEmptyString("cwd", cwd));
+  });
+
+  registerHandler(NEOVIM_SET_THEME_CHANNEL, async (_event, rawSelection: unknown) => {
+    await deps.neovimSource.setTheme(requireNeovimThemeSelection(rawSelection));
   });
 
   registerHandler(NVIM_AVAILABLE_CHANNEL, async () => {

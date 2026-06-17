@@ -130,6 +130,7 @@ export const NEOVIM_INPUT_CHANNEL = "desktop:neovim-input";
 export const NEOVIM_RESIZE_CHANNEL = "desktop:neovim-resize";
 export const NEOVIM_REDRAW_CHANNEL = "desktop:neovim-redraw";
 export const NEOVIM_SET_CWD_CHANNEL = "desktop:neovim-set-cwd";
+export const NEOVIM_SET_THEME_CHANNEL = "desktop:neovim-set-theme";
 export const NVIM_AVAILABLE_CHANNEL = "desktop:nvim-available";
 export const NVIM_PROBE_DETAIL_CHANNEL = "desktop:nvim-probe-detail";
 

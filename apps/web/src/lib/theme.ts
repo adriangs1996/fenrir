@@ -127,3 +127,19 @@ export function resolveThemeState(theme: Theme, systemDark: boolean) {
 export function resolveDesktopTheme(theme: Theme): "light" | "dark" | "system" {
   return isCustomTheme(theme) ? "dark" : theme;
 }
+
+export function resolveNeovimThemeName(syntaxTheme: SyntaxTheme): string {
+  if (syntaxTheme === "light") {
+    return "pierre-light";
+  }
+  if (syntaxTheme === "dark") {
+    return "fenrir-dark";
+  }
+  if (syntaxTheme === "kanagawa-wave") {
+    return "kanagawa";
+  }
+  if (syntaxTheme.startsWith("dracula-pro")) {
+    return syntaxTheme.replaceAll("-", "_");
+  }
+  return syntaxTheme;
+}
