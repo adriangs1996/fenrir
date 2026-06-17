@@ -42,6 +42,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "chat.newLocal",
   "editor.openFavorite",
   "editor.sendSelection",
+  "editor.runPrompt",
   "editor.toggleChatTab",
 ] as const;
 export type StaticKeybindingCommand = (typeof STATIC_KEYBINDING_COMMANDS)[number];

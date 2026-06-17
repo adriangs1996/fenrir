@@ -1,6 +1,8 @@
 import type { BrowserWindow } from "electron";
 import {
   EDITOR_CMD_CHANNEL,
+  EDITOR_CAPTURE_ACTIVE_FILE_CHANNEL,
+  EDITOR_CAPTURE_SELECTION_CHANNEL,
   EDITOR_EVENT_CHANNEL,
   EDITOR_INVOKE_BRIDGE_CHANNEL,
   EDITOR_OPEN_FILE_CHANNEL,
@@ -38,4 +40,16 @@ export function registerEditorHandlers(deps: EditorHandlersDeps): void {
     const validFn = requireString("editor bridge function", fn);
     await deps.neovimSource.invokeBridge(validFn);
   });
+
+  registerHandler(EDITOR_CAPTURE_SELECTION_CHANNEL, async (_event, payload: unknown) => {
+    const activeOnly =
+      typeof payload === "object" &&
+      payload !== null &&
+      (payload as { activeOnly?: unknown }).activeOnly === true;
+    return deps.neovimSource.captureSelection({ activeOnly });
+  });
+
+  registerHandler(EDITOR_CAPTURE_ACTIVE_FILE_CHANNEL, async () =>
+    deps.neovimSource.captureActiveFile(),
+  );
 }

@@ -13,7 +13,9 @@ import {
   ProjectId,
   ProviderInteractionMode,
   RuntimeMode,
+  ThreadOwner,
   ThreadId,
+  ThreadVisibility,
   TurnId,
 } from "@fenrir/contracts";
 import { Effect, Option, Schema, Context } from "effect";
@@ -29,6 +31,9 @@ export const ProjectionThread = Schema.Struct({
   mcpServerIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  visibility: Schema.optionalKey(ThreadVisibility),
+  owner: Schema.optionalKey(Schema.NullOr(ThreadOwner)),
+  deleteOnSettled: Schema.optionalKey(Schema.Boolean),
   latestTurnId: Schema.NullOr(TurnId),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

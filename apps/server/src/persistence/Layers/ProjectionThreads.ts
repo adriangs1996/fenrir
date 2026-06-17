@@ -1,6 +1,6 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer, Schema, Struct } from "effect";
+import { Effect, Layer, Option, Schema, Struct } from "effect";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -11,15 +11,26 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { McpServerId, ModelSelection } from "@fenrir/contracts";
+import { McpServerId, ModelSelection, ThreadOwner } from "@fenrir/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
     mcpServerIds: Schema.fromJsonString(Schema.Array(McpServerId)),
+    owner: Schema.NullOr(Schema.fromJsonString(ThreadOwner)),
+    deleteOnSettled: Schema.Number,
   }),
 );
 type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
+
+function toProjectionThread(row: ProjectionThreadDbRow): ProjectionThread {
+  return {
+    ...row,
+    visibility: row.visibility ?? "normal",
+    owner: row.owner ?? null,
+    deleteOnSettled: row.deleteOnSettled === 1,
+  };
+}
 
 const makeProjectionThreadRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -38,6 +49,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           mcp_server_ids_json,
           branch,
           worktree_path,
+          visibility,
+          owner_json,
+          delete_on_settled,
           latest_turn_id,
           created_at,
           updated_at,
@@ -54,6 +68,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${JSON.stringify(row.mcpServerIds)},
           ${row.branch},
           ${row.worktreePath},
+          ${row.visibility ?? "normal"},
+          ${row.owner ? JSON.stringify(row.owner) : null},
+          ${row.deleteOnSettled ? 1 : 0},
           ${row.latestTurnId},
           ${row.createdAt},
           ${row.updatedAt},
@@ -70,6 +87,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           mcp_server_ids_json = excluded.mcp_server_ids_json,
           branch = excluded.branch,
           worktree_path = excluded.worktree_path,
+          visibility = excluded.visibility,
+          owner_json = excluded.owner_json,
+          delete_on_settled = excluded.delete_on_settled,
           latest_turn_id = excluded.latest_turn_id,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
@@ -93,6 +113,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           mcp_server_ids_json AS "mcpServerIds",
           branch,
           worktree_path AS "worktreePath",
+          visibility,
+          owner_json AS "owner",
+          delete_on_settled AS "deleteOnSettled",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -118,6 +141,9 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           mcp_server_ids_json AS "mcpServerIds",
           branch,
           worktree_path AS "worktreePath",
+          visibility,
+          owner_json AS "owner",
+          delete_on_settled AS "deleteOnSettled",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -145,11 +171,13 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
 
   const getById: ProjectionThreadRepositoryShape["getById"] = (input) =>
     getProjectionThreadRow(input).pipe(
+      Effect.map(Option.map(toProjectionThread)),
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.getById:query")),
     );
 
   const listByProjectId: ProjectionThreadRepositoryShape["listByProjectId"] = (input) =>
     listProjectionThreadRows(input).pipe(
+      Effect.map((rows) => rows.map(toProjectionThread)),
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.listByProjectId:query")),
     );
 

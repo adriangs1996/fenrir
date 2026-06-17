@@ -275,6 +275,17 @@ export const EditorSendToComposer = Schema.Struct({
 });
 export type EditorSendToComposer = typeof EditorSendToComposer.Type;
 
+export interface EditorCaptureSelectionOptions {
+  readonly activeOnly?: boolean;
+}
+
+export const EditorActiveFile = Schema.Struct({
+  file: Schema.String,
+  cursorLine: Schema.Number,
+  lineCount: Schema.Number,
+});
+export type EditorActiveFile = typeof EditorActiveFile.Type;
+
 export interface VSCodeShortcutContext {
   readonly terminalFocus: boolean;
   readonly terminalOpen: boolean;
@@ -603,6 +614,10 @@ export interface DesktopBridge {
     onEvent: (cb: (ev: EditorEvent) => void) => () => void;
     onSendToComposer: (cb: (ev: EditorSendToComposer) => void) => () => void;
     onCmd: (cb: (ev: EditorCmd) => void) => () => void;
+    captureSelection: (
+      options?: EditorCaptureSelectionOptions,
+    ) => Promise<EditorSendToComposer | null>;
+    captureActiveFile: () => Promise<EditorActiveFile | null>;
     /** Invoke a whitelisted Lua bridge function on the embedded nvim. */
     invokeBridge: (fn: string) => Promise<void>;
   };

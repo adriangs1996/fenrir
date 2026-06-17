@@ -1,10 +1,13 @@
 import { type ThreadId } from "@fenrir/contracts";
 
+export type EditorContextKind = "selection" | "file";
+
 export interface EditorContextSelection {
   file: string;
   lineStart: number;
   lineEnd: number;
   text: string;
+  kind?: EditorContextKind;
 }
 
 export interface EditorContextDraft extends EditorContextSelection {
@@ -25,11 +28,14 @@ export interface ParsedEditorContextEntry {
   lineStart: number;
   lineEnd: number;
   body: string;
+  kind?: EditorContextKind;
 }
 
 /** Matches a single `<editor_context …>…</editor_context>` block globally. */
 const EDITOR_CONTEXT_BLOCK_PATTERN =
   /<editor_context\s+file="((?:[^"\\]|\\.)*)"\s+lineStart="(\d+)"\s+lineEnd="(\d+)">\n([\s\S]*?)\n<\/editor_context>/g;
+const EDITOR_FILE_CONTEXT_BLOCK_PATTERN =
+  /<editor_file_context\s+file="((?:[^"\\]|\\.)*)"\s+cursorLine="(\d+)">\n([\s\S]*?)\n<\/editor_file_context>/g;
 
 export function normalizeEditorContextText(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/^\n+|\n+$/g, "");
@@ -59,7 +65,8 @@ export function normalizeEditorContextSelection(
   }
   const lineStart = Math.max(1, Math.floor(selection.lineStart));
   const lineEnd = Math.max(lineStart, Math.floor(selection.lineEnd));
-  return { file, lineStart, lineEnd, text };
+  const kind = selection.kind === "file" ? "file" : "selection";
+  return { file, lineStart, lineEnd, text, ...(kind === "file" ? { kind } : {}) };
 }
 
 export function formatEditorContextRange(selection: {
@@ -75,7 +82,11 @@ export function formatEditorContextLabel(selection: {
   file: string;
   lineStart: number;
   lineEnd: number;
+  kind?: EditorContextKind;
 }): string {
+  if (selection.kind === "file") {
+    return `${basenameOfFile(selection.file)} active file`;
+  }
   return `${basenameOfFile(selection.file)} ${formatEditorContextRange(selection)}`;
 }
 
@@ -140,6 +151,17 @@ export function buildEditorContextBlock(draft: EditorContextDraft): string {
     return "";
   }
   const safeFile = normalized.file.replace(/"/g, '\\"');
+  if (normalized.kind === "file") {
+    return [
+      `<editor_file_context file="${safeFile}" cursorLine="${normalized.lineStart}">`,
+      `- Active editor file: ${normalized.file}`,
+      `- Cursor line: ${normalized.lineStart}`,
+      ...normalizeEditorContextText(normalized.text)
+        .split("\n")
+        .map((line) => `- ${line}`),
+      `</editor_file_context>`,
+    ].join("\n");
+  }
   const bodyLines = buildEditorContextBodyLines(normalized);
   return [
     `<editor_context file="${safeFile}" lineStart="${normalized.lineStart}" lineEnd="${normalized.lineEnd}">`,
@@ -164,13 +186,32 @@ export function appendEditorContextsToPrompt(
 }
 
 export function extractTrailingEditorContexts(prompt: string): ExtractedEditorContexts {
-  // Collect all <editor_context> blocks with their positions.
-  const pattern = new RegExp(EDITOR_CONTEXT_BLOCK_PATTERN.source, "g");
-  const blocks: { start: number; end: number; match: RegExpExecArray }[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = pattern.exec(prompt)) !== null) {
-    blocks.push({ start: m.index, end: m.index + m[0].length, match: m });
+  const blocks: Array<{
+    start: number;
+    end: number;
+    kind: EditorContextKind;
+    match: RegExpExecArray;
+  }> = [];
+  let match: RegExpExecArray | null;
+  const selectionPattern = new RegExp(EDITOR_CONTEXT_BLOCK_PATTERN.source, "g");
+  while ((match = selectionPattern.exec(prompt)) !== null) {
+    blocks.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      kind: "selection",
+      match,
+    });
   }
+  const filePattern = new RegExp(EDITOR_FILE_CONTEXT_BLOCK_PATTERN.source, "g");
+  while ((match = filePattern.exec(prompt)) !== null) {
+    blocks.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      kind: "file",
+      match,
+    });
+  }
+  blocks.sort((a, b) => a.start - b.start);
 
   if (blocks.length === 0) {
     return { promptText: prompt, contextCount: 0, previewTitle: null, contexts: [] };
@@ -193,19 +234,37 @@ export function extractTrailingEditorContexts(prompt: string): ExtractedEditorCo
   }
 
   const promptText = prompt.slice(0, trailing[0]!.start).replace(/\n+$/, "");
-  const contexts: ParsedEditorContextEntry[] = trailing.map(({ match: mt }) => ({
-    file: (mt[1] ?? "").replace(/\\"/g, '"'),
-    lineStart: Number.parseInt(mt[2] ?? "1", 10),
-    lineEnd: Number.parseInt(mt[3] ?? "1", 10),
-    body: mt[4] ?? "",
-  }));
+  const contexts: ParsedEditorContextEntry[] = trailing.map(({ kind, match: mt }) => {
+    const file = (mt[1] ?? "").replace(/\\"/g, '"');
+    if (kind === "file") {
+      const cursorLine = Number.parseInt(mt[2] ?? "1", 10);
+      return {
+        file,
+        lineStart: cursorLine,
+        lineEnd: cursorLine,
+        body: mt[3] ?? "",
+        kind,
+      };
+    }
+    return {
+      file,
+      lineStart: Number.parseInt(mt[2] ?? "1", 10),
+      lineEnd: Number.parseInt(mt[3] ?? "1", 10),
+      body: mt[4] ?? "",
+    };
+  });
 
   return {
     promptText,
     contextCount: contexts.length,
     previewTitle: contexts
-      .map(({ file, lineStart, lineEnd, body }) => {
-        const label = formatEditorContextLabel({ file, lineStart, lineEnd });
+      .map(({ file, lineStart, lineEnd, body, kind }) => {
+        const label = formatEditorContextLabel({
+          file,
+          lineStart,
+          lineEnd,
+          ...(kind ? { kind } : {}),
+        });
         return body.length > 0 ? `${label}\n${body}` : label;
       })
       .join("\n\n"),

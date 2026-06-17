@@ -18,6 +18,7 @@ import {
   usePlanRunnerStore,
   type ArchivedFeatureSummary,
 } from "~/modules/plan-runner";
+import { isUserBrowsableThread } from "~/threadVisibility";
 
 export function ArchivedThreadsPanel() {
   const projects = useStore(useShallow(selectProjectsAcrossEnvironments));
@@ -70,7 +71,7 @@ export function ArchivedThreadsPanel() {
       }
 
       for (const thread of entry.snapshot.threads) {
-        if (internalPlanRunnerThreadIds.has(thread.id)) {
+        if (!isUserBrowsableThread(thread) || internalPlanRunnerThreadIds.has(thread.id)) {
           continue;
         }
         const key = `${entry.environmentId}:${thread.projectId}`;

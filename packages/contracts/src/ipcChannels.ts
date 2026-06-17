@@ -160,3 +160,5 @@ export const EDITOR_EVENT_CHANNEL = "fenrir:editor:event";
 export const EDITOR_SEND_TO_COMPOSER_CHANNEL = "fenrir:editor:sendToComposer";
 export const EDITOR_CMD_CHANNEL = "fenrir:editor:cmd";
 export const EDITOR_INVOKE_BRIDGE_CHANNEL = "fenrir:editor:invokeBridge";
+export const EDITOR_CAPTURE_SELECTION_CHANNEL = "fenrir:editor:captureSelection";
+export const EDITOR_CAPTURE_ACTIVE_FILE_CHANNEL = "fenrir:editor:captureActiveFile";

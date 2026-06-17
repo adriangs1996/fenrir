@@ -19,6 +19,7 @@ import {
   useInternalPlanRunnerThreadIds,
   useInternalPlanRunnerThreadOwners,
 } from "~/modules/plan-runner";
+import { isUserBrowsableThread } from "~/threadVisibility";
 
 function ChatThreadRouteView() {
   const navigate = useNavigate();
@@ -62,6 +63,7 @@ function ChatThreadRouteView() {
   const internalPlanRunnerThreadOwners = useInternalPlanRunnerThreadOwners();
   const isInternalPlanRunnerThread =
     threadRef !== null && internalPlanRunnerThreadIds.has(threadRef.threadId);
+  const isHiddenThread = serverThread !== undefined && !isUserBrowsableThread(serverThread);
   const owningRunIdForThread =
     threadRef !== null ? (internalPlanRunnerThreadOwners.get(threadRef.threadId) ?? null) : null;
 
@@ -85,6 +87,11 @@ function ChatThreadRouteView() {
       return;
     }
 
+    if (isHiddenThread) {
+      void navigate({ to: "/", replace: true });
+      return;
+    }
+
     if (!routeThreadExists && environmentHasAnyThreads) {
       void navigate({ to: "/", replace: true });
     }
@@ -92,6 +99,7 @@ function ChatThreadRouteView() {
     bootstrapComplete,
     environmentHasAnyThreads,
     isInternalPlanRunnerThread,
+    isHiddenThread,
     navigate,
     owningRunIdForThread,
     routeThreadExists,
@@ -113,7 +121,13 @@ function ChatThreadRouteView() {
     void hydrateEnvironmentThreadSnapshot(threadRef).catch(() => undefined);
   }, [bootstrapComplete, threadDetailsHydrated, threadExists, threadRef]);
 
-  if (!threadRef || !bootstrapComplete || !routeThreadExists || isInternalPlanRunnerThread) {
+  if (
+    !threadRef ||
+    !bootstrapComplete ||
+    !routeThreadExists ||
+    isInternalPlanRunnerThread ||
+    isHiddenThread
+  ) {
     return null;
   }
 

@@ -261,6 +261,36 @@ it.effect("decodes thread.created runtime mode for historical events", () =>
   }),
 );
 
+it.effect("decodes thread.created visibility metadata", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadCreatedPayload({
+      threadId: "thread-editor-worker",
+      projectId: "project-1",
+      title: "Editor worker",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.4",
+      },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      visibility: "editorTransient",
+      owner: { kind: "editorPrompt", parentThreadId: "thread-1" },
+      deleteOnSettled: true,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.strictEqual(parsed.visibility, "editorTransient");
+    assert.deepStrictEqual(parsed.owner, {
+      kind: "editorPrompt",
+      parentThreadId: "thread-1",
+    });
+    assert.strictEqual(parsed.deleteOnSettled, true);
+  }),
+);
+
 it.effect("decodes thread.meta-updated payloads with explicit provider", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeThreadMetaUpdatedPayload({

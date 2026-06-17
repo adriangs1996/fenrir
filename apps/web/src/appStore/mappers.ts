@@ -12,6 +12,7 @@ import type {
   OrchestrationThreadActivity,
   ProviderKind,
   ThreadId,
+  ThreadVisibility,
   TurnId,
 } from "@fenrir/contracts";
 import { resolveModelSlugForProvider } from "@fenrir/shared/model";
@@ -60,6 +61,16 @@ export function normalizeModelSelection<T extends { provider: string; model: str
     ...selection,
     model: resolveModelSlugForProvider(selection.provider, selection.model),
   };
+}
+
+export function normalizeThreadVisibility(
+  visibility: ThreadVisibility | undefined,
+): ThreadVisibility {
+  return visibility ?? "normal";
+}
+
+function threadOwnerKey(owner: { kind: string; parentThreadId?: string } | null | undefined) {
+  return owner ? `${owner.kind}:${owner.parentThreadId ?? ""}` : "";
 }
 
 export function mapProjectScripts(
@@ -181,6 +192,9 @@ export function mapThreadShellRecord(
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    visibility: normalizeThreadVisibility(thread.visibility),
+    owner: thread.owner ?? null,
+    deleteOnSettled: thread.deleteOnSettled ?? false,
     mcpServerIds: [...(thread.mcpServerIds ?? [])],
   };
 }
@@ -211,6 +225,9 @@ export function buildSidebarThreadSummaryFromShell(
     latestTurn: thread.latestTurn,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    visibility: normalizeThreadVisibility(thread.visibility),
+    owner: thread.owner ?? null,
+    deleteOnSettled: thread.deleteOnSettled ?? false,
     mcpServerIds: [...(thread.mcpServerIds ?? [])],
     latestUserMessageAt: thread.latestUserMessageAt,
     hasPendingApprovals: thread.hasPendingApprovals,
@@ -240,6 +257,9 @@ export function mapThread(thread: OrchestrationThread, environmentId: Environmen
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    visibility: normalizeThreadVisibility(thread.visibility),
+    owner: thread.owner ?? null,
+    deleteOnSettled: thread.deleteOnSettled ?? false,
     mcpServerIds: [...(thread.mcpServerIds ?? [])],
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
@@ -280,6 +300,9 @@ export function toThreadShell(thread: Thread): ThreadShell {
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    visibility: normalizeThreadVisibility(thread.visibility),
+    owner: thread.owner ?? null,
+    deleteOnSettled: thread.deleteOnSettled ?? false,
   };
 }
 
@@ -319,6 +342,9 @@ export function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary 
     latestTurn: thread.latestTurn,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    visibility: normalizeThreadVisibility(thread.visibility),
+    owner: thread.owner ?? null,
+    deleteOnSettled: thread.deleteOnSettled ?? false,
     latestUserMessageAt: getLatestUserMessageAt(thread.messages),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
@@ -345,6 +371,9 @@ export function sidebarThreadSummariesEqual(
     left.latestTurn === right.latestTurn &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
+    left.visibility === right.visibility &&
+    threadOwnerKey(left.owner) === threadOwnerKey(right.owner) &&
+    left.deleteOnSettled === right.deleteOnSettled &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
@@ -368,7 +397,10 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     left.archivedAt === right.archivedAt &&
     left.updatedAt === right.updatedAt &&
     left.branch === right.branch &&
-    left.worktreePath === right.worktreePath
+    left.worktreePath === right.worktreePath &&
+    left.visibility === right.visibility &&
+    threadOwnerKey(left.owner) === threadOwnerKey(right.owner) &&
+    left.deleteOnSettled === right.deleteOnSettled
   );
 }
 

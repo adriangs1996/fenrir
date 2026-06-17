@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   DesktopBridge,
+  EditorActiveFile,
   EditorCmd,
+  EditorCaptureSelectionOptions,
   EditorEvent,
   EditorFontMetrics,
   EditorOpenFileInput,
@@ -128,6 +130,8 @@ import {
   EDITOR_EVENT_CHANNEL,
   EDITOR_SEND_TO_COMPOSER_CHANNEL,
   EDITOR_CMD_CHANNEL,
+  EDITOR_CAPTURE_ACTIVE_FILE_CHANNEL,
+  EDITOR_CAPTURE_SELECTION_CHANNEL,
   EDITOR_INVOKE_BRIDGE_CHANNEL,
 } from "@fenrir/contracts/ipcChannels";
 
@@ -462,6 +466,13 @@ contextBridge.exposeInMainWorld("desktopBridge", {
         ipcRenderer.removeListener(EDITOR_CMD_CHANNEL, wrap);
       };
     },
+    captureSelection: (options?: EditorCaptureSelectionOptions) =>
+      ipcRenderer.invoke(
+        EDITOR_CAPTURE_SELECTION_CHANNEL,
+        options,
+      ) as Promise<EditorSendToComposer | null>,
+    captureActiveFile: () =>
+      ipcRenderer.invoke(EDITOR_CAPTURE_ACTIVE_FILE_CHANNEL) as Promise<EditorActiveFile | null>,
     invokeBridge: (fn: string) =>
       ipcRenderer.invoke(EDITOR_INVOKE_BRIDGE_CHANNEL, fn) as Promise<void>,
   },

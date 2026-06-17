@@ -140,6 +140,11 @@ const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
   {
+    shortcut: modShortcut("enter", { shiftKey: true }),
+    command: "editor.runPrompt",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
     shortcut: {
       key: "k",
       metaKey: false,
@@ -345,6 +350,10 @@ describe("shortcutLabelForCommand", () => {
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFavorite", "Linux"),
       "Ctrl+O",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.runPrompt", "MacIntel"),
+      "⇧⌘Enter",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.jump.3", "MacIntel"),

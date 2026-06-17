@@ -17,6 +17,7 @@ export { useEditorSendToComposerListener } from "./hooks/useEditorSendToComposer
 
 // Editor context
 export type {
+  EditorContextKind,
   EditorContextSelection,
   EditorContextDraft,
   ExtractedEditorContexts,
@@ -43,5 +44,5 @@ export {
   ComposerPendingEditorContexts,
 } from "./components/ComposerPendingEditorContexts";
 export { EditorContextInlineChip } from "./components/EditorContextInlineChip";
-export { EditorPane } from "./components/EditorPane";
+export { EditorPane, type EditorWorkerItem } from "./components/EditorPane";
 export { ChatViewSwitcher } from "./components/ChatViewSwitcher";

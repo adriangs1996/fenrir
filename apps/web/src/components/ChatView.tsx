@@ -80,6 +80,7 @@ import {
   DEFAULT_RUNTIME_MODE,
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
+  type Thread,
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -132,7 +133,9 @@ import {
 import {
   appendEditorContextsToPrompt,
   EditorPane,
+  type EditorWorkerItem,
   formatEditorContextLabel,
+  type EditorContextDraft,
   useEditorStore,
 } from "~/modules/neovim-editor";
 import { resolveActiveEmbeddedEditor } from "~/modules/neovim-editor/embeddedEditor";
@@ -199,6 +202,7 @@ import {
   useActionRunStore,
   type ActionRun,
 } from "~/modules/action-runs";
+import { isEditorTransientThread } from "~/threadVisibility";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -213,6 +217,37 @@ const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const ACTION_RUN_OBSERVER_COLS = 120;
 const ACTION_RUN_OBSERVER_ROWS = 30;
+const EDITOR_TRANSIENT_THREAD_DELETE_DELAY_MS = 1_500;
+
+function latestAssistantDetail(messages: readonly ChatMessage[]): string | null {
+  const message = messages.findLast((entry) => entry.role === "assistant" && entry.text.trim());
+  if (!message) return null;
+  return truncate(message.text.replace(/\s+/g, " "), 120);
+}
+
+function toEditorWorkerItem(thread: Thread): EditorWorkerItem {
+  const pendingApprovals = derivePendingApprovals(thread.activities).length > 0;
+  const pendingUserInputs = derivePendingUserInputs(thread.activities).length > 0;
+  const latestTurnSettled = isLatestTurnSettled(thread.latestTurn, thread.session);
+  const hasError = thread.error !== null || thread.latestTurn?.state === "error";
+  const status: EditorWorkerItem["status"] = hasError
+    ? "error"
+    : pendingApprovals || pendingUserInputs
+      ? "waiting"
+      : latestTurnSettled
+        ? "completed"
+        : thread.latestTurn?.startedAt
+          ? "running"
+          : "queued";
+
+  return {
+    id: thread.id,
+    title: thread.title,
+    status,
+    detail: hasError ? thread.error : latestAssistantDetail(thread.messages),
+    canInterrupt: status === "queued" || status === "running" || status === "waiting",
+  };
+}
 
 function formatOutgoingPrompt(params: {
   provider: ProviderSelectionKind;
@@ -387,6 +422,7 @@ export default function ChatView(props: ChatViewProps) {
   const isAtEndRef = useRef(true);
   const sendInFlightRef = useRef(false);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
+  const editorTransientCleanupTimersRef = useRef(new Map<ThreadId, number>());
 
   // Editor view visibility — gated by desktop bridge presence, main window,
   // and successful nvim probe. When false, the editor switch disappears and
@@ -934,6 +970,34 @@ export default function ChatView(props: ChatViewProps) {
       routeKind,
       routeThreadRef,
     });
+  const [editorPromptOpen, setEditorPromptOpen] = useState(false);
+  const [editorPromptDraft, setEditorPromptDraft] = useState("");
+  const [editorPromptContexts, setEditorPromptContexts] = useState<EditorContextDraft[]>([]);
+  const editorWorkerThreads = useStore(
+    useShallow(
+      useMemo(
+        () => (state: import("../store").AppState) => {
+          if (!activeThreadId) return [] as Thread[];
+          return selectThreadsAcrossEnvironments(state).filter(
+            (thread) =>
+              thread.environmentId === environmentId &&
+              isEditorTransientThread(thread) &&
+              thread.owner?.kind === "editorPrompt" &&
+              thread.owner.parentThreadId === activeThreadId,
+          );
+        },
+        [activeThreadId, environmentId],
+      ),
+    ),
+  );
+  const editorWorkers = useMemo(
+    () => editorWorkerThreads.map(toEditorWorkerItem),
+    [editorWorkerThreads],
+  );
+  const editorPromptContextLabels = useMemo(
+    () => editorPromptContexts.map(formatEditorContextLabel),
+    [editorPromptContexts],
+  );
   const terminalShortcutLabelOptions = useMemo(
     () => ({
       context: {
@@ -1551,6 +1615,301 @@ export default function ChatView(props: ChatViewProps) {
       ? pendingServerThreadBranch
       : (activeThread?.branch ?? null);
 
+  const captureActiveEditorContext = useCallback(
+    async (options?: { readonly activeOnly?: boolean }): Promise<EditorContextDraft[]> => {
+      if (!activeThreadId || activeEmbeddedEditor !== "neovim") {
+        return [];
+      }
+      const selection = await window.desktopBridge?.editor
+        .captureSelection?.({ activeOnly: options?.activeOnly === true })
+        .catch(() => null);
+      if (!selection || selection.file.trim().length === 0 || selection.text.trim().length === 0) {
+        return [];
+      }
+      return [
+        {
+          id: randomUUID(),
+          threadId: activeThreadId,
+          createdAt: new Date().toISOString(),
+          file: selection.file,
+          lineStart: selection.lineStart,
+          lineEnd: selection.lineEnd,
+          text: selection.text,
+        },
+      ];
+    },
+    [activeEmbeddedEditor, activeThreadId],
+  );
+
+  const captureActiveEditorFileContext =
+    useCallback(async (): Promise<EditorContextDraft | null> => {
+      if (!activeThreadId || activeEmbeddedEditor !== "neovim") {
+        return null;
+      }
+      const activeFile = await window.desktopBridge?.editor.captureActiveFile?.().catch(() => null);
+      if (!activeFile || activeFile.file.trim().length === 0) {
+        return null;
+      }
+      const cursorLine = Math.max(1, Math.floor(activeFile.cursorLine));
+      return {
+        id: randomUUID(),
+        threadId: activeThreadId,
+        createdAt: new Date().toISOString(),
+        kind: "file",
+        file: activeFile.file,
+        lineStart: cursorLine,
+        lineEnd: cursorLine,
+        text: [
+          `Treat ${activeFile.file} as the active editor file for this prompt.`,
+          'When the user says "this file", "this class", or "this code", use this file as the target.',
+        ].join("\n"),
+      };
+    }, [activeEmbeddedEditor, activeThreadId]);
+
+  const openEditorRunPrompt = useCallback(async () => {
+    if (!editorAvailable || !activeThreadId) {
+      return;
+    }
+    const activeFileContext = await captureActiveEditorFileContext();
+    const selectionContexts = await captureActiveEditorContext({ activeOnly: true });
+    const contexts = [...(activeFileContext ? [activeFileContext] : []), ...selectionContexts];
+    setEditorPromptContexts(contexts);
+    setActiveChatTab("editor");
+    setEditorPromptOpen(true);
+  }, [
+    activeThreadId,
+    captureActiveEditorContext,
+    captureActiveEditorFileContext,
+    editorAvailable,
+    setActiveChatTab,
+  ]);
+
+  const closeEditorRunPrompt = useCallback(() => {
+    setEditorPromptOpen(false);
+    setEditorPromptContexts([]);
+    requestEditorFocus();
+  }, [requestEditorFocus]);
+
+  const submitEditorPrompt = useCallback(async () => {
+    const promptText = editorPromptDraft.trim();
+    if (promptText.length === 0 || !activeThread || !activeProject) {
+      return;
+    }
+    const api = readEnvironmentApi(environmentId);
+    if (!api) {
+      return;
+    }
+    const sendCtx = composerRef.current?.getSendContext();
+    if (!sendCtx) {
+      toastManager.add({
+        type: "error",
+        title: "Could not start editor prompt",
+        description: "Composer state is not available yet.",
+      });
+      return;
+    }
+    const {
+      selectedProvider: ctxSelectedProvider,
+      selectedProviderInstanceId: ctxSelectedProviderInstanceId,
+      selectedModel: ctxSelectedModel,
+      selectedProviderModels: ctxSelectedProviderModels,
+      selectedPromptEffort: ctxSelectedPromptEffort,
+      selectedModelSelection: ctxSelectedModelSelection,
+      selectedMcpServerIds: ctxSelectedMcpServerIds,
+    } = sendCtx;
+    const ctxMcpCompatibilityMessage = getProviderMcpCompatibility({
+      provider: ctxSelectedProvider,
+      capabilities: getProviderSnapshot(providerStatuses, ctxSelectedProvider)?.mcpCapabilities,
+      servers: selectableMcpServers,
+      selectedIds: ctxSelectedMcpServerIds,
+    });
+    if (ctxMcpCompatibilityMessage) {
+      toastManager.add({
+        type: "error",
+        title: "Selected provider cannot use these MCP servers",
+        description: ctxMcpCompatibilityMessage,
+      });
+      return;
+    }
+
+    const createdAt = new Date().toISOString();
+    const nextThreadId = newThreadId();
+    const editorContexts = editorPromptContexts;
+    const promptWithEditorContext = appendEditorContextsToPrompt(promptText, editorContexts);
+    const outgoingMessageText = formatOutgoingPrompt({
+      provider: ctxSelectedProvider,
+      model: ctxSelectedModel,
+      models: ctxSelectedProviderModels,
+      effort: ctxSelectedPromptEffort,
+      text: promptWithEditorContext,
+    });
+    const titleSeed = editorContexts[0]
+      ? `${formatEditorContextLabel(editorContexts[0])}: ${promptText}`
+      : promptText;
+    const title = truncate(titleSeed);
+    const threadCreateModelSelection: ModelSelection = {
+      provider: ctxSelectedProvider,
+      model:
+        ctxSelectedModel ||
+        activeProject.defaultModelSelection?.model ||
+        DEFAULT_MODEL_BY_PROVIDER.codex,
+      ...(ctxSelectedModelSelection.instanceId
+        ? { instanceId: ctxSelectedModelSelection.instanceId }
+        : {}),
+      ...(ctxSelectedModelSelection.options ? { options: ctxSelectedModelSelection.options } : {}),
+    };
+
+    setEditorPromptOpen(false);
+    setEditorPromptDraft("");
+    setEditorPromptContexts([]);
+    requestEditorFocus();
+    await api.orchestration
+      .dispatchCommand({
+        type: "thread.turn.start",
+        commandId: newCommandId(),
+        threadId: nextThreadId,
+        message: {
+          messageId: newMessageId(),
+          role: "user",
+          text: outgoingMessageText,
+          attachments: [],
+        },
+        modelSelection: ctxSelectedModelSelection,
+        providerInstanceId: ctxSelectedProviderInstanceId,
+        titleSeed: title,
+        runtimeMode,
+        interactionMode,
+        mcpServerIds: [...ctxSelectedMcpServerIds],
+        bootstrap: {
+          createThread: {
+            projectId: activeProject.id,
+            title,
+            modelSelection: threadCreateModelSelection,
+            runtimeMode,
+            interactionMode,
+            mcpServerIds: [...ctxSelectedMcpServerIds],
+            branch: activeThreadBranch,
+            worktreePath: activeThread.worktreePath,
+            visibility: "editorTransient",
+            owner: { kind: "editorPrompt", parentThreadId: activeThread.id },
+            deleteOnSettled: true,
+            createdAt,
+          },
+        },
+        createdAt,
+      })
+      .catch((err: unknown) => {
+        setEditorPromptDraft(promptText);
+        setEditorPromptContexts(editorContexts);
+        setEditorPromptOpen(true);
+        toastManager.add({
+          type: "error",
+          title: "Could not start editor prompt",
+          description:
+            err instanceof Error ? err.message : "An error occurred while creating the worker.",
+        });
+      });
+  }, [
+    activeProject,
+    activeThread,
+    activeThreadBranch,
+    editorPromptContexts,
+    editorPromptDraft,
+    environmentId,
+    interactionMode,
+    providerStatuses,
+    requestEditorFocus,
+    runtimeMode,
+    selectableMcpServers,
+  ]);
+
+  const interruptEditorWorker = useCallback(
+    (workerId: string) => {
+      const api = readEnvironmentApi(environmentId);
+      if (!api) {
+        return;
+      }
+      void api.orchestration
+        .dispatchCommand({
+          type: "thread.turn.interrupt",
+          commandId: newCommandId(),
+          threadId: workerId as ThreadId,
+          createdAt: new Date().toISOString(),
+        })
+        .catch((err: unknown) => {
+          toastManager.add({
+            type: "error",
+            title: "Could not interrupt worker",
+            description:
+              err instanceof Error ? err.message : "The worker interruption was not sent.",
+          });
+        });
+    },
+    [environmentId],
+  );
+
+  const dismissEditorWorker = useCallback(
+    (workerId: string) => {
+      const api = readEnvironmentApi(environmentId);
+      if (!api) {
+        return;
+      }
+      void api.orchestration
+        .dispatchCommand({
+          type: "thread.delete",
+          commandId: newCommandId(),
+          threadId: workerId as ThreadId,
+        })
+        .catch(() => undefined);
+    },
+    [environmentId],
+  );
+
+  useEffect(() => {
+    const workerIds = new Set(editorWorkerThreads.map((thread) => thread.id));
+    for (const [threadId, timerId] of editorTransientCleanupTimersRef.current) {
+      if (workerIds.has(threadId)) {
+        continue;
+      }
+      window.clearTimeout(timerId);
+      editorTransientCleanupTimersRef.current.delete(threadId);
+    }
+
+    const api = readEnvironmentApi(environmentId);
+    if (!api) {
+      return;
+    }
+    for (const thread of editorWorkerThreads) {
+      if (!thread.deleteOnSettled || editorTransientCleanupTimersRef.current.has(thread.id)) {
+        continue;
+      }
+      if (toEditorWorkerItem(thread).status !== "completed") {
+        continue;
+      }
+      const timerId = window.setTimeout(() => {
+        editorTransientCleanupTimersRef.current.delete(thread.id);
+        void api.orchestration
+          .dispatchCommand({
+            type: "thread.delete",
+            commandId: newCommandId(),
+            threadId: thread.id,
+          })
+          .catch(() => undefined);
+      }, EDITOR_TRANSIENT_THREAD_DELETE_DELAY_MS);
+      editorTransientCleanupTimersRef.current.set(thread.id, timerId);
+    }
+  }, [editorWorkerThreads, environmentId]);
+
+  useEffect(() => {
+    const cleanupTimers = editorTransientCleanupTimersRef.current;
+    return () => {
+      for (const timerId of cleanupTimers.values()) {
+        window.clearTimeout(timerId);
+      }
+      cleanupTimers.clear();
+    };
+  }, []);
+
   useEffect(() => {
     setPendingServerThreadEnvMode(null);
     setPendingServerThreadBranch(undefined);
@@ -1785,6 +2144,18 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "editor.runPrompt") {
+        if (!editorAvailable) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (editorPromptOpen) {
+          void submitEditorPrompt();
+          return;
+        }
+        void openEditorRunPrompt();
+        return;
+      }
+
       if (command === "editor.sendSelection") {
         if (activeChatTab !== "editor") return;
         if (activeEmbeddedEditor !== "neovim") return;
@@ -1835,13 +2206,16 @@ export default function ChatView(props: ChatViewProps) {
     runGlobalScript,
     splitTerminal,
     keybindings,
+    openEditorRunPrompt,
     scheduleComposerFocus,
     setActiveChatTab,
     toggleGitDiffTab,
     toggleSidePanel,
     toggleTerminalVisibility,
     editorAvailable,
+    editorPromptOpen,
     activeEmbeddedEditor,
+    submitEditorPrompt,
   ]);
 
   useEffect(() => {
@@ -1922,6 +2296,15 @@ export default function ChatView(props: ChatViewProps) {
 
         editorStore.toggleChatTab();
       }
+
+      if (command === "editor.runPrompt" && editorAvailable) {
+        if (editorPromptOpen) {
+          void submitEditorPrompt();
+          return;
+        }
+        void openEditorRunPrompt();
+        return;
+      }
     });
   }, [
     activeEmbeddedEditor,
@@ -1931,7 +2314,10 @@ export default function ChatView(props: ChatViewProps) {
     commandPaletteOpen,
     createNewTerminal,
     editorAvailable,
+    editorPromptOpen,
+    openEditorRunPrompt,
     scheduleComposerFocus,
+    submitEditorPrompt,
     splitTerminal,
     terminalState.activeTerminalId,
     terminalState.terminalOpen,
@@ -3164,6 +3550,15 @@ export default function ChatView(props: ChatViewProps) {
               keybindings={keybindings}
               terminalOpen={Boolean(terminalState.terminalOpen)}
               cwd={gitCwd}
+              promptOpen={editorPromptOpen}
+              promptDraft={editorPromptDraft}
+              promptContextLabels={editorPromptContextLabels}
+              workers={editorWorkers}
+              onPromptDraftChange={setEditorPromptDraft}
+              onPromptCancel={closeEditorRunPrompt}
+              onPromptSubmit={submitEditorPrompt}
+              onWorkerInterrupt={interruptEditorWorker}
+              onWorkerDismiss={dismissEditorWorker}
             />
           )}
         </div>

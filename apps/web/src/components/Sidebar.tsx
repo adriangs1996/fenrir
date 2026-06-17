@@ -87,6 +87,7 @@ import {
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
 import type { Project, SidebarThreadSummary } from "../types";
+import { isUserBrowsableThread } from "../threadVisibility";
 
 const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   duration: 180,
@@ -103,9 +104,9 @@ export default function Sidebar() {
   const internalPlanRunnerThreadIds = useInternalPlanRunnerThreadIds();
   const sidebarThreads = useMemo(
     () =>
-      internalPlanRunnerThreadIds.size === 0
-        ? allSidebarThreads
-        : allSidebarThreads.filter((thread) => !internalPlanRunnerThreadIds.has(thread.id)),
+      allSidebarThreads.filter(
+        (thread) => isUserBrowsableThread(thread) && !internalPlanRunnerThreadIds.has(thread.id),
+      ),
     [allSidebarThreads, internalPlanRunnerThreadIds],
   );
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);

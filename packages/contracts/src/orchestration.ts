@@ -100,6 +100,15 @@ export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
 export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
+export const ThreadVisibility = Schema.Literals(["normal", "internal", "editorTransient"]);
+export type ThreadVisibility = typeof ThreadVisibility.Type;
+export const ThreadOwner = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("editorPrompt"),
+    parentThreadId: ThreadId,
+  }),
+]);
+export type ThreadOwner = typeof ThreadOwner.Type;
 export const ProviderRequestKind = Schema.Literals(["command", "file-read", "file-change"]);
 export type ProviderRequestKind = typeof ProviderRequestKind.Type;
 export const AssistantDeliveryMode = Schema.Literals(["buffered", "streaming"]);
@@ -386,6 +395,9 @@ export const OrchestrationThread = Schema.Struct({
   mcpServerIds: Schema.optionalKey(Schema.Array(McpServerId)),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  visibility: Schema.optionalKey(ThreadVisibility),
+  owner: Schema.optionalKey(Schema.NullOr(ThreadOwner)),
+  deleteOnSettled: Schema.optionalKey(Schema.Boolean),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -413,6 +425,9 @@ export const OrchestrationThreadShell = Schema.Struct({
   mcpServerIds: Schema.optionalKey(Schema.Array(McpServerId)),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  visibility: Schema.optionalKey(ThreadVisibility),
+  owner: Schema.optionalKey(Schema.NullOr(ThreadOwner)),
+  deleteOnSettled: Schema.optionalKey(Schema.Boolean),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -601,6 +616,9 @@ const ThreadCreateCommand = Schema.Struct({
   mcpServerIds: Schema.optionalKey(Schema.Array(McpServerId)),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  visibility: Schema.optionalKey(ThreadVisibility),
+  owner: Schema.optionalKey(Schema.NullOr(ThreadOwner)),
+  deleteOnSettled: Schema.optionalKey(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -665,6 +683,9 @@ const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
   mcpServerIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  visibility: Schema.optionalKey(ThreadVisibility),
+  owner: Schema.optionalKey(Schema.NullOr(ThreadOwner)),
+  deleteOnSettled: Schema.optionalKey(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -976,6 +997,9 @@ export const ThreadCreatedPayload = Schema.Struct({
   mcpServerIds: Schema.Array(McpServerId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  visibility: Schema.optionalKey(ThreadVisibility),
+  owner: Schema.optionalKey(Schema.NullOr(ThreadOwner)),
+  deleteOnSettled: Schema.optionalKey(Schema.Boolean),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

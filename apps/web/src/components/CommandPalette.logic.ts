@@ -2,6 +2,7 @@ import { type FilesystemBrowseEntry, type KeybindingCommand } from "@fenrir/cont
 import type { SidebarThreadSortOrder } from "@fenrir/contracts/settings";
 import { type ReactNode } from "react";
 import { sortThreads } from "../lib/threadSort";
+import { isUserBrowsableThread } from "../threadVisibility";
 import { formatRelativeTimeLabel } from "../lib/formatting";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 
@@ -118,7 +119,14 @@ export function buildProjectActionItems(input: {
 
 export type BuildThreadActionItemsThread = Pick<
   SidebarThreadSummary,
-  "archivedAt" | "branch" | "createdAt" | "environmentId" | "id" | "projectId" | "title"
+  | "archivedAt"
+  | "branch"
+  | "createdAt"
+  | "environmentId"
+  | "id"
+  | "projectId"
+  | "title"
+  | "visibility"
 > & {
   updatedAt?: string | undefined;
   latestUserMessageAt?: string | null;
@@ -136,7 +144,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
-    input.threads.filter((thread) => thread.archivedAt === null),
+    input.threads.filter((thread) => thread.archivedAt === null && isUserBrowsableThread(thread)),
     input.sortOrder,
   );
   const visibleThreads =

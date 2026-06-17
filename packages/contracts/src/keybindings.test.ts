@@ -77,6 +77,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedLocal.command, "chat.newLocal");
 
+    const parsedEditorRunPrompt = yield* decode(KeybindingRule, {
+      key: "mod+shift+enter",
+      command: "editor.runPrompt",
+    });
+    assert.strictEqual(parsedEditorRunPrompt.command, "editor.runPrompt");
+
     const parsedThreadPrevious = yield* decode(KeybindingRule, {
       key: "alt+k",
       command: "thread.previous",

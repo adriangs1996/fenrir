@@ -7,6 +7,8 @@ import { app } from "electron";
 
 import type {
   CursorEntry,
+  EditorActiveFile,
+  EditorSendToComposer,
   EditorFontMetrics,
   Frame,
   GridDelta,
@@ -212,6 +214,64 @@ export class NeovimSource implements SceneSource {
       "return _G.fenrir.private.bridge.open_file(...)",
       [path, line ?? null, col ?? null],
     ]);
+  }
+
+  async captureSelection(options?: {
+    readonly activeOnly?: boolean;
+  }): Promise<EditorSendToComposer | null> {
+    if (!this.client || !this.started) {
+      await this.ensureStarted();
+    }
+    if (!this.client) throw new Error("nvim not available");
+    const result = await this.client.request("nvim_exec_lua", [
+      "return _G.fenrir.private.bridge.capture_selection(...)",
+      [options?.activeOnly === true],
+    ]);
+    if (!result || typeof result !== "object") {
+      return null;
+    }
+    const payload = result as Record<string, unknown>;
+    if (
+      typeof payload.file !== "string" ||
+      typeof payload.text !== "string" ||
+      typeof payload.lineStart !== "number" ||
+      typeof payload.lineEnd !== "number"
+    ) {
+      return null;
+    }
+    return {
+      file: payload.file,
+      lineStart: payload.lineStart,
+      lineEnd: payload.lineEnd,
+      text: payload.text,
+    };
+  }
+
+  async captureActiveFile(): Promise<EditorActiveFile | null> {
+    if (!this.client || !this.started) {
+      await this.ensureStarted();
+    }
+    if (!this.client) throw new Error("nvim not available");
+    const result = await this.client.request("nvim_exec_lua", [
+      "return _G.fenrir.private.bridge.capture_active_file()",
+      [],
+    ]);
+    if (!result || typeof result !== "object") {
+      return null;
+    }
+    const payload = result as Record<string, unknown>;
+    if (
+      typeof payload.file !== "string" ||
+      typeof payload.cursorLine !== "number" ||
+      typeof payload.lineCount !== "number"
+    ) {
+      return null;
+    }
+    return {
+      file: payload.file,
+      cursorLine: payload.cursorLine,
+      lineCount: payload.lineCount,
+    };
   }
 
   /**

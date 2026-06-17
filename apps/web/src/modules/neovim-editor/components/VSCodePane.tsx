@@ -5,6 +5,7 @@ import { VSCodeMissingCard } from "./VSCodeMissingCard";
 
 interface Props {
   cwd: string | null;
+  focusRequestId?: number;
   keybindings: ResolvedKeybindingsConfig;
   terminalOpen?: boolean;
   visible: boolean;
@@ -12,7 +13,13 @@ interface Props {
 
 type PaneStatus = "idle" | "starting" | "ready" | "error";
 
-export function VSCodePane({ cwd, keybindings, terminalOpen = false, visible }: Props) {
+export function VSCodePane({
+  cwd,
+  focusRequestId = 0,
+  keybindings,
+  terminalOpen = false,
+  visible,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number>(0);
   const [status, setStatus] = useState<PaneStatus>("idle");
@@ -69,6 +76,11 @@ export function VSCodePane({ cwd, keybindings, terminalOpen = false, visible }: 
       },
     });
   }, [keybindings, terminalOpen, visible]);
+
+  useEffect(() => {
+    if (!visible || focusRequestId === 0) return;
+    void window.desktopBridge?.vscodeShow?.();
+  }, [focusRequestId, visible]);
 
   useEffect(() => {
     const bridge = window.desktopBridge;

@@ -61,6 +61,7 @@ const VSCODE_FENRIR_SHORTCUT_COMMANDS = new Set<KeybindingCommand>([
   "thread.open",
   "editor.toggleChatTab",
   "editor.sendSelection",
+  "editor.runPrompt",
 ]);
 
 export function resolveVSCodeWorkspacePath(targetPath: string): string {

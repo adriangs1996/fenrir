@@ -59,12 +59,28 @@ function M.open_file(path, line, col)
   end
 end
 
--- Capture the current visual selection (or the last one if no selection
--- is active) and notify the host. The host listens on channel 0
--- (msgpack-rpc parent) for "fenrir_send_to_composer".
-function M.send_selection()
+function M.capture_active_file()
+  local file = vim.api.nvim_buf_get_name(0)
+  if type(file) ~= "string" or #file == 0 then
+    return nil
+  end
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  return {
+    file = file,
+    cursorLine = cursor[1],
+    lineCount = vim.api.nvim_buf_line_count(0),
+  }
+end
+
+-- Capture the current visual selection. When active_only is false/nil, fall
+-- back to the last visual selection.
+function M.capture_selection(active_only)
   local mode = vim.fn.mode()
   local in_visual = mode == "v" or mode == "V" or mode == "\\22" -- v, V, <C-V>
+
+  if active_only and not in_visual then
+    return nil
+  end
 
   if in_visual then
     -- Exit visual to populate '< / '>
@@ -77,8 +93,7 @@ function M.send_selection()
   local ecol = vim.fn.col("'>")
 
   if sline == 0 or eline == 0 then
-    vim.notify("[fenrir] no selection to send", vim.log.levels.WARN)
-    return
+    return nil
   end
 
   local lines = vim.api.nvim_buf_get_lines(0, sline - 1, eline, false)
@@ -90,12 +105,28 @@ function M.send_selection()
   local text = table.concat(lines, "\\n")
   local file = vim.api.nvim_buf_get_name(0)
 
-  vim.rpcnotify(0, "fenrir_send_to_composer", {
+  if #text == 0 or #file == 0 then
+    return nil
+  end
+
+  return {
     file = file,
     lineStart = sline,
     lineEnd = eline,
     text = text,
-  })
+  }
+end
+
+-- Notify the host. The host listens on channel 0 (msgpack-rpc parent)
+-- for "fenrir_send_to_composer".
+function M.send_selection()
+  local selection = M.capture_selection()
+  if not selection then
+    vim.notify("[fenrir] no selection to send", vim.log.levels.WARN)
+    return
+  end
+
+  vim.rpcnotify(0, "fenrir_send_to_composer", selection)
 end
 
 _G.fenrir.private.bridge = M

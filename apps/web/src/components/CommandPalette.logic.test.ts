@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { EnvironmentId, ProjectId, ThreadId } from "@fenrir/contracts";
 import {
+  buildThreadActionItems,
   buildRootGroups,
   filterBrowseEntries,
   filterCommandPaletteGroups,
@@ -8,6 +10,9 @@ import {
   normalizeSearchText,
   type CommandPaletteActionItem,
 } from "./CommandPalette.logic";
+
+const environmentId = EnvironmentId.make("env-1");
+const projectId = ProjectId.make("project-1");
 
 function actionItem(input: {
   value: string;
@@ -21,6 +26,25 @@ function actionItem(input: {
     title: input.title ?? input.value,
     icon: null,
     run: async () => undefined,
+  };
+}
+
+function threadItem(input: {
+  id: string;
+  title: string;
+  archivedAt?: string | null;
+  visibility?: "normal" | "internal" | "editorTransient";
+}) {
+  return {
+    id: ThreadId.make(input.id),
+    environmentId,
+    projectId,
+    title: input.title,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    archivedAt: input.archivedAt ?? null,
+    branch: null,
+    visibility: input.visibility ?? "normal",
   };
 }
 
@@ -70,6 +94,30 @@ describe("CommandPalette.logic", () => {
     expect(filtered).toHaveLength(1);
     expect(filtered[0]?.value).toBe("actions");
     expect(filtered[0]?.items.map((item) => item.value)).toEqual(["settings"]);
+  });
+
+  it("omits hidden threads from thread action items", () => {
+    const items = buildThreadActionItems({
+      threads: [
+        threadItem({ id: "thread-normal", title: "Normal Thread" }),
+        threadItem({
+          id: "thread-worker",
+          title: "Editor Worker",
+          visibility: "editorTransient",
+        }),
+        threadItem({
+          id: "thread-internal",
+          title: "Internal Thread",
+          visibility: "internal",
+        }),
+      ],
+      projectTitleById: new Map([[projectId, "Project"]]),
+      sortOrder: "created_at",
+      icon: null,
+      runThread: async () => undefined,
+    });
+
+    expect(items.map((item) => item.title)).toEqual(["Normal Thread"]);
   });
 
   it("filters browse entries by the current leaf segment and hides dot-directories by default", () => {

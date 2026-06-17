@@ -15,6 +15,8 @@ import type {
   ProjectId,
   TurnId,
   MessageId,
+  ThreadOwner,
+  ThreadVisibility,
   ProviderRuntimeProviderKind,
   CheckpointRef,
   ProviderInteractionMode,
@@ -126,6 +128,9 @@ export interface Thread {
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   branch: string | null;
   worktreePath: string | null;
+  visibility?: ThreadVisibility | undefined;
+  owner?: ThreadOwner | null | undefined;
+  deleteOnSettled?: boolean | undefined;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
   mcpServerIds?: McpServerId[];
@@ -146,6 +151,9 @@ export interface ThreadShell {
   updatedAt?: string | undefined;
   branch: string | null;
   worktreePath: string | null;
+  visibility?: ThreadVisibility | undefined;
+  owner?: ThreadOwner | null | undefined;
+  deleteOnSettled?: boolean | undefined;
   mcpServerIds?: McpServerId[];
 }
 
@@ -167,6 +175,9 @@ export interface SidebarThreadSummary {
   latestTurn: OrchestrationLatestTurn | null;
   branch: string | null;
   worktreePath: string | null;
+  visibility?: ThreadVisibility | undefined;
+  owner?: ThreadOwner | null | undefined;
+  deleteOnSettled?: boolean | undefined;
   mcpServerIds?: McpServerId[];
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;

@@ -58,6 +58,7 @@ import { readEnvironmentApi } from "../../environmentApi";
 import { useSettings } from "~/hooks/useSettings";
 import type { Project, SidebarThreadSummary } from "../../types";
 import { SidebarProjectThreadList } from "./SidebarProjectThreadList";
+import { isUserBrowsableThread } from "../../threadVisibility";
 
 export type EnvironmentPresence = "local-only" | "remote-only" | "mixed";
 
@@ -276,9 +277,8 @@ export const SidebarProjectItem = memo(function SidebarProjectItem(props: Sideba
     [sidebarThreads, otherMemberThreads],
   );
   const allSidebarThreads = useMemo(() => {
-    if (internalPlanRunnerThreadIds.size === 0) return projectThreadsIncludingHidden;
     return projectThreadsIncludingHidden.filter(
-      (thread) => !internalPlanRunnerThreadIds.has(thread.id),
+      (thread) => isUserBrowsableThread(thread) && !internalPlanRunnerThreadIds.has(thread.id),
     );
   }, [projectThreadsIncludingHidden, internalPlanRunnerThreadIds]);
   const sidebarThreadByKey = useMemo(

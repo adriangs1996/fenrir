@@ -298,8 +298,38 @@ describe("decideOrchestrationCommand", () => {
         mcpServerIds: [],
         branch: null,
         worktreePath: null,
+        visibility: "normal",
+        owner: null,
+        deleteOnSettled: false,
         createdAt: now,
         updatedAt: now,
+      });
+    });
+
+    it("emits thread.created with visibility metadata", async () => {
+      const event = await decideSingle({
+        type: "thread.create",
+        commandId: asCommandId("cmd-9b"),
+        threadId: asThreadId("thread-editor-worker"),
+        projectId: asProjectId("project-a"),
+        title: "Editor Worker",
+        modelSelection,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        branch: "main",
+        worktreePath: "/tmp/project-a-worktree",
+        visibility: "editorTransient",
+        owner: { kind: "editorPrompt", parentThreadId: asThreadId("thread-a") },
+        deleteOnSettled: true,
+        createdAt: now,
+      });
+
+      expect(event.type).toBe("thread.created");
+      expect(event.payload).toMatchObject({
+        threadId: "thread-editor-worker",
+        visibility: "editorTransient",
+        owner: { kind: "editorPrompt", parentThreadId: "thread-a" },
+        deleteOnSettled: true,
       });
     });
 

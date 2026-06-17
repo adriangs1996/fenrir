@@ -117,6 +117,17 @@ describe("editorContext", () => {
         "utils.ts lines 1-3",
       );
     });
+
+    it("labels active file contexts", () => {
+      expect(
+        formatEditorContextLabel({
+          file: "/src/models/user.py",
+          lineStart: 42,
+          lineEnd: 42,
+          kind: "file",
+        }),
+      ).toBe("user.py active file");
+    });
   });
 
   describe("formatInlineEditorContextLabel", () => {
@@ -152,6 +163,28 @@ describe("editorContext", () => {
     it("escapes double quotes in file path", () => {
       const block = buildEditorContextBlock(makeDraft({ file: '/path/"quoted"/file.ts' }));
       expect(block).toContain('file="/path/\\"quoted\\"/file.ts"');
+    });
+
+    it("builds active file context blocks", () => {
+      expect(
+        buildEditorContextBlock(
+          makeDraft({
+            kind: "file",
+            file: "/src/models/user.py",
+            lineStart: 42,
+            lineEnd: 42,
+            text: "Treat /src/models/user.py as the active editor file.",
+          }),
+        ),
+      ).toBe(
+        [
+          '<editor_file_context file="/src/models/user.py" cursorLine="42">',
+          "- Active editor file: /src/models/user.py",
+          "- Cursor line: 42",
+          "- Treat /src/models/user.py as the active editor file.",
+          "</editor_file_context>",
+        ].join("\n"),
+      );
     });
   });
 
@@ -224,6 +257,28 @@ describe("editorContext", () => {
       expect(extracted.contextCount).toBe(2);
       expect(extracted.contexts[0]!.file).toBe("/src/components/App.tsx");
       expect(extracted.contexts[1]!.file).toBe("/src/utils.ts");
+    });
+
+    it("extracts active file context blocks", () => {
+      const fileContext = makeDraft({
+        kind: "file",
+        file: "/src/models/user.py",
+        lineStart: 42,
+        lineEnd: 42,
+        text: "Treat /src/models/user.py as the active editor file.",
+      });
+      const prompt = appendEditorContextsToPrompt("Refactor this class", [fileContext]);
+      const extracted = extractTrailingEditorContexts(prompt);
+
+      expect(extracted.promptText).toBe("Refactor this class");
+      expect(extracted.contextCount).toBe(1);
+      expect(extracted.previewTitle).toContain("user.py active file");
+      expect(extracted.contexts[0]).toMatchObject({
+        kind: "file",
+        file: "/src/models/user.py",
+        lineStart: 42,
+        lineEnd: 42,
+      });
     });
 
     it("handles file paths with escaped quotes", () => {

@@ -404,6 +404,8 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
       onSendToComposer: () => () => undefined,
       onCmd: () => () => undefined,
       invokeBridge: async () => undefined,
+      captureSelection: async () => null,
+      captureActiveFile: async () => null,
     },
     ...overrides,
   };

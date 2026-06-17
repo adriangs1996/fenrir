@@ -43,6 +43,7 @@ for (const binding of DEFAULT_RESOLVED_KEYBINDINGS) {
 const KNOWN_WHEN_VARIABLES = new Set(DEFAULT_WHEN_VARIABLES);
 const STATIC_KEYBINDING_COMMAND_SET = new Set<KeybindingCommand>(STATIC_KEYBINDING_COMMANDS);
 const STATIC_COMMAND_LABELS: Partial<Record<StaticKeybindingCommand, string>> = {
+  "editor.runPrompt": "Editor: Run Prompt",
   "editor.toggleChatTab": "Editor: Toggle",
   "gitDiff.toggle": "Git Diff: Toggle",
   "thread.open": "Thread: Open",

@@ -480,6 +480,8 @@ const createDesktopBridgeStub = (overrides?: {
       onSendToComposer: () => () => {},
       onCmd: () => () => {},
       invokeBridge: vi.fn().mockResolvedValue(undefined),
+      captureSelection: vi.fn().mockResolvedValue(null),
+      captureActiveFile: vi.fn().mockResolvedValue(null),
     },
   };
 };

@@ -338,6 +338,15 @@ export const makeOrchestrationRoutes = (deps: { readonly refreshGitStatus: Refre
               branch: bootstrap.createThread.branch,
               worktreePath: bootstrap.createThread.worktreePath,
               mcpServerIds: bootstrap.createThread.mcpServerIds ?? [],
+              ...(bootstrap.createThread.visibility !== undefined
+                ? { visibility: bootstrap.createThread.visibility }
+                : {}),
+              ...(bootstrap.createThread.owner !== undefined
+                ? { owner: bootstrap.createThread.owner }
+                : {}),
+              ...(bootstrap.createThread.deleteOnSettled !== undefined
+                ? { deleteOnSettled: bootstrap.createThread.deleteOnSettled }
+                : {}),
               createdAt: bootstrap.createThread.createdAt,
             });
             createdThread = true;

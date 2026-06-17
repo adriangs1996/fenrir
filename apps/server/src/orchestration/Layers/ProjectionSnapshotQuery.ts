@@ -12,6 +12,7 @@ import {
   GlobalScriptProjectDefaults,
   ManagedProcess,
   ProjectScript,
+  ThreadOwner,
   TurnId,
   type OrchestrationCheckpointSummary,
   type OrchestrationLatestTurn,
@@ -74,6 +75,8 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
     mcpServerIds: Schema.fromJsonString(Schema.Array(McpServerId)),
+    owner: Schema.NullOr(Schema.fromJsonString(ThreadOwner)),
+    deleteOnSettled: Schema.Number,
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -251,6 +254,14 @@ function computeSnapshotSequence(
   return Number.isFinite(minSequence) ? minSequence : 0;
 }
 
+function threadVisibilityFields(row: typeof ProjectionThreadDbRowSchema.Type) {
+  return {
+    visibility: row.visibility ?? "normal",
+    owner: row.owner ?? null,
+    deleteOnSettled: row.deleteOnSettled === 1,
+  };
+}
+
 function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
   return (cause: unknown): ProjectionRepositoryError =>
     Schema.isSchemaError(cause)
@@ -299,6 +310,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           mcp_server_ids_json AS "mcpServerIds",
           branch,
           worktree_path AS "worktreePath",
+          visibility,
+          owner_json AS "owner",
+          delete_on_settled AS "deleteOnSettled",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -509,6 +523,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           mcp_server_ids_json AS "mcpServerIds",
           branch,
           worktree_path AS "worktreePath",
+          visibility,
+          owner_json AS "owner",
+          delete_on_settled AS "deleteOnSettled",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -848,6 +865,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         FROM projection_threads
         WHERE project_id = ${projectId}
           AND deleted_at IS NULL
+          AND visibility = 'normal'
         ORDER BY created_at ASC, thread_id ASC
         LIMIT 1
       `,
@@ -1037,6 +1055,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 .filter((row) => row.deletedAt === null && row.archivedAt === null)
                 .map((row) => {
                   const summary = bootstrapSummaryByThreadId.get(row.threadId);
+                  const visibilityFields = threadVisibilityFields(row);
                   return {
                     id: row.threadId,
                     projectId: row.projectId,
@@ -1047,6 +1066,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                     mcpServerIds: row.mcpServerIds,
                     branch: row.branch,
                     worktreePath: row.worktreePath,
+                    visibility: visibilityFields.visibility,
+                    owner: visibilityFields.owner,
+                    deleteOnSettled: visibilityFields.deleteOnSettled,
                     latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                     createdAt: row.createdAt,
                     updatedAt: row.updatedAt,
@@ -1194,6 +1216,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               const threads: ReadonlyArray<OrchestrationThreadShell> = archivedThreadRows.map(
                 (row) => {
                   const summary = bootstrapSummaryByThreadId.get(row.threadId);
+                  const visibilityFields = threadVisibilityFields(row);
                   return {
                     id: row.threadId,
                     projectId: row.projectId,
@@ -1204,6 +1227,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                     mcpServerIds: row.mcpServerIds,
                     branch: row.branch,
                     worktreePath: row.worktreePath,
+                    visibility: visibilityFields.visibility,
+                    owner: visibilityFields.owner,
+                    deleteOnSettled: visibilityFields.deleteOnSettled,
                     latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                     createdAt: row.createdAt,
                     updatedAt: row.updatedAt,
@@ -1391,6 +1417,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 mcpServerIds: row.mcpServerIds,
                 branch: row.branch,
                 worktreePath: row.worktreePath,
+                ...threadVisibilityFields(row),
                 latestTurn: latestTurnByThread.get(row.threadId) ?? null,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
@@ -1515,6 +1542,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               mcpServerIds: threadRow.value.mcpServerIds,
               branch: threadRow.value.branch,
               worktreePath: threadRow.value.worktreePath,
+              ...threadVisibilityFields(threadRow.value),
               latestTurn: latestTurnByThread.get(threadId) ?? null,
               createdAt: threadRow.value.createdAt,
               updatedAt: threadRow.value.updatedAt,
@@ -1683,6 +1711,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           mcpServerIds: threadRow.value.mcpServerIds,
           branch: threadRow.value.branch,
           worktreePath: threadRow.value.worktreePath,
+          ...threadVisibilityFields(threadRow.value),
           latestTurn,
           createdAt: threadRow.value.createdAt,
           updatedAt: threadRow.value.updatedAt,
