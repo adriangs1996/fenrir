@@ -810,6 +810,209 @@ describe("GitDiffCoreLive", () => {
       }),
     );
 
+    it.effect("loads recent history and diffs a selected commit", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/file.txt": "base\n" });
+
+        try {
+          writeFile(cwd, "src/file.txt", "base\nchanged\n");
+          writeFile(cwd, "src/added.txt", "added\n");
+          git(cwd, "add", ".");
+          git(cwd, "commit", "-m", "second commit");
+
+          const gitDiff = yield* GitDiffCore;
+          const history = yield* gitDiff.loadHistory({ cwd, limit: 2 });
+
+          expect(history).toHaveLength(2);
+          expect(history[0]).toEqual(
+            expect.objectContaining({
+              shortSha: expect.any(String),
+              subject: "second commit",
+              authorName: "Fenrir",
+              authorEmail: "fenrir@test.com",
+            }),
+          );
+          expect(history[0]?.parentSha).toBe(history[1]?.sha);
+
+          const target = {
+            kind: "commit" as const,
+            commitRef: history[0]!.sha,
+            parentRef: history[0]!.parentSha,
+          };
+          const files = byPath(
+            yield* gitDiff.loadDiffFileIndex({
+              cwd,
+              target,
+              detectRenames: true,
+              detectCopies: true,
+            }),
+          );
+          expect(files.map((file) => file.path)).toEqual(["src/added.txt", "src/file.txt"]);
+
+          const file = yield* gitDiff.loadDiffFile({
+            cwd,
+            target,
+            path: "src/file.txt",
+            previousPath: null,
+            detectRenames: true,
+            detectCopies: true,
+          });
+          expect(file.oldFile?.contents).toBe("base\n");
+          expect(file.newFile?.contents).toBe("base\nchanged\n");
+          expect(file.patch).toContain("+changed");
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("reverts a selected commit", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/file.txt": "base\n" });
+
+        try {
+          writeFile(cwd, "src/file.txt", "base\nchanged\n");
+          writeFile(cwd, "src/added.txt", "added\n");
+          git(cwd, "add", ".");
+          git(cwd, "commit", "-m", "second commit");
+
+          const gitDiff = yield* GitDiffCore;
+          const history = yield* gitDiff.loadHistory({ cwd, limit: 1 });
+          const result = yield* gitDiff.revertCommit({
+            cwd,
+            commitRef: history[0]!.sha,
+          });
+
+          expect(result.commitSha).toBe(gitOutput(cwd, "rev-parse", "HEAD"));
+          expect(gitOutput(cwd, "log", "-1", "--pretty=%s")).toBe('Revert "second commit"');
+          expect(readFileSync(path.join(cwd, "src/file.txt"), "utf8")).toBe("base\n");
+          expect(existsSync(path.join(cwd, "src/added.txt"))).toBe(false);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("cherry-picks a selected commit onto the current branch", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/base.txt": "base\n" });
+
+        try {
+          git(cwd, "checkout", "-b", "feature/source");
+          writeFile(cwd, "src/cherry.txt", "picked\n");
+          git(cwd, "add", ".");
+          git(cwd, "commit", "-m", "pick me");
+          const sourceCommitSha = gitOutput(cwd, "rev-parse", "HEAD");
+
+          git(cwd, "checkout", "main");
+
+          const gitDiff = yield* GitDiffCore;
+          const result = yield* gitDiff.cherryPickCommit({
+            cwd,
+            commitRef: sourceCommitSha,
+          });
+
+          expect(result.commitSha).toBe(gitOutput(cwd, "rev-parse", "HEAD"));
+          expect(gitOutput(cwd, "log", "-1", "--pretty=%s")).toBe("pick me");
+          expect(readFileSync(path.join(cwd, "src/cherry.txt"), "utf8")).toBe("picked\n");
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("loads and continues an in-progress conflicted cherry-pick", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/file.txt": "base\n" });
+
+        try {
+          git(cwd, "checkout", "-b", "feature/source");
+          writeFile(cwd, "src/file.txt", "source\n");
+          git(cwd, "add", ".");
+          git(cwd, "commit", "-m", "source change");
+          const sourceCommitSha = gitOutput(cwd, "rev-parse", "HEAD");
+
+          git(cwd, "checkout", "main");
+          writeFile(cwd, "src/file.txt", "main\n");
+          git(cwd, "add", ".");
+          git(cwd, "commit", "-m", "main change");
+
+          const gitDiff = yield* GitDiffCore;
+          const failedPick = yield* Effect.result(
+            gitDiff.cherryPickCommit({
+              cwd,
+              commitRef: sourceCommitSha,
+            }),
+          );
+          expect(failedPick._tag).toBe("Failure");
+
+          expect(yield* gitDiff.loadOperation({ cwd })).toEqual({
+            operation: {
+              kind: "cherry_pick",
+              label: "Cherry-pick in progress",
+              headRef: sourceCommitSha,
+              conflictedFilePaths: ["src/file.txt"],
+            },
+          });
+
+          writeFile(cwd, "src/file.txt", "source\n");
+          git(cwd, "add", "src/file.txt");
+          const result = yield* gitDiff.continueOperation({ cwd });
+
+          expect(result).toEqual({
+            status: "ok",
+            commitSha: gitOutput(cwd, "rev-parse", "HEAD"),
+          });
+          expect(gitOutput(cwd, "log", "-1", "--pretty=%s")).toBe("source change");
+          expect(readFileSync(path.join(cwd, "src/file.txt"), "utf8")).toBe("source\n");
+          expect(yield* gitDiff.loadOperation({ cwd })).toEqual({ operation: null });
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("aborts an in-progress conflicted cherry-pick", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/file.txt": "base\n" });
+
+        try {
+          git(cwd, "checkout", "-b", "feature/source");
+          writeFile(cwd, "src/file.txt", "source\n");
+          git(cwd, "add", ".");
+          git(cwd, "commit", "-m", "source change");
+          const sourceCommitSha = gitOutput(cwd, "rev-parse", "HEAD");
+
+          git(cwd, "checkout", "main");
+          writeFile(cwd, "src/file.txt", "main\n");
+          git(cwd, "add", ".");
+          git(cwd, "commit", "-m", "main change");
+          const mainCommitSha = gitOutput(cwd, "rev-parse", "HEAD");
+
+          const gitDiff = yield* GitDiffCore;
+          const failedPick = yield* Effect.result(
+            gitDiff.cherryPickCommit({
+              cwd,
+              commitRef: sourceCommitSha,
+            }),
+          );
+          expect(failedPick._tag).toBe("Failure");
+
+          expect((yield* gitDiff.loadOperation({ cwd })).operation?.kind).toBe("cherry_pick");
+          expect(yield* gitDiff.abortOperation({ cwd })).toEqual({
+            status: "ok",
+            commitSha: null,
+          });
+
+          expect(gitOutput(cwd, "rev-parse", "HEAD")).toBe(mainCommitSha);
+          expect(readFileSync(path.join(cwd, "src/file.txt"), "utf8")).toBe("main\n");
+          expect(yield* gitDiff.loadOperation({ cwd })).toEqual({ operation: null });
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
     it.effect("loads ordered stacked diff steps with files for each consecutive branch", () =>
       Effect.gen(function* () {
         const cwd = makeUiStackedRepo();
@@ -1116,6 +1319,152 @@ describe("GitDiffCoreLive", () => {
           expect(readFileSync(path.join(cwd, "src/file.txt"), "utf8")).toBe("staged\n");
           expect(gitOutput(cwd, "diff", "--name-only")).toBe("");
           expect(gitOutput(cwd, "diff", "--cached", "--name-only")).toBe("src/file.txt");
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("amends only the requested staged paths", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "src/include.txt": "include base\n",
+          "src/keep.txt": "keep base\n",
+        });
+
+        try {
+          writeFile(cwd, "src/include.txt", "include amended\n");
+          writeFile(cwd, "src/keep.txt", "keep staged\n");
+          git(cwd, "add", "src/include.txt", "src/keep.txt");
+
+          const gitDiff = yield* GitDiffCore;
+          const result = yield* gitDiff.amendStagedChanges({
+            cwd,
+            filePaths: ["src/include.txt"],
+            commitMessage: "amended include",
+          });
+
+          expect(result.commitSha).toBe(gitOutput(cwd, "rev-parse", "HEAD"));
+          expect(gitOutput(cwd, "rev-list", "--count", "HEAD")).toBe("1");
+          expect(gitOutput(cwd, "log", "-1", "--pretty=%B")).toBe("amended include");
+          expect(gitOutput(cwd, "show", "HEAD:src/include.txt")).toBe("include amended");
+          expect(gitOutput(cwd, "show", "HEAD:src/keep.txt")).toBe("keep base");
+          expect(gitOutput(cwd, "diff", "--cached", "--name-only")).toBe("");
+          expect(gitOutput(cwd, "diff", "--name-only")).toBe("src/keep.txt");
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("rejects amend when selected paths have no staged changes", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/file.txt": "base\n" });
+
+        try {
+          const gitDiff = yield* GitDiffCore;
+          const result = yield* Effect.result(
+            gitDiff.amendStagedChanges({
+              cwd,
+              filePaths: ["src/file.txt"],
+            }),
+          );
+
+          expect(result._tag).toBe("Failure");
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("creates a selected-path stash while leaving other worktree changes alone", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "src/include.txt": "include base\n",
+          "src/keep.txt": "keep base\n",
+        });
+
+        try {
+          writeFile(cwd, "src/include.txt", "include changed\n");
+          writeFile(cwd, "src/keep.txt", "keep changed\n");
+
+          const gitDiff = yield* GitDiffCore;
+          const result = yield* gitDiff.createStash({
+            cwd,
+            message: "Selected file",
+            filePaths: ["src/include.txt"],
+          });
+
+          expect(result.status).toBe("stashed");
+          expect(result.stash).toEqual(
+            expect.objectContaining({
+              ref: "stash@{0}",
+              message: "Selected file",
+              branchName: "main",
+            }),
+          );
+          expect(readFileSync(path.join(cwd, "src/include.txt"), "utf8")).toBe("include base\n");
+          expect(readFileSync(path.join(cwd, "src/keep.txt"), "utf8")).toBe("keep changed\n");
+          expect(gitOutput(cwd, "diff", "--name-only")).toBe("src/keep.txt");
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("applies and drops stashes independently", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/file.txt": "base\n" });
+
+        try {
+          writeFile(cwd, "src/file.txt", "saved\n");
+
+          const gitDiff = yield* GitDiffCore;
+          const created = yield* gitDiff.createStash({
+            cwd,
+            message: "Saved work",
+          });
+          expect(created.stash?.ref).toBe("stash@{0}");
+          expect(readFileSync(path.join(cwd, "src/file.txt"), "utf8")).toBe("base\n");
+
+          expect(yield* gitDiff.applyStash({ cwd, ref: "stash@{0}" })).toEqual({
+            status: "ok",
+          });
+          expect(readFileSync(path.join(cwd, "src/file.txt"), "utf8")).toBe("saved\n");
+          expect((yield* gitDiff.loadStashes({ cwd })).map((stash) => stash.ref)).toEqual([
+            "stash@{0}",
+          ]);
+
+          expect(yield* gitDiff.dropStash({ cwd, ref: "stash@{0}" })).toEqual({
+            status: "ok",
+          });
+          expect(yield* gitDiff.loadStashes({ cwd })).toEqual([]);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("pops stashes by applying and removing them", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/file.txt": "base\n" });
+
+        try {
+          writeFile(cwd, "src/file.txt", "popped\n");
+
+          const gitDiff = yield* GitDiffCore;
+          const created = yield* gitDiff.createStash({
+            cwd,
+            message: "Pop work",
+          });
+          expect(created.status).toBe("stashed");
+          expect(readFileSync(path.join(cwd, "src/file.txt"), "utf8")).toBe("base\n");
+
+          expect(yield* gitDiff.popStash({ cwd, ref: "stash@{0}" })).toEqual({
+            status: "ok",
+          });
+          expect(readFileSync(path.join(cwd, "src/file.txt"), "utf8")).toBe("popped\n");
+          expect(yield* gitDiff.loadStashes({ cwd })).toEqual([]);
         } finally {
           rmSync(cwd, { recursive: true, force: true });
         }

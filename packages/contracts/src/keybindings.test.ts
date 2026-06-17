@@ -59,6 +59,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedGitDiffToggle.command, "gitDiff.toggle");
 
+    const parsedThreadOpen = yield* decode(KeybindingRule, {
+      key: "meta+s",
+      command: "thread.open",
+    });
+    assert.strictEqual(parsedThreadOpen.command, "thread.open");
+
     const parsedGlobalTerminalOpen = yield* decode(KeybindingRule, {
       key: "meta+u",
       command: "globalTerminal.open",

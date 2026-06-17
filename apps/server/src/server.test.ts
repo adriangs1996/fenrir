@@ -515,6 +515,7 @@ const buildAppUnderTest = (options?: {
           headRef: "HEAD",
           steps: [],
         }),
+      loadHistory: () => Effect.succeed([]),
       loadIgnoreLists: () => Effect.succeed([]),
       createIgnoreList: () => Effect.succeed([]),
       updateIgnoreList: () => Effect.succeed([]),
@@ -532,6 +533,38 @@ const buildAppUnderTest = (options?: {
         Effect.succeed({
           discardedFilePaths: [],
         }),
+      amendStagedChanges: () =>
+        Effect.succeed({
+          commitSha: "abc123",
+        }),
+      revertCommit: () =>
+        Effect.succeed({
+          commitSha: "abc123",
+        }),
+      cherryPickCommit: () =>
+        Effect.succeed({
+          commitSha: "abc123",
+        }),
+      loadOperation: () => Effect.succeed({ operation: null }),
+      continueOperation: () =>
+        Effect.succeed({
+          status: "ok" as const,
+          commitSha: "abc123",
+        }),
+      abortOperation: () =>
+        Effect.succeed({
+          status: "ok" as const,
+          commitSha: null,
+        }),
+      loadStashes: () => Effect.succeed([]),
+      createStash: () =>
+        Effect.succeed({
+          status: "skipped_no_changes" as const,
+          stash: null,
+        }),
+      applyStash: () => Effect.succeed({ status: "ok" as const }),
+      popStash: () => Effect.succeed({ status: "ok" as const }),
+      dropStash: () => Effect.succeed({ status: "ok" as const }),
       closeChangeRequest: () => Effect.succeed({ status: "ok" as const }),
       mergeChangeRequest: () => Effect.succeed({ status: "ok" as const }),
       loadChangeRequestChecks: () => Effect.succeed([]),

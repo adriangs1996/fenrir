@@ -54,7 +54,6 @@ import {
   deriveWorkLogEntries,
   hasActionableProposedPlan,
   hasToolActivityForTurn,
-  isActivePlanScopedToLatestTurn,
   isLatestTurnSettled,
 } from "../session-logic";
 import {
@@ -369,11 +368,6 @@ export default function ChatView(props: ChatViewProps) {
     platform: typeof navigator === "undefined" ? "" : navigator.platform,
     sidebarOpen,
   });
-  // Tracks whether the user explicitly dismissed the sidebar for the active turn.
-  const planSidebarDismissedForTurnRef = useRef<string | null>(null);
-  // When set, the thread-change reset effect will open the sidebar instead of closing it.
-  // Used by "Implement in a new thread" to carry the sidebar-open intent across navigation.
-  const planSidebarOpenOnNextThreadRef = useRef(false);
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [editorFocusRequestId, setEditorFocusRequestId] = useState(0);
   const [pullRequestDialogState, setPullRequestDialogState] =
@@ -1301,19 +1295,14 @@ export default function ChatView(props: ChatViewProps) {
   }, [handleInteractionModeChange, interactionMode]);
   const closePlanSidebar = useCallback(() => {
     closeRightPanel();
-    planSidebarDismissedForTurnRef.current =
-      activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
-  }, [activePlan?.turnId, closeRightPanel, sidebarProposedPlan?.turnId]);
+  }, [closeRightPanel]);
   const toggleSidePanel = useCallback(() => {
     if (rightPanel.activeTab !== null) {
       closeRightPanel();
-      planSidebarDismissedForTurnRef.current =
-        activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
       return;
     }
-    planSidebarDismissedForTurnRef.current = null;
     rightPanel.openTab("plan");
-  }, [activePlan?.turnId, closeRightPanel, rightPanel, sidebarProposedPlan?.turnId]);
+  }, [closeRightPanel, rightPanel]);
 
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -1449,32 +1438,11 @@ export default function ChatView(props: ChatViewProps) {
     isAtEndRef.current = true;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
-    if (planSidebarOpenOnNextThreadRef.current) {
-      planSidebarOpenOnNextThreadRef.current = false;
-      rightPanel.openTab("plan");
-    } else {
-      rightPanel.close();
-    }
-    planSidebarDismissedForTurnRef.current = null;
+    rightPanel.close();
     // rightPanel intentionally omitted: store is stable and we only want
     // this effect to fire on thread change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThread?.id]);
-
-  // Auto-open the plan sidebar when plan/todo steps arrive for the current turn.
-  // Don't auto-open for plans carried over from a previous turn (the user can open manually).
-  // Only fires when the right panel is fully closed. If the user has switched
-  // to another tab, respect that choice instead of bouncing back to plan.
-  useEffect(() => {
-    if (!activePlan) return;
-    if (rightPanel.activeTab !== null) return;
-    if (activeLatestTurn && !isActivePlanScopedToLatestTurn(activePlan, activeLatestTurn)) return;
-    const turnKey = activePlan.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
-    if (planSidebarDismissedForTurnRef.current === turnKey) return;
-    rightPanel.openTab("plan");
-    // rightPanel intentionally omitted from deps: store is stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePlan, activeLatestTurn, rightPanel.activeTab, sidebarProposedPlan?.turnId]);
 
   // Open the shared right panel on the Diff tab when the route explicitly
   // targets a diff. Do not auto-close or bounce the user back to Diff once
@@ -1801,6 +1769,14 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "thread.open") {
+        event.preventDefault();
+        event.stopPropagation();
+        setActiveChatTab("thread");
+        scheduleComposerFocus();
+        return;
+      }
+
       if (command === "editor.toggleChatTab") {
         if (!editorAvailable) return;
         event.preventDefault();
@@ -1859,6 +1835,8 @@ export default function ChatView(props: ChatViewProps) {
     runGlobalScript,
     splitTerminal,
     keybindings,
+    scheduleComposerFocus,
+    setActiveChatTab,
     toggleGitDiffTab,
     toggleSidePanel,
     toggleTerminalVisibility,
@@ -1907,6 +1885,21 @@ export default function ChatView(props: ChatViewProps) {
 
       if (command === "gitDiff.toggle") {
         toggleGitDiffTab();
+        return;
+      }
+
+      if (command === "thread.open") {
+        useEditorStore.getState().setActiveChatTab("thread");
+        const hideEmbeddedVSCode = window.desktopBridge?.vscodeHide?.();
+        if (hideEmbeddedVSCode) {
+          void hideEmbeddedVSCode
+            .catch(() => undefined)
+            .then(() => {
+              scheduleComposerFocus();
+            });
+          return;
+        }
+        scheduleComposerFocus();
         return;
       }
 
@@ -2615,13 +2608,6 @@ export default function ChatView(props: ChatViewProps) {
             : {}),
           createdAt: messageCreatedAt,
         });
-        // Optimistically open the plan sidebar when implementing (not refining).
-        // "default" mode here means the agent is executing the plan, which produces
-        // step-tracking activities that the sidebar will display.
-        if (nextInteractionMode === "default") {
-          planSidebarDismissedForTurnRef.current = null;
-          rightPanel.openTab("plan");
-        }
         sendInFlightRef.current = false;
       } catch (err) {
         setOptimisticUserMessages((existing) =>
@@ -2644,7 +2630,6 @@ export default function ChatView(props: ChatViewProps) {
       isServerThread,
       persistThreadSettingsForNextTurn,
       resetLocalDispatch,
-      rightPanel,
       runtimeMode,
       selectableMcpServers,
       providerStatuses,
@@ -2761,8 +2746,6 @@ export default function ChatView(props: ChatViewProps) {
         return waitForStartedServerThread(scopeThreadRef(activeThread.environmentId, nextThreadId));
       })
       .then(() => {
-        // Signal that the plan sidebar should open on the new thread.
-        planSidebarOpenOnNextThreadRef.current = true;
         return navigate({
           to: "/$environmentId/$threadId",
           params: {

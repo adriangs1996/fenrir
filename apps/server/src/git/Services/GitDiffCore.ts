@@ -1,13 +1,22 @@
 import {
   GitCommandError,
+  type AmendGitDiffStagedChangesInput,
+  type AmendGitDiffStagedChangesResult,
   type CommentGitDiffChangeRequestLinesInput,
   type CreateGitDiffIgnoreListInput,
+  type CreateGitDiffStashInput,
+  type CreateGitDiffStashResult,
   type DeleteGitDiffIgnoreListInput,
   type DiscardGitDiffWorktreeChangesInput,
   type DiscardGitDiffWorktreeChangesResult,
   type GitDiffActionResult,
   type GitDiffChangeRequestReferenceInput,
+  type GitDiffCommitActionResult,
+  type GitDiffCommitReferenceInput,
   type GitDiffMergeChangeRequestInput,
+  type GitDiffOperationActionInput,
+  type GitDiffOperationActionResult,
+  type GitDiffStashReferenceInput,
   type LoadActiveChangeRequestStackedDiffFileIndexInput,
   type LoadActiveChangeRequestStackedDiffFileIndexResult,
   type LoadDiffFileInput,
@@ -18,10 +27,16 @@ import {
   type LoadGitDiffChangeRequestChecksResult,
   type LoadGitDiffChangeRequestReviewThreadsInput,
   type LoadGitDiffChangeRequestReviewThreadsResult,
+  type LoadGitDiffHistoryInput,
+  type LoadGitDiffHistoryResult,
   type LoadGitDiffIgnoreListsInput,
   type LoadGitDiffIgnoreListsResult,
+  type LoadGitDiffOperationInput,
+  type LoadGitDiffOperationResult,
   type LoadGitDiffRepositoriesInput,
   type LoadGitDiffRepositoriesResult,
+  type LoadGitDiffStashesInput,
+  type LoadGitDiffStashesResult,
   type LoadStackedDiffFileIndexInput,
   type LoadStackedDiffFileIndexResult,
   type RevertGitDiffChangeRequestLinesInput,
@@ -51,6 +66,9 @@ export interface GitDiffCoreShape {
   readonly loadStackedDiffFileIndex: (
     input: LoadStackedDiffFileIndexInput,
   ) => Effect.Effect<LoadStackedDiffFileIndexResult, GitCommandError>;
+  readonly loadHistory: (
+    input: LoadGitDiffHistoryInput,
+  ) => Effect.Effect<LoadGitDiffHistoryResult, GitCommandError>;
   readonly loadIgnoreLists: (
     input: LoadGitDiffIgnoreListsInput,
   ) => Effect.Effect<LoadGitDiffIgnoreListsResult, GitCommandError>;
@@ -72,6 +90,39 @@ export interface GitDiffCoreShape {
   readonly discardWorktreeChanges: (
     input: DiscardGitDiffWorktreeChangesInput,
   ) => Effect.Effect<DiscardGitDiffWorktreeChangesResult, GitCommandError>;
+  readonly amendStagedChanges: (
+    input: AmendGitDiffStagedChangesInput,
+  ) => Effect.Effect<AmendGitDiffStagedChangesResult, GitCommandError>;
+  readonly revertCommit: (
+    input: GitDiffCommitReferenceInput,
+  ) => Effect.Effect<GitDiffCommitActionResult, GitCommandError>;
+  readonly cherryPickCommit: (
+    input: GitDiffCommitReferenceInput,
+  ) => Effect.Effect<GitDiffCommitActionResult, GitCommandError>;
+  readonly loadOperation: (
+    input: LoadGitDiffOperationInput,
+  ) => Effect.Effect<LoadGitDiffOperationResult, GitCommandError>;
+  readonly continueOperation: (
+    input: GitDiffOperationActionInput,
+  ) => Effect.Effect<GitDiffOperationActionResult, GitCommandError>;
+  readonly abortOperation: (
+    input: GitDiffOperationActionInput,
+  ) => Effect.Effect<GitDiffOperationActionResult, GitCommandError>;
+  readonly loadStashes: (
+    input: LoadGitDiffStashesInput,
+  ) => Effect.Effect<LoadGitDiffStashesResult, GitCommandError>;
+  readonly createStash: (
+    input: CreateGitDiffStashInput,
+  ) => Effect.Effect<CreateGitDiffStashResult, GitCommandError>;
+  readonly applyStash: (
+    input: GitDiffStashReferenceInput,
+  ) => Effect.Effect<GitDiffActionResult, GitCommandError>;
+  readonly popStash: (
+    input: GitDiffStashReferenceInput,
+  ) => Effect.Effect<GitDiffActionResult, GitCommandError>;
+  readonly dropStash: (
+    input: GitDiffStashReferenceInput,
+  ) => Effect.Effect<GitDiffActionResult, GitCommandError>;
   readonly closeChangeRequest: (
     input: GitDiffChangeRequestReferenceInput,
   ) => Effect.Effect<GitDiffActionResult, GitCommandError>;

@@ -19,6 +19,7 @@ describe("KeybindingsSettings.logic", () => {
   it("uses user-facing labels for editor and git diff toggles", () => {
     expect(commandLabel("editor.toggleChatTab")).toBe("Editor: Toggle");
     expect(commandLabel("gitDiff.toggle")).toBe("Git Diff: Toggle");
+    expect(commandLabel("thread.open")).toBe("Thread: Open");
   });
 
   it("marks default rows as default and custom rows as custom", () => {
@@ -82,11 +83,17 @@ describe("KeybindingsSettings.logic", () => {
     expect(gitDiffRow?.source).toBe("Unbound");
     expect(gitDiffRow?.key).toBe("");
     expect(gitDiffRow?.defaultKey).toBe("mod+g");
+
+    const threadOpenRow = rows.find((row) => row.command === "thread.open");
+    expect(threadOpenRow?.source).toBe("Unbound");
+    expect(threadOpenRow?.key).toBe("");
+    expect(threadOpenRow?.defaultKey).toBe("meta+s");
   });
 
   it("offers supported static commands when adding a binding", () => {
     expect(buildKeybindingCommandOptions([])).toContain("editor.toggleChatTab");
     expect(buildKeybindingCommandOptions([])).toContain("gitDiff.toggle");
+    expect(buildKeybindingCommandOptions([])).toContain("thread.open");
   });
 
   it("parses when expressions and reports unknown variables", () => {

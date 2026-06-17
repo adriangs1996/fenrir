@@ -9,7 +9,10 @@ import {
   type GitDiffRepository,
   type GitDiffIgnoreList,
   type GitDiffPushResult,
+  type GitDiffRepositoryOperation,
   type GitDiffSelectedLineRange,
+  type GitDiffCommit,
+  type GitDiffStash,
   type RevertGitDiffChangeRequestLinesInput,
   type SourceControlProviderError,
 } from "@fenrir/contracts";
@@ -34,7 +37,10 @@ import { GitDiffCore } from "../Services/GitDiffCore.ts";
 
 const DIFF_FILE_CONTENT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const DIFF_FILE_PATCH_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
+const HISTORY_MAX_OUTPUT_BYTES = 512 * 1024;
+const STASH_LIST_MAX_OUTPUT_BYTES = 512 * 1024;
 const ACTIVE_CHANGE_REQUEST_STACK_MAX_DEPTH = 32;
+const GIT_EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const GIT_DIFF_IGNORE_LISTS_GIT_PATH = "info/fenrir-diff-ignore-lists.json";
 const DEFAULT_REVERT_COMMIT_SUBJECT_MAX_LENGTH = 72;
 const GIT_DIFF_REPOSITORY_SCAN_MAX_DEPTH = 5;
@@ -65,6 +71,9 @@ function buildDiffArgs(input: LoadDiffFileIndexInput): ReadonlyArray<string> {
   if (input.target.kind === "range") {
     args.push(`${input.target.baseRef}...${input.target.headRef}`);
   }
+  if (input.target.kind === "commit") {
+    args.push(input.target.parentRef ?? GIT_EMPTY_TREE_SHA, input.target.commitRef);
+  }
   return args;
 }
 
@@ -81,6 +90,9 @@ function buildDiffFilePatchArgs(input: LoadDiffFileInput): ReadonlyArray<string>
   }
   if (input.target.kind === "range") {
     args.push(`${input.target.baseRef}...${input.target.headRef}`);
+  }
+  if (input.target.kind === "commit") {
+    args.push(input.target.parentRef ?? GIT_EMPTY_TREE_SHA, input.target.commitRef);
   }
 
   args.push("--", ...uniqueDiffFilePaths(input));
@@ -149,6 +161,13 @@ function parseNumstat(stdout: string): ReadonlyArray<GitDiffFileSummary> {
   return summaries;
 }
 
+function parseNulSeparatedPaths(stdout: string): ReadonlyArray<string> {
+  return stdout
+    .split("\0")
+    .map((path) => path.trim())
+    .filter((path) => path.length > 0);
+}
+
 interface BranchTip {
   readonly branchName: string;
   readonly oid: string;
@@ -159,6 +178,46 @@ function parseCommitOids(stdout: string): ReadonlyArray<string> {
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+}
+
+function parseGitDiffHistory(stdout: string): ReadonlyArray<GitDiffCommit> {
+  return stdout.split(/\r?\n/u).flatMap((line): GitDiffCommit[] => {
+    if (line.trim().length === 0) return [];
+
+    const [
+      sha = "",
+      shortSha = "",
+      parentShas = "",
+      authorName = "",
+      authorEmail = "",
+      authoredAt = "",
+      subject = "",
+    ] = line.split("\0");
+    const normalizedSha = sha.trim();
+    const normalizedShortSha = shortSha.trim();
+    const normalizedAuthoredAt = authoredAt.trim();
+    if (
+      normalizedSha.length === 0 ||
+      normalizedShortSha.length === 0 ||
+      normalizedAuthoredAt.length === 0
+    ) {
+      return [];
+    }
+
+    const parentSha = parentShas.trim().split(/\s+/u).find(Boolean) ?? null;
+
+    return [
+      {
+        sha: normalizedSha,
+        shortSha: normalizedShortSha,
+        parentSha,
+        subject: subject.trim() || normalizedShortSha,
+        authorName: authorName.trim() || "Unknown",
+        authorEmail: authorEmail.trim() || "unknown",
+        authoredAt: normalizedAuthoredAt,
+      },
+    ];
+  });
 }
 
 function parseBranchTips(stdout: string): ReadonlyArray<BranchTip> {
@@ -368,6 +427,83 @@ function normalizeRelativePaths(
   );
 }
 
+function normalizeStashRef(cwd: string, ref: string): string {
+  const trimmed = ref.trim();
+  if (trimmed.length === 0 || trimmed.startsWith("-") || trimmed.includes("\0")) {
+    throw gitDiffCommandError("GitDiffCore.normalizeStashRef", cwd, `Unsafe stash ref: ${ref}`);
+  }
+  return trimmed;
+}
+
+function normalizeCommitRef(cwd: string, ref: string): string {
+  const trimmed = ref.trim();
+  if (trimmed.length === 0 || trimmed.startsWith("-") || trimmed.includes("\0")) {
+    throw gitDiffCommandError("GitDiffCore.normalizeCommitRef", cwd, `Unsafe commit ref: ${ref}`);
+  }
+  return trimmed;
+}
+
+function gitDiffOperationLabel(kind: GitDiffRepositoryOperation["kind"]): string {
+  switch (kind) {
+    case "merge":
+      return "Merge in progress";
+    case "rebase":
+      return "Rebase in progress";
+    case "cherry_pick":
+      return "Cherry-pick in progress";
+    case "revert":
+      return "Revert in progress";
+  }
+}
+
+function operationHeadPath(kind: GitDiffRepositoryOperation["kind"]): string | null {
+  switch (kind) {
+    case "merge":
+      return "MERGE_HEAD";
+    case "cherry_pick":
+      return "CHERRY_PICK_HEAD";
+    case "revert":
+      return "REVERT_HEAD";
+    case "rebase":
+      return null;
+  }
+}
+
+function continueOperationArgs(kind: GitDiffRepositoryOperation["kind"]): ReadonlyArray<string> {
+  switch (kind) {
+    case "merge":
+      return ["merge", "--continue"];
+    case "rebase":
+      return ["rebase", "--continue"];
+    case "cherry_pick":
+      return ["cherry-pick", "--continue"];
+    case "revert":
+      return ["revert", "--continue"];
+  }
+}
+
+function abortOperationArgs(kind: GitDiffRepositoryOperation["kind"]): ReadonlyArray<string> {
+  switch (kind) {
+    case "merge":
+      return ["merge", "--abort"];
+    case "rebase":
+      return ["rebase", "--abort"];
+    case "cherry_pick":
+      return ["cherry-pick", "--abort"];
+    case "revert":
+      return ["revert", "--abort"];
+  }
+}
+
+function isMissingFileSystemPath(cause: unknown): boolean {
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    String(cause.code) === "ENOENT"
+  );
+}
+
 function parseIgnoreLists(raw: string): ReadonlyArray<GitDiffIgnoreList> {
   const parsed = JSON.parse(raw) as unknown;
   if (!Array.isArray(parsed)) {
@@ -393,6 +529,43 @@ function parseIgnoreLists(raw: string): ReadonlyArray<GitDiffIgnoreList> {
           .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
           .map((value) => value.trim())
           .toSorted((left, right) => left.localeCompare(right)),
+      },
+    ];
+  });
+}
+
+function parseStashBranchName(subject: string): string | null {
+  const match = /^(?:WIP on|On) ([^:]+):/u.exec(subject.trim());
+  const branchName = match?.[1]?.trim();
+  return branchName && branchName.length > 0 ? branchName : null;
+}
+
+function parseStashMessage(subject: string): string {
+  const trimmed = subject.trim();
+  const message = trimmed.replace(/^(?:WIP on|On) [^:]+:\s*/u, "").trim();
+  return message.length > 0 ? message : trimmed || "Stash";
+}
+
+function parseStashList(stdout: string): ReadonlyArray<GitDiffStash> {
+  return stdout.split(/\r?\n/u).flatMap((line): GitDiffStash[] => {
+    if (line.trim().length === 0) return [];
+
+    const [ref = "", sha = "", createdAt = "", subject = ""] = line.split("\0");
+    const stashRef = ref.trim();
+    const stashSha = sha.trim();
+    const stashCreatedAt = createdAt.trim();
+    const branchName = parseStashBranchName(subject);
+    if (stashRef.length === 0 || stashSha.length === 0 || stashCreatedAt.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        ref: stashRef,
+        sha: stashSha,
+        message: parseStashMessage(subject),
+        createdAt: stashCreatedAt,
+        ...(branchName ? { branchName } : {}),
       },
     ];
   });
@@ -596,6 +769,10 @@ export const GitDiffCoreLive = Layer.effect(
           return readGitRevisionFile(input.cwd, "HEAD", filePath);
         case "range":
           return readGitRevisionFile(input.cwd, input.target.baseRef, filePath);
+        case "commit":
+          return input.target.parentRef === null
+            ? Effect.succeed(null)
+            : readGitRevisionFile(input.cwd, input.target.parentRef, filePath);
       }
     };
 
@@ -610,6 +787,8 @@ export const GitDiffCoreLive = Layer.effect(
           return readGitRevisionFile(input.cwd, "", filePath);
         case "range":
           return readGitRevisionFile(input.cwd, input.target.headRef, filePath);
+        case "commit":
+          return readGitRevisionFile(input.cwd, input.target.commitRef, filePath);
       }
     };
 
@@ -648,6 +827,48 @@ export const GitDiffCoreLive = Layer.effect(
           args: buildDiffArgs(input),
         })
         .pipe(Effect.map((result) => parseNumstat(result.stdout)));
+
+    const loadHistory = (input: { readonly cwd: string; readonly limit?: number }) =>
+      Effect.gen(function* () {
+        const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
+        const result = yield* gitCore.execute({
+          operation: "GitDiffCore.loadHistory",
+          cwd: input.cwd,
+          args: [
+            "log",
+            `--max-count=${limit}`,
+            "--date=iso-strict",
+            "--format=%H%x00%h%x00%P%x00%an%x00%ae%x00%aI%x00%s",
+          ],
+          allowNonZeroExit: true,
+          maxOutputBytes: HISTORY_MAX_OUTPUT_BYTES,
+          truncateOutputAtMaxBytes: true,
+        });
+        if (result.stdoutTruncated) {
+          return yield* gitDiffCommandError(
+            "GitDiffCore.loadHistory",
+            input.cwd,
+            "Commit history output exceeded the maximum supported size.",
+          );
+        }
+        if (result.code !== 0) {
+          const output = `${result.stdout}\n${result.stderr}`.toLowerCase();
+          if (
+            output.includes("does not have any commits") ||
+            output.includes("your current branch") ||
+            output.includes("unknown revision")
+          ) {
+            return [];
+          }
+          return yield* gitDiffCommandError(
+            "GitDiffCore.loadHistory",
+            input.cwd,
+            result.stderr.trim() || result.stdout.trim() || "Failed to load commit history.",
+          );
+        }
+
+        return parseGitDiffHistory(result.stdout);
+      });
 
     const resolveIgnoreListsPath = (cwd: string) =>
       gitCore
@@ -874,6 +1095,402 @@ export const GitDiffCoreLive = Layer.effect(
           discardedFilePaths,
         };
       });
+
+    const amendStagedChanges = (input: {
+      readonly cwd: string;
+      readonly filePaths?: ReadonlyArray<string>;
+      readonly commitMessage?: string;
+    }) =>
+      Effect.gen(function* () {
+        const headResult = yield* gitCore.execute({
+          operation: "GitDiffCore.amendStagedChanges.hasHead",
+          cwd: input.cwd,
+          args: ["rev-parse", "--verify", "HEAD"],
+          allowNonZeroExit: true,
+        });
+        if (headResult.code !== 0) {
+          return yield* new GitCommandError({
+            operation: "GitDiffCore.amendStagedChanges",
+            command: "git commit --amend",
+            cwd: input.cwd,
+            detail: "Cannot amend before the repository has an initial commit.",
+          });
+        }
+
+        const filePaths =
+          input.filePaths === undefined ? [] : normalizeRelativePaths(input.cwd, input.filePaths);
+        if (filePaths.length > 0) {
+          yield* gitCore
+            .execute({
+              operation: "GitDiffCore.amendStagedChanges.reset",
+              cwd: input.cwd,
+              args: ["reset"],
+            })
+            .pipe(Effect.asVoid);
+          yield* gitCore
+            .execute({
+              operation: "GitDiffCore.amendStagedChanges.addSelected",
+              cwd: input.cwd,
+              args: ["add", "-A", "--", ...filePaths],
+            })
+            .pipe(Effect.asVoid);
+        }
+
+        const stagedResult = yield* gitCore.execute({
+          operation: "GitDiffCore.amendStagedChanges.hasStagedChanges",
+          cwd: input.cwd,
+          args: ["diff", "--cached", "--quiet", "--exit-code"],
+          allowNonZeroExit: true,
+        });
+        if (stagedResult.code === 0) {
+          return yield* new GitCommandError({
+            operation: "GitDiffCore.amendStagedChanges",
+            command: "git commit --amend",
+            cwd: input.cwd,
+            detail: "No staged changes to amend.",
+          });
+        }
+        if (stagedResult.code !== 1) {
+          return yield* new GitCommandError({
+            operation: "GitDiffCore.amendStagedChanges",
+            command: "git diff --cached --quiet --exit-code",
+            cwd: input.cwd,
+            detail:
+              stagedResult.stderr.trim() ||
+              stagedResult.stdout.trim() ||
+              "Failed to inspect staged changes.",
+          });
+        }
+
+        const message = input.commitMessage?.trim();
+        yield* gitCore
+          .execute({
+            operation: "GitDiffCore.amendStagedChanges.commit",
+            cwd: input.cwd,
+            args:
+              message && message.length > 0
+                ? ["commit", "--amend", "-F", "-"]
+                : ["commit", "--amend", "--no-edit"],
+            ...(message && message.length > 0 ? { stdin: `${message}\n` } : {}),
+          })
+          .pipe(Effect.asVoid);
+
+        const commitSha = yield* gitCore
+          .execute({
+            operation: "GitDiffCore.amendStagedChanges.revParseHead",
+            cwd: input.cwd,
+            args: ["rev-parse", "HEAD"],
+          })
+          .pipe(Effect.map((result) => result.stdout.trim()));
+
+        return { commitSha };
+      });
+
+    const readHeadSha = (cwd: string, operation: string) =>
+      gitCore
+        .execute({
+          operation,
+          cwd,
+          args: ["rev-parse", "HEAD"],
+        })
+        .pipe(Effect.map((result) => result.stdout.trim()));
+
+    const revertCommit = (input: { readonly cwd: string; readonly commitRef: string }) =>
+      Effect.gen(function* () {
+        const commitRef = normalizeCommitRef(input.cwd, input.commitRef);
+        yield* gitCore
+          .execute({
+            operation: "GitDiffCore.revertCommit",
+            cwd: input.cwd,
+            args: ["revert", "--no-edit", commitRef],
+          })
+          .pipe(Effect.asVoid);
+
+        return {
+          commitSha: yield* readHeadSha(input.cwd, "GitDiffCore.revertCommit.revParseHead"),
+        };
+      });
+
+    const cherryPickCommit = (input: { readonly cwd: string; readonly commitRef: string }) =>
+      Effect.gen(function* () {
+        const commitRef = normalizeCommitRef(input.cwd, input.commitRef);
+        yield* gitCore
+          .execute({
+            operation: "GitDiffCore.cherryPickCommit",
+            cwd: input.cwd,
+            args: ["cherry-pick", commitRef],
+          })
+          .pipe(Effect.asVoid);
+
+        return {
+          commitSha: yield* readHeadSha(input.cwd, "GitDiffCore.cherryPickCommit.revParseHead"),
+        };
+      });
+
+    const resolveGitPath = (cwd: string, pathSpec: string) =>
+      gitCore
+        .execute({
+          operation: "GitDiffCore.resolveGitPath",
+          cwd,
+          args: ["rev-parse", "--git-path", pathSpec],
+        })
+        .pipe(
+          Effect.map((result) => {
+            const resolvedPath = result.stdout.trim();
+            return nodePath.isAbsolute(resolvedPath)
+              ? resolvedPath
+              : nodePath.resolve(cwd, resolvedPath);
+          }),
+        );
+
+    const gitPathExists = (cwd: string, pathSpec: string) =>
+      Effect.gen(function* () {
+        const resolvedPath = yield* resolveGitPath(cwd, pathSpec);
+        return yield* Effect.tryPromise({
+          try: async () => {
+            try {
+              await lstat(resolvedPath);
+              return true;
+            } catch (cause) {
+              if (isMissingFileSystemPath(cause)) {
+                return false;
+              }
+              throw cause;
+            }
+          },
+          catch: (cause) =>
+            gitDiffCommandError(
+              "GitDiffCore.gitPathExists",
+              cwd,
+              `Failed to inspect git state path ${pathSpec}.`,
+              cause,
+            ),
+        });
+      });
+
+    const readGitPathText = (cwd: string, pathSpec: string) =>
+      Effect.gen(function* () {
+        const resolvedPath = yield* resolveGitPath(cwd, pathSpec);
+        return yield* Effect.tryPromise({
+          try: async () => {
+            try {
+              return (await readFile(resolvedPath, "utf8")).trim() || null;
+            } catch (cause) {
+              if (isMissingFileSystemPath(cause)) {
+                return null;
+              }
+              throw cause;
+            }
+          },
+          catch: (cause) =>
+            gitDiffCommandError(
+              "GitDiffCore.readGitPathText",
+              cwd,
+              `Failed to read git state path ${pathSpec}.`,
+              cause,
+            ),
+        });
+      });
+
+    const loadConflictedFilePaths = (cwd: string) =>
+      gitCore
+        .execute({
+          operation: "GitDiffCore.loadConflictedFilePaths",
+          cwd,
+          args: ["diff", "--name-only", "--diff-filter=U", "-z"],
+        })
+        .pipe(Effect.map((result) => parseNulSeparatedPaths(result.stdout)));
+
+    const detectOperationKind = (cwd: string) =>
+      Effect.gen(function* () {
+        const [rebaseMerge, rebaseApply, cherryPick, revert, merge] = yield* Effect.all([
+          gitPathExists(cwd, "rebase-merge"),
+          gitPathExists(cwd, "rebase-apply"),
+          gitPathExists(cwd, "CHERRY_PICK_HEAD"),
+          gitPathExists(cwd, "REVERT_HEAD"),
+          gitPathExists(cwd, "MERGE_HEAD"),
+        ]);
+
+        if (rebaseMerge || rebaseApply) return "rebase" as const;
+        if (cherryPick) return "cherry_pick" as const;
+        if (revert) return "revert" as const;
+        if (merge) return "merge" as const;
+        return null;
+      });
+
+    const loadOperation = (input: { readonly cwd: string }) =>
+      Effect.gen(function* () {
+        const kind = yield* detectOperationKind(input.cwd);
+        if (kind === null) {
+          return { operation: null };
+        }
+
+        const headPath = operationHeadPath(kind);
+        const headRef = headPath === null ? null : yield* readGitPathText(input.cwd, headPath);
+        const conflictedFilePaths = yield* loadConflictedFilePaths(input.cwd);
+
+        return {
+          operation: {
+            kind,
+            label: gitDiffOperationLabel(kind),
+            headRef,
+            conflictedFilePaths,
+          },
+        };
+      });
+
+    const continueOperation = (input: { readonly cwd: string }) =>
+      Effect.gen(function* () {
+        const kind = yield* detectOperationKind(input.cwd);
+        if (kind === null) {
+          return yield* gitDiffCommandError(
+            "GitDiffCore.continueOperation",
+            input.cwd,
+            "No Git operation is in progress.",
+          );
+        }
+
+        yield* gitCore
+          .execute({
+            operation: "GitDiffCore.continueOperation",
+            cwd: input.cwd,
+            args: continueOperationArgs(kind),
+            env: {
+              GIT_EDITOR: "true",
+              GIT_SEQUENCE_EDITOR: "true",
+            },
+          })
+          .pipe(Effect.asVoid);
+
+        return {
+          status: "ok" as const,
+          commitSha: yield* readHeadSha(input.cwd, "GitDiffCore.continueOperation.revParseHead"),
+        };
+      });
+
+    const abortOperation = (input: { readonly cwd: string }) =>
+      Effect.gen(function* () {
+        const kind = yield* detectOperationKind(input.cwd);
+        if (kind === null) {
+          return yield* gitDiffCommandError(
+            "GitDiffCore.abortOperation",
+            input.cwd,
+            "No Git operation is in progress.",
+          );
+        }
+
+        yield* gitCore
+          .execute({
+            operation: "GitDiffCore.abortOperation",
+            cwd: input.cwd,
+            args: abortOperationArgs(kind),
+            env: {
+              GIT_EDITOR: "true",
+              GIT_SEQUENCE_EDITOR: "true",
+            },
+          })
+          .pipe(Effect.asVoid);
+
+        return {
+          status: "ok" as const,
+          commitSha: null,
+        };
+      });
+
+    const loadStashes = (input: { readonly cwd: string }) =>
+      gitCore
+        .execute({
+          operation: "GitDiffCore.loadStashes",
+          cwd: input.cwd,
+          args: ["stash", "list", "--format=%gd%x00%H%x00%ci%x00%gs"],
+          maxOutputBytes: STASH_LIST_MAX_OUTPUT_BYTES,
+          truncateOutputAtMaxBytes: true,
+        })
+        .pipe(
+          Effect.flatMap((result) =>
+            result.stdoutTruncated
+              ? Effect.fail(
+                  gitDiffCommandError(
+                    "GitDiffCore.loadStashes",
+                    input.cwd,
+                    "Stash list output exceeded the maximum supported size.",
+                  ),
+                )
+              : Effect.succeed(parseStashList(result.stdout)),
+          ),
+        );
+
+    const createStash = (input: {
+      readonly cwd: string;
+      readonly message?: string;
+      readonly filePaths?: ReadonlyArray<string>;
+    }) =>
+      Effect.gen(function* () {
+        const filePaths =
+          input.filePaths === undefined ? [] : normalizeRelativePaths(input.cwd, input.filePaths);
+        const message = input.message?.trim() || "Fenrir stash";
+        const result = yield* gitCore.execute({
+          operation: "GitDiffCore.createStash",
+          cwd: input.cwd,
+          args: [
+            "stash",
+            "push",
+            "--include-untracked",
+            "-m",
+            message,
+            ...(filePaths.length > 0 ? ["--", ...filePaths] : []),
+          ],
+          allowNonZeroExit: true,
+        });
+        const output = `${result.stdout}\n${result.stderr}`;
+        const noChanges = output.includes("No local changes to save");
+        if (result.code !== 0 && !noChanges) {
+          return yield* gitDiffCommandError(
+            "GitDiffCore.createStash",
+            input.cwd,
+            result.stderr.trim() || result.stdout.trim() || "Failed to create stash.",
+          );
+        }
+        if (noChanges) {
+          return {
+            status: "skipped_no_changes" as const,
+            stash: null,
+          };
+        }
+
+        const stashes = yield* loadStashes({ cwd: input.cwd });
+        return {
+          status: "stashed" as const,
+          stash: stashes[0] ?? null,
+        };
+      });
+
+    const applyStash = (input: { readonly cwd: string; readonly ref: string }) =>
+      gitCore
+        .execute({
+          operation: "GitDiffCore.applyStash",
+          cwd: input.cwd,
+          args: ["stash", "apply", "--index", normalizeStashRef(input.cwd, input.ref)],
+        })
+        .pipe(Effect.as({ status: "ok" as const }));
+
+    const popStash = (input: { readonly cwd: string; readonly ref: string }) =>
+      gitCore
+        .execute({
+          operation: "GitDiffCore.popStash",
+          cwd: input.cwd,
+          args: ["stash", "pop", "--index", normalizeStashRef(input.cwd, input.ref)],
+        })
+        .pipe(Effect.as({ status: "ok" as const }));
+
+    const dropStash = (input: { readonly cwd: string; readonly ref: string }) =>
+      gitCore
+        .execute({
+          operation: "GitDiffCore.dropStash",
+          cwd: input.cwd,
+          args: ["stash", "drop", normalizeStashRef(input.cwd, input.ref)],
+        })
+        .pipe(Effect.as({ status: "ok" as const }));
 
     const resolveProviderHandle = (cwd: string, operation: string) =>
       sourceControlProviderRegistry.resolveHandle({ cwd }).pipe(
@@ -1328,6 +1945,7 @@ export const GitDiffCoreLive = Layer.effect(
       loadDiffFileIndex,
       loadActiveChangeRequestStackedDiffFileIndex,
       loadStackedDiffFileIndex,
+      loadHistory,
       loadIgnoreLists,
       createIgnoreList,
       updateIgnoreList,
@@ -1335,6 +1953,17 @@ export const GitDiffCoreLive = Layer.effect(
       stageWorktreeChanges,
       unstageStagedChanges,
       discardWorktreeChanges,
+      amendStagedChanges,
+      revertCommit,
+      cherryPickCommit,
+      loadOperation,
+      continueOperation,
+      abortOperation,
+      loadStashes,
+      createStash,
+      applyStash,
+      popStash,
+      dropStash,
       closeChangeRequest,
       mergeChangeRequest,
       loadChangeRequestChecks,

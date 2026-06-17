@@ -45,14 +45,7 @@ import {
   wrappedTerminalLinkRangeIntersectsBufferLine,
 } from "../terminalLinks";
 import {
-  isDiffToggleShortcut,
-  isGitDiffToggleShortcut,
-  isGlobalTerminalOpenShortcut,
   isTerminalClearShortcut,
-  isTerminalCloseShortcut,
-  isTerminalNewShortcut,
-  isTerminalSplitShortcut,
-  isTerminalToggleShortcut,
   resolveShortcutCommand,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
@@ -502,17 +495,17 @@ export function TerminalViewport({
     terminal.attachCustomKeyEventHandler((event) => {
       const currentKeybindings = keybindingsRef.current;
       const options = { context: { terminalFocus: true, terminalOpen: true } };
+      const command = resolveShortcutCommand(event, currentKeybindings, options);
       if (
-        isTerminalToggleShortcut(event, currentKeybindings, options) ||
-        isTerminalSplitShortcut(event, currentKeybindings, options) ||
-        isTerminalNewShortcut(event, currentKeybindings, options) ||
-        isTerminalCloseShortcut(event, currentKeybindings, options) ||
-        isGlobalTerminalOpenShortcut(event, currentKeybindings, options) ||
-        isDiffToggleShortcut(event, currentKeybindings, options) ||
-        isGitDiffToggleShortcut(event, currentKeybindings, options) ||
-        threadTraversalDirectionFromCommand(
-          resolveShortcutCommand(event, currentKeybindings, options),
-        ) !== null
+        command === "terminal.toggle" ||
+        command === "terminal.split" ||
+        command === "terminal.new" ||
+        command === "terminal.close" ||
+        command === "globalTerminal.open" ||
+        command === "diff.toggle" ||
+        command === "gitDiff.toggle" ||
+        command === "thread.open" ||
+        threadTraversalDirectionFromCommand(command) !== null
       ) {
         return false;
       }

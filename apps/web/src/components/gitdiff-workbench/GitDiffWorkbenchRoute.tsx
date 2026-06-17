@@ -18,10 +18,13 @@ import {
   type DiffTarget,
   type EnvironmentId,
   type GitBranch,
+  type GitDiffCommit,
   type GitDiffFileSummary,
   type GitDiffIgnoreList,
   type GitDiffRepository,
+  type GitDiffRepositoryOperation,
   type GitDiffStackStep,
+  type GitDiffStash,
   type LoadDiffFileResult,
   type ScopedThreadRef,
 } from "@fenrir/contracts";
@@ -37,15 +40,18 @@ import { useParams } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
 import {
   BanIcon,
+  ArchiveIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
   Columns2Icon,
+  DownloadIcon,
   GitCommitHorizontalIcon,
   ExternalLinkIcon,
   FileTextIcon,
   GitBranchIcon,
   GitCompareIcon,
   GitMergeIcon,
+  HistoryIcon,
   HashIcon,
   HighlighterIcon,
   MessageSquareIcon,
@@ -125,20 +131,33 @@ import {
 } from "~/lib/diffRendering";
 import {
   gitDiffActiveChangeRequestStackedFileIndexQueryOptions,
+  gitDiffAbortOperationMutationOptions,
+  gitDiffAmendStagedChangesMutationOptions,
   gitDiffChangeRequestChecksQueryOptions,
   gitDiffChangeRequestReviewThreadsQueryOptions,
+  gitDiffCherryPickCommitMutationOptions,
+  gitDiffContinueOperationMutationOptions,
   gitDiffCloseChangeRequestMutationOptions,
   gitDiffCommentChangeRequestLinesMutationOptions,
   gitDiffCreateIgnoreListMutationOptions,
+  gitDiffCreateStashMutationOptions,
   gitDiffDeleteIgnoreListMutationOptions,
   gitDiffDiscardWorktreeChangesMutationOptions,
+  gitDiffDropStashMutationOptions,
   gitDiffFileQueryOptions,
   gitDiffFileIndexQueryOptions,
+  gitDiffHistoryQueryOptions,
   gitDiffIgnoreListsQueryOptions,
   gitDiffMergeChangeRequestMutationOptions,
+  gitDiffOperationQueryOptions,
+  gitDiffApplyStashMutationOptions,
+  gitDiffPopStashMutationOptions,
   gitDiffRepositoriesQueryOptions,
   gitDiffRevertChangeRequestLinesMutationOptions,
+  gitDiffRevertCommitMutationOptions,
   gitDiffStageWorktreeChangesMutationOptions,
+  gitDiffStashesQueryOptions,
+  gitDiffTargetFileIndexQueryOptions,
   gitDiffUnstageStagedChangesMutationOptions,
   gitDiffUpdateIgnoreListMutationOptions,
   invalidateGitDiffQueries,
@@ -147,6 +166,7 @@ import {
   gitQueryKeys,
   gitRunStackedActionMutationOptions,
   vcsRefSearchInfiniteQueryOptions,
+  vcsPullMutationOptions,
 } from "~/lib/gitReactQuery";
 import { useGitStatus } from "~/lib/gitStatusState";
 import { runLocalRpc } from "~/hooks/useRpc";
@@ -178,6 +198,8 @@ const GIT_DIFF_SIDEBAR_STACK_MIN_HEIGHT = 144;
 const GIT_DIFF_SIDEBAR_FILES_MIN_HEIGHT = 120;
 const GIT_DIFF_IGNORE_LIST_DRAG_TYPE = "application/x-fenrir-git-diff-file-path";
 const EMPTY_GIT_DIFF_IGNORE_LISTS: readonly GitDiffIgnoreList[] = [];
+const EMPTY_GIT_DIFF_HISTORY: readonly GitDiffCommit[] = [];
+const EMPTY_GIT_DIFF_STASHES: readonly GitDiffStash[] = [];
 
 const GIT_DIFF_FILE_TREE_STYLE = {
   "--trees-bg-override": "transparent",
@@ -227,6 +249,16 @@ type GitDiffCommentDialogState = {
   readonly selection: GitDiffLineSelection;
   readonly body: string;
 };
+type GitDiffCommitDialogState =
+  | {
+      readonly kind: "commit";
+      readonly scope: "all_staged" | "selected_file";
+      readonly filePaths: readonly string[];
+    }
+  | {
+      readonly kind: "amend";
+      readonly filePaths: readonly string[];
+    };
 
 const HUNK_SEPARATOR_LABELS: Record<BuiltInHunkSeparators, string> = {
   "line-info": "Line info",
@@ -745,6 +777,14 @@ function gitDiffBranchActionErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Failed to switch branch.";
 }
 
+function gitDiffCreateBranchItemValue(branchName: string): string {
+  return `__create_git_diff_branch__:${branchName}`;
+}
+
+function isGitDiffCreateBranchItemValue(value: string): boolean {
+  return value.startsWith("__create_git_diff_branch__:");
+}
+
 function gitDiffBranchBadge(branch: GitBranch, cwd: string): string | null {
   if (branch.current) return "current";
   if (
@@ -791,6 +831,15 @@ function GitDiffRepositoryBranchSelector(props: {
   const branchByName = useMemo(
     () => new Map(branches.map((branch) => [branch.name, branch] as const)),
     [branches],
+  );
+  const canCreateBranch =
+    trimmedDeferredBranchQuery.length > 0 && !branchByName.has(trimmedDeferredBranchQuery);
+  const createBranchItemValue = canCreateBranch
+    ? gitDiffCreateBranchItemValue(trimmedDeferredBranchQuery)
+    : null;
+  const branchPickerItems = useMemo(
+    () => (createBranchItemValue ? [...branchNames, createBranchItemValue] : branchNames),
+    [branchNames, createBranchItemValue],
   );
   const resolvedCurrentBranch =
     currentBranch ?? branches.find((branch) => branch.current)?.name ?? null;
@@ -852,10 +901,50 @@ function GitDiffRepositoryBranchSelector(props: {
     [branchByName, cwd, environmentId, isBranchActionPending, queryClient],
   );
 
+  const createAndCheckoutBranch = useCallback(
+    (branchName: string) => {
+      const name = branchName.trim();
+      if (!environmentId || !name || isBranchActionPending) {
+        return;
+      }
+
+      const api = readEnvironmentApi(environmentId);
+      if (!api) {
+        return;
+      }
+
+      setIsOpen(false);
+      setBranchQuery("");
+      startBranchActionTransition(async () => {
+        try {
+          const result = await api.vcs.createRef({ cwd, refName: name, switchRef: true });
+          await Promise.all([
+            queryClient.invalidateQueries({
+              queryKey: gitQueryKeys.refs(environmentId, cwd),
+            }),
+            invalidateGitDiffQueries(queryClient, { environmentId, cwd }),
+          ]);
+          toastManager.add({
+            type: "success",
+            title: "Branch created.",
+            description: `Checked out ${result.refName}.`,
+          });
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: "Failed to create branch.",
+            description: gitDiffBranchActionErrorMessage(error),
+          });
+        }
+      });
+    },
+    [cwd, environmentId, isBranchActionPending, queryClient],
+  );
+
   return (
     <Combobox
-      items={branchNames}
-      filteredItems={branchNames}
+      items={branchPickerItems}
+      filteredItems={branchPickerItems}
       autoHighlight
       open={isOpen}
       value={resolvedCurrentBranch}
@@ -882,9 +971,29 @@ function GitDiffRepositoryBranchSelector(props: {
             onChange={(event) => setBranchQuery(event.target.value)}
           />
         </div>
-        <ComboboxEmpty>No branches found.</ComboboxEmpty>
+        <ComboboxEmpty>
+          {canCreateBranch ? "No matching branches." : "No branches found."}
+        </ComboboxEmpty>
         <ComboboxList className="max-h-56">
-          {branches.map((branch, index) => {
+          {branchPickerItems.map((itemValue, index) => {
+            if (isGitDiffCreateBranchItemValue(itemValue)) {
+              return (
+                <ComboboxItem
+                  hideIndicator
+                  key={itemValue}
+                  index={index}
+                  value={itemValue}
+                  onClick={() => createAndCheckoutBranch(trimmedDeferredBranchQuery)}
+                >
+                  <span className="truncate">
+                    Create branch &quot;{trimmedDeferredBranchQuery}&quot;
+                  </span>
+                </ComboboxItem>
+              );
+            }
+
+            const branch = branchByName.get(itemValue);
+            if (!branch) return null;
             const badge = gitDiffBranchBadge(branch, cwd);
             return (
               <ComboboxItem
@@ -990,8 +1099,9 @@ export function GitDiffWorkbench(props: {
   );
   const updateGitDiffPreferences = useGitDiffWorkbenchStore((state) => state.updatePreferences);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
+  const [commitDialogState, setCommitDialogState] = useState<GitDiffCommitDialogState | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
+  const [selectedHistoryCommitSha, setSelectedHistoryCommitSha] = useState<string | null>(null);
   const [isIgnoreListDialogOpen, setIsIgnoreListDialogOpen] = useState(false);
   const [ignoreListName, setIgnoreListName] = useState("Ignored changes");
   const [commentDialogState, setCommentDialogState] = useState<GitDiffCommentDialogState | null>(
@@ -1161,7 +1271,10 @@ export function GitDiffWorkbench(props: {
       cwd,
     }),
   );
+  const historyQuery = useQuery(gitDiffHistoryQueryOptions({ environmentId, cwd, limit: 75 }));
+  const operationQuery = useQuery(gitDiffOperationQueryOptions({ environmentId, cwd }));
   const ignoreListsQuery = useQuery(gitDiffIgnoreListsQueryOptions({ environmentId, cwd }));
+  const stashesQuery = useQuery(gitDiffStashesQueryOptions({ environmentId, cwd }));
   const createIgnoreListMutation = useMutation(
     gitDiffCreateIgnoreListMutationOptions({ environmentId, cwd, queryClient }),
   );
@@ -1187,6 +1300,69 @@ export function GitDiffWorkbench(props: {
   );
   const discardWorktreeChangesMutation = useMutation(
     gitDiffDiscardWorktreeChangesMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
+  );
+  const amendStagedChangesMutation = useMutation(
+    gitDiffAmendStagedChangesMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
+  );
+  const revertCommitMutation = useMutation(
+    gitDiffRevertCommitMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
+  );
+  const cherryPickCommitMutation = useMutation(
+    gitDiffCherryPickCommitMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
+  );
+  const continueOperationMutation = useMutation(
+    gitDiffContinueOperationMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
+  );
+  const abortOperationMutation = useMutation(
+    gitDiffAbortOperationMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
+  );
+  const createStashMutation = useMutation(
+    gitDiffCreateStashMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
+  );
+  const applyStashMutation = useMutation(
+    gitDiffApplyStashMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
+  );
+  const popStashMutation = useMutation(
+    gitDiffPopStashMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
+  );
+  const dropStashMutation = useMutation(
+    gitDiffDropStashMutationOptions({
       environmentId,
       cwd,
       queryClient,
@@ -1223,9 +1399,12 @@ export function GitDiffWorkbench(props: {
   const runStackedActionMutation = useMutation(
     gitRunStackedActionMutationOptions({ environmentId, cwd, queryClient }),
   );
+  const pullMutation = useMutation(vcsPullMutationOptions({ environmentId, cwd, queryClient }));
   const worktreeFiles = useMemo(() => sortFiles(worktreeQuery.data ?? []), [worktreeQuery.data]);
   const stagedFiles = useMemo(() => sortFiles(stagedQuery.data ?? []), [stagedQuery.data]);
   const ignoreLists = ignoreListsQuery.data ?? EMPTY_GIT_DIFF_IGNORE_LISTS;
+  const stashes = stashesQuery.data ?? EMPTY_GIT_DIFF_STASHES;
+  const activeOperation = operationQuery.data?.operation ?? null;
   const ignoredPaths = useMemo(() => ignoredFilePathSet(ignoreLists), [ignoreLists]);
   const ignoredFilePaths = useMemo(
     () => [...ignoredPaths].toSorted((left, right) => left.localeCompare(right)),
@@ -1241,8 +1420,33 @@ export function GitDiffWorkbench(props: {
   );
   const activeChangeRequest = stackQuery.data?.activeChangeRequest ?? null;
   const stackSteps = useMemo(() => sortStackSteps(stackQuery.data?.steps ?? []), [stackQuery.data]);
+  const historyCommits = historyQuery.data ?? EMPTY_GIT_DIFF_HISTORY;
+  const selectedHistoryCommit =
+    historyCommits.find((commit) => commit.sha === selectedHistoryCommitSha) ??
+    historyCommits[0] ??
+    null;
+  const isHistoryView = diffViewMode === "history";
   const isStackView =
     diffViewMode === "stack" && activeChangeRequest !== null && stackSteps.length > 0;
+  const historyDiffTarget = useMemo<DiffTarget | null>(
+    () =>
+      selectedHistoryCommit
+        ? {
+            kind: "commit",
+            commitRef: selectedHistoryCommit.sha,
+            parentRef: selectedHistoryCommit.parentSha,
+          }
+        : null,
+    [selectedHistoryCommit],
+  );
+  const historyFilesQuery = useQuery(
+    gitDiffTargetFileIndexQueryOptions({
+      environmentId,
+      cwd,
+      target: historyDiffTarget,
+      enabled: isHistoryView && selectedHistoryCommit !== null,
+    }),
+  );
   const selectedStackStep = isStackView
     ? (stackSteps.find((step) => step.index === selectedStackIndex) ?? stackSteps.at(-1) ?? null)
     : null;
@@ -1279,12 +1483,28 @@ export function GitDiffWorkbench(props: {
   }, [selectedPath, selectedTargetKind, stagedFiles, worktreeFiles]);
   const selectedNormalFiles = selectedNormalTargetKind === "staged" ? stagedFiles : worktreeFiles;
   const activeFiles = useMemo(
-    () => sortFiles(isStackView ? (selectedStackStep?.files ?? []) : selectedNormalFiles),
-    [isStackView, selectedNormalFiles, selectedStackStep],
+    () =>
+      sortFiles(
+        isHistoryView
+          ? (historyFilesQuery.data ?? [])
+          : isStackView
+            ? (selectedStackStep?.files ?? [])
+            : selectedNormalFiles,
+      ),
+    [historyFilesQuery.data, isHistoryView, isStackView, selectedNormalFiles, selectedStackStep],
   );
   const selectedFile =
     activeFiles.find((file) => file.path === selectedPath) ?? activeFiles[0] ?? null;
+  const selectedStagedFileIsCommittable =
+    !isStackView &&
+    !isHistoryView &&
+    selectedNormalTargetKind === "staged" &&
+    selectedFile !== null &&
+    committableStagedFilePaths.includes(selectedFile.path);
   const activeDiffTarget = useMemo<DiffTarget | null>(() => {
+    if (isHistoryView) {
+      return historyDiffTarget;
+    }
     if (!isStackView) {
       return { kind: selectedNormalTargetKind };
     }
@@ -1296,7 +1516,7 @@ export function GitDiffWorkbench(props: {
       baseRef: selectedStackStep.baseRef,
       headRef: selectedStackStep.headRef,
     };
-  }, [isStackView, selectedNormalTargetKind, selectedStackStep]);
+  }, [historyDiffTarget, isHistoryView, isStackView, selectedNormalTargetKind, selectedStackStep]);
   const selectedFileQuery = useQuery(
     gitDiffFileQueryOptions({
       environmentId,
@@ -1315,20 +1535,31 @@ export function GitDiffWorkbench(props: {
         .size,
     [stagedFiles, worktreeFiles],
   );
-  const headerFileCount = isStackView ? activeFiles.length : normalViewFileCount;
-  const filesSectionBadge = isStackView
-    ? `+${insertionCount} -${deletionCount}`
-    : `W ${worktreeFiles.length} S ${stagedFiles.length}`;
-  const filesSectionTitle = isStackView
-    ? `${activeFiles.length} changed ${activeFiles.length === 1 ? "file" : "files"}`
-    : "Changes";
+  const normalViewHasChanges = worktreeFiles.length > 0 || stagedFiles.length > 0;
+  const headerFileCount = isHistoryView || isStackView ? activeFiles.length : normalViewFileCount;
+  const filesSectionBadge = isHistoryView
+    ? `${historyCommits.length} commits`
+    : isStackView
+      ? `+${insertionCount} -${deletionCount}`
+      : `W ${worktreeFiles.length} S ${stagedFiles.length}`;
+  const filesSectionTitle = isHistoryView
+    ? (selectedHistoryCommit?.shortSha ?? "History")
+    : isStackView
+      ? `${activeFiles.length} changed ${activeFiles.length === 1 ? "file" : "files"}`
+      : "Changes";
   const isDiffFetching =
-    (isStackView ? stackQuery.isFetching : worktreeQuery.isFetching) ||
-    (!isStackView && stagedQuery.isFetching) ||
+    (isHistoryView
+      ? historyQuery.isFetching || historyFilesQuery.isFetching
+      : isStackView
+        ? stackQuery.isFetching
+        : worktreeQuery.isFetching) ||
+    (!isStackView && !isHistoryView && stagedQuery.isFetching) ||
     selectedFileQuery.isFetching;
-  const activeFileIndexError = isStackView
-    ? stackQuery.error
-    : (worktreeQuery.error ?? stagedQuery.error);
+  const activeFileIndexError = isHistoryView
+    ? (historyQuery.error ?? historyFilesQuery.error)
+    : isStackView
+      ? stackQuery.error
+      : (worktreeQuery.error ?? stagedQuery.error);
   const baseRef = stackQuery.data?.baseRef ?? activeChangeRequest?.baseRefName ?? null;
   const stackSidebarItems = useMemo<readonly GitDiffStackSidebarItem[]>(() => {
     if (stackSteps.length === 0 || baseRef === null) return [];
@@ -1615,17 +1846,78 @@ export function GitDiffWorkbench(props: {
   );
 
   const stackViewSelectable = activeChangeRequest !== null && stackSteps.length > 0;
+  const commitActionPending =
+    runStackedActionMutation.isPending || amendStagedChangesMutation.isPending;
+  const historyActionPending = revertCommitMutation.isPending || cherryPickCommitMutation.isPending;
+  const operationActionPending =
+    continueOperationMutation.isPending || abortOperationMutation.isPending;
+  const gitActionPending =
+    commitActionPending || historyActionPending || operationActionPending || pullMutation.isPending;
   const fileActionPending =
     stageWorktreeChangesMutation.isPending ||
     unstageStagedChangesMutation.isPending ||
-    discardWorktreeChangesMutation.isPending;
+    discardWorktreeChangesMutation.isPending ||
+    amendStagedChangesMutation.isPending ||
+    historyActionPending ||
+    operationActionPending ||
+    createStashMutation.isPending ||
+    applyStashMutation.isPending ||
+    popStashMutation.isPending ||
+    dropStashMutation.isPending ||
+    pullMutation.isPending;
   const worktreeActionDisabled = isStackView || worktreeFiles.length === 0 || fileActionPending;
   const unstageActionDisabled = isStackView || stagedFiles.length === 0 || fileActionPending;
+  const stashActionDisabled = isStackView || !normalViewHasChanges || fileActionPending;
   const commitDisabled =
+    isStackView || committableStagedFilePaths.length === 0 || fileActionPending || gitActionPending;
+  const amendDisabled = commitDisabled;
+  const pullDisabled =
     isStackView ||
-    committableStagedFilePaths.length === 0 ||
-    fileActionPending ||
-    runStackedActionMutation.isPending;
+    gitStatus.data?.branch === null ||
+    gitStatus.data?.hasUpstream !== true ||
+    gitActionPending;
+  const pullTitle =
+    gitStatus.data?.branch === null
+      ? "Cannot pull from detached HEAD"
+      : gitStatus.data?.hasUpstream === false
+        ? "No upstream branch configured"
+        : gitStatus.data?.behindCount
+          ? `Pull ${gitStatus.data.behindCount} upstream ${gitStatus.data.behindCount === 1 ? "commit" : "commits"}`
+          : "Pull from upstream";
+  const syncBadges = useMemo(() => {
+    const status = gitStatus.data;
+    if (!status || status.branch === null) return [];
+    return [
+      ...(status.behindCount > 0
+        ? [{ key: "behind", label: `↓${status.behindCount}`, title: "Behind upstream" }]
+        : []),
+      ...(status.aheadCount > 0
+        ? [{ key: "ahead", label: `↑${status.aheadCount}`, title: "Ahead of upstream" }]
+        : []),
+    ];
+  }, [gitStatus.data]);
+  const commitDialogFileCount = commitDialogState?.filePaths.length ?? 0;
+  const commitDialogTitle =
+    commitDialogState === null
+      ? "Commit staged changes"
+      : commitDialogState.kind === "amend"
+        ? "Amend last commit"
+        : commitDialogState.scope === "selected_file"
+          ? "Commit selected file"
+          : "Commit staged changes";
+  const commitDialogDescription =
+    commitDialogState === null
+      ? ""
+      : commitDialogState.kind === "amend"
+        ? `${commitDialogFileCount} staged ${commitDialogFileCount === 1 ? "file" : "files"} will amend HEAD.`
+        : commitDialogState.scope === "selected_file"
+          ? `${commitDialogState.filePaths[0] ?? "Selected file"} will be committed.`
+          : `${commitDialogFileCount} files, ${ignoredFilePaths.length} ignored.`;
+  const commitDialogPlaceholder =
+    commitDialogState?.kind === "amend"
+      ? "Leave empty to keep previous message"
+      : "Leave empty to auto-generate";
+  const commitDialogSubmitLabel = commitDialogState?.kind === "amend" ? "Amend" : "Commit";
   const prActionDisabled =
     !isStackView ||
     selectedChangeRequestReference === null ||
@@ -1633,10 +1925,16 @@ export function GitDiffWorkbench(props: {
     closeChangeRequestMutation.isPending;
   const activeFileIndexLoading = isStackView
     ? stackSteps.length === 0 && stackQuery.isLoading
-    : worktreeQuery.isLoading || stagedQuery.isLoading;
-  const filesEmptyMessage = isStackView
-    ? "No files changed in this stack step."
-    : "No tracked working tree changes.";
+    : isHistoryView
+      ? historyQuery.isLoading || historyFilesQuery.isLoading
+      : worktreeQuery.isLoading || stagedQuery.isLoading;
+  const filesEmptyMessage = isHistoryView
+    ? selectedHistoryCommit
+      ? "No files changed in this commit."
+      : "No commits found."
+    : isStackView
+      ? "No files changed in this stack step."
+      : "No tracked working tree changes.";
 
   useEffect(() => {
     if (!cwd) {
@@ -1725,7 +2023,7 @@ export function GitDiffWorkbench(props: {
       return;
     }
     if (selectedPath && activeFiles.some((file) => file.path === selectedPath)) {
-      if (!isStackView && selectedTargetKind !== selectedNormalTargetKind) {
+      if (!isStackView && !isHistoryView && selectedTargetKind !== selectedNormalTargetKind) {
         setSelectedPath(selectedPath, selectedNormalTargetKind);
       }
       return;
@@ -1733,12 +2031,13 @@ export function GitDiffWorkbench(props: {
     if (allowAutoSelectFirstFileRef.current) {
       setSelectedPath(
         activeFiles[0]?.path ?? null,
-        isStackView ? undefined : selectedNormalTargetKind,
+        isStackView || isHistoryView ? undefined : selectedNormalTargetKind,
       );
     }
   }, [
     activeFiles,
     diffViewMode,
+    isHistoryView,
     isStackView,
     selectedNormalTargetKind,
     selectedPath,
@@ -1823,22 +2122,161 @@ export function GitDiffWorkbench(props: {
     );
   }, [discardWorktreeChangesMutation, isStackView, runAction, selectedFile]);
 
-  const handleCommitWorktreeChanges = useCallback(() => {
-    if (committableStagedFilePaths.length === 0) return;
+  const handleCreateStash = useCallback(
+    (filePaths?: readonly string[]) => {
+      if (isStackView) return;
+      const normalizedFilePaths = filePaths
+        ? [...new Set(filePaths)].toSorted((left, right) => left.localeCompare(right))
+        : [];
+      const message =
+        normalizedFilePaths.length === 1
+          ? `Fenrir stash: ${normalizedFilePaths[0]}`
+          : "Fenrir stash";
+
+      void runAction(() =>
+        createStashMutation.mutateAsync({
+          message,
+          ...(normalizedFilePaths.length > 0 ? { filePaths: normalizedFilePaths } : {}),
+        }),
+      );
+    },
+    [createStashMutation, isStackView, runAction],
+  );
+
+  const handleCreateSelectedFileStash = useCallback(() => {
+    if (!selectedFile || isStackView) return;
+    handleCreateStash([selectedFile.path]);
+  }, [handleCreateStash, isStackView, selectedFile]);
+
+  const handleApplyStash = useCallback(
+    (stashRef: string) => {
+      void runAction(() => applyStashMutation.mutateAsync({ ref: stashRef }));
+    },
+    [applyStashMutation, runAction],
+  );
+
+  const handlePopStash = useCallback(
+    (stashRef: string) => {
+      const confirmed =
+        typeof window === "undefined" ||
+        window.confirm(`Pop ${stashRef}? This applies the stash and removes it if successful.`);
+      if (!confirmed) return;
+      void runAction(() => popStashMutation.mutateAsync({ ref: stashRef }));
+    },
+    [popStashMutation, runAction],
+  );
+
+  const handleDropStash = useCallback(
+    (stashRef: string) => {
+      const confirmed =
+        typeof window === "undefined" || window.confirm(`Drop ${stashRef}? This cannot be undone.`);
+      if (!confirmed) return;
+      void runAction(() => dropStashMutation.mutateAsync({ ref: stashRef }));
+    },
+    [dropStashMutation, runAction],
+  );
+
+  const handleRevertSelectedHistoryCommit = useCallback(() => {
+    if (!selectedHistoryCommit) return;
+    const confirmed =
+      typeof window === "undefined" ||
+      window.confirm(`Revert ${selectedHistoryCommit.shortSha}? This creates a new revert commit.`);
+    if (!confirmed) return;
     void runAction(() =>
-      runStackedActionMutation.mutateAsync({
-        actionId: randomUUID(),
-        action: "commit",
-        filePaths: [...committableStagedFilePaths],
-        ...(commitMessage.trim() ? { commitMessage: commitMessage.trim() } : {}),
-      }),
-    ).then((ok) => {
+      revertCommitMutation.mutateAsync({ commitRef: selectedHistoryCommit.sha }),
+    );
+  }, [revertCommitMutation, runAction, selectedHistoryCommit]);
+
+  const handleCherryPickSelectedHistoryCommit = useCallback(() => {
+    if (!selectedHistoryCommit) return;
+    const confirmed =
+      typeof window === "undefined" ||
+      window.confirm(`Cherry-pick ${selectedHistoryCommit.shortSha} onto the current branch?`);
+    if (!confirmed) return;
+    void runAction(() =>
+      cherryPickCommitMutation.mutateAsync({ commitRef: selectedHistoryCommit.sha }),
+    );
+  }, [cherryPickCommitMutation, runAction, selectedHistoryCommit]);
+
+  const handleContinueOperation = useCallback(() => {
+    if (!activeOperation) return;
+    void runAction(() => continueOperationMutation.mutateAsync({}));
+  }, [activeOperation, continueOperationMutation, runAction]);
+
+  const handleAbortOperation = useCallback(() => {
+    if (!activeOperation) return;
+    const confirmed =
+      typeof window === "undefined" ||
+      window.confirm(`Abort ${activeOperation.label.toLowerCase()}?`);
+    if (!confirmed) return;
+    void runAction(() => abortOperationMutation.mutateAsync({}));
+  }, [abortOperationMutation, activeOperation, runAction]);
+
+  const openCommitDialog = useCallback((state: GitDiffCommitDialogState) => {
+    setActionError(null);
+    setCommitMessage("");
+    setCommitDialogState(state);
+  }, []);
+
+  const handleOpenCommitStagedChanges = useCallback(() => {
+    if (committableStagedFilePaths.length === 0) return;
+    openCommitDialog({
+      kind: "commit",
+      scope: "all_staged",
+      filePaths: committableStagedFilePaths,
+    });
+  }, [committableStagedFilePaths, openCommitDialog]);
+
+  const handleOpenAmendStagedChanges = useCallback(() => {
+    if (committableStagedFilePaths.length === 0) return;
+    openCommitDialog({
+      kind: "amend",
+      filePaths: committableStagedFilePaths,
+    });
+  }, [committableStagedFilePaths, openCommitDialog]);
+
+  const handleCommitSelectedFile = useCallback(() => {
+    if (!selectedFile || !selectedStagedFileIsCommittable) return;
+    openCommitDialog({
+      kind: "commit",
+      scope: "selected_file",
+      filePaths: [selectedFile.path],
+    });
+  }, [openCommitDialog, selectedFile, selectedStagedFileIsCommittable]);
+
+  const handleSubmitCommitDialog = useCallback(() => {
+    const state = commitDialogState;
+    if (!state || state.filePaths.length === 0) return;
+    const trimmedCommitMessage = commitMessage.trim();
+    const filePaths = [...state.filePaths];
+    const action =
+      state.kind === "amend"
+        ? () =>
+            amendStagedChangesMutation.mutateAsync({
+              filePaths,
+              ...(trimmedCommitMessage ? { commitMessage: trimmedCommitMessage } : {}),
+            })
+        : () =>
+            runStackedActionMutation.mutateAsync({
+              actionId: randomUUID(),
+              action: "commit",
+              filePaths,
+              ...(trimmedCommitMessage ? { commitMessage: trimmedCommitMessage } : {}),
+            });
+
+    void runAction(action).then((ok) => {
       if (ok) {
-        setIsCommitDialogOpen(false);
+        setCommitDialogState(null);
         setCommitMessage("");
       }
     });
-  }, [commitMessage, committableStagedFilePaths, runAction, runStackedActionMutation]);
+  }, [
+    amendStagedChangesMutation,
+    commitDialogState,
+    commitMessage,
+    runAction,
+    runStackedActionMutation,
+  ]);
 
   const handlePushWorktreeChanges = useCallback(() => {
     void runAction(() =>
@@ -1848,6 +2286,27 @@ export function GitDiffWorkbench(props: {
       }),
     );
   }, [runAction, runStackedActionMutation]);
+
+  const handlePullWorktreeChanges = useCallback(() => {
+    const promise = pullMutation.mutateAsync();
+    toastManager.promise(promise, {
+      loading: { title: "Pulling..." },
+      success: (result) => ({
+        title: result.status === "pulled" ? "Pulled" : "Already up to date",
+        description:
+          result.status === "pulled"
+            ? `Updated ${result.refName} from ${result.upstreamRef ?? "upstream"}.`
+            : `${result.refName} is already synchronized.`,
+      }),
+      error: (error) => ({
+        title: "Pull failed",
+        description: formatError(error),
+      }),
+    });
+    void runAction(async () => {
+      await promise;
+    });
+  }, [pullMutation, runAction]);
 
   const handleCreateIgnoreList = useCallback(() => {
     const name = ignoreListName.trim();
@@ -2031,24 +2490,76 @@ export function GitDiffWorkbench(props: {
     [gitDiffScopeKey, repositoryOptions, selectGitDiffRepository],
   );
 
-  const filesSectionContent = isStackView ? (
-    activeFileIndexLoading ? (
-      <div className="px-3 py-4 text-sm text-muted-foreground">Loading changes...</div>
-    ) : activeFiles.length > 0 ? (
-      <div className="min-h-0 flex-1 px-3 pb-3">
-        <ChangedFilesTree
+  const handleSelectOperationFile = useCallback(
+    (filePath: string) => {
+      allowAutoSelectFirstFileRef.current = true;
+      setCurrentRepositoryState({
+        mode: "worktree",
+        selectedTargetKind: "worktree",
+      });
+      setSelectedPath(filePath, "worktree");
+    },
+    [setCurrentRepositoryState, setSelectedPath],
+  );
+
+  const operationPanel = activeOperation ? (
+    <GitDiffOperationPanel
+      isBusy={operationActionPending}
+      operation={activeOperation}
+      onAbort={handleAbortOperation}
+      onContinue={handleContinueOperation}
+      onSelectFile={handleSelectOperationFile}
+    />
+  ) : null;
+
+  const filesSectionContent = isHistoryView ? (
+    <div className="min-h-0 flex-1 px-3 pb-3">
+      <div className="flex h-full min-h-0 flex-col gap-3">
+        {operationPanel}
+        <GitDiffHistoryPanel
+          commits={historyCommits}
+          isBusy={historyActionPending}
+          isLoading={historyQuery.isLoading}
+          selectedCommitSha={selectedHistoryCommit?.sha ?? null}
+          onCherryPickCommit={handleCherryPickSelectedHistoryCommit}
+          onRevertCommit={handleRevertSelectedHistoryCommit}
+          onSelectCommit={(commitSha) => {
+            allowAutoSelectFirstFileRef.current = true;
+            setSelectedHistoryCommitSha(commitSha);
+          }}
+        />
+        <GitDiffFileGroup
+          emptyLabel={filesEmptyMessage}
           files={activeFiles}
+          isLoading={historyFilesQuery.isLoading}
           selectedPath={selectedPath}
-          fillAvailableHeight
+          title="Commit Files"
           onSelectedPathChange={(path) => handleSelectedPathChange(path)}
         />
       </div>
-    ) : (
-      <div className="px-3 py-4 text-sm text-muted-foreground">{filesEmptyMessage}</div>
-    )
+    </div>
+  ) : isStackView ? (
+    <div className="min-h-0 flex-1 px-3 pb-3">
+      <div className="flex h-full min-h-0 flex-col gap-3">
+        {operationPanel}
+        {activeFileIndexLoading ? (
+          <div className="px-1 py-3 text-sm text-muted-foreground">Loading changes...</div>
+        ) : activeFiles.length > 0 ? (
+          <ChangedFilesTree
+            files={activeFiles}
+            selectedPath={selectedPath}
+            fillAvailableHeight
+            onSelectedPathChange={(path) => handleSelectedPathChange(path)}
+          />
+        ) : (
+          <div className="px-1 py-3 text-sm text-muted-foreground">{filesEmptyMessage}</div>
+        )}
+      </div>
+    </div>
   ) : (
     <div className="min-h-0 flex-1 px-3 pb-3">
       <div className="flex h-full min-h-0 flex-col gap-3">
+        {operationPanel}
         <GitDiffFileGroup
           action={
             <Button
@@ -2103,6 +2614,14 @@ export function GitDiffWorkbench(props: {
           onCreate={() => setIsIgnoreListDialogOpen(true)}
           onDelete={handleDeleteIgnoreList}
           onUpdateFiles={updateIgnoreListFiles}
+        />
+        <GitDiffStashesPanel
+          isBusy={fileActionPending}
+          isLoading={stashesQuery.isLoading}
+          stashes={stashes}
+          onApply={handleApplyStash}
+          onDrop={handleDropStash}
+          onPop={handlePopStash}
         />
       </div>
     </div>
@@ -2180,6 +2699,11 @@ export function GitDiffWorkbench(props: {
                   cwd={cwd}
                   currentBranch={gitStatus.data?.branch ?? null}
                 />
+                {syncBadges.map((badge) => (
+                  <Badge key={badge.key} size="sm" title={badge.title} variant="secondary">
+                    {badge.label}
+                  </Badge>
+                ))}
               </div>
             </div>
           </div>
@@ -2203,6 +2727,16 @@ export function GitDiffWorkbench(props: {
             {!isStackView ? (
               <div className="flex shrink-0 items-center gap-1">
                 <Button
+                  aria-label="Stash current changes"
+                  disabled={stashActionDisabled}
+                  size="icon-xs"
+                  title="Stash changes"
+                  variant="ghost"
+                  onClick={() => handleCreateStash()}
+                >
+                  <ArchiveIcon />
+                </Button>
+                <Button
                   aria-label="Stage worktree changes"
                   disabled={worktreeActionDisabled}
                   size="icon-xs"
@@ -2218,13 +2752,33 @@ export function GitDiffWorkbench(props: {
                   size="icon-xs"
                   title="Commit staged changes"
                   variant="ghost"
-                  onClick={() => setIsCommitDialogOpen(true)}
+                  onClick={handleOpenCommitStagedChanges}
                 >
                   <GitCommitHorizontalIcon />
                 </Button>
                 <Button
+                  aria-label="Amend last commit"
+                  disabled={amendDisabled}
+                  size="icon-xs"
+                  title="Amend last commit with staged changes"
+                  variant="ghost"
+                  onClick={handleOpenAmendStagedChanges}
+                >
+                  <Undo2Icon />
+                </Button>
+                <Button
+                  aria-label="Pull current branch"
+                  disabled={pullDisabled}
+                  size="icon-xs"
+                  title={pullTitle}
+                  variant="ghost"
+                  onClick={handlePullWorktreeChanges}
+                >
+                  <DownloadIcon />
+                </Button>
+                <Button
                   aria-label="Push current branch"
-                  disabled={runStackedActionMutation.isPending}
+                  disabled={gitActionPending}
                   size="icon-xs"
                   title="Push"
                   variant="ghost"
@@ -2262,11 +2816,13 @@ export function GitDiffWorkbench(props: {
               className="shrink-0 rounded-md border border-border/70 bg-muted/30 p-0.5"
               variant="default"
               size="xs"
-              value={[isStackView ? "stack" : "worktree"]}
+              value={[isHistoryView ? "history" : isStackView ? "stack" : "worktree"]}
               onValueChange={(value) => {
                 const next = value[0];
                 if (next === "stack" && stackViewSelectable) {
                   handleDiffViewModeChange("stack");
+                } else if (next === "history") {
+                  handleDiffViewModeChange("history");
                 } else if (next === "worktree") {
                   handleDiffViewModeChange("worktree");
                 }
@@ -2288,6 +2844,14 @@ export function GitDiffWorkbench(props: {
                 value="stack"
               >
                 <GitBranchIcon className="size-3" />
+              </Toggle>
+              <Toggle
+                aria-label="Show commit history"
+                className="size-6 min-w-6 rounded-[5px] px-0 text-muted-foreground data-pressed:bg-background data-pressed:text-foreground data-pressed:shadow-xs"
+                title="History"
+                value="history"
+              >
+                <HistoryIcon className="size-3" />
               </Toggle>
               <Toggle
                 aria-label="Show normal working tree diff"
@@ -2434,56 +2998,61 @@ export function GitDiffWorkbench(props: {
             onDiffLineNumbersChange={setDiffLineNumbers}
             onDiffRenderModeChange={setDiffRenderMode}
             onDiffWordWrapChange={setDiffWordWrap}
+            canCommitSelectedFile={selectedStagedFileIsCommittable}
+            onCommitSelectedFile={handleCommitSelectedFile}
             onDiscardSelectedFile={handleDiscardSelectedFile}
             onOpenSelectedFile={handleOpenSelectedFile}
             onRevertSelectedLines={handleRevertSelectedLines}
             onStageSelectedFile={handleStageSelectedFile}
+            onStashSelectedFile={handleCreateSelectedFileStash}
             onUnstageSelectedFile={handleUnstageSelectedFile}
             rawDiffFontStyle={rawDiffFontStyle}
             resolvedTheme={resolvedTheme as DiffThemeType}
             reviewThreads={isStackView ? (reviewThreadsQuery.data ?? []) : []}
             selectedFile={selectedFile}
-            selectedTargetKind={isStackView ? null : selectedNormalTargetKind}
+            selectedTargetKind={isStackView || isHistoryView ? null : selectedNormalTargetKind}
             syntaxTheme={syntaxTheme}
             title={
-              isStackView
-                ? selectedStackStep
-                  ? formatChangeRequestDirectionLabel({
-                      baseRef: selectedStackStep.baseRef,
-                      headRef: selectedStackStep.headRef,
-                    })
-                  : formatChangeRequestDirectionLabel({
-                      baseRef: activeChangeRequest?.baseRefName,
-                      headRef: activeChangeRequest?.headRefName ?? headRef,
-                    })
-                : selectedNormalTargetKind === "staged"
-                  ? "Staged changes"
-                  : "Working tree"
+              isHistoryView
+                ? selectedHistoryCommit
+                  ? `${selectedHistoryCommit.shortSha} ${selectedHistoryCommit.subject}`
+                  : "History"
+                : isStackView
+                  ? selectedStackStep
+                    ? formatChangeRequestDirectionLabel({
+                        baseRef: selectedStackStep.baseRef,
+                        headRef: selectedStackStep.headRef,
+                      })
+                    : formatChangeRequestDirectionLabel({
+                        baseRef: activeChangeRequest?.baseRefName,
+                        headRef: activeChangeRequest?.headRefName ?? headRef,
+                      })
+                  : selectedNormalTargetKind === "staged"
+                    ? "Staged changes"
+                    : "Working tree"
             }
             isFileActionPending={fileActionPending}
           />
         </div>
       </div>
       <Dialog
-        open={isCommitDialogOpen}
+        open={commitDialogState !== null}
         onOpenChange={(open) => {
-          setIsCommitDialogOpen(open);
           if (!open) {
+            setCommitDialogState(null);
             setCommitMessage("");
           }
         }}
       >
         <DialogPopup>
           <DialogHeader>
-            <DialogTitle>Commit staged changes</DialogTitle>
-            <DialogDescription>
-              {committableStagedFilePaths.length} files, {ignoredFilePaths.length} ignored.
-            </DialogDescription>
+            <DialogTitle>{commitDialogTitle}</DialogTitle>
+            <DialogDescription>{commitDialogDescription}</DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-3">
             <Textarea
               autoFocus
-              placeholder="Leave empty to auto-generate"
+              placeholder={commitDialogPlaceholder}
               size="sm"
               value={commitMessage}
               onChange={(event) => setCommitMessage(event.target.value)}
@@ -2494,18 +3063,20 @@ export function GitDiffWorkbench(props: {
               size="sm"
               variant="outline"
               onClick={() => {
-                setIsCommitDialogOpen(false);
+                setCommitDialogState(null);
                 setCommitMessage("");
               }}
             >
               Cancel
             </Button>
             <Button
-              disabled={commitDisabled || runStackedActionMutation.isPending}
+              disabled={
+                commitDialogState === null || commitDialogFileCount === 0 || commitActionPending
+              }
               size="sm"
-              onClick={handleCommitWorktreeChanges}
+              onClick={handleSubmitCommitDialog}
             >
-              Commit
+              {commitDialogSubmitLabel}
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -2832,6 +3403,262 @@ function GitDiffIgnoreListsPanel(props: {
   );
 }
 
+function GitDiffHistoryPanel(props: {
+  readonly commits: readonly GitDiffCommit[];
+  readonly selectedCommitSha: string | null;
+  readonly isBusy: boolean;
+  readonly isLoading: boolean;
+  readonly onCherryPickCommit: () => void;
+  readonly onRevertCommit: () => void;
+  readonly onSelectCommit: (commitSha: string) => void;
+}) {
+  const actionDisabled = props.selectedCommitSha === null || props.isBusy;
+  return (
+    <section className="min-h-0 shrink-0 overflow-hidden rounded-md border border-border bg-background">
+      <div className="flex h-9 items-center justify-between border-b border-border px-2">
+        <div className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Recent Commits
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            aria-label="Cherry-pick selected commit"
+            disabled={actionDisabled}
+            size="icon-xs"
+            title="Cherry-pick commit"
+            variant="ghost"
+            onClick={props.onCherryPickCommit}
+          >
+            <PlusIcon />
+          </Button>
+          <Button
+            aria-label="Revert selected commit"
+            disabled={actionDisabled}
+            size="icon-xs"
+            title="Revert commit"
+            variant="ghost"
+            onClick={props.onRevertCommit}
+          >
+            <Undo2Icon />
+          </Button>
+          <Badge size="sm" variant="secondary">
+            {props.commits.length}
+          </Badge>
+        </div>
+      </div>
+      <div className="max-h-64 overflow-y-auto p-1">
+        {props.isLoading ? (
+          <div className="px-2 py-3 text-xs text-muted-foreground">Loading commits...</div>
+        ) : props.commits.length === 0 ? (
+          <div className="px-2 py-3 text-xs text-muted-foreground">No commits found.</div>
+        ) : (
+          props.commits.map((commit) => {
+            const selected = commit.sha === props.selectedCommitSha;
+            return (
+              <button
+                key={commit.sha}
+                className={cn(
+                  "flex w-full min-w-0 flex-col gap-1 rounded-md px-2 py-2 text-left text-xs transition-colors hover:bg-muted/60",
+                  selected && "bg-muted text-foreground",
+                )}
+                title={`${commit.shortSha} ${commit.subject}`}
+                type="button"
+                onClick={() => props.onSelectCommit(commit.sha)}
+              >
+                <span className="flex min-w-0 w-full items-center gap-2">
+                  <span className="shrink-0 font-mono text-muted-foreground">
+                    {commit.shortSha}
+                  </span>
+                  <span className="min-w-0 truncate font-medium">{commit.subject}</span>
+                </span>
+                <span className="flex min-w-0 w-full items-center gap-2 text-muted-foreground">
+                  <span className="min-w-0 truncate">{commit.authorName}</span>
+                  <span className="shrink-0">{formatRelativeTimeLabel(commit.authoredAt)}</span>
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+}
+
+function GitDiffOperationPanel(props: {
+  readonly operation: GitDiffRepositoryOperation;
+  readonly isBusy: boolean;
+  readonly onContinue: () => void;
+  readonly onAbort: () => void;
+  readonly onSelectFile: (filePath: string) => void;
+}) {
+  const conflictedFilePaths = props.operation.conflictedFilePaths;
+  const visibleFilePaths = conflictedFilePaths.slice(0, 8);
+  return (
+    <section className="shrink-0 overflow-hidden rounded-md border border-warning/40 bg-warning/8">
+      <div className="flex min-h-9 items-center justify-between gap-2 border-b border-warning/20 px-2 py-1.5">
+        <div className="min-w-0">
+          <div className="truncate text-xs font-semibold uppercase tracking-wide text-warning-foreground">
+            {props.operation.label}
+          </div>
+          {props.operation.headRef ? (
+            <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+              {props.operation.headRef.slice(0, 12)}
+            </div>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Badge size="sm" variant={conflictedFilePaths.length > 0 ? "warning" : "secondary"}>
+            {conflictedFilePaths.length}
+          </Badge>
+          <Button
+            aria-label="Continue Git operation"
+            disabled={props.isBusy}
+            size="xs"
+            title="Continue"
+            variant="ghost"
+            onClick={props.onContinue}
+          >
+            <CheckCircle2Icon className="size-3" />
+            Continue
+          </Button>
+          <Button
+            aria-label="Abort Git operation"
+            disabled={props.isBusy}
+            size="xs"
+            title="Abort"
+            variant="ghost"
+            onClick={props.onAbort}
+          >
+            <XCircleIcon className="size-3" />
+            Abort
+          </Button>
+        </div>
+      </div>
+      {visibleFilePaths.length > 0 ? (
+        <div className="max-h-44 overflow-y-auto p-1">
+          {visibleFilePaths.map((filePath) => (
+            <button
+              key={filePath}
+              className="flex h-7 w-full min-w-0 items-center gap-2 rounded px-2 text-left text-xs hover:bg-warning/12"
+              title={filePath}
+              type="button"
+              onClick={() => props.onSelectFile(filePath)}
+            >
+              <FileTextIcon className="size-3 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate font-mono">{filePath}</span>
+            </button>
+          ))}
+          {conflictedFilePaths.length > visibleFilePaths.length ? (
+            <div className="px-2 py-1 text-xs text-muted-foreground">
+              +{conflictedFilePaths.length - visibleFilePaths.length}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="px-2 py-2 text-xs text-muted-foreground">No unresolved conflicts.</div>
+      )}
+    </section>
+  );
+}
+
+function GitDiffStashesPanel(props: {
+  readonly stashes: readonly GitDiffStash[];
+  readonly isLoading: boolean;
+  readonly isBusy: boolean;
+  readonly onApply: (stashRef: string) => void;
+  readonly onPop: (stashRef: string) => void;
+  readonly onDrop: (stashRef: string) => void;
+}) {
+  return (
+    <section className="shrink-0 rounded-md border border-border/70 bg-muted/20 p-2">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-muted-foreground">Stashes</span>
+        <Badge className="shrink-0" size="sm" variant="outline">
+          {props.stashes.length}
+        </Badge>
+      </div>
+      {props.isLoading ? (
+        <div className="flex h-10 items-center rounded-md border border-dashed border-border px-2 text-xs text-muted-foreground">
+          Loading...
+        </div>
+      ) : props.stashes.length === 0 ? (
+        <div className="flex h-10 items-center rounded-md border border-dashed border-border px-2 text-xs text-muted-foreground">
+          No stashes.
+        </div>
+      ) : (
+        <div className="max-h-52 space-y-2 overflow-auto pr-1">
+          {props.stashes.slice(0, 6).map((stash) => (
+            <div
+              key={`${stash.ref}:${stash.sha}`}
+              className="rounded-md border border-border/70 bg-background/70 p-2"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                      {stash.ref}
+                    </span>
+                    {stash.branchName ? (
+                      <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                        {stash.branchName}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-1 truncate text-xs font-medium" title={stash.message}>
+                    {stash.message}
+                  </div>
+                  <div
+                    className="mt-1 truncate text-[11px] text-muted-foreground"
+                    title={stash.createdAt}
+                  >
+                    {stash.createdAt}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    aria-label={`Apply ${stash.ref}`}
+                    disabled={props.isBusy}
+                    size="icon-xs"
+                    title="Apply stash"
+                    variant="ghost"
+                    onClick={() => props.onApply(stash.ref)}
+                  >
+                    <DownloadIcon />
+                  </Button>
+                  <Button
+                    aria-label={`Pop ${stash.ref}`}
+                    disabled={props.isBusy}
+                    size="icon-xs"
+                    title="Pop stash"
+                    variant="ghost"
+                    onClick={() => props.onPop(stash.ref)}
+                  >
+                    <RefreshCwIcon />
+                  </Button>
+                  <Button
+                    aria-label={`Drop ${stash.ref}`}
+                    disabled={props.isBusy}
+                    size="icon-xs"
+                    title="Drop stash"
+                    variant="ghost"
+                    onClick={() => props.onDrop(stash.ref)}
+                  >
+                    <Trash2Icon />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+          {props.stashes.length > 6 ? (
+            <div className="px-1.5 text-[11px] text-muted-foreground">
+              +{props.stashes.length - 6}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function GitDiffFileGroup(props: {
   readonly title: string;
   readonly files: readonly GitDiffFileSummary[];
@@ -3024,7 +3851,10 @@ function GitDiffFileWorkbench(props: {
   readonly isFileActionPending: boolean;
   readonly onCommentSelectedLines: (selection: GitDiffLineSelection) => void;
   readonly onRevertSelectedLines: (selection: GitDiffLineSelection) => void;
+  readonly canCommitSelectedFile: boolean;
+  readonly onCommitSelectedFile: () => void;
   readonly onStageSelectedFile: () => void;
+  readonly onStashSelectedFile: () => void;
   readonly onUnstageSelectedFile: () => void;
   readonly onDiscardSelectedFile: () => void;
   readonly onOpenSelectedFile: () => void;
@@ -3395,6 +4225,16 @@ function GitDiffFileWorkbench(props: {
             </div>
             {props.selectedFile && props.selectedTargetKind ? (
               <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  aria-label="Stash selected file"
+                  disabled={props.isFileActionPending}
+                  size="icon-xs"
+                  title="Stash file"
+                  variant="ghost"
+                  onClick={props.onStashSelectedFile}
+                >
+                  <ArchiveIcon />
+                </Button>
                 {props.selectedTargetKind === "worktree" ? (
                   <>
                     <Button
@@ -3419,16 +4259,28 @@ function GitDiffFileWorkbench(props: {
                     </Button>
                   </>
                 ) : (
-                  <Button
-                    aria-label="Unstage selected file"
-                    disabled={props.isFileActionPending}
-                    size="icon-xs"
-                    title="Unstage file"
-                    variant="ghost"
-                    onClick={props.onUnstageSelectedFile}
-                  >
-                    <Undo2Icon />
-                  </Button>
+                  <>
+                    <Button
+                      aria-label="Commit selected file"
+                      disabled={props.isFileActionPending || !props.canCommitSelectedFile}
+                      size="icon-xs"
+                      title={props.canCommitSelectedFile ? "Commit file" : "File is ignored"}
+                      variant="ghost"
+                      onClick={props.onCommitSelectedFile}
+                    >
+                      <GitCommitHorizontalIcon />
+                    </Button>
+                    <Button
+                      aria-label="Unstage selected file"
+                      disabled={props.isFileActionPending}
+                      size="icon-xs"
+                      title="Unstage file"
+                      variant="ghost"
+                      onClick={props.onUnstageSelectedFile}
+                    >
+                      <Undo2Icon />
+                    </Button>
+                  </>
                 )}
               </div>
             ) : null}

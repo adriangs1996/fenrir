@@ -24,14 +24,23 @@ import type {
   VcsSwitchRefResult,
 } from "./git";
 import type {
+  AmendGitDiffStagedChangesInput,
+  AmendGitDiffStagedChangesResult,
   CommentGitDiffChangeRequestLinesInput,
   CreateGitDiffIgnoreListInput,
+  CreateGitDiffStashInput,
+  CreateGitDiffStashResult,
   DeleteGitDiffIgnoreListInput,
   DiscardGitDiffWorktreeChangesInput,
   DiscardGitDiffWorktreeChangesResult,
   GitDiffActionResult,
   GitDiffChangeRequestReferenceInput,
+  GitDiffCommitActionResult,
+  GitDiffCommitReferenceInput,
   GitDiffMergeChangeRequestInput,
+  GitDiffOperationActionInput,
+  GitDiffOperationActionResult,
+  GitDiffStashReferenceInput,
   LoadActiveChangeRequestStackedDiffFileIndexInput,
   LoadActiveChangeRequestStackedDiffFileIndexResult,
   LoadDiffFileInput,
@@ -42,10 +51,16 @@ import type {
   LoadGitDiffChangeRequestChecksResult,
   LoadGitDiffChangeRequestReviewThreadsInput,
   LoadGitDiffChangeRequestReviewThreadsResult,
+  LoadGitDiffHistoryInput,
+  LoadGitDiffHistoryResult,
   LoadGitDiffIgnoreListsInput,
   LoadGitDiffIgnoreListsResult,
+  LoadGitDiffOperationInput,
+  LoadGitDiffOperationResult,
   LoadGitDiffRepositoriesInput,
   LoadGitDiffRepositoriesResult,
+  LoadGitDiffStashesInput,
+  LoadGitDiffStashesResult,
   LoadStackedDiffFileIndexInput,
   LoadStackedDiffFileIndexResult,
   RevertGitDiffChangeRequestLinesInput,
@@ -947,6 +962,7 @@ export interface EnvironmentApi {
     loadStackedFileIndex: (
       input: LoadStackedDiffFileIndexInput,
     ) => Promise<LoadStackedDiffFileIndexResult>;
+    loadHistory: (input: LoadGitDiffHistoryInput) => Promise<LoadGitDiffHistoryResult>;
     loadIgnoreLists: (input: LoadGitDiffIgnoreListsInput) => Promise<LoadGitDiffIgnoreListsResult>;
     createIgnoreList: (
       input: CreateGitDiffIgnoreListInput,
@@ -966,6 +982,21 @@ export interface EnvironmentApi {
     discardWorktreeChanges: (
       input: DiscardGitDiffWorktreeChangesInput,
     ) => Promise<DiscardGitDiffWorktreeChangesResult>;
+    amendStagedChanges: (
+      input: AmendGitDiffStagedChangesInput,
+    ) => Promise<AmendGitDiffStagedChangesResult>;
+    revertCommit: (input: GitDiffCommitReferenceInput) => Promise<GitDiffCommitActionResult>;
+    cherryPickCommit: (input: GitDiffCommitReferenceInput) => Promise<GitDiffCommitActionResult>;
+    loadOperation: (input: LoadGitDiffOperationInput) => Promise<LoadGitDiffOperationResult>;
+    continueOperation: (
+      input: GitDiffOperationActionInput,
+    ) => Promise<GitDiffOperationActionResult>;
+    abortOperation: (input: GitDiffOperationActionInput) => Promise<GitDiffOperationActionResult>;
+    loadStashes: (input: LoadGitDiffStashesInput) => Promise<LoadGitDiffStashesResult>;
+    createStash: (input: CreateGitDiffStashInput) => Promise<CreateGitDiffStashResult>;
+    applyStash: (input: GitDiffStashReferenceInput) => Promise<GitDiffActionResult>;
+    popStash: (input: GitDiffStashReferenceInput) => Promise<GitDiffActionResult>;
+    dropStash: (input: GitDiffStashReferenceInput) => Promise<GitDiffActionResult>;
     closeChangeRequest: (input: GitDiffChangeRequestReferenceInput) => Promise<GitDiffActionResult>;
     mergeChangeRequest: (input: GitDiffMergeChangeRequestInput) => Promise<GitDiffActionResult>;
     loadChangeRequestChecks: (

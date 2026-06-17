@@ -121,6 +121,17 @@ const DEFAULT_BINDINGS = compile([
     command: "gitDiff.toggle",
   },
   {
+    shortcut: {
+      key: "s",
+      metaKey: true,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      modKey: false,
+    },
+    command: "thread.open",
+  },
+  {
     shortcut: modShortcut("b"),
     command: "sidebar.toggle",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
@@ -330,6 +341,7 @@ describe("shortcutLabelForCommand", () => {
       shortcutLabelForCommand(DEFAULT_BINDINGS, "gitDiff.toggle", "Linux"),
       "Ctrl+G",
     );
+    assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.open", "MacIntel"), "⌘S");
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFavorite", "Linux"),
       "Ctrl+O",
@@ -537,6 +549,23 @@ describe("chat/editor shortcuts", () => {
         platform: "MacIntel",
         context: { terminalFocus: true },
       }),
+    );
+  });
+
+  it("resolves thread.open shortcut across workspace focus", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "s", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "thread.open",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "s", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: true },
+      }),
+      "thread.open",
     );
   });
 });

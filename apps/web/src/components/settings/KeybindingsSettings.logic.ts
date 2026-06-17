@@ -45,6 +45,7 @@ const STATIC_KEYBINDING_COMMAND_SET = new Set<KeybindingCommand>(STATIC_KEYBINDI
 const STATIC_COMMAND_LABELS: Partial<Record<StaticKeybindingCommand, string>> = {
   "editor.toggleChatTab": "Editor: Toggle",
   "gitDiff.toggle": "Git Diff: Toggle",
+  "thread.open": "Thread: Open",
 };
 
 function isStaticKeybindingCommand(command: KeybindingCommand): command is StaticKeybindingCommand {

@@ -1,4 +1,9 @@
-import { RegisteredCustomThemes, registerCustomTheme } from "@pierre/diffs";
+import {
+  AttachedThemes,
+  RegisteredCustomThemes,
+  ResolvedThemes,
+  ResolvingThemes,
+} from "@pierre/diffs";
 import {
   DRACULA_PRO_VARIANTS,
   type DraculaProPalette,
@@ -23,8 +28,40 @@ type TextMateTheme = {
   tokenColors: TokenColor[];
 };
 
+const DRACULA_PRO_ANSI = {
+  brightBlue: "#AA99FF",
+  brightCyan: "#99FFEE",
+  brightGreen: "#A2FF99",
+  brightMagenta: "#FF99CC",
+  brightRed: "#FFAA99",
+  brightYellow: "#FFFF99",
+} as const;
+
 function createDraculaProShikiTheme(variant: DraculaProVariant): TextMateTheme {
   const palette: DraculaProPalette = variant.palette;
+  const syntax = {
+    comment: palette.comment,
+    string: palette.yellow,
+    number: palette.purple,
+    keyword: palette.pink,
+    regexp: palette.red,
+    func: palette.green,
+    method: DRACULA_PRO_ANSI.brightGreen,
+    type: palette.cyan,
+    interface: DRACULA_PRO_ANSI.brightBlue,
+    variable: palette.fg,
+    operator: palette.pink,
+    punctuation: palette.comment,
+    constant: DRACULA_PRO_ANSI.brightBlue,
+    parameter: palette.orange,
+    property: palette.orange,
+    namespace: DRACULA_PRO_ANSI.brightCyan,
+    decorator: DRACULA_PRO_ANSI.brightMagenta,
+    escape: DRACULA_PRO_ANSI.brightRed,
+    invalid: palette.red,
+    tag: palette.cyan,
+    attribute: DRACULA_PRO_ANSI.brightGreen,
+  } as const;
 
   return {
     name: variant.name,
@@ -48,7 +85,7 @@ function createDraculaProShikiTheme(variant: DraculaProVariant): TextMateTheme {
       "editorError.foreground": palette.red,
       "editorGutter.addedBackground": palette.green,
       "editorGutter.deletedBackground": palette.red,
-      "editorGutter.modifiedBackground": palette.purple,
+      "editorGutter.modifiedBackground": palette.orange,
       "editorIndentGuide.activeBackground1": palette.comment,
       "editorIndentGuide.background1": palette.selection,
       "editorInfo.foreground": palette.cyan,
@@ -60,7 +97,7 @@ function createDraculaProShikiTheme(variant: DraculaProVariant): TextMateTheme {
       foreground: palette.comment,
       "gitDecoration.addedResourceForeground": palette.green,
       "gitDecoration.deletedResourceForeground": palette.red,
-      "gitDecoration.modifiedResourceForeground": palette.purple,
+      "gitDecoration.modifiedResourceForeground": palette.orange,
       "input.background": palette.bglight,
       "input.foreground": palette.fg,
       "list.activeSelectionBackground": palette.selection,
@@ -83,13 +120,13 @@ function createDraculaProShikiTheme(variant: DraculaProVariant): TextMateTheme {
       "terminal.ansiBlack": palette.selection,
       "terminal.ansiBlue": palette.purple,
       "terminal.ansiBrightBlack": palette.comment,
-      "terminal.ansiBrightBlue": "#AA99FF",
-      "terminal.ansiBrightCyan": "#99FFEE",
-      "terminal.ansiBrightGreen": "#A2FF99",
-      "terminal.ansiBrightMagenta": "#FF99CC",
-      "terminal.ansiBrightRed": "#FFAA99",
+      "terminal.ansiBrightBlue": DRACULA_PRO_ANSI.brightBlue,
+      "terminal.ansiBrightCyan": DRACULA_PRO_ANSI.brightCyan,
+      "terminal.ansiBrightGreen": DRACULA_PRO_ANSI.brightGreen,
+      "terminal.ansiBrightMagenta": DRACULA_PRO_ANSI.brightMagenta,
+      "terminal.ansiBrightRed": DRACULA_PRO_ANSI.brightRed,
       "terminal.ansiBrightWhite": "#FFFFFF",
-      "terminal.ansiBrightYellow": "#FFFF99",
+      "terminal.ansiBrightYellow": DRACULA_PRO_ANSI.brightYellow,
       "terminal.ansiCyan": palette.cyan,
       "terminal.ansiGreen": palette.green,
       "terminal.ansiMagenta": palette.pink,
@@ -114,38 +151,44 @@ function createDraculaProShikiTheme(variant: DraculaProVariant): TextMateTheme {
           "comment.block.documentation",
         ],
         settings: {
-          foreground: palette.comment,
+          foreground: syntax.comment,
           fontStyle: "italic",
         },
       },
       {
-        scope: [
-          "constant",
-          "constant.numeric",
-          "constant.language",
-          "support.constant",
-          "variable.other.constant",
-        ],
+        scope: ["constant.numeric"],
         settings: {
-          foreground: palette.orange,
+          foreground: syntax.number,
         },
       },
       {
-        scope: ["string", "constant.other.symbol", "constant.other.key"],
+        scope: ["constant", "constant.language", "support.constant", "variable.other.constant"],
         settings: {
-          foreground: palette.green,
+          foreground: syntax.constant,
         },
       },
       {
-        scope: ["string.regexp", "constant.character.escape"],
+        scope: ["string", "constant.other.symbol"],
         settings: {
-          foreground: palette.cyan,
+          foreground: syntax.string,
+        },
+      },
+      {
+        scope: ["string.regexp"],
+        settings: {
+          foreground: syntax.regexp,
+        },
+      },
+      {
+        scope: ["constant.character.escape", "string.escape"],
+        settings: {
+          foreground: syntax.escape,
         },
       },
       {
         scope: ["invalid", "invalid.illegal", "token.error-token"],
         settings: {
-          foreground: palette.red,
+          foreground: syntax.invalid,
         },
       },
       {
@@ -158,18 +201,25 @@ function createDraculaProShikiTheme(variant: DraculaProVariant): TextMateTheme {
           "storage.modifier",
         ],
         settings: {
-          foreground: palette.purple,
+          foreground: syntax.keyword,
+        },
+      },
+      {
+        scope: ["keyword.operator"],
+        settings: {
+          foreground: syntax.operator,
         },
       },
       {
         scope: [
-          "keyword.operator",
           "punctuation",
+          "punctuation.definition",
+          "punctuation.section",
           "punctuation.separator",
           "punctuation.terminator",
         ],
         settings: {
-          foreground: palette.pink,
+          foreground: syntax.punctuation,
         },
       },
       {
@@ -180,25 +230,46 @@ function createDraculaProShikiTheme(variant: DraculaProVariant): TextMateTheme {
           "variable.function",
         ],
         settings: {
-          foreground: palette.cyan,
+          foreground: syntax.func,
+        },
+      },
+      {
+        scope: ["entity.name.function.member", "meta.method-call", "support.function.method"],
+        settings: {
+          foreground: syntax.method,
+        },
+      },
+      {
+        scope: ["entity.name.type.interface", "support.type.interface"],
+        settings: {
+          foreground: syntax.interface,
+          fontStyle: "italic",
         },
       },
       {
         scope: [
           "entity.name.type",
-          "entity.other.inherited-class",
           "support.class",
           "support.type",
-          "entity.name.namespace",
+          "entity.other.inherited-class",
+          "storage.type.primitive",
+          "meta.type.annotation",
         ],
         settings: {
-          foreground: palette.purple,
+          foreground: syntax.type,
+          fontStyle: "italic",
+        },
+      },
+      {
+        scope: ["entity.name.namespace", "support.type.namespace", "support.namespace"],
+        settings: {
+          foreground: syntax.namespace,
         },
       },
       {
         scope: ["variable", "support.variable", "meta.definition.variable"],
         settings: {
-          foreground: palette.fg,
+          foreground: syntax.variable,
         },
       },
       {
@@ -209,43 +280,48 @@ function createDraculaProShikiTheme(variant: DraculaProVariant): TextMateTheme {
           "entity.name.variable.parameter",
         ],
         settings: {
-          foreground: palette.orange,
+          foreground: syntax.parameter,
         },
       },
       {
-        scope: ["variable.other.property", "support.variable.property", "meta.object-literal.key"],
+        scope: [
+          "constant.other.key",
+          "variable.other.property",
+          "support.variable.property",
+          "meta.object-literal.key",
+          "meta.object.type variable.other.readwrite",
+          "meta.type.literal variable.other.readwrite",
+          "variable.object.property",
+          "variable.other.object.property",
+          "support.type.property-name",
+          "support.type.vendored.property-name",
+        ],
         settings: {
-          foreground: palette.cyan,
+          foreground: syntax.property,
         },
       },
       {
         scope: ["entity.name.tag", "meta.tag"],
         settings: {
-          foreground: palette.pink,
+          foreground: syntax.tag,
         },
       },
       {
         scope: ["entity.other.attribute-name", "text.html entity.other.attribute-name"],
         settings: {
-          foreground: palette.green,
-        },
-      },
-      {
-        scope: ["support.type.property-name", "support.type.vendored.property-name"],
-        settings: {
-          foreground: palette.cyan,
+          foreground: syntax.attribute,
         },
       },
       {
         scope: ["support.constant.property-value", "meta.property-value"],
         settings: {
-          foreground: palette.orange,
+          foreground: syntax.property,
         },
       },
       {
         scope: ["markup.heading", "markup.heading entity.name"],
         settings: {
-          foreground: palette.yellow,
+          foreground: syntax.string,
           fontStyle: "bold",
         },
       },
@@ -259,7 +335,7 @@ function createDraculaProShikiTheme(variant: DraculaProVariant): TextMateTheme {
       {
         scope: ["markup.italic", "markup.italic punctuation"],
         settings: {
-          foreground: palette.fg,
+          foreground: syntax.string,
           fontStyle: "italic",
         },
       },
@@ -278,7 +354,7 @@ function createDraculaProShikiTheme(variant: DraculaProVariant): TextMateTheme {
       {
         scope: ["markup.changed"],
         settings: {
-          foreground: palette.purple,
+          foreground: palette.orange,
         },
       },
       {
@@ -296,11 +372,13 @@ export const DRACULA_PRO_SHIKI_THEMES = Object.fromEntries(
 ) as Record<DraculaProThemeName, TextMateTheme>;
 
 export function registerDraculaProDiffThemes() {
-  for (const theme of Object.values(DRACULA_PRO_SHIKI_THEMES)) {
-    if (RegisteredCustomThemes.has(theme.name)) {
-      continue;
-    }
-
-    registerCustomTheme(theme.name, async () => theme);
+  for (const [themeName, theme] of Object.entries(DRACULA_PRO_SHIKI_THEMES) as [
+    DraculaProThemeName,
+    TextMateTheme,
+  ][]) {
+    RegisteredCustomThemes.set(themeName, async () => theme);
+    ResolvedThemes.delete(themeName);
+    ResolvingThemes.delete(themeName);
+    AttachedThemes.delete(themeName);
   }
 }

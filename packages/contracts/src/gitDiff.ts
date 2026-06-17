@@ -19,6 +19,11 @@ export const DiffTarget = Schema.Union([
     baseRef: TrimmedNonEmptyString,
     headRef: TrimmedNonEmptyString,
   }),
+  Schema.Struct({
+    kind: Schema.Literal("commit"),
+    commitRef: TrimmedNonEmptyString,
+    parentRef: Schema.NullOr(TrimmedNonEmptyString),
+  }),
 ]);
 export type DiffTarget = typeof DiffTarget.Type;
 
@@ -109,6 +114,26 @@ export const LoadStackedDiffFileIndexResult = Schema.Struct({
 });
 export type LoadStackedDiffFileIndexResult = typeof LoadStackedDiffFileIndexResult.Type;
 
+export const GitDiffCommit = Schema.Struct({
+  sha: TrimmedNonEmptyString,
+  shortSha: TrimmedNonEmptyString,
+  parentSha: Schema.NullOr(TrimmedNonEmptyString),
+  subject: TrimmedNonEmptyString,
+  authorName: TrimmedNonEmptyString,
+  authorEmail: TrimmedNonEmptyString,
+  authoredAt: TrimmedNonEmptyString,
+});
+export type GitDiffCommit = typeof GitDiffCommit.Type;
+
+export const LoadGitDiffHistoryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  limit: Schema.optionalKey(PositiveInt.check(Schema.isLessThanOrEqualTo(200))),
+});
+export type LoadGitDiffHistoryInput = typeof LoadGitDiffHistoryInput.Type;
+
+export const LoadGitDiffHistoryResult = Schema.Array(GitDiffCommit);
+export type LoadGitDiffHistoryResult = typeof LoadGitDiffHistoryResult.Type;
+
 export const LoadActiveChangeRequestStackedDiffFileIndexInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   detectRenames: Schema.Boolean,
@@ -195,6 +220,102 @@ export const DiscardGitDiffWorktreeChangesResult = Schema.Struct({
   discardedFilePaths: Schema.Array(TrimmedNonEmptyString),
 });
 export type DiscardGitDiffWorktreeChangesResult = typeof DiscardGitDiffWorktreeChangesResult.Type;
+
+export const AmendGitDiffStagedChangesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  filePaths: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+  commitMessage: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(10_000))),
+});
+export type AmendGitDiffStagedChangesInput = typeof AmendGitDiffStagedChangesInput.Type;
+
+export const AmendGitDiffStagedChangesResult = Schema.Struct({
+  commitSha: TrimmedNonEmptyString,
+});
+export type AmendGitDiffStagedChangesResult = typeof AmendGitDiffStagedChangesResult.Type;
+
+export const GitDiffCommitReferenceInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  commitRef: TrimmedNonEmptyString,
+});
+export type GitDiffCommitReferenceInput = typeof GitDiffCommitReferenceInput.Type;
+
+export const GitDiffCommitActionResult = Schema.Struct({
+  commitSha: TrimmedNonEmptyString,
+});
+export type GitDiffCommitActionResult = typeof GitDiffCommitActionResult.Type;
+
+export const GitDiffRepositoryOperationKind = Schema.Literals([
+  "merge",
+  "rebase",
+  "cherry_pick",
+  "revert",
+]);
+export type GitDiffRepositoryOperationKind = typeof GitDiffRepositoryOperationKind.Type;
+
+export const GitDiffRepositoryOperation = Schema.Struct({
+  kind: GitDiffRepositoryOperationKind,
+  label: TrimmedNonEmptyString,
+  headRef: Schema.NullOr(TrimmedNonEmptyString),
+  conflictedFilePaths: Schema.Array(TrimmedNonEmptyString),
+});
+export type GitDiffRepositoryOperation = typeof GitDiffRepositoryOperation.Type;
+
+export const LoadGitDiffOperationInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type LoadGitDiffOperationInput = typeof LoadGitDiffOperationInput.Type;
+
+export const LoadGitDiffOperationResult = Schema.Struct({
+  operation: Schema.NullOr(GitDiffRepositoryOperation),
+});
+export type LoadGitDiffOperationResult = typeof LoadGitDiffOperationResult.Type;
+
+export const GitDiffOperationActionInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type GitDiffOperationActionInput = typeof GitDiffOperationActionInput.Type;
+
+export const GitDiffOperationActionResult = Schema.Struct({
+  status: Schema.Literal("ok"),
+  commitSha: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type GitDiffOperationActionResult = typeof GitDiffOperationActionResult.Type;
+
+export const GitDiffStash = Schema.Struct({
+  ref: TrimmedNonEmptyString,
+  sha: TrimmedNonEmptyString,
+  message: TrimmedNonEmptyString,
+  createdAt: TrimmedNonEmptyString,
+  branchName: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type GitDiffStash = typeof GitDiffStash.Type;
+
+export const LoadGitDiffStashesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type LoadGitDiffStashesInput = typeof LoadGitDiffStashesInput.Type;
+
+export const LoadGitDiffStashesResult = Schema.Array(GitDiffStash);
+export type LoadGitDiffStashesResult = typeof LoadGitDiffStashesResult.Type;
+
+export const CreateGitDiffStashInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  message: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(10_000))),
+  filePaths: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+});
+export type CreateGitDiffStashInput = typeof CreateGitDiffStashInput.Type;
+
+export const CreateGitDiffStashResult = Schema.Struct({
+  status: Schema.Literals(["stashed", "skipped_no_changes"]),
+  stash: Schema.NullOr(GitDiffStash),
+});
+export type CreateGitDiffStashResult = typeof CreateGitDiffStashResult.Type;
+
+export const GitDiffStashReferenceInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  ref: TrimmedNonEmptyString,
+});
+export type GitDiffStashReferenceInput = typeof GitDiffStashReferenceInput.Type;
 
 export const GitDiffChangeRequestReferenceInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,

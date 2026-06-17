@@ -32,6 +32,9 @@ export const makeGitDiffRoutes = (deps: { readonly refreshGitStatus: RefreshGitS
         WS_METHODS.gitDiffLoadStackedFileIndex,
         (input) => gitDiffCore.loadStackedDiffFileIndex(input),
       ),
+      [WS_METHODS.gitDiffLoadHistory]: gitDiff.effect(WS_METHODS.gitDiffLoadHistory, (input) =>
+        gitDiffCore.loadHistory(input),
+      ),
       [WS_METHODS.gitDiffLoadIgnoreLists]: gitDiff.effect(
         WS_METHODS.gitDiffLoadIgnoreLists,
         (input) => gitDiffCore.loadIgnoreLists(input),
@@ -68,6 +71,47 @@ export const makeGitDiffRoutes = (deps: { readonly refreshGitStatus: RefreshGitS
           gitDiffCore
             .discardWorktreeChanges(input)
             .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
+      [WS_METHODS.gitDiffAmendStagedChanges]: gitDiff.effect(
+        WS_METHODS.gitDiffAmendStagedChanges,
+        (input) =>
+          gitDiffCore.amendStagedChanges(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
+      [WS_METHODS.gitDiffRevertCommit]: gitDiff.effect(WS_METHODS.gitDiffRevertCommit, (input) =>
+        gitDiffCore.revertCommit(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
+      [WS_METHODS.gitDiffCherryPickCommit]: gitDiff.effect(
+        WS_METHODS.gitDiffCherryPickCommit,
+        (input) =>
+          gitDiffCore.cherryPickCommit(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
+      [WS_METHODS.gitDiffLoadOperation]: gitDiff.effect(WS_METHODS.gitDiffLoadOperation, (input) =>
+        gitDiffCore.loadOperation(input),
+      ),
+      [WS_METHODS.gitDiffContinueOperation]: gitDiff.effect(
+        WS_METHODS.gitDiffContinueOperation,
+        (input) =>
+          gitDiffCore.continueOperation(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
+      [WS_METHODS.gitDiffAbortOperation]: gitDiff.effect(
+        WS_METHODS.gitDiffAbortOperation,
+        (input) =>
+          gitDiffCore.abortOperation(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
+      [WS_METHODS.gitDiffLoadStashes]: gitDiff.effect(WS_METHODS.gitDiffLoadStashes, (input) =>
+        gitDiffCore.loadStashes(input),
+      ),
+      [WS_METHODS.gitDiffCreateStash]: gitDiff.effect(WS_METHODS.gitDiffCreateStash, (input) =>
+        gitDiffCore.createStash(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
+      [WS_METHODS.gitDiffApplyStash]: gitDiff.effect(WS_METHODS.gitDiffApplyStash, (input) =>
+        gitDiffCore.applyStash(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
+      [WS_METHODS.gitDiffPopStash]: gitDiff.effect(WS_METHODS.gitDiffPopStash, (input) =>
+        gitDiffCore.popStash(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
+      [WS_METHODS.gitDiffDropStash]: gitDiff.effect(WS_METHODS.gitDiffDropStash, (input) =>
+        gitDiffCore.dropStash(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
       ),
       [WS_METHODS.gitDiffCloseChangeRequest]: gitDiff.effect(
         WS_METHODS.gitDiffCloseChangeRequest,

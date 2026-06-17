@@ -242,6 +242,7 @@ export interface WsRpcClient {
       typeof WS_METHODS.gitDiffLoadActiveChangeRequestStackedFileIndex
     >;
     readonly loadStackedFileIndex: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadStackedFileIndex>;
+    readonly loadHistory: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadHistory>;
     readonly loadIgnoreLists: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadIgnoreLists>;
     readonly createIgnoreList: RpcUnaryMethod<typeof WS_METHODS.gitDiffCreateIgnoreList>;
     readonly updateIgnoreList: RpcUnaryMethod<typeof WS_METHODS.gitDiffUpdateIgnoreList>;
@@ -251,6 +252,17 @@ export interface WsRpcClient {
     readonly discardWorktreeChanges: RpcUnaryMethod<
       typeof WS_METHODS.gitDiffDiscardWorktreeChanges
     >;
+    readonly amendStagedChanges: RpcUnaryMethod<typeof WS_METHODS.gitDiffAmendStagedChanges>;
+    readonly revertCommit: RpcUnaryMethod<typeof WS_METHODS.gitDiffRevertCommit>;
+    readonly cherryPickCommit: RpcUnaryMethod<typeof WS_METHODS.gitDiffCherryPickCommit>;
+    readonly loadOperation: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadOperation>;
+    readonly continueOperation: RpcUnaryMethod<typeof WS_METHODS.gitDiffContinueOperation>;
+    readonly abortOperation: RpcUnaryMethod<typeof WS_METHODS.gitDiffAbortOperation>;
+    readonly loadStashes: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadStashes>;
+    readonly createStash: RpcUnaryMethod<typeof WS_METHODS.gitDiffCreateStash>;
+    readonly applyStash: RpcUnaryMethod<typeof WS_METHODS.gitDiffApplyStash>;
+    readonly popStash: RpcUnaryMethod<typeof WS_METHODS.gitDiffPopStash>;
+    readonly dropStash: RpcUnaryMethod<typeof WS_METHODS.gitDiffDropStash>;
     readonly closeChangeRequest: RpcUnaryMethod<typeof WS_METHODS.gitDiffCloseChangeRequest>;
     readonly mergeChangeRequest: RpcUnaryMethod<typeof WS_METHODS.gitDiffMergeChangeRequest>;
     readonly loadChangeRequestChecks: RpcUnaryMethod<
@@ -614,6 +626,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         ),
       loadStackedFileIndex: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffLoadStackedFileIndex](input)),
+      loadHistory: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffLoadHistory](input)),
       loadIgnoreLists: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffLoadIgnoreLists](input)),
       createIgnoreList: (input) =>
@@ -628,6 +642,27 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.gitDiffUnstageStagedChanges](input)),
       discardWorktreeChanges: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffDiscardWorktreeChanges](input)),
+      amendStagedChanges: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffAmendStagedChanges](input)),
+      revertCommit: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffRevertCommit](input)),
+      cherryPickCommit: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffCherryPickCommit](input)),
+      loadOperation: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffLoadOperation](input)),
+      continueOperation: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffContinueOperation](input)),
+      abortOperation: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffAbortOperation](input)),
+      loadStashes: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffLoadStashes](input)),
+      createStash: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffCreateStash](input)),
+      applyStash: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffApplyStash](input)),
+      popStash: (input) => transport.request((client) => client[WS_METHODS.gitDiffPopStash](input)),
+      dropStash: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffDropStash](input)),
       closeChangeRequest: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffCloseChangeRequest](input)),
       mergeChangeRequest: (input) =>

@@ -90,6 +90,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "meta+u", command: "globalTerminal.open" },
   { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
   { key: "mod+g", command: "gitDiff.toggle" },
+  { key: "meta+s", command: "thread.open" },
   { key: "mod+b", command: "sidebar.toggle", when: "!terminalFocus" },
   { key: "mod+k", command: "commandPalette.toggle", when: "!terminalFocus" },
   { key: "mod+n", command: "chat.new", when: "!terminalFocus" },

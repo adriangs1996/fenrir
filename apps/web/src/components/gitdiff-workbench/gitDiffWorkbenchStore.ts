@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "~/lib/storage";
 
-export type GitDiffWorkbenchViewMode = "stack" | "worktree";
+export type GitDiffWorkbenchViewMode = "history" | "stack" | "worktree";
 export type GitDiffWorkbenchTargetKind = "worktree" | "staged";
 export type GitDiffWorkbenchRenderMode = "stacked" | "split";
 export type GitDiffWorkbenchLineHighlightMode = "inline" | "none";

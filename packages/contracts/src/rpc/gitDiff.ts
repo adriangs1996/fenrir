@@ -2,14 +2,23 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 
 import { GitCommandError } from "../git";
 import {
+  AmendGitDiffStagedChangesInput,
+  AmendGitDiffStagedChangesResult,
   CommentGitDiffChangeRequestLinesInput,
   CreateGitDiffIgnoreListInput,
+  CreateGitDiffStashInput,
+  CreateGitDiffStashResult,
   DeleteGitDiffIgnoreListInput,
   DiscardGitDiffWorktreeChangesInput,
   DiscardGitDiffWorktreeChangesResult,
   GitDiffActionResult,
   GitDiffChangeRequestReferenceInput,
+  GitDiffCommitActionResult,
+  GitDiffCommitReferenceInput,
   GitDiffMergeChangeRequestInput,
+  GitDiffOperationActionInput,
+  GitDiffOperationActionResult,
+  GitDiffStashReferenceInput,
   LoadActiveChangeRequestStackedDiffFileIndexInput,
   LoadActiveChangeRequestStackedDiffFileIndexResult,
   LoadDiffFileInput,
@@ -20,10 +29,16 @@ import {
   LoadGitDiffChangeRequestChecksResult,
   LoadGitDiffChangeRequestReviewThreadsInput,
   LoadGitDiffChangeRequestReviewThreadsResult,
+  LoadGitDiffHistoryInput,
+  LoadGitDiffHistoryResult,
   LoadGitDiffIgnoreListsInput,
   LoadGitDiffIgnoreListsResult,
+  LoadGitDiffOperationInput,
+  LoadGitDiffOperationResult,
   LoadGitDiffRepositoriesInput,
   LoadGitDiffRepositoriesResult,
+  LoadGitDiffStashesInput,
+  LoadGitDiffStashesResult,
   LoadStackedDiffFileIndexInput,
   LoadStackedDiffFileIndexResult,
   RevertGitDiffChangeRequestLinesInput,
@@ -57,6 +72,12 @@ export const WsGitDiffLoadFileRpc = Rpc.make(WS_METHODS.gitDiffLoadFile, {
 export const WsGitDiffLoadStackedFileIndexRpc = Rpc.make(WS_METHODS.gitDiffLoadStackedFileIndex, {
   payload: LoadStackedDiffFileIndexInput,
   success: LoadStackedDiffFileIndexResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffLoadHistoryRpc = Rpc.make(WS_METHODS.gitDiffLoadHistory, {
+  payload: LoadGitDiffHistoryInput,
+  success: LoadGitDiffHistoryResult,
   error: GitCommandError,
 });
 
@@ -113,6 +134,72 @@ export const WsGitDiffDiscardWorktreeChangesRpc = Rpc.make(
     error: GitCommandError,
   },
 );
+
+export const WsGitDiffAmendStagedChangesRpc = Rpc.make(WS_METHODS.gitDiffAmendStagedChanges, {
+  payload: AmendGitDiffStagedChangesInput,
+  success: AmendGitDiffStagedChangesResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffRevertCommitRpc = Rpc.make(WS_METHODS.gitDiffRevertCommit, {
+  payload: GitDiffCommitReferenceInput,
+  success: GitDiffCommitActionResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffCherryPickCommitRpc = Rpc.make(WS_METHODS.gitDiffCherryPickCommit, {
+  payload: GitDiffCommitReferenceInput,
+  success: GitDiffCommitActionResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffLoadOperationRpc = Rpc.make(WS_METHODS.gitDiffLoadOperation, {
+  payload: LoadGitDiffOperationInput,
+  success: LoadGitDiffOperationResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffContinueOperationRpc = Rpc.make(WS_METHODS.gitDiffContinueOperation, {
+  payload: GitDiffOperationActionInput,
+  success: GitDiffOperationActionResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffAbortOperationRpc = Rpc.make(WS_METHODS.gitDiffAbortOperation, {
+  payload: GitDiffOperationActionInput,
+  success: GitDiffOperationActionResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffLoadStashesRpc = Rpc.make(WS_METHODS.gitDiffLoadStashes, {
+  payload: LoadGitDiffStashesInput,
+  success: LoadGitDiffStashesResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffCreateStashRpc = Rpc.make(WS_METHODS.gitDiffCreateStash, {
+  payload: CreateGitDiffStashInput,
+  success: CreateGitDiffStashResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffApplyStashRpc = Rpc.make(WS_METHODS.gitDiffApplyStash, {
+  payload: GitDiffStashReferenceInput,
+  success: GitDiffActionResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffPopStashRpc = Rpc.make(WS_METHODS.gitDiffPopStash, {
+  payload: GitDiffStashReferenceInput,
+  success: GitDiffActionResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffDropStashRpc = Rpc.make(WS_METHODS.gitDiffDropStash, {
+  payload: GitDiffStashReferenceInput,
+  success: GitDiffActionResult,
+  error: GitCommandError,
+});
 
 export const WsGitDiffCloseChangeRequestRpc = Rpc.make(WS_METHODS.gitDiffCloseChangeRequest, {
   payload: GitDiffChangeRequestReferenceInput,

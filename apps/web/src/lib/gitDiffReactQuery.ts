@@ -1,17 +1,30 @@
 import type {
+  AmendGitDiffStagedChangesInput,
+  AmendGitDiffStagedChangesResult,
   CommentGitDiffChangeRequestLinesInput,
   CreateGitDiffIgnoreListInput,
+  CreateGitDiffStashInput,
+  CreateGitDiffStashResult,
   DiscardGitDiffWorktreeChangesInput,
   DiscardGitDiffWorktreeChangesResult,
   DiffTarget,
   EnvironmentId,
   GitDiffActionResult,
+  GitDiffCommitActionResult,
+  GitDiffCommitReferenceInput,
+  GitDiffCommit,
   GitDiffFileSummary,
   GitDiffIgnoreList,
   GitDiffMergeChangeRequestInput,
+  GitDiffOperationActionInput,
+  GitDiffOperationActionResult,
+  GitDiffStash,
+  GitDiffStashReferenceInput,
   LoadGitDiffChangeRequestReviewThreadsInput,
   LoadGitDiffChangeRequestReviewThreadsResult,
   LoadGitDiffChangeRequestChecksResult,
+  LoadGitDiffHistoryInput,
+  LoadGitDiffOperationResult,
   LoadActiveChangeRequestStackedDiffFileIndexInput,
   LoadActiveChangeRequestStackedDiffFileIndexResult,
   LoadDiffFileInput,
@@ -19,6 +32,7 @@ import type {
   LoadDiffFileResult,
   LoadGitDiffRepositoriesInput,
   LoadGitDiffRepositoriesResult,
+  LoadGitDiffStashesInput,
   LoadStackedDiffFileIndexInput,
   LoadStackedDiffFileIndexResult,
   RevertGitDiffChangeRequestLinesInput,
@@ -42,6 +56,9 @@ function gitDiffTargetQueryKey(target: DiffTarget | null) {
   if (target.kind === "range") {
     return [target.kind, target.baseRef, target.headRef] as const;
   }
+  if (target.kind === "commit") {
+    return [target.kind, target.commitRef, target.parentRef] as const;
+  }
   return [target.kind] as const;
 }
 
@@ -54,6 +71,11 @@ export const gitDiffQueryKeys = {
     cwd: string | null,
     targetKind: GitDiffTargetKind,
   ) => ["git-diff", environmentId, cwd, "file-index", targetKind] as const,
+  targetFileIndex: (
+    environmentId: EnvironmentId | null,
+    cwd: string | null,
+    target: DiffTarget | null,
+  ) => ["git-diff", environmentId, cwd, "file-index", ...gitDiffTargetQueryKey(target)] as const,
   file: (
     environmentId: EnvironmentId | null,
     cwd: string | null,
@@ -78,8 +100,14 @@ export const gitDiffQueryKeys = {
   ) => ["git-diff", environmentId, cwd, "stacked-file-index", baseRef, headRef] as const,
   activeChangeRequestStackedFileIndex: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", environmentId, cwd, "active-change-request-stacked-file-index"] as const,
+  history: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", environmentId, cwd, "history"] as const,
+  operation: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", environmentId, cwd, "operation"] as const,
   ignoreLists: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", environmentId, cwd, "ignore-lists"] as const,
+  stashes: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", environmentId, cwd, "stashes"] as const,
   changeRequestChecks: (
     environmentId: EnvironmentId | null,
     cwd: string | null,
@@ -105,6 +133,24 @@ export const gitDiffMutationKeys = {
     ["git-diff", "mutation", "unstage-staged-changes", environmentId, cwd] as const,
   discardWorktreeChanges: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", "mutation", "discard-worktree-changes", environmentId, cwd] as const,
+  amendStagedChanges: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "amend-staged-changes", environmentId, cwd] as const,
+  revertCommit: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "revert-commit", environmentId, cwd] as const,
+  cherryPickCommit: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "cherry-pick-commit", environmentId, cwd] as const,
+  continueOperation: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "continue-operation", environmentId, cwd] as const,
+  abortOperation: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "abort-operation", environmentId, cwd] as const,
+  createStash: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "create-stash", environmentId, cwd] as const,
+  applyStash: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "apply-stash", environmentId, cwd] as const,
+  popStash: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "pop-stash", environmentId, cwd] as const,
+  dropStash: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "drop-stash", environmentId, cwd] as const,
   closeChangeRequest: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", "mutation", "close-change-request", environmentId, cwd] as const,
   mergeChangeRequest: (environmentId: EnvironmentId | null, cwd: string | null) =>
@@ -157,6 +203,37 @@ export function gitDiffFileIndexQueryOptions(input: {
       return ensureEnvironmentApi(input.environmentId).gitDiff.loadFileIndex(request);
     },
     enabled: input.environmentId !== null && input.cwd !== null,
+    staleTime: 2_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitDiffTargetFileIndexQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly target: DiffTarget | null;
+  readonly enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitDiffQueryKeys.targetFileIndex(input.environmentId, input.cwd, input.target),
+    queryFn: async (): Promise<readonly GitDiffFileSummary[]> => {
+      if (!input.environmentId || !input.cwd || !input.target) {
+        throw new Error("Git diff file index is unavailable.");
+      }
+      const request: LoadDiffFileIndexInput = {
+        cwd: input.cwd,
+        target: input.target,
+        detectRenames: true,
+        detectCopies: true,
+      };
+      return ensureEnvironmentApi(input.environmentId).gitDiff.loadFileIndex(request);
+    },
+    enabled:
+      input.enabled !== false &&
+      input.environmentId !== null &&
+      input.cwd !== null &&
+      input.target !== null,
     staleTime: 2_000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: true,
@@ -269,6 +346,50 @@ export function gitDiffActiveChangeRequestStackedFileIndexQueryOptions(input: {
   });
 }
 
+export function gitDiffHistoryQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly limit?: number;
+}) {
+  return queryOptions({
+    queryKey: gitDiffQueryKeys.history(input.environmentId, input.cwd),
+    queryFn: async (): Promise<readonly GitDiffCommit[]> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git history is unavailable.");
+      }
+      const request: LoadGitDiffHistoryInput = {
+        cwd: input.cwd,
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      };
+      return ensureEnvironmentApi(input.environmentId).gitDiff.loadHistory(request);
+    },
+    enabled: input.environmentId !== null && input.cwd !== null,
+    staleTime: 5_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitDiffOperationQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+}) {
+  return queryOptions({
+    queryKey: gitDiffQueryKeys.operation(input.environmentId, input.cwd),
+    queryFn: async (): Promise<LoadGitDiffOperationResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git operation state is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.loadOperation({ cwd: input.cwd });
+    },
+    enabled: input.environmentId !== null && input.cwd !== null,
+    staleTime: 1_000,
+    refetchInterval: (query) => (query.state.data?.operation ? 2_000 : false),
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+}
+
 export function gitDiffIgnoreListsQueryOptions(input: {
   readonly environmentId: EnvironmentId | null;
   readonly cwd: string | null;
@@ -280,6 +401,28 @@ export function gitDiffIgnoreListsQueryOptions(input: {
         throw new Error("Git diff ignore lists are unavailable.");
       }
       return ensureEnvironmentApi(input.environmentId).gitDiff.loadIgnoreLists({ cwd: input.cwd });
+    },
+    enabled: input.environmentId !== null && input.cwd !== null,
+    staleTime: 5_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitDiffStashesQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+}) {
+  return queryOptions({
+    queryKey: gitDiffQueryKeys.stashes(input.environmentId, input.cwd),
+    queryFn: async (): Promise<readonly GitDiffStash[]> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git stashes are unavailable.");
+      }
+      const request: LoadGitDiffStashesInput = {
+        cwd: input.cwd,
+      };
+      return ensureEnvironmentApi(input.environmentId).gitDiff.loadStashes(request);
     },
     enabled: input.environmentId !== null && input.cwd !== null,
     staleTime: 5_000,
@@ -481,6 +624,216 @@ export function gitDiffDiscardWorktreeChangesMutationOptions(input: {
         throw new Error("Git discard is unavailable.");
       }
       return ensureEnvironmentApi(input.environmentId).gitDiff.discardWorktreeChanges({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffAmendStagedChangesMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.amendStagedChanges(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<AmendGitDiffStagedChangesInput, "cwd">,
+    ): Promise<AmendGitDiffStagedChangesResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git amend is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.amendStagedChanges({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffRevertCommitMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.revertCommit(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<GitDiffCommitReferenceInput, "cwd">,
+    ): Promise<GitDiffCommitActionResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git revert is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.revertCommit({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffCherryPickCommitMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.cherryPickCommit(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<GitDiffCommitReferenceInput, "cwd">,
+    ): Promise<GitDiffCommitActionResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git cherry-pick is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.cherryPickCommit({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffContinueOperationMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.continueOperation(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<GitDiffOperationActionInput, "cwd"> = {},
+    ): Promise<GitDiffOperationActionResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git operation continue is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.continueOperation({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffAbortOperationMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.abortOperation(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<GitDiffOperationActionInput, "cwd"> = {},
+    ): Promise<GitDiffOperationActionResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git operation abort is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.abortOperation({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffCreateStashMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.createStash(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<CreateGitDiffStashInput, "cwd">,
+    ): Promise<CreateGitDiffStashResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git stash creation is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.createStash({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffApplyStashMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.applyStash(input.environmentId, input.cwd),
+    mutationFn: async (args: Omit<GitDiffStashReferenceInput, "cwd">) => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git stash apply is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.applyStash({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffPopStashMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.popStash(input.environmentId, input.cwd),
+    mutationFn: async (args: Omit<GitDiffStashReferenceInput, "cwd">) => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git stash pop is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.popStash({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffDropStashMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.dropStash(input.environmentId, input.cwd),
+    mutationFn: async (args: Omit<GitDiffStashReferenceInput, "cwd">) => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git stash drop is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.dropStash({
         cwd: input.cwd,
         ...args,
       });
