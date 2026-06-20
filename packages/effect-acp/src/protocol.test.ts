@@ -133,6 +133,68 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       }),
   );
 
+  it.effect("drops malformed ACP notifications without terminating the protocol", () =>
+    Effect.gen(function* () {
+      const { stdio, input } = yield* makeInMemoryStdio();
+      const terminated = yield* Ref.make(false);
+      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+        stdio,
+        serverRequestMethods: new Set(),
+        onTermination: () => Ref.set(terminated, true),
+      });
+
+      const notification = yield* Deferred.make<AcpProtocol.AcpIncomingNotification>();
+      yield* transport.incoming.pipe(
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.flatMap((chunk) => Deferred.succeed(notification, chunk[0]!)),
+        Effect.forkScoped,
+      );
+
+      yield* Queue.offer(
+        input,
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: "",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "future-agent-update",
+              value: "schema drift",
+            },
+          },
+        })}\n`,
+      );
+
+      yield* Queue.offer(
+        input,
+        yield* encodeJsonl(SessionUpdateNotification, {
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "plan",
+              entries: [
+                {
+                  content: "Continue after malformed notification",
+                  priority: "high",
+                  status: "in_progress",
+                },
+              ],
+            },
+          },
+        }),
+      );
+
+      const result = yield* Deferred.await(notification).pipe(Effect.timeoutOption("100 millis"));
+      assert.equal(result._tag, "Some");
+      assert.equal(result.value._tag, "SessionUpdate");
+      assert.equal(yield* Ref.get(terminated), false);
+    }),
+  );
+
   it.effect("logs outgoing notifications when logOutgoing is enabled", () =>
     Effect.gen(function* () {
       const { stdio } = yield* makeInMemoryStdio();

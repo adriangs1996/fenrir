@@ -56,6 +56,7 @@ const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("j"), command: "terminal.toggle" },
   { shortcut: modShortcut("d"), command: "diff.toggle" },
   { shortcut: modShortcut("g"), command: "gitDiff.toggle" },
+  { shortcut: modShortcut(","), command: "settings.toggle" },
   {
     shortcut: {
       key: "s",
@@ -117,6 +118,15 @@ describe("isAppShortcut", () => {
 
     it("treats Cmd+G as app shortcut on macOS when bound", () => {
       expect(isAppShortcut(kbd({ key: "g", metaKey: true }), DEFAULT_BINDINGS)).toBe(true);
+    });
+
+    it("treats Cmd+Comma as an app shortcut on macOS when bound", () => {
+      expect(isAppShortcut(kbd({ key: ",", code: "Comma", metaKey: true }), DEFAULT_BINDINGS)).toBe(
+        true,
+      );
+      expect(
+        isAppShortcut(kbd({ key: "Dead", code: "Comma", metaKey: true }), DEFAULT_BINDINGS),
+      ).toBe(true);
     });
 
     it("treats Cmd+S as app shortcut on macOS when bound", () => {

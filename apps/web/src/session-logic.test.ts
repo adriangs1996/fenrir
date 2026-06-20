@@ -683,6 +683,43 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["task-progress", "task-complete"]);
   });
 
+  it("preserves tool image previews in work log entries", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "tool-image",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        summary: "MCP fenrir-browser-lab.browser_lab_screenshot",
+        kind: "tool.completed",
+        payload: {
+          itemType: "mcp_tool_call",
+          images: [
+            {
+              type: "image",
+              id: "thread-1-image-1",
+              name: "browser-lab-screenshot.png",
+              mimeType: "image/png",
+              sizeBytes: 5,
+              previewUrl: "http://127.0.0.1:3000/attachments/thread-1-image-1",
+            },
+          ],
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+
+    expect(entry?.images).toEqual([
+      {
+        type: "image",
+        id: "thread-1-image-1",
+        name: "browser-lab-screenshot.png",
+        mimeType: "image/png",
+        sizeBytes: 5,
+        previewUrl: "http://127.0.0.1:3000/attachments/thread-1-image-1",
+      },
+    ]);
+  });
+
   it("uses payload summary as label for task entries when available", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

@@ -41,6 +41,7 @@ const TERMINAL_DELETE_TO_LINE_START = "\u0015";
 const EVENT_CODE_KEY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   BracketLeft: ["["],
   BracketRight: ["]"],
+  Comma: [","],
   KeyA: ["a"],
   KeyB: ["b"],
   KeyC: ["c"],
@@ -347,6 +348,14 @@ export function isGlobalTerminalOpenShortcut(
   options?: ShortcutMatchOptions,
 ): boolean {
   return matchesCommandShortcut(event, keybindings, "globalTerminal.open", options);
+}
+
+export function isSettingsToggleShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "settings.toggle", options);
 }
 
 export function isDiffToggleShortcut(

@@ -32,6 +32,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { materializeAssistantMarkdownImages } from "../../assistantImageMaterialization.ts";
 import {
   materializeProviderRuntimeImageArtifacts,
+  type ProviderImageArtifactAttachment,
   redactProviderRuntimeImageDataForActivity,
 } from "../../providerImageArtifacts.ts";
 
@@ -116,6 +117,16 @@ function buildContextWindowActivityPayload(
   return event.payload.usage;
 }
 
+function providerToolImagePayload(
+  artifacts: ReadonlyArray<ProviderImageArtifactAttachment>,
+): ReadonlyArray<Record<string, unknown>> {
+  return artifacts.map((artifact) => ({
+    artifactId: artifact.artifactId,
+    uri: artifact.uri,
+    ...artifact.attachment,
+  }));
+}
+
 function normalizeRuntimeTurnState(
   value: string | undefined,
 ): "completed" | "failed" | "interrupted" | "cancelled" {
@@ -169,6 +180,7 @@ function requestKindFromCanonicalRequestType(
 
 function runtimeEventToActivities(
   event: ProviderRuntimeEvent,
+  providerImageArtifacts: ReadonlyArray<ProviderImageArtifactAttachment> = [],
 ): ReadonlyArray<OrchestrationThreadActivity> {
   const maybeSequence = (() => {
     const eventWithSequence = event as ProviderRuntimeEvent & { sessionSequence?: number };
@@ -445,6 +457,7 @@ function runtimeEventToActivities(
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
+      const images = providerToolImagePayload(providerImageArtifacts);
       return [
         {
           id: event.eventId,
@@ -460,6 +473,7 @@ function runtimeEventToActivities(
             ...(event.payload.data !== undefined
               ? { data: redactProviderRuntimeImageDataForActivity(event.payload.data) }
               : {}),
+            ...(images.length > 0 ? { images } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -471,6 +485,7 @@ function runtimeEventToActivities(
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
+      const images = providerToolImagePayload(providerImageArtifacts);
       return [
         {
           id: event.eventId,
@@ -485,6 +500,7 @@ function runtimeEventToActivities(
             ...(event.payload.data !== undefined
               ? { data: redactProviderRuntimeImageDataForActivity(event.payload.data) }
               : {}),
+            ...(images.length > 0 ? { images } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -914,7 +930,7 @@ const make = Effect.fn("make")(function* () {
     const eventTurnId = toTurnId(event.turnId);
     const activeTurnId = thread.session?.activeTurnId ?? null;
 
-    yield* materializeProviderRuntimeImageArtifacts({
+    const providerImageArtifacts = yield* materializeProviderRuntimeImageArtifacts({
       event,
       threadId: thread.id,
       ...(eventTurnId ? { turnId: eventTurnId } : {}),
@@ -1249,7 +1265,7 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
-    const activities = runtimeEventToActivities(event);
+    const activities = runtimeEventToActivities(event, providerImageArtifacts);
     yield* Effect.forEach(activities, (activity) =>
       orchestrationEngine.dispatch({
         type: "thread.activity.append",

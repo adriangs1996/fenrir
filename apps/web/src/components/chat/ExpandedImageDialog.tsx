@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
+import { AuthenticatedImage } from "./AuthenticatedImage";
 import { Button } from "../ui/button";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 
@@ -92,7 +93,7 @@ export const ExpandedImageDialog = memo(function ExpandedImageDialog({
         >
           <XIcon />
         </Button>
-        <img
+        <AuthenticatedImage
           src={item.src}
           alt={item.name}
           className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-border/70 bg-background object-contain shadow-2xl"

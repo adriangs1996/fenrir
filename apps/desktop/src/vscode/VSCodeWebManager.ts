@@ -56,6 +56,7 @@ const VSCODE_FENRIR_SHORTCUT_COMMANDS = new Set<KeybindingCommand>([
   "terminal.split",
   "terminal.new",
   "terminal.close",
+  "settings.toggle",
   "diff.toggle",
   "gitDiff.toggle",
   "thread.open",

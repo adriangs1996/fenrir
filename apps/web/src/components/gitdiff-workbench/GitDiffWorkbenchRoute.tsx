@@ -130,6 +130,7 @@ import { openInEmbeddedEditor, openInEmbeddedVSCode } from "~/editorPreferences"
 import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
 import {
   DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS,
+  buildDiffFontUnsafeCSSDeclarations,
   buildPatchCacheKey,
   resolveDiffThemeName,
 } from "~/lib/diffRendering";
@@ -387,6 +388,7 @@ type RenderablePatch =
 
 function buildGitDiffWorkbenchUnsafeCSS(fontFamily: string, fontSize: number): string {
   return `
+:host,
 [data-diffs-header],
 [data-diff],
 [data-file],
@@ -399,8 +401,7 @@ function buildGitDiffWorkbenchUnsafeCSS(fontFamily: string, fontSize: number): s
   --diffs-bg-hover-override: color-mix(in srgb, var(--background) 94%, var(--foreground));
   --diffs-bg-separator-override: color-mix(in srgb, var(--background) 93%, var(--foreground));
   background-color: var(--diffs-bg) !important;
-  font-family: ${fontFamily} !important;
-  font-size: ${fontSize}px !important;
+${buildDiffFontUnsafeCSSDeclarations(fontFamily, fontSize)}
 }
 
 ${DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS}

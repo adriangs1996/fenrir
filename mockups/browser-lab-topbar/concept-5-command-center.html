@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Concept 5 - Command Center</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .topbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 14px;
+        align-items: start;
+        padding: 14px;
+        border-bottom: 1px solid #233246;
+        background: linear-gradient(135deg, rgba(121, 168, 255, 0.08), transparent 36%), #080c12;
+      }
+
+      .command-stack {
+        display: grid;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .command-input {
+        display: grid;
+        grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 8px;
+        min-height: 50px;
+        padding: 6px;
+        border: 1px solid #35495d;
+        border-radius: 12px;
+        background: #05080c;
+      }
+
+      .command-key {
+        display: inline-flex;
+        height: 34px;
+        align-items: center;
+        padding: 0 10px;
+        border: 1px solid #2b3c50;
+        border-radius: 8px;
+        background: #101821;
+        color: #9bb2cc;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 12px;
+      }
+
+      .command-input .url-text {
+        font-size: 14px;
+      }
+
+      .quick-row {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .quick-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 9px;
+        min-height: 42px;
+        padding: 8px 10px;
+        border: 1px solid #253648;
+        border-radius: 8px;
+        background: #0e151d;
+        text-align: left;
+      }
+
+      .quick-card strong,
+      .quick-card span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .quick-card span {
+        color: #7f93aa;
+        font-size: 11px;
+      }
+
+      .control-stack {
+        display: grid;
+        gap: 10px;
+        justify-items: end;
+      }
+
+      .identity {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        min-height: 50px;
+      }
+
+      .identity-title {
+        text-align: right;
+      }
+
+      .identity-title strong,
+      .identity-title span {
+        display: block;
+        white-space: nowrap;
+      }
+
+      .identity-title span {
+        color: #8799ad;
+        font-size: 11px;
+      }
+
+      .avatar {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border: 1px solid #3b5066;
+        border-radius: 10px;
+        background: #111b25;
+        color: #cde2fa;
+        font-weight: 800;
+      }
+
+      .server-panel {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        padding: 8px 14px 14px;
+        border-bottom: 1px solid #1d2a3a;
+        background: #0a0f15;
+      }
+
+      .server-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 48px;
+        padding: 8px 10px;
+        border: 1px solid #263647;
+        border-radius: 8px;
+        background: #101720;
+        text-align: left;
+      }
+
+      .server-card strong,
+      .server-card span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .server-card span {
+        color: #83a2c1;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 11px;
+      }
+
+      .tabs-bottom {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        min-height: 44px;
+        padding: 0 14px;
+        border-bottom: 1px solid #1c2938;
+        background: #080c12;
+        overflow: hidden;
+      }
+
+      .bottom-tab {
+        display: inline-flex;
+        min-width: 140px;
+        height: 30px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 0 10px;
+        border: 1px solid #263647;
+        border-radius: 8px;
+        background: #0e151d;
+        color: #cdd8e6;
+      }
+
+      .bottom-tab.active {
+        border-color: #446481;
+        background: #122032;
+      }
+
+      @media (max-width: 900px) and (min-width: 1px) {
+        .topbar,
+        .server-panel {
+          grid-template-columns: 1fr;
+        }
+
+        .quick-row {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .control-stack {
+          justify-items: stretch;
+        }
+
+        .identity {
+          justify-content: space-between;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="app-frame">
+        <header class="topbar">
+          <div class="command-stack">
+            <div class="command-input">
+              <button class="icon-button" type="button" title="Back">&lt;</button>
+              <button class="icon-button" type="button" title="Forward">&gt;</button>
+              <div class="url-text">http://localhost:8025/view/21qu5sojFQlUpp3KKemmt</div>
+              <span class="command-key">CMD K</span>
+              <button class="icon-button" type="button" title="Reload">R</button>
+            </div>
+            <div class="quick-row">
+              <button class="quick-card" type="button">
+                <span class="dot"></span>
+                <span><strong>Mailpit</strong><span>Active tab</span></span>
+              </button>
+              <button class="quick-card" type="button">
+                <span class="dot"></span>
+                <span><strong>27 servers</strong><span>Localhost index</span></span>
+              </button>
+              <button class="quick-card" type="button">
+                <span class="dot warn"></span>
+                <span><strong>Desktop</strong><span>1440 x 900</span></span>
+              </button>
+              <button class="quick-card" type="button">
+                <span class="dot idle"></span>
+                <span><strong>Admin</strong><span>Profile</span></span>
+              </button>
+            </div>
+          </div>
+          <div class="control-stack">
+            <div class="identity">
+              <div class="identity-title">
+                <strong>Browser Lab</strong>
+                <span>Workbench</span>
+              </div>
+              <div class="avatar">BL</div>
+            </div>
+            <div class="mode-toggle">
+              <button class="active" type="button">Desktop</button>
+              <button type="button">Mobile</button>
+            </div>
+          </div>
+        </header>
+        <section class="server-panel" aria-label="Pinned servers">
+          <button class="server-card" type="button">
+            <span class="dot"></span>
+            <span><strong>Mailpit pid 8025</strong><span>localhost:8025</span></span>
+            <span class="muted">Open</span>
+          </button>
+          <button class="server-card" type="button">
+            <span class="dot"></span>
+            <span><strong>Fenrir pid 7221</strong><span>localhost:3773</span></span>
+            <span class="muted">NE</span>
+          </button>
+          <button class="server-card" type="button">
+            <span class="dot warn"></span>
+            <span><strong>ControlCenter pid 1514</strong><span>localhost:5000</span></span>
+            <span class="muted">NE</span>
+          </button>
+        </section>
+        <nav class="tabs-bottom" aria-label="Open tabs">
+          <button class="bottom-tab active" type="button">
+            <span>Mailpit</span><span>x</span>
+          </button>
+          <button class="bottom-tab" type="button"><span>Fenrir</span><span>x</span></button>
+          <button class="bottom-tab" type="button"><span>Docs</span><span>x</span></button>
+          <button class="icon-button" type="button" title="New tab">+</button>
+        </nav>
+        <main class="work-area">
+          <div class="content-strip">
+            <span><strong>Mailpit</strong> localhost:8025</span>
+            <span class="muted">Desktop viewport, admin profile</span>
+          </div>
+          <section class="mock-page">
+            <h1>Inbox preview</h1>
+            <div class="mock-grid">
+              <div class="mock-card"></div>
+              <div class="mock-card"></div>
+              <div class="mock-card"></div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

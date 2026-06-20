@@ -5,7 +5,11 @@ import ThreadSidebar from "./Sidebar";
 import { RemoteHostSidebar } from "./remote-host/RemoteHostSidebar";
 import { Sidebar, SidebarProvider, SidebarRail, useSidebar } from "./ui/sidebar";
 import { useCommandPaletteStore } from "../commandPaletteStore";
-import { isGlobalTerminalOpenShortcut, isSidebarToggleShortcut } from "../keybindings";
+import {
+  isGlobalTerminalOpenShortcut,
+  isSettingsToggleShortcut,
+  isSidebarToggleShortcut,
+} from "../keybindings";
 import { useServerKeybindings } from "../rpc/serverState";
 import {
   isTerminalFocused,
@@ -18,17 +22,34 @@ const THREAD_SIDEBAR_WIDTH_STORAGE_KEY = "chat_thread_sidebar_width";
 const THREAD_SIDEBAR_MIN_WIDTH = 13 * 16;
 const THREAD_MAIN_CONTENT_MIN_WIDTH = 40 * 16;
 
+export function isSettingsPathname(pathname: string): boolean {
+  return pathname === "/settings" || pathname.startsWith("/settings/");
+}
+
+export function resolveSettingsToggleHref(input: {
+  pathname: string;
+  lastNonSettingsHref: string | null;
+}): string {
+  return isSettingsPathname(input.pathname) ? (input.lastNonSettingsHref ?? "/") : "/settings";
+}
+
 function AppSidebarKeyboardShortcuts() {
   const { toggleSidebar } = useSidebar();
   const navigate = useNavigate();
   const location = useLocation();
   const returnHrefRef = useRef<string | null>(null);
+  const lastNonSettingsHrefRef = useRef<string | null>(
+    isSettingsPathname(location.pathname) ? null : location.href,
+  );
   const commandPaletteOpen = useCommandPaletteStore((state) => state.open);
   const keybindings = useServerKeybindings();
 
   useEffect(() => {
     if (shouldStoreGlobalTerminalReturnHref(location.pathname)) {
       returnHrefRef.current = location.href;
+    }
+    if (!isSettingsPathname(location.pathname)) {
+      lastNonSettingsHrefRef.current = location.href;
     }
   }, [location.href, location.pathname]);
 
@@ -57,6 +78,18 @@ function AppSidebarKeyboardShortcuts() {
         return;
       }
 
+      if (isSettingsToggleShortcut(event, keybindings, { context: shortcutContext })) {
+        event.preventDefault();
+        event.stopPropagation();
+        void navigate({
+          href: resolveSettingsToggleHref({
+            pathname: location.pathname,
+            lastNonSettingsHref: lastNonSettingsHrefRef.current,
+          }),
+        });
+        return;
+      }
+
       if (isSidebarToggleShortcut(event, keybindings, { context: shortcutContext })) {
         event.preventDefault();
         event.stopPropagation();
@@ -76,7 +109,11 @@ function AppSidebarKeyboardShortcuts() {
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
-  const pathname = useLocation({ select: (location) => location.pathname });
+  const location = useLocation();
+  const pathname = location.pathname;
+  const lastNonSettingsHrefRef = useRef<string | null>(
+    isSettingsPathname(pathname) ? null : location.href,
+  );
   const [threadSidebarOpen, setThreadSidebarOpenRaw] = useState(() => {
     try {
       return localStorage.getItem(THREAD_SIDEBAR_COLLAPSED_KEY) !== "true";
@@ -95,6 +132,12 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!isSettingsPathname(pathname)) {
+      lastNonSettingsHrefRef.current = location.href;
+    }
+  }, [location.href, pathname]);
+
+  useEffect(() => {
     const onMenuAction = window.desktopBridge?.onMenuAction;
     if (typeof onMenuAction !== "function") {
       return;
@@ -102,7 +145,12 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
 
     const unsubscribe = onMenuAction((action) => {
       if (action === "open-settings") {
-        void navigate({ to: "/settings" });
+        void navigate({
+          href: resolveSettingsToggleHref({
+            pathname,
+            lastNonSettingsHref: lastNonSettingsHrefRef.current,
+          }),
+        });
         return;
       }
 
@@ -122,7 +170,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     return () => {
       unsubscribe?.();
     };
-  }, [navigate]);
+  }, [navigate, pathname]);
 
   return (
     <SidebarProvider

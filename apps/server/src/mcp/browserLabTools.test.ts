@@ -17,7 +17,7 @@ function toolInputSchema(name: string) {
 
 describe("Browser Lab MCP tools", () => {
   it("declares an input schema for every tool", () => {
-    expect(BROWSER_LAB_MCP_TOOLS).toHaveLength(49);
+    expect(BROWSER_LAB_MCP_TOOLS).toHaveLength(50);
     expect(BROWSER_LAB_MCP_TOOLS.every((entry) => entry.inputSchema)).toBe(true);
   });
 
@@ -137,6 +137,26 @@ describe("Browser Lab MCP tools", () => {
     expect(result.structuredContent).toMatchObject({
       fenrirImageHandles: [
         {
+          name: "browser-lab-screenshot.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+  });
+
+  it("formats stored Browser Lab image handles with their existing artifact id", () => {
+    const result = formatBrowserLabToolResult("browser_lab_open_image", {
+      artifactId: "browser-lab-existing",
+      data: "SGVsbG8=",
+      mimeType: "image/png",
+      name: "browser-lab-screenshot.png",
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      fenrirImageHandles: [
+        {
+          id: "browser-lab-existing",
+          uri: "fenrir-image://browser-lab-existing",
           name: "browser-lab-screenshot.png",
           mimeType: "image/png",
         },

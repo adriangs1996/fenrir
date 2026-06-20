@@ -44,6 +44,7 @@ export interface ShortcutMatchOptions {
 const EVENT_CODE_KEY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   BracketLeft: ["["],
   BracketRight: ["]"],
+  Comma: [","],
   KeyA: ["a"],
   KeyB: ["b"],
   KeyC: ["c"],
@@ -88,6 +89,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
   { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
   { key: "meta+u", command: "globalTerminal.open" },
+  { key: "mod+,", command: "settings.toggle" },
   { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
   { key: "mod+g", command: "gitDiff.toggle" },
   { key: "meta+s", command: "thread.open" },

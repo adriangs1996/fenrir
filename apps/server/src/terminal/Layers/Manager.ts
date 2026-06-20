@@ -57,6 +57,7 @@ const DEFAULT_SUBPROCESS_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS = 128;
 const DEFAULT_OPEN_COLS = 120;
 const DEFAULT_OPEN_ROWS = 30;
+const NOOP: () => void = () => undefined;
 
 interface TerminalStartInput {
   threadId: string;
@@ -114,6 +115,11 @@ type DrainProcessEventAction =
 
 interface TerminalManagerState {
   sessions: Map<string, TerminalSessionState>;
+}
+
+interface ThreadLockEntry {
+  readonly semaphore: Semaphore.Semaphore;
+  readonly users: number;
 }
 
 function snapshot(session: TerminalSessionState): TerminalSessionSnapshot {
@@ -205,7 +211,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
     const managerStateRef = yield* SynchronizedRef.make<TerminalManagerState>({
       sessions: new Map(),
     });
-    const threadLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
+    const threadLocksRef = yield* SynchronizedRef.make(new Map<string, ThreadLockEntry>());
     const terminalEventListeners = new Set<(event: TerminalEvent) => Effect.Effect<void>>();
     const workerScope = yield* Scope.make("sequential");
     yield* Effect.addFinalizer(() => Scope.close(workerScope, Exit.void));
@@ -223,29 +229,73 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
       f: (state: TerminalManagerState) => readonly [A, TerminalManagerState],
     ) => SynchronizedRef.modify(managerStateRef, f);
 
-    const getThreadSemaphore = (threadId: string) =>
+    const threadHasSessions = (threadId: string) =>
+      readManagerState.pipe(
+        Effect.map((state) =>
+          [...state.sessions.values()].some((session) => session.threadId === threadId),
+        ),
+      );
+
+    const acquireThreadLock = (threadId: string) =>
       SynchronizedRef.modifyEffect(threadLocksRef, (current) => {
-        const existing: Option.Option<Semaphore.Semaphore> = Option.fromNullishOr(
+        const existing: Option.Option<ThreadLockEntry> = Option.fromNullishOr(
           current.get(threadId),
         );
         return Option.match(existing, {
           onNone: () =>
             Semaphore.make(1).pipe(
               Effect.map((semaphore) => {
+                const entry: ThreadLockEntry = { semaphore, users: 1 };
                 const next = new Map(current);
-                next.set(threadId, semaphore);
-                return [semaphore, next] as const;
+                next.set(threadId, entry);
+                return [entry, next] as const;
               }),
             ),
-          onSome: (semaphore) => Effect.succeed([semaphore, current] as const),
+          onSome: (entry) => {
+            const nextEntry: ThreadLockEntry = {
+              semaphore: entry.semaphore,
+              users: entry.users + 1,
+            };
+            const next = new Map(current);
+            next.set(threadId, nextEntry);
+            return Effect.succeed([nextEntry, next] as const);
+          },
         });
       });
+
+    const releaseThreadLock = (threadId: string, entry: ThreadLockEntry) =>
+      SynchronizedRef.modifyEffect(threadLocksRef, (current) =>
+        threadHasSessions(threadId).pipe(
+          Effect.map((hasSessions) => {
+            const existing = current.get(threadId);
+            if (!existing || existing.semaphore !== entry.semaphore) {
+              return [undefined, current] as const;
+            }
+
+            const nextUsers = Math.max(0, existing.users - 1);
+            const next = new Map(current);
+            if (nextUsers === 0 && !hasSessions) {
+              next.delete(threadId);
+            } else {
+              next.set(threadId, {
+                semaphore: existing.semaphore,
+                users: nextUsers,
+              });
+            }
+            return [undefined, next] as const;
+          }),
+        ),
+      );
 
     const withThreadLock = <A, E, R>(
       threadId: string,
       effect: Effect.Effect<A, E, R>,
     ): Effect.Effect<A, E, R> =>
-      Effect.flatMap(getThreadSemaphore(threadId), (semaphore) => semaphore.withPermit(effect));
+      Effect.flatMap(acquireThreadLock(threadId), (entry) =>
+        entry.semaphore
+          .withPermit(effect)
+          .pipe(Effect.ensuring(releaseThreadLock(threadId, entry))),
+      );
 
     const assertValidCwd = Effect.fn("terminal.assertValidCwd")(function* (cwd: string) {
       const stats = yield* fileSystem.stat(cwd).pipe(
@@ -577,7 +627,20 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
               startedShell = spawnResult.shellLabel;
 
               const processPid = ptyProcess.pid;
-              const unsubscribeData = ptyProcess.onData((data) => {
+              let unsubscribeData = NOOP;
+              let unsubscribeExit = NOOP;
+
+              yield* modifyManagerState((state) => {
+                session.process = ptyProcess;
+                session.pid = processPid;
+                session.status = "running";
+                session.updatedAt = new Date().toISOString();
+                session.unsubscribeData = () => unsubscribeData();
+                session.unsubscribeExit = () => unsubscribeExit();
+                return [undefined, state] as const;
+              });
+
+              unsubscribeData = ptyProcess.onData((data) => {
                 if (
                   !enqueueProcessEvent(session, processPid, {
                     type: "output",
@@ -588,7 +651,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
                 }
                 runFork(drainProcessEvents(session, processPid));
               });
-              const unsubscribeExit = ptyProcess.onExit((event) => {
+              unsubscribeExit = ptyProcess.onExit((event) => {
                 if (
                   !enqueueProcessEvent(session, processPid, {
                     type: "exit",
@@ -601,12 +664,18 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
               });
 
               yield* modifyManagerState((state) => {
-                session.process = ptyProcess;
-                session.pid = processPid;
-                session.status = "running";
-                session.updatedAt = new Date().toISOString();
-                session.unsubscribeData = unsubscribeData;
-                session.unsubscribeExit = unsubscribeExit;
+                if (
+                  session.process === ptyProcess &&
+                  session.pid === processPid &&
+                  session.status === "running"
+                ) {
+                  session.updatedAt = new Date().toISOString();
+                  session.unsubscribeData = unsubscribeData;
+                  session.unsubscribeExit = unsubscribeExit;
+                } else {
+                  unsubscribeData();
+                  unsubscribeExit();
+                }
                 return [undefined, state] as const;
               });
 
@@ -943,35 +1012,43 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
         }),
       );
 
-    const write: TerminalManagerShape["write"] = Effect.fn("terminal.write")(function* (input) {
-      const terminalId = input.terminalId ?? DEFAULT_TERMINAL_ID;
-      const session = yield* requireSession(input.threadId, terminalId);
-      const process = session.process;
-      if (!process || session.status !== "running") {
-        if (session.status === "exited") return;
-        return yield* new TerminalNotRunningError({
-          threadId: input.threadId,
-          terminalId,
-        });
-      }
-      yield* Effect.sync(() => process.write(input.data));
-    });
+    const write: TerminalManagerShape["write"] = (input) =>
+      withThreadLock(
+        input.threadId,
+        Effect.gen(function* () {
+          const terminalId = input.terminalId ?? DEFAULT_TERMINAL_ID;
+          const session = yield* requireSession(input.threadId, terminalId);
+          const process = session.process;
+          if (!process || session.status !== "running") {
+            if (session.status === "exited") return;
+            return yield* new TerminalNotRunningError({
+              threadId: input.threadId,
+              terminalId,
+            });
+          }
+          yield* Effect.sync(() => process.write(input.data));
+        }),
+      );
 
-    const resize: TerminalManagerShape["resize"] = Effect.fn("terminal.resize")(function* (input) {
-      const terminalId = input.terminalId ?? DEFAULT_TERMINAL_ID;
-      const session = yield* requireSession(input.threadId, terminalId);
-      const process = session.process;
-      if (!process || session.status !== "running") {
-        return yield* new TerminalNotRunningError({
-          threadId: input.threadId,
-          terminalId,
-        });
-      }
-      session.cols = input.cols;
-      session.rows = input.rows;
-      session.updatedAt = new Date().toISOString();
-      yield* Effect.sync(() => process.resize(input.cols, input.rows));
-    });
+    const resize: TerminalManagerShape["resize"] = (input) =>
+      withThreadLock(
+        input.threadId,
+        Effect.gen(function* () {
+          const terminalId = input.terminalId ?? DEFAULT_TERMINAL_ID;
+          const session = yield* requireSession(input.threadId, terminalId);
+          const process = session.process;
+          if (!process || session.status !== "running") {
+            return yield* new TerminalNotRunningError({
+              threadId: input.threadId,
+              terminalId,
+            });
+          }
+          session.cols = input.cols;
+          session.rows = input.rows;
+          session.updatedAt = new Date().toISOString();
+          yield* Effect.sync(() => process.resize(input.cols, input.rows));
+        }),
+      );
 
     const clear: TerminalManagerShape["clear"] = (input) =>
       withThreadLock(

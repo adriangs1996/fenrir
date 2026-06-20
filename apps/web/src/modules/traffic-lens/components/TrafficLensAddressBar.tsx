@@ -1,5 +1,5 @@
 import type { TrafficLensMobilePreset } from "@fenrir/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, ExternalLinkIcon, RotateCw, X as StopIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
@@ -16,7 +16,11 @@ import { normalizeBrowserAddressInput } from "../browserNavigation";
 import { TRAFFIC_LENS_MOBILE_PRESET_OPTIONS } from "../mobilePresets";
 import { useTrafficLensStore } from "../stores/useTrafficLensStore";
 
-export function TrafficLensAddressBar(props: { onOpenExternal?: () => void }) {
+export function TrafficLensAddressBar(props: {
+  className?: string;
+  leadingContent?: ReactNode;
+  onOpenExternal?: () => void;
+}) {
   const activeTabId = useTrafficLensStore((s) => s.activeTabId);
   const activeTab = useTrafficLensStore((s) => (s.activeTabId ? s.tabs[s.activeTabId] : null));
   const [urlInput, setUrlInput] = useState("");
@@ -30,7 +34,19 @@ export function TrafficLensAddressBar(props: { onOpenExternal?: () => void }) {
     }
   }, [activeUrl]);
 
-  if (!activeTabId || !activeTab) return null;
+  const containerClassName = cn(
+    "flex items-center gap-1 border-b bg-background/90 px-2 py-1.5 backdrop-blur-sm",
+    props.className,
+  );
+
+  if (!activeTabId || !activeTab) {
+    return props.leadingContent ? (
+      <div className={containerClassName}>
+        {props.leadingContent}
+        <div className="min-w-0 flex-1" />
+      </div>
+    ) : null;
+  }
 
   const handleNavigate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,7 +86,8 @@ export function TrafficLensAddressBar(props: { onOpenExternal?: () => void }) {
   };
 
   return (
-    <div className="flex items-center gap-1 border-b bg-background/90 px-2 py-1.5 backdrop-blur-sm">
+    <div className={containerClassName}>
+      {props.leadingContent}
       <Button
         variant="ghost"
         size="icon"

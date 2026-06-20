@@ -21,6 +21,7 @@ export interface WsProtocolLifecycleHandlers {
   readonly isActive?: () => boolean;
   readonly onAttempt?: (socketUrl: string) => void;
   readonly onOpen?: () => void;
+  readonly onInboundMessage?: () => void;
   readonly onHeartbeatPong?: () => void;
   readonly onError?: (message: string) => void;
   readonly onClose?: (details: { readonly code: number; readonly reason: string }) => void;
@@ -54,6 +55,7 @@ function defaultLifecycleHandlers(): Required<WsProtocolLifecycleHandlers> {
     isActive: () => true,
     onAttempt: recordWsConnectionAttempt,
     onOpen: recordWsConnectionOpened,
+    onInboundMessage: () => undefined,
     onHeartbeatPong: () => undefined,
     onError: (message) => {
       clearAllTrackedRpcRequests();
@@ -87,6 +89,13 @@ function composeLifecycleHandlers(
       }
       defaults.onOpen();
       handlers?.onOpen?.();
+    },
+    onInboundMessage: () => {
+      if (!isActive()) {
+        return;
+      }
+      defaults.onInboundMessage();
+      handlers?.onInboundMessage?.();
     },
     onHeartbeatPong: () => {
       if (!isActive()) {
@@ -151,6 +160,7 @@ export function createWsRpcProtocolLayer(
         { once: true },
       );
       socket.addEventListener("message", (event) => {
+        lifecycle.onInboundMessage();
         try {
           const message = JSON.parse(String(event.data)) as { readonly _tag?: string };
           if (message._tag === "Pong") {

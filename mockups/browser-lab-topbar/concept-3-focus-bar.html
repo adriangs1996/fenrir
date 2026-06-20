@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Concept 3 - Focus Bar</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .topbar {
+        position: relative;
+        border-bottom: 1px solid #223042;
+        background: linear-gradient(90deg, rgba(22, 199, 132, 0.08), transparent 28%), #090d12;
+      }
+
+      .focus-row {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) minmax(360px, 760px) minmax(220px, 1fr);
+        gap: 14px;
+        align-items: center;
+        min-height: 76px;
+        padding: 0 18px;
+      }
+
+      .brand-lockup {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .brand-lockup .mark {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border: 1px solid #314257;
+        border-radius: 50%;
+        background: #101821;
+        color: #8fd0ff;
+        font-weight: 800;
+      }
+
+      .brand-copy {
+        min-width: 0;
+      }
+
+      .brand-copy strong,
+      .brand-copy span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .brand-copy span {
+        color: #8093aa;
+        font-size: 11px;
+      }
+
+      .center-command {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        min-height: 50px;
+        padding: 5px;
+        border: 1px solid #324559;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent), #05080c;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+      }
+
+      .nav-cluster {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .center-command .url-text {
+        font-size: 14px;
+      }
+
+      .page-state {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding-right: 10px;
+        color: #9fb0c5;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .right-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 9px;
+      }
+
+      .tab-shelf {
+        display: flex;
+        gap: 8px;
+        min-height: 44px;
+        align-items: center;
+        padding: 0 18px 12px;
+        overflow: hidden;
+      }
+
+      .mini-tab {
+        display: inline-flex;
+        min-width: 155px;
+        height: 34px;
+        align-items: center;
+        gap: 8px;
+        padding: 0 11px;
+        border: 1px solid #273647;
+        border-radius: 999px;
+        background: #0d141c;
+        color: #c9d5e4;
+      }
+
+      .mini-tab.active {
+        border-color: #3b5c76;
+        background: #122033;
+      }
+
+      .mini-tab span:last-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .service-popover {
+        position: absolute;
+        right: 18px;
+        top: 86px;
+        width: 520px;
+        max-width: calc(100% - 36px);
+        padding: 10px;
+        border: 1px solid #2a3a4d;
+        border-radius: 12px;
+        background: rgba(9, 14, 20, 0.97);
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.4);
+        z-index: 5;
+      }
+
+      .popover-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 4px 10px;
+      }
+
+      .service-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .service-grid .server-chip {
+        min-width: 0;
+      }
+
+      @media (max-width: 900px) and (min-width: 1px) {
+        .focus-row {
+          grid-template-columns: 1fr;
+          padding: 12px;
+        }
+
+        .right-actions {
+          justify-content: space-between;
+        }
+
+        .service-popover {
+          position: static;
+          width: auto;
+          margin: 0 12px 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="app-frame">
+        <header class="topbar">
+          <div class="focus-row">
+            <div class="brand-lockup">
+              <div class="mark">B</div>
+              <div class="brand-copy">
+                <strong>Mailpit - localhost</strong>
+                <span>Browser Lab Workbench</span>
+              </div>
+            </div>
+            <div class="center-command">
+              <div class="nav-cluster">
+                <button class="icon-button" type="button" title="Back">&lt;</button>
+                <button class="icon-button" type="button" title="Forward">&gt;</button>
+                <button class="icon-button" type="button" title="Reload">R</button>
+              </div>
+              <div class="url-text">http://localhost:8025/view/21qu5sojFQlUpp3KKemmt</div>
+              <div class="page-state"><span class="dot"></span>Live</div>
+            </div>
+            <div class="right-actions">
+              <button class="pill" type="button">Servers <span class="badge">27</span></button>
+              <div class="mode-toggle">
+                <button class="active" type="button">Desktop</button>
+                <button type="button">Mobile</button>
+              </div>
+              <button class="pill" type="button">Admin</button>
+            </div>
+          </div>
+          <nav class="tab-shelf" aria-label="Open tabs">
+            <button class="mini-tab active" type="button">
+              <span class="dot"></span><span>Mailpit</span>
+            </button>
+            <button class="mini-tab" type="button">
+              <span class="dot"></span><span>Fenrir</span>
+            </button>
+            <button class="mini-tab" type="button">
+              <span class="dot warn"></span><span>ControlCenter</span>
+            </button>
+            <button class="mini-tab" type="button">
+              <span class="dot idle"></span><span>Docs</span>
+            </button>
+            <button class="icon-button" type="button" title="New tab">+</button>
+          </nav>
+          <section class="service-popover" aria-label="Local servers">
+            <div class="popover-head">
+              <strong>Local servers</strong>
+              <span class="muted">27 running</span>
+            </div>
+            <div class="service-grid">
+              <button class="server-chip" type="button">
+                <span class="dot"></span>
+                <span><strong>Mailpit</strong><span>localhost:8025</span></span>
+                <span class="muted">Open</span>
+              </button>
+              <button class="server-chip" type="button">
+                <span class="dot"></span>
+                <span><strong>Fenrir</strong><span>localhost:3773</span></span>
+                <span class="muted">NE</span>
+              </button>
+              <button class="server-chip" type="button">
+                <span class="dot warn"></span>
+                <span><strong>ControlCenter</strong><span>localhost:5000</span></span>
+                <span class="muted">NE</span>
+              </button>
+              <button class="server-chip" type="button">
+                <span class="dot"></span>
+                <span><strong>redis-server</strong><span>localhost:6379</span></span>
+                <span class="muted">NE</span>
+              </button>
+            </div>
+          </section>
+        </header>
+        <main class="work-area">
+          <div class="content-strip">
+            <span><strong>Mailpit</strong> localhost:8025</span>
+            <span class="muted">Desktop viewport, admin profile</span>
+          </div>
+          <section class="mock-page">
+            <h1>Inbox preview</h1>
+            <div class="mock-grid">
+              <div class="mock-card"></div>
+              <div class="mock-card"></div>
+              <div class="mock-card"></div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

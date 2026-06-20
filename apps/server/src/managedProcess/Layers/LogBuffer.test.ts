@@ -223,6 +223,34 @@ it.layer(TestLayer)("LogBuffer", (it) => {
         yield* buf.closeAndRotate(id);
       }),
     );
+
+    it.effect("retains only the latest closed snapshot per managed process definition", () =>
+      Effect.gen(function* () {
+        const buf = yield* LogBuffer;
+        const processDefId = "snapshot-retention";
+        const firstId = nextInstanceId();
+        const secondId = nextInstanceId();
+
+        yield* openBuffer(firstId, processDefId);
+        yield* buf.append(firstId, "first-session\n");
+        yield* buf.closeAndRotate(firstId);
+
+        const firstClosed = yield* buf.read(firstId);
+        expect(firstClosed.bytes).toBe("first-session\n");
+
+        yield* openBuffer(secondId, processDefId);
+        yield* buf.append(secondId, "second-session\n");
+        yield* buf.closeAndRotate(secondId);
+
+        const staleFirst = yield* buf.read(firstId);
+        expect(staleFirst.bytes).toBe("");
+        expect(staleFirst.sequenceNumber).toBe(0);
+
+        const latestSecond = yield* buf.read(secondId);
+        expect(latestSecond.bytes).toBe("second-session\n");
+        expect(latestSecond.sequenceNumber).toBe(1);
+      }),
+    );
   });
 
   describe("disk write failure resilience", () => {

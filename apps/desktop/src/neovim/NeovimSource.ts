@@ -93,10 +93,7 @@ function nvimStartupArgs(colorscheme?: string | undefined): string[] {
   }
   args.push("--cmd", "tnoremap <Esc> <C-\\><C-n>");
   if (colorscheme) {
-    args.push(
-      "-c",
-      `lua pcall(vim.cmd.colorscheme, ${JSON.stringify(colorscheme)})`,
-    );
+    args.push("-c", `lua pcall(vim.cmd.colorscheme, ${JSON.stringify(colorscheme)})`);
   }
   return args;
 }
@@ -208,23 +205,15 @@ export class NeovimSource implements SceneSource {
   }
 
   onFenrirEvent(
-    listener: (ev: {
-      __source: string;
-      payload: Record<string, unknown>;
-    }) => void,
+    listener: (ev: { __source: string; payload: Record<string, unknown> }) => void,
   ): () => void {
     this.fenrirEventListeners.push(listener);
     return () => {
-      this.fenrirEventListeners = this.fenrirEventListeners.filter(
-        (l) => l !== listener,
-      );
+      this.fenrirEventListeners = this.fenrirEventListeners.filter((l) => l !== listener);
     };
   }
 
-  private emitFenrirEvent(ev: {
-    __source: string;
-    payload: Record<string, unknown>;
-  }): void {
+  private emitFenrirEvent(ev: { __source: string; payload: Record<string, unknown> }): void {
     for (const l of this.fenrirEventListeners) {
       try {
         l(ev);
@@ -307,19 +296,14 @@ export class NeovimSource implements SceneSource {
    * Invoke a whitelisted Lua bridge function on the embedded nvim.
    * Only `send_selection` is currently allowed to prevent arbitrary Lua injection.
    */
-  private static readonly ALLOWED_BRIDGE_FUNCTIONS = new Set([
-    "send_selection",
-  ]);
+  private static readonly ALLOWED_BRIDGE_FUNCTIONS = new Set(["send_selection"]);
 
   async invokeBridge(fn: string): Promise<void> {
     if (!NeovimSource.ALLOWED_BRIDGE_FUNCTIONS.has(fn)) {
       throw new Error(`invokeBridge: unknown bridge function "${fn}"`);
     }
     if (!this.client || !this.started) return;
-    await this.client.request("nvim_exec_lua", [
-      `return _G.fenrir.private.bridge.${fn}()`,
-      [],
-    ]);
+    await this.client.request("nvim_exec_lua", [`return _G.fenrir.private.bridge.${fn}()`, []]);
   }
 
   async setTheme(selection: NeovimThemeSelection): Promise<void> {
@@ -333,14 +317,9 @@ export class NeovimSource implements SceneSource {
     }
   }
 
-  private async applyThemeSelection(
-    selection = this.themeSelection,
-  ): Promise<void> {
+  private async applyThemeSelection(selection = this.themeSelection): Promise<void> {
     if (!selection || !this.client) return;
-    await this.client.request("nvim_exec_lua", [
-      FENRIR_APPLY_THEME_LUA,
-      [selection.colorscheme],
-    ]);
+    await this.client.request("nvim_exec_lua", [FENRIR_APPLY_THEME_LUA, [selection.colorscheme]]);
   }
 
   /**
@@ -403,14 +382,9 @@ export class NeovimSource implements SceneSource {
     if (this.client) {
       const cols = Math.max(1, Math.floor(this.viewport.w / this.cellW));
       const rows = Math.max(1, Math.floor(this.viewport.h / this.cellH));
-      this.client
-        .request("nvim_ui_try_resize", [cols, rows])
-        .catch((e: unknown) => {
-          console.warn(
-            "[neovimSource] try_resize on metrics change failed:",
-            e,
-          );
-        });
+      this.client.request("nvim_ui_try_resize", [cols, rows]).catch((e: unknown) => {
+        console.warn("[neovimSource] try_resize on metrics change failed:", e);
+      });
     }
     this.flushPending = true;
   }
@@ -421,11 +395,9 @@ export class NeovimSource implements SceneSource {
       const cols = Math.max(1, Math.floor(event.w / this.cellW));
       const rows = Math.max(1, Math.floor(event.h / this.cellH));
       if (this.client) {
-        this.client
-          .request("nvim_ui_try_resize", [cols, rows])
-          .catch((e: unknown) => {
-            console.warn("[neovimSource] try_resize failed:", e);
-          });
+        this.client.request("nvim_ui_try_resize", [cols, rows]).catch((e: unknown) => {
+          console.warn("[neovimSource] try_resize failed:", e);
+        });
       }
       return;
     }
@@ -477,13 +449,8 @@ export class NeovimSource implements SceneSource {
     if (!client || !this.started) return;
     try {
       await Promise.race([
-        client.request("nvim_exec_lua", [
-          "return _G.fenrir.private.session.save()",
-          [],
-        ]),
-        new Promise((resolve) =>
-          setTimeout(() => resolve(false), SESSION_SAVE_TIMEOUT_MS),
-        ),
+        client.request("nvim_exec_lua", ["return _G.fenrir.private.session.save()", []]),
+        new Promise((resolve) => setTimeout(() => resolve(false), SESSION_SAVE_TIMEOUT_MS)),
       ]);
     } catch (err) {
       console.warn("[neovimSource] session save before kill failed:", err);
@@ -500,17 +467,11 @@ export class NeovimSource implements SceneSource {
           .map((p) => Path.join(p, "nvim"))
           .find((p) => FS.existsSync(p)) ?? "nvim";
 
-      const proc = ChildProcess.spawn(
-        nvimBin,
-        nvimStartupArgs(this.themeSelection?.colorscheme),
-        {
-          cwd: this.cwd,
-          stdio: ["pipe", "pipe", "pipe"],
-        },
-      );
-      proc.on("error", (err) =>
-        console.error("[neovimSource] proc error:", err),
-      );
+      const proc = ChildProcess.spawn(nvimBin, nvimStartupArgs(this.themeSelection?.colorscheme), {
+        cwd: this.cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      proc.on("error", (err) => console.error("[neovimSource] proc error:", err));
       proc.on("exit", (code, signal) => {
         console.log("[neovimSource] proc exit:", code, signal);
         this.started = false;
@@ -559,14 +520,8 @@ export class NeovimSource implements SceneSource {
       }
       try {
         ensureSessionDir();
-        await client.request("nvim_set_var", [
-          "fenrir_session_dir",
-          sessionDir(),
-        ]);
-        await client.request("nvim_set_var", [
-          "fenrir_session_hash",
-          sessionHash(this.cwd),
-        ]);
+        await client.request("nvim_set_var", ["fenrir_session_dir", sessionDir()]);
+        await client.request("nvim_set_var", ["fenrir_session_hash", sessionHash(this.cwd)]);
       } catch (e) {
         console.warn("[neovimSource] session vars failed:", e);
       }
@@ -607,10 +562,7 @@ export class NeovimSource implements SceneSource {
         console.warn("[neovimSource] events lua failed:", e);
       }
       try {
-        await client.request("nvim_exec_lua", [
-          "return _G.fenrir.private.session.restore()",
-          [],
-        ]);
+        await client.request("nvim_exec_lua", ["return _G.fenrir.private.session.restore()", []]);
       } catch (e) {
         console.warn("[neovimSource] session restore failed:", e);
       }
@@ -622,17 +574,12 @@ export class NeovimSource implements SceneSource {
 
       this.started = true;
 
-      if (
-        this.viewport.w !== attachViewport.w ||
-        this.viewport.h !== attachViewport.h
-      ) {
+      if (this.viewport.w !== attachViewport.w || this.viewport.h !== attachViewport.h) {
         const newCols = Math.max(1, Math.floor(this.viewport.w / this.cellW));
         const newRows = Math.max(1, Math.floor(this.viewport.h / this.cellH));
-        client
-          .request("nvim_ui_try_resize", [newCols, newRows])
-          .catch((e: unknown) => {
-            console.warn("[neovimSource] post-attach try_resize failed:", e);
-          });
+        client.request("nvim_ui_try_resize", [newCols, newRows]).catch((e: unknown) => {
+          console.warn("[neovimSource] post-attach try_resize failed:", e);
+        });
       }
 
       try {
@@ -670,9 +617,7 @@ export class NeovimSource implements SceneSource {
       if (!action) return;
       this.client
         .request("nvim_input_mouse", ["wheel", action, mod, grid, row, col])
-        .catch((e: unknown) =>
-          console.warn("[neovimSource] mouse wheel failed:", e),
-        );
+        .catch((e: unknown) => console.warn("[neovimSource] mouse wheel failed:", e));
       return;
     }
 
@@ -685,8 +630,7 @@ export class NeovimSource implements SceneSource {
     }
     if (!action) return;
 
-    const button =
-      event.button === 1 ? "middle" : event.button === 2 ? "right" : "left";
+    const button = event.button === 1 ? "middle" : event.button === 2 ? "right" : "left";
     this.client
       .request("nvim_input_mouse", [button, action, mod, grid, row, col])
       .catch((e: unknown) => console.warn("[neovimSource] mouse failed:", e));
@@ -761,12 +705,8 @@ export class NeovimSource implements SceneSource {
 
     if (this.cursorChanged) {
       const mode = this.modeInfo[this.modeIdx];
-      const rawShape =
-        (mode?.["cursor_shape"] as string | undefined) ?? "block";
-      const shape =
-        rawShape === "vertical" || rawShape === "horizontal"
-          ? rawShape
-          : "block";
+      const rawShape = (mode?.["cursor_shape"] as string | undefined) ?? "block";
+      const shape = rawShape === "vertical" || rawShape === "horizontal" ? rawShape : "block";
       const cursorEntry: CursorEntry = {
         gridId: this.cursor.gridId,
         row: this.cursor.row,
@@ -782,8 +722,7 @@ export class NeovimSource implements SceneSource {
           this.cursor.col >= 0 &&
           this.cursor.col < grid.w
         ) {
-          const cp =
-            grid.cellChars[this.cursor.row * grid.w + this.cursor.col]!;
+          const cp = grid.cellChars[this.cursor.row * grid.w + this.cursor.col]!;
           if (cp !== SPACE_CP) cursorEntry.text = String.fromCodePoint(cp);
         }
       }
@@ -797,11 +736,7 @@ export class NeovimSource implements SceneSource {
     return frame;
   }
 
-  private buildGridDelta(
-    gridId: number,
-    grid: Grid,
-    rows: Set<number>,
-  ): GridDelta | null {
+  private buildGridDelta(gridId: number, grid: Grid, rows: Set<number>): GridDelta | null {
     const rowIndexes = new Uint32Array(rows.size);
     let rowCount = 0;
     for (const row of rows) {
@@ -812,19 +747,14 @@ export class NeovimSource implements SceneSource {
     if (rowCount === 0) return null;
 
     const usedRowIndexes =
-      rowCount === rowIndexes.length
-        ? rowIndexes
-        : rowIndexes.slice(0, rowCount);
+      rowCount === rowIndexes.length ? rowIndexes : rowIndexes.slice(0, rowCount);
     const cellChars = new Uint32Array(rowCount * grid.w);
     const cellHl = new Uint32Array(rowCount * grid.w);
     for (let i = 0; i < rowCount; i++) {
       const row = usedRowIndexes[i]!;
       const srcBase = row * grid.w;
       const dstBase = i * grid.w;
-      cellChars.set(
-        grid.cellChars.subarray(srcBase, srcBase + grid.w),
-        dstBase,
-      );
+      cellChars.set(grid.cellChars.subarray(srcBase, srcBase + grid.w), dstBase);
       cellHl.set(grid.cellHl.subarray(srcBase, srcBase + grid.w), dstBase);
     }
 
@@ -890,18 +820,9 @@ export class NeovimSource implements SceneSource {
         const id = args[0] as number;
         const a = (args[1] ?? {}) as Record<string, unknown>;
         const attr: HlAttr = {
-          fg:
-            typeof a["foreground"] === "number"
-              ? (a["foreground"] as number)
-              : undefined,
-          bg:
-            typeof a["background"] === "number"
-              ? (a["background"] as number)
-              : undefined,
-          sp:
-            typeof a["special"] === "number"
-              ? (a["special"] as number)
-              : undefined,
+          fg: typeof a["foreground"] === "number" ? (a["foreground"] as number) : undefined,
+          bg: typeof a["background"] === "number" ? (a["background"] as number) : undefined,
+          sp: typeof a["special"] === "number" ? (a["special"] as number) : undefined,
           bold: !!a["bold"],
           italic: !!a["italic"],
           underline: !!a["underline"],
@@ -921,9 +842,7 @@ export class NeovimSource implements SceneSource {
       }
       case "mode_info_set": {
         const list = args[1];
-        this.modeInfo = Array.isArray(list)
-          ? (list as Array<Record<string, unknown>>)
-          : [];
+        this.modeInfo = Array.isArray(list) ? (list as Array<Record<string, unknown>>) : [];
         this.cursorChanged = true;
         return;
       }
@@ -947,14 +866,8 @@ export class NeovimSource implements SceneSource {
           for (let r = 0; r < copyH; r++) {
             const prevBase = r * existing.w;
             const nextBase = r * w;
-            cellChars.set(
-              existing.cellChars.subarray(prevBase, prevBase + copyW),
-              nextBase,
-            );
-            cellHl.set(
-              existing.cellHl.subarray(prevBase, prevBase + copyW),
-              nextBase,
-            );
+            cellChars.set(existing.cellChars.subarray(prevBase, prevBase + copyW), nextBase);
+            cellHl.set(existing.cellHl.subarray(prevBase, prevBase + copyW), nextBase);
           }
         }
         this.grids.set(id, { id, w, h, cellChars, cellHl });
@@ -1215,19 +1128,12 @@ function printableKeyFromCode(code: string): string | null {
   return PRINTABLE_CODE_KEYS[code] ?? null;
 }
 
-export function domKeyToVimNotation(
-  key: string,
-  code: string,
-  mods: Mods,
-): string | null {
+export function domKeyToVimNotation(key: string, code: string, mods: Mods): string | null {
   const named = NAMED_KEYS[key];
   const codePrintable = printableKeyFromCode(code);
   const isPrintable = !named && key.length === 1;
 
-  if (
-    !named &&
-    (key === "Shift" || key === "Control" || key === "Alt" || key === "Meta")
-  ) {
+  if (!named && (key === "Shift" || key === "Control" || key === "Alt" || key === "Meta")) {
     return null;
   }
   if (!named && !isPrintable && codePrintable === null) return null;
@@ -1248,10 +1154,6 @@ export function domKeyToVimNotation(
 
   const keyPart =
     named ??
-    (mods.alt
-      ? (codePrintable ?? (key === " " ? "Space" : key))
-      : key === " "
-        ? "Space"
-        : key);
+    (mods.alt ? (codePrintable ?? (key === " " ? "Space" : key)) : key === " " ? "Space" : key);
   return `<${prefix}${keyPart}>`;
 }

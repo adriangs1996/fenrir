@@ -20,6 +20,7 @@ describe("KeybindingsSettings.logic", () => {
     expect(commandLabel("editor.toggleChatTab")).toBe("Editor: Toggle");
     expect(commandLabel("editor.runPrompt")).toBe("Editor: Run Prompt");
     expect(commandLabel("gitDiff.toggle")).toBe("Git Diff: Toggle");
+    expect(commandLabel("settings.toggle")).toBe("Settings: Toggle");
     expect(commandLabel("thread.open")).toBe("Thread: Open");
   });
 
@@ -95,6 +96,7 @@ describe("KeybindingsSettings.logic", () => {
     expect(buildKeybindingCommandOptions([])).toContain("editor.toggleChatTab");
     expect(buildKeybindingCommandOptions([])).toContain("editor.runPrompt");
     expect(buildKeybindingCommandOptions([])).toContain("gitDiff.toggle");
+    expect(buildKeybindingCommandOptions([])).toContain("settings.toggle");
     expect(buildKeybindingCommandOptions([])).toContain("thread.open");
   });
 

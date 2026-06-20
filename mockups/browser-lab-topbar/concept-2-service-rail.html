@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Concept 2 - Service Rail</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .topbar {
+        display: grid;
+        grid-template-columns: auto minmax(320px, 1fr) auto;
+        gap: 16px;
+        align-items: center;
+        min-height: 66px;
+        padding: 0 16px;
+        border-bottom: 1px solid #213042;
+        background: #0a0e13;
+      }
+
+      .left-cluster {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .workspace-mark {
+        width: 36px;
+        height: 36px;
+        border: 1px solid #314257;
+        border-radius: 9px;
+        background: linear-gradient(135deg, rgba(89, 199, 216, 0.35), transparent 52%), #121922;
+        color: #d9e8f7;
+        font-weight: 800;
+      }
+
+      .workspace-title {
+        min-width: 0;
+      }
+
+      .workspace-title strong,
+      .workspace-title span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .workspace-title strong {
+        color: #e5edf7;
+        font-size: 13px;
+      }
+
+      .workspace-title span {
+        color: #8194ac;
+        font-size: 11px;
+      }
+
+      .address-bar {
+        display: grid;
+        grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        height: 44px;
+        padding: 0 9px;
+        border: 1px solid #263647;
+        border-radius: 11px;
+        background: #06090d;
+      }
+
+      .right-cluster {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .layout {
+        --rail-width: 332px;
+        position: relative;
+        display: grid;
+        grid-template-columns: var(--rail-width) minmax(0, 1fr);
+        min-height: 640px;
+      }
+
+      .service-rail {
+        position: relative;
+        display: grid;
+        grid-template-rows: minmax(0, 1fr);
+        min-width: 0;
+        border-right: 1px solid #1e2a38;
+        background: linear-gradient(180deg, rgba(230, 180, 80, 0.08), transparent 34%), #0b1016;
+      }
+
+      .rail-expanded {
+        display: grid;
+        grid-template-rows: auto auto auto minmax(0, 1fr);
+        min-height: 0;
+      }
+
+      .rail-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 56px;
+        padding: 0 12px 0 14px;
+        border-bottom: 1px solid #192432;
+      }
+
+      .rail-head-title {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 9px;
+      }
+
+      .rail-head-title strong {
+        overflow: hidden;
+        color: #dce7f4;
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .rail-head-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .rail-tabs {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 4px;
+        margin: 10px 12px 0;
+        padding: 3px;
+        border: 1px solid #243446;
+        border-radius: 9px;
+        background: #070b10;
+      }
+
+      .rail-tab {
+        display: inline-flex;
+        min-width: 0;
+        height: 31px;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border-radius: 7px;
+        background: transparent;
+        color: #8497ae;
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .rail-tab.is-active {
+        background: #142131;
+        color: #eef5fc;
+      }
+
+      .rail-tab .badge {
+        height: 18px;
+        min-width: 22px;
+        background: #1c3045;
+        color: #a9cdf8;
+      }
+
+      .rail-filter {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        height: 40px;
+        margin: 10px 12px 12px;
+        padding: 0 10px;
+        border: 1px solid #263647;
+        border-radius: 8px;
+        background: #070b10;
+      }
+
+      .rail-filter span {
+        color: #6f839b;
+      }
+
+      .search-mark {
+        position: relative;
+        width: 14px;
+        height: 14px;
+        border: 2px solid #6f839b;
+        border-radius: 50%;
+      }
+
+      .search-mark::after {
+        position: absolute;
+        right: -5px;
+        bottom: -4px;
+        width: 7px;
+        height: 2px;
+        border-radius: 999px;
+        background: #6f839b;
+        content: "";
+        transform: rotate(45deg);
+      }
+
+      .rail-search {
+        min-width: 0;
+        height: 100%;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: #cfd9e6;
+      }
+
+      .rail-clear {
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        background: transparent;
+        color: #718398;
+      }
+
+      .rail-content {
+        min-height: 0;
+        overflow: auto;
+        padding: 0 10px 16px;
+      }
+
+      .rail-panel {
+        display: none;
+      }
+
+      .rail-panel.is-active {
+        display: grid;
+        gap: 6px;
+      }
+
+      .rail-section-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 2px 4px;
+        color: #778ba2;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .rail-item {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 48px;
+        padding: 7px 8px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        text-align: left;
+      }
+
+      .rail-item[hidden] {
+        display: none;
+      }
+
+      .rail-item:hover {
+        border-color: #26384c;
+        background: #0f1720;
+      }
+
+      .rail-item.active {
+        border-color: #34506b;
+        background: #111d29;
+      }
+
+      .rail-item strong,
+      .rail-item span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .rail-item span {
+        display: block;
+        margin-top: 2px;
+        color: #7f93aa;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 11px;
+      }
+
+      .rail-item-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: #8ea3bb;
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+
+      .tab-state {
+        width: 8px;
+        height: 8px;
+        flex: 0 0 auto;
+        border-radius: 2px;
+        background: #718096;
+      }
+
+      .tab-state.active {
+        background: #79a8ff;
+        box-shadow: 0 0 0 5px rgba(121, 168, 255, 0.11);
+      }
+
+      .tab-state.dirty {
+        background: #e6b450;
+        box-shadow: 0 0 0 5px rgba(230, 180, 80, 0.11);
+      }
+
+      .empty-state {
+        display: none;
+        padding: 28px 12px;
+        color: #7f93aa;
+        text-align: center;
+      }
+
+      .empty-state.is-visible {
+        display: block;
+      }
+
+      .rail-collapsed {
+        display: none;
+        grid-template-rows: auto auto 1fr auto;
+        justify-items: center;
+        gap: 8px;
+        padding: 12px 8px;
+      }
+
+      .rail-collapsed .icon-button {
+        border-color: #233244;
+        background: #0f151d;
+      }
+
+      .resize-handle {
+        position: absolute;
+        top: 0;
+        right: -4px;
+        z-index: 2;
+        width: 8px;
+        height: 100%;
+        cursor: col-resize;
+      }
+
+      .resize-handle::after {
+        position: absolute;
+        top: 0;
+        right: 3px;
+        width: 1px;
+        height: 100%;
+        background: #2c3b4f;
+        content: "";
+        opacity: 0;
+      }
+
+      .resize-handle:hover::after,
+      .layout.is-resizing .resize-handle::after {
+        opacity: 1;
+      }
+
+      .layout.is-resizing {
+        user-select: none;
+      }
+
+      .layout[data-rail-collapsed="true"] {
+        grid-template-columns: 52px minmax(0, 1fr);
+      }
+
+      .layout[data-rail-collapsed="true"] .rail-expanded,
+      .layout[data-rail-collapsed="true"] .resize-handle {
+        display: none;
+      }
+
+      .layout[data-rail-collapsed="true"] .rail-collapsed {
+        display: grid;
+      }
+
+      .canvas-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 54px;
+        padding: 0 18px;
+        border-bottom: 1px solid #182230;
+      }
+
+      .canvas-head strong {
+        color: #dde8f5;
+      }
+
+      @media (max-width: 760px) and (min-width: 1px) {
+        .topbar {
+          grid-template-columns: 1fr;
+          gap: 8px;
+          padding: 12px;
+        }
+
+        .right-cluster {
+          justify-content: space-between;
+        }
+
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .service-rail {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="app-frame">
+        <header class="topbar">
+          <div class="left-cluster">
+            <button class="workspace-mark" type="button" title="Browser Lab">BL</button>
+            <div class="workspace-title">
+              <strong>Browser Lab</strong>
+              <span>Workbench</span>
+            </div>
+          </div>
+          <div class="address-bar">
+            <button class="icon-button" type="button" title="Back">&lt;</button>
+            <button class="icon-button" type="button" title="Forward">&gt;</button>
+            <button class="icon-button" type="button" title="Reload">R</button>
+            <div class="url-text">http://localhost:8025/view/21qu5sojFQlUpp3KKemmt</div>
+            <button class="icon-button" type="button" title="Open externally">NE</button>
+          </div>
+          <div class="right-cluster">
+            <button class="pill" type="button"><span class="dot"></span>27 activos</button>
+            <div class="mode-toggle">
+              <button class="active" type="button">Desktop</button>
+              <button type="button">Mobile</button>
+            </div>
+            <button class="admin-pill pill" type="button">Admin</button>
+          </div>
+        </header>
+        <div class="layout" id="browser-lab-layout">
+          <aside class="service-rail" aria-label="Browser Lab rail">
+            <div class="rail-expanded">
+              <div class="rail-head">
+                <div class="rail-head-title">
+                  <span class="dot"></span>
+                  <strong id="rail-title">Servidores</strong>
+                </div>
+                <div class="rail-head-actions">
+                  <button
+                    class="icon-button"
+                    type="button"
+                    id="focus-search"
+                    aria-label="Buscar"
+                    title="Buscar"
+                  >
+                    <span class="search-mark"></span>
+                  </button>
+                  <button
+                    class="icon-button"
+                    type="button"
+                    id="collapse-rail"
+                    aria-label="Contraer panel"
+                    title="Contraer panel"
+                  >
+                    &lt;
+                  </button>
+                </div>
+              </div>
+              <div class="rail-tabs" role="tablist" aria-label="Browser Lab sections">
+                <button
+                  class="rail-tab is-active"
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                  data-panel-target="servers"
+                >
+                  Servidores <span class="badge">27</span>
+                </button>
+                <button
+                  class="rail-tab"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  data-panel-target="tabs"
+                >
+                  Tabs abiertas <span class="badge">4</span>
+                </button>
+              </div>
+              <div class="rail-filter">
+                <span class="search-mark" aria-hidden="true"></span>
+                <input
+                  class="rail-search"
+                  id="rail-search"
+                  type="search"
+                  placeholder="Buscar"
+                  autocomplete="off"
+                  aria-label="Buscar servidores o tabs"
+                />
+                <button
+                  class="rail-clear"
+                  type="button"
+                  id="clear-search"
+                  aria-label="Limpiar busqueda"
+                >
+                  x
+                </button>
+              </div>
+              <div class="rail-content">
+                <div class="rail-panel is-active" data-panel="servers" role="tabpanel">
+                  <div class="rail-section-label">
+                    <span>Locales</span>
+                    <span>27</span>
+                  </div>
+                  <button
+                    class="rail-item active"
+                    type="button"
+                    data-filter-text="mailpit localhost 8025 open"
+                  >
+                    <span class="dot"></span>
+                    <span><strong>Mailpit</strong><span>localhost:8025</span></span>
+                    <span class="rail-item-action">Open</span>
+                  </button>
+                  <button class="rail-item" type="button" data-filter-text="fenrir localhost 3773">
+                    <span class="dot"></span>
+                    <span><strong>Fenrir</strong><span>localhost:3773</span></span>
+                    <span class="rail-item-action">NE</span>
+                  </button>
+                  <button
+                    class="rail-item"
+                    type="button"
+                    data-filter-text="controlcenter localhost 5000"
+                  >
+                    <span class="dot warn"></span>
+                    <span><strong>ControlCenter</strong><span>localhost:5000</span></span>
+                    <span class="rail-item-action">NE</span>
+                  </button>
+                  <button
+                    class="rail-item"
+                    type="button"
+                    data-filter-text="redis server localhost 6379"
+                  >
+                    <span class="dot"></span>
+                    <span><strong>redis-server</strong><span>localhost:6379</span></span>
+                    <span class="rail-item-action">NE</span>
+                  </button>
+                  <button class="rail-item" type="button" data-filter-text="raycast localhost 7265">
+                    <span class="dot"></span>
+                    <span><strong>Raycast</strong><span>localhost:7265</span></span>
+                    <span class="rail-item-action">NE</span>
+                  </button>
+                  <button class="rail-item" type="button" data-filter-text="spotify localhost 7768">
+                    <span class="dot idle"></span>
+                    <span><strong>Spotify</strong><span>localhost:7768</span></span>
+                    <span class="rail-item-action">NE</span>
+                  </button>
+                  <div class="empty-state">Sin resultados</div>
+                </div>
+                <div class="rail-panel" data-panel="tabs" role="tabpanel">
+                  <div class="rail-section-label">
+                    <span>Sesion actual</span>
+                    <span>4</span>
+                  </div>
+                  <button
+                    class="rail-item active"
+                    type="button"
+                    data-filter-text="mailpit localhost 8025 admin"
+                  >
+                    <span class="tab-state active"></span>
+                    <span
+                      ><strong>Mailpit - localhost</strong><span>localhost:8025 - Admin</span></span
+                    >
+                    <span class="rail-item-action">x</span>
+                  </button>
+                  <button
+                    class="rail-item"
+                    type="button"
+                    data-filter-text="fenrir localhost 3773 desktop"
+                  >
+                    <span class="tab-state"></span>
+                    <span><strong>Fenrir</strong><span>localhost:3773 - Desktop</span></span>
+                    <span class="rail-item-action">x</span>
+                  </button>
+                  <button
+                    class="rail-item"
+                    type="button"
+                    data-filter-text="controlcenter localhost 5000 mobile"
+                  >
+                    <span class="tab-state dirty"></span>
+                    <span><strong>ControlCenter</strong><span>localhost:5000 - Mobile</span></span>
+                    <span class="rail-item-action">x</span>
+                  </button>
+                  <button class="rail-item" type="button" data-filter-text="docs browser lab">
+                    <span class="tab-state"></span>
+                    <span><strong>Browser Lab Docs</strong><span>docs.local - Default</span></span>
+                    <span class="rail-item-action">x</span>
+                  </button>
+                  <div class="empty-state">Sin resultados</div>
+                </div>
+              </div>
+            </div>
+            <div class="rail-collapsed" aria-label="Panel contraido">
+              <button
+                class="icon-button"
+                type="button"
+                id="expand-rail"
+                aria-label="Expandir panel"
+                title="Expandir panel"
+              >
+                &gt;
+              </button>
+              <button
+                class="icon-button"
+                type="button"
+                data-collapsed-target="servers"
+                aria-label="Servidores"
+              >
+                S
+              </button>
+              <button
+                class="icon-button"
+                type="button"
+                data-collapsed-target="tabs"
+                aria-label="Tabs abiertas"
+              >
+                T
+              </button>
+              <span class="dot"></span>
+            </div>
+            <div class="resize-handle" id="resize-handle" aria-hidden="true"></div>
+          </aside>
+          <main class="work-area">
+            <div class="canvas-head">
+              <strong>Mailpit</strong>
+              <span class="muted">Desktop viewport, admin profile</span>
+            </div>
+            <section class="mock-page">
+              <h1>Inbox preview</h1>
+              <div class="mock-grid">
+                <div class="mock-card"></div>
+                <div class="mock-card"></div>
+                <div class="mock-card"></div>
+              </div>
+            </section>
+          </main>
+        </div>
+      </div>
+    </div>
+    <script>
+      const layout = document.querySelector("#browser-lab-layout");
+      const railTitle = document.querySelector("#rail-title");
+      const searchInput = document.querySelector("#rail-search");
+      const clearSearch = document.querySelector("#clear-search");
+      const collapseRail = document.querySelector("#collapse-rail");
+      const expandRail = document.querySelector("#expand-rail");
+      const focusSearch = document.querySelector("#focus-search");
+      const resizeHandle = document.querySelector("#resize-handle");
+      const tabButtons = [...document.querySelectorAll("[data-panel-target]")];
+      const panels = [...document.querySelectorAll("[data-panel]")];
+      const collapsedButtons = [...document.querySelectorAll("[data-collapsed-target]")];
+
+      let activePanel = "servers";
+
+      const setPanel = (panelName) => {
+        activePanel = panelName;
+        railTitle.textContent = panelName === "servers" ? "Servidores" : "Tabs abiertas";
+
+        for (const button of tabButtons) {
+          const isActive = button.dataset.panelTarget === panelName;
+          button.classList.toggle("is-active", isActive);
+          button.setAttribute("aria-selected", String(isActive));
+        }
+
+        for (const panel of panels) {
+          panel.classList.toggle("is-active", panel.dataset.panel === panelName);
+        }
+
+        filterItems();
+      };
+
+      const filterItems = () => {
+        const query = searchInput.value.trim().toLowerCase();
+
+        for (const panel of panels) {
+          const items = [...panel.querySelectorAll(".rail-item")];
+          let visibleCount = 0;
+
+          for (const item of items) {
+            const text = item.dataset.filterText ?? item.textContent;
+            const isVisible = text.toLowerCase().includes(query);
+            item.hidden = !isVisible;
+            visibleCount += isVisible ? 1 : 0;
+          }
+
+          const emptyState = panel.querySelector(".empty-state");
+          emptyState?.classList.toggle("is-visible", visibleCount === 0);
+        }
+      };
+
+      const setCollapsed = (collapsed) => {
+        layout.dataset.railCollapsed = String(collapsed);
+
+        if (!collapsed) {
+          requestAnimationFrame(() => searchInput.focus());
+        }
+      };
+
+      for (const button of tabButtons) {
+        button.addEventListener("click", () => setPanel(button.dataset.panelTarget));
+      }
+
+      for (const button of collapsedButtons) {
+        button.addEventListener("click", () => {
+          setPanel(button.dataset.collapsedTarget);
+          setCollapsed(false);
+        });
+      }
+
+      searchInput.addEventListener("input", filterItems);
+
+      clearSearch.addEventListener("click", () => {
+        searchInput.value = "";
+        searchInput.focus();
+        filterItems();
+      });
+
+      focusSearch.addEventListener("click", () => searchInput.focus());
+      collapseRail.addEventListener("click", () => setCollapsed(true));
+      expandRail.addEventListener("click", () => setCollapsed(false));
+
+      resizeHandle.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        resizeHandle.setPointerCapture(event.pointerId);
+        layout.classList.add("is-resizing");
+      });
+
+      resizeHandle.addEventListener("pointermove", (event) => {
+        if (!layout.classList.contains("is-resizing")) {
+          return;
+        }
+
+        const left = layout.getBoundingClientRect().left;
+        const width = Math.min(Math.max(event.clientX - left, 248), 520);
+        layout.style.setProperty("--rail-width", `${width}px`);
+      });
+
+      resizeHandle.addEventListener("pointerup", (event) => {
+        resizeHandle.releasePointerCapture(event.pointerId);
+        layout.classList.remove("is-resizing");
+      });
+
+      document.addEventListener("keydown", (event) => {
+        const key = event.key.toLowerCase();
+        const primaryModifier = event.metaKey || event.ctrlKey;
+
+        if (primaryModifier && key === "b") {
+          event.preventDefault();
+          setCollapsed(layout.dataset.railCollapsed !== "true");
+        }
+
+        if (primaryModifier && event.shiftKey && key === "f") {
+          event.preventDefault();
+          setCollapsed(false);
+          searchInput.focus();
+          searchInput.select();
+        }
+
+        if (primaryModifier && key === "1") {
+          event.preventDefault();
+          setCollapsed(false);
+          setPanel("servers");
+        }
+
+        if (primaryModifier && key === "2") {
+          event.preventDefault();
+          setCollapsed(false);
+          setPanel("tabs");
+        }
+      });
+
+      filterItems();
+    </script>
+  </body>
+</html>

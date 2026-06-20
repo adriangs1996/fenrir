@@ -187,6 +187,17 @@ describe("resolveVSCodeFenrirShortcutCommand", () => {
       },
     },
     {
+      command: "settings.toggle",
+      shortcut: {
+        key: ",",
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+        modKey: true,
+      },
+    },
+    {
       command: "thread.open",
       shortcut: {
         key: "s",
@@ -253,6 +264,24 @@ describe("resolveVSCodeFenrirShortcutCommand", () => {
         },
       ),
     ).toBe("thread.open");
+
+    expect(
+      resolveVSCodeFenrirShortcutCommand(
+        {
+          key: "Dead",
+          code: "Comma",
+          metaKey: true,
+          ctrlKey: false,
+          shiftKey: false,
+          altKey: false,
+        },
+        {
+          keybindings,
+          platform: "MacIntel",
+          context: { terminalFocus: false, terminalOpen: false },
+        },
+      ),
+    ).toBe("settings.toggle");
   });
 
   it("leaves non-editor-owned app shortcuts to VS Code", () => {

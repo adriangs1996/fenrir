@@ -159,6 +159,16 @@ interface TabEntry {
   viewMode: TrafficLensViewMode;
   mobilePreset: TrafficLensMobilePreset;
   lastKnownUrl: string;
+  bounds: TrafficLensViewBounds | null;
+  viewAttached: boolean;
+  viewportOverrideActive: boolean;
+}
+
+interface TrafficLensViewBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 interface PersistedTrafficLensProfile {
@@ -223,6 +233,21 @@ const DEFAULT_PROFILE_ID = "default";
 const DEFAULT_PROFILE_NAME = "Default";
 const DEFAULT_PROFILE_PARTITION_KEY = "persist:traffic-lens:default";
 const DEFAULT_MOBILE_PRESET: TrafficLensMobilePreset = "iphone-15-pro";
+const BROWSER_LAB_TYPE_CHUNK_SIZE = 3;
+const DEFAULT_BROWSER_LAB_DESKTOP_CAPTURE_BOUNDS: TrafficLensViewBounds = {
+  x: 0,
+  y: 0,
+  width: 1280,
+  height: 720,
+};
+const BROWSER_LAB_MOBILE_CAPTURE_BOUNDS: Record<
+  TrafficLensMobilePreset,
+  Pick<TrafficLensViewBounds, "width" | "height">
+> = {
+  "iphone-15-pro": { width: 390, height: 844 },
+  "pixel-8": { width: 412, height: 760 },
+  "ipad-mini": { width: 744, height: 940 },
+};
 const DESKTOP_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
 const MOBILE_USER_AGENTS: Record<TrafficLensMobilePreset, string> = {
@@ -240,6 +265,272 @@ function isTrafficLensViewMode(value: unknown): value is TrafficLensViewMode {
 
 function isTrafficLensMobilePreset(value: unknown): value is TrafficLensMobilePreset {
   return value === "iphone-15-pro" || value === "pixel-8" || value === "ipad-mini";
+}
+
+function normalizeTrafficLensViewBounds(bounds: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): TrafficLensViewBounds | null {
+  if (
+    !Number.isFinite(bounds.x) ||
+    !Number.isFinite(bounds.y) ||
+    !Number.isFinite(bounds.width) ||
+    !Number.isFinite(bounds.height) ||
+    bounds.width < 1 ||
+    bounds.height < 1
+  ) {
+    return null;
+  }
+
+  return {
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    width: Math.round(bounds.width),
+    height: Math.round(bounds.height),
+  };
+}
+
+function getBrowserLabCaptureBounds(entry: TabEntry): TrafficLensViewBounds {
+  if (entry.bounds) {
+    return entry.bounds;
+  }
+
+  if (entry.viewMode === "mobile") {
+    const preset = BROWSER_LAB_MOBILE_CAPTURE_BOUNDS[entry.mobilePreset];
+    return { x: 0, y: 0, width: preset.width, height: preset.height };
+  }
+
+  return DEFAULT_BROWSER_LAB_DESKTOP_CAPTURE_BOUNDS;
+}
+
+async function applyBrowserLabCaptureViewport(
+  entry: TabEntry,
+  bounds: TrafficLensViewBounds,
+): Promise<void> {
+  entry.view.setBounds(bounds);
+  if (entry.viewAttached && entry.bounds) {
+    clearBrowserLabCaptureViewportOverride(entry);
+    return;
+  }
+
+  await setBrowserLabCaptureViewportOverride(entry, bounds);
+}
+
+async function setBrowserLabCaptureViewportOverride(
+  entry: TabEntry,
+  bounds: TrafficLensViewBounds,
+): Promise<void> {
+  try {
+    await entry.view.webContents.debugger.sendCommand("Emulation.setDeviceMetricsOverride", {
+      width: bounds.width,
+      height: bounds.height,
+      deviceScaleFactor: 1,
+      mobile: entry.viewMode === "mobile",
+    });
+    entry.viewportOverrideActive = true;
+  } catch {
+    // Bounds still give Electron a valid target when DevTools emulation is unavailable.
+  }
+}
+
+function clearBrowserLabCaptureViewportOverride(entry: TabEntry): void {
+  if (!entry.viewportOverrideActive) {
+    return;
+  }
+  entry.viewportOverrideActive = false;
+  try {
+    void Promise.resolve(
+      entry.view.webContents.debugger.sendCommand("Emulation.clearDeviceMetricsOverride"),
+    ).catch(() => {
+      // A failed cleanup is non-fatal; the next valid bounds update will retry normal layout.
+    });
+  } catch {
+    // A failed cleanup is non-fatal; the next valid bounds update will retry normal layout.
+  }
+}
+
+async function captureBrowserLabScreenshotWithDevTools(
+  entry: TabEntry,
+  bounds: TrafficLensViewBounds,
+): Promise<string> {
+  entry.view.setBounds(bounds);
+  await setBrowserLabCaptureViewportOverride(entry, bounds);
+  await Promise.resolve(entry.view.webContents.debugger.sendCommand("Page.enable")).catch(
+    () => undefined,
+  );
+  const result = await entry.view.webContents.debugger.sendCommand("Page.captureScreenshot", {
+    format: "png",
+    fromSurface: true,
+    captureBeyondViewport: false,
+  });
+  if (
+    !result ||
+    typeof result !== "object" ||
+    typeof (result as { data?: unknown }).data !== "string"
+  ) {
+    throw new Error("Browser Lab screenshot fallback returned an invalid result.");
+  }
+  return (result as { data: string }).data;
+}
+
+interface BrowserLabTypingState {
+  ok: boolean;
+  error?: string;
+  kind?: "form-field" | "contenteditable";
+  value?: string;
+  text?: string;
+  selectionStart?: number | null;
+  selectionEnd?: number | null;
+  valid?: boolean;
+  validationMessage?: string;
+}
+
+function splitTypingChunks(text: string): string[] {
+  const chunks: string[] = [];
+  for (let index = 0; index < text.length; index += BROWSER_LAB_TYPE_CHUNK_SIZE) {
+    chunks.push(text.slice(index, index + BROWSER_LAB_TYPE_CHUNK_SIZE));
+  }
+  return chunks;
+}
+
+function browserLabTypingStateScript(selector?: string): string {
+  return `(() => {
+    const selector = ${JSON.stringify(selector ?? null)};
+    const readState = (target) => {
+      if (!target || target === document.body || target === document.documentElement) {
+        return { ok: false, error: "No editable element is focused. Click the input before typing." };
+      }
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+        if (target.disabled) {
+          return { ok: false, error: "Focused input is disabled." };
+        }
+        if (target.readOnly) {
+          return { ok: false, error: "Focused input is read-only." };
+        }
+        let selectionStart = null;
+        let selectionEnd = null;
+        try {
+          selectionStart = target.selectionStart;
+          selectionEnd = target.selectionEnd;
+        } catch {
+          selectionStart = null;
+          selectionEnd = null;
+        }
+        return {
+          ok: true,
+          kind: "form-field",
+          value: target.value,
+          selectionStart,
+          selectionEnd,
+          valid: target.validity ? target.validity.valid : true,
+          validationMessage: target.validationMessage || "",
+        };
+      }
+      if (target.isContentEditable) {
+        return {
+          ok: true,
+          kind: "contenteditable",
+          text: target.textContent || "",
+          valid: true,
+          validationMessage: "",
+        };
+      }
+      return { ok: false, error: "Focused element is not editable." };
+    };
+
+    const active = document.activeElement;
+    if (selector) {
+      const selected = document.querySelector(selector);
+      if (!selected) {
+        return { ok: false, error: "Selector not found: " + selector };
+      }
+      if (active !== selected && !selected.contains(active)) {
+        return {
+          ok: false,
+          error: "Active element does not match selector: " + selector + ". Browser Lab will not move focus; click the input first.",
+        };
+      }
+    }
+
+    if (!window.__fenrirBrowserLabTypingTarget) {
+      window.__fenrirBrowserLabTypingTarget = active;
+    }
+
+    if (document.activeElement !== window.__fenrirBrowserLabTypingTarget) {
+      return { ok: false, error: "Focused element changed while typing. Browser Lab will not move focus." };
+    }
+
+    return readState(window.__fenrirBrowserLabTypingTarget);
+  })()`;
+}
+
+function requireBrowserLabTypingState(value: unknown): BrowserLabTypingState {
+  if (!value || typeof value !== "object") {
+    throw new Error("Browser Lab could not inspect the focused input.");
+  }
+  const state = value as BrowserLabTypingState;
+  if (!state.ok) {
+    throw new Error(state.error ?? "Browser Lab could not type into the focused input.");
+  }
+  return state;
+}
+
+function expectedFormFieldValueAfterChunk(state: BrowserLabTypingState, chunk: string) {
+  if (
+    state.kind !== "form-field" ||
+    typeof state.value !== "string" ||
+    typeof state.selectionStart !== "number" ||
+    typeof state.selectionEnd !== "number"
+  ) {
+    return null;
+  }
+  return `${state.value.slice(0, state.selectionStart)}${chunk}${state.value.slice(
+    state.selectionEnd,
+  )}`;
+}
+
+function validateTypingChunk(input: {
+  before: BrowserLabTypingState;
+  after: BrowserLabTypingState;
+  chunk: string;
+}): void {
+  const expectedValue = expectedFormFieldValueAfterChunk(input.before, input.chunk);
+  if (
+    expectedValue !== null &&
+    input.after.kind === "form-field" &&
+    input.after.value !== expectedValue
+  ) {
+    throw new Error(
+      `Focused input did not accept typed text. Expected value after chunk '${input.chunk}' to be '${expectedValue}', got '${input.after.value ?? ""}'.`,
+    );
+  }
+
+  if (
+    expectedValue === null &&
+    input.before.kind === "form-field" &&
+    input.after.kind === "form-field" &&
+    input.before.value === input.after.value
+  ) {
+    throw new Error(`Focused input did not accept typed text chunk '${input.chunk}'.`);
+  }
+
+  if (
+    input.before.kind === "contenteditable" &&
+    input.after.kind === "contenteditable" &&
+    input.before.text === input.after.text
+  ) {
+    throw new Error(`Focused editor did not accept typed text chunk '${input.chunk}'.`);
+  }
+
+  if (input.after.valid === false) {
+    throw new Error(
+      input.after.validationMessage
+        ? `Focused input is invalid: ${input.after.validationMessage}`
+        : "Focused input is invalid.",
+    );
+  }
 }
 
 function readJsonFile(filePath: string): unknown {
@@ -1621,8 +1912,8 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        webSecurity: false,
-        allowRunningInsecureContent: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
       },
     });
     const entry: TabEntry = {
@@ -1632,6 +1923,9 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       viewMode: options?.viewMode ?? "desktop",
       mobilePreset: options?.mobilePreset ?? DEFAULT_MOBILE_PRESET,
       lastKnownUrl: initialUrl,
+      bounds: null,
+      viewAttached: false,
+      viewportOverrideActive: false,
     };
     activeTabs.set(tabId, entry);
     activeTabId = tabId;
@@ -1822,6 +2116,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       } catch {
         // view might already be detached
       }
+      entry.viewAttached = false;
 
       entry.view.webContents.close();
       activeTabs.delete(tabId);
@@ -1840,6 +2135,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       }
 
       entry.viewMode = input.viewMode;
+      entry.bounds = null;
       entry.view.webContents.setUserAgent(getEffectiveUserAgent(entry));
       emitTab({
         type: "tab.viewModeChanged",
@@ -1858,6 +2154,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       }
 
       entry.mobilePreset = input.mobilePreset;
+      entry.bounds = null;
       entry.view.webContents.setUserAgent(getEffectiveUserAgent(entry));
       emitTab({
         type: "tab.mobilePresetChanged",
@@ -1876,7 +2173,13 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
       if (!entry) {
         return;
       }
-      entry.view.setBounds(bounds);
+      const normalizedBounds = normalizeTrafficLensViewBounds(bounds);
+      if (!normalizedBounds) {
+        return;
+      }
+      entry.bounds = normalizedBounds;
+      entry.view.setBounds(normalizedBounds);
+      clearBrowserLabCaptureViewportOverride(entry);
     },
 
     showTab: (tabId) => {
@@ -1893,18 +2196,27 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
           } catch {
             // view may already be detached
           }
+          other.viewAttached = false;
         }
       }
 
       try {
+        if (entry.bounds) {
+          entry.view.setBounds(entry.bounds);
+        }
         parentWindow.contentView.addChildView(entry.view);
+        entry.viewAttached = true;
       } catch {
         try {
           parentWindow.contentView.removeChildView(entry.view);
         } catch {
           // ignore
         }
+        if (entry.bounds) {
+          entry.view.setBounds(entry.bounds);
+        }
         parentWindow.contentView.addChildView(entry.view);
+        entry.viewAttached = true;
       }
     },
 
@@ -1915,6 +2227,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
         } catch {
           // view may already be detached
         }
+        entry.viewAttached = false;
       }
     },
 
@@ -1922,6 +2235,7 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
 
     capturePageSnapshot: async (tabId) => {
       const entry = getTabEntry(resolveTabId(tabId));
+      await applyBrowserLabCaptureViewport(entry, getBrowserLabCaptureBounds(entry));
       return entry.view.webContents.executeJavaScript(
         `(() => {
           const cssString = (value) => JSON.stringify(String(value)).replace(/\\u0000/g, "\\uFFFD");
@@ -1976,8 +2290,30 @@ export function createTrafficLensManager(config: TrafficLensManagerConfig): Traf
     },
 
     captureScreenshot: async (tabId) => {
-      const image = await getTabEntry(resolveTabId(tabId)).view.webContents.capturePage();
-      return { data: image.toPNG().toString("base64"), mimeType: "image/png" };
+      const entry = getTabEntry(resolveTabId(tabId));
+      const bounds = getBrowserLabCaptureBounds(entry);
+      await applyBrowserLabCaptureViewport(entry, bounds);
+      if (!entry.viewAttached || !entry.bounds) {
+        return {
+          data: await captureBrowserLabScreenshotWithDevTools(entry, bounds),
+          mimeType: "image/png",
+        };
+      }
+      const image = await entry.view.webContents.capturePage({
+        x: 0,
+        y: 0,
+        width: bounds.width,
+        height: bounds.height,
+      });
+      const size = image.getSize();
+      const png = image.toPNG();
+      if (size.width < 1 || size.height < 1 || png.byteLength < 1) {
+        return {
+          data: await captureBrowserLabScreenshotWithDevTools(entry, bounds),
+          mimeType: "image/png",
+        };
+      }
+      return { data: png.toString("base64"), mimeType: "image/png" };
     },
 
     clickPage: async (input) => {

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { Deferred, Effect, Layer, Option, Ref, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import type * as Socket from "effect/unstable/socket/Socket";
@@ -13,6 +15,8 @@ import {
 
 import { ServerConfig } from "../config.ts";
 import { TrafficLensService } from "../traffic-lens/Services/TrafficLensService.ts";
+import { fenrirImageUri, parseFenrirImageArtifactId } from "../assistantImageMaterialization.ts";
+import { persistMcpImageArtifact, readMcpImageArtifact } from "../mcpImageArtifactStore.ts";
 import { getBrowserLabMcpToken } from "../mcp/browserLabMcpRuntime.ts";
 import { BrowserLabControlError } from "./Services/BrowserLabControlService.ts";
 
@@ -163,6 +167,52 @@ function jsonResponse(value: unknown, status = 200) {
   return HttpServerResponse.jsonUnsafe(value, { status });
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+const persistBrowserLabScreenshotResult = Effect.fn("persistBrowserLabScreenshotResult")(function* (
+  result: unknown,
+) {
+  const record = asRecord(result);
+  const data = asString(record?.data);
+  const mimeType = asString(record?.mimeType) ?? "image/png";
+  if (!record || !data) {
+    return yield* Effect.fail(new Error("Browser Lab screenshot returned no image data."));
+  }
+
+  const artifactId = `browser-lab-${randomUUID()}`;
+  const stored = yield* persistMcpImageArtifact({
+    artifactId,
+    data,
+    mimeType,
+    name: "browser-lab-screenshot.png",
+  });
+
+  return {
+    ...record,
+    artifactId: stored.artifactId,
+    uri: fenrirImageUri(stored.artifactId),
+    name: stored.name,
+    mimeType: stored.mimeType,
+  };
+});
+
+const readBrowserLabImageHandle = Effect.fn("readBrowserLabImageHandle")(function* (
+  input: unknown,
+) {
+  const record = asRecord(input);
+  const artifactId = parseFenrirImageArtifactId(asString(record?.uri) ?? "");
+  if (!artifactId) {
+    return null;
+  }
+  return yield* readMcpImageArtifact({ artifactId });
+});
+
 function mapDesktopMethod(toolName: string): string | null {
   if (
     toolName.startsWith("browser_lab_") ||
@@ -222,10 +272,21 @@ export const browserLabMcpCallRouteLayer = HttpRouter.add(
     }
     const payload = yield* HttpServerRequest.schemaBodyJson(BrowserLabMcpCall);
     const input = payload.input ?? {};
+    if (payload.toolName === "browser_lab_open_image") {
+      const image = yield* readBrowserLabImageHandle(input);
+      return image
+        ? jsonResponse({ ok: true, result: image })
+        : jsonResponse({ ok: false, error: "Unknown Browser Lab image handle." }, 404);
+    }
+
     const trafficLens = yield* TrafficLensService;
     const desktopMethod = mapDesktopMethod(payload.toolName);
     if (desktopMethod) {
       const result = yield* callControl(desktopMethod, input);
+      if (payload.toolName === "browser_lab_screenshot") {
+        const storedResult = yield* persistBrowserLabScreenshotResult(result);
+        return jsonResponse({ ok: true, result: storedResult });
+      }
       return jsonResponse({ ok: true, result });
     }
 

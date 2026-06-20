@@ -81,6 +81,16 @@ export const DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS = `
 }
 `;
 
+export function buildDiffFontUnsafeCSSDeclarations(fontFamily: string, fontSize: number): string {
+  return `
+  --diffs-font-family: ${fontFamily};
+  --diffs-header-font-family: ${fontFamily};
+  --diffs-font-size: ${fontSize}px;
+  font-family: var(--diffs-font-family) !important;
+  font-size: var(--diffs-font-size) !important;
+`;
+}
+
 export function resolveDiffThemeName(theme: DiffThemeInput): DiffThemeName {
   return DIFF_THEME_NAMES[theme];
 }

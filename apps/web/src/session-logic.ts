@@ -18,6 +18,7 @@ import {
 } from "@fenrir/shared/providerActivityLog";
 
 import type {
+  ChatAttachment,
   ChatMessage,
   ProposedPlan,
   SessionPhase,
@@ -50,6 +51,7 @@ export interface WorkLogEntry {
   toolTitle?: string;
   itemType?: ToolLifecycleItemType;
   requestKind?: PendingApproval["requestKind"];
+  images?: ReadonlyArray<ChatAttachment>;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -581,6 +583,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   };
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
+  const images = extractWorkLogImages(payload);
   if (
     !taskDetailAsLabel &&
     payload &&
@@ -609,6 +612,9 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (requestKind) {
     entry.requestKind = requestKind;
+  }
+  if (images.length > 0) {
+    entry.images = images;
   }
   const collapseKey = deriveToolLifecycleCollapseKey(entry);
   if (collapseKey) {
@@ -660,6 +666,7 @@ function mergeDerivedWorkLogEntries(
   const itemType = next.itemType ?? previous.itemType;
   const requestKind = next.requestKind ?? previous.requestKind;
   const collapseKey = next.collapseKey ?? previous.collapseKey;
+  const images = mergeImages(previous.images, next.images);
   return {
     ...previous,
     ...next,
@@ -671,6 +678,7 @@ function mergeDerivedWorkLogEntries(
     ...(itemType ? { itemType } : {}),
     ...(requestKind ? { requestKind } : {}),
     ...(collapseKey ? { collapseKey } : {}),
+    ...(images.length > 0 ? { images } : {}),
   };
 }
 
@@ -683,6 +691,22 @@ function mergeChangedFiles(
     return [];
   }
   return [...new Set(merged)];
+}
+
+function mergeImages(
+  previous: ReadonlyArray<ChatAttachment> | undefined,
+  next: ReadonlyArray<ChatAttachment> | undefined,
+): ChatAttachment[] {
+  const merged = [...(previous ?? []), ...(next ?? [])];
+  if (merged.length === 0) {
+    return [];
+  }
+
+  const byId = new Map<string, ChatAttachment>();
+  for (const image of merged) {
+    byId.set(image.id, image);
+  }
+  return [...byId.values()];
 }
 
 function deriveToolLifecycleCollapseKey(entry: DerivedWorkLogEntry): string | undefined {
@@ -734,6 +758,39 @@ function extractWorkLogRequestKind(
     return payload.requestKind;
   }
   return requestKindFromRequestType(payload?.requestType) ?? undefined;
+}
+
+function extractWorkLogImages(payload: Record<string, unknown> | null): ChatAttachment[] {
+  if (!payload || !Array.isArray(payload.images)) {
+    return [];
+  }
+
+  return payload.images.flatMap((image) => {
+    if (!image || typeof image !== "object") {
+      return [];
+    }
+    const record = image as Record<string, unknown>;
+    if (
+      record.type !== "image" ||
+      typeof record.id !== "string" ||
+      typeof record.name !== "string" ||
+      typeof record.mimeType !== "string" ||
+      typeof record.sizeBytes !== "number" ||
+      !Number.isFinite(record.sizeBytes)
+    ) {
+      return [];
+    }
+    return [
+      {
+        type: "image" as const,
+        id: record.id,
+        name: record.name,
+        mimeType: record.mimeType,
+        sizeBytes: record.sizeBytes,
+        ...(typeof record.previewUrl === "string" ? { previewUrl: record.previewUrl } : {}),
+      },
+    ];
+  });
 }
 
 function compareActivitiesByOrder(

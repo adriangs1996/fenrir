@@ -358,11 +358,20 @@ function estimateWorkRowHeight(
   const hasOverflow = row.groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
   const visibleEntries =
     hasOverflow && !isExpanded ? MAX_VISIBLE_WORK_LOG_ENTRIES : row.groupedEntries.length;
+  const visibleWorkEntries =
+    hasOverflow && !isExpanded
+      ? row.groupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
+      : row.groupedEntries;
   const onlyToolEntries = row.groupedEntries.every((entry) => entry.tone === "tool");
   const showHeader = hasOverflow || !onlyToolEntries;
+  const imageHeight = visibleWorkEntries.reduce((height, entry) => {
+    const imageCount = entry.images?.length ?? 0;
+    if (imageCount === 0) return height;
+    return height + Math.ceil(imageCount / 2) * 132;
+  }, 0);
 
-  // Card chrome, optional header, and one compact work-entry row per visible entry.
-  return 28 + (showHeader ? 26 : 0) + visibleEntries * 32;
+  // Card chrome, optional header, compact work-entry rows, and optional image previews.
+  return 28 + (showHeader ? 26 : 0) + visibleEntries * 32 + imageHeight;
 }
 
 function estimateTimelineProposedPlanHeight(proposedPlan: ProposedPlan): number {

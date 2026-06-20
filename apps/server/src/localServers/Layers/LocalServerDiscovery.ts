@@ -21,6 +21,8 @@ const LSOF_TIMEOUT_MS = 5_000;
 const WINDOWS_LISTENER_TIMEOUT_MS = 5_000;
 const LISTENER_OUTPUT_MAX_BYTES = 1024 * 1024;
 const COMMON_PORT_CONNECT_TIMEOUT_MS = 250;
+const LOCAL_HTTP_PROBE_TIMEOUT_MS = 350;
+const LOCAL_HTTP_PROBE_CACHE_TTL_MS = 10_000;
 const PROCESS_TREE_TIMEOUT_MS = 1_000;
 const PROCESS_TREE_MAX_BYTES = 1024 * 1024;
 const LOCAL_HOST_TOKENS = new Set([
@@ -32,6 +34,69 @@ const LOCAL_HOST_TOKENS = new Set([
   "0.0.0.0",
   "::",
   "[::]",
+]);
+const COMMON_DEV_PORT_SET = new Set(COMMON_DEV_PORTS);
+const KNOWN_NOISE_PROCESS_NAME_PREFIXES: ReadonlyArray<string> = Object.freeze([
+  "1password",
+  "discord",
+  "dropbox",
+  "figma",
+  "linear",
+  "notion",
+  "opencode",
+  "raycast",
+  "slack",
+  "spotify",
+  "telegram",
+  "whatsapp",
+  "zoom",
+]);
+const KNOWN_DEV_SERVER_PROCESS_NAMES = new Set([
+  "air",
+  "astro",
+  "bun",
+  "cargo",
+  "deno",
+  "django",
+  "flask",
+  "go",
+  "gunicorn",
+  "http-server",
+  "java",
+  "live-server",
+  "next",
+  "node",
+  "npm",
+  "nuxt",
+  "parcel",
+  "php",
+  "php-fpm",
+  "pnpm",
+  "puma",
+  "rails",
+  "rackup",
+  "remix",
+  "ruby",
+  "serve",
+  "svelte-kit",
+  "sveltekit",
+  "trunk",
+  "ts-node",
+  "tsx",
+  "uvicorn",
+  "vite",
+  "vite-node",
+  "webpack",
+  "yarn",
+]);
+const KNOWN_DEV_SERVER_PROCESS_NAME_PREFIXES: ReadonlyArray<string> = Object.freeze([
+  "node",
+  "python",
+  "ruby",
+  "java",
+  "php",
+  "uvicorn",
+  "gunicorn",
 ]);
 
 type Listener = (snapshot: LocalServersSnapshot) => void;
@@ -46,8 +111,46 @@ interface ProcessTreeRow {
   readonly ppid: number;
 }
 
+type LocalServerHttpProbe = (server: DiscoveredLocalServer) => Promise<boolean>;
+
 function terminalOwnerKey(input: { readonly threadId: string; readonly terminalId: string }) {
   return `${input.threadId}\u0000${input.terminalId}`;
+}
+
+function normalizeProcessName(processName: string | null | undefined): string {
+  return (processName ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\.exe$/u, "")
+    .replace(/\s+/gu, " ");
+}
+
+function matchesProcessNamePrefix(processName: string, prefix: string): boolean {
+  if (processName === prefix || processName.startsWith(`${prefix} `)) return true;
+
+  const suffix = processName.slice(prefix.length);
+  if (suffix.length === 0) return false;
+  const firstSuffixChar = suffix.charAt(0);
+  return firstSuffixChar === "." || (firstSuffixChar >= "0" && firstSuffixChar <= "9");
+}
+
+export function isKnownNoiseLocalServerProcessName(
+  processName: string | null | undefined,
+): boolean {
+  const normalized = normalizeProcessName(processName);
+  if (normalized.length === 0) return false;
+  return KNOWN_NOISE_PROCESS_NAME_PREFIXES.some((prefix) =>
+    matchesProcessNamePrefix(normalized, prefix),
+  );
+}
+
+export function isLikelyDevServerProcessName(processName: string | null | undefined): boolean {
+  const normalized = normalizeProcessName(processName);
+  if (normalized.length === 0) return false;
+  if (KNOWN_DEV_SERVER_PROCESS_NAMES.has(normalized)) return true;
+  return KNOWN_DEV_SERVER_PROCESS_NAME_PREFIXES.some((prefix) =>
+    matchesProcessNamePrefix(normalized, prefix),
+  );
 }
 
 export function parsePortFromLsofName(name: string): number | null {
@@ -222,7 +325,79 @@ async function probeCommonPorts(): Promise<ReadonlyArray<DiscoveredLocalServer>>
   return results
     .filter((result) => result.listening)
     .map((result) => toServer({ port: result.port, source: "common-port-probe" }))
+    .filter((server) => !isKnownNoiseLocalServerProcessName(server.processName))
     .toSorted((left, right) => left.port - right.port);
+}
+
+export async function probeLocalHttpServer(server: DiscoveredLocalServer): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, LOCAL_HTTP_PROBE_TIMEOUT_MS);
+
+  try {
+    await fetch(server.url, {
+      method: "HEAD",
+      redirect: "manual",
+      signal: controller.signal,
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function localHttpProbeCacheKey(server: DiscoveredLocalServer): string {
+  return `${server.pid ?? "unknown"}:${server.port}:${server.url}`;
+}
+
+export function makeCachedLocalServerHttpProbe(
+  probe: LocalServerHttpProbe = probeLocalHttpServer,
+  now: () => number = Date.now,
+  ttlMs = LOCAL_HTTP_PROBE_CACHE_TTL_MS,
+): LocalServerHttpProbe {
+  const cache = new Map<
+    string,
+    { readonly expiresAt: number; readonly result: Promise<boolean> }
+  >();
+
+  return async (server) => {
+    const key = localHttpProbeCacheKey(server);
+    const currentTime = now();
+    const cached = cache.get(key);
+    if (cached && cached.expiresAt > currentTime) {
+      return cached.result;
+    }
+
+    const result = probe(server).catch(() => false);
+    cache.set(key, { expiresAt: currentTime + ttlMs, result });
+    return result;
+  };
+}
+
+export function shouldProbeLocalServerCandidate(server: DiscoveredLocalServer): boolean {
+  if (server.terminal !== null) return false;
+  if (isKnownNoiseLocalServerProcessName(server.processName)) return false;
+  return COMMON_DEV_PORT_SET.has(server.port) || isLikelyDevServerProcessName(server.processName);
+}
+
+const cachedLocalHttpProbe = makeCachedLocalServerHttpProbe();
+
+export async function filterRelevantLocalServers(
+  servers: ReadonlyArray<DiscoveredLocalServer>,
+  probe: LocalServerHttpProbe = cachedLocalHttpProbe,
+): Promise<ReadonlyArray<DiscoveredLocalServer>> {
+  const filtered = await Promise.all(
+    servers.map(async (server) => {
+      if (server.terminal !== null) return server;
+      if (!shouldProbeLocalServerCandidate(server)) return null;
+      return (await probe(server)) ? server : null;
+    }),
+  );
+
+  return filtered.filter((server): server is DiscoveredLocalServer => server !== null);
 }
 
 function parseProcessTreeRows(raw: string): ReadonlyArray<ProcessTreeRow> {
@@ -376,7 +551,10 @@ async function scanServers(
     process.platform === "win32"
       ? await scanWithPowerShell(terminalByProcessId)
       : await scanWithLsof(terminalByProcessId);
-  const servers = detected ?? (await probeCommonPorts());
+  const servers = await filterRelevantLocalServers(
+    detected ?? (await probeCommonPorts()),
+    cachedLocalHttpProbe,
+  );
 
   return {
     servers,

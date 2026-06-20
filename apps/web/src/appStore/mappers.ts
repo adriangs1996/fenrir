@@ -23,6 +23,7 @@ import {
   hasActionableProposedPlan,
 } from "../session-logic";
 import {
+  type ChatAttachment,
   type ChatMessage,
   type Project,
   type ProposedPlan,
@@ -119,6 +120,73 @@ export function mapMessage(
     streaming: message.streaming,
     ...(message.streaming ? {} : { completedAt: message.updatedAt }),
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
+  };
+}
+
+function mapActivityImage(environmentId: EnvironmentId, value: unknown): ChatAttachment | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (
+    record.type !== "image" ||
+    typeof record.id !== "string" ||
+    typeof record.name !== "string" ||
+    typeof record.mimeType !== "string" ||
+    typeof record.sizeBytes !== "number" ||
+    !Number.isFinite(record.sizeBytes)
+  ) {
+    return null;
+  }
+
+  return {
+    type: "image",
+    id: record.id,
+    name: record.name,
+    mimeType: record.mimeType,
+    sizeBytes: record.sizeBytes,
+    previewUrl:
+      typeof record.previewUrl === "string"
+        ? record.previewUrl
+        : resolveEnvironmentHttpUrl({
+            environmentId,
+            pathname: attachmentPreviewRoutePath(record.id),
+          }),
+  };
+}
+
+function mapActivityPayload(environmentId: EnvironmentId, payload: unknown): unknown {
+  if (!payload || typeof payload !== "object") {
+    return payload;
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (!Array.isArray(record.images)) {
+    return payload;
+  }
+
+  const images = record.images.flatMap((image) => {
+    const mapped = mapActivityImage(environmentId, image);
+    return mapped ? [mapped] : [];
+  });
+  if (images.length === 0) {
+    return payload;
+  }
+
+  return {
+    ...record,
+    images,
+  };
+}
+
+export function mapActivity(
+  environmentId: EnvironmentId,
+  activity: OrchestrationThreadActivity,
+): OrchestrationThreadActivity {
+  return {
+    ...activity,
+    payload: mapActivityPayload(environmentId, activity.payload),
   };
 }
 
@@ -262,7 +330,7 @@ export function mapThread(thread: OrchestrationThread, environmentId: Environmen
     deleteOnSettled: thread.deleteOnSettled ?? false,
     mcpServerIds: [...(thread.mcpServerIds ?? [])],
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
-    activities: thread.activities.map((activity) => ({ ...activity })),
+    activities: thread.activities.map((activity) => mapActivity(environmentId, activity)),
   };
 }
 

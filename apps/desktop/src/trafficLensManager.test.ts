@@ -5,10 +5,15 @@ import * as Path from "node:path";
 import { pathToFileURL } from "node:url";
 
 // --- Fake WebContentsView and session ---
-const { fakeSession, fakeWebContents, mockWebContentsView } = vi.hoisted(() => {
+const { fakeImage, fakeSession, fakeWebContents, mockWebContentsView } = vi.hoisted(() => {
+  const fakeImage = {
+    getSize: vi.fn(() => ({ width: 1280, height: 720 })),
+    toPNG: vi.fn(() => Buffer.from("png")),
+  };
   const fakeWebContents = {
     loadURL: vi.fn(),
     executeJavaScript: vi.fn(() => Promise.resolve([])),
+    capturePage: vi.fn(() => Promise.resolve(fakeImage)),
     setUserAgent: vi.fn(),
     getURL: vi.fn(() => "about:blank"),
     getTitle: vi.fn(() => ""),
@@ -56,7 +61,7 @@ const { fakeSession, fakeWebContents, mockWebContentsView } = vi.hoisted(() => {
     },
   };
 
-  return { fakeSession, fakeWebContents, mockWebContentsView };
+  return { fakeImage, fakeSession, fakeWebContents, mockWebContentsView };
 });
 
 vi.mock("electron", () => ({
@@ -85,6 +90,16 @@ describe("trafficLensManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fakeWebContents.executeJavaScript.mockResolvedValue([]);
+    fakeWebContents.capturePage.mockResolvedValue(fakeImage);
+    fakeImage.getSize.mockReturnValue({ width: 1280, height: 720 });
+    fakeImage.toPNG.mockReturnValue(Buffer.from("png"));
+    fakeWebContents.debugger.sendCommand.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === "Page.captureScreenshot"
+          ? { data: Buffer.from("cdp-png").toString("base64") }
+          : {},
+      ),
+    );
     fakeWebContents.getURL.mockReturnValue("about:blank");
     fakeWebContents.getTitle.mockReturnValue("");
     fakeWebContents.isLoading.mockReturnValue(false);
@@ -143,7 +158,8 @@ describe("trafficLensManager", () => {
             contextIsolation: true,
             nodeIntegration: false,
             sandbox: true,
-            webSecurity: false,
+            webSecurity: true,
+            allowRunningInsecureContent: false,
           }),
         }),
       );
@@ -538,6 +554,37 @@ describe("trafficLensManager", () => {
         manager.setTabBounds("nope", { x: 0, y: 0, width: 100, height: 100 }),
       ).not.toThrow();
     });
+
+    it("ignores invalid bounds", () => {
+      const snapshot = manager.createTab();
+      const view = mockWebContentsView.mock.results[0]!.value;
+
+      manager.setTabBounds(snapshot.tabId, { x: 0, y: 0, width: 0, height: 100 });
+
+      expect(view.setBounds).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("capturePageSnapshot", () => {
+    it("applies fallback bounds before reading the page snapshot", async () => {
+      const snapshot = manager.createTab();
+      const view = mockWebContentsView.mock.results[0]!.value;
+      view.setBounds.mockClear();
+      fakeWebContents.debugger.sendCommand.mockClear();
+
+      await manager.capturePageSnapshot(snapshot.tabId);
+
+      expect(view.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1280, height: 720 });
+      expect(fakeWebContents.debugger.sendCommand).toHaveBeenCalledWith(
+        "Emulation.setDeviceMetricsOverride",
+        expect.objectContaining({
+          width: 1280,
+          height: 720,
+          mobile: false,
+        }),
+      );
+      expect(fakeWebContents.executeJavaScript).toHaveBeenCalled();
+    });
   });
 
   describe("showTab / hideAllTabs", () => {
@@ -552,6 +599,93 @@ describe("trafficLensManager", () => {
       manager.createTab();
       manager.hideAllTabs();
       expect(fakeWindow.contentView.removeChildView).toHaveBeenCalled();
+    });
+  });
+
+  describe("captureScreenshot", () => {
+    it("falls back to DevTools screenshot when Electron returns an empty image", async () => {
+      const fallbackData = Buffer.from("cdp-png").toString("base64");
+      fakeImage.getSize.mockReturnValue({ width: 0, height: 0 });
+      fakeWebContents.debugger.sendCommand.mockImplementation((method: string) =>
+        Promise.resolve(method === "Page.captureScreenshot" ? { data: fallbackData } : {}),
+      );
+      const snapshot = manager.createTab();
+      manager.setTabBounds(snapshot.tabId, { x: 10, y: 20, width: 800, height: 600 });
+      manager.showTab(snapshot.tabId);
+      fakeWebContents.debugger.sendCommand.mockClear();
+
+      const result = await manager.captureScreenshot(snapshot.tabId);
+
+      expect(result).toEqual({ data: fallbackData, mimeType: "image/png" });
+      expect(fakeWebContents.debugger.sendCommand).toHaveBeenCalledWith(
+        "Page.captureScreenshot",
+        expect.objectContaining({
+          format: "png",
+          captureBeyondViewport: false,
+        }),
+      );
+    });
+
+    it("captures with the last valid tab bounds", async () => {
+      const snapshot = manager.createTab();
+      manager.setTabBounds(snapshot.tabId, { x: 10, y: 20, width: 800, height: 600 });
+      manager.showTab(snapshot.tabId);
+      const view = mockWebContentsView.mock.results[0]!.value;
+      view.setBounds.mockClear();
+
+      const result = await manager.captureScreenshot(snapshot.tabId);
+
+      expect(view.setBounds).toHaveBeenCalledWith({ x: 10, y: 20, width: 800, height: 600 });
+      expect(fakeWebContents.capturePage).toHaveBeenCalledWith({
+        x: 0,
+        y: 0,
+        width: 800,
+        height: 600,
+      });
+      expect(result).toEqual({
+        data: Buffer.from("png").toString("base64"),
+        mimeType: "image/png",
+      });
+    });
+
+    it("uses desktop fallback bounds when the UI has not sent bounds", async () => {
+      const snapshot = manager.createTab();
+      const view = mockWebContentsView.mock.results[0]!.value;
+      view.setBounds.mockClear();
+
+      const result = await manager.captureScreenshot(snapshot.tabId);
+
+      expect(view.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 1280, height: 720 });
+      expect(fakeWebContents.capturePage).not.toHaveBeenCalled();
+      expect(fakeWebContents.debugger.sendCommand).toHaveBeenCalledWith(
+        "Page.captureScreenshot",
+        expect.objectContaining({ format: "png" }),
+      );
+      expect(result).toEqual({
+        data: Buffer.from("cdp-png").toString("base64"),
+        mimeType: "image/png",
+      });
+    });
+
+    it("uses mobile preset fallback bounds when a mobile tab has no UI bounds", async () => {
+      const snapshot = manager.createTab();
+      manager.setTabViewMode({ tabId: snapshot.tabId, viewMode: "mobile" });
+      manager.setTabMobilePreset({ tabId: snapshot.tabId, mobilePreset: "pixel-8" });
+      const view = mockWebContentsView.mock.results[0]!.value;
+      view.setBounds.mockClear();
+
+      const result = await manager.captureScreenshot(snapshot.tabId);
+
+      expect(view.setBounds).toHaveBeenCalledWith({ x: 0, y: 0, width: 412, height: 760 });
+      expect(fakeWebContents.capturePage).not.toHaveBeenCalled();
+      expect(fakeWebContents.debugger.sendCommand).toHaveBeenCalledWith(
+        "Page.captureScreenshot",
+        expect.objectContaining({ format: "png" }),
+      );
+      expect(result).toEqual({
+        data: Buffer.from("cdp-png").toString("base64"),
+        mimeType: "image/png",
+      });
     });
   });
 

@@ -1,7 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { AppSidebarLayout } from "./AppSidebarLayout";
+import {
+  AppSidebarLayout,
+  isSettingsPathname,
+  resolveSettingsToggleHref,
+} from "./AppSidebarLayout";
 
 vi.mock("@tanstack/react-router", () => ({
   useLocation: (options?: {
@@ -41,6 +45,33 @@ vi.mock("../modules/terminal", () => ({
 }));
 
 describe("AppSidebarLayout", () => {
+  it("detects settings routes", () => {
+    expect(isSettingsPathname("/settings")).toBe(true);
+    expect(isSettingsPathname("/settings/keybindings")).toBe(true);
+    expect(isSettingsPathname("/settings-general")).toBe(false);
+  });
+
+  it("toggles settings back to the last non-settings href", () => {
+    expect(
+      resolveSettingsToggleHref({
+        pathname: "/chat",
+        lastNonSettingsHref: "/environment/thread",
+      }),
+    ).toBe("/settings");
+    expect(
+      resolveSettingsToggleHref({
+        pathname: "/settings/keybindings",
+        lastNonSettingsHref: "/environment/thread?panel=files",
+      }),
+    ).toBe("/environment/thread?panel=files");
+    expect(
+      resolveSettingsToggleHref({
+        pathname: "/settings",
+        lastNonSettingsHref: null,
+      }),
+    ).toBe("/");
+  });
+
   it("mounts a resize rail for the projects sidebar", () => {
     const html = renderToStaticMarkup(
       <AppSidebarLayout>

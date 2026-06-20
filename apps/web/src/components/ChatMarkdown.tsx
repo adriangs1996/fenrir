@@ -39,6 +39,7 @@ import { resolveMarkdownFileLinkMeta, rewriteMarkdownFileUriHref } from "../mark
 import { cn } from "../lib/utils";
 import type { ChatImageAttachment } from "../types";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
+import { AuthenticatedImage } from "./chat/AuthenticatedImage";
 
 class CodeHighlightErrorBoundary extends React.Component<
   { fallback: ReactNode; children: ReactNode },
@@ -618,7 +619,11 @@ function MarkdownImage({
           onImageExpand?.(preview);
         }}
       >
-        <img src={image.previewUrl} alt={alt || image.name} className="chat-markdown-image" />
+        <AuthenticatedImage
+          src={image.previewUrl}
+          alt={alt || image.name}
+          className="chat-markdown-image"
+        />
       </button>
     );
   }

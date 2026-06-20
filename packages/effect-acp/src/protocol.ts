@@ -183,6 +183,16 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
       Effect.asVoid,
     );
 
+  const logDecodeFailure = (error: AcpError.AcpProtocolParseError) =>
+    logProtocol({
+      direction: "incoming",
+      stage: "decode_failed",
+      payload: {
+        detail: error.detail,
+        cause: error.cause,
+      },
+    });
+
   const emitClientProtocolError = (error: AcpError.AcpError) =>
     Queue.offer(clientQueue, {
       _tag: "ClientProtocolError",
@@ -275,7 +285,10 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
                 cause,
               }),
           ),
-          Effect.flatMap(dispatchNotification),
+          Effect.matchEffect({
+            onFailure: logDecodeFailure,
+            onSuccess: dispatchNotification,
+          }),
         );
       }
       if (message.tag === CLIENT_METHODS.session_elicitation_complete) {
@@ -295,7 +308,10 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
                 cause,
               }),
           ),
-          Effect.flatMap(dispatchNotification),
+          Effect.matchEffect({
+            onFailure: logDecodeFailure,
+            onSuccess: dispatchNotification,
+          }),
         );
       }
       return dispatchNotification({

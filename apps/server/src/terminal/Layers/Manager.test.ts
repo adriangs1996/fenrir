@@ -89,13 +89,25 @@ class FakePtyProcess implements PtyProcess {
   }
 }
 
+class EagerDataPtyProcess extends FakePtyProcess {
+  override onData(callback: (data: string) => void): () => void {
+    const unsubscribe = super.onData(callback);
+    callback("early output\n");
+    return unsubscribe;
+  }
+}
+
 class FakePtyAdapter implements PtyAdapterShape {
   readonly spawnInputs: PtySpawnInput[] = [];
   readonly processes: FakePtyProcess[] = [];
   readonly spawnFailures: Error[] = [];
   private nextPid = 9000;
 
-  constructor(private readonly mode: "sync" | "async" = "sync") {}
+  constructor(
+    private readonly mode: "sync" | "async" = "sync",
+    private readonly processFactory: (pid: number) => FakePtyProcess = (pid) =>
+      new FakePtyProcess(pid),
+  ) {}
 
   spawn(input: PtySpawnInput): Effect.Effect<PtyProcess, PtySpawnError> {
     this.spawnInputs.push(input);
@@ -109,7 +121,7 @@ class FakePtyAdapter implements PtyAdapterShape {
         }),
       );
     }
-    const process = new FakePtyProcess(this.nextPid++);
+    const process = this.processFactory(this.nextPid++);
     this.processes.push(process);
     if (this.mode === "async") {
       return Effect.tryPromise({
@@ -123,6 +135,48 @@ class FakePtyAdapter implements PtyAdapterShape {
       });
     }
     return Effect.succeed(process);
+  }
+}
+
+class BlockingSecondSpawnPtyAdapter implements PtyAdapterShape {
+  readonly spawnInputs: PtySpawnInput[] = [];
+  readonly processes: FakePtyProcess[] = [];
+  readonly spawnFailures: Error[] = [];
+  private nextPid = 9500;
+  private releaseSecondSpawn: (() => void) | null = null;
+
+  get secondSpawnBlocked(): boolean {
+    return this.releaseSecondSpawn !== null;
+  }
+
+  release(): void {
+    if (!this.releaseSecondSpawn) {
+      throw new Error("Second spawn is not blocked");
+    }
+    this.releaseSecondSpawn();
+    this.releaseSecondSpawn = null;
+  }
+
+  spawn(input: PtySpawnInput): Effect.Effect<PtyProcess, PtySpawnError> {
+    this.spawnInputs.push(input);
+    const process = new FakePtyProcess(this.nextPid++);
+    this.processes.push(process);
+    if (this.processes.length !== 2) {
+      return Effect.succeed(process);
+    }
+
+    return Effect.tryPromise({
+      try: () =>
+        new Promise<PtyProcess>((resolve) => {
+          this.releaseSecondSpawn = () => resolve(process);
+        }),
+      catch: (cause) =>
+        new PtySpawnError({
+          adapter: "fake",
+          message: "Failed to spawn PTY process",
+          cause,
+        }),
+    });
   }
 }
 
@@ -197,13 +251,13 @@ interface CreateManagerOptions {
   subprocessPollIntervalMs?: number;
   processKillGraceMs?: number;
   maxRetainedInactiveSessions?: number;
-  ptyAdapter?: FakePtyAdapter;
+  ptyAdapter?: FakePtyAdapter | BlockingSecondSpawnPtyAdapter;
 }
 
 interface ManagerFixture {
   readonly baseDir: string;
   readonly logsDir: string;
-  readonly ptyAdapter: FakePtyAdapter;
+  readonly ptyAdapter: FakePtyAdapter | BlockingSecondSpawnPtyAdapter;
   readonly manager: TerminalManagerShape;
   readonly getEvents: Effect.Effect<ReadonlyArray<TerminalEvent>>;
 }
@@ -371,6 +425,57 @@ it.layer(TestLayer, { excludeTestServices: true })("TerminalManager", (it) => {
 
       expect(process.writes).toEqual(["ls\n"]);
       expect(process.resizeCalls).toEqual([{ cols: 120, rows: 30 }]);
+    }),
+  );
+
+  it.effect("captures PTY output emitted while spawn listeners are being attached", () =>
+    Effect.gen(function* () {
+      const { manager, getEvents } = yield* createManager(5, {
+        ptyAdapter: new FakePtyAdapter("sync", (pid) => new EagerDataPtyProcess(pid)),
+      });
+
+      yield* manager.open(openInput());
+
+      yield* waitFor(
+        Effect.map(getEvents, (events) =>
+          events.some((event) => event.type === "output" && event.data === "early output\n"),
+        ),
+        "1200 millis",
+      );
+    }),
+  );
+
+  it.effect("serializes writes with terminal restarts so input reaches the replacement pty", () =>
+    Effect.gen(function* () {
+      const ptyAdapter = new BlockingSecondSpawnPtyAdapter();
+      const { manager } = yield* createManager(5, { ptyAdapter });
+      yield* manager.open(openInput());
+      const firstProcess = ptyAdapter.processes[0];
+      expect(firstProcess).toBeDefined();
+      if (!firstProcess) return;
+
+      const restartFiber = yield* manager.restart(restartInput()).pipe(Effect.forkScoped);
+      yield* waitFor(Effect.sync(() => ptyAdapter.secondSpawnBlocked));
+
+      const writeFiber = yield* Effect.result(
+        manager.write({
+          threadId: "thread-1",
+          terminalId: DEFAULT_TERMINAL_ID,
+          data: "after restart\n",
+        }),
+      ).pipe(Effect.forkScoped);
+
+      yield* Effect.yieldNow;
+      expect(firstProcess.writes).toEqual([]);
+
+      ptyAdapter.release();
+      yield* Fiber.join(restartFiber);
+      const writeResult = yield* Fiber.join(writeFiber);
+
+      assert.equal(writeResult._tag, "Success");
+      const secondProcess = ptyAdapter.processes[1];
+      expect(secondProcess).toBeDefined();
+      expect(secondProcess?.writes).toEqual(["after restart\n"]);
     }),
   );
 

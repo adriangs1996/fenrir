@@ -33,6 +33,7 @@ import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch"
 import { useTheme } from "../hooks/useTheme";
 import {
   DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS,
+  buildDiffFontUnsafeCSSDeclarations,
   buildPatchCacheKey,
   resolveDiffThemeName,
 } from "../lib/diffRendering";
@@ -82,6 +83,7 @@ function DiffPanelSidebarCloseButton() {
 
 function buildDiffPanelUnsafeCSS(fontFamily: string, fontSize: number): string {
   return `
+:host,
 [data-diffs-header],
 [data-diff],
 [data-file],
@@ -99,8 +101,7 @@ function buildDiffPanelUnsafeCSS(fontFamily: string, fontSize: number): string {
   --diffs-bg-buffer-override: color-mix(in srgb, var(--background) 90%, var(--foreground));
 
   background-color: var(--diffs-bg) !important;
-  font-family: ${fontFamily} !important;
-  font-size: ${fontSize}px !important;
+${buildDiffFontUnsafeCSSDeclarations(fontFamily, fontSize)}
 }
 
 ${DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS}

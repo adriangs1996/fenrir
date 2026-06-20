@@ -276,6 +276,11 @@ const makeLogBuffer = Effect.gen(function* () {
       // Clear subscribers
       buf.subscribers.clear();
 
+      for (const [closedInstanceId, closedSnapshot] of closedSnapshots) {
+        if (closedSnapshot.previousLogPath === snapshot.previousLogPath) {
+          closedSnapshots.delete(closedInstanceId);
+        }
+      }
       closedSnapshots.set(instanceId, snapshot);
 
       // Remove from map

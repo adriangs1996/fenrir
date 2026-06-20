@@ -514,6 +514,7 @@ export function TerminalViewport({
         command === "terminal.new" ||
         command === "terminal.close" ||
         command === "globalTerminal.open" ||
+        command === "settings.toggle" ||
         command === "diff.toggle" ||
         command === "gitDiff.toggle" ||
         command === "thread.open" ||

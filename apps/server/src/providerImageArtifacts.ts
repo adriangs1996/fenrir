@@ -1,11 +1,17 @@
 import { Buffer } from "node:buffer";
 
-import { type ProviderRuntimeEvent, type ThreadId, type TurnId } from "@fenrir/contracts";
+import {
+  type ChatImageAttachment,
+  type ProviderRuntimeEvent,
+  type ThreadId,
+  type TurnId,
+} from "@fenrir/contracts";
 import { Effect, Option } from "effect";
 
 import { fenrirImageUri, parseFenrirImageArtifactId } from "./assistantImageMaterialization.ts";
 import { persistImageAttachment } from "./imageAttachmentMaterialization.ts";
 import { inferImageExtension, parseBase64DataUrl } from "./imageMime.ts";
+import { readMcpImageArtifact } from "./mcpImageArtifactStore.ts";
 import { ProjectionThreadImageArtifactRepository } from "./persistence/Services/ProjectionThreadImageArtifacts.ts";
 
 const FENRIR_IMAGE_URI_PATTERN = /fenrir-image:\/\/([a-z0-9_-]{1,128})/gi;
@@ -20,6 +26,13 @@ interface FenrirImageHandleEntry {
 interface ProviderImageContent {
   readonly data: string;
   readonly mimeType: string;
+  readonly name?: string;
+}
+
+export interface ProviderImageArtifactAttachment {
+  readonly artifactId: string;
+  readonly uri: string;
+  readonly attachment: ChatImageAttachment;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -158,51 +171,52 @@ export const materializeProviderRuntimeImageArtifacts = Effect.fn(
   readonly turnId?: TurnId;
 }) {
   if (input.event.type !== "item.completed" && input.event.type !== "item.updated") {
-    return;
+    return [];
   }
 
   const result = resultRecordFromProviderData(input.event.payload.data);
   if (!result) {
-    return;
+    return [];
   }
 
   const images = extractProviderImageContent(result);
-  if (images.length === 0) {
-    return;
-  }
-
   const handles = dedupeFenrirImageHandles([
     ...extractStructuredFenrirImageHandles(result),
     ...extractTextFenrirImageHandles(result),
   ]);
   if (handles.length === 0) {
-    return;
+    return [];
   }
 
   const imageArtifactRepository = yield* ProjectionThreadImageArtifactRepository;
 
-  yield* Effect.forEach(
-    images.slice(0, handles.length),
-    (image, index) =>
+  const artifacts = yield* Effect.forEach(
+    handles,
+    (handle, index) =>
       Effect.gen(function* () {
-        const handle = handles[index];
-        if (!handle) {
-          return;
-        }
-
         const existingArtifact = yield* imageArtifactRepository.getByThreadIdAndArtifactId({
           threadId: input.threadId,
           artifactId: handle.artifactId,
         });
         if (Option.isSome(existingArtifact)) {
-          return;
+          return {
+            artifactId: handle.artifactId,
+            uri: handle.uri,
+            attachment: existingArtifact.value.attachment,
+          } satisfies ProviderImageArtifactAttachment;
+        }
+
+        const image =
+          images[index] ?? (yield* readMcpImageArtifact({ artifactId: handle.artifactId }));
+        if (!image) {
+          return null;
         }
 
         const bytes = Buffer.from(image.data, "base64");
         const mimeType = handle.mimeType ?? image.mimeType;
         const attachment = yield* persistImageAttachment({
           threadId: input.threadId,
-          name: handle.name ?? fallbackImageName({ index, mimeType }),
+          name: handle.name ?? image.name ?? fallbackImageName({ index, mimeType }),
           mimeType,
           bytes,
           fallbackName: fallbackImageName({ index, mimeType }),
@@ -217,16 +231,26 @@ export const materializeProviderRuntimeImageArtifacts = Effect.fn(
           sourceEventId: input.event.eventId,
           createdAt: input.event.createdAt,
         });
+
+        return {
+          artifactId: handle.artifactId,
+          uri: handle.uri,
+          attachment,
+        } satisfies ProviderImageArtifactAttachment;
       }).pipe(
         Effect.catch((cause) =>
           Effect.logWarning("failed to materialize provider image artifact", {
             eventId: input.event.eventId,
             cause,
-          }),
+          }).pipe(Effect.as(null)),
         ),
       ),
     { concurrency: 1 },
-  ).pipe(Effect.asVoid);
+  );
+
+  return artifacts.filter(
+    (artifact): artifact is ProviderImageArtifactAttachment => artifact !== null,
+  );
 });
 
 function redactImageResultContent(result: Record<string, unknown>): Record<string, unknown> {

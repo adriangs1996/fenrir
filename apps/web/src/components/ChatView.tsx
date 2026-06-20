@@ -2047,6 +2047,13 @@ export default function ChatView(props: ChatViewProps) {
       });
       if (!command) return;
 
+      if (command === "settings.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        void navigate({ to: "/settings" });
+        return;
+      }
+
       if (command === "terminal.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -2178,6 +2185,7 @@ export default function ChatView(props: ChatViewProps) {
     runGlobalScript,
     splitTerminal,
     keybindings,
+    navigate,
     openEditorRunPrompt,
     scheduleComposerFocus,
     setActiveChatTab,
@@ -2196,6 +2204,11 @@ export default function ChatView(props: ChatViewProps) {
 
     return subscribe((command) => {
       if (!activeThreadId || commandPaletteOpen) return;
+
+      if (command === "settings.toggle") {
+        void navigate({ to: "/settings" });
+        return;
+      }
 
       if (command === "terminal.toggle") {
         toggleTerminalVisibility();
@@ -2287,6 +2300,7 @@ export default function ChatView(props: ChatViewProps) {
     createNewTerminal,
     editorAvailable,
     editorPromptOpen,
+    navigate,
     openEditorRunPrompt,
     scheduleComposerFocus,
     submitEditorPrompt,

@@ -80,7 +80,7 @@ interface StackRpcClient {
 function applyVcsStatusStreamEvent(
   current: VcsStatusResult | null,
   event: VcsStatusStreamEvent,
-): VcsStatusResult {
+): VcsStatusResult | null {
   switch (event._tag) {
     case "snapshot":
       return {
@@ -93,45 +93,22 @@ function applyVcsStatusStreamEvent(
         }),
       };
     case "localUpdated":
+      if (!current) {
+        return null;
+      }
       return {
         ...event.local,
-        ...(current
-          ? {
-              hasUpstream: current.hasUpstream,
-              aheadCount: current.aheadCount,
-              behindCount: current.behindCount,
-              ...(current.aheadOfDefaultCount !== undefined
-                ? { aheadOfDefaultCount: current.aheadOfDefaultCount }
-                : {}),
-              pr: current.pr,
-            }
-          : {
-              hasUpstream: false,
-              aheadCount: 0,
-              behindCount: 0,
-              pr: null,
-            }),
+        hasUpstream: current.hasUpstream,
+        aheadCount: current.aheadCount,
+        behindCount: current.behindCount,
+        ...(current.aheadOfDefaultCount !== undefined
+          ? { aheadOfDefaultCount: current.aheadOfDefaultCount }
+          : {}),
+        pr: current.pr,
       };
     case "remoteUpdated":
       if (!current) {
-        return {
-          isRepo: false,
-          hasPrimaryRemote: false,
-          isDefaultRef: false,
-          refName: null,
-          hasWorkingTreeChanges: false,
-          workingTree: {
-            files: [],
-            insertions: 0,
-            deletions: 0,
-          },
-          ...(event.remote ?? {
-            hasUpstream: false,
-            aheadCount: 0,
-            behindCount: 0,
-            pr: null,
-          }),
-        };
+        return null;
       }
       return {
         ...current,
@@ -694,7 +671,9 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
           (client) => client[WS_METHODS.subscribeVcsStatus](input),
           (event: VcsStatusStreamEvent) => {
             current = applyVcsStatusStreamEvent(current, event);
-            listener(current);
+            if (current) {
+              listener(current);
+            }
           },
           options,
         );

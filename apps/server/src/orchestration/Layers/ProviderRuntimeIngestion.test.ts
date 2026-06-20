@@ -41,6 +41,7 @@ import {
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { persistMcpImageArtifact } from "../../mcpImageArtifactStore.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 function makeTestServerSettingsLayer(overrides: Partial<ServerSettings> = {}) {
@@ -200,6 +201,12 @@ describe("ProviderRuntimeIngestion", () => {
 
   async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
     const workspaceRoot = makeTempDir("fenrir-provider-project-");
+    const serverBaseDir = makeTempDir("fenrir-provider-state-");
+    const serverConfigLayer = ServerConfig.layerTest(process.cwd(), serverBaseDir);
+    const imageArtifactStoreTestLayer = Layer.mergeAll(
+      serverConfigLayer.pipe(Layer.provide(NodeServices.layer)),
+      NodeServices.layer,
+    );
     execFileSync("git", ["init"], {
       cwd: workspaceRoot,
       stdio: ["ignore", "pipe", "pipe"],
@@ -218,9 +225,7 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
-      Layer.provideMerge(
-        ServerConfig.layerTest(process.cwd(), { prefix: "fenrir-provider-runtime-ingestion-" }),
-      ),
+      Layer.provideMerge(serverConfigLayer),
       Layer.provideMerge(NodeServices.layer),
     );
     runtime = ManagedRuntime.make(layer);
@@ -294,6 +299,15 @@ describe("ProviderRuntimeIngestion", () => {
       emit: provider.emit,
       setProviderSession: provider.setSession,
       drain,
+      persistImageArtifact: (input: {
+        readonly artifactId: string;
+        readonly name?: string;
+        readonly mimeType: string;
+        readonly data: string;
+      }) =>
+        Effect.runPromise(
+          persistMcpImageArtifact(input).pipe(Effect.provide(imageArtifactStoreTestLayer)),
+        ),
     };
   }
 
@@ -779,6 +793,41 @@ describe("ProviderRuntimeIngestion", () => {
 
     await harness.drain();
 
+    const threadWithToolActivity = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity: ProviderRuntimeTestActivity) =>
+        Boolean(
+          (activity.payload as { images?: ReadonlyArray<unknown> } | undefined)?.images?.length,
+        ),
+      ),
+    );
+    const toolActivity = threadWithToolActivity.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.id === asEventId("evt-mcp-image-completed"),
+    );
+    const toolActivityPayload = toolActivity?.payload as
+      | {
+          readonly images?: ReadonlyArray<{
+            readonly artifactId?: string;
+            readonly uri?: string;
+            readonly type?: string;
+            readonly name?: string;
+            readonly mimeType?: string;
+            readonly sizeBytes?: number;
+          }>;
+        }
+      | undefined;
+    const toolActivityImages = toolActivityPayload?.images;
+
+    expect(toolActivityImages?.[0]).toMatchObject({
+      artifactId,
+      uri,
+      type: "image",
+      name: "browser-lab-screenshot.png",
+      mimeType: "image/png",
+      sizeBytes: 5,
+    });
+    expect(toolActivityImages?.[0]?.sizeBytes).toBe(5);
+
     harness.emit({
       type: "item.completed",
       eventId: asEventId("evt-assistant-image-completed"),
@@ -817,6 +866,91 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.text).toContain(`fenrir-image://${attachment?.id}`);
     expect(message?.text).not.toContain(uri);
     expect(message?.streaming).toBe(false);
+  });
+
+  it("materializes stored MCP image handles when tool result image bytes are stripped", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const artifactId = "browser-lab-stored-test";
+    const uri = `fenrir-image://${artifactId}`;
+    await harness.persistImageArtifact({
+      artifactId,
+      data: "SGVsbG8=",
+      mimeType: "image/png",
+      name: "browser-lab-screenshot.png",
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-mcp-stored-image-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-image"),
+      itemId: asItemId("tool-stored-image"),
+      payload: {
+        itemType: "mcp_tool_call",
+        status: "completed",
+        title: "MCP fenrir-browser-lab.browser_lab_screenshot",
+        data: {
+          item: {
+            type: "mcpToolCall",
+            id: "tool-stored-image",
+            server: "fenrir-browser-lab",
+            tool: "browser_lab_screenshot",
+            status: "completed",
+            result: {
+              content: [{ type: "text", text: `Fenrir image handle: ${uri}` }],
+              structuredContent: {
+                fenrirImageHandles: [
+                  {
+                    id: artifactId,
+                    uri,
+                    name: "browser-lab-screenshot.png",
+                    mimeType: "image/png",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity: ProviderRuntimeTestActivity) =>
+        Boolean(
+          (activity.payload as { images?: ReadonlyArray<unknown> } | undefined)?.images?.length,
+        ),
+      ),
+    );
+    const toolActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.id === asEventId("evt-mcp-stored-image-completed"),
+    );
+    const toolActivityImages = (
+      toolActivity?.payload as
+        | {
+            readonly images?: ReadonlyArray<{
+              readonly artifactId?: string;
+              readonly uri?: string;
+              readonly type?: string;
+              readonly name?: string;
+              readonly mimeType?: string;
+              readonly sizeBytes?: number;
+            }>;
+          }
+        | undefined
+    )?.images;
+
+    expect(toolActivityImages?.[0]).toMatchObject({
+      artifactId,
+      uri,
+      type: "image",
+      name: "browser-lab-screenshot.png",
+      mimeType: "image/png",
+      sizeBytes: 5,
+    });
   });
 
   it("projects completed plan items into first-class proposed plans", async () => {

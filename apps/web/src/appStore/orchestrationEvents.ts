@@ -7,6 +7,7 @@ import {
   buildLatestTurn,
   checkpointStatusToLatestTurnState,
   compareActivities,
+  mapActivity,
   mapMessage,
   mapProject,
   mapProjectScripts,
@@ -524,9 +525,10 @@ export function applyEnvironmentOrchestrationEvent(
 
     case "thread.activity-appended":
       return updateThreadState(state, event.payload.threadId, (thread) => {
+        const activity = mapActivity(environmentId, event.payload.activity);
         const activities = [
-          ...thread.activities.filter((activity) => activity.id !== event.payload.activity.id),
-          { ...event.payload.activity },
+          ...thread.activities.filter((entry) => entry.id !== activity.id),
+          activity,
         ]
           .toSorted(compareActivities)
           .slice(-MAX_THREAD_ACTIVITIES);

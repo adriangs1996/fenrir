@@ -22,6 +22,8 @@ interface BrowserLabMcpTool {
 const defaultScreenshotMimeType = "image/png";
 const imageMimeTypePattern = /^image\/[a-z0-9][a-z0-9.+-]*$/i;
 const base64CharactersPattern = /^[a-z0-9+/]+={0,2}$/i;
+const fenrirImageArtifactIdPattern = /^[a-z0-9_-]{1,128}$/i;
+const fenrirImageUriPrefix = "fenrir-image://";
 
 const optionalTabId = z
   .string()
@@ -42,6 +44,12 @@ const url = z
 const headers = z.record(z.string(), z.string()).describe("HTTP headers keyed by header name.");
 const emptyInputSchema = {};
 const tabInputSchema = { tabId: optionalTabId };
+const imageHandleInputSchema = {
+  uri: z
+    .string()
+    .min(1)
+    .describe("Fenrir image handle to open, for example fenrir-image://browser-lab-..."),
+};
 const requiredTabInputSchema = {
   tabId: z.string().describe("Browser Lab tab id."),
 };
@@ -281,6 +289,11 @@ export const BROWSER_LAB_MCP_TOOLS = [
     name: "browser_lab_screenshot",
     description: "Capture a page screenshot for the active or selected tab.",
     inputSchema: tabInputSchema,
+  },
+  {
+    name: "browser_lab_open_image",
+    description: "Open a Browser Lab fenrir-image:// handle and return the image content.",
+    inputSchema: imageHandleInputSchema,
   },
   {
     name: "browser_lab_click",
@@ -576,12 +589,33 @@ function normalizeImageMimeType(value: unknown): string {
   return mimeType;
 }
 
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeFenrirImageArtifactId(value: unknown): string | null {
+  const raw = asString(value);
+  if (!raw) {
+    return null;
+  }
+  const artifactId = raw.startsWith(fenrirImageUriPrefix)
+    ? raw.slice(fenrirImageUriPrefix.length)
+    : raw;
+  return fenrirImageArtifactIdPattern.test(artifactId) ? artifactId : null;
+}
+
 function formatBrowserLabScreenshotResult(result: unknown): BrowserLabToolCallResult {
   if (!result || typeof result !== "object") {
     throw new Error("Browser Lab screenshot returned an invalid result.");
   }
 
-  const record = result as { readonly data?: unknown; readonly mimeType?: unknown };
+  const record = result as {
+    readonly artifactId?: unknown;
+    readonly data?: unknown;
+    readonly mimeType?: unknown;
+    readonly name?: unknown;
+    readonly uri?: unknown;
+  };
   if (typeof record.data !== "string") {
     throw new Error("Browser Lab screenshot returned no image data.");
   }
@@ -592,8 +626,12 @@ function formatBrowserLabScreenshotResult(result: unknown): BrowserLabToolCallRe
   }
 
   const mimeType = normalizeImageMimeType(record.mimeType);
-  const artifactId = `browser-lab-${randomUUID()}`;
+  const artifactId =
+    normalizeFenrirImageArtifactId(record.artifactId) ??
+    normalizeFenrirImageArtifactId(record.uri) ??
+    `browser-lab-${randomUUID()}`;
   const uri = `fenrir-image://${artifactId}`;
+  const name = asString(record.name) ?? "browser-lab-screenshot.png";
 
   return {
     content: [
@@ -612,7 +650,7 @@ function formatBrowserLabScreenshotResult(result: unknown): BrowserLabToolCallRe
         {
           id: artifactId,
           uri,
-          name: "browser-lab-screenshot.png",
+          name,
           mimeType,
         },
       ],
@@ -624,7 +662,7 @@ export function formatBrowserLabToolResult(
   toolName: string,
   result: unknown,
 ): BrowserLabToolCallResult {
-  if (toolName === "browser_lab_screenshot") {
+  if (toolName === "browser_lab_screenshot" || toolName === "browser_lab_open_image") {
     return formatBrowserLabScreenshotResult(result);
   }
 

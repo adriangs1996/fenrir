@@ -1,5 +1,5 @@
 import { DEFAULT_SERVER_SETTINGS, ServerSettings, WS_METHODS } from "@fenrir/contracts";
-import { Schema, Stream } from "effect";
+import { Duration, Option, Schema, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -327,6 +327,46 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("tracks heartbeat freshness from ordinary inbound rpc frames", async () => {
+    const nowSpy = vi.spyOn(performance, "now").mockReturnValue(2_000);
+    const transport = createTransport("ws://localhost:3020");
+
+    const requestPromise = transport.request((client) => client[WS_METHODS.serverGetSettings]({}));
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const socket = getSocket();
+    socket.open();
+
+    await waitFor(() => {
+      expect(socket.sent).toHaveLength(1);
+    });
+
+    expect(transport.isHeartbeatFresh()).toBe(false);
+
+    const requestMessage = JSON.parse(socket.sent[0] ?? "{}") as { id: string };
+    socket.serverMessage(
+      JSON.stringify({
+        _tag: "Exit",
+        requestId: requestMessage.id,
+        exit: {
+          _tag: "Success",
+          value: encodeServerSettings(DEFAULT_SERVER_SETTINGS),
+        },
+      }),
+    );
+
+    await expect(requestPromise).resolves.toEqual(DEFAULT_SERVER_SETTINGS);
+    expect(transport.isHeartbeatFresh()).toBe(true);
+
+    nowSpy.mockReturnValue(2_501);
+    expect(transport.isHeartbeatFresh(500)).toBe(false);
+
+    await transport.dispose();
+  });
+
   it("clears heartbeat freshness when reconnecting", async () => {
     vi.spyOn(performance, "now").mockReturnValue(1_000);
     const onHeartbeatPong = vi.fn();
@@ -636,6 +676,41 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("rejects unary RPC requests when the request timeout elapses", async () => {
+    const transport = createTransport("ws://localhost:3020");
+    const requestPromise = transport.request((client) => client[WS_METHODS.serverGetSettings]({}), {
+      timeout: Option.some(Duration.millis(25)),
+    });
+    requestPromise.catch(() => undefined);
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const socket = getSocket();
+    socket.open();
+
+    await waitFor(() => {
+      expect(socket.sent).toHaveLength(1);
+    });
+
+    const result = await Promise.race([
+      requestPromise.then(
+        () => ({ state: "resolved" as const }),
+        (error) => ({
+          state: "rejected" as const,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      ),
+      new Promise<{ state: "pending" }>((resolve) =>
+        setTimeout(() => resolve({ state: "pending" }), 100),
+      ),
+    ]);
+
+    expect(result).toMatchObject({ state: "rejected" });
+    await transport.dispose();
+  });
+
   it("delivers stream chunks to subscribers", async () => {
     const transport = createTransport("ws://localhost:3020");
     const listener = vi.fn();
@@ -699,7 +774,7 @@ describe("WsTransport", () => {
     const unsubscribe = transport.subscribe(
       (client) => client[WS_METHODS.subscribeServerLifecycle]({}),
       listener,
-      { onResubscribe },
+      { onResubscribe, retryDelay: 25 },
     );
     await waitFor(() => {
       expect(sockets).toHaveLength(1);
@@ -747,6 +822,12 @@ describe("WsTransport", () => {
         },
       }),
     );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const immediateSecondRequest = socket.sent
+      .map((message) => JSON.parse(message) as { _tag?: string; id?: string })
+      .find((message) => message._tag === "Request" && message.id !== firstRequest.id);
+    expect(immediateSecondRequest).toBeUndefined();
 
     await waitFor(() => {
       const nextRequest = socket.sent
@@ -955,7 +1036,7 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
-  it("does not retry stream subscriptions after application-level failures", async () => {
+  it("retries stream subscriptions after recoverable application-level failures", async () => {
     const transport = createTransport("ws://localhost:3020");
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     let attempts = 0;
@@ -977,11 +1058,9 @@ describe("WsTransport", () => {
     getSocket().open();
 
     await waitFor(() => {
-      expect(attempts).toBe(1);
+      expect(attempts).toBeGreaterThanOrEqual(2);
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
 
-    expect(attempts).toBe(1);
     expect(warnSpy).toHaveBeenCalledWith("WebSocket RPC subscription failed", {
       error: "Git command failed in GitCore.statusDetails",
     });

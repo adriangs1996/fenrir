@@ -32,6 +32,8 @@ interface RequestOptions {
 }
 
 const DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS = Duration.millis(250);
+const DEFAULT_SUBSCRIPTION_MAX_RETRY_DELAY_MS = 10_000;
+const DEFAULT_REQUEST_TIMEOUT = Duration.millis(30_000);
 const NOOP: () => void = () => undefined;
 
 interface TransportSession {
@@ -55,7 +57,7 @@ export class WsTransport {
   private reconnectChain: Promise<void> = Promise.resolve();
   private nextSessionId = 0;
   private activeSessionId = 0;
-  private lastHeartbeatPongAt: number | null = null;
+  private lastInboundAt: number | null = null;
   private session: TransportSession;
 
   constructor(
@@ -69,15 +71,22 @@ export class WsTransport {
 
   async request<TSuccess>(
     execute: (client: WsRpcProtocolClient) => Effect.Effect<TSuccess, Error, never>,
-    _options?: RequestOptions,
+    options?: RequestOptions,
   ): Promise<TSuccess> {
     if (this.disposed) {
       throw new Error("Transport disposed");
     }
 
     const session = this.session;
-    const client = await session.clientPromise;
-    return await session.runtime.runPromise(Effect.suspend(() => execute(client)));
+    const runRequest = async () => {
+      const client = await session.clientPromise;
+      return await session.runtime.runPromise(Effect.suspend(() => execute(client)));
+    };
+    const timeout = options?.timeout ?? Option.some(DEFAULT_REQUEST_TIMEOUT);
+    return await Option.match(timeout, {
+      onNone: runRequest,
+      onSome: (duration) => withRequestTimeout(runRequest(), duration),
+    });
   }
 
   async requestStream<TValue>(
@@ -114,8 +123,12 @@ export class WsTransport {
 
     let active = true;
     let hasReceivedValue = false;
-    const retryDelayMs = Duration.toMillis(
-      Duration.fromInputUnsafe(options?.retryDelay ?? DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS),
+    let retryAttempt = 0;
+    const baseRetryDelayMs = Math.max(
+      1,
+      Duration.toMillis(
+        Duration.fromInputUnsafe(options?.retryDelay ?? DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS),
+      ),
     );
     let cancelCurrentStream: () => void = NOOP;
 
@@ -143,11 +156,16 @@ export class WsTransport {
             () => {
               this.hasReportedTransportDisconnect = false;
               hasReceivedValue = true;
+              retryAttempt = 0;
             },
           );
           cancelCurrentStream = runningStream.cancel;
           await runningStream.completed;
           cancelCurrentStream = NOOP;
+          if (!active || this.disposed || session !== this.session) {
+            continue;
+          }
+          await sleep(nextSubscriptionRetryDelayMs(baseRetryDelayMs, retryAttempt++));
         } catch (error) {
           cancelCurrentStream = NOOP;
           if (!active || this.disposed) {
@@ -163,7 +181,11 @@ export class WsTransport {
             console.warn("WebSocket RPC subscription failed", {
               error: formattedError,
             });
-            return;
+            if (isFatalSubscriptionErrorMessage(formattedError)) {
+              return;
+            }
+            await sleep(nextSubscriptionRetryDelayMs(baseRetryDelayMs, retryAttempt++));
+            continue;
           }
 
           if (!this.hasReportedTransportDisconnect) {
@@ -172,7 +194,7 @@ export class WsTransport {
             });
           }
           this.hasReportedTransportDisconnect = true;
-          await sleep(retryDelayMs);
+          await sleep(nextSubscriptionRetryDelayMs(baseRetryDelayMs, retryAttempt++));
         }
       }
     })();
@@ -194,7 +216,7 @@ export class WsTransport {
       }
 
       clearAllTrackedRpcRequests();
-      this.lastHeartbeatPongAt = null;
+      this.lastInboundAt = null;
       const previousSession = this.session;
       this.session = this.createSession();
       await this.closeSession(previousSession);
@@ -205,9 +227,7 @@ export class WsTransport {
   }
 
   isHeartbeatFresh(maxAgeMs = 15_000): boolean {
-    return (
-      this.lastHeartbeatPongAt !== null && performance.now() - this.lastHeartbeatPongAt <= maxAgeMs
-    );
+    return this.lastInboundAt !== null && performance.now() - this.lastInboundAt <= maxAgeMs;
   }
 
   async dispose() {
@@ -237,8 +257,11 @@ export class WsTransport {
             !this.disposed &&
             this.activeSessionId === sessionId &&
             (lifecycleHandlers?.isActive?.() ?? true),
+          onInboundMessage: () => {
+            this.lastInboundAt = performance.now();
+            lifecycleHandlers?.onInboundMessage?.();
+          },
           onHeartbeatPong: () => {
-            this.lastHeartbeatPongAt = performance.now();
             lifecycleHandlers?.onHeartbeatPong?.();
           },
         }),
@@ -310,5 +333,38 @@ export class WsTransport {
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
+  });
+}
+
+function isFatalSubscriptionErrorMessage(message: string): boolean {
+  return /\b(method not found|unknown method|not found: method)\b/i.test(message);
+}
+
+function nextSubscriptionRetryDelayMs(baseDelayMs: number, retryAttempt: number): number {
+  const exponentialDelay = Math.min(
+    baseDelayMs * 2 ** Math.max(0, retryAttempt),
+    DEFAULT_SUBSCRIPTION_MAX_RETRY_DELAY_MS,
+  );
+  const jitter = 0.8 + Math.random() * 0.4;
+  return Math.max(1, Math.round(exponentialDelay * jitter));
+}
+
+function withRequestTimeout<T>(promise: Promise<T>, duration: Duration.Input): Promise<T> {
+  const timeoutMs = Duration.toMillis(Duration.fromInputUnsafe(duration));
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`WebSocket RPC request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
   });
 }

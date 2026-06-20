@@ -46,6 +46,7 @@ const STATIC_COMMAND_LABELS: Partial<Record<StaticKeybindingCommand, string>> = 
   "editor.runPrompt": "Editor: Run Prompt",
   "editor.toggleChatTab": "Editor: Toggle",
   "gitDiff.toggle": "Git Diff: Toggle",
+  "settings.toggle": "Settings: Toggle",
   "thread.open": "Thread: Open",
 };
 

@@ -634,7 +634,8 @@
 
 :root.dracula-pro-van-helsing {
   --dracula-pro-bg: #0b0d0f;
-  --dracula-pro-bgdark: #070809;
+  /* --dracula-pro-bgdark: #070809; */
+  --dracula-pro-bgdark: #0b0d0f;
   --dracula-pro-bgdarker: #000000;
   --dracula-pro-bglight: #111417;
   --dracula-pro-bglighter: #161a1d;

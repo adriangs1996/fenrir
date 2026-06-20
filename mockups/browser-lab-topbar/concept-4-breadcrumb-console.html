@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Concept 4 - Breadcrumb Console</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .console-shell {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: calc(100vh - 36px);
+      }
+
+      .topbar {
+        border-bottom: 1px solid #203043;
+        background: linear-gradient(180deg, rgba(230, 180, 80, 0.06), transparent 58%), #080c11;
+      }
+
+      .console-row {
+        display: grid;
+        grid-template-columns: auto minmax(320px, 1fr) auto;
+        gap: 14px;
+        align-items: center;
+        min-height: 58px;
+        padding: 0 14px;
+      }
+
+      .trail {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .trail-segment {
+        display: inline-flex;
+        min-width: 0;
+        height: 34px;
+        align-items: center;
+        padding: 0 11px;
+        border: 1px solid #2b3949;
+        border-radius: 8px;
+        background: #0f151d;
+        color: #cdd8e6;
+        white-space: nowrap;
+      }
+
+      .trail-segment.current {
+        min-width: 220px;
+        flex: 1 1 auto;
+        border-color: #45617c;
+        background: #101d28;
+        color: #f4f8fb;
+      }
+
+      .trail-segment span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .slash {
+        color: #52667e;
+      }
+
+      .app-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: #9cb3cd;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .app-title .square {
+        width: 28px;
+        height: 28px;
+        border: 1px solid #3b5065;
+        border-radius: 7px;
+        background: linear-gradient(135deg, #263850 0 50%, transparent 50%), #111821;
+      }
+
+      .console-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .url-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        min-height: 44px;
+        padding: 0 14px 10px;
+      }
+
+      .nav-actions {
+        display: inline-flex;
+        gap: 3px;
+      }
+
+      .address-line {
+        display: flex;
+        min-width: 0;
+        height: 36px;
+        align-items: center;
+        padding: 0 12px;
+        border: 1px solid #243445;
+        border-radius: 8px;
+        background: #06090d;
+      }
+
+      .status-ticker {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        min-height: 38px;
+        padding: 0 14px;
+        overflow: hidden;
+        border-top: 1px solid #172231;
+        background: #0a0f15;
+      }
+
+      .ticker-item {
+        display: inline-flex;
+        min-width: 126px;
+        height: 25px;
+        align-items: center;
+        gap: 7px;
+        padding: 0 9px;
+        border: 1px solid #243345;
+        border-radius: 999px;
+        background: #0f151d;
+        color: #bfccd9;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .workspace-body {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        min-height: 620px;
+      }
+
+      .context-panel {
+        border-left: 1px solid #1e2a38;
+        background: #0b1016;
+      }
+
+      .panel-section {
+        padding: 14px;
+        border-bottom: 1px solid #192432;
+      }
+
+      .panel-section h2 {
+        margin: 0 0 10px;
+        color: #dce7f4;
+        font-size: 13px;
+      }
+
+      .panel-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        color: #8fa1b8;
+      }
+
+      @media (max-width: 900px) and (min-width: 1px) {
+        .console-row,
+        .url-row {
+          grid-template-columns: 1fr;
+          padding: 10px 12px;
+        }
+
+        .console-actions {
+          justify-content: space-between;
+        }
+
+        .workspace-body {
+          grid-template-columns: 1fr;
+        }
+
+        .context-panel {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="app-frame console-shell">
+        <header class="topbar">
+          <div class="console-row">
+            <div class="app-title"><span class="square"></span>Browser Lab</div>
+            <nav class="trail" aria-label="Location">
+              <button class="trail-segment" type="button">Workbench</button>
+              <span class="slash">/</span>
+              <button class="trail-segment" type="button">Mailpit</button>
+              <span class="slash">/</span>
+              <button class="trail-segment current" type="button">
+                <span>view / 21qu5sojFQlUpp3KKemmt</span>
+              </button>
+            </nav>
+            <div class="console-actions">
+              <button class="pill" type="button"><span class="dot"></span>27 servers</button>
+              <div class="mode-toggle">
+                <button class="active" type="button">Desktop</button>
+                <button type="button">Mobile</button>
+              </div>
+              <button class="pill" type="button">Admin</button>
+            </div>
+          </div>
+          <div class="url-row">
+            <div class="nav-actions">
+              <button class="icon-button" type="button" title="Back">&lt;</button>
+              <button class="icon-button" type="button" title="Forward">&gt;</button>
+              <button class="icon-button" type="button" title="Reload">R</button>
+            </div>
+            <div class="address-line">
+              <span class="url-text">http://localhost:8025/view/21qu5sojFQlUpp3KKemmt</span>
+            </div>
+            <button class="icon-button" type="button" title="Open externally">NE</button>
+          </div>
+          <div class="status-ticker" aria-label="Server status">
+            <button class="ticker-item" type="button"><span class="dot"></span>Mailpit 8025</button>
+            <button class="ticker-item" type="button"><span class="dot"></span>Fenrir 3773</button>
+            <button class="ticker-item" type="button">
+              <span class="dot warn"></span>Control 5000
+            </button>
+            <button class="ticker-item" type="button"><span class="dot"></span>Redis 6379</button>
+            <button class="ticker-item" type="button">
+              <span class="dot idle"></span>Spotify 7768
+            </button>
+            <button class="ticker-item" type="button"><span class="dot"></span>Raycast 7265</button>
+          </div>
+        </header>
+        <div class="workspace-body">
+          <main class="work-area">
+            <section class="mock-page">
+              <h1>Inbox preview</h1>
+              <div class="mock-grid">
+                <div class="mock-card"></div>
+                <div class="mock-card"></div>
+                <div class="mock-card"></div>
+              </div>
+            </section>
+          </main>
+          <aside class="context-panel">
+            <div class="panel-section">
+              <h2>Page</h2>
+              <div class="panel-row"><span>Target</span><strong>Mailpit</strong></div>
+              <div class="panel-row"><span>Profile</span><strong>Admin</strong></div>
+              <div class="panel-row"><span>Viewport</span><strong>Desktop</strong></div>
+            </div>
+            <div class="panel-section">
+              <h2>Open tabs</h2>
+              <div class="panel-row"><span>Mailpit</span><strong>Active</strong></div>
+              <div class="panel-row"><span>Fenrir</span><strong>Ready</strong></div>
+              <div class="panel-row"><span>Docs</span><strong>Idle</strong></div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

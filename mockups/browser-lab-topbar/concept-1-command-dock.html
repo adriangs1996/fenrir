@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Concept 1 - Command Dock</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .topbar {
+        border-bottom: 1px solid #223042;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent), #0a0e13;
+      }
+
+      .command-row {
+        display: grid;
+        grid-template-columns: auto minmax(190px, 270px) minmax(320px, 1fr) auto auto;
+        gap: 12px;
+        align-items: center;
+        padding: 10px 14px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: #8ba8ca;
+        font-weight: 650;
+        white-space: nowrap;
+      }
+
+      .brand span {
+        height: 22px;
+        padding: 3px 9px 0;
+        border: 1px solid #37526b;
+        border-radius: 999px;
+        color: #d6e7fa;
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .tab-switcher {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 34px;
+        gap: 8px;
+      }
+
+      .active-tab {
+        display: flex;
+        min-width: 0;
+        height: 36px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 0 11px;
+        border: 1px solid #314154;
+        border-radius: 9px;
+        background: #101821;
+      }
+
+      .active-tab strong {
+        overflow: hidden;
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .omnibar {
+        display: grid;
+        grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+        min-width: 0;
+        align-items: center;
+        gap: 4px;
+        height: 42px;
+        padding: 0 8px;
+        border: 1px solid #273546;
+        border-radius: 10px;
+        background: #080c11;
+      }
+
+      .omnibar .url-text {
+        padding: 0 12px;
+        font-size: 13px;
+      }
+
+      .admin-pill {
+        height: 36px;
+        padding: 0 13px;
+        border: 1px solid #36506d;
+        border-radius: 999px;
+        background: #0e1720;
+        color: #a9c9ed;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+
+      .server-dock {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 12px;
+        align-items: center;
+        padding: 8px 14px 12px;
+        border-top: 1px solid #17202b;
+      }
+
+      .server-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        color: #d7e2ef;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .server-title .antenna {
+        width: 24px;
+        height: 24px;
+        border: 1px solid #34516b;
+        border-radius: 8px;
+        background:
+          linear-gradient(90deg, transparent 45%, #7eb4ff 45% 55%, transparent 55%),
+          radial-gradient(circle, transparent 34%, #7eb4ff 36% 42%, transparent 44%);
+        opacity: 0.8;
+      }
+
+      .server-scroller {
+        display: flex;
+        min-width: 0;
+        gap: 8px;
+        overflow: hidden;
+      }
+
+      .server-scroller::after {
+        width: 90px;
+        flex: 0 0 auto;
+        content: "";
+      }
+
+      @media (max-width: 760px) and (min-width: 1px) {
+        .command-row {
+          grid-template-columns: auto minmax(0, 1fr) auto;
+        }
+
+        .brand,
+        .tab-switcher {
+          display: none;
+        }
+
+        .server-dock {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="app-frame">
+        <header class="topbar">
+          <div class="command-row">
+            <div class="brand">Browser Lab <span>Workbench</span></div>
+            <div class="tab-switcher">
+              <button class="active-tab" type="button">
+                <strong>Mailpit - localhost</strong>
+                <span class="muted">x</span>
+              </button>
+              <button class="icon-button" type="button" title="New tab">+</button>
+            </div>
+            <div class="omnibar">
+              <button class="icon-button" type="button" title="Back">&lt;</button>
+              <button class="icon-button" type="button" title="Forward">&gt;</button>
+              <button class="icon-button" type="button" title="Reload">R</button>
+              <div class="url-text">http://localhost:8025/view/21qu5sojFQlUpp3KKemmt</div>
+              <button class="icon-button" type="button" title="Open externally">NE</button>
+            </div>
+            <div class="mode-toggle" aria-label="Viewport mode">
+              <button class="active" type="button">Desktop</button>
+              <button type="button">Mobile</button>
+            </div>
+            <button class="admin-pill" type="button">Admin</button>
+          </div>
+          <div class="server-dock">
+            <div class="server-title">
+              <span class="antenna" aria-hidden="true"></span>
+              <span>Local servers</span>
+              <span class="badge">27</span>
+            </div>
+            <div class="server-scroller" aria-label="Local servers">
+              <button class="server-chip" type="button">
+                <span class="dot"></span>
+                <span
+                  ><strong>OrbStack Helper pid 2334</strong><span>http://localhost:1025</span></span
+                >
+                <span class="muted">NE</span>
+              </button>
+              <button class="server-chip" type="button">
+                <span class="dot"></span>
+                <span><strong>mysqld pid 5959</strong><span>http://localhost:3306</span></span>
+                <span class="muted">NE</span>
+              </button>
+              <button class="server-chip" type="button">
+                <span class="dot"></span>
+                <span><strong>Fenrir pid 7221</strong><span>http://localhost:3773</span></span>
+                <span class="muted">NE</span>
+              </button>
+              <button class="server-chip" type="button">
+                <span class="dot warn"></span>
+                <span
+                  ><strong>ControlCenter pid 1514</strong><span>http://localhost:5000</span></span
+                >
+                <span class="muted">NE</span>
+              </button>
+              <button class="server-chip" type="button">
+                <span class="dot"></span>
+                <span
+                  ><strong>redis-server pid 4227</strong><span>http://localhost:6379</span></span
+                >
+                <span class="muted">NE</span>
+              </button>
+            </div>
+          </div>
+        </header>
+        <main class="work-area">
+          <div class="content-strip">
+            <span><strong>Mailpit</strong> localhost:8025</span>
+            <span class="muted">Desktop viewport, admin profile</span>
+          </div>
+          <section class="mock-page">
+            <h1>Inbox preview</h1>
+            <div class="mock-grid">
+              <div class="mock-card"></div>
+              <div class="mock-card"></div>
+              <div class="mock-card"></div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

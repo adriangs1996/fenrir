@@ -38,6 +38,7 @@ import {
   ZapIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
+import { AuthenticatedImage } from "./AuthenticatedImage";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
@@ -441,7 +442,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
                       ctx.onImageExpand(preview);
                     }}
                   >
-                    <img
+                    <AuthenticatedImage
                       src={image.previewUrl}
                       alt={image.name}
                       className="block h-auto max-h-[220px] w-full object-cover"
@@ -1304,6 +1305,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
 }) {
+  const ctx = useTimelineRowCtx();
   const { workEntry, timestampFormat, workspaceRoot } = props;
   const iconConfig = workToneIcon(workEntry.tone);
   const EntryIcon = workEntryIcon(workEntry);
@@ -1314,6 +1316,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const hasChangedFiles = (workEntry.changedFiles?.length ?? 0) > 0;
   const previewIsChangedFiles = hasChangedFiles && !workEntry.command && !workEntry.detail;
   const timestamp = formatTimestamp(workEntry.createdAt, timestampFormat);
+  const images = workEntry.images ?? [];
 
   return (
     <div className="rounded-md px-1.5 py-1.5 transition-colors duration-150 hover:bg-muted/25">
@@ -1396,6 +1399,39 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           )}
         </div>
       )}
+      {images.length > 0 ? (
+        <div className="mt-2 grid max-w-[420px] grid-cols-2 gap-2 pl-7">
+          {images.map((image) => (
+            <div
+              key={image.id}
+              className="overflow-hidden rounded-md border border-border/70 bg-background/70"
+            >
+              {image.previewUrl ? (
+                <button
+                  type="button"
+                  className="h-full w-full cursor-zoom-in"
+                  aria-label={`Preview ${image.name}`}
+                  onClick={() => {
+                    const expanded = buildExpandedImagePreview(images, image.id);
+                    if (!expanded) return;
+                    ctx.onImageExpand(expanded);
+                  }}
+                >
+                  <AuthenticatedImage
+                    src={image.previewUrl}
+                    alt={image.name}
+                    className="block h-auto max-h-[180px] w-full object-contain"
+                  />
+                </button>
+              ) : (
+                <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
+                  {image.name}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 });

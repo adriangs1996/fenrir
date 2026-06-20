@@ -36,6 +36,53 @@ const baseRemoteStatus: VcsStatusRemoteResult = {
 };
 
 describe("wsRpcClient", () => {
+  it("ignores remote-only vcs status events until an initial snapshot arrives", () => {
+    const subscribe = vi.fn(<TValue>(_connect: unknown, listener: (value: TValue) => void) => {
+      for (const event of [
+        {
+          _tag: "remoteUpdated",
+          remote: baseRemoteStatus,
+        },
+        {
+          _tag: "snapshot",
+          local: baseLocalStatus,
+          remote: null,
+        },
+      ] satisfies VcsStatusStreamEvent[]) {
+        listener(event as TValue);
+      }
+      return () => undefined;
+    });
+
+    const transport = {
+      dispose: vi.fn(async () => undefined),
+      reconnect: vi.fn(async () => undefined),
+      request: vi.fn(),
+      requestStream: vi.fn(),
+      subscribe,
+    } satisfies Pick<
+      WsTransport,
+      "dispose" | "reconnect" | "request" | "requestStream" | "subscribe"
+    >;
+
+    const client = createWsRpcClient(transport as unknown as WsTransport);
+    const listener = vi.fn();
+
+    client.vcs.onStatus({ cwd: "/repo" }, listener);
+
+    expect(listener.mock.calls).toEqual([
+      [
+        {
+          ...baseLocalStatus,
+          hasUpstream: false,
+          aheadCount: 0,
+          behindCount: 0,
+          pr: null,
+        },
+      ],
+    ]);
+  });
+
   it("reduces git status stream events into flat status snapshots", () => {
     const subscribe = vi.fn(<TValue>(_connect: unknown, listener: (value: TValue) => void) => {
       for (const event of [

@@ -3,6 +3,7 @@ import { RegisteredCustomThemes } from "@pierre/diffs";
 import {
   DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS,
   DIFF_HIGHLIGHTER_THEME_NAMES,
+  buildDiffFontUnsafeCSSDeclarations,
   buildPatchCacheKey,
   resolveDiffThemeName,
 } from "./diffRendering";
@@ -57,6 +58,17 @@ describe("DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS", () => {
       "--diffs-bg-deletion-override: var(--destructive-foreground)",
     );
     expect(DIFF_CHANGE_HIGHLIGHT_UNSAFE_CSS).toContain("--mix-dark: 68%");
+  });
+});
+
+describe("buildDiffFontUnsafeCSSDeclarations", () => {
+  it("sets the custom properties consumed by @pierre/diffs code and headers", () => {
+    const css = buildDiffFontUnsafeCSSDeclarations('"MonoLisa", monospace', 16);
+
+    expect(css).toContain('--diffs-font-family: "MonoLisa", monospace;');
+    expect(css).toContain('--diffs-header-font-family: "MonoLisa", monospace;');
+    expect(css).toContain("--diffs-font-size: 16px;");
+    expect(css).toContain("font-family: var(--diffs-font-family) !important;");
   });
 });
 
