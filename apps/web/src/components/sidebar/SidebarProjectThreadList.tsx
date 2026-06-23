@@ -345,7 +345,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       <SidebarMenuSubButton
         render={rowButtonRender}
         size="sm"
-        isActive={isActive}
         data-testid={`thread-row-${thread.id}`}
         className={`${resolveThreadRowClassName({
           isActive,

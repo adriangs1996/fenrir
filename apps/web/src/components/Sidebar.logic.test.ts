@@ -669,6 +669,8 @@ describe("resolveThreadRowClassName", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: true });
     expect(className).toContain("text-foreground");
     expect(className).toContain("font-medium");
+    expect(className).toContain("hover:bg-transparent");
+    expect(className).toContain("active:bg-transparent");
     expect(className).not.toContain("bg-primary");
     expect(className).not.toContain("hover:bg-primary");
     expect(className).not.toContain("dark:bg-primary");
@@ -679,6 +681,8 @@ describe("resolveThreadRowClassName", () => {
     const className = resolveThreadRowClassName({ isActive: false, isSelected: true });
     expect(className).toContain("text-foreground");
     expect(className).toContain("font-medium");
+    expect(className).toContain("hover:bg-transparent");
+    expect(className).toContain("active:bg-transparent");
     expect(className).not.toContain("bg-primary");
     expect(className).not.toContain("hover:bg-primary");
     expect(className).not.toContain("dark:bg-primary");
@@ -688,6 +692,8 @@ describe("resolveThreadRowClassName", () => {
   it("defers active-only threads to the shared sidebar active styling", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: false });
     expect(className).toContain("text-foreground");
+    expect(className).toContain("hover:bg-transparent");
+    expect(className).toContain("active:bg-transparent");
     expect(className).not.toContain("bg-info/10");
     expect(className).not.toContain("ring-info/35");
     expect(className).not.toContain("hover:bg-info/14");

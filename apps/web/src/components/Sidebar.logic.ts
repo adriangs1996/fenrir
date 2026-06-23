@@ -344,15 +344,21 @@ export function resolveThreadRowClassName(input: {
     "h-7 w-full translate-x-0 cursor-pointer justify-start px-2 text-left select-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
 
   if (input.isSelected && input.isActive) {
-    return cn(baseClassName, "text-foreground font-medium hover:text-foreground");
+    return cn(
+      baseClassName,
+      "text-foreground font-medium hover:bg-transparent hover:text-foreground active:bg-transparent",
+    );
   }
 
   if (input.isSelected) {
-    return cn(baseClassName, "text-foreground font-medium hover:text-foreground");
+    return cn(
+      baseClassName,
+      "text-foreground font-medium hover:bg-transparent hover:text-foreground active:bg-transparent",
+    );
   }
 
   if (input.isActive) {
-    return cn(baseClassName, "text-foreground");
+    return cn(baseClassName, "text-foreground hover:bg-transparent active:bg-transparent");
   }
 
   return cn(baseClassName, "text-muted-foreground hover:bg-accent hover:text-foreground");
