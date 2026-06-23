@@ -26,6 +26,7 @@ import { OrchestrationDispatchError } from "../Errors.ts";
 import { SourceControlWorkspaceLive } from "../../sourceControl/SourceControlModule.ts";
 import { SourceControl } from "../../sourceControl/Services/SourceControl.ts";
 import { SourceControlStatus } from "../../sourceControl/Services/SourceControlStatus.ts";
+import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { WorkspaceEntries } from "../../workspace/Services/WorkspaceEntries.ts";
 
 type ReactorInput =
@@ -82,6 +83,7 @@ const make = Effect.gen(function* () {
   const workspaceEntries = yield* WorkspaceEntries;
   const sourceControl = yield* SourceControl;
   const sourceControlStatus = yield* SourceControlStatus;
+  const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
 
   const appendRevertFailureActivity = (input: {
     readonly threadId: ThreadId;
@@ -502,25 +504,36 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const refreshLocalGitStatusFromTurnCompletion = Effect.fn(
-    "refreshLocalGitStatusFromTurnCompletion",
-  )(function* (event: Extract<ProviderRuntimeEvent, { type: "turn.completed" }>) {
-    const sessionRuntime = yield* resolveSessionRuntimeForThread(event.threadId);
-    if (Option.isNone(sessionRuntime)) {
-      return;
-    }
+  const refreshGitStatusFromTurnCompletion = Effect.fn("refreshGitStatusFromTurnCompletion")(
+    function* (event: Extract<ProviderRuntimeEvent, { type: "turn.completed" }>) {
+      const sessionRuntime = yield* resolveSessionRuntimeForThread(event.threadId);
+      if (Option.isNone(sessionRuntime)) {
+        return;
+      }
 
-    yield* sourceControlStatus.refreshLocalStatus(sessionRuntime.value.cwd).pipe(
-      Effect.catch((error) =>
-        Effect.logWarning("failed to refresh local git status after turn completion", {
-          threadId: event.threadId,
-          turnId: event.turnId ?? null,
-          cwd: sessionRuntime.value.cwd,
-          detail: error.message,
-        }),
-      ),
-    );
-  });
+      const cwd = sessionRuntime.value.cwd;
+      yield* sourceControlStatus.refreshLocalStatus(cwd).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("failed to refresh local git status after turn completion", {
+            threadId: event.threadId,
+            turnId: event.turnId ?? null,
+            cwd,
+            detail: error.message,
+          }),
+        ),
+      );
+      yield* vcsStatusBroadcaster.refreshStatus(cwd).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("failed to refresh live VCS status after turn completion", {
+            threadId: event.threadId,
+            turnId: event.turnId ?? null,
+            cwd,
+            detail: error.message,
+          }),
+        ),
+      );
+    },
+  );
 
   const ensurePreTurnBaselineFromDomainTurnStart = Effect.fn(
     "ensurePreTurnBaselineFromDomainTurnStart",
@@ -760,7 +773,7 @@ const make = Effect.gen(function* () {
 
     if (event.type === "turn.completed") {
       const turnId = toTurnId(event.turnId);
-      yield* refreshLocalGitStatusFromTurnCompletion(event);
+      yield* refreshGitStatusFromTurnCompletion(event);
       yield* captureCheckpointFromTurnCompletion(event).pipe(
         Effect.catch((error) =>
           appendCaptureFailureActivity({

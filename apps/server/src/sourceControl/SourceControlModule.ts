@@ -22,11 +22,12 @@ const SourceControlProviderToolsLive = Layer.empty.pipe(
   Layer.provideMerge(GitLabCli.layer),
   Layer.provideMerge(AzureDevOpsCli.layer),
   Layer.provideMerge(BitbucketApi.layer),
+  Layer.provideMerge(GitVcsDriverLive),
   Layer.provideMerge(VcsProcessLive),
   Layer.provideMerge(VcsDriverRegistryLive),
 );
 
-const SourceControlProviderRegistryLive = SourceControlProviderRegistry.layer.pipe(
+export const SourceControlProviderRegistryLive = SourceControlProviderRegistry.layer.pipe(
   Layer.provideMerge(SourceControlProviderToolsLive),
 );
 

@@ -289,6 +289,7 @@ function projectVcsStatusToGitStatus(status: VcsStatusResult): GitStatusResult {
     hasUpstream: status.hasUpstream,
     aheadCount: status.aheadCount,
     behindCount: status.behindCount,
+    aheadOfDefaultCount: status.aheadOfDefaultCount,
     pr: status.pr
       ? {
           number: status.pr.number,

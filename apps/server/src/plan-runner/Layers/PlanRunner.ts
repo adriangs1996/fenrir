@@ -243,6 +243,15 @@ const featureKey = (projectId: ProjectId, featureName: string) => `${projectId}:
 
 const stepLogKey = (runId: PlanRunId, stepKey: string) => `${runId}:${stepKey}`;
 
+function assertSafeFeatureName(featureName: string, label = "feature name") {
+  if (/[/\\]|\.\./.test(featureName)) {
+    return new PlanRunnerError({
+      message: `Invalid ${label}: must not contain '/', '\\', or '..'` as any,
+    });
+  }
+  return null;
+}
+
 /**
  * Build a normalized log entry from a persisted synthetic row. Centralized
  * so the live-publish path and the read-side `getStepLog` projection
@@ -1968,6 +1977,9 @@ ${plan.content}`;
 
     const freezePlans = (projectId: ProjectId, featureName: string, projectCwd: string) =>
       Effect.gen(function* () {
+        const featureNameError = assertSafeFeatureName(featureName);
+        if (featureNameError) return yield* featureNameError;
+
         const plansDir = pathService.join(projectCwd, ".plans", featureName);
         const entries = yield* fs.readDirectory(plansDir).pipe(
           Effect.mapError(
@@ -2500,6 +2512,9 @@ ${plan.content}`;
     return {
       start: (input) =>
         Effect.gen(function* () {
+          const featureNameError = assertSafeFeatureName(input.featureName);
+          if (featureNameError) return yield* featureNameError;
+
           const branchName = `feature/${input.featureName}`;
           const projectCwd = yield* resolveProjectCwd(input.projectId);
 
@@ -3246,6 +3261,9 @@ ${plan.content}`;
 
       getFeaturePlans: (input) =>
         Effect.gen(function* () {
+          const featureNameError = assertSafeFeatureName(input.featureName);
+          if (featureNameError) return yield* featureNameError;
+
           const cacheKey = `${input.projectId}:${input.featureName}`;
 
           // Return cached result if available (5 min TTL)
@@ -3576,12 +3594,8 @@ ${plan.content}`;
 
       archiveFeature: (input) =>
         Effect.gen(function* () {
-          // Path traversal guard
-          if (/[/\\]|\.\./.test(input.featureName)) {
-            return yield* new PlanRunnerError({
-              message: `Invalid feature name: must not contain '/', '\\', or '..'` as any,
-            });
-          }
+          const featureNameError = assertSafeFeatureName(input.featureName);
+          if (featureNameError) return yield* featureNameError;
 
           const projectCwd = yield* resolveProjectCwd(input.projectId);
           const plansDir = pathService.join(projectCwd, ".plans");
@@ -3749,17 +3763,13 @@ ${plan.content}`;
 
       renameFeature: (input) =>
         Effect.gen(function* () {
-          // Path traversal guards on both names.
-          if (/[/\\]|\.\./.test(input.featureName)) {
-            return yield* new PlanRunnerError({
-              message: `Invalid feature name: must not contain '/', '\\', or '..'` as any,
-            });
-          }
-          if (/[/\\]|\.\./.test(input.newFeatureName)) {
-            return yield* new PlanRunnerError({
-              message: `Invalid new feature name: must not contain '/', '\\', or '..'` as any,
-            });
-          }
+          const featureNameError = assertSafeFeatureName(input.featureName);
+          if (featureNameError) return yield* featureNameError;
+          const newFeatureNameError = assertSafeFeatureName(
+            input.newFeatureName,
+            "new feature name",
+          );
+          if (newFeatureNameError) return yield* newFeatureNameError;
           if (input.newFeatureName.length === 0) {
             return yield* new PlanRunnerError({
               message: `New feature name must not be empty` as any,

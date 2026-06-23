@@ -32,6 +32,8 @@ import {
   type ManagerLifecycleEvent,
   type ManagedProcessManagerShape,
 } from "../Services/Manager.ts";
+import { PortlessWrapper } from "../Services/PortlessWrapper.ts";
+import { ReadinessProbe, type ReadinessProbeHandle } from "../Services/ReadinessProbe.ts";
 import { projectScriptRuntimeEnv, resolveManagedProcessCwd } from "@fenrir/shared/projectScripts";
 
 const STOP_FORCE_KILL_GRACE_MS = 1_500;
@@ -57,6 +59,8 @@ interface RuntimeInstance {
   restartAttempt: number;
   lastError: string | null;
   handle: ExecutorHandle | null;
+  readinessProbe: ReadinessProbeHandle | null;
+  unsubscribeReady: (() => void) | null;
   unsubscribeData: (() => void) | null;
   unsubscribeExit: (() => void) | null;
   /** Resolved by onExit handler; used by restart to await process termination. */
@@ -120,6 +124,13 @@ function toPersistedRecord(
   };
 }
 
+function stopReadinessProbe(inst: RuntimeInstance): void {
+  inst.readinessProbe?.stop();
+  inst.unsubscribeReady?.();
+  inst.readinessProbe = null;
+  inst.unsubscribeReady = null;
+}
+
 // ---------------------------------------------------------------------------
 // Layer constructor
 // ---------------------------------------------------------------------------
@@ -128,6 +139,8 @@ const makeManagedProcessManager = Effect.gen(function* () {
   const executor = yield* Executor;
   const instanceStore = yield* InstanceStore;
   const logBuffer = yield* LogBuffer;
+  const portlessWrapper = yield* PortlessWrapper;
+  const readinessProbe = yield* ReadinessProbe;
   const orchestrationEngine = yield* OrchestrationEngineService;
 
   const executorKind = executor.kind;
@@ -154,6 +167,36 @@ const makeManagedProcessManager = Effect.gen(function* () {
         /* swallow – listener errors must not crash the manager */
       }
     }
+  }
+
+  function setReady(inst: RuntimeInstance, ready: boolean): void {
+    if (inst.ready === ready) return;
+    inst.ready = ready;
+    emitEvent({
+      type: "readyChanged",
+      instanceId: inst.instanceId,
+      ready,
+      url: { estimate: inst.url.estimate, confirmed: inst.url.confirmed },
+    });
+  }
+
+  function attachReadinessProbe(inst: RuntimeInstance): void {
+    stopReadinessProbe(inst);
+
+    const probe = readinessProbe.create({
+      instanceId: inst.instanceId,
+      definition: inst.definitionSnapshot,
+      urlEstimate: inst.url.estimate,
+      urlConfirmed: () => inst.url.confirmed,
+    });
+    const readySub = probe.onReady(() => {
+      if (inst.status !== "running" && inst.status !== "starting") return;
+      setReady(inst, true);
+    });
+
+    inst.readinessProbe = probe;
+    inst.unsubscribeReady = readySub.unsubscribe;
+    probe.start();
   }
 
   const events: Stream.Stream<ManagerLifecycleEvent> = Stream.callback<ManagerLifecycleEvent>(
@@ -183,6 +226,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
     inst.exitCode = event.exitCode;
     inst.exitSignal = event.signal;
     inst.stoppedAt = new Date().toISOString();
+    stopReadinessProbe(inst);
     inst.unsubscribeData?.();
     inst.unsubscribeExit?.();
     inst.unsubscribeData = null;
@@ -192,7 +236,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
     const nextStatus: ManagedProcessInstanceStatus =
       event.userInitiated || event.exitCode === 0 ? "stopped" : "crashed";
     inst.status = nextStatus;
-    inst.ready = false;
+    setReady(inst, false);
 
     emitEvent({
       type: "exited",
@@ -336,6 +380,8 @@ const makeManagedProcessManager = Effect.gen(function* () {
           restartAttempt: inheritedRestartAttempt,
           lastError: cwdResult.reason,
           handle: null,
+          readinessProbe: null,
+          unsubscribeReady: null,
           unsubscribeData: null,
           unsubscribeExit: null,
           _exitDeferred: null,
@@ -359,9 +405,24 @@ const makeManagedProcessManager = Effect.gen(function* () {
         return toPublicInstance(inst, executorKind);
       }
 
-      // 6. Wrap command (plan 06: PortlessWrapper — passthrough for now).
-      const wrappedCommand = definition.command;
-      const urlEstimate: string | null = null;
+      // 6. Wrap command if a proxy integration is configured.
+      const wrapResult = yield* portlessWrapper
+        .wrap({
+          definition,
+          worktreePath: input.worktreePath,
+          branchName: null,
+        })
+        .pipe(
+          Effect.mapError((err) =>
+            rpcError(
+              err.code === "portless-not-found" ? "portless-not-found" : "io-error",
+              err.message,
+            ),
+          ),
+        );
+      const wrappedCommand = wrapResult.command;
+      const urlEstimate = wrapResult.urlEstimate;
+      const urlObserver = portlessWrapper.observeUrlConfirmation({ definition });
 
       // 7. Build env.
       const baseEnv = projectScriptRuntimeEnv({
@@ -390,6 +451,8 @@ const makeManagedProcessManager = Effect.gen(function* () {
         restartAttempt: inheritedRestartAttempt,
         lastError: null,
         handle: null,
+        readinessProbe: null,
+        unsubscribeReady: null,
         unsubscribeData: null,
         unsubscribeExit: null,
         _exitDeferred: null,
@@ -454,6 +517,17 @@ const makeManagedProcessManager = Effect.gen(function* () {
 
       const dataSub = handle.onData((chunk) => {
         runFork(logBuffer.append(instanceId, chunk));
+        const confirmedUrl = urlObserver.observe(chunk);
+        if (confirmedUrl !== null && inst.url.confirmed === null) {
+          inst.url.confirmed = confirmedUrl;
+          emitEvent({
+            type: "readyChanged",
+            instanceId,
+            ready: inst.ready,
+            url: { estimate: inst.url.estimate, confirmed: inst.url.confirmed },
+          });
+        }
+        inst.readinessProbe?.observe(chunk);
       });
       inst.unsubscribeData = dataSub.unsubscribe;
 
@@ -481,7 +555,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
           .pipe(Effect.catchCause(() => Effect.void)),
       );
 
-      // Plan 06: start readiness probe here.
+      attachReadinessProbe(inst);
 
       return toPublicInstance(inst, executorKind);
     });
@@ -505,6 +579,8 @@ const makeManagedProcessManager = Effect.gen(function* () {
 
       const prevStatus = inst.status;
       inst.status = "stopping";
+      stopReadinessProbe(inst);
+      setReady(inst, false);
       emitEvent({
         type: "stateChanged",
         instanceId,
@@ -551,6 +627,8 @@ const makeManagedProcessManager = Effect.gen(function* () {
       if (inst.status !== "stopping") {
         const prevStatus = inst.status;
         inst.status = "stopping";
+        stopReadinessProbe(inst);
+        setReady(inst, false);
         emitEvent({
           type: "stateChanged",
           instanceId,
@@ -584,11 +662,22 @@ const makeManagedProcessManager = Effect.gen(function* () {
         inst.status === "running" || inst.status === "starting" || inst.status === "stopping";
 
       if (needsStop) {
+        if (inst.status === "starting" && !inst.handle) {
+          return yield* rpcError(
+            "invalid-state",
+            "cannot restart instance while it is starting without an active handle",
+          );
+        }
+
         const exitDeferred = yield* Deferred.make<void>();
         inst._exitDeferred = exitDeferred;
 
         if (inst.status !== "stopping") {
-          yield* stopImpl(instanceId).pipe(Effect.ignore);
+          const stopResult = yield* stopImpl(instanceId).pipe(Effect.result);
+          if (Result.isFailure(stopResult)) {
+            inst._exitDeferred = null;
+            return yield* stopResult.failure;
+          }
         }
 
         yield* Deferred.await(exitDeferred);
@@ -731,6 +820,9 @@ const makeManagedProcessManager = Effect.gen(function* () {
 
         if (Result.isSuccess(reattachResult)) {
           const handle = reattachResult.success;
+          const urlObserver = portlessWrapper.observeUrlConfirmation({
+            definition: record.definitionSnapshot,
+          });
           const inst: RuntimeInstance = {
             instanceId: record.instanceId,
             projectId: record.projectId,
@@ -748,6 +840,8 @@ const makeManagedProcessManager = Effect.gen(function* () {
             restartAttempt: 0,
             lastError: null,
             handle,
+            readinessProbe: null,
+            unsubscribeReady: null,
             unsubscribeData: null,
             unsubscribeExit: null,
             _exitDeferred: null,
@@ -755,6 +849,17 @@ const makeManagedProcessManager = Effect.gen(function* () {
 
           const dataSub = handle.onData((chunk) => {
             runFork(logBuffer.append(record.instanceId, chunk));
+            const confirmedUrl = urlObserver.observe(chunk);
+            if (confirmedUrl !== null && inst.url.confirmed === null) {
+              inst.url.confirmed = confirmedUrl;
+              emitEvent({
+                type: "readyChanged",
+                instanceId: record.instanceId,
+                ready: inst.ready,
+                url: { estimate: inst.url.estimate, confirmed: inst.url.confirmed },
+              });
+            }
+            inst.readinessProbe?.observe(chunk);
           });
           inst.unsubscribeData = dataSub.unsubscribe;
 
@@ -790,6 +895,7 @@ const makeManagedProcessManager = Effect.gen(function* () {
             exitSignal: null,
             lastError: null,
           });
+          attachReadinessProbe(inst);
         } else {
           // Dead tmux window — drop persisted record.
           yield* instanceStore.remove(record.instanceId).pipe(Effect.catchCause(() => Effect.void));
@@ -824,6 +930,9 @@ const makeManagedProcessManager = Effect.gen(function* () {
     Effect.sync(() => {
       process.removeListener("SIGINT", shutdownHandler);
       process.removeListener("SIGTERM", shutdownHandler);
+      for (const inst of byId.values()) {
+        stopReadinessProbe(inst);
+      }
     }),
   );
 
@@ -846,5 +955,10 @@ const makeManagedProcessManager = Effect.gen(function* () {
 export const ManagedProcessManagerLive: Layer.Layer<
   ManagedProcessManager,
   never,
-  Executor | InstanceStore | LogBuffer | OrchestrationEngineService
+  | Executor
+  | InstanceStore
+  | LogBuffer
+  | PortlessWrapper
+  | ReadinessProbe
+  | OrchestrationEngineService
 > = Layer.effect(ManagedProcessManager, makeManagedProcessManager);

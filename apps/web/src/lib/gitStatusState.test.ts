@@ -63,6 +63,15 @@ const BASE_VCS_STATUS: VcsStatusResult = {
   behindCount: BASE_STATUS.behindCount,
   pr: null,
 };
+const STATUS_AHEAD_OF_DEFAULT_COUNT = 7;
+const STATUS_WITH_AHEAD_OF_DEFAULT: GitStatusResult = {
+  ...BASE_STATUS,
+  aheadOfDefaultCount: STATUS_AHEAD_OF_DEFAULT_COUNT,
+};
+const VCS_STATUS_WITH_AHEAD_OF_DEFAULT: VcsStatusResult = {
+  ...BASE_VCS_STATUS,
+  aheadOfDefaultCount: STATUS_AHEAD_OF_DEFAULT_COUNT,
+};
 
 const gitClient = {
   refreshStatus: vi.fn(async (input: { cwd: string }) => ({
@@ -251,6 +260,16 @@ describe("gitStatusState", () => {
     expect(gitStatusListeners.size).toBe(0);
   });
 
+  it("preserves ahead-of-default count from streamed VCS status", () => {
+    const release = watchGitStatus(TARGET, gitClient);
+
+    emitGitStatus(VCS_STATUS_WITH_AHEAD_OF_DEFAULT);
+
+    expect(getGitStatusSnapshot(TARGET).data).toEqual(STATUS_WITH_AHEAD_OF_DEFAULT);
+
+    release();
+  });
+
   it("refreshes git status through the unary RPC without restarting the stream", async () => {
     const release = watchGitStatus(TARGET, gitClient);
 
@@ -268,6 +287,26 @@ describe("gitStatusState", () => {
     });
 
     release();
+  });
+
+  it("preserves ahead-of-default count from refreshed VCS status", async () => {
+    const refreshClient = {
+      onStatus: vi.fn((input: { cwd: string }, listener: (event: VcsStatusResult) => void) =>
+        gitClient.onStatus(input, listener),
+      ),
+      refreshStatus: vi.fn(async (input: { cwd: string }) => ({
+        ...VCS_STATUS_WITH_AHEAD_OF_DEFAULT,
+        refName: `${input.cwd}-refreshed`,
+      })),
+    };
+
+    const refreshed = await refreshGitStatus(TARGET, refreshClient);
+
+    expect(refreshClient.refreshStatus).toHaveBeenCalledWith({ cwd: "/repo" });
+    expect(refreshed).toEqual({
+      ...STATUS_WITH_AHEAD_OF_DEFAULT,
+      branch: "/repo-refreshed",
+    });
   });
 
   it("keeps git status subscriptions isolated by environment when cwds match", () => {

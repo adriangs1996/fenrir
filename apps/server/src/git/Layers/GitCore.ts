@@ -1040,6 +1040,25 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     );
   });
 
+  const resolvePrimaryDefaultBranchName = Effect.fn("resolvePrimaryDefaultBranchName")(function* (
+    cwd: string,
+  ) {
+    const primaryRemoteName = yield* resolvePrimaryRemoteName(cwd).pipe(
+      Effect.catch(() => Effect.succeed(null)),
+    );
+    if (primaryRemoteName === null) return null;
+    return yield* resolveDefaultBranchName(cwd, primaryRemoteName).pipe(
+      Effect.catch(() => Effect.succeed(null)),
+    );
+  });
+
+  const primaryRemoteExists = Effect.fn("primaryRemoteExists")(function* (cwd: string) {
+    const primaryRemoteName = yield* resolvePrimaryRemoteName(cwd).pipe(
+      Effect.catch(() => Effect.succeed(null)),
+    );
+    return primaryRemoteName !== null;
+  });
+
   const resolvePublishBranchName = Effect.fn("resolvePublishBranchName")(function* (
     cwd: string,
     branch: string,
@@ -1237,7 +1256,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       );
     }
 
-    const [unstagedNumstatStdout, stagedNumstatStdout, defaultRefResult, hasOriginRemote] =
+    const [unstagedNumstatStdout, stagedNumstatStdout, defaultBranch, hasOriginRemote] =
       yield* Effect.all(
         [
           runGitStdout("GitCore.statusDetails.unstagedNumstat", cwd, ["diff", "--numstat"]),
@@ -1246,23 +1265,12 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
             "--cached",
             "--numstat",
           ]),
-          executeGit(
-            "GitCore.statusDetails.defaultRef",
-            cwd,
-            ["symbolic-ref", "refs/remotes/origin/HEAD"],
-            {
-              allowNonZeroExit: true,
-            },
-          ),
-          originRemoteExists(cwd).pipe(Effect.catch(() => Effect.succeed(false))),
+          resolvePrimaryDefaultBranchName(cwd),
+          primaryRemoteExists(cwd),
         ],
         { concurrency: "unbounded" },
       );
     const statusStdout = statusResult.stdout;
-    const defaultBranch =
-      defaultRefResult.code === 0
-        ? defaultRefResult.stdout.trim().replace(/^refs\/remotes\/origin\//, "")
-        : null;
 
     let branch: string | null = null;
     let upstreamRef: string | null = null;
@@ -1856,18 +1864,10 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       ),
     );
 
-    const [defaultRef, worktreeList, remoteBranchResult, remoteNamesResult, branchLastCommit] =
+    const [defaultBranch, worktreeList, remoteBranchResult, remoteNamesResult, branchLastCommit] =
       yield* Effect.all(
         [
-          executeGit(
-            "GitCore.listBranches.defaultRef",
-            input.cwd,
-            ["symbolic-ref", "refs/remotes/origin/HEAD"],
-            {
-              timeoutMs: 5_000,
-              allowNonZeroExit: true,
-            },
-          ),
+          resolvePrimaryDefaultBranchName(input.cwd),
           executeGit(
             "GitCore.listBranches.worktreeList",
             input.cwd,
@@ -1896,11 +1896,6 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
         `GitCore.listBranches: remote name lookup returned code ${remoteNamesResult.code} for ${input.cwd}: ${remoteNamesResult.stderr.trim()}. Falling back to an empty remote name list.`,
       );
     }
-
-    const defaultBranch =
-      defaultRef.code === 0
-        ? defaultRef.stdout.trim().replace(/^refs\/remotes\/origin\//, "")
-        : null;
 
     const worktreeMap = new Map<string, string>();
     if (worktreeList.code === 0) {
@@ -1990,7 +1985,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     return {
       branches: [...branches.branches],
       isRepo: true,
-      hasOriginRemote: remoteNames.includes("origin"),
+      hasOriginRemote: remoteNames.length > 0,
       nextCursor: branches.nextCursor,
       totalCount: branches.totalCount,
     };

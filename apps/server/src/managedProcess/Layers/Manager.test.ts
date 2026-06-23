@@ -1,4 +1,4 @@
-import { Effect, Fiber, Layer, Result, Stream } from "effect";
+import { Deferred, Effect, Fiber, Layer, Option, Result, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
 import type { ManagedProcess, ManagedProcessExecutorKind, ProjectId } from "@fenrir/contracts";
@@ -18,7 +18,13 @@ import {
 } from "../Services/InstanceStore.ts";
 import { LogBuffer, type LogBufferShape } from "../Services/LogBuffer.ts";
 import { ManagedProcessManager, type ManagerLifecycleEvent } from "../Services/Manager.ts";
+import {
+  PortlessWrapper,
+  PortlessWrapperError,
+  type PortlessWrapperShape,
+} from "../Services/PortlessWrapper.ts";
 import { ManagedProcessManagerLive } from "./Manager.ts";
+import { ReadinessProbeLayerLive } from "./ReadinessProbe.ts";
 
 // ── Constants ──
 
@@ -36,6 +42,13 @@ const DUMMY_DEFINITION: ManagedProcess = {
   proxy: null,
   readiness: { kind: "none" },
   autoRestart: null,
+} as ManagedProcess;
+
+const PORTLESS_DEFINITION: ManagedProcess = {
+  ...DUMMY_DEFINITION,
+  id: "portless-dev-server",
+  proxy: { kind: "portless", appName: "my-app" },
+  readiness: { kind: "portless-http" },
 } as ManagedProcess;
 
 // ── Mock handle ──
@@ -122,6 +135,7 @@ interface MockExecutorState {
 function createMockExecutor(
   kind: ManagedProcessExecutorKind = "direct",
   reattachHandles: Map<string, MockHandle> = new Map(),
+  spawnBarrier: Deferred.Deferred<void> | null = null,
 ): {
   layer: Layer.Layer<Executor>;
   state: MockExecutorState;
@@ -134,8 +148,11 @@ function createMockExecutor(
   const shape: ExecutorShape = {
     kind,
     spawn: (input: ExecutorSpawnInput) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         state.spawnCalls.push(input);
+        if (spawnBarrier) {
+          yield* Deferred.await(spawnBarrier);
+        }
         const handle = new MockHandle(input.instanceId, kind);
         state.handles.set(input.instanceId, handle);
         return handle as unknown as ExecutorHandle;
@@ -221,6 +238,64 @@ function createMockLogBuffer(): {
   return { layer: Layer.succeed(LogBuffer, shape), state: bufferState };
 }
 
+interface MockPortlessWrapperState {
+  wrapCalls: Array<{
+    definition: ManagedProcess;
+    worktreePath: string | null;
+    branchName: string | null;
+  }>;
+}
+
+function createMockPortlessWrapper(opts: { portlessAvailable?: boolean | undefined } = {}): {
+  layer: Layer.Layer<PortlessWrapper>;
+  state: MockPortlessWrapperState;
+} {
+  const state: MockPortlessWrapperState = {
+    wrapCalls: [],
+  };
+
+  const shape: PortlessWrapperShape = {
+    wrap: (input) => {
+      if (opts.portlessAvailable === false) {
+        return Effect.fail(new PortlessWrapperError("portless-not-found", "portless not found"));
+      }
+
+      return Effect.sync(() => {
+        state.wrapCalls.push(input);
+
+        if (input.definition.proxy?.kind !== "portless") {
+          return {
+            command: input.definition.command,
+            urlEstimate: null,
+            executable: null,
+          };
+        }
+
+        const appName = input.definition.proxy.appName ?? input.definition.id;
+        return {
+          command: `portless run --name '${appName}' sh -c '${input.definition.command}'`,
+          urlEstimate: `https://${appName}.localhost`,
+          executable: "portless" as const,
+        };
+      });
+    },
+    observeUrlConfirmation: () => {
+      let resolved = false;
+      return {
+        observe: (chunk) => {
+          if (resolved) return null;
+          const match = /https?:\/\/\S+\.localhost\b/.exec(chunk);
+          if (!match) return null;
+          resolved = true;
+          return match[0] ?? null;
+        },
+      };
+    },
+  };
+
+  return { layer: Layer.succeed(PortlessWrapper, shape), state };
+}
+
 function makeProject(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: DUMMY_PROJECT_ID,
@@ -290,16 +365,29 @@ function buildTestLayer(opts: {
   projects?: Record<string, unknown>[];
   initialRecords?: PersistedInstanceRecord[];
   reattachHandles?: Map<string, MockHandle>;
+  portlessAvailable?: boolean;
+  spawnBarrier?: Deferred.Deferred<void>;
 }) {
   const executorMock = createMockExecutor(
     opts.executorKind ?? "direct",
     opts.reattachHandles ?? new Map(),
+    opts.spawnBarrier ?? null,
   );
   const storeMock = createMockInstanceStore(opts.initialRecords);
   const logMock = createMockLogBuffer();
   const orchMock = createMockOrchestrationEngine(opts.projects);
+  const portlessMock = createMockPortlessWrapper({
+    portlessAvailable: opts.portlessAvailable,
+  });
 
-  const deps = Layer.mergeAll(executorMock.layer, storeMock.layer, logMock.layer, orchMock.layer);
+  const deps = Layer.mergeAll(
+    executorMock.layer,
+    storeMock.layer,
+    logMock.layer,
+    orchMock.layer,
+    portlessMock.layer,
+    ReadinessProbeLayerLive,
+  );
   const layer = Layer.provide(ManagedProcessManagerLive, deps);
 
   return {
@@ -308,6 +396,7 @@ function buildTestLayer(opts: {
     store: storeMock,
     log: logMock,
     orch: orchMock,
+    portless: portlessMock,
   };
 }
 
@@ -387,6 +476,165 @@ describe("ManagedProcessManager", () => {
           expect(first.instanceId).toBe(second.instanceId);
           // Only one spawn call.
           expect(ctx.executor.state.spawnCalls).toHaveLength(1);
+        }).pipe(Effect.scoped, Effect.provide(ctx.layer)),
+      );
+    });
+
+    it("marks readiness-none processes ready and emits readyChanged", async () => {
+      const ctx = buildTestLayer({});
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const manager = yield* ManagedProcessManager;
+
+          const events: ManagerLifecycleEvent[] = [];
+          const eventFiber = yield* Effect.forkScoped(
+            Stream.runForEach(manager.events, (e) => Effect.sync(() => events.push(e))),
+          );
+          yield* Effect.sleep("10 millis");
+
+          const instance = yield* manager.start({
+            projectId: DUMMY_PROJECT_ID,
+            processDefId: "dev-server",
+            worktreePath: null,
+          });
+
+          yield* Effect.sleep("50 millis");
+
+          const instances = yield* manager.list(DUMMY_PROJECT_ID);
+          const listed = instances.find((i) => i.instanceId === instance.instanceId);
+
+          expect(instance.ready).toBe(true);
+          expect(listed?.ready).toBe(true);
+          expect(
+            events.some(
+              (e) =>
+                e.type === "readyChanged" &&
+                e.instanceId === instance.instanceId &&
+                e.ready === true,
+            ),
+          ).toBe(true);
+
+          yield* Fiber.interrupt(eventFiber);
+        }).pipe(Effect.scoped, Effect.provide(ctx.layer)),
+      );
+    });
+
+    it("marks log-pattern processes ready only after matching output", async () => {
+      const logReadyDefinition: ManagedProcess = {
+        ...DUMMY_DEFINITION,
+        id: "log-ready-proc",
+        readiness: { kind: "log-pattern", pattern: "ready in \\d+ms" },
+      } as ManagedProcess;
+      const ctx = buildTestLayer({
+        projects: [makeProject({ managedProcesses: [logReadyDefinition] })],
+      });
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const manager = yield* ManagedProcessManager;
+
+          const instance = yield* manager.start({
+            projectId: DUMMY_PROJECT_ID,
+            processDefId: "log-ready-proc",
+            worktreePath: null,
+          });
+
+          expect(instance.ready).toBe(false);
+
+          const handle = ctx.executor.state.handles.get(instance.instanceId)!;
+          handle.triggerData("booting");
+          yield* Effect.sleep("10 millis");
+          let instances = yield* manager.list(DUMMY_PROJECT_ID);
+          expect(instances.find((i) => i.instanceId === instance.instanceId)?.ready).toBe(false);
+
+          handle.triggerData("ready in 250ms");
+          yield* Effect.sleep("10 millis");
+          instances = yield* manager.list(DUMMY_PROJECT_ID);
+          expect(instances.find((i) => i.instanceId === instance.instanceId)?.ready).toBe(true);
+
+          yield* manager.stop(instance.instanceId);
+          instances = yield* manager.list(DUMMY_PROJECT_ID);
+          expect(instances.find((i) => i.instanceId === instance.instanceId)?.ready).toBe(false);
+        }).pipe(Effect.scoped, Effect.provide(ctx.layer)),
+      );
+    });
+
+    it("wraps portless proxy commands and returns the estimated URL", async () => {
+      const ctx = buildTestLayer({
+        projects: [makeProject({ managedProcesses: [PORTLESS_DEFINITION] })],
+      });
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const manager = yield* ManagedProcessManager;
+
+          const instance = yield* manager.start({
+            projectId: DUMMY_PROJECT_ID,
+            processDefId: "portless-dev-server",
+            worktreePath: null,
+          });
+
+          expect(ctx.portless.state.wrapCalls).toHaveLength(1);
+          expect(ctx.executor.state.spawnCalls).toHaveLength(1);
+          expect(ctx.executor.state.spawnCalls[0]!.command).toBe(
+            "portless run --name 'my-app' sh -c 'npm run dev'",
+          );
+          expect(instance.url.estimate).toBe("https://my-app.localhost");
+        }).pipe(Effect.scoped, Effect.provide(ctx.layer)),
+      );
+    });
+
+    it("updates the confirmed URL from portless output", async () => {
+      const ctx = buildTestLayer({
+        projects: [makeProject({ managedProcesses: [PORTLESS_DEFINITION] })],
+      });
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const manager = yield* ManagedProcessManager;
+
+          const instance = yield* manager.start({
+            projectId: DUMMY_PROJECT_ID,
+            processDefId: "portless-dev-server",
+            worktreePath: null,
+          });
+          expect(instance.url.confirmed).toBeNull();
+
+          const handle = ctx.executor.state.handles.get(instance.instanceId)!;
+          handle.triggerData("listening at https://my-app.localhost");
+
+          const instances = yield* manager.list(DUMMY_PROJECT_ID);
+          expect(instances.find((i) => i.instanceId === instance.instanceId)?.url.confirmed).toBe(
+            "https://my-app.localhost",
+          );
+        }).pipe(Effect.scoped, Effect.provide(ctx.layer)),
+      );
+    });
+
+    it("maps missing portless CLI failures to portless-not-found", async () => {
+      const ctx = buildTestLayer({
+        projects: [makeProject({ managedProcesses: [PORTLESS_DEFINITION] })],
+        portlessAvailable: false,
+      });
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const manager = yield* ManagedProcessManager;
+
+          const result = yield* manager
+            .start({
+              projectId: DUMMY_PROJECT_ID,
+              processDefId: "portless-dev-server",
+              worktreePath: null,
+            })
+            .pipe(Effect.result);
+
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.code).toBe("portless-not-found");
+          }
+          expect(ctx.executor.state.spawnCalls).toHaveLength(0);
         }).pipe(Effect.scoped, Effect.provide(ctx.layer)),
       );
     });
@@ -613,6 +861,60 @@ describe("ManagedProcessManager", () => {
   });
 
   describe("restart", () => {
+    it("does not hang when restarting a starting instance before spawn returns a handle", async () => {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const spawnBarrier = yield* Deferred.make<void>();
+          const ctx = buildTestLayer({ spawnBarrier });
+
+          yield* Effect.gen(function* () {
+            const manager = yield* ManagedProcessManager;
+            const startingInstanceId = yield* Deferred.make<string>();
+
+            const eventFiber = yield* Effect.forkScoped(
+              Stream.runForEach(manager.events, (event) => {
+                if (event.type !== "started") return Effect.void;
+                return Deferred.succeed(startingInstanceId, event.instance.instanceId).pipe(
+                  Effect.ignore,
+                );
+              }),
+            );
+            yield* Effect.sleep("10 millis");
+
+            const startFiber = yield* Effect.forkScoped(
+              manager.start({
+                projectId: DUMMY_PROJECT_ID,
+                processDefId: "dev-server",
+                worktreePath: null,
+              }),
+            );
+
+            const maybeInstanceId = yield* Deferred.await(startingInstanceId).pipe(
+              Effect.timeoutOption("100 millis"),
+            );
+            expect(Option.isSome(maybeInstanceId)).toBe(true);
+            if (Option.isNone(maybeInstanceId)) return;
+
+            const restartResult = yield* manager
+              .restart(maybeInstanceId.value)
+              .pipe(Effect.result, Effect.timeoutOption("50 millis"));
+
+            yield* Deferred.succeed(spawnBarrier, void 0).pipe(Effect.ignore);
+            yield* Fiber.interrupt(startFiber);
+            yield* Fiber.interrupt(eventFiber);
+
+            expect(Option.isSome(restartResult)).toBe(true);
+            if (Option.isSome(restartResult)) {
+              expect(Result.isFailure(restartResult.value)).toBe(true);
+              if (Result.isFailure(restartResult.value)) {
+                expect(restartResult.value.failure.code).toBe("invalid-state");
+              }
+            }
+          }).pipe(Effect.scoped, Effect.provide(ctx.layer));
+        }),
+      );
+    });
+
     it("stops and re-spawns using current definition", async () => {
       const defV1: ManagedProcess = {
         ...DUMMY_DEFINITION,

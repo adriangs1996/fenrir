@@ -72,7 +72,10 @@ import { ProviderMaintenanceRunnerLive } from "./provider/providerMaintenanceRun
 import { GlobalActionsLive } from "./globalActions";
 import { ServerSettingsLive } from "./serverSettings";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
-import { SourceControlModuleLive } from "./sourceControl/SourceControlModule";
+import {
+  SourceControlModuleLive,
+  SourceControlProviderRegistryLive,
+} from "./sourceControl/SourceControlModule";
 import { SourceControlStackServiceLive } from "./sourceControl/stack/Layers/SourceControlStackService";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem";
@@ -99,6 +102,8 @@ import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth";
 import { ImportResolverLive } from "./managedProcess/Layers/ImportResolver";
 import { ManagedProcessManagerLive } from "./managedProcess/Layers/Manager";
+import { PortlessWrapperLive } from "./managedProcess/Layers/PortlessWrapper";
+import { ReadinessProbeLayerLive } from "./managedProcess/Layers/ReadinessProbe";
 import { DirectPtyExecutorLive } from "./managedProcess/Layers/DirectPtyExecutor";
 import { TmuxExecutorLive } from "./managedProcess/Layers/TmuxExecutor";
 import { InstanceStoreLive } from "./managedProcess/Layers/InstanceStore";
@@ -213,6 +218,7 @@ const GitManagerLayerLive = GitManagerLive.pipe(
   Layer.provideMerge(GitCoreLive),
   Layer.provideMerge(GitHubCliLive),
   Layer.provideMerge(TextGenerationLayerLive),
+  Layer.provideMerge(SourceControlProviderRegistryLive),
 );
 
 const SourceControlLayerLive = SourceControlModuleLive.pipe(
@@ -297,6 +303,8 @@ const ManagedProcessLayerLive = ManagedProcessManagerLive.pipe(
   Layer.provide(ManagedProcessExecutorLive),
   Layer.provide(InstanceStoreLive),
   Layer.provide(LogBufferLive),
+  Layer.provide(PortlessWrapperLive),
+  Layer.provide(ReadinessProbeLayerLive),
 );
 
 const CoreInfrastructureLive = ReactorLayerLive.pipe(

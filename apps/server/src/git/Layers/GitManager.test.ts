@@ -4,16 +4,22 @@ import { spawnSync } from "node:child_process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
+import { Effect, FileSystem, Layer, Option, PlatformError, Scope } from "effect";
 import { expect } from "vitest";
 import type {
+  ChangeRequest,
   GitActionProgressEvent,
   GitPreparePullRequestThreadInput,
   ModelSelection,
   ThreadId,
 } from "@fenrir/contracts";
 
-import { GitCommandError, GitHubCliError, TextGenerationError } from "@fenrir/contracts";
+import {
+  GitCommandError,
+  GitHubCliError,
+  SourceControlProviderError,
+  TextGenerationError,
+} from "@fenrir/contracts";
 import { type GitManagerShape } from "../Services/GitManager.ts";
 import {
   type GitHubCliShape,
@@ -31,6 +37,11 @@ import {
   type ProjectSetupScriptRunnerInput,
   type ProjectSetupScriptRunnerShape,
 } from "../../project/Services/ProjectSetupScriptRunner.ts";
+import {
+  SourceControlProviderRegistry,
+  type SourceControlProviderRegistryShape,
+} from "../../sourceControl/SourceControlProviderRegistry.ts";
+import type { SourceControlProviderShape } from "../../sourceControl/SourceControlProvider.ts";
 
 interface FakeGhScenario {
   prListSequence?: string[];
@@ -650,6 +661,7 @@ function makeManager(input?: {
   ghScenario?: FakeGhScenario;
   textGeneration?: Partial<FakeGitTextGeneration>;
   setupScriptRunner?: ProjectSetupScriptRunnerShape;
+  sourceControlProviderRegistry?: SourceControlProviderRegistryShape;
 }) {
   const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
@@ -672,6 +684,37 @@ function makeManager(input?: {
       input?.setupScriptRunner ?? {
         runForThread: () => Effect.succeed({ status: "no-script" as const }),
       },
+    ),
+    Layer.succeed(
+      SourceControlProviderRegistry,
+      input?.sourceControlProviderRegistry ??
+        SourceControlProviderRegistry.of({
+          get: () =>
+            Effect.fail(
+              new SourceControlProviderError({
+                provider: "unknown",
+                operation: "get",
+                detail: "No source control provider configured for this test.",
+              }),
+            ),
+          resolve: () =>
+            Effect.fail(
+              new SourceControlProviderError({
+                provider: "unknown",
+                operation: "resolve",
+                detail: "No source control provider configured for this test.",
+              }),
+            ),
+          resolveHandle: () =>
+            Effect.fail(
+              new SourceControlProviderError({
+                provider: "unknown",
+                operation: "resolveHandle",
+                detail: "No source control provider configured for this test.",
+              }),
+            ),
+          discover: Effect.succeed([]),
+        }),
     ),
     gitCoreLayer,
     serverSettingsLayer,
@@ -727,6 +770,98 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         url: "https://github.com/fenrir-org/codething-mvp/pull/13",
         baseBranch: "main",
         headBranch: "feature/status-open-pr",
+        state: "open",
+      });
+    }),
+  );
+
+  it.effect("status resolves PR metadata through the source control provider", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("fenrir-git-manager-provider-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/provider-status-pr"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/provider-status-pr"]);
+
+      const providerCalls: Array<{
+        headSelector?: string;
+        state: "open" | "closed" | "merged" | "all";
+      }> = [];
+      const changeRequest: ChangeRequest = {
+        provider: "gitlab",
+        number: 42,
+        title: "Existing MR",
+        url: "https://gitlab.example.test/fenrir/fenrir/-/merge_requests/42",
+        baseRefName: "main",
+        headRefName: "feature/provider-status-pr",
+        state: "open",
+        updatedAt: Option.none(),
+      };
+      const provider: SourceControlProviderShape = {
+        kind: "gitlab",
+        listChangeRequests: (input) =>
+          Effect.sync(() => {
+            providerCalls.push({
+              ...(input.headSelector ? { headSelector: input.headSelector } : {}),
+              state: input.state,
+            });
+            return [changeRequest];
+          }),
+        getChangeRequest: () => Effect.die("getChangeRequest should not be called"),
+        createChangeRequest: () => Effect.void,
+        updateChangeRequest: () => Effect.void,
+        closeChangeRequest: () => Effect.void,
+        mergeChangeRequest: () => Effect.void,
+        createChangeRequestLineComment: () => Effect.void,
+        listChangeRequestChecks: () => Effect.succeed([]),
+        listChangeRequestReviewThreads: () => Effect.succeed([]),
+        getRepositoryCloneUrls: () => Effect.die("getRepositoryCloneUrls should not be called"),
+        createRepository: () => Effect.die("createRepository should not be called"),
+        getDefaultBranch: () => Effect.succeed("main"),
+        checkoutChangeRequest: () => Effect.void,
+      };
+
+      const { manager } = yield* makeManager({
+        ghScenario: {
+          prListSequence: [JSON.stringify([])],
+        },
+        sourceControlProviderRegistry: SourceControlProviderRegistry.of({
+          get: () => Effect.succeed(provider),
+          resolve: () => Effect.succeed(provider),
+          resolveHandle: () =>
+            Effect.succeed({
+              provider,
+              context: {
+                provider: {
+                  kind: "gitlab",
+                  name: "GitLab",
+                  baseUrl: "https://gitlab.example.test",
+                },
+                remoteName: "origin",
+                remoteUrl: "https://gitlab.example.test/fenrir/fenrir.git",
+              },
+            }),
+          discover: Effect.succeed([]),
+        }),
+      });
+
+      const status = yield* manager.status({ cwd: repoDir });
+
+      expect(providerCalls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            headSelector: "feature/provider-status-pr",
+            state: "all",
+          }),
+        ]),
+      );
+      expect(status.pr).toEqual({
+        number: 42,
+        title: "Existing MR",
+        url: "https://gitlab.example.test/fenrir/fenrir/-/merge_requests/42",
+        baseBranch: "main",
+        headBranch: "feature/provider-status-pr",
         state: "open",
       });
     }),

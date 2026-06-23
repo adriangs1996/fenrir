@@ -7,6 +7,7 @@ import {
   ProviderKind,
   type OrchestrationEvent,
   type OrchestrationThread,
+  type VcsStatusResult,
 } from "@fenrir/contracts";
 import {
   Effect,
@@ -79,6 +80,10 @@ import {
   SourceControlWorkflows,
   type SourceControlWorkflowsShape,
 } from "../src/sourceControl/Services/SourceControlWorkflows.ts";
+import {
+  VcsStatusBroadcaster,
+  type VcsStatusBroadcasterShape,
+} from "../src/vcs/VcsStatusBroadcaster.ts";
 import { WorkspaceEntriesLive } from "../src/workspace/Layers/WorkspaceEntries.ts";
 import { WorkspacePathsLive } from "../src/workspace/Layers/WorkspacePaths.ts";
 
@@ -352,6 +357,25 @@ export const makeOrchestrationIntegrationHarness = (
       refreshStatus: () => Effect.die("refreshStatus should not be called in this test"),
       streamStatus: () => Stream.empty,
     } satisfies SourceControlStatusShape);
+    const vcsStatus: VcsStatusResult = {
+      isRepo: true,
+      hasPrimaryRemote: false,
+      isDefaultRef: true,
+      refName: "main",
+      hasWorkingTreeChanges: false,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+      hasUpstream: false,
+      aheadCount: 0,
+      behindCount: 0,
+      aheadOfDefaultCount: 0,
+      pr: null,
+    };
+    const vcsStatusBroadcasterLayer = Layer.succeed(VcsStatusBroadcaster, {
+      getStatus: () => Effect.succeed(vcsStatus),
+      refreshLocalStatus: () => Effect.succeed(vcsStatus),
+      refreshStatus: () => Effect.succeed(vcsStatus),
+      streamStatus: () => Stream.empty,
+    } satisfies VcsStatusBroadcasterShape);
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(sourceControlWorkflowsLayer),
@@ -363,6 +387,7 @@ export const makeOrchestrationIntegrationHarness = (
     const checkpointReactorLayer = CheckpointReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(sourceControlStatusLayer),
+      Layer.provideMerge(vcsStatusBroadcasterLayer),
       Layer.provideMerge(
         WorkspaceEntriesLive.pipe(
           Layer.provide(WorkspacePathsLive),

@@ -29,7 +29,10 @@ import { GitWorkflowService } from "../../../git/Services/GitWorkflowService.ts"
 import { GitCore } from "../../../git/Services/GitCore.ts";
 import { ProjectionSnapshotQuery } from "../../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { SourceControlProviderRegistry } from "../../SourceControlProviderRegistry.ts";
-import type { SourceControlProviderShape } from "../../SourceControlProvider.ts";
+import type {
+  SourceControlProviderContext,
+  SourceControlProviderShape,
+} from "../../SourceControlProvider.ts";
 import { SourceControl } from "../../Services/SourceControl.ts";
 import { SourceControlStackService } from "../Services/SourceControlStackService.ts";
 import { selectProviderStackChain } from "../stackTopology.ts";
@@ -41,6 +44,7 @@ interface ResolvedStackContext {
   readonly currentBranch: string | null;
   readonly provider: SourceControlStackSnapshot["provider"];
   readonly providerShape: SourceControlProviderShape | null;
+  readonly providerContext: SourceControlProviderContext | null;
   readonly providerUnavailable: boolean;
   readonly isRepository: boolean;
 }
@@ -173,6 +177,10 @@ function blockedResult(
   };
 }
 
+function publishRemoteName(context: ResolvedStackContext): string {
+  return context.providerContext?.remoteName ?? "origin";
+}
+
 function completedResult(
   operationId: SourceControlStackOperationId,
   message: string,
@@ -268,6 +276,7 @@ export const makeSourceControlStackService = Effect.gen(function* () {
           currentBranch: null,
           provider: null,
           providerShape: null,
+          providerContext: null,
           providerUnavailable: false,
           isRepository: false,
         };
@@ -283,12 +292,14 @@ export const makeSourceControlStackService = Effect.gen(function* () {
         Effect.map((handle) => ({
           provider: handle.context?.provider ?? null,
           providerShape: handle.provider,
+          providerContext: handle.context ?? null,
           providerUnavailable: false,
         })),
         Effect.catch(() =>
           Effect.succeed({
             provider: null,
             providerShape: null,
+            providerContext: null,
             providerUnavailable: true,
           }),
         ),
@@ -532,6 +543,7 @@ export const makeSourceControlStackService = Effect.gen(function* () {
           : yield* context.providerShape
               .listChangeRequests({
                 cwd: context.cwd,
+                ...(context.providerContext ? { context: context.providerContext } : {}),
                 state: "open",
                 limit: 100,
               })
@@ -707,7 +719,7 @@ export const makeSourceControlStackService = Effect.gen(function* () {
           }
           yield* gitVoid(
             context.cwd,
-            ["push", "-u", "origin", input.branchName],
+            ["push", "-u", publishRemoteName(context), input.branchName],
             "stack.pushDraft",
           );
           const bodyFile = join(tmpdir(), `fenrir-stack-${randomUUID()}.md`);
@@ -719,6 +731,7 @@ export const makeSourceControlStackService = Effect.gen(function* () {
           yield* context.providerShape
             .createChangeRequest({
               cwd: context.cwd,
+              ...(context.providerContext ? { context: context.providerContext } : {}),
               baseRefName: parentRef,
               headSelector: input.branchName,
               title: input.title,
@@ -797,6 +810,7 @@ export const makeSourceControlStackService = Effect.gen(function* () {
             yield* context.providerShape
               .updateChangeRequest({
                 cwd: context.cwd,
+                ...(context.providerContext ? { context: context.providerContext } : {}),
                 reference: String(entry.changeRequest.number),
                 ...(input.title ? { title: input.title } : {}),
                 ...(bodyFile ? { bodyFile } : {}),
@@ -855,6 +869,7 @@ export const makeSourceControlStackService = Effect.gen(function* () {
           yield* context.providerShape
             .closeChangeRequest({
               cwd: context.cwd,
+              ...(context.providerContext ? { context: context.providerContext } : {}),
               reference: String(entry.changeRequest.number),
             })
             .pipe(Effect.mapError((cause) => stackError("Failed to close change request.", cause)));
@@ -925,7 +940,7 @@ export const makeSourceControlStackService = Effect.gen(function* () {
           if (entry.publication === "draft-local" && input.createMissingChangeRequests) {
             yield* gitVoid(
               context.cwd,
-              ["push", "-u", "origin", entry.headRefName],
+              ["push", "-u", publishRemoteName(context), entry.headRefName],
               "stack.publishPush",
             );
             const bodyFile = join(tmpdir(), `fenrir-stack-${randomUUID()}.md`);
@@ -950,6 +965,7 @@ export const makeSourceControlStackService = Effect.gen(function* () {
             yield* context.providerShape
               .createChangeRequest({
                 cwd: context.cwd,
+                ...(context.providerContext ? { context: context.providerContext } : {}),
                 baseRefName: entry.baseRefName,
                 headSelector: entry.headRefName,
                 title: entry.title,
@@ -962,6 +978,7 @@ export const makeSourceControlStackService = Effect.gen(function* () {
             yield* context.providerShape
               .updateChangeRequest({
                 cwd: context.cwd,
+                ...(context.providerContext ? { context: context.providerContext } : {}),
                 reference: String(entry.changeRequest.number),
                 baseRefName: entry.baseRefName,
                 title: entry.title,

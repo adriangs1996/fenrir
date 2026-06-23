@@ -3,7 +3,7 @@ import * as nodePath from "node:path";
 import * as nodeOs from "node:os";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { Effect, FileSystem, Layer, ManagedRuntime, Path, Stream } from "effect";
+import { Effect, FileSystem, Layer, ManagedRuntime, Path, Result, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { PlanRunId, ProjectId, TrimmedNonEmptyString } from "@fenrir/contracts";
@@ -295,6 +295,38 @@ describe("getFeaturePlans", () => {
       expect(result.featureName).toBe("feature-a");
       expect(result.plans).toHaveLength(1);
       expect(result.plans[0]?.filename).toBe("01-step.md");
+    } finally {
+      await rt.dispose();
+    }
+  });
+
+  it("rejects path traversal attempts before reading outside .plans", async () => {
+    const tempDir = makeTempProject();
+    const rt = buildArchiveRuntime(tempDir);
+    try {
+      const result = await rt.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const escapeDir = path.join(tempDir, "escape");
+          yield* fs.makeDirectory(escapeDir, { recursive: true });
+          yield* fs.writeFileString(path.join(escapeDir, "01-step.md"), "# Escaped plan");
+
+          const service = yield* PlanRunnerService;
+          return yield* service
+            .getFeaturePlans({
+              projectId: testProjectId,
+              featureName: "../escape",
+            })
+            .pipe(Effect.result);
+        }),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("PlanRunnerError");
+        expect(result.failure.message).toContain("must not contain");
+      }
     } finally {
       await rt.dispose();
     }

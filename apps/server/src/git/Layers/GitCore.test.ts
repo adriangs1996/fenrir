@@ -560,6 +560,45 @@ it.layer(TestLayer)("git integration", (it) => {
       }),
     );
 
+    it.effect("marks the default branch from a non-origin remote HEAD", () =>
+      Effect.gen(function* () {
+        const remote = yield* makeTmpDir();
+        const tmp = yield* makeTmpDir();
+        const remoteName = "upstream";
+
+        yield* git(remote, ["init", "--bare"]);
+        const { initialBranch } = yield* initRepoWithCommit(tmp);
+        yield* git(tmp, ["remote", "add", remoteName, remote]);
+        yield* git(tmp, ["push", "-u", remoteName, initialBranch]);
+        yield* git(tmp, ["remote", "set-head", remoteName, initialBranch]);
+
+        const result = yield* (yield* GitCore).listBranches({ cwd: tmp });
+        const defaultBranch = result.branches.find((branch) => branch.name === initialBranch);
+
+        expect(defaultBranch).toBeDefined();
+        expect(defaultBranch?.isDefault).toBe(true);
+      }),
+    );
+
+    it.effect("reports a non-origin remote as the primary remote", () =>
+      Effect.gen(function* () {
+        const remote = yield* makeTmpDir();
+        const tmp = yield* makeTmpDir();
+        const remoteName = "fork";
+
+        yield* git(remote, ["init", "--bare"]);
+        const { initialBranch } = yield* initRepoWithCommit(tmp);
+        yield* git(tmp, ["remote", "add", remoteName, remote]);
+        yield* git(tmp, ["push", "-u", remoteName, initialBranch]);
+
+        const branches = yield* (yield* GitCore).listBranches({ cwd: tmp });
+        const status = yield* (yield* GitCore).statusDetails(tmp);
+
+        expect(branches.hasOriginRemote).toBe(true);
+        expect(status.hasOriginRemote).toBe(true);
+      }),
+    );
+
     it.effect("lists local branches first and remote branches last", () =>
       Effect.gen(function* () {
         const remote = yield* makeTmpDir();

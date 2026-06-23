@@ -3,7 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-import type { ProviderKind, ProviderRuntimeEvent, ProviderSession } from "@fenrir/contracts";
+import type {
+  ProviderKind,
+  ProviderRuntimeEvent,
+  ProviderSession,
+  VcsStatusResult,
+} from "@fenrir/contracts";
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -24,6 +29,10 @@ import {
   SourceControlStatus,
   type SourceControlStatusShape,
 } from "../../sourceControl/Services/SourceControlStatus.ts";
+import {
+  VcsStatusBroadcaster,
+  type VcsStatusBroadcasterShape,
+} from "../../vcs/VcsStatusBroadcaster.ts";
 import { CheckpointReactorLive } from "./CheckpointReactor.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
@@ -249,6 +258,7 @@ describe("CheckpointReactor", () => {
     readonly providerSessionCwd?: string;
     readonly providerName?: ProviderKind;
     readonly gitStatusRefreshCalls?: Array<string>;
+    readonly vcsStatusRefreshCalls?: Array<string>;
   }) {
     const cwd = createGitRepository();
     tempDirs.push(cwd);
@@ -287,12 +297,35 @@ describe("CheckpointReactor", () => {
       refreshStatus: () => Effect.die("refreshStatus should not be called in this test"),
       streamStatus: () => Stream.empty,
     } satisfies SourceControlStatusShape);
+    const vcsStatus: VcsStatusResult = {
+      isRepo: true,
+      hasPrimaryRemote: false,
+      isDefaultRef: true,
+      refName: "main",
+      hasWorkingTreeChanges: false,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+      hasUpstream: false,
+      aheadCount: 0,
+      behindCount: 0,
+      pr: null,
+    };
+    const vcsStatusBroadcasterLayer = Layer.succeed(VcsStatusBroadcaster, {
+      getStatus: () => Effect.die("getStatus should not be called in this test"),
+      refreshLocalStatus: () => Effect.die("refreshLocalStatus should not be called in this test"),
+      refreshStatus: (cwd: string) =>
+        Effect.sync(() => {
+          options?.vcsStatusRefreshCalls?.push(cwd);
+          return vcsStatus;
+        }),
+      streamStatus: () => Stream.empty,
+    } satisfies VcsStatusBroadcasterShape);
 
     const layer = CheckpointReactorLive.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(RuntimeReceiptBusLive),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(sourceControlStatusLayer),
+      Layer.provideMerge(vcsStatusBroadcasterLayer),
       Layer.provideMerge(CheckpointStoreLive),
       Layer.provideMerge(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
       Layer.provideMerge(WorkspacePathsLive),
@@ -470,6 +503,28 @@ describe("CheckpointReactor", () => {
     await harness.drain();
 
     expect(gitStatusRefreshCalls).toEqual([harness.cwd]);
+  });
+
+  it("refreshes live VCS status on turn completion using the session cwd", async () => {
+    const vcsStatusRefreshCalls: string[] = [];
+    const harness = await createHarness({
+      seedFilesystemCheckpoints: false,
+      vcsStatusRefreshCalls,
+    });
+
+    harness.provider.emit({
+      type: "turn.completed",
+      eventId: EventId.make("evt-turn-completed-refresh-vcs-status"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: ThreadId.make("thread-1"),
+      turnId: asTurnId("turn-refresh-vcs-status"),
+      payload: { state: "completed" },
+    });
+
+    await harness.drain();
+
+    expect(vcsStatusRefreshCalls).toEqual([harness.cwd]);
   });
 
   it("ignores auxiliary thread turn completion while primary turn is active", async () => {

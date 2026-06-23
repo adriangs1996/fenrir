@@ -23,6 +23,7 @@ import {
   type GitStatusRemoteResult,
   ModelSelection,
 } from "@fenrir/contracts";
+import type { ChangeRequest } from "@fenrir/contracts/sourceControl";
 import {
   detectGitHostingProviderFromRemoteUrl,
   mergeGitStatusParts,
@@ -44,6 +45,7 @@ import { TextGeneration } from "../Services/TextGeneration.ts";
 import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScriptRunner.ts";
 import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { SourceControlProviderRegistry } from "../../sourceControl/SourceControlProviderRegistry.ts";
 import type { GitManagerServiceError } from "@fenrir/contracts";
 import {
   decodeGitHubPullRequestListJson,
@@ -276,6 +278,33 @@ function toPullRequestInfo(summary: GitHubPullRequestSummary): PullRequestInfo {
   };
 }
 
+function toPullRequestInfoFromChangeRequest(changeRequest: ChangeRequest): PullRequestInfo {
+  const updatedAt = Option.getOrNull(changeRequest.updatedAt);
+  return {
+    number: changeRequest.number,
+    title: changeRequest.title,
+    url: changeRequest.url,
+    baseRefName: changeRequest.baseRefName,
+    headRefName: changeRequest.headRefName,
+    state: changeRequest.state,
+    updatedAt:
+      updatedAt === null
+        ? null
+        : updatedAt instanceof Date
+          ? updatedAt.toISOString()
+          : String(updatedAt),
+    ...(changeRequest.isCrossRepository !== undefined
+      ? { isCrossRepository: changeRequest.isCrossRepository }
+      : {}),
+    ...(changeRequest.headRepositoryNameWithOwner !== undefined
+      ? { headRepositoryNameWithOwner: changeRequest.headRepositoryNameWithOwner }
+      : {}),
+    ...(changeRequest.headRepositoryOwnerLogin !== undefined
+      ? { headRepositoryOwnerLogin: changeRequest.headRepositoryOwnerLogin }
+      : {}),
+  };
+}
+
 function gitManagerError(operation: string, detail: string, cause?: unknown): GitManagerError {
   return new GitManagerError({
     operation,
@@ -495,6 +524,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   const textGeneration = yield* TextGeneration;
   const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
   const serverSettingsService = yield* ServerSettingsService;
+  const sourceControlProviders = yield* SourceControlProviderRegistry;
 
   const createProgressEmitter = (
     input: { cwd: string; action: GitStackedAction },
@@ -858,11 +888,56 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     return null;
   });
 
+  const findLatestProviderChangeRequest = Effect.fn("findLatestProviderChangeRequest")(function* (
+    cwd: string,
+    headContext: BranchHeadContext,
+  ) {
+    const handle = yield* sourceControlProviders.resolveHandle({ cwd });
+    const parsedByNumber = new Map<number, PullRequestInfo>();
+
+    for (const headSelector of headContext.headSelectors) {
+      const changeRequests = yield* handle.provider.listChangeRequests({
+        cwd,
+        ...(handle.context ? { context: handle.context } : {}),
+        headSelector,
+        state: "all",
+        limit: 20,
+      });
+
+      for (const changeRequest of changeRequests) {
+        const pullRequest = toPullRequestInfoFromChangeRequest(changeRequest);
+        if (!matchesBranchHeadContext(pullRequest, headContext)) {
+          continue;
+        }
+        parsedByNumber.set(pullRequest.number, pullRequest);
+      }
+    }
+
+    const parsed = Array.from(parsedByNumber.values()).toSorted((a, b) => {
+      const left = a.updatedAt ? Date.parse(a.updatedAt) : 0;
+      const right = b.updatedAt ? Date.parse(b.updatedAt) : 0;
+      return right - left;
+    });
+
+    const latestOpenPr = parsed.find((pr) => pr.state === "open");
+    if (latestOpenPr) {
+      return latestOpenPr;
+    }
+    return parsed[0] ?? null;
+  });
+
   const findLatestPr = Effect.fn("findLatestPr")(function* (
     cwd: string,
     details: { branch: string; upstreamRef: string | null },
   ) {
     const headContext = yield* resolveBranchHeadContext(cwd, details);
+    const providerResult = yield* findLatestProviderChangeRequest(cwd, headContext).pipe(
+      Effect.result,
+    );
+    if (Result.isSuccess(providerResult)) {
+      return providerResult.success;
+    }
+
     const parsedByNumber = new Map<number, PullRequestInfo>();
 
     for (const headSelector of headContext.headSelectors) {
