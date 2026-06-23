@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Diff Router Bar - Variant 3 - Minimal Strip</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .minimal-toolbar {
+        display: grid;
+        grid-template-columns: auto minmax(260px, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        min-height: 48px;
+        padding: 7px 10px;
+      }
+
+      .source-button {
+        display: inline-grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        width: 320px;
+        height: 34px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #0c1118;
+      }
+
+      .center-status {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+      }
+
+      .selection-pill {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 9px;
+        min-width: 260px;
+        max-width: 560px;
+        height: 34px;
+        padding: 0 12px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: #171f2a;
+      }
+
+      .right-controls {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .drawer-preview {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        padding: 10px;
+        border-top: 1px solid var(--line-soft);
+        background: #0d1219;
+      }
+
+      .drawer-item {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        padding: 10px;
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        background: #111822;
+      }
+
+      @media (max-width: 1120px) {
+        .minimal-toolbar {
+          grid-template-columns: minmax(0, 1fr) auto;
+        }
+
+        .source-button {
+          display: none;
+        }
+
+        .center-status {
+          justify-content: flex-start;
+        }
+
+        .drawer-preview {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="window">
+        <header class="toolbar">
+          <div class="minimal-toolbar">
+            <button class="source-button" type="button" title="Repository and branch">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 3v12"></path>
+                <circle cx="6" cy="18" r="3"></circle>
+                <circle cx="6" cy="6" r="3"></circle>
+                <path d="M18 6a3 3 0 1 0-3 3"></path>
+                <path d="M6 15c4 0 9-3 9-6"></path>
+              </svg>
+              <span class="truncate mono">t3code / master</span>
+              <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m6 9 6 6 6-6"></path>
+              </svg>
+            </button>
+
+            <div class="center-status">
+              <div class="segmented hide-narrow" aria-label="Diff area">
+                <button type="button" class="active">Changes <span class="badge">0</span></button>
+                <button type="button">PR</button>
+                <button type="button">History</button>
+              </div>
+              <div class="selection-pill">
+                <span class="status-dot idle"></span>
+                <div class="stack">
+                  <span class="label truncate">Staged changes</span>
+                  <span class="sub">No file selected</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="right-controls">
+              <button class="primary-button disabled" type="button" title="Commit staged changes">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M3 12h6"></path>
+                  <path d="M15 12h6"></path>
+                </svg>
+                Commit
+              </button>
+              <button class="icon-button" type="button" title="Actions">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 12h16"></path>
+                  <path d="M4 6h16"></path>
+                  <path d="M4 18h16"></path>
+                </svg>
+              </button>
+              <button class="icon-button active" type="button" title="Display settings">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 21V14"></path>
+                  <path d="M4 10V3"></path>
+                  <path d="M12 21v-9"></path>
+                  <path d="M12 8V3"></path>
+                  <path d="M20 21v-5"></path>
+                  <path d="M20 12V3"></path>
+                  <path d="M2 14h4"></path>
+                  <path d="M10 8h4"></path>
+                  <path d="M18 16h4"></path>
+                </svg>
+              </button>
+              <button class="icon-button quiet" type="button" title="Refresh">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M21 12a9 9 0 0 1-9 9 9.8 9.8 0 0 1-6.7-2.7"></path>
+                  <path d="M3 12a9 9 0 0 1 15.1-6.6"></path>
+                  <path d="M21 3v6h-6"></path>
+                  <path d="M3 21v-6h6"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="drawer-preview" aria-label="Expanded display settings preview">
+            <button class="drawer-item" type="button">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v18"></path>
+                <path d="M4 7h5"></path>
+                <path d="M15 7h5"></path>
+                <path d="M4 17h5"></path>
+                <path d="M15 17h5"></path>
+              </svg>
+              <span class="stack"
+                ><span class="label">Split diff</span
+                ><span class="sub">Side-by-side review</span></span
+              >
+            </button>
+            <button class="drawer-item" type="button">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 6h18"></path>
+                <path d="M3 12h13a4 4 0 0 1 0 8h-2"></path>
+                <path d="m16 16-4 4 4 4"></path>
+              </svg>
+              <span class="stack"
+                ><span class="label">Wrap off</span><span class="sub">Horizontal scroll</span></span
+              >
+            </button>
+            <button class="drawer-item" type="button">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 6h16"></path>
+                <path d="M4 12h16"></path>
+                <path d="M4 18h16"></path>
+              </svg>
+              <span class="stack"
+                ><span class="label">Line info</span
+                ><span class="sub">Full hunk headers</span></span
+              >
+            </button>
+          </div>
+        </header>
+
+        <div class="workbench">
+          <aside class="sidebar">
+            <div class="side-section">
+              <div class="side-heading"><span>Changes</span><span class="badge">0</span></div>
+            </div>
+            <div class="side-section">
+              <div class="side-heading"><span>Working Tree</span><span class="badge">0</span></div>
+            </div>
+          </aside>
+          <main class="workspace">
+            <div class="diff-empty">
+              <div class="diff-placeholder">
+                <h2>Minimal review strip</h2>
+                <p>
+                  The top bar stays focused on the active state. Secondary Git and display controls
+                  live in compact popovers.
+                </p>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

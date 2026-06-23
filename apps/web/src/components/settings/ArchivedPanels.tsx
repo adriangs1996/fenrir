@@ -18,6 +18,7 @@ import {
   usePlanRunnerStore,
   type ArchivedFeatureSummary,
 } from "~/modules/plan-runner";
+import { useInternalWorkflowThreadIds } from "~/modules/workflows";
 import { isUserBrowsableThread } from "~/threadVisibility";
 
 export function ArchivedThreadsPanel() {
@@ -26,6 +27,7 @@ export function ArchivedThreadsPanel() {
   // Internal plan-runner threads are persisted but never user-browsable —
   // hide them from the archive panel even if archivedAt is non-null.
   const internalPlanRunnerThreadIds = useInternalPlanRunnerThreadIds();
+  const internalWorkflowThreadIds = useInternalWorkflowThreadIds();
   const environmentIds = useMemo(
     () => [...new Set(projects.map((project) => project.environmentId))],
     [projects],
@@ -71,7 +73,11 @@ export function ArchivedThreadsPanel() {
       }
 
       for (const thread of entry.snapshot.threads) {
-        if (!isUserBrowsableThread(thread) || internalPlanRunnerThreadIds.has(thread.id)) {
+        if (
+          !isUserBrowsableThread(thread) ||
+          internalPlanRunnerThreadIds.has(thread.id) ||
+          internalWorkflowThreadIds.has(thread.id)
+        ) {
           continue;
         }
         const key = `${entry.environmentId}:${thread.projectId}`;
@@ -94,7 +100,7 @@ export function ArchivedThreadsPanel() {
         }),
       }))
       .filter((group) => group.threads.length > 0);
-  }, [archivedSnapshots, internalPlanRunnerThreadIds, projects]);
+  }, [archivedSnapshots, internalPlanRunnerThreadIds, internalWorkflowThreadIds, projects]);
 
   const handleArchivedThreadContextMenu = useCallback(
     async (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {

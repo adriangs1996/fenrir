@@ -4,9 +4,11 @@ import {
   type AmendGitDiffStagedChangesResult,
   type CommentGitDiffChangeRequestLinesInput,
   type CreateGitDiffIgnoreListInput,
+  type CreateGitDiffReviewNoteInput,
   type CreateGitDiffStashInput,
   type CreateGitDiffStashResult,
   type DeleteGitDiffIgnoreListInput,
+  type DeleteGitDiffReviewNoteInput,
   type DiscardGitDiffWorktreeChangesInput,
   type DiscardGitDiffWorktreeChangesResult,
   type GitDiffActionResult,
@@ -16,13 +18,18 @@ import {
   type GitDiffMergeChangeRequestInput,
   type GitDiffOperationActionInput,
   type GitDiffOperationActionResult,
+  type GitDiffReviewNote,
   type GitDiffStashReferenceInput,
+  type LoadGitDiffReviewSessionInput,
+  type LoadGitDiffReviewSessionResult,
   type LoadActiveChangeRequestStackedDiffFileIndexInput,
   type LoadActiveChangeRequestStackedDiffFileIndexResult,
   type LoadDiffFileInput,
   type LoadDiffFileResult,
   type LoadDiffFileIndexInput,
   type LoadDiffFileIndexResult,
+  type LoadGitDiffChangeSignatureInput,
+  type LoadGitDiffChangeSignatureResult,
   type LoadGitDiffChangeRequestChecksInput,
   type LoadGitDiffChangeRequestChecksResult,
   type LoadGitDiffChangeRequestReviewThreadsInput,
@@ -35,10 +42,13 @@ import {
   type LoadGitDiffOperationResult,
   type LoadGitDiffRepositoriesInput,
   type LoadGitDiffRepositoriesResult,
+  type LoadGitDiffReviewNotesInput,
+  type LoadGitDiffReviewNotesResult,
   type LoadGitDiffStashesInput,
   type LoadGitDiffStashesResult,
   type LoadStackedDiffFileIndexInput,
   type LoadStackedDiffFileIndexResult,
+  type RequestGitDiffReviewNavigationInput,
   type RevertGitDiffChangeRequestLinesInput,
   type RevertGitDiffChangeRequestLinesResult,
   type StageGitDiffWorktreeChangesInput,
@@ -46,6 +56,7 @@ import {
   type UnstageGitDiffStagedChangesInput,
   type UnstageGitDiffStagedChangesResult,
   type UpdateGitDiffIgnoreListInput,
+  type UpdateGitDiffReviewSessionInput,
 } from "@fenrir/contracts";
 import { Context } from "effect";
 import type { Effect } from "effect";
@@ -60,6 +71,9 @@ export interface GitDiffCoreShape {
   readonly loadDiffFileIndex: (
     input: LoadDiffFileIndexInput,
   ) => Effect.Effect<LoadDiffFileIndexResult, GitCommandError>;
+  readonly loadChangeSignature: (
+    input: LoadGitDiffChangeSignatureInput,
+  ) => Effect.Effect<LoadGitDiffChangeSignatureResult, GitCommandError>;
   readonly loadActiveChangeRequestStackedDiffFileIndex: (
     input: LoadActiveChangeRequestStackedDiffFileIndexInput,
   ) => Effect.Effect<LoadActiveChangeRequestStackedDiffFileIndexResult, GitCommandError>;
@@ -81,6 +95,24 @@ export interface GitDiffCoreShape {
   readonly deleteIgnoreList: (
     input: DeleteGitDiffIgnoreListInput,
   ) => Effect.Effect<LoadGitDiffIgnoreListsResult, GitCommandError>;
+  readonly loadReviewNotes: (
+    input: LoadGitDiffReviewNotesInput,
+  ) => Effect.Effect<LoadGitDiffReviewNotesResult, GitCommandError>;
+  readonly createReviewNote: (
+    input: CreateGitDiffReviewNoteInput,
+  ) => Effect.Effect<GitDiffReviewNote, GitCommandError>;
+  readonly deleteReviewNote: (
+    input: DeleteGitDiffReviewNoteInput,
+  ) => Effect.Effect<GitDiffActionResult, GitCommandError>;
+  readonly updateReviewSession: (
+    input: UpdateGitDiffReviewSessionInput,
+  ) => Effect.Effect<GitDiffActionResult, GitCommandError>;
+  readonly loadReviewSession: (
+    input: LoadGitDiffReviewSessionInput,
+  ) => Effect.Effect<LoadGitDiffReviewSessionResult, GitCommandError>;
+  readonly requestReviewNavigation: (
+    input: RequestGitDiffReviewNavigationInput,
+  ) => Effect.Effect<GitDiffActionResult, GitCommandError>;
   readonly stageWorktreeChanges: (
     input: StageGitDiffWorktreeChangesInput,
   ) => Effect.Effect<StageGitDiffWorktreeChangesResult, GitCommandError>;

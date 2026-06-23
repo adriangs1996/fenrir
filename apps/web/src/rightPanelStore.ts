@@ -1,30 +1,63 @@
 import { create } from "zustand";
 
-export type RightPanelTab = "plan" | "diff";
+export type RightPanelTab = "plan" | "workflows" | "diff";
+export const DEFAULT_RIGHT_PANEL_TAB: RightPanelTab = "plan";
 
 interface RightPanelState {
-  /** Currently active tab, or null if panel is closed */
-  activeTab: RightPanelTab | null;
+  /** Thread-scoped active tab. Missing entries use the open default tab. */
+  activeTabByThreadKey: Record<string, RightPanelTab | null>;
 
   /** Open the panel to a specific tab */
-  openTab: (tab: RightPanelTab) => void;
+  openTab: (threadKey: string, tab: RightPanelTab) => void;
 
   /** Close the panel entirely */
-  close: () => void;
+  close: (threadKey: string) => void;
 
   /** Toggle a specific tab (open if closed or different tab, close if same tab) */
-  toggleTab: (tab: RightPanelTab) => void;
+  toggleTab: (threadKey: string, tab: RightPanelTab) => void;
+
+  /** Clear all thread-scoped state. Primarily for tests. */
+  reset: () => void;
+}
+
+export function selectRightPanelActiveTab(
+  state: Pick<RightPanelState, "activeTabByThreadKey">,
+  threadKey: string | null | undefined,
+): RightPanelTab | null {
+  if (!threadKey) {
+    return null;
+  }
+  return state.activeTabByThreadKey[threadKey] ?? DEFAULT_RIGHT_PANEL_TAB;
 }
 
 export const useRightPanelStore = create<RightPanelState>((set, get) => ({
-  activeTab: null,
+  activeTabByThreadKey: {},
 
-  openTab: (tab) => set({ activeTab: tab }),
+  openTab: (threadKey, tab) =>
+    set((state) => ({
+      activeTabByThreadKey: {
+        ...state.activeTabByThreadKey,
+        [threadKey]: tab,
+      },
+    })),
 
-  close: () => set({ activeTab: null }),
+  close: (threadKey) =>
+    set((state) => ({
+      activeTabByThreadKey: {
+        ...state.activeTabByThreadKey,
+        [threadKey]: null,
+      },
+    })),
 
-  toggleTab: (tab) => {
-    const current = get().activeTab;
-    set({ activeTab: current === tab ? null : tab });
+  toggleTab: (threadKey, tab) => {
+    const current = selectRightPanelActiveTab(get(), threadKey);
+    set((state) => ({
+      activeTabByThreadKey: {
+        ...state.activeTabByThreadKey,
+        [threadKey]: current === tab ? null : tab,
+      },
+    }));
   },
+
+  reset: () => set({ activeTabByThreadKey: {} }),
 }));

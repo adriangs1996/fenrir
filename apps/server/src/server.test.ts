@@ -154,6 +154,7 @@ import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
 import { GlobalActionsService, type GlobalActionsShape } from "./globalActions.ts";
 import { PlanRunnerService } from "./plan-runner/Services/PlanRunner.ts";
+import { WorkflowService } from "./workflows/Services/Workflow.ts";
 import {
   RemoteControllerService,
   type RemoteControllerServiceShape,
@@ -505,6 +506,9 @@ const buildAppUnderTest = (options?: {
           oldFile: null,
           newFile: null,
           patch: "",
+          patchTruncated: false,
+          oldFileTooLarge: false,
+          newFileTooLarge: false,
         }),
       loadDiffFileIndex: () => Effect.succeed([]),
       loadActiveChangeRequestStackedDiffFileIndex: () =>
@@ -963,6 +967,25 @@ const buildAppUnderTest = (options?: {
           archiveFeature: () => Effect.succeed({ archivedDirName: "test-feature" }),
           unarchiveFeature: () => Effect.succeed({ featureName: "test-feature" }),
           listArchivedFeatures: () => Effect.succeed({ features: [] }),
+          streamEvents: Stream.empty,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(WorkflowService)({
+          createDraft: () => Effect.die(new Error("not available in test")),
+          listThread: () => Effect.succeed({ workflows: [], runs: [] }),
+          openSource: () => Effect.die(new Error("not available in test")),
+          syncSource: () => Effect.die(new Error("not available in test")),
+          validate: () => Effect.die(new Error("not available in test")),
+          run: () => Effect.die(new Error("not available in test")),
+          stop: () => Effect.void,
+          respondToInput: () => Effect.void,
+          getRun: () => Effect.die(new Error("not available in test")),
+          getTimeline: (input) => Effect.succeed({ runId: input.runId, events: [] }),
+          collaborationStatePatch: () => Effect.die(new Error("not available in test")),
+          collaborationAddNote: () => Effect.succeed({ noted: true }),
+          collaborationProposeTask: () => Effect.die(new Error("not available in test")),
+          collaborationMessageAgent: () => Effect.die(new Error("not available in test")),
           streamEvents: Stream.empty,
         }),
       ),
@@ -3332,6 +3355,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   insertions: 2,
                   deletions: 1,
                   binary: false,
+                  isUntracked: false,
+                  isTooLarge: false,
+                  statsTruncated: false,
+                  hunkCount: 0,
+                  hunks: [],
                 },
               ]),
           },

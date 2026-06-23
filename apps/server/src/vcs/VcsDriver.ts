@@ -2,6 +2,11 @@ import type { Effect } from "effect";
 
 import type {
   CheckpointRef,
+  DiffTarget,
+  GitDiffFileSummary,
+  LoadDiffFileInput,
+  LoadDiffFileIndexInput,
+  LoadDiffFileResult,
   VcsDriverCapabilities,
   VcsDriverKind,
   VcsError,
@@ -57,12 +62,30 @@ export interface VcsCheckpointOps {
   ) => Effect.Effect<void, VcsError>;
 }
 
+export interface VcsReviewDiffTargetInput {
+  readonly cwd: string;
+  readonly target: DiffTarget;
+  readonly detectRenames: boolean;
+  readonly detectCopies: boolean;
+}
+
+export interface VcsReviewDiffOps {
+  readonly loadFileIndex: (
+    input: LoadDiffFileIndexInput,
+  ) => Effect.Effect<ReadonlyArray<GitDiffFileSummary>, VcsError>;
+  readonly loadFile: (input: LoadDiffFileInput) => Effect.Effect<LoadDiffFileResult, VcsError>;
+  readonly loadChangeSignature: (
+    input: VcsReviewDiffTargetInput,
+  ) => Effect.Effect<{ readonly signature: string }, VcsError>;
+}
+
 export interface VcsDriverShape {
   readonly capabilities: VcsDriverCapabilities;
   readonly execute: (
     input: Omit<VcsProcessInput, "command">,
   ) => Effect.Effect<VcsProcessOutput, VcsError>;
   readonly checkpoints?: VcsCheckpointOps;
+  readonly reviewDiff?: VcsReviewDiffOps;
   readonly detectRepository: (cwd: string) => Effect.Effect<VcsRepositoryIdentity | null, VcsError>;
   readonly isInsideWorkTree: (cwd: string) => Effect.Effect<boolean, VcsError>;
   readonly listWorkspaceFiles: (

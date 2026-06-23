@@ -107,6 +107,12 @@ export const ThreadOwner = Schema.Union([
     kind: Schema.Literal("editorPrompt"),
     parentThreadId: ThreadId,
   }),
+  Schema.Struct({
+    kind: Schema.Literal("workflowAgent"),
+    parentThreadId: ThreadId,
+    workflowRunId: TrimmedNonEmptyString,
+    agentName: TrimmedNonEmptyString,
+  }),
 ]);
 export type ThreadOwner = typeof ThreadOwner.Type;
 export const ProviderRequestKind = Schema.Literals(["command", "file-read", "file-change"]);

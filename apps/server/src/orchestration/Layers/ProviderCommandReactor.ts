@@ -16,6 +16,7 @@ import {
 } from "@fenrir/contracts";
 import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@fenrir/shared/DrainableWorker";
+import { FENRIR_WORKFLOWS_MCP_ID } from "@fenrir/shared/mcpBuiltIns";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
@@ -266,18 +267,62 @@ const make = Effect.gen(function* () {
 
   const resolveThreadMcpServers = Effect.fn("resolveThreadMcpServers")(function* (input: {
     readonly selectedServerIds: ReadonlyArray<McpServerId>;
+    readonly thread?: {
+      readonly id: ThreadId;
+      readonly projectId: string;
+      readonly owner?:
+        | { readonly kind: string }
+        | {
+            readonly kind: "workflowAgent";
+            readonly workflowRunId: string;
+            readonly agentName: string;
+          }
+        | null;
+    };
   }) {
-    if (input.selectedServerIds.length === 0) {
+    const settings = yield* serverSettingsService.getSettings;
+    const workflowOwner =
+      input.thread?.owner?.kind === "workflowAgent"
+        ? (input.thread.owner as {
+            readonly workflowRunId: string;
+            readonly agentName: string;
+          })
+        : null;
+    const workflowInternalThread = workflowOwner !== null;
+    const workflowMcpDisabled =
+      settings.disabledBuiltInMcpServerIds.includes(FENRIR_WORKFLOWS_MCP_ID);
+    const selectedServerIds = workflowInternalThread
+      ? [
+          ...input.selectedServerIds.filter((serverId) => serverId !== FENRIR_WORKFLOWS_MCP_ID),
+          FENRIR_WORKFLOWS_MCP_ID,
+        ]
+      : workflowMcpDisabled || input.selectedServerIds.includes(FENRIR_WORKFLOWS_MCP_ID)
+        ? input.selectedServerIds
+        : [...input.selectedServerIds, FENRIR_WORKFLOWS_MCP_ID];
+    if (selectedServerIds.length === 0) {
       return {
         serverIds: [] as ReadonlyArray<McpServerId>,
         servers: [] as ReadonlyArray<ResolvedMcpServerConfig>,
         configHash: undefined as string | undefined,
       };
     }
-    const settings = yield* serverSettingsService.getSettings;
     const resolved = yield* mcpConfigResolver.resolve({
       settings,
-      selectedServerIds: input.selectedServerIds,
+      selectedServerIds,
+      environment: input.thread
+        ? {
+            ...process.env,
+            FENRIR_MCP_WORKFLOW_PROJECT_ID: input.thread.projectId,
+            FENRIR_MCP_WORKFLOW_THREAD_ID: input.thread.id,
+            FENRIR_MCP_WORKFLOW_MODE: workflowInternalThread ? "collaboration" : "management",
+            ...(workflowOwner
+              ? {
+                  FENRIR_MCP_WORKFLOW_RUN_ID: workflowOwner.workflowRunId,
+                  FENRIR_MCP_WORKFLOW_AGENT_NAME: workflowOwner.agentName,
+                }
+              : {}),
+          }
+        : process.env,
     });
     return {
       serverIds: resolved.serverIds,
@@ -328,6 +373,7 @@ const make = Effect.gen(function* () {
     const selectedMcpServerIds = options?.mcpServerIds ?? thread.mcpServerIds ?? [];
     const resolvedMcp = yield* resolveThreadMcpServers({
       selectedServerIds: selectedMcpServerIds,
+      thread,
     });
 
     const resolveActiveSession = (threadId: ThreadId) =>

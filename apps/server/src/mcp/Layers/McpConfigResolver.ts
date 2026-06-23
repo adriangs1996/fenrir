@@ -8,6 +8,7 @@ import {
   getFenrirBuiltInMcpServers,
   FENRIR_BROWSER_LAB_MCP_ID,
   FENRIR_REMOTE_HOST_MCP_ID,
+  FENRIR_WORKFLOWS_MCP_ID,
 } from "@fenrir/shared/mcpBuiltIns";
 import { Effect, Layer, Option } from "effect";
 
@@ -29,6 +30,12 @@ import {
   getRemoteHostMcpToken,
   resolveRemoteHostMcpRunnerPath,
 } from "../remoteHostMcpRuntime.ts";
+import {
+  getWorkflowMcpBackendUrl,
+  getWorkflowMcpRunnerEnv,
+  getWorkflowMcpToken,
+  resolveWorkflowMcpRunnerPath,
+} from "../workflowMcpRuntime.ts";
 import { hashResolvedMcpServers } from "../mcpConfigHash.ts";
 
 function mergeDefinitions(
@@ -91,6 +98,9 @@ function resolveServer(
     readonly remoteHostRunnerPath: string;
     readonly remoteHostBackendUrl: string;
     readonly remoteHostToken: string;
+    readonly workflowRunnerPath: string;
+    readonly workflowBackendUrl: string;
+    readonly workflowToken: string;
   },
 ): Effect.Effect<ResolvedMcpServerConfig, McpConfigResolverError> {
   if (server.id === FENRIR_BROWSER_LAB_MCP_ID) {
@@ -121,6 +131,50 @@ function resolveServer(
           ...getRemoteHostMcpRunnerEnv(),
           FENRIR_MCP_BACKEND_URL: runtime.remoteHostBackendUrl,
           FENRIR_MCP_TOKEN: runtime.remoteHostToken,
+        },
+      },
+    });
+  }
+  if (server.id === FENRIR_WORKFLOWS_MCP_ID) {
+    const projectId = environment.FENRIR_MCP_WORKFLOW_PROJECT_ID?.trim();
+    const threadId = environment.FENRIR_MCP_WORKFLOW_THREAD_ID?.trim();
+    const mode =
+      environment.FENRIR_MCP_WORKFLOW_MODE?.trim() === "collaboration"
+        ? "collaboration"
+        : "management";
+    const runId = environment.FENRIR_MCP_WORKFLOW_RUN_ID?.trim();
+    const agentName = environment.FENRIR_MCP_WORKFLOW_AGENT_NAME?.trim();
+    if (!projectId || !threadId) {
+      return Effect.fail(
+        new McpConfigResolverError({
+          message: "Workflow MCP server requires active project and thread context.",
+        }),
+      );
+    }
+    if (mode === "collaboration" && (!runId || !agentName)) {
+      return Effect.fail(
+        new McpConfigResolverError({
+          message:
+            "Workflow collaboration MCP server requires active workflow run and agent context.",
+        }),
+      );
+    }
+    return Effect.succeed({
+      id: server.id,
+      name: server.name,
+      transport: {
+        type: "stdio",
+        command: process.execPath,
+        args: [runtime.workflowRunnerPath],
+        env: {
+          ...getWorkflowMcpRunnerEnv(),
+          FENRIR_MCP_BACKEND_URL: runtime.workflowBackendUrl,
+          FENRIR_MCP_TOKEN: runtime.workflowToken,
+          FENRIR_MCP_WORKFLOW_PROJECT_ID: projectId,
+          FENRIR_MCP_WORKFLOW_THREAD_ID: threadId,
+          FENRIR_MCP_WORKFLOW_MODE: mode,
+          ...(runId ? { FENRIR_MCP_WORKFLOW_RUN_ID: runId } : {}),
+          ...(agentName ? { FENRIR_MCP_WORKFLOW_AGENT_NAME: agentName } : {}),
         },
       },
     });
@@ -194,6 +248,9 @@ export const McpConfigResolverLive = Layer.effect(
       remoteHostRunnerPath: resolveRemoteHostMcpRunnerPath(),
       remoteHostBackendUrl: getRemoteHostMcpBackendUrl(config),
       remoteHostToken: getRemoteHostMcpToken(),
+      workflowRunnerPath: resolveWorkflowMcpRunnerPath(),
+      workflowBackendUrl: getWorkflowMcpBackendUrl(config),
+      workflowToken: getWorkflowMcpToken(),
     };
     return {
       resolve: (input) =>

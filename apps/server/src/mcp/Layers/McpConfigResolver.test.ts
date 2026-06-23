@@ -1,7 +1,11 @@
 import { DEFAULT_SERVER_SETTINGS, McpServerId, type ServerSettings } from "@fenrir/contracts";
 import { it, expect } from "@effect/vitest";
 import { Effect } from "effect";
-import { FENRIR_BROWSER_LAB_MCP_ID, FENRIR_REMOTE_HOST_MCP_ID } from "@fenrir/shared/mcpBuiltIns";
+import {
+  FENRIR_BROWSER_LAB_MCP_ID,
+  FENRIR_REMOTE_HOST_MCP_ID,
+  FENRIR_WORKFLOWS_MCP_ID,
+} from "@fenrir/shared/mcpBuiltIns";
 
 import { McpConfigResolver } from "../Services/McpConfigResolver.ts";
 import { McpConfigResolverLive } from "./McpConfigResolver.ts";
@@ -209,5 +213,87 @@ it.effect("McpConfigResolver resolves the built-in Remote Host runner", () =>
         process.env.ELECTRON_RUN_AS_NODE = previousElectronRunAsNode;
       }
     }
+  }).pipe(Effect.provide(McpConfigResolverLive)),
+);
+
+it.effect("McpConfigResolver resolves the built-in Workflow runner with thread context", () =>
+  Effect.gen(function* () {
+    const previousElectronRunAsNode = process.env.ELECTRON_RUN_AS_NODE;
+    process.env.ELECTRON_RUN_AS_NODE = "1";
+
+    try {
+      const resolver = yield* McpConfigResolver;
+      const resolved = yield* resolver.resolve({
+        settings: makeSettings({}),
+        selectedServerIds: [FENRIR_WORKFLOWS_MCP_ID],
+        environment: {
+          FENRIR_MCP_WORKFLOW_PROJECT_ID: "project-1",
+          FENRIR_MCP_WORKFLOW_THREAD_ID: "thread-1",
+        },
+      });
+
+      const transport = resolved.servers[0]?.transport;
+      expect(transport?.type).toBe("stdio");
+      if (transport?.type !== "stdio") {
+        return;
+      }
+
+      expect(transport.command).toBe(process.execPath);
+      expect(transport.args[0]).toMatch(/workflowRunner\.(ts|mjs|js|cjs)$/);
+      expect(transport.env.ELECTRON_RUN_AS_NODE).toBe("1");
+      expect(transport.env.FENRIR_MCP_BACKEND_URL).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+      expect(transport.env.FENRIR_MCP_TOKEN).toBeTruthy();
+      expect(transport.env.FENRIR_MCP_WORKFLOW_PROJECT_ID).toBe("project-1");
+      expect(transport.env.FENRIR_MCP_WORKFLOW_THREAD_ID).toBe("thread-1");
+      expect(transport.env.FENRIR_MCP_WORKFLOW_MODE).toBe("management");
+    } finally {
+      if (previousElectronRunAsNode === undefined) {
+        delete process.env.ELECTRON_RUN_AS_NODE;
+      } else {
+        process.env.ELECTRON_RUN_AS_NODE = previousElectronRunAsNode;
+      }
+    }
+  }).pipe(Effect.provide(McpConfigResolverLive)),
+);
+
+it.effect("McpConfigResolver resolves the built-in Workflow runner in collaboration mode", () =>
+  Effect.gen(function* () {
+    const resolver = yield* McpConfigResolver;
+    const resolved = yield* resolver.resolve({
+      settings: makeSettings({}),
+      selectedServerIds: [FENRIR_WORKFLOWS_MCP_ID],
+      environment: {
+        FENRIR_MCP_WORKFLOW_PROJECT_ID: "project-1",
+        FENRIR_MCP_WORKFLOW_THREAD_ID: "agent-thread-1",
+        FENRIR_MCP_WORKFLOW_MODE: "collaboration",
+        FENRIR_MCP_WORKFLOW_RUN_ID: "run-1",
+        FENRIR_MCP_WORKFLOW_AGENT_NAME: "planner",
+      },
+    });
+
+    const transport = resolved.servers[0]?.transport;
+    expect(transport?.type).toBe("stdio");
+    if (transport?.type !== "stdio") {
+      return;
+    }
+
+    expect(transport.env.FENRIR_MCP_WORKFLOW_MODE).toBe("collaboration");
+    expect(transport.env.FENRIR_MCP_WORKFLOW_RUN_ID).toBe("run-1");
+    expect(transport.env.FENRIR_MCP_WORKFLOW_AGENT_NAME).toBe("planner");
+  }).pipe(Effect.provide(McpConfigResolverLive)),
+);
+
+it.effect("McpConfigResolver rejects the built-in Workflow runner without thread context", () =>
+  Effect.gen(function* () {
+    const resolver = yield* McpConfigResolver;
+    const error = yield* Effect.flip(
+      resolver.resolve({
+        settings: makeSettings({}),
+        selectedServerIds: [FENRIR_WORKFLOWS_MCP_ID],
+        environment: {},
+      }),
+    );
+
+    expect(error.message).toContain("active project and thread context");
   }).pipe(Effect.provide(McpConfigResolverLive)),
 );

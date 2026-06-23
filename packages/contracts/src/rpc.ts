@@ -11,6 +11,7 @@ export * from "./rpc/remoteController";
 export * from "./rpc/trafficLens";
 export * from "./rpc/localServers";
 export * from "./rpc/planRunner";
+export * from "./rpc/workflows";
 export * from "./rpc/managedProcess";
 export * from "./rpc/sourceControlStack";
 export * from "./rpc/group";

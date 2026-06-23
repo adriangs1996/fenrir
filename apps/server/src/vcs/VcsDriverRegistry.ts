@@ -20,12 +20,19 @@ export interface VcsDriverHandle {
   readonly driver: VcsDriverShape;
 }
 
+export interface VcsReviewDiffHandle extends VcsDriverHandle {
+  readonly reviewDiff: NonNullable<VcsDriverShape["reviewDiff"]>;
+}
+
 export interface VcsDriverRegistryShape {
   readonly get: (kind: VcsDriverKind) => Effect.Effect<VcsDriverShape, VcsError>;
   readonly detect: (
     input: VcsDriverResolveInput,
   ) => Effect.Effect<VcsDriverHandle | null, VcsError>;
   readonly resolve: (input: VcsDriverResolveInput) => Effect.Effect<VcsDriverHandle, VcsError>;
+  readonly resolveReviewDiff: (
+    input: VcsDriverResolveInput,
+  ) => Effect.Effect<VcsReviewDiffHandle, VcsError>;
 }
 
 export class VcsDriverRegistry extends Context.Service<VcsDriverRegistry, VcsDriverRegistryShape>()(
@@ -39,7 +46,7 @@ const unsupported = (operation: string, kind: VcsDriverKind, detail: string) =>
     detail,
   });
 
-const makeVcsDriverRegistry = Effect.gen(function* () {
+export const makeVcsDriverRegistry = Effect.gen(function* () {
   const projectConfig = yield* VcsProjectConfig;
   const git = yield* GitVcsDriver;
   const drivers: Partial<Record<VcsDriverKind, VcsDriverShape>> = {
@@ -120,10 +127,25 @@ const makeVcsDriverRegistry = Effect.gen(function* () {
     },
   );
 
+  const resolveReviewDiff: VcsDriverRegistryShape["resolveReviewDiff"] = Effect.fn(
+    "VcsDriverRegistry.resolveReviewDiff",
+  )(function* (input) {
+    const handle = yield* resolve(input);
+    if (!handle.driver.reviewDiff) {
+      return yield* unsupported(
+        "VcsDriverRegistry.resolveReviewDiff",
+        handle.kind,
+        `${handle.kind} does not support review diff operations.`,
+      );
+    }
+    return { ...handle, reviewDiff: handle.driver.reviewDiff };
+  });
+
   return VcsDriverRegistry.of({
     get,
     detect,
     resolve,
+    resolveReviewDiff,
   });
 });
 

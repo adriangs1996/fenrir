@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Diff Router Bar - Variant 1 - Action Rail</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .variant-toolbar {
+        display: grid;
+        grid-template-columns: minmax(280px, 410px) auto minmax(220px, 1fr) auto auto;
+        align-items: center;
+        gap: 12px;
+        min-height: 58px;
+        padding: 9px 12px;
+      }
+
+      .repo-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        height: 40px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: #0d1219;
+      }
+
+      .repo-icon {
+        display: grid;
+        width: 26px;
+        height: 26px;
+        place-items: center;
+        border-radius: 7px;
+        background: #1b2636;
+        color: var(--blue);
+      }
+
+      .target-switch {
+        min-width: 302px;
+      }
+
+      .selection-title {
+        display: grid;
+        min-width: 0;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+      }
+
+      .selection-icon {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border: 1px solid rgba(119, 168, 255, 0.35);
+        border-radius: 9px;
+        background: rgba(119, 168, 255, 0.12);
+        color: #cddfff;
+      }
+
+      .action-cluster {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      @media (max-width: 1220px) {
+        .variant-toolbar {
+          grid-template-columns: minmax(220px, 1fr) auto auto;
+        }
+
+        .target-switch,
+        .selection-title {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="window">
+        <div class="titlebar">
+          <div class="titlebar-left">
+            <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 3v12"></path>
+              <circle cx="6" cy="18" r="3"></circle>
+              <circle cx="6" cy="6" r="3"></circle>
+              <path d="M18 6a3 3 0 1 0-3 3"></path>
+              <path d="M6 15c4 0 9-3 9-6"></path>
+            </svg>
+            <span class="branch-path">/Users/adriangonzalez/sandbox/t3code</span>
+          </div>
+          <div class="titlebar-center">
+            <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 3v12"></path>
+              <circle cx="6" cy="18" r="3"></circle>
+              <circle cx="6" cy="6" r="3"></circle>
+              <path d="M18 6a3 3 0 1 0-3 3"></path>
+              <path d="M6 15c4 0 9-3 9-6"></path>
+            </svg>
+            <span class="branch-name">master</span>
+          </div>
+          <div class="titlebar-right">
+            <span>0 files</span>
+            <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 12a9 9 0 0 1-9 9 9.8 9.8 0 0 1-6.7-2.7"></path>
+              <path d="M3 12a9 9 0 0 1 15.1-6.6"></path>
+              <path d="M21 3v6h-6"></path>
+              <path d="M3 21v-6h6"></path>
+            </svg>
+          </div>
+        </div>
+
+        <header class="toolbar variant-toolbar">
+          <div class="repo-card">
+            <span class="repo-icon">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 4h18v14H3z"></path>
+                <path d="M7 20h10"></path>
+                <path d="M12 18v2"></path>
+              </svg>
+            </span>
+            <div class="stack">
+              <div class="label truncate">t3code</div>
+              <div class="sub mono">master - clean remote sync</div>
+            </div>
+            <span class="status-dot" title="Repository is reachable"></span>
+          </div>
+
+          <div class="segmented target-switch" aria-label="Diff target">
+            <button type="button" class="active">
+              <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 6h13"></path>
+                <path d="M8 12h13"></path>
+                <path d="M8 18h13"></path>
+                <path d="M3 6h.01"></path>
+                <path d="M3 12h.01"></path>
+                <path d="M3 18h.01"></path>
+              </svg>
+              Changes <span class="badge">0</span>
+            </button>
+            <button type="button">Staged <span class="badge">0</span></button>
+            <button type="button">History</button>
+          </div>
+
+          <div class="selection-title">
+            <span class="selection-icon">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <path d="M14 2v6h6"></path>
+                <path d="M8 13h8"></path>
+                <path d="M8 17h5"></path>
+              </svg>
+            </span>
+            <div class="stack">
+              <div class="label truncate">Staged changes</div>
+              <div class="sub">No file selected</div>
+            </div>
+          </div>
+
+          <div class="action-cluster">
+            <button class="primary-button disabled" type="button" title="Commit staged changes">
+              <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M3 12h6"></path>
+                <path d="M15 12h6"></path>
+              </svg>
+              Commit
+            </button>
+            <button class="icon-button" type="button" title="Stage all changes">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5"></path>
+              </svg>
+            </button>
+            <button class="icon-button" type="button" title="More Git actions">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="1"></circle>
+                <circle cx="19" cy="12" r="1"></circle>
+                <circle cx="5" cy="12" r="1"></circle>
+              </svg>
+            </button>
+          </div>
+
+          <div class="view-group" aria-label="Diff display">
+            <button class="icon-button active" type="button" title="Split diff">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v18"></path>
+                <path d="M4 7h5"></path>
+                <path d="M4 12h5"></path>
+                <path d="M4 17h5"></path>
+                <path d="M15 7h5"></path>
+                <path d="M15 12h5"></path>
+                <path d="M15 17h5"></path>
+              </svg>
+            </button>
+            <button class="icon-button" type="button" title="Wrap lines">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 6h18"></path>
+                <path d="M3 12h13a4 4 0 0 1 0 8h-2"></path>
+                <path d="m16 16-4 4 4 4"></path>
+              </svg>
+            </button>
+            <button class="select-button" type="button" title="Line information mode">
+              Line info
+              <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m6 9 6 6 6-6"></path>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="workbench">
+          <aside class="sidebar">
+            <div class="side-section">
+              <div class="side-heading"><span>Changes</span><span class="badge">0</span></div>
+            </div>
+            <div class="side-section">
+              <div class="side-heading"><span>Working Tree</span><span class="badge">0</span></div>
+            </div>
+          </aside>
+          <main class="workspace">
+            <div class="diff-empty">
+              <div class="diff-placeholder">
+                <h2>No staged file selected</h2>
+                <p>
+                  Select a changed file from the list, or use the action rail to stage, commit, or
+                  switch to history.
+                </p>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

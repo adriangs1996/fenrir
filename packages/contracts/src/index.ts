@@ -28,6 +28,7 @@ export * from "./vpn";
 export * from "./trafficLens";
 export * from "./localServers";
 export * from "./planRunner";
+export * from "./workflows";
 export * from "./fonts";
 export * from "./skill";
 export * from "./managedProcessLog";

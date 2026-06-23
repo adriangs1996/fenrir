@@ -22,6 +22,7 @@ import { sourceControlStackRoutes } from "./ws/routes/sourceControlStack";
 import { makeTerminalRoutes } from "./ws/routes/terminal";
 import { makeTrafficLensRoutes } from "./ws/routes/trafficLens";
 import { makeVcsRoutes } from "./ws/routes/vcs";
+import { makeWorkflowRoutes } from "./ws/routes/workflows";
 import { makeWorkspaceRoutes } from "./ws/routes/workspace";
 import { makeRefreshGitStatus } from "./ws/shared";
 
@@ -43,6 +44,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const trafficLensRoutes = yield* makeTrafficLensRoutes;
       const localServersRoutes = yield* makeLocalServersRoutes;
       const planRunnerRoutes = yield* makePlanRunnerRoutes;
+      const workflowRoutes = yield* makeWorkflowRoutes;
       const managedProcessRoutes = yield* makeManagedProcessRoutes;
 
       return WsRpcGroup.of({
@@ -59,6 +61,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         ...trafficLensRoutes,
         ...localServersRoutes,
         ...planRunnerRoutes,
+        ...workflowRoutes,
         ...managedProcessRoutes,
         ...sourceControlStackRoutes,
       });

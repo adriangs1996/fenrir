@@ -1,4 +1,4 @@
-import { DiffIcon, ListTodoIcon } from "lucide-react";
+import { DiffIcon, ListTodoIcon, WorkflowIcon } from "lucide-react";
 import {
   Suspense,
   lazy,
@@ -11,7 +11,7 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from "react";
-import type { EnvironmentId } from "@fenrir/contracts";
+import type { EnvironmentId, ProjectId, ThreadId, WorkflowRunId } from "@fenrir/contracts";
 import type { TimestampFormat } from "@fenrir/contracts/settings";
 import { Schema } from "effect";
 import { cn } from "~/lib/utils";
@@ -32,6 +32,7 @@ import {
   resolveDefaultRightPanelWidth,
 } from "../../rightPanelLayout";
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
+import { WorkflowPanel } from "~/modules/workflows";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
 
@@ -51,6 +52,13 @@ export interface RightPanelTabsPlanProps {
   markdownCwd: string | undefined;
   workspaceRoot: string | undefined;
   timestampFormat: TimestampFormat;
+  onClose: () => void;
+}
+
+export interface RightPanelTabsWorkflowProps {
+  projectId: ProjectId | null;
+  originThreadId: ThreadId | null;
+  initialRunId?: WorkflowRunId | undefined;
   onClose: () => void;
 }
 
@@ -87,6 +95,7 @@ const TabButton = memo(function TabButton({ tab, icon: Icon, label }: TabButtonP
 
 interface RightPanelTabsProps {
   planProps: RightPanelTabsPlanProps;
+  workflowProps: RightPanelTabsWorkflowProps;
   /**
    * "sidebar" = desktop inline panel with resizable width.
    * "sheet" = mobile sheet overlay (full width).
@@ -96,6 +105,7 @@ interface RightPanelTabsProps {
 
 export const RightPanelTabs = memo(function RightPanelTabs({
   planProps,
+  workflowProps,
   mode = "sidebar",
 }: RightPanelTabsProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -331,6 +341,7 @@ export const RightPanelTabs = memo(function RightPanelTabs({
       {/* Tab bar */}
       <div role="tablist" className="flex h-10 shrink-0 items-end border-b border-border/60 px-1">
         <TabButton tab="plan" icon={ListTodoIcon} label="Plan" />
+        <TabButton tab="workflows" icon={WorkflowIcon} label="Workflows" />
         <TabButton tab="diff" icon={DiffIcon} label="Diff" />
       </div>
 
@@ -347,6 +358,16 @@ export const RightPanelTabs = memo(function RightPanelTabs({
             workspaceRoot={planProps.workspaceRoot}
             timestampFormat={planProps.timestampFormat}
             onClose={planProps.onClose}
+          />
+        </div>
+
+        {/* Workflows tab */}
+        <div className={cn("h-full", activeTab !== "workflows" && "hidden")}>
+          <WorkflowPanel
+            projectId={workflowProps.projectId}
+            originThreadId={workflowProps.originThreadId}
+            initialRunId={workflowProps.initialRunId}
+            onClose={workflowProps.onClose}
           />
         </div>
 

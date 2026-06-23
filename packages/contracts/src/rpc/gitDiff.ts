@@ -6,9 +6,11 @@ import {
   AmendGitDiffStagedChangesResult,
   CommentGitDiffChangeRequestLinesInput,
   CreateGitDiffIgnoreListInput,
+  CreateGitDiffReviewNoteInput,
   CreateGitDiffStashInput,
   CreateGitDiffStashResult,
   DeleteGitDiffIgnoreListInput,
+  DeleteGitDiffReviewNoteInput,
   DiscardGitDiffWorktreeChangesInput,
   DiscardGitDiffWorktreeChangesResult,
   GitDiffActionResult,
@@ -18,6 +20,7 @@ import {
   GitDiffMergeChangeRequestInput,
   GitDiffOperationActionInput,
   GitDiffOperationActionResult,
+  GitDiffReviewNote,
   GitDiffStashReferenceInput,
   LoadActiveChangeRequestStackedDiffFileIndexInput,
   LoadActiveChangeRequestStackedDiffFileIndexResult,
@@ -25,6 +28,8 @@ import {
   LoadDiffFileIndexInput,
   LoadDiffFileIndexResult,
   LoadDiffFileResult,
+  LoadGitDiffChangeSignatureInput,
+  LoadGitDiffChangeSignatureResult,
   LoadGitDiffChangeRequestChecksInput,
   LoadGitDiffChangeRequestChecksResult,
   LoadGitDiffChangeRequestReviewThreadsInput,
@@ -37,10 +42,15 @@ import {
   LoadGitDiffOperationResult,
   LoadGitDiffRepositoriesInput,
   LoadGitDiffRepositoriesResult,
+  LoadGitDiffReviewNotesInput,
+  LoadGitDiffReviewNotesResult,
+  LoadGitDiffReviewSessionInput,
+  LoadGitDiffReviewSessionResult,
   LoadGitDiffStashesInput,
   LoadGitDiffStashesResult,
   LoadStackedDiffFileIndexInput,
   LoadStackedDiffFileIndexResult,
+  RequestGitDiffReviewNavigationInput,
   RevertGitDiffChangeRequestLinesInput,
   RevertGitDiffChangeRequestLinesResult,
   StageGitDiffWorktreeChangesInput,
@@ -48,12 +58,19 @@ import {
   UnstageGitDiffStagedChangesInput,
   UnstageGitDiffStagedChangesResult,
   UpdateGitDiffIgnoreListInput,
+  UpdateGitDiffReviewSessionInput,
 } from "../gitDiff";
 import { WS_METHODS } from "./methods";
 
 export const WsGitDiffLoadFileIndexRpc = Rpc.make(WS_METHODS.gitDiffLoadFileIndex, {
   payload: LoadDiffFileIndexInput,
   success: LoadDiffFileIndexResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffLoadChangeSignatureRpc = Rpc.make(WS_METHODS.gitDiffLoadChangeSignature, {
+  payload: LoadGitDiffChangeSignatureInput,
+  success: LoadGitDiffChangeSignatureResult,
   error: GitCommandError,
 });
 
@@ -113,6 +130,45 @@ export const WsGitDiffDeleteIgnoreListRpc = Rpc.make(WS_METHODS.gitDiffDeleteIgn
   success: LoadGitDiffIgnoreListsResult,
   error: GitCommandError,
 });
+
+export const WsGitDiffLoadReviewNotesRpc = Rpc.make(WS_METHODS.gitDiffLoadReviewNotes, {
+  payload: LoadGitDiffReviewNotesInput,
+  success: LoadGitDiffReviewNotesResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffCreateReviewNoteRpc = Rpc.make(WS_METHODS.gitDiffCreateReviewNote, {
+  payload: CreateGitDiffReviewNoteInput,
+  success: GitDiffReviewNote,
+  error: GitCommandError,
+});
+
+export const WsGitDiffDeleteReviewNoteRpc = Rpc.make(WS_METHODS.gitDiffDeleteReviewNote, {
+  payload: DeleteGitDiffReviewNoteInput,
+  success: GitDiffActionResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffUpdateReviewSessionRpc = Rpc.make(WS_METHODS.gitDiffUpdateReviewSession, {
+  payload: UpdateGitDiffReviewSessionInput,
+  success: GitDiffActionResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffLoadReviewSessionRpc = Rpc.make(WS_METHODS.gitDiffLoadReviewSession, {
+  payload: LoadGitDiffReviewSessionInput,
+  success: LoadGitDiffReviewSessionResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiffRequestReviewNavigationRpc = Rpc.make(
+  WS_METHODS.gitDiffRequestReviewNavigation,
+  {
+    payload: RequestGitDiffReviewNavigationInput,
+    success: GitDiffActionResult,
+    error: GitCommandError,
+  },
+);
 
 export const WsGitDiffStageWorktreeChangesRpc = Rpc.make(WS_METHODS.gitDiffStageWorktreeChanges, {
   payload: StageGitDiffWorktreeChangesInput,

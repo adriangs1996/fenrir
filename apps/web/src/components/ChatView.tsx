@@ -16,6 +16,7 @@ import {
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
+  type WorkflowDraft,
 } from "@fenrir/contracts";
 import {
   parseScopedThreadKey,
@@ -201,6 +202,13 @@ import {
   useActionRunStore,
   type ActionRun,
 } from "~/modules/action-runs";
+import {
+  isRunnableWorkflow,
+  selectThreadWorkflowCounts,
+  selectThreadWorkflowSummaries,
+  useWorkflowStore,
+  useWorkflowThreadSync,
+} from "~/modules/workflows";
 import { isEditorTransientThread } from "~/threadVisibility";
 import { EDITOR_TRANSIENT_THREAD_DELETE_DELAY_MS, toEditorWorkerItem } from "~/editorPromptWorkers";
 
@@ -491,6 +499,23 @@ export default function ChatView(props: ChatViewProps) {
   );
   const activeThreadEnvironmentId = activeThread?.environmentId;
   const activeThreadProjectId = activeThread?.projectId;
+  const workflowProjectId = isServerThread ? (activeThreadProjectId ?? null) : null;
+  const workflowOriginThreadId = isServerThread ? activeThreadId : null;
+  useWorkflowThreadSync(workflowProjectId, workflowOriginThreadId);
+  const workflowCounts = useWorkflowStore(
+    useShallow((state) =>
+      selectThreadWorkflowCounts(state, workflowProjectId, workflowOriginThreadId),
+    ),
+  );
+  const workflowSummaries = useWorkflowStore(
+    useShallow((state) =>
+      selectThreadWorkflowSummaries(state, workflowProjectId, workflowOriginThreadId),
+    ),
+  );
+  const runWorkflowFromComposer = useWorkflowStore((state) => state.runWorkflow);
+  const validateWorkflowFromComposer = useWorkflowStore((state) => state.validateWorkflow);
+  const openWorkflowSourceFromComposer = useWorkflowStore((state) => state.openWorkflowSource);
+  const archiveWorkflowFromComposer = useWorkflowStore((state) => state.archiveWorkflow);
   const activeProjectRef = useMemo(
     () =>
       activeThreadEnvironmentId && activeThreadProjectId
@@ -1335,6 +1360,46 @@ export default function ChatView(props: ChatViewProps) {
     }
     rightPanel.openTab("plan");
   }, [closeRightPanel, rightPanel]);
+  const openWorkflowsPanel = useCallback(() => {
+    if (!workflowCounts.hasWorkflows) {
+      return;
+    }
+    rightPanel.openTab("workflows");
+  }, [rightPanel, workflowCounts.hasWorkflows]);
+  const handleRunWorkflowFromComposer = useCallback(
+    async (workflow: WorkflowDraft) => {
+      if (!workflowProjectId || !workflowOriginThreadId) {
+        return;
+      }
+      if (!isRunnableWorkflow(workflow)) {
+        const validated = await validateWorkflowFromComposer(workflow.workflowId);
+        if (!isRunnableWorkflow(validated)) {
+          throw new Error(validated.validationError ?? "Workflow validation failed.");
+        }
+      }
+      await runWorkflowFromComposer(workflowProjectId, workflowOriginThreadId, workflow.workflowId);
+      rightPanel.openTab("workflows");
+    },
+    [
+      rightPanel,
+      runWorkflowFromComposer,
+      validateWorkflowFromComposer,
+      workflowOriginThreadId,
+      workflowProjectId,
+    ],
+  );
+  const handleOpenWorkflowSourceFromComposer = useCallback(
+    async (workflow: WorkflowDraft) => {
+      await openWorkflowSourceFromComposer(workflow.workflowId);
+    },
+    [openWorkflowSourceFromComposer],
+  );
+  const handleArchiveWorkflowFromComposer = useCallback(
+    async (workflow: WorkflowDraft) => {
+      await archiveWorkflowFromComposer(workflow.workflowId);
+    },
+    [archiveWorkflowFromComposer],
+  );
 
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -1486,6 +1551,14 @@ export default function ChatView(props: ChatViewProps) {
     // rightPanel intentionally omitted: stable store reference.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThread?.id, diffOpen]);
+
+  useEffect(() => {
+    if (rawSearch.workflowPanel !== "1") return;
+    if (rightPanel.activeTab === "workflows") return;
+    rightPanel.openTab("workflows");
+    // rightPanel intentionally omitted: stable store reference.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeThread?.id, rawSearch.workflowPanel]);
 
   useEffect(() => {
     setIsRevertingCheckpoint(false);
@@ -3414,6 +3487,12 @@ export default function ChatView(props: ChatViewProps) {
                 respondingRequestIds={respondingRequestIds}
                 showPlanFollowUpPrompt={showPlanFollowUpPrompt}
                 activeProposedPlan={activeProposedPlan}
+                workflowSummaries={workflowSummaries}
+                workflowCounts={workflowCounts}
+                onOpenWorkflowsPanel={openWorkflowsPanel}
+                onRunWorkflowFromComposer={handleRunWorkflowFromComposer}
+                onOpenWorkflowSourceFromComposer={handleOpenWorkflowSourceFromComposer}
+                onArchiveWorkflowFromComposer={handleArchiveWorkflowFromComposer}
                 runtimeMode={runtimeMode}
                 interactionMode={interactionMode}
                 lockedProvider={lockedProvider}
@@ -3550,7 +3629,7 @@ export default function ChatView(props: ChatViewProps) {
         </div>
         {/* end chat column */}
 
-        {/* Right panel tabs (Plan / Diff) and Action Center — desktop inline */}
+        {/* Right panel tabs (Plan / Workflows / Diff) and Action Center — desktop inline */}
         {actionCenterOpen && activeProjectRef && !shouldUsePlanSidebarSheet ? (
           <ActionRunCenter
             projectRef={activeProjectRef}
@@ -3570,6 +3649,12 @@ export default function ChatView(props: ChatViewProps) {
               markdownCwd: gitCwd ?? undefined,
               workspaceRoot: activeWorkspaceRoot,
               timestampFormat,
+              onClose: closePlanSidebar,
+            }}
+            workflowProps={{
+              projectId: workflowProjectId,
+              originThreadId: workflowOriginThreadId,
+              initialRunId: rawSearch.workflowRunId,
               onClose: closePlanSidebar,
             }}
           />
@@ -3621,6 +3706,12 @@ export default function ChatView(props: ChatViewProps) {
                 markdownCwd: gitCwd ?? undefined,
                 workspaceRoot: activeWorkspaceRoot,
                 timestampFormat,
+                onClose: closePlanSidebar,
+              }}
+              workflowProps={{
+                projectId: workflowProjectId,
+                originThreadId: workflowOriginThreadId,
+                initialRunId: rawSearch.workflowRunId,
                 onClose: closePlanSidebar,
               }}
               mode="sheet"

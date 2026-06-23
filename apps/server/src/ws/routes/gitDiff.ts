@@ -21,6 +21,10 @@ export const makeGitDiffRoutes = (deps: { readonly refreshGitStatus: RefreshGitS
       [WS_METHODS.gitDiffLoadFileIndex]: gitDiff.effect(WS_METHODS.gitDiffLoadFileIndex, (input) =>
         gitDiffCore.loadDiffFileIndex(input),
       ),
+      [WS_METHODS.gitDiffLoadChangeSignature]: gitDiff.effect(
+        WS_METHODS.gitDiffLoadChangeSignature,
+        (input) => gitDiffCore.loadChangeSignature(input),
+      ),
       [WS_METHODS.gitDiffLoadFile]: gitDiff.effect(WS_METHODS.gitDiffLoadFile, (input) =>
         gitDiffCore.loadDiffFile(input),
       ),
@@ -50,6 +54,30 @@ export const makeGitDiffRoutes = (deps: { readonly refreshGitStatus: RefreshGitS
       [WS_METHODS.gitDiffDeleteIgnoreList]: gitDiff.effect(
         WS_METHODS.gitDiffDeleteIgnoreList,
         (input) => gitDiffCore.deleteIgnoreList(input),
+      ),
+      [WS_METHODS.gitDiffLoadReviewNotes]: gitDiff.effect(
+        WS_METHODS.gitDiffLoadReviewNotes,
+        (input) => gitDiffCore.loadReviewNotes(input),
+      ),
+      [WS_METHODS.gitDiffCreateReviewNote]: gitDiff.effect(
+        WS_METHODS.gitDiffCreateReviewNote,
+        (input) => gitDiffCore.createReviewNote(input),
+      ),
+      [WS_METHODS.gitDiffDeleteReviewNote]: gitDiff.effect(
+        WS_METHODS.gitDiffDeleteReviewNote,
+        (input) => gitDiffCore.deleteReviewNote(input),
+      ),
+      [WS_METHODS.gitDiffUpdateReviewSession]: gitDiff.effect(
+        WS_METHODS.gitDiffUpdateReviewSession,
+        (input) => gitDiffCore.updateReviewSession(input),
+      ),
+      [WS_METHODS.gitDiffLoadReviewSession]: gitDiff.effect(
+        WS_METHODS.gitDiffLoadReviewSession,
+        (input) => gitDiffCore.loadReviewSession(input),
+      ),
+      [WS_METHODS.gitDiffRequestReviewNavigation]: gitDiff.effect(
+        WS_METHODS.gitDiffRequestReviewNavigation,
+        (input) => gitDiffCore.requestReviewNavigation(input),
       ),
       [WS_METHODS.gitDiffStageWorktreeChanges]: gitDiff.effect(
         WS_METHODS.gitDiffStageWorktreeChanges,

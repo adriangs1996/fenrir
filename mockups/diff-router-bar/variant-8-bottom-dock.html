@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Diff Router Bar - Variant 8 - Bottom Dock</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .window {
+        position: relative;
+      }
+
+      .top-context {
+        display: grid;
+        grid-template-columns: minmax(260px, 0.7fr) minmax(280px, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        height: 52px;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--line);
+        background: #10151d;
+      }
+
+      .mode-tabs {
+        display: inline-flex;
+        min-width: 0;
+        align-items: center;
+        gap: 4px;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: #0c1118;
+      }
+
+      .mode-tabs button {
+        height: 28px;
+        padding: 0 10px;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .mode-tabs button.active {
+        background: #202a38;
+        color: #f4f8fb;
+      }
+
+      .dock-workbench {
+        min-height: 710px;
+        padding-bottom: 82px;
+      }
+
+      .bottom-dock {
+        position: absolute;
+        right: 18px;
+        bottom: 18px;
+        left: 318px;
+        z-index: 20;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 12px;
+        min-height: 62px;
+        padding: 10px;
+        border: 1px solid #354254;
+        border-radius: 12px;
+        background: rgba(13, 18, 25, 0.96);
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(14px);
+      }
+
+      .dock-section {
+        display: inline-flex;
+        min-width: 0;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .dock-primary {
+        display: grid;
+        min-width: 0;
+        gap: 2px;
+      }
+
+      .dock-label {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .dock-title {
+        color: #edf5ff;
+        font-weight: 750;
+      }
+
+      .dock-menu {
+        position: absolute;
+        right: 26px;
+        bottom: 92px;
+        width: 356px;
+        border: 1px solid #354254;
+        border-radius: 10px;
+        background: #0d1219;
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+      }
+
+      .dock-menu-title {
+        height: 36px;
+        border-bottom: 1px solid var(--line-soft);
+        padding: 9px 10px 0;
+        color: #edf5ff;
+        font-weight: 750;
+      }
+
+      .dock-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        padding: 8px;
+      }
+
+      .dock-action {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        border: 1px solid var(--line-soft);
+        border-radius: 7px;
+        background: #111820;
+        padding: 0 8px;
+        color: #dce6f4;
+        text-align: left;
+      }
+
+      .dock-action.disabled {
+        color: #657386;
+      }
+
+      .dock-action.danger {
+        color: #ffb8b8;
+      }
+
+      @media (max-width: 980px) {
+        .top-context {
+          grid-template-columns: 1fr;
+          height: auto;
+          padding: 8px 12px;
+        }
+
+        .bottom-dock {
+          left: 12px;
+          grid-template-columns: 1fr;
+        }
+
+        .dock-menu {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="window">
+        <header class="top-context">
+          <div class="row grow">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 4h18v14H3z"></path>
+              <path d="M7 20h10"></path>
+              <path d="M12 18v2"></path>
+            </svg>
+            <span class="truncate mono">t3code / master</span>
+            <span class="status-dot"></span>
+          </div>
+          <div class="stack">
+            <span class="label truncate">Staged changes</span>
+            <span class="sub mono">No file selected - 0 files</span>
+          </div>
+          <div class="mode-tabs">
+            <button class="active" type="button">Worktree</button>
+            <button type="button">Stack</button>
+            <button type="button">History</button>
+            <button type="button">Stashes</button>
+          </div>
+        </header>
+
+        <div class="workbench dock-workbench">
+          <aside class="sidebar">
+            <div class="side-section">
+              <div class="side-heading"><span>Changes</span><span class="badge">0</span></div>
+            </div>
+            <div class="side-section">
+              <div class="side-heading"><span>Working Tree</span><span class="badge">0</span></div>
+            </div>
+            <div class="side-section">
+              <div class="side-heading"><span>Review notes</span><span class="badge">0</span></div>
+            </div>
+          </aside>
+          <main class="workspace">
+            <div class="diff-empty">
+              <div class="diff-placeholder">
+                <h2>Bottom action dock</h2>
+                <p>
+                  The diff header becomes context-only. Actions follow the cursor visually from a
+                  bottom dock, similar to an editor status/action bar.
+                </p>
+              </div>
+            </div>
+          </main>
+        </div>
+
+        <div class="dock-menu">
+          <div class="dock-menu-title">Overflow actions</div>
+          <div class="dock-grid">
+            <button class="dock-action" type="button"><span>↓</span><span>Pull</span></button>
+            <button class="dock-action" type="button"><span>↑</span><span>Push</span></button>
+            <button class="dock-action" type="button"><span>#</span><span>Open PR</span></button>
+            <button class="dock-action" type="button"><span>⇄</span><span>Merge PR</span></button>
+            <button class="dock-action" type="button">
+              <span>C</span><span>Continue operation</span>
+            </button>
+            <button class="dock-action danger" type="button">
+              <span>A</span><span>Abort operation</span>
+            </button>
+            <button class="dock-action disabled" type="button">
+              <span>B</span><span>Prompt agent</span>
+            </button>
+            <button class="dock-action disabled" type="button">
+              <span>M</span><span>Comment lines</span>
+            </button>
+            <button class="dock-action" type="button">
+              <span>+</span><span>Create ignore list</span>
+            </button>
+            <button class="dock-action" type="button">
+              <span>T</span><span>Apply stash</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="bottom-dock">
+          <div class="dock-primary">
+            <span class="dock-label">Current target</span>
+            <span class="dock-title truncate">No file selected - Worktree actions available</span>
+          </div>
+          <div class="dock-section">
+            <button class="primary-button" type="button">Stage all</button>
+            <button class="chip" type="button">Unstage all</button>
+            <button class="chip" type="button">Stash</button>
+            <button class="chip" type="button">Commit</button>
+            <button class="chip active" type="button">More</button>
+          </div>
+          <div class="view-group">
+            <button class="icon-button active" type="button" title="Split">S</button>
+            <button class="icon-button" type="button" title="Stacked">R</button>
+            <button class="icon-button" type="button" title="Wrap">W</button>
+            <button class="select-button" type="button">Line info</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

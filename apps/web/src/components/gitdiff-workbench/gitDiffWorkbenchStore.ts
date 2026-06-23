@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "~/lib/storage";
 
-export type GitDiffWorkbenchViewMode = "history" | "stack" | "worktree";
+export type GitDiffWorkbenchViewMode = "history" | "stack" | "stashes" | "worktree";
 export type GitDiffWorkbenchTargetKind = "worktree" | "staged";
 export type GitDiffWorkbenchRenderMode = "stacked" | "split";
 export type GitDiffWorkbenchLineHighlightMode = "inline" | "none";
@@ -18,6 +18,7 @@ export type GitDiffWorkbenchRepositoryState = {
   readonly selectedPath: string | null;
   readonly selectedTargetKind: GitDiffWorkbenchTargetKind;
   readonly selectedStackIndex: number | null;
+  readonly selectedStashRef: string | null;
 };
 
 export type GitDiffWorkbenchPreferences = {
@@ -62,6 +63,7 @@ const DEFAULT_REPOSITORY_STATE: GitDiffWorkbenchRepositoryState = {
   selectedPath: null,
   selectedTargetKind: "worktree",
   selectedStackIndex: null,
+  selectedStashRef: null,
 };
 
 export const DEFAULT_GIT_DIFF_WORKBENCH_PREFERENCES: GitDiffWorkbenchPreferences = {
@@ -177,6 +179,7 @@ export const useGitDiffWorkbenchStore = create<GitDiffWorkbenchStoreState>()(
                   selectedPath: scopeState.selectedPath,
                   selectedTargetKind: scopeState.selectedTargetKind,
                   selectedStackIndex: scopeState.selectedStackIndex,
+                  selectedStashRef: scopeState.selectedStashRef,
                 }
               : DEFAULT_REPOSITORY_STATE);
           const repositoryState = {

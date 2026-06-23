@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Diff Router Bar - Variant 11 - Four View Bottom Dock</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .window {
+        position: relative;
+      }
+
+      .global-topbar {
+        display: grid;
+        grid-template-columns: minmax(260px, 0.62fr) minmax(360px, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        min-height: 54px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+        background: #10151d;
+      }
+
+      .repo-context {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        height: 36px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #0c1118;
+      }
+
+      .view-switch {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(102px, 1fr));
+        gap: 4px;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #0c1118;
+      }
+
+      .view-switch button {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 9px;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .view-switch button.active {
+        background: #202a38;
+        color: #f4f8fb;
+      }
+
+      .global-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+
+      .global-secondary {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 40px;
+        padding: 5px 12px;
+        border-bottom: 1px solid var(--line-soft);
+        background: #0d1219;
+      }
+
+      .global-status {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 8px;
+        overflow: hidden;
+      }
+
+      .view-stage {
+        display: grid;
+        grid-template-columns: 292px minmax(0, 1fr);
+        min-height: 700px;
+        padding-bottom: 88px;
+      }
+
+      .view-pane {
+        min-width: 0;
+        border-right: 1px solid var(--line-soft);
+        background: #10151d;
+      }
+
+      .view-pane-head {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .view-list {
+        display: grid;
+        gap: 6px;
+        padding: 12px;
+      }
+
+      .view-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        min-height: 36px;
+        padding: 7px 8px;
+        border: 1px solid var(--line-soft);
+        border-radius: 7px;
+        background: #111820;
+        color: #dce6f4;
+        text-align: left;
+      }
+
+      .view-row.active {
+        border-color: rgba(119, 168, 255, 0.45);
+        background: #172333;
+      }
+
+      .view-row.warn {
+        border-color: rgba(232, 187, 99, 0.3);
+        background: rgba(232, 187, 99, 0.08);
+      }
+
+      .view-row.danger {
+        color: #ffb8b8;
+      }
+
+      .diff-pane {
+        min-width: 0;
+        background: #0d1015;
+      }
+
+      .diff-pane-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        min-height: 50px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--line);
+        background: #0f141b;
+      }
+
+      .diff-body {
+        min-height: 650px;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+          linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px), #0c1016;
+        background-size: 34px 34px;
+        padding: 42px 48px;
+      }
+
+      .view-preview {
+        max-width: 620px;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .view-preview h2 {
+        margin: 0 0 8px;
+        color: #edf2f7;
+        font-size: 18px;
+      }
+
+      .view-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 22px;
+      }
+
+      .view-card {
+        display: grid;
+        gap: 6px;
+        min-height: 94px;
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        background: rgba(17, 24, 32, 0.86);
+        padding: 10px;
+      }
+
+      .view-card.active {
+        border-color: rgba(81, 209, 138, 0.4);
+        background: rgba(81, 209, 138, 0.08);
+      }
+
+      .bottom-dock {
+        position: absolute;
+        right: 18px;
+        bottom: 18px;
+        left: 330px;
+        z-index: 20;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 12px;
+        min-height: 64px;
+        padding: 10px;
+        border: 1px solid #354254;
+        border-radius: 12px;
+        background: rgba(13, 18, 25, 0.96);
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(14px);
+      }
+
+      .dock-main {
+        display: grid;
+        min-width: 0;
+        gap: 2px;
+      }
+
+      .dock-label {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .dock-title {
+        color: #edf5ff;
+        font-weight: 750;
+      }
+
+      .dock-actions,
+      .dock-menu-row {
+        display: inline-flex;
+        min-width: 0;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .dock-popover {
+        position: absolute;
+        right: 24px;
+        bottom: 96px;
+        z-index: 30;
+        width: 360px;
+        border: 1px solid #354254;
+        border-radius: 10px;
+        background: #0d1219;
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+      }
+
+      .dock-popover-head {
+        display: flex;
+        height: 36px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        border-bottom: 1px solid var(--line-soft);
+        padding: 0 10px;
+      }
+
+      .dock-popover-body {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        padding: 8px;
+      }
+
+      .dock-popover-item {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        padding: 0 8px;
+        border: 1px solid var(--line-soft);
+        border-radius: 7px;
+        background: #111820;
+        color: #dce6f4;
+        text-align: left;
+      }
+
+      .dock-popover-item.disabled {
+        color: #667386;
+      }
+
+      .dock-popover-item.danger {
+        color: #ffb8b8;
+      }
+
+      .ghosted {
+        opacity: 0.5;
+      }
+
+      .worktree-demo .history-only,
+      .worktree-demo .stash-only,
+      .worktree-demo .pr-only {
+        display: none;
+      }
+
+      @media (max-width: 1180px) {
+        .global-topbar,
+        .global-secondary {
+          grid-template-columns: 1fr;
+        }
+
+        .view-switch {
+          grid-template-columns: repeat(2, minmax(102px, 1fr));
+        }
+
+        .view-stage {
+          grid-template-columns: 1fr;
+        }
+
+        .view-pane {
+          display: none;
+        }
+
+        .bottom-dock {
+          left: 12px;
+          grid-template-columns: 1fr;
+        }
+
+        .dock-popover {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body class="worktree-demo">
+    <div class="screen">
+      <div class="window">
+        <header>
+          <div class="global-topbar">
+            <button class="repo-context" type="button" title="Switch repository">
+              <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 4h18v14H3z"></path>
+                <path d="M7 20h10"></path>
+                <path d="M12 18v2"></path>
+              </svg>
+              <span class="stack">
+                <span class="label truncate mono">t3code</span>
+                <span class="sub mono">master - remote synced</span>
+              </span>
+              <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m6 9 6 6 6-6"></path>
+              </svg>
+            </button>
+
+            <div class="view-switch" aria-label="Diff view">
+              <button class="active" type="button">
+                <span>W</span><span>Worktree</span><span class="badge">0</span>
+              </button>
+              <button type="button">
+                <span>PR</span><span>PR Review</span><span class="badge">3</span>
+              </button>
+              <button type="button"><span>H</span><span>History</span><span></span></button>
+              <button type="button">
+                <span>S</span><span>Stashes</span><span class="badge">2</span>
+              </button>
+            </div>
+
+            <div class="global-actions">
+              <button class="chip" type="button">Pull</button>
+              <button class="chip" type="button">Push</button>
+              <button class="primary-button" type="button">Stage all</button>
+              <button class="chip" type="button">Commit staged</button>
+              <button class="icon-button" type="button" title="Refresh">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M21 12a9 9 0 0 1-9 9 9.8 9.8 0 0 1-6.7-2.7"></path>
+                  <path d="M3 12a9 9 0 0 1 15.1-6.6"></path>
+                  <path d="M21 3v6h-6"></path>
+                  <path d="M3 21v-6h6"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="global-secondary">
+            <div class="global-status">
+              <span class="chip quiet"><span class="status-dot"></span>Repository healthy</span>
+              <span class="chip warn">Rebase paused <span class="badge">2</span></span>
+              <span class="chip pr-only">PR #42 - 2 passing, 1 pending</span>
+              <span class="chip history-only">142 commits on master</span>
+              <span class="chip stash-only">2 saved stashes</span>
+            </div>
+            <div class="dock-menu-row">
+              <button class="chip" type="button">Unstage all</button>
+              <button class="chip" type="button">Stash all</button>
+              <button class="chip" type="button">Amend</button>
+              <button class="chip pr-only" type="button">Merge PR</button>
+              <button class="chip pr-only danger" type="button">Close PR</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="view-stage">
+          <aside class="view-pane">
+            <div class="view-pane-head">
+              <span class="eyebrow">Worktree</span>
+              <span class="label">Prepare changes</span>
+              <span class="sub">Stage, unstage, stash, commit, and ignore files.</span>
+            </div>
+            <div class="view-list">
+              <button class="view-row active" type="button">
+                <span>W</span><span>Working Tree</span><span class="badge">0</span>
+              </button>
+              <button class="view-row" type="button">
+                <span>S</span><span>Staged</span><span class="badge">0</span>
+              </button>
+              <button class="view-row" type="button">
+                <span>I</span><span>Ignore lists</span><span class="badge">1</span>
+              </button>
+              <button class="view-row warn" type="button">
+                <span>!</span><span>Operation conflicts</span><span class="badge">2</span>
+              </button>
+            </div>
+          </aside>
+
+          <main class="diff-pane">
+            <div class="diff-pane-head">
+              <div class="stack">
+                <span class="label truncate">Staged changes</span>
+                <span class="sub mono">No file selected - 0 files</span>
+              </div>
+              <div class="view-group">
+                <button class="icon-button active" type="button" title="Split diff">S</button>
+                <button class="icon-button" type="button" title="Stacked diff">R</button>
+                <button class="icon-button" type="button" title="Wrap lines">W</button>
+                <button class="icon-button" type="button" title="Whitespace">P</button>
+                <button class="icon-button active" type="button" title="Line numbers">#</button>
+                <button class="select-button" type="button">Line info</button>
+              </div>
+            </div>
+            <div class="diff-body">
+              <div class="view-preview">
+                <h2>Four-view bottom dock</h2>
+                <p>
+                  The top bar owns repository-level actions. The bottom dock owns the selected
+                  thing: file, lines, commit, or stash.
+                </p>
+                <div class="view-strip">
+                  <div class="view-card active">
+                    <span class="label">Worktree</span>
+                    <span class="sub">Stage, unstage, stash, commit, ignore, discard.</span>
+                  </div>
+                  <div class="view-card">
+                    <span class="label">PR Review</span>
+                    <span class="sub">Checks, PR actions, comments, line reverts.</span>
+                  </div>
+                  <div class="view-card">
+                    <span class="label">History</span>
+                    <span class="sub">Select commits, cherry-pick, revert.</span>
+                  </div>
+                  <div class="view-card">
+                    <span class="label">Stashes</span>
+                    <span class="sub">Inspect stashes, apply, pop, drop.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+
+        <div class="dock-popover">
+          <div class="dock-popover-head">
+            <strong>Context actions</strong>
+            <span class="sub">File scope</span>
+          </div>
+          <div class="dock-popover-body">
+            <button class="dock-popover-item disabled" type="button">
+              <span>O</span><span>Open file</span>
+            </button>
+            <button class="dock-popover-item disabled" type="button">
+              <span>✓</span><span>Stage file</span>
+            </button>
+            <button class="dock-popover-item disabled" type="button">
+              <span>↶</span><span>Unstage file</span>
+            </button>
+            <button class="dock-popover-item disabled" type="button">
+              <span>□</span><span>Stash file</span>
+            </button>
+            <button class="dock-popover-item disabled" type="button">
+              <span>●</span><span>Commit file</span>
+            </button>
+            <button class="dock-popover-item disabled danger" type="button">
+              <span>D</span><span>Discard file</span>
+            </button>
+            <button class="dock-popover-item" type="button">
+              <span>I</span><span>Add to ignore list</span>
+            </button>
+            <button class="dock-popover-item disabled" type="button">
+              <span>B</span><span>Prompt agent</span>
+            </button>
+            <button class="dock-popover-item disabled" type="button">
+              <span>M</span><span>Comment lines</span>
+            </button>
+            <button class="dock-popover-item disabled" type="button">
+              <span>R</span><span>Revert lines</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="bottom-dock">
+          <div class="dock-main">
+            <span class="dock-label">Selected file</span>
+            <span class="dock-title truncate">No file selected</span>
+          </div>
+          <div class="dock-actions">
+            <button class="chip disabled ghosted" type="button">Open</button>
+            <button class="chip disabled ghosted" type="button">Stage file</button>
+            <button class="chip disabled ghosted" type="button">Unstage</button>
+            <button class="chip disabled ghosted" type="button">Stash file</button>
+            <button class="chip danger ghosted" type="button">Discard</button>
+            <button class="chip active" type="button">More</button>
+          </div>
+          <div class="view-group">
+            <button class="icon-button active" type="button" title="Split">S</button>
+            <button class="icon-button" type="button" title="Stacked">R</button>
+            <button class="icon-button" type="button" title="Wrap">W</button>
+            <button class="select-button" type="button">Line info</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

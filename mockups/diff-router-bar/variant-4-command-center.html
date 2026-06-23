@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Diff Router Bar - Variant 4 - Floating Command Center</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .window {
+        position: relative;
+      }
+
+      .command-toolbar {
+        display: grid;
+        grid-template-columns: minmax(250px, 0.55fr) minmax(340px, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+      }
+
+      .nav-cluster,
+      .command-meta,
+      .context-left,
+      .inline-actions,
+      .checks,
+      .floating-menu-header,
+      .menu-tabs {
+        display: inline-flex;
+        min-width: 0;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .repo-chip {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        height: 34px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #0d1219;
+      }
+
+      .repo-chip .stack {
+        gap: 0;
+      }
+
+      .repo-chip .label {
+        font-size: 12px;
+      }
+
+      .repo-chip .sub {
+        font-size: 11px;
+      }
+
+      .command-box {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        height: 42px;
+        padding: 0 11px;
+        border: 1px solid #415064;
+        border-radius: 10px;
+        background: #0b1017;
+        box-shadow: 0 0 0 3px rgba(119, 168, 255, 0.07);
+      }
+
+      .command-query {
+        display: grid;
+        min-width: 0;
+        gap: 1px;
+      }
+
+      .command-query strong {
+        overflow: hidden;
+        color: #f4f7fb;
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .command-query span {
+        overflow: hidden;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .command-meta {
+        justify-content: flex-end;
+      }
+
+      .context-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 42px;
+        padding: 5px 12px 7px;
+        border-top: 1px solid var(--line-soft);
+        background: #101620;
+      }
+
+      .context-left {
+        overflow: hidden;
+      }
+
+      .mini-target {
+        display: grid;
+        min-width: 0;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 7px;
+        height: 30px;
+        padding: 0 9px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #141b25;
+      }
+
+      .operation-pill,
+      .pr-pill {
+        display: inline-flex;
+        min-width: 0;
+        height: 30px;
+        align-items: center;
+        gap: 8px;
+        padding: 0 10px;
+        border-radius: 8px;
+        white-space: nowrap;
+      }
+
+      .operation-pill {
+        border: 1px solid rgba(232, 187, 99, 0.34);
+        background: rgba(232, 187, 99, 0.1);
+        color: #f3d99f;
+      }
+
+      .pr-pill {
+        border: 1px solid rgba(119, 168, 255, 0.34);
+        background: rgba(119, 168, 255, 0.11);
+        color: #dbeaff;
+      }
+
+      .check-dot {
+        width: 14px;
+        height: 5px;
+        border-radius: 999px;
+        background: #314055;
+      }
+
+      .check-dot.ok {
+        background: var(--green);
+      }
+
+      .check-dot.warn {
+        background: var(--amber);
+      }
+
+      .stats {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-family: var(--mono);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .add {
+        color: #83e3ad;
+      }
+
+      .del {
+        color: #ff9999;
+      }
+
+      .overlay-layer {
+        position: absolute;
+        inset: 92px 0 auto 0;
+        z-index: 20;
+        pointer-events: none;
+      }
+
+      .floating-menu {
+        position: absolute;
+        pointer-events: auto;
+        border: 1px solid #344153;
+        border-radius: 10px;
+        background: #0d1219;
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+      }
+
+      .command-menu {
+        left: min(30vw, 610px);
+        width: min(760px, calc(100vw - 420px));
+        max-width: 760px;
+      }
+
+      .more-menu {
+        right: 74px;
+        width: 320px;
+      }
+
+      .view-menu {
+        right: 12px;
+        top: 234px;
+        width: 280px;
+      }
+
+      .floating-menu-header {
+        height: 42px;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--line-soft);
+        padding: 0 10px;
+      }
+
+      .search-field {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #080d13;
+        padding: 0 8px;
+        color: var(--muted);
+      }
+
+      .search-field strong {
+        overflow: hidden;
+        color: #edf5ff;
+        font-size: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .menu-tabs {
+        padding: 8px 10px 0;
+      }
+
+      .menu-tab {
+        height: 26px;
+        padding: 0 9px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .menu-tab.active {
+        border-color: #415064;
+        background: #182131;
+        color: #f1f6fb;
+      }
+
+      .command-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        max-height: 432px;
+        overflow: auto;
+        padding: 10px;
+      }
+
+      .menu-section {
+        min-width: 0;
+      }
+
+      .menu-section-title {
+        display: flex;
+        height: 24px;
+        align-items: center;
+        gap: 7px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 750;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .menu-list {
+        display: grid;
+        gap: 2px;
+      }
+
+      .menu-item {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        min-height: 28px;
+        padding: 5px 6px;
+        border-radius: 6px;
+        background: transparent;
+        color: #dbe5f2;
+        text-align: left;
+      }
+
+      .menu-item.active,
+      .menu-item:hover {
+        background: #1a2330;
+      }
+
+      .menu-item.disabled {
+        color: #667386;
+      }
+
+      .menu-item.danger {
+        color: #ffb8b8;
+      }
+
+      .menu-item span:nth-child(2) {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .hint {
+        color: var(--dim);
+        font-size: 11px;
+      }
+
+      .compact-list {
+        max-height: 360px;
+        overflow: auto;
+        padding: 6px;
+      }
+
+      .menu-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        border-top: 1px solid var(--line-soft);
+        padding: 8px 10px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .workbench {
+        min-height: 650px;
+      }
+
+      @media (max-width: 1320px) {
+        .command-toolbar {
+          grid-template-columns: minmax(0, 1fr) auto;
+        }
+
+        .nav-cluster {
+          display: none;
+        }
+
+        .command-menu {
+          left: 12px;
+          width: min(760px, calc(100vw - 24px));
+        }
+
+        .command-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 980px) {
+        .command-toolbar,
+        .context-row {
+          grid-template-columns: 1fr;
+        }
+
+        .command-meta,
+        .inline-actions {
+          justify-content: flex-start;
+        }
+
+        .overlay-layer {
+          inset: 134px 0 auto 0;
+        }
+
+        .more-menu,
+        .view-menu {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="window">
+        <header class="toolbar">
+          <div class="command-toolbar">
+            <div class="nav-cluster">
+              <button class="repo-chip" type="button" title="Switch repository">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 4h18v14H3z"></path>
+                  <path d="M7 20h10"></path>
+                  <path d="M12 18v2"></path>
+                </svg>
+                <span class="stack">
+                  <span class="label truncate mono">t3code</span>
+                  <span class="sub mono">/Users/adriangonzalez/sandbox/t3code</span>
+                </span>
+                <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m6 9 6 6 6-6"></path>
+                </svg>
+              </button>
+              <button class="chip" type="button" title="Search, switch, or create branch">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 3v12"></path>
+                  <circle cx="6" cy="18" r="3"></circle>
+                  <circle cx="6" cy="6" r="3"></circle>
+                  <path d="M18 6a3 3 0 1 0-3 3"></path>
+                  <path d="M6 15c4 0 9-3 9-6"></path>
+                </svg>
+                master
+                <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m6 9 6 6 6-6"></path>
+                </svg>
+              </button>
+              <span class="chip quiet"><span class="status-dot"></span>Remote synced</span>
+            </div>
+
+            <button class="command-box" type="button" title="Open command center">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m21 21-4.3-4.3"></path>
+                <circle cx="11" cy="11" r="8"></circle>
+              </svg>
+              <span class="command-query">
+                <strong>Review staged changes</strong>
+                <span>/Users/adriangonzalez/sandbox/t3code - master - no file selected</span>
+              </span>
+              <span class="keyboard">K</span>
+            </button>
+
+            <div class="command-meta">
+              <div class="segmented" aria-label="Diff mode">
+                <button class="active" type="button">Worktree</button>
+                <button type="button">Stack</button>
+                <button type="button">History</button>
+                <button type="button">Stashes</button>
+              </div>
+              <span class="file-count">0 files</span>
+              <button class="icon-button" type="button" title="Refresh diff">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M21 12a9 9 0 0 1-9 9 9.8 9.8 0 0 1-6.7-2.7"></path>
+                  <path d="M3 12a9 9 0 0 1 15.1-6.6"></path>
+                  <path d="M21 3v6h-6"></path>
+                  <path d="M3 21v-6h6"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="context-row">
+            <div class="context-left">
+              <span class="mini-target">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <path d="M14 2v6h6"></path>
+                </svg>
+                <span class="truncate">Staged changes - No file selected</span>
+                <span class="stats"><span class="add">+0</span><span class="del">-0</span></span>
+                <span class="badge">0</span>
+              </span>
+              <button class="pr-pill" type="button" title="Open active pull request">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                  <path d="M15 3h6v6"></path>
+                  <path d="m10 14 11-11"></path>
+                </svg>
+                PR #42
+                <span class="checks" aria-hidden="true">
+                  <span class="check-dot ok"></span>
+                  <span class="check-dot ok"></span>
+                  <span class="check-dot warn"></span>
+                </span>
+              </button>
+              <span class="operation-pill">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 9v4"></path>
+                  <path d="M12 17h.01"></path>
+                  <path
+                    d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"
+                  ></path>
+                </svg>
+                Rebase paused
+                <span class="badge">2</span>
+              </span>
+            </div>
+
+            <div class="inline-actions">
+              <button class="chip positive" type="button">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M20 6 9 17l-5-5"></path>
+                </svg>
+                Stage all
+              </button>
+              <button class="chip" type="button">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M3 12h6"></path>
+                  <path d="M15 12h6"></path>
+                </svg>
+                Commit
+              </button>
+              <button class="chip active" type="button">More</button>
+              <button class="chip active" type="button">View</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="overlay-layer" aria-label="Open floating command menus">
+          <section class="floating-menu command-menu">
+            <div class="floating-menu-header">
+              <div class="search-field">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m21 21-4.3-4.3"></path>
+                  <circle cx="11" cy="11" r="8"></circle>
+                </svg>
+                <strong>stage, commit, stash, branch, file, PR, history...</strong>
+                <span class="keyboard">K</span>
+              </div>
+            </div>
+            <div class="menu-tabs">
+              <button class="menu-tab active" type="button">All</button>
+              <button class="menu-tab" type="button">Git</button>
+              <button class="menu-tab" type="button">File</button>
+              <button class="menu-tab" type="button">Review</button>
+              <button class="menu-tab" type="button">Browse</button>
+            </div>
+            <div class="command-grid">
+              <section class="menu-section">
+                <div class="menu-section-title">Git workflow</div>
+                <div class="menu-list">
+                  <button class="menu-item active" type="button">
+                    <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M20 6 9 17l-5-5"></path>
+                    </svg>
+                    <span>Stage all working tree changes</span>
+                    <span class="hint">0</span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>U</span><span>Unstage all staged changes</span><span class="hint">0</span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>S</span><span>Stash current changes</span><span></span>
+                  </button>
+                  <button class="menu-item disabled" type="button">
+                    <span>C</span><span>Commit staged changes</span><span></span>
+                  </button>
+                  <button class="menu-item disabled" type="button">
+                    <span>A</span><span>Amend last commit</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>↓</span><span>Pull current branch</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>↑</span><span>Push current branch</span><span></span>
+                  </button>
+                </div>
+              </section>
+
+              <section class="menu-section">
+                <div class="menu-section-title">Selected file</div>
+                <div class="menu-list">
+                  <button class="menu-item disabled" type="button">
+                    <span>O</span><span>Open selected file in editor</span><span></span>
+                  </button>
+                  <button class="menu-item disabled" type="button">
+                    <span>S</span><span>Stash selected file</span><span></span>
+                  </button>
+                  <button class="menu-item disabled" type="button">
+                    <span>✓</span><span>Stage selected file</span><span></span>
+                  </button>
+                  <button class="menu-item disabled" type="button">
+                    <span>C</span><span>Commit selected file</span><span></span>
+                  </button>
+                  <button class="menu-item disabled" type="button">
+                    <span>U</span><span>Unstage selected file</span><span></span>
+                  </button>
+                  <button class="menu-item danger disabled" type="button">
+                    <span>D</span><span>Discard selected file changes</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>I</span><span>Add selected file to ignore list</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>+</span><span>Create ignore list</span><span></span>
+                  </button>
+                </div>
+              </section>
+
+              <section class="menu-section">
+                <div class="menu-section-title">Review and PR</div>
+                <div class="menu-list">
+                  <button class="menu-item disabled" type="button">
+                    <span>B</span><span>Prompt agent with review context</span><span></span>
+                  </button>
+                  <button class="menu-item disabled" type="button">
+                    <span>M</span><span>Comment selected lines</span><span></span>
+                  </button>
+                  <button class="menu-item disabled" type="button">
+                    <span>R</span><span>Revert selected lines</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>#</span><span>Open active pull request</span><span>#42</span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>⇄</span><span>Squash and merge pull request</span><span></span>
+                  </button>
+                  <button class="menu-item danger" type="button">
+                    <span>X</span><span>Close pull request</span><span></span>
+                  </button>
+                  <button class="menu-item disabled" type="button">
+                    <span>⌫</span><span>Delete review note</span><span></span>
+                  </button>
+                </div>
+              </section>
+
+              <section class="menu-section">
+                <div class="menu-section-title">Browse and recovery</div>
+                <div class="menu-list">
+                  <button class="menu-item" type="button">
+                    <span>W</span><span>Show working tree</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>G</span><span>Show pull request stack</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>H</span><span>Show commit history</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>T</span><span>Show stashes</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>+</span><span>Cherry-pick selected commit</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>U</span><span>Revert selected commit</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>A</span><span>Apply selected stash</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>P</span><span>Pop selected stash</span><span></span>
+                  </button>
+                  <button class="menu-item danger" type="button">
+                    <span>D</span><span>Drop selected stash</span><span></span>
+                  </button>
+                  <button class="menu-item" type="button">
+                    <span>C</span><span>Continue Git operation</span><span></span>
+                  </button>
+                  <button class="menu-item danger" type="button">
+                    <span>A</span><span>Abort Git operation</span><span></span>
+                  </button>
+                </div>
+              </section>
+            </div>
+            <div class="menu-footer">
+              <span>Floating command center; diff layout does not move.</span>
+              <span>Esc closes</span>
+            </div>
+          </section>
+
+          <section class="floating-menu more-menu">
+            <div class="floating-menu-header">
+              <strong>More actions</strong>
+              <span class="sub">Pinned from command center</span>
+            </div>
+            <div class="compact-list">
+              <button class="menu-item" type="button">
+                <span>↓</span><span>Pull current branch</span><span></span>
+              </button>
+              <button class="menu-item" type="button">
+                <span>↑</span><span>Push current branch</span><span></span>
+              </button>
+              <button class="menu-item" type="button">
+                <span>S</span><span>Stash current changes</span><span></span>
+              </button>
+              <button class="menu-item" type="button">
+                <span>#</span><span>Open active pull request</span><span>#42</span>
+              </button>
+              <button class="menu-item" type="button">
+                <span>C</span><span>Continue Git operation</span><span></span>
+              </button>
+              <button class="menu-item danger" type="button">
+                <span>A</span><span>Abort Git operation</span><span></span>
+              </button>
+            </div>
+          </section>
+
+          <section class="floating-menu view-menu">
+            <div class="floating-menu-header">
+              <strong>View options</strong>
+              <span class="sub">Per-file diff</span>
+            </div>
+            <div class="compact-list">
+              <button class="menu-item active" type="button">
+                <span>S</span><span>Split diff</span><span></span>
+              </button>
+              <button class="menu-item" type="button">
+                <span>R</span><span>Stacked diff</span><span></span>
+              </button>
+              <button class="menu-item" type="button">
+                <span>W</span><span>Wrap lines</span><span></span>
+              </button>
+              <button class="menu-item" type="button">
+                <span>P</span><span>Ignore whitespace</span><span></span>
+              </button>
+              <button class="menu-item active" type="button">
+                <span>#</span><span>Line numbers</span><span></span>
+              </button>
+              <button class="menu-item active" type="button">
+                <span>H</span><span>Inline highlights</span><span></span>
+              </button>
+              <button class="menu-item active" type="button">
+                <span></span><span>Hunk separators: line info</span><span></span>
+              </button>
+              <button class="menu-item" type="button">
+                <span></span><span>Hunk separators: basic</span><span></span>
+              </button>
+              <button class="menu-item" type="button">
+                <span></span><span>Hunk separators: metadata</span><span></span>
+              </button>
+              <button class="menu-item" type="button">
+                <span></span><span>Hunk separators: simple</span><span></span>
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <div class="workbench">
+          <aside class="sidebar">
+            <div class="side-section">
+              <div class="side-heading"><span>Changes</span><span class="badge">0</span></div>
+            </div>
+            <div class="side-section">
+              <div class="side-heading"><span>Working Tree</span><span class="badge">0</span></div>
+            </div>
+            <div class="side-section">
+              <div class="side-heading"><span>Ignore lists</span><span class="badge">1</span></div>
+              <div class="file-row">
+                <span class="status-dot idle"></span>
+                <span class="path">Generated snapshots</span>
+                <span class="badge">3</span>
+              </div>
+            </div>
+            <div class="side-section">
+              <div class="side-heading"><span>Stashes</span><span class="badge">2</span></div>
+            </div>
+          </aside>
+          <main class="workspace">
+            <div class="diff-empty">
+              <div class="diff-placeholder">
+                <h2>Command center layout</h2>
+                <p>Select a changed file, command, commit, stash, or pull request action.</p>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

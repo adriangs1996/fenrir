@@ -1,5 +1,5 @@
 import { parseScopedThreadKey, scopeProjectRef, scopeThreadRef } from "@fenrir/client-runtime";
-import { type ScopedThreadRef, ThreadId } from "@fenrir/contracts";
+import { type ScopedThreadRef, ThreadId, type WorkflowRunSnapshot } from "@fenrir/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
@@ -19,10 +19,15 @@ import {
   useStore,
 } from "../store";
 import { useTerminalStateStore } from "~/modules/terminal";
+import { useWorkflowStore } from "~/modules/workflows";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { toastManager } from "../components/ui/toast";
 import { useSettings } from "./useSettings";
+
+function isActiveWorkflowRun(run: WorkflowRunSnapshot): boolean {
+  return run.status === "running" || run.status === "paused";
+}
 
 export function useThreadActions() {
   const sidebarThreadSortOrder = useSettings((settings) => settings.sidebarThreadSortOrder);
@@ -136,6 +141,56 @@ export function useThreadActions() {
         : null;
       const canDeleteWorktree = orphanedWorktreePath !== null && threadProject !== undefined;
       const localApi = readLocalApi();
+      let workflowRuns: readonly WorkflowRunSnapshot[];
+      try {
+        const workflowSnapshot = await api.workflows.listThread({
+          projectId: thread.projectId,
+          originThreadId: threadRef.threadId,
+        });
+        useWorkflowStore
+          .getState()
+          .setThreadSnapshot(
+            thread.projectId,
+            threadRef.threadId,
+            workflowSnapshot.workflows,
+            workflowSnapshot.runs,
+          );
+        workflowRuns = workflowSnapshot.runs;
+      } catch (error) {
+        console.error("Failed to verify workflow runs before thread deletion", {
+          threadId: threadRef.threadId,
+          error,
+        });
+        toastManager.add({
+          type: "error",
+          title: "Thread not deleted",
+          description: "Could not verify workflow activity for this thread. Try again.",
+        });
+        return;
+      }
+
+      const activeWorkflowRunCount = workflowRuns.filter(isActiveWorkflowRun).length;
+      if (activeWorkflowRunCount > 0) {
+        if (!localApi) {
+          toastManager.add({
+            type: "error",
+            title: "Thread not deleted",
+            description: "Stop active workflows before deleting this thread.",
+          });
+          return;
+        }
+        const confirmed = await localApi.dialogs.confirm(
+          [
+            `Delete thread with ${activeWorkflowRunCount} active workflow run${
+              activeWorkflowRunCount === 1 ? "" : "s"
+            }?`,
+            "Active workflow work will continue independently unless stopped first.",
+            "",
+            "Delete the thread anyway?",
+          ].join("\n"),
+        );
+        if (!confirmed) return;
+      }
       const shouldDeleteWorktree =
         canDeleteWorktree &&
         localApi &&

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Diff Router Bar - Variant 9 - IDE Ribbon</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .ribbon {
+        border-bottom: 1px solid var(--line);
+        background: #10151d;
+      }
+
+      .ribbon-context {
+        display: grid;
+        grid-template-columns: minmax(220px, 0.45fr) minmax(360px, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        height: 44px;
+        padding: 0 12px;
+      }
+
+      .ribbon-groups {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr 1fr 0.9fr 1fr;
+        gap: 1px;
+        border-top: 1px solid var(--line-soft);
+        background: var(--line-soft);
+      }
+
+      .ribbon-group {
+        display: grid;
+        gap: 6px;
+        min-width: 0;
+        padding: 8px 10px 7px;
+        background: #0f141b;
+      }
+
+      .ribbon-title {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .ribbon-actions {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 6px;
+        overflow: hidden;
+      }
+
+      .ribbon-action {
+        display: inline-grid;
+        min-width: 42px;
+        height: 38px;
+        place-items: center;
+        gap: 1px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: #151c26;
+        color: #dce6f4;
+        padding: 3px 8px;
+      }
+
+      .ribbon-action span {
+        font-size: 10px;
+        white-space: nowrap;
+      }
+
+      .ribbon-action.disabled {
+        color: #657386;
+      }
+
+      .ribbon-action.danger {
+        color: #ffb8b8;
+      }
+
+      .mode-strip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: #0c1118;
+      }
+
+      .mode-strip button {
+        height: 26px;
+        padding: 0 9px;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .mode-strip button.active {
+        background: #202a38;
+        color: #f4f8fb;
+      }
+
+      @media (max-width: 1200px) {
+        .ribbon-groups {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="window">
+        <header class="ribbon">
+          <div class="ribbon-context">
+            <button class="chip" type="button">
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <path d="M3 4h18v14H3z"></path>
+                <path d="M7 20h10"></path>
+                <path d="M12 18v2"></path>
+              </svg>
+              t3code / master
+            </button>
+            <div class="stack">
+              <span class="label truncate">Staged changes</span>
+              <span class="sub mono">No file selected - 0 files - remote synced</span>
+            </div>
+            <div class="mode-strip">
+              <button class="active" type="button">Worktree</button>
+              <button type="button">Stack</button>
+              <button type="button">History</button>
+              <button type="button">Stashes</button>
+            </div>
+          </div>
+
+          <div class="ribbon-groups">
+            <section class="ribbon-group">
+              <div class="ribbon-title">Git</div>
+              <div class="ribbon-actions">
+                <button class="ribbon-action" type="button">
+                  <strong>✓</strong><span>Stage</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>↶</strong><span>Unstage</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>□</strong><span>Stash</span>
+                </button>
+                <button class="ribbon-action disabled" type="button">
+                  <strong>●</strong><span>Commit</span>
+                </button>
+                <button class="ribbon-action disabled" type="button">
+                  <strong>A</strong><span>Amend</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>↓</strong><span>Pull</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>↑</strong><span>Push</span>
+                </button>
+              </div>
+            </section>
+            <section class="ribbon-group">
+              <div class="ribbon-title">File</div>
+              <div class="ribbon-actions">
+                <button class="ribbon-action disabled" type="button">
+                  <strong>O</strong><span>Open</span>
+                </button>
+                <button class="ribbon-action disabled" type="button">
+                  <strong>✓</strong><span>Stage</span>
+                </button>
+                <button class="ribbon-action disabled" type="button">
+                  <strong>↶</strong><span>Unstage</span>
+                </button>
+                <button class="ribbon-action danger disabled" type="button">
+                  <strong>D</strong><span>Discard</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>I</strong><span>Ignore</span>
+                </button>
+              </div>
+            </section>
+            <section class="ribbon-group">
+              <div class="ribbon-title">Review</div>
+              <div class="ribbon-actions">
+                <button class="ribbon-action disabled" type="button">
+                  <strong>B</strong><span>Agent</span>
+                </button>
+                <button class="ribbon-action disabled" type="button">
+                  <strong>M</strong><span>Comment</span>
+                </button>
+                <button class="ribbon-action disabled" type="button">
+                  <strong>R</strong><span>Revert</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>#</strong><span>PR</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>⇄</strong><span>Merge</span>
+                </button>
+                <button class="ribbon-action danger" type="button">
+                  <strong>X</strong><span>Close</span>
+                </button>
+              </div>
+            </section>
+            <section class="ribbon-group">
+              <div class="ribbon-title">Browse</div>
+              <div class="ribbon-actions">
+                <button class="ribbon-action" type="button">
+                  <strong>+</strong><span>Pick</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>U</strong><span>Revert</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>A</strong><span>Apply</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>P</strong><span>Pop</span>
+                </button>
+                <button class="ribbon-action danger" type="button">
+                  <strong>D</strong><span>Drop</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>C</strong><span>Cont.</span>
+                </button>
+                <button class="ribbon-action danger" type="button">
+                  <strong>A</strong><span>Abort</span>
+                </button>
+              </div>
+            </section>
+            <section class="ribbon-group">
+              <div class="ribbon-title">View</div>
+              <div class="ribbon-actions">
+                <button class="ribbon-action" type="button">
+                  <strong>S</strong><span>Split</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>R</strong><span>Stack</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>W</strong><span>Wrap</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>#</strong><span>Lines</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>H</strong><span>Inline</span>
+                </button>
+                <button class="ribbon-action" type="button">
+                  <strong>≡</strong><span>Hunks</span>
+                </button>
+              </div>
+            </section>
+          </div>
+        </header>
+
+        <div class="workbench">
+          <aside class="sidebar">
+            <div class="side-section">
+              <div class="side-heading"><span>Changes</span><span class="badge">0</span></div>
+            </div>
+            <div class="side-section">
+              <div class="side-heading"><span>Working Tree</span><span class="badge">0</span></div>
+            </div>
+          </aside>
+          <main class="workspace">
+            <div class="diff-empty">
+              <div class="diff-placeholder">
+                <h2>IDE ribbon</h2>
+                <p>
+                  Everything is visible and learnable, grouped like a dense desktop IDE ribbon
+                  rather than hidden behind menus.
+                </p>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

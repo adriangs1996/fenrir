@@ -214,6 +214,7 @@ export interface WsRpcClient {
   };
   readonly gitDiff: {
     readonly listRepositories: RpcUnaryMethod<typeof WS_METHODS.gitDiffListRepositories>;
+    readonly loadChangeSignature: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadChangeSignature>;
     readonly loadFile: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadFile>;
     readonly loadFileIndex: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadFileIndex>;
     readonly loadActiveChangeRequestStackedFileIndex: RpcUnaryMethod<
@@ -225,6 +226,14 @@ export interface WsRpcClient {
     readonly createIgnoreList: RpcUnaryMethod<typeof WS_METHODS.gitDiffCreateIgnoreList>;
     readonly updateIgnoreList: RpcUnaryMethod<typeof WS_METHODS.gitDiffUpdateIgnoreList>;
     readonly deleteIgnoreList: RpcUnaryMethod<typeof WS_METHODS.gitDiffDeleteIgnoreList>;
+    readonly loadReviewNotes: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadReviewNotes>;
+    readonly createReviewNote: RpcUnaryMethod<typeof WS_METHODS.gitDiffCreateReviewNote>;
+    readonly deleteReviewNote: RpcUnaryMethod<typeof WS_METHODS.gitDiffDeleteReviewNote>;
+    readonly updateReviewSession: RpcUnaryMethod<typeof WS_METHODS.gitDiffUpdateReviewSession>;
+    readonly loadReviewSession: RpcUnaryMethod<typeof WS_METHODS.gitDiffLoadReviewSession>;
+    readonly requestReviewNavigation: RpcUnaryMethod<
+      typeof WS_METHODS.gitDiffRequestReviewNavigation
+    >;
     readonly stageWorktreeChanges: RpcUnaryMethod<typeof WS_METHODS.gitDiffStageWorktreeChanges>;
     readonly unstageStagedChanges: RpcUnaryMethod<typeof WS_METHODS.gitDiffUnstageStagedChanges>;
     readonly discardWorktreeChanges: RpcUnaryMethod<
@@ -367,6 +376,20 @@ export interface WsRpcClient {
     readonly listArchivedFeatures: RpcUnaryMethod<typeof WS_METHODS.planRunnerListArchivedFeatures>;
     readonly renameFeature: RpcUnaryMethod<typeof WS_METHODS.planRunnerRenameFeature>;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribePlanRunnerEvents>;
+  };
+  readonly workflows: {
+    readonly createDraft: RpcUnaryMethod<typeof WS_METHODS.workflowsCreateDraft>;
+    readonly listThread: RpcUnaryMethod<typeof WS_METHODS.workflowsListThread>;
+    readonly openSource: RpcUnaryMethod<typeof WS_METHODS.workflowsOpenSource>;
+    readonly syncSource: RpcUnaryMethod<typeof WS_METHODS.workflowsSyncSource>;
+    readonly validate: RpcUnaryMethod<typeof WS_METHODS.workflowsValidate>;
+    readonly archive: RpcUnaryMethod<typeof WS_METHODS.workflowsArchive>;
+    readonly run: RpcUnaryMethod<typeof WS_METHODS.workflowsRun>;
+    readonly stop: RpcUnaryMethod<typeof WS_METHODS.workflowsStop>;
+    readonly respondToInput: RpcUnaryMethod<typeof WS_METHODS.workflowsRespondToInput>;
+    readonly getRun: RpcUnaryMethod<typeof WS_METHODS.workflowsGetRun>;
+    readonly getTimeline: RpcUnaryMethod<typeof WS_METHODS.workflowsGetTimeline>;
+    readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeWorkflowEvents>;
   };
   readonly managedProcess: {
     readonly list: RpcUnaryMethod<typeof WS_METHODS.managedProcessList>;
@@ -600,6 +623,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
     gitDiff: {
       listRepositories: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffListRepositories](input)),
+      loadChangeSignature: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffLoadChangeSignature](input)),
       loadFile: (input) => transport.request((client) => client[WS_METHODS.gitDiffLoadFile](input)),
       loadFileIndex: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffLoadFileIndex](input)),
@@ -619,6 +644,18 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.gitDiffUpdateIgnoreList](input)),
       deleteIgnoreList: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffDeleteIgnoreList](input)),
+      loadReviewNotes: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffLoadReviewNotes](input)),
+      createReviewNote: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffCreateReviewNote](input)),
+      deleteReviewNote: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffDeleteReviewNote](input)),
+      updateReviewSession: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffUpdateReviewSession](input)),
+      loadReviewSession: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffLoadReviewSession](input)),
+      requestReviewNavigation: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffRequestReviewNavigation](input)),
       stageWorktreeChanges: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffStageWorktreeChanges](input)),
       unstageStagedChanges: (input) =>
@@ -836,6 +873,32 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       onEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribePlanRunnerEvents]({}),
+          listener,
+          options,
+        ),
+    },
+    workflows: {
+      createDraft: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsCreateDraft](input)),
+      listThread: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsListThread](input)),
+      openSource: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsOpenSource](input)),
+      syncSource: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsSyncSource](input)),
+      validate: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsValidate](input)),
+      archive: (input) => transport.request((client) => client[WS_METHODS.workflowsArchive](input)),
+      run: (input) => transport.request((client) => client[WS_METHODS.workflowsRun](input)),
+      stop: (input) => transport.request((client) => client[WS_METHODS.workflowsStop](input)),
+      respondToInput: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsRespondToInput](input)),
+      getRun: (input) => transport.request((client) => client[WS_METHODS.workflowsGetRun](input)),
+      getTimeline: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsGetTimeline](input)),
+      onEvent: (listener, options) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeWorkflowEvents]({}),
           listener,
           options,
         ),

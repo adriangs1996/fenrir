@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Diff Router Bar - Variant 5 - Inspector Cards</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .inspector-toolbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        padding: 10px 12px;
+      }
+
+      .card-row {
+        display: grid;
+        grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(
+            180px,
+            0.8fr
+          );
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .inspector-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 9px;
+        min-width: 0;
+        height: 48px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #111821;
+      }
+
+      .inspector-card.active {
+        border-color: rgba(182, 156, 255, 0.42);
+        background: #18192a;
+      }
+
+      .card-icon {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        border-radius: 7px;
+        background: #202939;
+        color: #d9e5f7;
+      }
+
+      .inspector-card.active .card-icon {
+        background: rgba(182, 156, 255, 0.18);
+        color: #ddd1ff;
+      }
+
+      .action-panel {
+        display: grid;
+        grid-template-columns: auto auto;
+        align-content: center;
+        gap: 7px;
+      }
+
+      .display-strip {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+
+      .bottom-status {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 8px 12px;
+        border-top: 1px solid var(--line-soft);
+        background: #0d1219;
+      }
+
+      .status-list {
+        display: flex;
+        min-width: 0;
+        gap: 8px;
+        overflow: hidden;
+      }
+
+      @media (max-width: 1260px) {
+        .inspector-toolbar {
+          grid-template-columns: 1fr;
+        }
+
+        .card-row {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .display-strip {
+          justify-content: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="window">
+        <header class="toolbar">
+          <div class="inspector-toolbar">
+            <div class="card-row" aria-label="Diff inspector">
+              <button class="inspector-card" type="button" title="Repository">
+                <span class="card-icon">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 4h18v14H3z"></path>
+                    <path d="M7 20h10"></path>
+                    <path d="M12 18v2"></path>
+                  </svg>
+                </span>
+                <span class="stack">
+                  <span class="eyebrow">Repository</span>
+                  <span class="label truncate mono">t3code</span>
+                </span>
+              </button>
+
+              <button class="inspector-card" type="button" title="Branch">
+                <span class="card-icon">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 3v12"></path>
+                    <circle cx="6" cy="18" r="3"></circle>
+                    <circle cx="6" cy="6" r="3"></circle>
+                    <path d="M18 6a3 3 0 1 0-3 3"></path>
+                    <path d="M6 15c4 0 9-3 9-6"></path>
+                  </svg>
+                </span>
+                <span class="stack">
+                  <span class="eyebrow">Branch</span>
+                  <span class="label truncate">master</span>
+                </span>
+              </button>
+
+              <button class="inspector-card active" type="button" title="Selected target">
+                <span class="card-icon">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <path d="M14 2v6h6"></path>
+                    <path d="M8 13h8"></path>
+                    <path d="M8 17h5"></path>
+                  </svg>
+                </span>
+                <span class="stack">
+                  <span class="eyebrow">Target</span>
+                  <span class="label truncate">Staged changes</span>
+                  <span class="sub">No file selected</span>
+                </span>
+              </button>
+
+              <button class="inspector-card" type="button" title="Files changed">
+                <span class="card-icon">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8 6h13"></path>
+                    <path d="M8 12h13"></path>
+                    <path d="M8 18h13"></path>
+                    <path d="M3 6h.01"></path>
+                    <path d="M3 12h.01"></path>
+                    <path d="M3 18h.01"></path>
+                  </svg>
+                </span>
+                <span class="stack">
+                  <span class="eyebrow">Files</span>
+                  <span class="label truncate">0 changed</span>
+                </span>
+              </button>
+            </div>
+
+            <div class="action-panel">
+              <button class="split-button" type="button" title="Primary Git action">
+                <span>
+                  <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M3 12h6"></path>
+                    <path d="M15 12h6"></path>
+                  </svg>
+                  Commit
+                </span>
+                <span>
+                  <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m6 9 6 6 6-6"></path>
+                  </svg>
+                </span>
+              </button>
+              <button class="icon-button" type="button" title="Refresh diff">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M21 12a9 9 0 0 1-9 9 9.8 9.8 0 0 1-6.7-2.7"></path>
+                  <path d="M3 12a9 9 0 0 1 15.1-6.6"></path>
+                  <path d="M21 3v6h-6"></path>
+                  <path d="M3 21v-6h6"></path>
+                </svg>
+              </button>
+              <button class="chip" type="button" title="Stage all changes">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M20 6 9 17l-5-5"></path>
+                </svg>
+                Stage all
+              </button>
+              <button class="chip" type="button" title="More actions">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="1"></circle>
+                  <circle cx="19" cy="12" r="1"></circle>
+                  <circle cx="5" cy="12" r="1"></circle>
+                </svg>
+                More
+              </button>
+            </div>
+          </div>
+
+          <div class="bottom-status">
+            <div class="status-list">
+              <span class="chip quiet"><span class="status-dot"></span>Remote synced</span>
+              <span class="chip quiet">Stack unavailable</span>
+              <span class="chip quiet">No active PR</span>
+            </div>
+            <div class="display-strip">
+              <span class="sub">Display</span>
+              <div class="view-group">
+                <button class="icon-button active" type="button" title="Split diff">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3v18"></path>
+                    <path d="M4 7h5"></path>
+                    <path d="M15 7h5"></path>
+                    <path d="M4 17h5"></path>
+                    <path d="M15 17h5"></path>
+                  </svg>
+                </button>
+                <button class="icon-button" type="button" title="Stacked diff">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h16"></path>
+                    <path d="M4 12h16"></path>
+                    <path d="M4 17h16"></path>
+                  </svg>
+                </button>
+                <button class="select-button" type="button">Line info</button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div class="workbench">
+          <aside class="sidebar">
+            <div class="side-section">
+              <div class="side-heading"><span>Changes</span><span class="badge">0</span></div>
+            </div>
+            <div class="side-section">
+              <div class="side-heading"><span>Working Tree</span><span class="badge">0</span></div>
+            </div>
+          </aside>
+          <main class="workspace">
+            <div class="diff-empty">
+              <div class="diff-placeholder">
+                <h2>Inspector card bar</h2>
+                <p>
+                  Context is split into stable cards, while actions and display settings stay in
+                  predictable zones.
+                </p>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

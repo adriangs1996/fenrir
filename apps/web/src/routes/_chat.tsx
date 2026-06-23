@@ -12,6 +12,7 @@ import {
   useTerminalStateStore,
 } from "~/modules/terminal";
 import { usePlanRunnerLifecycle } from "~/modules/plan-runner";
+import { useWorkflowLifecycle } from "~/modules/workflows";
 import { resolveShortcutCommand } from "../keybindings";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
@@ -107,6 +108,7 @@ function ChatRouteGlobalShortcuts() {
 
 function ChatRouteLayout() {
   usePlanRunnerLifecycle();
+  useWorkflowLifecycle();
 
   return (
     <>

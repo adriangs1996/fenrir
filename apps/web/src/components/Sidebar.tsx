@@ -78,6 +78,7 @@ import {
   threadJumpLabelMapsEqual,
 } from "./sidebar/threadJumpLabels";
 import { useInternalPlanRunnerThreadIds, usePlanRunnerStore } from "~/modules/plan-runner";
+import { useInternalWorkflowThreadIds } from "~/modules/workflows";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import { deriveLogicalProjectKey } from "../logicalProject";
@@ -104,12 +105,16 @@ export default function Sidebar() {
   // from every sidebar surface (project grouping, counts, previews, sorts).
   // See `useInternalPlanRunnerThreadIds` for derivation policy.
   const internalPlanRunnerThreadIds = useInternalPlanRunnerThreadIds();
+  const internalWorkflowThreadIds = useInternalWorkflowThreadIds();
   const sidebarThreads = useMemo(
     () =>
       allSidebarThreads.filter(
-        (thread) => isUserBrowsableThread(thread) && !internalPlanRunnerThreadIds.has(thread.id),
+        (thread) =>
+          isUserBrowsableThread(thread) &&
+          !internalPlanRunnerThreadIds.has(thread.id) &&
+          !internalWorkflowThreadIds.has(thread.id),
       ),
-    [allSidebarThreads, internalPlanRunnerThreadIds],
+    [allSidebarThreads, internalPlanRunnerThreadIds, internalWorkflowThreadIds],
   );
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectDrawerViewByCwd = useUiStateStore((store) => store.projectDrawerViewByCwd);

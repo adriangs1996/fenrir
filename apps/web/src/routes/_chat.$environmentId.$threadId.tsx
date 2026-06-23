@@ -1,4 +1,5 @@
 import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
+import { WorkflowRunId } from "@fenrir/contracts";
 import { useEffect, useMemo } from "react";
 
 import ChatView from "../components/ChatView";
@@ -19,6 +20,7 @@ import {
   useInternalPlanRunnerThreadIds,
   useInternalPlanRunnerThreadOwners,
 } from "~/modules/plan-runner";
+import { useInternalWorkflowThreadIds, useInternalWorkflowThreadOwners } from "~/modules/workflows";
 import { isUserBrowsableThread } from "~/threadVisibility";
 
 function ChatThreadRouteView() {
@@ -61,11 +63,33 @@ function ChatThreadRouteView() {
   // not-available behavior (route home) rather than rendering the thread.
   const internalPlanRunnerThreadIds = useInternalPlanRunnerThreadIds();
   const internalPlanRunnerThreadOwners = useInternalPlanRunnerThreadOwners();
+  const internalWorkflowThreadIds = useInternalWorkflowThreadIds();
+  const internalWorkflowThreadOwners = useInternalWorkflowThreadOwners();
+  const workflowOwner = serverThread?.owner?.kind === "workflowAgent" ? serverThread.owner : null;
+  const workflowOwnerParentThreadId = workflowOwner?.parentThreadId;
+  const workflowOwnerRunId = workflowOwner?.workflowRunId;
+  const workflowOwnerFromThread = useMemo(
+    () =>
+      workflowOwnerParentThreadId !== undefined && workflowOwnerRunId !== undefined
+        ? {
+            runId: WorkflowRunId.make(workflowOwnerRunId),
+            parentThreadId: workflowOwnerParentThreadId,
+          }
+        : null,
+    [workflowOwnerParentThreadId, workflowOwnerRunId],
+  );
   const isInternalPlanRunnerThread =
     threadRef !== null && internalPlanRunnerThreadIds.has(threadRef.threadId);
+  const isInternalWorkflowThread =
+    threadRef !== null &&
+    (internalWorkflowThreadIds.has(threadRef.threadId) || workflowOwnerFromThread !== null);
   const isHiddenThread = serverThread !== undefined && !isUserBrowsableThread(serverThread);
   const owningRunIdForThread =
     threadRef !== null ? (internalPlanRunnerThreadOwners.get(threadRef.threadId) ?? null) : null;
+  const owningWorkflowThread =
+    threadRef !== null
+      ? (internalWorkflowThreadOwners.get(threadRef.threadId) ?? workflowOwnerFromThread)
+      : null;
 
   useEffect(() => {
     if (!threadRef || !bootstrapComplete) {
@@ -87,6 +111,26 @@ function ChatThreadRouteView() {
       return;
     }
 
+    if (isInternalWorkflowThread) {
+      if (owningWorkflowThread !== null) {
+        void navigate({
+          to: "/$environmentId/$threadId",
+          params: {
+            environmentId: threadRef.environmentId,
+            threadId: owningWorkflowThread.parentThreadId,
+          },
+          search: {
+            workflowPanel: "1",
+            workflowRunId: owningWorkflowThread.runId,
+          },
+          replace: true,
+        });
+      } else {
+        void navigate({ to: "/", replace: true });
+      }
+      return;
+    }
+
     if (isHiddenThread) {
       void navigate({ to: "/", replace: true });
       return;
@@ -99,9 +143,11 @@ function ChatThreadRouteView() {
     bootstrapComplete,
     environmentHasAnyThreads,
     isInternalPlanRunnerThread,
+    isInternalWorkflowThread,
     isHiddenThread,
     navigate,
     owningRunIdForThread,
+    owningWorkflowThread,
     routeThreadExists,
     threadRef,
   ]);
@@ -126,6 +172,7 @@ function ChatThreadRouteView() {
     !bootstrapComplete ||
     !routeThreadExists ||
     isInternalPlanRunnerThread ||
+    isInternalWorkflowThread ||
     isHiddenThread
   ) {
     return null;

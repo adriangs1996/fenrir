@@ -3,8 +3,10 @@ import type {
   AmendGitDiffStagedChangesResult,
   CommentGitDiffChangeRequestLinesInput,
   CreateGitDiffIgnoreListInput,
+  CreateGitDiffReviewNoteInput,
   CreateGitDiffStashInput,
   CreateGitDiffStashResult,
+  DeleteGitDiffReviewNoteInput,
   DiscardGitDiffWorktreeChangesInput,
   DiscardGitDiffWorktreeChangesResult,
   DiffTarget,
@@ -18,6 +20,7 @@ import type {
   GitDiffMergeChangeRequestInput,
   GitDiffOperationActionInput,
   GitDiffOperationActionResult,
+  GitDiffReviewNote,
   GitDiffStash,
   GitDiffStashReferenceInput,
   LoadGitDiffChangeRequestReviewThreadsInput,
@@ -30,11 +33,16 @@ import type {
   LoadDiffFileInput,
   LoadDiffFileIndexInput,
   LoadDiffFileResult,
+  LoadGitDiffChangeSignatureResult,
   LoadGitDiffRepositoriesInput,
   LoadGitDiffRepositoriesResult,
+  LoadGitDiffReviewNotesInput,
+  LoadGitDiffReviewNotesResult,
+  LoadGitDiffReviewSessionResult,
   LoadGitDiffStashesInput,
   LoadStackedDiffFileIndexInput,
   LoadStackedDiffFileIndexResult,
+  RequestGitDiffReviewNavigationInput,
   RevertGitDiffChangeRequestLinesInput,
   RevertGitDiffChangeRequestLinesResult,
   StageGitDiffWorktreeChangesInput,
@@ -42,6 +50,7 @@ import type {
   UnstageGitDiffStagedChangesInput,
   UnstageGitDiffStagedChangesResult,
   UpdateGitDiffIgnoreListInput,
+  UpdateGitDiffReviewSessionInput,
 } from "@fenrir/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 
@@ -58,6 +67,9 @@ function gitDiffTargetQueryKey(target: DiffTarget | null) {
   }
   if (target.kind === "commit") {
     return [target.kind, target.commitRef, target.parentRef] as const;
+  }
+  if (target.kind === "stash") {
+    return [target.kind, target.ref] as const;
   }
   return [target.kind] as const;
 }
@@ -76,6 +88,12 @@ export const gitDiffQueryKeys = {
     cwd: string | null,
     target: DiffTarget | null,
   ) => ["git-diff", environmentId, cwd, "file-index", ...gitDiffTargetQueryKey(target)] as const,
+  changeSignature: (
+    environmentId: EnvironmentId | null,
+    cwd: string | null,
+    target: DiffTarget | null,
+  ) =>
+    ["git-diff", environmentId, cwd, "change-signature", ...gitDiffTargetQueryKey(target)] as const,
   file: (
     environmentId: EnvironmentId | null,
     cwd: string | null,
@@ -106,6 +124,13 @@ export const gitDiffQueryKeys = {
     ["git-diff", environmentId, cwd, "operation"] as const,
   ignoreLists: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", environmentId, cwd, "ignore-lists"] as const,
+  reviewNotes: (
+    environmentId: EnvironmentId | null,
+    cwd: string | null,
+    target: DiffTarget | null,
+  ) => ["git-diff", environmentId, cwd, "review-notes", ...gitDiffTargetQueryKey(target)] as const,
+  reviewSession: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", environmentId, cwd, "review-session"] as const,
   stashes: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", environmentId, cwd, "stashes"] as const,
   changeRequestChecks: (
@@ -127,6 +152,14 @@ export const gitDiffMutationKeys = {
     ["git-diff", "mutation", "update-ignore-list", environmentId, cwd] as const,
   deleteIgnoreList: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", "mutation", "delete-ignore-list", environmentId, cwd] as const,
+  createReviewNote: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "create-review-note", environmentId, cwd] as const,
+  deleteReviewNote: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "delete-review-note", environmentId, cwd] as const,
+  updateReviewSession: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "update-review-session", environmentId, cwd] as const,
+  requestReviewNavigation: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "request-review-navigation", environmentId, cwd] as const,
   stageWorktreeChanges: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", "mutation", "stage-worktree-changes", environmentId, cwd] as const,
   unstageStagedChanges: (environmentId: EnvironmentId | null, cwd: string | null) =>
@@ -236,6 +269,35 @@ export function gitDiffTargetFileIndexQueryOptions(input: {
       input.target !== null,
     staleTime: 2_000,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitDiffChangeSignatureQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly target: DiffTarget | null;
+  readonly enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitDiffQueryKeys.changeSignature(input.environmentId, input.cwd, input.target),
+    queryFn: async (): Promise<LoadGitDiffChangeSignatureResult> => {
+      if (!input.environmentId || !input.cwd || !input.target) {
+        throw new Error("Git diff change signature is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.loadChangeSignature({
+        cwd: input.cwd,
+        target: input.target,
+      });
+    },
+    enabled:
+      input.enabled !== false &&
+      input.environmentId !== null &&
+      input.cwd !== null &&
+      input.target !== null,
+    staleTime: 500,
+    refetchInterval: 1_000,
+    refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
 }
@@ -409,6 +471,57 @@ export function gitDiffIgnoreListsQueryOptions(input: {
   });
 }
 
+export function gitDiffReviewNotesQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly target: DiffTarget | null;
+  readonly enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitDiffQueryKeys.reviewNotes(input.environmentId, input.cwd, input.target),
+    queryFn: async (): Promise<LoadGitDiffReviewNotesResult> => {
+      if (!input.environmentId || !input.cwd || !input.target) {
+        throw new Error("Git diff review notes are unavailable.");
+      }
+      const request: LoadGitDiffReviewNotesInput = {
+        cwd: input.cwd,
+        target: input.target,
+      };
+      return ensureEnvironmentApi(input.environmentId).gitDiff.loadReviewNotes(request);
+    },
+    enabled:
+      input.enabled !== false &&
+      input.environmentId !== null &&
+      input.cwd !== null &&
+      input.target !== null,
+    staleTime: 2_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitDiffReviewSessionQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitDiffQueryKeys.reviewSession(input.environmentId, input.cwd),
+    queryFn: async (): Promise<LoadGitDiffReviewSessionResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git diff review session is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.loadReviewSession({
+        cwd: input.cwd,
+      });
+    },
+    enabled: input.enabled !== false && input.environmentId !== null && input.cwd !== null,
+    staleTime: 500,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+}
+
 export function gitDiffStashesQueryOptions(input: {
   readonly environmentId: EnvironmentId | null;
   readonly cwd: string | null;
@@ -558,6 +671,128 @@ export function gitDiffDeleteIgnoreListMutationOptions(input: {
     },
     onSettled: async () => {
       await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+async function invalidateGitDiffReviewNotesQueries(
+  queryClient: QueryClient,
+  input: {
+    readonly environmentId: EnvironmentId | null;
+    readonly cwd: string | null;
+    readonly target?: DiffTarget | null;
+  },
+) {
+  if (input.target !== undefined) {
+    await queryClient.invalidateQueries({
+      queryKey: gitDiffQueryKeys.reviewNotes(input.environmentId, input.cwd, input.target),
+    });
+    return;
+  }
+
+  await queryClient.invalidateQueries({
+    queryKey: ["git-diff", input.environmentId, input.cwd, "review-notes"],
+  });
+}
+
+export function gitDiffCreateReviewNoteMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.createReviewNote(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<CreateGitDiffReviewNoteInput, "cwd">,
+    ): Promise<GitDiffReviewNote> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git diff review notes are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.createReviewNote({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async (_data, _error, args) => {
+      await invalidateGitDiffReviewNotesQueries(input.queryClient, {
+        environmentId: input.environmentId,
+        cwd: input.cwd,
+        target: args?.target ?? null,
+      });
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffDeleteReviewNoteMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.deleteReviewNote(input.environmentId, input.cwd),
+    mutationFn: async (id: string): Promise<GitDiffActionResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git diff review notes are unavailable.");
+      }
+      const request: DeleteGitDiffReviewNoteInput = {
+        cwd: input.cwd,
+        id,
+      };
+      return ensureEnvironmentApi(input.environmentId).gitDiff.deleteReviewNote(request);
+    },
+    onSettled: async () => {
+      await invalidateGitDiffReviewNotesQueries(input.queryClient, {
+        environmentId: input.environmentId,
+        cwd: input.cwd,
+      });
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffUpdateReviewSessionMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.updateReviewSession(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<UpdateGitDiffReviewSessionInput, "cwd">,
+    ): Promise<GitDiffActionResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git diff review session is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.updateReviewSession({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await input.queryClient.invalidateQueries({
+        queryKey: gitDiffQueryKeys.reviewSession(input.environmentId, input.cwd),
+      });
+    },
+  });
+}
+
+export function gitDiffRequestReviewNavigationMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.requestReviewNavigation(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<RequestGitDiffReviewNavigationInput, "cwd">,
+    ): Promise<GitDiffActionResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git diff review navigation is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.requestReviewNavigation({
+        cwd: input.cwd,
+        ...args,
+      });
     },
   });
 }

@@ -28,13 +28,19 @@ export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.
 export function resolveSidePanelControlLabel(input: {
   activeTab: RightPanelTab | null;
   planLabel: "Plan" | "Tasks";
-}): "Plan" | "Tasks" | "Diff" {
+  preferWorkflows?: boolean;
+}): "Plan" | "Tasks" | "Workflows" | "Diff" {
   switch (input.activeTab) {
     case "plan":
       return input.planLabel;
+    case "workflows":
+      return "Workflows";
     case "diff":
       return "Diff";
     case null:
+      if (input.preferWorkflows) {
+        return "Workflows";
+      }
       return input.planLabel;
   }
 }

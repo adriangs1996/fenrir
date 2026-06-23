@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Diff Router Bar - Variant 10 - Vertical Mode Rail</title>
+    <link rel="stylesheet" href="./shared.css" />
+    <style>
+      .rail-layout {
+        display: grid;
+        grid-template-columns: 74px 286px minmax(0, 1fr);
+        min-height: 760px;
+      }
+
+      .mode-rail {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        border-right: 1px solid var(--line);
+        background: #0b1017;
+        padding: 10px 8px;
+      }
+
+      .rail-button {
+        display: grid;
+        width: 56px;
+        min-height: 56px;
+        place-items: center;
+        gap: 3px;
+        margin-bottom: 8px;
+        border: 1px solid transparent;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .rail-button.active {
+        border-color: rgba(119, 168, 255, 0.45);
+        background: #172333;
+        color: #edf5ff;
+      }
+
+      .rail-button span {
+        font-size: 10px;
+      }
+
+      .compact-panel {
+        border-right: 1px solid var(--line);
+        background: #10151d;
+      }
+
+      .panel-head {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .action-palette {
+        display: grid;
+        gap: 6px;
+        padding: 12px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .rail-action {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        height: 32px;
+        padding: 0 8px;
+        border: 1px solid var(--line-soft);
+        border-radius: 7px;
+        background: #141b25;
+        color: #dce6f4;
+        text-align: left;
+      }
+
+      .rail-action.disabled {
+        color: #667386;
+      }
+
+      .rail-action.danger {
+        color: #ffb8b8;
+      }
+
+      .diff-pane {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-width: 0;
+      }
+
+      .pane-toolbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        min-height: 54px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--line);
+        background: #0f141b;
+      }
+
+      .secondary-popover {
+        position: absolute;
+        top: 214px;
+        left: 356px;
+        z-index: 20;
+        width: 316px;
+        border: 1px solid #354254;
+        border-radius: 9px;
+        background: #0d1219;
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+      }
+
+      .popover-title {
+        height: 34px;
+        border-bottom: 1px solid var(--line-soft);
+        padding: 8px 10px 0;
+        font-weight: 750;
+      }
+
+      .popover-list {
+        display: grid;
+        gap: 2px;
+        padding: 6px;
+      }
+
+      .popover-item {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        height: 30px;
+        border-radius: 6px;
+        padding: 0 7px;
+        background: transparent;
+        color: #dce6f4;
+        text-align: left;
+      }
+
+      .popover-item.disabled {
+        color: #667386;
+      }
+
+      .popover-item.danger {
+        color: #ffb8b8;
+      }
+
+      @media (max-width: 980px) {
+        .rail-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .mode-rail,
+        .compact-panel,
+        .secondary-popover {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="screen">
+      <div class="window">
+        <div class="rail-layout">
+          <nav class="mode-rail" aria-label="Diff mode">
+            <div>
+              <button class="rail-button active" type="button">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <path d="M8 6h13"></path>
+                  <path d="M8 12h13"></path>
+                  <path d="M8 18h13"></path>
+                  <path d="M3 6h.01"></path>
+                  <path d="M3 12h.01"></path>
+                  <path d="M3 18h.01"></path>
+                </svg>
+                <span>Work</span>
+              </button>
+              <button class="rail-button" type="button"><span>PR</span><span>Stack</span></button>
+              <button class="rail-button" type="button"><span>H</span><span>Hist</span></button>
+              <button class="rail-button" type="button"><span>S</span><span>Stash</span></button>
+            </div>
+            <div></div>
+            <button class="rail-button" type="button"><span>↻</span><span>Sync</span></button>
+          </nav>
+
+          <aside class="compact-panel">
+            <div class="panel-head">
+              <button class="chip" type="button">t3code / master</button>
+              <div class="stack">
+                <span class="label">Worktree</span>
+                <span class="sub">0 files - remote synced</span>
+              </div>
+            </div>
+            <div class="action-palette">
+              <button class="primary-button" type="button">Stage all</button>
+              <button class="rail-action" type="button">
+                <span>↶</span><span>Unstage all</span><span>0</span>
+              </button>
+              <button class="rail-action" type="button">
+                <span>□</span><span>Stash changes</span><span></span>
+              </button>
+              <button class="rail-action disabled" type="button">
+                <span>●</span><span>Commit staged</span><span></span>
+              </button>
+              <button class="rail-action disabled" type="button">
+                <span>A</span><span>Amend</span><span></span>
+              </button>
+              <button class="rail-action" type="button">
+                <span>↓</span><span>Pull</span><span></span>
+              </button>
+              <button class="rail-action" type="button">
+                <span>↑</span><span>Push</span><span></span>
+              </button>
+            </div>
+            <div class="action-palette">
+              <button class="rail-action" type="button">
+                <span>#</span><span>Open PR #42</span><span></span>
+              </button>
+              <button class="rail-action" type="button">
+                <span>C</span><span>Continue operation</span><span>2</span>
+              </button>
+              <button class="rail-action danger" type="button">
+                <span>A</span><span>Abort operation</span><span></span>
+              </button>
+            </div>
+            <div class="action-palette">
+              <div class="section-title">Changed files</div>
+              <div class="side-heading"><span>Working Tree</span><span class="badge">0</span></div>
+              <div class="side-heading"><span>Staged</span><span class="badge">0</span></div>
+              <div class="side-heading"><span>Ignore lists</span><span class="badge">1</span></div>
+            </div>
+          </aside>
+
+          <main class="diff-pane">
+            <div class="pane-toolbar">
+              <div class="stack">
+                <span class="label truncate">Staged changes</span>
+                <span class="sub mono">No file selected</span>
+              </div>
+              <div class="view-group">
+                <button class="icon-button active" type="button" title="Split">S</button>
+                <button class="icon-button" type="button" title="Stacked">R</button>
+                <button class="icon-button" type="button" title="Wrap">W</button>
+                <button class="icon-button" type="button" title="Whitespace">P</button>
+                <button class="icon-button active" type="button" title="Line numbers">#</button>
+                <button class="select-button" type="button">Line info</button>
+              </div>
+            </div>
+            <div class="diff-empty">
+              <div class="diff-placeholder">
+                <h2>Vertical mode rail</h2>
+                <p>
+                  Mode switching leaves the horizontal toolbar entirely. Actions follow the active
+                  rail mode in a compact side panel.
+                </p>
+              </div>
+            </div>
+          </main>
+
+          <section class="secondary-popover">
+            <div class="popover-title">Selected file actions</div>
+            <div class="popover-list">
+              <button class="popover-item disabled" type="button">
+                <span>O</span><span>Open selected file</span>
+              </button>
+              <button class="popover-item disabled" type="button">
+                <span>✓</span><span>Stage selected file</span>
+              </button>
+              <button class="popover-item disabled" type="button">
+                <span>↶</span><span>Unstage selected file</span>
+              </button>
+              <button class="popover-item disabled danger" type="button">
+                <span>D</span><span>Discard selected file</span>
+              </button>
+              <button class="popover-item disabled" type="button">
+                <span>B</span><span>Prompt agent with review context</span>
+              </button>
+              <button class="popover-item disabled" type="button">
+                <span>M</span><span>Comment selected lines</span>
+              </button>
+              <button class="popover-item disabled" type="button">
+                <span>R</span><span>Revert selected lines</span>
+              </button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

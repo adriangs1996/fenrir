@@ -53,6 +53,7 @@ import {
 } from "../Sidebar.logic";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { PlanRunnerProjectSection, useInternalPlanRunnerThreadIds } from "~/modules/plan-runner";
+import { useInternalWorkflowThreadIds } from "~/modules/workflows";
 import { ProjectFileExplorer } from "~/modules/project-files";
 import { readEnvironmentApi } from "../../environmentApi";
 import { useSettings } from "~/hooks/useSettings";
@@ -271,6 +272,7 @@ export const SidebarProjectItem = memo(function SidebarProjectItem(props: Sideba
     ),
   );
   const internalPlanRunnerThreadIds = useInternalPlanRunnerThreadIds();
+  const internalWorkflowThreadIds = useInternalWorkflowThreadIds();
   const projectThreadsIncludingHidden = useMemo(
     () =>
       otherMemberThreads.length === 0 ? sidebarThreads : [...sidebarThreads, ...otherMemberThreads],
@@ -278,9 +280,12 @@ export const SidebarProjectItem = memo(function SidebarProjectItem(props: Sideba
   );
   const allSidebarThreads = useMemo(() => {
     return projectThreadsIncludingHidden.filter(
-      (thread) => isUserBrowsableThread(thread) && !internalPlanRunnerThreadIds.has(thread.id),
+      (thread) =>
+        isUserBrowsableThread(thread) &&
+        !internalPlanRunnerThreadIds.has(thread.id) &&
+        !internalWorkflowThreadIds.has(thread.id),
     );
-  }, [projectThreadsIncludingHidden, internalPlanRunnerThreadIds]);
+  }, [projectThreadsIncludingHidden, internalPlanRunnerThreadIds, internalWorkflowThreadIds]);
   const sidebarThreadByKey = useMemo(
     () =>
       new Map(

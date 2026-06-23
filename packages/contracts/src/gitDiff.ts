@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
 import {
   ChangeRequest,
@@ -23,6 +23,10 @@ export const DiffTarget = Schema.Union([
     kind: Schema.Literal("commit"),
     commitRef: TrimmedNonEmptyString,
     parentRef: Schema.NullOr(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("stash"),
+    ref: TrimmedNonEmptyString,
   }),
 ]);
 export type DiffTarget = typeof DiffTarget.Type;
@@ -51,17 +55,43 @@ export const LoadDiffFileIndexInput = Schema.Struct({
 });
 export type LoadDiffFileIndexInput = typeof LoadDiffFileIndexInput.Type;
 
+export const GitDiffHunkSummary = Schema.Struct({
+  index: NonNegativeInt,
+  header: TrimmedNonEmptyString,
+  oldStart: NonNegativeInt,
+  oldLines: NonNegativeInt,
+  newStart: NonNegativeInt,
+  newLines: NonNegativeInt,
+});
+export type GitDiffHunkSummary = typeof GitDiffHunkSummary.Type;
+
 export const GitDiffFileSummary = Schema.Struct({
   path: TrimmedNonEmptyString,
   previousPath: Schema.NullOr(TrimmedNonEmptyString),
   insertions: NonNegativeInt,
   deletions: NonNegativeInt,
   binary: Schema.Boolean,
+  isUntracked: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  isTooLarge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  statsTruncated: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  hunkCount: NonNegativeInt.pipe(Schema.withDecodingDefault(Effect.succeed(0))),
+  hunks: Schema.Array(GitDiffHunkSummary).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type GitDiffFileSummary = typeof GitDiffFileSummary.Type;
 
 export const LoadDiffFileIndexResult = Schema.Array(GitDiffFileSummary);
 export type LoadDiffFileIndexResult = typeof LoadDiffFileIndexResult.Type;
+
+export const LoadGitDiffChangeSignatureInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  target: DiffTarget,
+});
+export type LoadGitDiffChangeSignatureInput = typeof LoadGitDiffChangeSignatureInput.Type;
+
+export const LoadGitDiffChangeSignatureResult = Schema.Struct({
+  signature: TrimmedNonEmptyString,
+});
+export type LoadGitDiffChangeSignatureResult = typeof LoadGitDiffChangeSignatureResult.Type;
 
 export const LoadDiffFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
@@ -85,6 +115,9 @@ export const LoadDiffFileResult = Schema.Struct({
   oldFile: Schema.NullOr(GitDiffFileContent),
   newFile: Schema.NullOr(GitDiffFileContent),
   patch: Schema.String,
+  patchTruncated: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  oldFileTooLarge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  newFileTooLarge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
 });
 export type LoadDiffFileResult = typeof LoadDiffFileResult.Type;
 
@@ -158,6 +191,86 @@ export const GitDiffIgnoreList = Schema.Struct({
 });
 export type GitDiffIgnoreList = typeof GitDiffIgnoreList.Type;
 
+export const GitDiffReviewNoteSource = Schema.Literals(["agent", "ai", "user"]);
+export type GitDiffReviewNoteSource = typeof GitDiffReviewNoteSource.Type;
+
+export const GitDiffReviewNoteSide = Schema.Literals(["additions", "deletions"]);
+export type GitDiffReviewNoteSide = typeof GitDiffReviewNoteSide.Type;
+
+export const GitDiffReviewNote = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  targetKey: TrimmedNonEmptyString,
+  path: TrimmedNonEmptyString,
+  previousPath: Schema.NullOr(TrimmedNonEmptyString),
+  side: GitDiffReviewNoteSide,
+  line: PositiveInt,
+  startLine: Schema.optionalKey(PositiveInt),
+  hunkIndex: Schema.optionalKey(NonNegativeInt),
+  body: TrimmedNonEmptyString.check(Schema.isMaxLength(20_000)),
+  source: GitDiffReviewNoteSource,
+  author: Schema.optionalKey(TrimmedNonEmptyString),
+  createdAt: TrimmedNonEmptyString,
+  updatedAt: TrimmedNonEmptyString,
+});
+export type GitDiffReviewNote = typeof GitDiffReviewNote.Type;
+
+export const GitDiffReviewSessionFile = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  previousPath: Schema.NullOr(TrimmedNonEmptyString),
+  insertions: NonNegativeInt,
+  deletions: NonNegativeInt,
+  binary: Schema.Boolean,
+  isUntracked: Schema.Boolean,
+  hunkCount: NonNegativeInt,
+  hunks: Schema.Array(GitDiffHunkSummary),
+});
+export type GitDiffReviewSessionFile = typeof GitDiffReviewSessionFile.Type;
+
+export const GitDiffReviewSessionSelection = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  previousPath: Schema.NullOr(TrimmedNonEmptyString),
+  hunkIndex: Schema.NullOr(NonNegativeInt),
+  side: Schema.NullOr(GitDiffReviewNoteSide),
+  line: Schema.NullOr(PositiveInt),
+  startLine: Schema.NullOr(PositiveInt),
+});
+export type GitDiffReviewSessionSelection = typeof GitDiffReviewSessionSelection.Type;
+
+export const GitDiffReviewSessionSnapshot = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  target: DiffTarget,
+  targetKey: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  selectedPath: Schema.NullOr(TrimmedNonEmptyString),
+  selectedHunkIndex: Schema.NullOr(NonNegativeInt),
+  selectedLines: Schema.NullOr(GitDiffReviewSessionSelection),
+  files: Schema.Array(GitDiffReviewSessionFile),
+  updatedAt: TrimmedNonEmptyString,
+});
+export type GitDiffReviewSessionSnapshot = typeof GitDiffReviewSessionSnapshot.Type;
+
+export const UpdateGitDiffReviewSessionInput = GitDiffReviewSessionSnapshot;
+export type UpdateGitDiffReviewSessionInput = typeof UpdateGitDiffReviewSessionInput.Type;
+
+export const LoadGitDiffReviewSessionInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type LoadGitDiffReviewSessionInput = typeof LoadGitDiffReviewSessionInput.Type;
+
+export const LoadGitDiffReviewSessionResult = Schema.Struct({
+  session: Schema.NullOr(GitDiffReviewSessionSnapshot),
+});
+export type LoadGitDiffReviewSessionResult = typeof LoadGitDiffReviewSessionResult.Type;
+
+export const RequestGitDiffReviewNavigationInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  path: TrimmedNonEmptyString,
+  hunkIndex: Schema.optionalKey(NonNegativeInt),
+  side: Schema.optionalKey(GitDiffReviewNoteSide),
+  line: Schema.optionalKey(PositiveInt),
+});
+export type RequestGitDiffReviewNavigationInput = typeof RequestGitDiffReviewNavigationInput.Type;
+
 export const LoadGitDiffIgnoreListsInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
 });
@@ -166,17 +279,47 @@ export type LoadGitDiffIgnoreListsInput = typeof LoadGitDiffIgnoreListsInput.Typ
 export const LoadGitDiffIgnoreListsResult = Schema.Array(GitDiffIgnoreList);
 export type LoadGitDiffIgnoreListsResult = typeof LoadGitDiffIgnoreListsResult.Type;
 
+export const LoadGitDiffReviewNotesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  target: DiffTarget,
+});
+export type LoadGitDiffReviewNotesInput = typeof LoadGitDiffReviewNotesInput.Type;
+
+export const LoadGitDiffReviewNotesResult = Schema.Array(GitDiffReviewNote);
+export type LoadGitDiffReviewNotesResult = typeof LoadGitDiffReviewNotesResult.Type;
+
 export const CreateGitDiffIgnoreListInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
 });
 export type CreateGitDiffIgnoreListInput = typeof CreateGitDiffIgnoreListInput.Type;
 
+export const CreateGitDiffReviewNoteInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  target: DiffTarget,
+  path: TrimmedNonEmptyString,
+  previousPath: Schema.NullOr(TrimmedNonEmptyString),
+  side: GitDiffReviewNoteSide,
+  line: PositiveInt,
+  startLine: Schema.optionalKey(PositiveInt),
+  hunkIndex: Schema.optionalKey(NonNegativeInt),
+  body: TrimmedNonEmptyString.check(Schema.isMaxLength(20_000)),
+  source: GitDiffReviewNoteSource,
+  author: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type CreateGitDiffReviewNoteInput = typeof CreateGitDiffReviewNoteInput.Type;
+
 export const DeleteGitDiffIgnoreListInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   id: TrimmedNonEmptyString,
 });
 export type DeleteGitDiffIgnoreListInput = typeof DeleteGitDiffIgnoreListInput.Type;
+
+export const DeleteGitDiffReviewNoteInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  id: TrimmedNonEmptyString,
+});
+export type DeleteGitDiffReviewNoteInput = typeof DeleteGitDiffReviewNoteInput.Type;
 
 export const UpdateGitDiffIgnoreListInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,

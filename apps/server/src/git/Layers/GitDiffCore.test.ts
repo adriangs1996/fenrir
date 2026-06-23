@@ -8,8 +8,9 @@ import type {
   ChangeRequestCheck,
   ChangeRequestReviewThread,
 } from "@fenrir/contracts";
+import { LoadDiffFileIndexResult, VcsProcessTimeoutError } from "@fenrir/contracts";
 import { execFileSync } from "child_process";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { describe, it } from "@effect/vitest";
 import { tmpdir } from "os";
@@ -17,10 +18,15 @@ import path from "path";
 import { expect } from "vitest";
 import type { SourceControlProviderShape } from "../../sourceControl/SourceControlProvider";
 import { SourceControlProviderRegistry } from "../../sourceControl/SourceControlProviderRegistry";
+import { GitVcsDriver, GitVcsDriverLive } from "../../vcs/GitVcsDriver";
+import { VcsDriverRegistry, VcsDriverRegistryLive } from "../../vcs/VcsDriverRegistry";
 
 const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "fenrir-git-diff-core-test",
 });
+const TEST_DIFF_FILE_CONTENT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
+const TEST_UNTRACKED_FILE_LINE_COUNT_MAX_BYTES = 2 * 1024 * 1024;
+const decodeLoadDiffFileIndexResult = Schema.decodeUnknownSync(LoadDiffFileIndexResult);
 
 function makeChangeRequest(input: {
   number: number;
@@ -203,6 +209,7 @@ function resetProviderTestFixtures() {
 
 const TestLayer = GitDiffCoreLive.pipe(
   Layer.provide(GitCoreLive),
+  Layer.provide(VcsDriverRegistryLive),
   Layer.provide(
     makeSourceControlProviderRegistryLayer({
       changeRequests: UI_STACK_CHANGE_REQUESTS,
@@ -211,6 +218,37 @@ const TestLayer = GitDiffCoreLive.pipe(
       reviewThreads: PROVIDER_TEST_REVIEW_THREADS,
     }),
   ),
+  Layer.provide(ServerConfigLayer),
+  Layer.provide(NodeServices.layer),
+);
+
+function makeReviewDiffDetectionTimeout(cwd: string) {
+  return new VcsProcessTimeoutError({
+    operation: "GitVcsDriver.isInsideWorkTree",
+    command: `git -C ${cwd} rev-parse --is-inside-work-tree`,
+    cwd,
+    timeoutMs: 5_000,
+  });
+}
+
+const TimeoutResolvingVcsDriverRegistryLayer = Layer.effect(
+  VcsDriverRegistry,
+  Effect.gen(function* () {
+    const gitDriver = yield* GitVcsDriver;
+
+    return VcsDriverRegistry.of({
+      get: (kind) => (kind === "git" ? Effect.succeed(gitDriver) : Effect.die("unexpected VCS")),
+      detect: (input) => Effect.fail(makeReviewDiffDetectionTimeout(input.cwd)),
+      resolve: (input) => Effect.fail(makeReviewDiffDetectionTimeout(input.cwd)),
+      resolveReviewDiff: (input) => Effect.fail(makeReviewDiffDetectionTimeout(input.cwd)),
+    });
+  }),
+).pipe(Layer.provide(GitVcsDriverLive));
+
+const ReviewDiffDetectionTimeoutTestLayer = GitDiffCoreLive.pipe(
+  Layer.provide(GitCoreLive),
+  Layer.provide(TimeoutResolvingVcsDriverRegistryLayer),
+  Layer.provide(makeSourceControlProviderRegistryLayer()),
   Layer.provide(ServerConfigLayer),
   Layer.provide(NodeServices.layer),
 );
@@ -277,6 +315,10 @@ function makeCommittedRepo(files: Record<string, string>) {
   git(cwd, "commit", "-m", "initial");
 
   return cwd;
+}
+
+function makeChangedLineFile(prefix: string, lineCount: number): string {
+  return Array.from({ length: lineCount }, (_, index) => `${prefix}-${index}\n`).join("");
 }
 
 function makeStackedRepo() {
@@ -440,6 +482,42 @@ describe("GitDiffCoreLive", () => {
     );
   });
 
+  it.layer(ReviewDiffDetectionTimeoutTestLayer)(
+    "loads review diff file summaries when VCS detection times out",
+    (it) => {
+      it.effect("falls back to the git review-diff driver", () =>
+        Effect.gen(function* () {
+          const cwd = makeCommittedRepo({
+            "src/file.txt": "one\n",
+          });
+
+          try {
+            writeFile(cwd, "src/file.txt", "one\ntwo\n");
+
+            const gitDiff = yield* GitDiffCore;
+            const files = yield* gitDiff.loadDiffFileIndex({
+              cwd,
+              target: { kind: "worktree" },
+              detectRenames: true,
+              detectCopies: true,
+            });
+
+            expect(files).toEqual([
+              expect.objectContaining({
+                path: "src/file.txt",
+                insertions: 1,
+                deletions: 0,
+                binary: false,
+              }),
+            ]);
+          } finally {
+            rmSync(cwd, { recursive: true, force: true });
+          }
+        }),
+      );
+    },
+  );
+
   it.layer(TestLayer)("loads unstaged file summaries from a real git repo", (it) => {
     it.effect("returns changed files without patch text", () =>
       Effect.gen(function* () {
@@ -465,6 +543,239 @@ describe("GitDiffCoreLive", () => {
           ]);
         } finally {
           rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("includes untracked worktree files in the worktree index", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "src/tracked.txt": "one\n",
+        });
+
+        try {
+          mkdirSync(path.join(cwd, "src"), { recursive: true });
+          writeFile(cwd, "src/new.txt", "alpha\nbeta\n");
+
+          const gitDiff = yield* GitDiffCore;
+          const files = yield* gitDiff.loadDiffFileIndex({
+            cwd,
+            target: { kind: "worktree" },
+            detectRenames: true,
+            detectCopies: true,
+          });
+
+          expect(byPath(files)).toEqual([
+            expect.objectContaining({
+              path: "src/new.txt",
+              previousPath: null,
+              insertions: 2,
+              deletions: 0,
+              binary: false,
+              isUntracked: true,
+            }),
+          ]);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("changes the worktree signature after modifying a tracked file", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "src/tracked.txt": "one\n",
+        });
+
+        try {
+          const gitDiff = yield* GitDiffCore;
+          const before = yield* gitDiff.loadChangeSignature({
+            cwd,
+            target: { kind: "worktree" },
+          });
+
+          writeFile(cwd, "src/tracked.txt", "one\ntwo\n");
+
+          const after = yield* gitDiff.loadChangeSignature({
+            cwd,
+            target: { kind: "worktree" },
+          });
+
+          expect(after.signature).not.toEqual(before.signature);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("changes the worktree signature after creating an untracked file", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "src/tracked.txt": "one\n",
+        });
+
+        try {
+          const gitDiff = yield* GitDiffCore;
+          const before = yield* gitDiff.loadChangeSignature({
+            cwd,
+            target: { kind: "worktree" },
+          });
+
+          writeFile(cwd, "src/new.txt", "new\n");
+
+          const after = yield* gitDiff.loadChangeSignature({
+            cwd,
+            target: { kind: "worktree" },
+          });
+
+          expect(after.signature).not.toEqual(before.signature);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("changes the staged signature after staging a file", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "src/tracked.txt": "one\n",
+        });
+
+        try {
+          const gitDiff = yield* GitDiffCore;
+          const before = yield* gitDiff.loadChangeSignature({
+            cwd,
+            target: { kind: "staged" },
+          });
+
+          writeFile(cwd, "src/staged.txt", "staged\n");
+          git(cwd, "add", "src/staged.txt");
+
+          const after = yield* gitDiff.loadChangeSignature({
+            cwd,
+            target: { kind: "staged" },
+          });
+
+          expect(after.signature).not.toEqual(before.signature);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("keeps range and commit signatures stable when the worktree changes", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "src/base.txt": "base\n",
+        });
+
+        try {
+          git(cwd, "checkout", "-b", "feature/signature");
+          writeFile(cwd, "src/feature.txt", "feature\n");
+          git(cwd, "add", ".");
+          git(cwd, "commit", "-m", "feature change");
+          const commitRef = gitOutput(cwd, "rev-parse", "HEAD");
+          const parentRef = gitOutput(cwd, "rev-parse", "HEAD^");
+
+          const gitDiff = yield* GitDiffCore;
+          const rangeBefore = yield* gitDiff.loadChangeSignature({
+            cwd,
+            target: {
+              kind: "range",
+              baseRef: "main",
+              headRef: "feature/signature",
+            },
+          });
+          const commitBefore = yield* gitDiff.loadChangeSignature({
+            cwd,
+            target: {
+              kind: "commit",
+              commitRef,
+              parentRef,
+            },
+          });
+
+          writeFile(cwd, "src/base.txt", "base\nworktree\n");
+          writeFile(cwd, "src/untracked.txt", "untracked\n");
+
+          const rangeAfter = yield* gitDiff.loadChangeSignature({
+            cwd,
+            target: {
+              kind: "range",
+              baseRef: "main",
+              headRef: "feature/signature",
+            },
+          });
+          const commitAfter = yield* gitDiff.loadChangeSignature({
+            cwd,
+            target: {
+              kind: "commit",
+              commitRef,
+              parentRef,
+            },
+          });
+
+          expect(rangeAfter.signature).toEqual(rangeBefore.signature);
+          expect(commitAfter.signature).toEqual(commitBefore.signature);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("excludes untracked files from staged and range indexes", () =>
+      Effect.gen(function* () {
+        const stagedCwd = makeCommittedRepo({
+          "src/tracked.txt": "one\n",
+        });
+        const rangeCwd = makeCommittedRepo({
+          "src/base.txt": "base\n",
+        });
+
+        try {
+          writeFile(stagedCwd, "src/staged.txt", "staged\n");
+          writeFile(stagedCwd, "src/untracked.txt", "untracked\n");
+          git(stagedCwd, "add", "src/staged.txt");
+
+          git(rangeCwd, "checkout", "-b", "feature/range");
+          writeFile(rangeCwd, "src/ranged.txt", "ranged\n");
+          git(rangeCwd, "add", ".");
+          git(rangeCwd, "commit", "-m", "range change");
+          writeFile(rangeCwd, "src/untracked.txt", "untracked\n");
+
+          const gitDiff = yield* GitDiffCore;
+          const stagedFiles = yield* gitDiff.loadDiffFileIndex({
+            cwd: stagedCwd,
+            target: { kind: "staged" },
+            detectRenames: true,
+            detectCopies: true,
+          });
+          const rangeFiles = yield* gitDiff.loadDiffFileIndex({
+            cwd: rangeCwd,
+            target: {
+              kind: "range",
+              baseRef: "main",
+              headRef: "feature/range",
+            },
+            detectRenames: true,
+            detectCopies: true,
+          });
+
+          expect(byPath(stagedFiles)).toEqual([
+            expect.objectContaining({
+              path: "src/staged.txt",
+              isUntracked: false,
+            }),
+          ]);
+          expect(byPath(rangeFiles)).toEqual([
+            expect.objectContaining({
+              path: "src/ranged.txt",
+              isUntracked: false,
+            }),
+          ]);
+        } finally {
+          rmSync(stagedCwd, { recursive: true, force: true });
+          rmSync(rangeCwd, { recursive: true, force: true });
         }
       }),
     );
@@ -497,6 +808,90 @@ describe("GitDiffCoreLive", () => {
           ]);
         } finally {
           resetProviderTestFixtures();
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("includes ordered hunk summaries for separated edits", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "src/file.txt": "one\ntwo\nthree\nfour\nfive\nsix\n",
+        });
+
+        try {
+          writeFile(cwd, "src/file.txt", "one\nTWO\nthree\nfour\nFIVE\nsix\n");
+
+          const gitDiff = yield* GitDiffCore;
+          const files = yield* gitDiff.loadDiffFileIndex({
+            cwd,
+            target: { kind: "worktree" },
+            detectRenames: true,
+            detectCopies: true,
+          });
+
+          expect(files).toEqual([
+            expect.objectContaining({
+              path: "src/file.txt",
+              hunkCount: 2,
+              hunks: [
+                expect.objectContaining({
+                  index: 0,
+                  oldStart: 2,
+                  oldLines: 1,
+                  newStart: 2,
+                  newLines: 1,
+                }),
+                expect.objectContaining({
+                  index: 1,
+                  oldStart: 5,
+                  oldLines: 1,
+                  newStart: 5,
+                  newLines: 1,
+                }),
+              ],
+            }),
+          ]);
+          expect(files[0]?.hunks[0]?.header).toEqual(expect.stringMatching(/\S/u));
+          expect(files[0]?.hunks[1]?.header).toEqual(expect.stringMatching(/\S/u));
+          expect(files[0]?.hunks[0]?.header).toEqual(files[0]?.hunks[0]?.header.trim());
+          expect(files[0]?.hunks[1]?.header).toEqual(files[0]?.hunks[1]?.header.trim());
+          expect(() => decodeLoadDiffFileIndexResult(files)).not.toThrow();
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("returns empty hunk metadata for binary files", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "README.md": "repo\n",
+        });
+
+        try {
+          writeFileSync(path.join(cwd, "image.bin"), Buffer.from([0, 1, 2, 3]));
+          git(cwd, "add", ".");
+          git(cwd, "commit", "-m", "binary file");
+          writeFileSync(path.join(cwd, "image.bin"), Buffer.from([0, 1, 2, 4]));
+
+          const gitDiff = yield* GitDiffCore;
+          const files = yield* gitDiff.loadDiffFileIndex({
+            cwd,
+            target: { kind: "worktree" },
+            detectRenames: true,
+            detectCopies: true,
+          });
+
+          expect(files).toEqual([
+            expect.objectContaining({
+              path: "image.bin",
+              binary: true,
+              hunkCount: 0,
+              hunks: [],
+            }),
+          ]);
+        } finally {
           rmSync(cwd, { recursive: true, force: true });
         }
       }),
@@ -766,6 +1161,124 @@ describe("GitDiffCoreLive", () => {
           expect(file.patch).toContain("diff --git a/src/file.txt b/src/file.txt");
           expect(file.patch).toContain("@@");
           expect(file.patch).toContain("+three");
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("marks selected file patch output as truncated when it exceeds max bytes", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "src/large-diff.txt": makeChangedLineFile("old", 120_000),
+        });
+
+        try {
+          git(cwd, "checkout", "-b", "feature/large-patch");
+          writeFile(cwd, "src/large-diff.txt", makeChangedLineFile("new", 120_000));
+          git(cwd, "add", ".");
+          git(cwd, "commit", "-m", "large patch");
+
+          const gitDiff = yield* GitDiffCore;
+          const file = yield* gitDiff.loadDiffFile({
+            cwd,
+            target: {
+              kind: "range",
+              baseRef: "main",
+              headRef: "feature/large-patch",
+            },
+            path: "src/large-diff.txt",
+            previousPath: null,
+            detectRenames: true,
+            detectCopies: true,
+          });
+
+          expect(Buffer.byteLength(file.oldFile?.contents ?? "")).toBeLessThan(
+            TEST_DIFF_FILE_CONTENT_MAX_OUTPUT_BYTES,
+          );
+          expect(Buffer.byteLength(file.newFile?.contents ?? "")).toBeLessThan(
+            TEST_DIFF_FILE_CONTENT_MAX_OUTPUT_BYTES,
+          );
+          expect(file.patch).toBe("");
+          expect(file.patchTruncated).toBe(true);
+          expect(file.oldFileTooLarge).toBe(false);
+          expect(file.newFileTooLarge).toBe(false);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect(
+      "marks working tree file contents as too large when the new side exceeds max bytes",
+      () =>
+        Effect.gen(function* () {
+          const cwd = makeCommittedRepo({
+            "src/large-worktree.txt": "small\n",
+          });
+
+          try {
+            writeFile(
+              cwd,
+              "src/large-worktree.txt",
+              `${"x".repeat(TEST_DIFF_FILE_CONTENT_MAX_OUTPUT_BYTES + 1)}\n`,
+            );
+
+            const gitDiff = yield* GitDiffCore;
+            const file = yield* gitDiff.loadDiffFile({
+              cwd,
+              target: { kind: "worktree" },
+              path: "src/large-worktree.txt",
+              previousPath: null,
+              detectRenames: true,
+              detectCopies: true,
+            });
+
+            expect(file.oldFile).toEqual({
+              path: "src/large-worktree.txt",
+              contents: "small\n",
+            });
+            expect(file.newFile).toBeNull();
+            expect(file.oldFileTooLarge).toBe(false);
+            expect(file.newFileTooLarge).toBe(true);
+          } finally {
+            rmSync(cwd, { recursive: true, force: true });
+          }
+        }),
+    );
+
+    it.effect("marks large untracked file summaries as too large and stats truncated", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "src/tracked.txt": "tracked\n",
+        });
+
+        try {
+          writeFile(
+            cwd,
+            "src/large-untracked.txt",
+            "line\n".repeat(Math.ceil((TEST_UNTRACKED_FILE_LINE_COUNT_MAX_BYTES + 1) / 5)),
+          );
+
+          const gitDiff = yield* GitDiffCore;
+          const files = yield* gitDiff.loadDiffFileIndex({
+            cwd,
+            target: { kind: "worktree" },
+            detectRenames: true,
+            detectCopies: true,
+          });
+
+          expect(byPath(files)).toEqual([
+            expect.objectContaining({
+              path: "src/large-untracked.txt",
+              previousPath: null,
+              deletions: 0,
+              binary: false,
+              isUntracked: true,
+              isTooLarge: true,
+              statsTruncated: true,
+            }),
+          ]);
         } finally {
           rmSync(cwd, { recursive: true, force: true });
         }
@@ -1244,6 +1757,209 @@ describe("GitDiffCoreLive", () => {
       }),
     );
 
+    it.effect("creates review notes in local git metadata", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/base.ts": "base\n" });
+
+        try {
+          const gitDiff = yield* GitDiffCore;
+          const note = yield* gitDiff.createReviewNote({
+            cwd,
+            target: { kind: "worktree" },
+            path: "src/base.ts",
+            previousPath: null,
+            side: "additions",
+            line: 1,
+            body: "Check this local change.",
+            source: "user",
+            author: "Fenrir",
+          });
+
+          expect(note).toEqual(
+            expect.objectContaining({
+              targetKey: "worktree",
+              path: "src/base.ts",
+              previousPath: null,
+              side: "additions",
+              line: 1,
+              body: "Check this local change.",
+              source: "user",
+              author: "Fenrir",
+            }),
+          );
+
+          const notesPath = gitOutput(
+            cwd,
+            "rev-parse",
+            "--git-path",
+            "info/fenrir-diff-review-notes.json",
+          );
+          const stored = JSON.parse(readFileSync(path.resolve(cwd, notesPath), "utf8"));
+          expect(stored).toEqual([expect.objectContaining({ id: note.id, targetKey: "worktree" })]);
+          expect(existsSync(path.join(cwd, "fenrir-diff-review-notes.json"))).toBe(false);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("loads review notes filtered by target key", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/base.ts": "base\n" });
+
+        try {
+          const gitDiff = yield* GitDiffCore;
+          const worktreeNote = yield* gitDiff.createReviewNote({
+            cwd,
+            target: { kind: "worktree" },
+            path: "src/base.ts",
+            previousPath: null,
+            side: "additions",
+            line: 1,
+            body: "Worktree note.",
+            source: "agent",
+          });
+          const stagedNote = yield* gitDiff.createReviewNote({
+            cwd,
+            target: { kind: "staged" },
+            path: "src/base.ts",
+            previousPath: null,
+            side: "additions",
+            line: 1,
+            body: "Staged note.",
+            source: "ai",
+          });
+
+          expect(yield* gitDiff.loadReviewNotes({ cwd, target: { kind: "worktree" } })).toEqual([
+            worktreeNote,
+          ]);
+          expect(yield* gitDiff.loadReviewNotes({ cwd, target: { kind: "staged" } })).toEqual([
+            stagedNote,
+          ]);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("deletes only the selected review note", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/base.ts": "base\n" });
+
+        try {
+          const gitDiff = yield* GitDiffCore;
+          const first = yield* gitDiff.createReviewNote({
+            cwd,
+            target: { kind: "worktree" },
+            path: "src/base.ts",
+            previousPath: null,
+            side: "additions",
+            line: 1,
+            body: "Delete me.",
+            source: "user",
+          });
+          const second = yield* gitDiff.createReviewNote({
+            cwd,
+            target: { kind: "worktree" },
+            path: "src/base.ts",
+            previousPath: null,
+            side: "additions",
+            line: 2,
+            body: "Keep me.",
+            source: "user",
+          });
+
+          expect(yield* gitDiff.deleteReviewNote({ cwd, id: first.id })).toEqual({ status: "ok" });
+          expect(yield* gitDiff.loadReviewNotes({ cwd, target: { kind: "worktree" } })).toEqual([
+            second,
+          ]);
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("returns null before a review session is published", () =>
+      Effect.gen(function* () {
+        const gitDiff = yield* GitDiffCore;
+
+        expect(yield* gitDiff.loadReviewSession({ cwd: "/workspace/repo" })).toEqual({
+          session: null,
+        });
+      }),
+    );
+
+    it.effect("stores a review session snapshot", () =>
+      Effect.gen(function* () {
+        const gitDiff = yield* GitDiffCore;
+        const snapshot = {
+          cwd: "/workspace/repo",
+          target: { kind: "worktree" as const },
+          targetKey: "working tree",
+          title: "Changes",
+          selectedPath: "src/base.ts",
+          selectedHunkIndex: 0,
+          selectedLines: {
+            path: "src/base.ts",
+            previousPath: null,
+            hunkIndex: 0,
+            side: "additions" as const,
+            line: 3,
+            startLine: 2,
+          },
+          files: [
+            {
+              path: "src/base.ts",
+              previousPath: null,
+              insertions: 2,
+              deletions: 1,
+              binary: false,
+              isUntracked: false,
+              hunkCount: 1,
+              hunks: [
+                {
+                  index: 0,
+                  header: "@@ -1,1 +1,2 @@",
+                  oldStart: 1,
+                  oldLines: 1,
+                  newStart: 1,
+                  newLines: 2,
+                },
+              ],
+            },
+          ],
+          updatedAt: "2026-06-21T10:00:00.000Z",
+        };
+
+        expect(yield* gitDiff.updateReviewSession(snapshot)).toEqual({ status: "ok" });
+        expect(yield* gitDiff.loadReviewSession({ cwd: "/workspace/repo" })).toEqual({
+          session: snapshot,
+        });
+      }),
+    );
+
+    it.effect("filters review session loads by cwd", () =>
+      Effect.gen(function* () {
+        const gitDiff = yield* GitDiffCore;
+        const snapshot = {
+          cwd: "/workspace/repo",
+          target: { kind: "staged" as const },
+          targetKey: "staged changes",
+          title: "Changes",
+          selectedPath: null,
+          selectedHunkIndex: null,
+          selectedLines: null,
+          files: [],
+          updatedAt: "2026-06-21T10:00:00.000Z",
+        };
+
+        expect(yield* gitDiff.updateReviewSession(snapshot)).toEqual({ status: "ok" });
+        expect(yield* gitDiff.loadReviewSession({ cwd: "/workspace/other" })).toEqual({
+          session: null,
+        });
+      }),
+    );
+
     it.effect("stages worktree changes while leaving ignore-list paths unstaged", () =>
       Effect.gen(function* () {
         const cwd = makeCommittedRepo({ "src/base.ts": "base\n" });
@@ -1406,6 +2122,43 @@ describe("GitDiffCoreLive", () => {
           expect(readFileSync(path.join(cwd, "src/include.txt"), "utf8")).toBe("include base\n");
           expect(readFileSync(path.join(cwd, "src/keep.txt"), "utf8")).toBe("keep changed\n");
           expect(gitOutput(cwd, "diff", "--name-only")).toBe("src/keep.txt");
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
+    it.effect("loads stash file index and selected file contents", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({ "src/file.txt": "one\n" });
+
+        try {
+          writeFile(cwd, "src/file.txt", "one\ntwo\n");
+          git(cwd, "stash", "push", "-m", "preview me");
+
+          const gitDiff = yield* GitDiffCore;
+          const files = yield* gitDiff.loadDiffFileIndex({
+            cwd,
+            target: { kind: "stash", ref: "stash@{0}" },
+            detectRenames: true,
+            detectCopies: true,
+          });
+
+          expect(files).toEqual([
+            expect.objectContaining({ path: "src/file.txt", insertions: 1, deletions: 0 }),
+          ]);
+
+          const file = yield* gitDiff.loadDiffFile({
+            cwd,
+            target: { kind: "stash", ref: "stash@{0}" },
+            path: "src/file.txt",
+            previousPath: null,
+            detectRenames: true,
+            detectCopies: true,
+          });
+
+          expect(file.oldFile?.contents).toBe("one\n");
+          expect(file.newFile?.contents).toBe("one\ntwo\n");
         } finally {
           rmSync(cwd, { recursive: true, force: true });
         }

@@ -14,6 +14,8 @@ import type {
   ServerProvider,
   ServerProviderSkill,
   ThreadId,
+  WorkflowDraft,
+  WorkflowThreadSummary,
 } from "@fenrir/contracts";
 import {
   defaultInstanceIdForDriver as defaultProviderInstanceIdForDriver,
@@ -60,6 +62,8 @@ import {
   removeInlineTerminalContextPlaceholder,
 } from "~/modules/terminal";
 import { useEditorStore, ComposerPendingEditorContexts } from "~/modules/neovim-editor";
+import type { WorkflowThreadCounts } from "~/modules/workflows";
+import { canAttemptWorkflowRun } from "~/modules/workflows/stores/useWorkflowStore";
 import {
   resolveComposerFooterContentWidth,
   shouldForceCompactComposerFooterForFit,
@@ -111,10 +115,12 @@ import {
   FileTextIcon,
   PlugIcon,
   ListTodoIcon,
+  Trash2Icon,
   type LucideIcon,
   LockIcon,
   LockOpenIcon,
   PenLineIcon,
+  WorkflowIcon,
   XIcon,
 } from "lucide-react";
 import { proposedPlanTitle } from "../../proposedPlan";
@@ -186,14 +192,19 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
   sidePanelOpen: boolean;
-  sidePanelLabel: "Plan" | "Tasks" | "Diff";
+  sidePanelLabel: "Plan" | "Tasks" | "Workflows" | "Diff";
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   onToggleSidePanel: () => void;
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
-  const SidePanelIcon = props.sidePanelLabel === "Diff" ? DiffIcon : ListTodoIcon;
+  const SidePanelIcon =
+    props.sidePanelLabel === "Diff"
+      ? DiffIcon
+      : props.sidePanelLabel === "Workflows"
+        ? WorkflowIcon
+        : ListTodoIcon;
   const sidePanelTitle = `${props.sidePanelOpen ? "Hide" : "Show"} ${props.sidePanelLabel.toLowerCase()} panel`;
 
   return (
@@ -447,6 +458,261 @@ const ComposerMcpPicker = memo(function ComposerMcpPicker(props: {
   );
 });
 
+const ComposerWorkflowAffordance = memo(function ComposerWorkflowAffordance(props: {
+  summaries: ReadonlyArray<WorkflowThreadSummary>;
+  counts: WorkflowThreadCounts;
+  onOpenPanel: () => void;
+  onRunWorkflow: (workflow: WorkflowDraft) => Promise<void>;
+  onOpenWorkflowSource: (workflow: WorkflowDraft) => Promise<void>;
+  onArchiveWorkflow: (workflow: WorkflowDraft) => Promise<void>;
+}) {
+  const [busyWorkflowId, setBusyWorkflowId] = useState<string | null>(null);
+  if (!props.counts.hasWorkflows) {
+    return null;
+  }
+
+  const pendingInputCount = props.counts.pendingInputCount;
+  const activeRunCount = props.counts.activeRunCount;
+  const shouldOpenPanelDirectly =
+    pendingInputCount > 0 || activeRunCount > 0 || props.summaries.length === 0;
+  const buttonLabel =
+    pendingInputCount > 0
+      ? `${pendingInputCount} workflow input${pendingInputCount === 1 ? "" : "s"} pending`
+      : activeRunCount > 0
+        ? `${activeRunCount} active workflow${activeRunCount === 1 ? "" : "s"}`
+        : props.summaries.length === 1
+          ? props.summaries[0]?.workflow.name
+          : `${props.summaries.length} workflows`;
+  const triggerClassName = cn(
+    "shrink-0 gap-1.5 px-2 text-muted-foreground/75 hover:text-foreground/85",
+    props.counts.hasWorkflows ? "bg-accent/70 text-foreground hover:bg-accent" : null,
+    pendingInputCount > 0
+      ? "bg-amber-500/12 text-amber-700 hover:bg-amber-500/16 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
+      : null,
+  );
+
+  const runWorkflow = async (workflow: WorkflowDraft) => {
+    setBusyWorkflowId(workflow.workflowId);
+    try {
+      await props.onRunWorkflow(workflow);
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title:
+          workflow.validationStatus === "pending"
+            ? "Workflow validation failed"
+            : "Workflow run failed",
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setBusyWorkflowId(null);
+    }
+  };
+
+  const archiveWorkflow = async (workflow: WorkflowDraft) => {
+    setBusyWorkflowId(workflow.workflowId);
+    try {
+      await props.onArchiveWorkflow(workflow);
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Workflow removal failed",
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setBusyWorkflowId(null);
+    }
+  };
+
+  if (shouldOpenPanelDirectly) {
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={triggerClassName}
+              aria-label={buttonLabel}
+              onClick={props.onOpenPanel}
+            >
+              <WorkflowIcon />
+              <span className="sr-only sm:not-sr-only">Workflows</span>
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/14 px-1 text-[10px] font-semibold leading-none text-primary">
+                {pendingInputCount > 0 ? pendingInputCount : activeRunCount}
+              </span>
+            </Button>
+          }
+        />
+        <TooltipPopup side="top">{buttonLabel}</TooltipPopup>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <PopoverTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={triggerClassName}
+                  aria-label={buttonLabel ?? "Workflows"}
+                >
+                  <WorkflowIcon />
+                  <span className="sr-only sm:not-sr-only">Workflows</span>
+                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/14 px-1 text-[10px] font-semibold leading-none text-primary">
+                    {props.summaries.length}
+                  </span>
+                </Button>
+              }
+            />
+          }
+        />
+        <TooltipPopup side="top">{buttonLabel}</TooltipPopup>
+      </Tooltip>
+      <PopoverPopup
+        align="start"
+        sideOffset={8}
+        className="w-[min(26rem,calc(100vw-1.5rem))] overflow-hidden [&>[data-slot=popover-viewport]]:p-0"
+      >
+        <div className="grid">
+          <div className="flex items-start gap-3 border-border/70 border-b px-4 py-3">
+            <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <WorkflowIcon className="size-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <div className="truncate font-semibold text-foreground text-sm">Workflows</div>
+                <Badge variant="outline" size="sm">
+                  {props.counts.runnableWorkflowCount} runnable
+                </Badge>
+              </div>
+              <div className="mt-0.5 text-muted-foreground text-xs leading-4">
+                {props.summaries[0]?.workflow.name ?? "No drafts"}
+              </div>
+            </div>
+          </div>
+
+          <div className="max-h-80 overflow-y-auto p-2">
+            {props.summaries.map((summary) => {
+              const workflow = summary.workflow;
+              const canRun = canAttemptWorkflowRun(workflow);
+              const latestRun = summary.latestRun;
+              const busy = busyWorkflowId === workflow.workflowId;
+              const hasActiveRuns = Number(summary.activeRunCount) > 0;
+              return (
+                <div
+                  key={workflow.workflowId}
+                  className="grid gap-2 rounded-md border border-transparent px-2.5 py-2.5 text-sm hover:border-border/70 hover:bg-accent/60"
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-foreground">{workflow.name}</div>
+                      {workflow.description ? (
+                        <div className="mt-0.5 line-clamp-2 text-muted-foreground text-xs leading-4">
+                          {workflow.description}
+                        </div>
+                      ) : null}
+                    </div>
+                    <Badge
+                      variant={
+                        workflow.validationStatus === "valid"
+                          ? "success"
+                          : workflow.validationStatus === "invalid"
+                            ? "destructive"
+                            : "outline"
+                      }
+                      size="sm"
+                    >
+                      {workflow.validationStatus}
+                    </Badge>
+                  </div>
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-muted-foreground text-xs">
+                    {latestRun ? (
+                      <Badge size="sm" variant="secondary">
+                        {latestRun.status}
+                      </Badge>
+                    ) : null}
+                    {Number(summary.activeRunCount) > 0 ? (
+                      <Badge size="sm" variant="info">
+                        {summary.activeRunCount} active
+                      </Badge>
+                    ) : null}
+                    {Number(summary.pendingInputCount) > 0 ? (
+                      <Badge size="sm" variant="warning">
+                        {summary.pendingInputCount} input
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="ghost"
+                      disabled={busy || hasActiveRuns}
+                      title={hasActiveRuns ? "Stop active runs before removing" : "Remove workflow"}
+                      onClick={() => void archiveWorkflow(workflow)}
+                    >
+                      <Trash2Icon className="size-3.5" />
+                      Remove
+                    </Button>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => void props.onOpenWorkflowSource(workflow)}
+                    >
+                      Open
+                    </Button>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="secondary"
+                      disabled={!canRun || busy}
+                      title={
+                        canRun
+                          ? workflow.validationStatus === "pending"
+                            ? "Validate and run workflow"
+                            : "Run workflow"
+                          : "Fix validation errors before running"
+                      }
+                      onClick={() => void runWorkflow(workflow)}
+                    >
+                      {busy
+                        ? workflow.validationStatus === "pending"
+                          ? "Validating..."
+                          : "Running..."
+                        : "Run"}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="border-border/70 border-t bg-muted/20 px-3 py-2.5">
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost"
+              className="justify-start text-muted-foreground hover:text-foreground"
+              onClick={props.onOpenPanel}
+            >
+              Open workflows panel
+            </Button>
+          </div>
+        </div>
+      </PopoverPopup>
+    </Popover>
+  );
+});
+
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
   activeContextWindow: ReturnType<typeof deriveLatestContextWindowSnapshot>;
@@ -574,6 +840,14 @@ export interface ChatComposerProps {
   showPlanFollowUpPrompt: boolean;
   activeProposedPlan: Thread["proposedPlans"][number] | null;
 
+  // Workflows
+  workflowSummaries: ReadonlyArray<WorkflowThreadSummary>;
+  workflowCounts: WorkflowThreadCounts;
+  onOpenWorkflowsPanel: () => void;
+  onRunWorkflowFromComposer: (workflow: WorkflowDraft) => Promise<void>;
+  onOpenWorkflowSourceFromComposer: (workflow: WorkflowDraft) => Promise<void>;
+  onArchiveWorkflowFromComposer: (workflow: WorkflowDraft) => Promise<void>;
+
   // Mode
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
@@ -630,7 +904,7 @@ export interface ChatComposerProps {
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
   sidePanelOpen: boolean;
-  sidePanelLabel: "Plan" | "Tasks" | "Diff";
+  sidePanelLabel: "Plan" | "Tasks" | "Workflows" | "Diff";
   toggleSidePanel: () => void;
 
   focusComposer: () => void;
@@ -671,6 +945,12 @@ export const ChatComposer = memo(
       respondingRequestIds,
       showPlanFollowUpPrompt,
       activeProposedPlan,
+      workflowSummaries,
+      workflowCounts,
+      onOpenWorkflowsPanel,
+      onRunWorkflowFromComposer,
+      onOpenWorkflowSourceFromComposer,
+      onArchiveWorkflowFromComposer,
       runtimeMode,
       interactionMode,
       lockedProvider,
@@ -695,6 +975,7 @@ export const ChatComposer = memo(
       onPreviousActivePendingUserInputQuestion,
       onChangeActivePendingUserInputCustomAnswer,
       onProviderModelSelect,
+      onMcpServerIdsChange,
       toggleInteractionMode,
       handleRuntimeModeChange,
       handleInteractionModeChange,
@@ -715,6 +996,8 @@ export const ChatComposer = memo(
     const composerImages = composerDraft.images;
     const composerTerminalContexts = composerDraft.terminalContexts;
     const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
+    const selectedMcpServerIdsRef = useRef<ReadonlyArray<McpServerId>>(props.selectedMcpServerIds);
+    selectedMcpServerIdsRef.current = props.selectedMcpServerIds;
 
     const pendingEditorContexts = useEditorStore((s) => s.pendingContexts);
     const removePendingEditorContext = useEditorStore((s) => s.removePendingContext);
@@ -1116,6 +1399,14 @@ export const ChatComposer = memo(
       prompt,
       showPlanFollowUpPrompt,
     ]);
+
+    const handleComposerMcpServerIdsChange = useCallback(
+      (ids: McpServerId[]) => {
+        selectedMcpServerIdsRef.current = ids;
+        onMcpServerIdsChange(ids);
+      },
+      [onMcpServerIdsChange],
+    );
 
     const isComposerMenuLoading =
       (composerTriggerKind === "path" &&
@@ -1967,7 +2258,7 @@ export const ChatComposer = memo(
           selectedProviderInstanceId,
           selectedModel,
           selectedProviderModels,
-          selectedMcpServerIds: props.selectedMcpServerIds,
+          selectedMcpServerIds: selectedMcpServerIdsRef.current,
         }),
       }),
       [
@@ -1987,7 +2278,6 @@ export const ChatComposer = memo(
         selectedProvider,
         selectedProviderInstanceId,
         selectedProviderModels,
-        props.selectedMcpServerIds,
       ],
     );
 
@@ -2302,7 +2592,16 @@ export const ChatComposer = memo(
                     selectedIds={props.selectedMcpServerIds}
                     compatibilityMessage={props.mcpCompatibilityMessage}
                     changeNotice={props.mcpChangeNotice}
-                    onChange={props.onMcpServerIdsChange}
+                    onChange={handleComposerMcpServerIdsChange}
+                  />
+
+                  <ComposerWorkflowAffordance
+                    summaries={workflowSummaries}
+                    counts={workflowCounts}
+                    onOpenPanel={onOpenWorkflowsPanel}
+                    onRunWorkflow={onRunWorkflowFromComposer}
+                    onOpenWorkflowSource={onOpenWorkflowSourceFromComposer}
+                    onArchiveWorkflow={onArchiveWorkflowFromComposer}
                   />
 
                   {isComposerFooterCompact ? (

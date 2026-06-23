@@ -1,6 +1,6 @@
 import { ProviderInteractionMode, RuntimeMode } from "@fenrir/contracts";
 import { memo, type ReactNode } from "react";
-import { DiffIcon, EllipsisIcon, ListTodoIcon } from "lucide-react";
+import { DiffIcon, EllipsisIcon, ListTodoIcon, WorkflowIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -15,14 +15,19 @@ import {
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
   sidePanelOpen: boolean;
-  sidePanelLabel: "Plan" | "Tasks" | "Diff";
+  sidePanelLabel: "Plan" | "Tasks" | "Workflows" | "Diff";
   runtimeMode: RuntimeMode;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
   onToggleSidePanel: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
-  const SidePanelIcon = props.sidePanelLabel === "Diff" ? DiffIcon : ListTodoIcon;
+  const SidePanelIcon =
+    props.sidePanelLabel === "Diff"
+      ? DiffIcon
+      : props.sidePanelLabel === "Workflows"
+        ? WorkflowIcon
+        : ListTodoIcon;
   const sidePanelAction = `${props.sidePanelOpen ? "Hide" : "Show"} ${props.sidePanelLabel.toLowerCase()} panel`;
 
   return (

@@ -44,10 +44,13 @@ describe("gitDiffWorkbenchStore", () => {
       selectedPath: "src/a.ts",
       selectedTargetKind: "staged",
       selectedStackIndex: 2,
+      selectedStashRef: "stash@{1}",
     });
     store.selectRepository(scopeKey, "/repo-b");
     store.updateRepositoryState(scopeKey, "/repo-b", {
+      mode: "stashes",
       selectedPath: "src/b.ts",
+      selectedStashRef: "stash@{0}",
     });
     store.selectRepository(scopeKey, "/repo-a");
 
@@ -57,7 +60,9 @@ describe("gitDiffWorkbenchStore", () => {
     expect(state.selectedPath).toBe("src/a.ts");
     expect(state.selectedTargetKind).toBe("staged");
     expect(state.selectedStackIndex).toBe(2);
+    expect(state.selectedStashRef).toBe("stash@{1}");
     expect(state.repositoryStates["/repo-b"]?.selectedPath).toBe("src/b.ts");
+    expect(state.repositoryStates["/repo-b"]?.selectedStashRef).toBe("stash@{0}");
   });
 
   it("updates view preferences in the scoped persisted state", () => {

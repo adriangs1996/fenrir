@@ -16,7 +16,7 @@ import {
 } from "@fenrir/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FENRIR_REMOTE_HOST_MCP_ID } from "@fenrir/shared/mcpBuiltIns";
+import { FENRIR_REMOTE_HOST_MCP_ID, FENRIR_WORKFLOWS_MCP_ID } from "@fenrir/shared/mcpBuiltIns";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "@fenrir/contracts";
@@ -398,11 +398,19 @@ describe("ProviderCommandReactor", () => {
 
     await waitFor(() => harness.startSession.mock.calls.length === 1);
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      mcpServerIds: [FENRIR_REMOTE_HOST_MCP_ID],
+      mcpServerIds: [FENRIR_REMOTE_HOST_MCP_ID, FENRIR_WORKFLOWS_MCP_ID],
       mcpServers: [
         {
           id: FENRIR_REMOTE_HOST_MCP_ID,
           name: "Remote Host",
+          transport: {
+            type: "stdio",
+            command: process.execPath,
+          },
+        },
+        {
+          id: FENRIR_WORKFLOWS_MCP_ID,
+          name: "Workflows",
           transport: {
             type: "stdio",
             command: process.execPath,

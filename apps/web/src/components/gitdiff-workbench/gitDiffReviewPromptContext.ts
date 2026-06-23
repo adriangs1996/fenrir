@@ -1,4 +1,9 @@
-import type { ChangeRequestReviewThread, DiffTarget, LoadDiffFileResult } from "@fenrir/contracts";
+import type {
+  ChangeRequestReviewThread,
+  DiffTarget,
+  GitDiffHunkSummary,
+  LoadDiffFileResult,
+} from "@fenrir/contracts";
 
 export type GitDiffReviewLineSelection = {
   readonly side: "additions" | "deletions";
@@ -59,6 +64,8 @@ export function formatDiffTargetLabel(target: DiffTarget | null): string {
       return target.parentRef
         ? `commit ${target.commitRef} from ${target.parentRef}`
         : `commit ${target.commitRef}`;
+    case "stash":
+      return `stash ${target.ref}`;
   }
 }
 
@@ -74,6 +81,28 @@ export function extractGitDiffReviewSelectionText(
   const selectedLines = lines.slice(selection.start - 1, selection.end);
   const text = normalizeMultilineText(selectedLines.join("\n"));
   return text.length > 0 ? text : null;
+}
+
+export function resolveGitDiffReviewSelectionHunkIndex(
+  hunks: readonly GitDiffHunkSummary[],
+  selection: Pick<GitDiffReviewLineSelection, "side" | "start" | "end"> | null,
+): number | null {
+  if (!selection) return null;
+
+  const selectionStart = Math.min(selection.start, selection.end);
+  const selectionEnd = Math.max(selection.start, selection.end);
+  if (selectionStart < 1 || selectionEnd < 1) return null;
+
+  for (const hunk of hunks) {
+    const start = selection.side === "additions" ? hunk.newStart : hunk.oldStart;
+    const lineCount = selection.side === "additions" ? hunk.newLines : hunk.oldLines;
+    const end = Math.max(start, start + Math.max(lineCount, 1) - 1);
+    if (start <= selectionEnd && selectionStart <= end) {
+      return hunk.index;
+    }
+  }
+
+  return null;
 }
 
 export function formatGitDiffReviewContextTitle(context: GitDiffReviewPromptContext): string {

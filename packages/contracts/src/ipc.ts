@@ -28,9 +28,11 @@ import type {
   AmendGitDiffStagedChangesResult,
   CommentGitDiffChangeRequestLinesInput,
   CreateGitDiffIgnoreListInput,
+  CreateGitDiffReviewNoteInput,
   CreateGitDiffStashInput,
   CreateGitDiffStashResult,
   DeleteGitDiffIgnoreListInput,
+  DeleteGitDiffReviewNoteInput,
   DiscardGitDiffWorktreeChangesInput,
   DiscardGitDiffWorktreeChangesResult,
   GitDiffActionResult,
@@ -40,6 +42,7 @@ import type {
   GitDiffMergeChangeRequestInput,
   GitDiffOperationActionInput,
   GitDiffOperationActionResult,
+  GitDiffReviewNote,
   GitDiffStashReferenceInput,
   LoadActiveChangeRequestStackedDiffFileIndexInput,
   LoadActiveChangeRequestStackedDiffFileIndexResult,
@@ -47,6 +50,8 @@ import type {
   LoadDiffFileIndexInput,
   LoadDiffFileIndexResult,
   LoadDiffFileResult,
+  LoadGitDiffChangeSignatureInput,
+  LoadGitDiffChangeSignatureResult,
   LoadGitDiffChangeRequestChecksInput,
   LoadGitDiffChangeRequestChecksResult,
   LoadGitDiffChangeRequestReviewThreadsInput,
@@ -59,10 +64,15 @@ import type {
   LoadGitDiffOperationResult,
   LoadGitDiffRepositoriesInput,
   LoadGitDiffRepositoriesResult,
+  LoadGitDiffReviewNotesInput,
+  LoadGitDiffReviewNotesResult,
+  LoadGitDiffReviewSessionInput,
+  LoadGitDiffReviewSessionResult,
   LoadGitDiffStashesInput,
   LoadGitDiffStashesResult,
   LoadStackedDiffFileIndexInput,
   LoadStackedDiffFileIndexResult,
+  RequestGitDiffReviewNavigationInput,
   RevertGitDiffChangeRequestLinesInput,
   RevertGitDiffChangeRequestLinesResult,
   StageGitDiffWorktreeChangesInput,
@@ -70,6 +80,7 @@ import type {
   UnstageGitDiffStagedChangesInput,
   UnstageGitDiffStagedChangesResult,
   UpdateGitDiffIgnoreListInput,
+  UpdateGitDiffReviewSessionInput,
 } from "./gitDiff";
 import type {
   SourceControlCloneRepositoryInput,
@@ -238,6 +249,29 @@ import type {
   StopRemoteConnectionInput,
   UpdateRemoteHostInput,
 } from "./remoteController";
+import type {
+  WorkflowArchiveInput,
+  WorkflowArchiveResult,
+  WorkflowCreateDraftInput,
+  WorkflowCreateDraftResult,
+  WorkflowEventStreamItem,
+  WorkflowGetTimelineInput,
+  WorkflowGetTimelineResult,
+  WorkflowListThreadInput,
+  WorkflowListThreadResult,
+  WorkflowOpenSourceInput,
+  WorkflowOpenSourceResult,
+  WorkflowRespondToInputInput,
+  WorkflowRunByIdInput,
+  WorkflowRunInput,
+  WorkflowRunResult,
+  WorkflowRunSnapshot,
+  WorkflowStopInput,
+  WorkflowSyncSourceInput,
+  WorkflowSyncSourceResult,
+  WorkflowValidateInput,
+  WorkflowValidateResult,
+} from "./workflows";
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "./keybindings";
 
 // Editor IPC channel names live in ./ipcChannels (single source of truth for
@@ -973,6 +1007,9 @@ export interface EnvironmentApi {
     listRepositories: (
       input: LoadGitDiffRepositoriesInput,
     ) => Promise<LoadGitDiffRepositoriesResult>;
+    loadChangeSignature: (
+      input: LoadGitDiffChangeSignatureInput,
+    ) => Promise<LoadGitDiffChangeSignatureResult>;
     loadFile: (input: LoadDiffFileInput) => Promise<LoadDiffFileResult>;
     loadFileIndex: (input: LoadDiffFileIndexInput) => Promise<LoadDiffFileIndexResult>;
     loadActiveChangeRequestStackedFileIndex: (
@@ -992,6 +1029,16 @@ export interface EnvironmentApi {
     deleteIgnoreList: (
       input: DeleteGitDiffIgnoreListInput,
     ) => Promise<LoadGitDiffIgnoreListsResult>;
+    loadReviewNotes: (input: LoadGitDiffReviewNotesInput) => Promise<LoadGitDiffReviewNotesResult>;
+    createReviewNote: (input: CreateGitDiffReviewNoteInput) => Promise<GitDiffReviewNote>;
+    deleteReviewNote: (input: DeleteGitDiffReviewNoteInput) => Promise<GitDiffActionResult>;
+    updateReviewSession: (input: UpdateGitDiffReviewSessionInput) => Promise<GitDiffActionResult>;
+    loadReviewSession: (
+      input: LoadGitDiffReviewSessionInput,
+    ) => Promise<LoadGitDiffReviewSessionResult>;
+    requestReviewNavigation: (
+      input: RequestGitDiffReviewNavigationInput,
+    ) => Promise<GitDiffActionResult>;
     stageWorktreeChanges: (
       input: StageGitDiffWorktreeChangesInput,
     ) => Promise<StageGitDiffWorktreeChangesResult>;
@@ -1030,6 +1077,20 @@ export interface EnvironmentApi {
     revertChangeRequestLines: (
       input: RevertGitDiffChangeRequestLinesInput,
     ) => Promise<RevertGitDiffChangeRequestLinesResult>;
+  };
+  workflows: {
+    createDraft: (input: WorkflowCreateDraftInput) => Promise<WorkflowCreateDraftResult>;
+    listThread: (input: WorkflowListThreadInput) => Promise<WorkflowListThreadResult>;
+    openSource: (input: WorkflowOpenSourceInput) => Promise<WorkflowOpenSourceResult>;
+    syncSource: (input: WorkflowSyncSourceInput) => Promise<WorkflowSyncSourceResult>;
+    validate: (input: WorkflowValidateInput) => Promise<WorkflowValidateResult>;
+    archive: (input: WorkflowArchiveInput) => Promise<WorkflowArchiveResult>;
+    run: (input: WorkflowRunInput) => Promise<WorkflowRunResult>;
+    stop: (input: WorkflowStopInput) => Promise<void>;
+    respondToInput: (input: WorkflowRespondToInputInput) => Promise<void>;
+    getRun: (input: WorkflowRunByIdInput) => Promise<WorkflowRunSnapshot>;
+    getTimeline: (input: WorkflowGetTimelineInput) => Promise<WorkflowGetTimelineResult>;
+    onEvent: (callback: (event: WorkflowEventStreamItem) => void) => () => void;
   };
   orchestration: {
     getArchivedShellSnapshot: () => Promise<OrchestrationShellSnapshot>;

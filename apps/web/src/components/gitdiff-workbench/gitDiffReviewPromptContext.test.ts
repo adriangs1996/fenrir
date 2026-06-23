@@ -6,6 +6,7 @@ import {
   extractGitDiffReviewSelectionText,
   formatGitDiffReviewContextLabels,
   formatGitDiffReviewContextTitle,
+  resolveGitDiffReviewSelectionHunkIndex,
   type GitDiffReviewPromptContext,
 } from "./gitDiffReviewPromptContext";
 
@@ -21,6 +22,9 @@ const diff: LoadDiffFileResult = {
     contents: ["new one", "new two", "new three"].join("\n"),
   },
   patch: "",
+  patchTruncated: false,
+  oldFileTooLarge: false,
+  newFileTooLarge: false,
 };
 
 function makeContext(overrides?: Partial<GitDiffReviewPromptContext>): GitDiffReviewPromptContext {
@@ -159,5 +163,67 @@ describe("gitDiffReviewPromptContext", () => {
       "branch feature/review",
       "/workspace/packages/app",
     ]);
+  });
+
+  it("resolves selected additions to the matching hunk index", () => {
+    expect(
+      resolveGitDiffReviewSelectionHunkIndex(
+        [
+          {
+            index: 0,
+            header: "@@ -1,1 +1,1 @@",
+            oldStart: 1,
+            oldLines: 1,
+            newStart: 1,
+            newLines: 1,
+          },
+          {
+            index: 1,
+            header: "@@ -10,2 +10,4 @@",
+            oldStart: 10,
+            oldLines: 2,
+            newStart: 10,
+            newLines: 4,
+          },
+        ],
+        { side: "additions", start: 12, end: 13 },
+      ),
+    ).toBe(1);
+  });
+
+  it("resolves selected deletions using old-line hunk ranges", () => {
+    expect(
+      resolveGitDiffReviewSelectionHunkIndex(
+        [
+          {
+            index: 0,
+            header: "@@ -3,2 +3,0 @@",
+            oldStart: 3,
+            oldLines: 2,
+            newStart: 3,
+            newLines: 0,
+          },
+        ],
+        { side: "deletions", start: 4, end: 4 },
+      ),
+    ).toBe(0);
+  });
+
+  it("returns null when the selected lines are outside every hunk", () => {
+    expect(
+      resolveGitDiffReviewSelectionHunkIndex(
+        [
+          {
+            index: 0,
+            header: "@@ -3,1 +3,1 @@",
+            oldStart: 3,
+            oldLines: 1,
+            newStart: 3,
+            newLines: 1,
+          },
+        ],
+        { side: "additions", start: 20, end: 20 },
+      ),
+    ).toBeNull();
   });
 });

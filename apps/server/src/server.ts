@@ -20,6 +20,7 @@ import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/
 import { ServerLifecycleEventsLive } from "./serverLifecycleEvents";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
 import { PlanRunnerRepositoryLive } from "./persistence/Layers/PlanRunnerRepository";
+import { WorkflowRepositoryLive } from "./persistence/Layers/WorkflowRepository";
 import {
   ProviderRuntimeLifecycleLive,
   ProviderRuntimeServiceLive,
@@ -49,7 +50,9 @@ import { LocalServerDiscoveryLive } from "./localServers/Layers/LocalServerDisco
 import { BrowserLabControlHttpLive } from "./browserLab/browserLabControlHttp";
 import { BrowserLabControlServiceLive } from "./browserLab/Layers/BrowserLabControlService";
 import { RemoteHostMcpHttpLive } from "./mcp/remoteHostMcpHttp";
+import { WorkflowMcpHttpLive } from "./mcp/workflowMcpHttp";
 import { PlanRunnerLive } from "./plan-runner/Layers/PlanRunner";
+import { WorkflowLive } from "./workflows/Layers/Workflow";
 import { GitWorkflowServiceLive } from "./git/Layers/GitWorkflowService";
 import { GitManagerLive } from "./git/Layers/GitManager";
 import { VcsDriverRegistryLive } from "./vcs/VcsDriverRegistry";
@@ -201,6 +204,7 @@ const TextGenerationLayerLive = RoutingTextGenerationLive.pipe(
 
 const PersistenceLayerLive = Layer.empty.pipe(
   Layer.provideMerge(PlanRunnerRepositoryLive),
+  Layer.provideMerge(WorkflowRepositoryLive),
   Layer.provideMerge(SqlitePersistenceLayerLive),
 );
 
@@ -317,6 +321,9 @@ const CoreInfrastructureLive = ReactorLayerLive.pipe(
       Layer.provide(PersistenceLayerLive),
     ),
   ),
+  Layer.provideMerge(
+    WorkflowLive.pipe(Layer.provide(OrchestrationLayerLive), Layer.provide(PersistenceLayerLive)),
+  ),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(KeybindingsLive),
 );
@@ -373,6 +380,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   trafficLensStorageIngestRouteLayer,
   BrowserLabControlHttpLive,
   RemoteHostMcpHttpLive,
+  WorkflowMcpHttpLive,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,
 ).pipe(Layer.provide(trafficLensApiCorsLayer));
