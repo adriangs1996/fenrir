@@ -13,6 +13,8 @@ import {
   DeleteGitDiffReviewNoteInput,
   DiscardGitDiffWorktreeChangesInput,
   DiscardGitDiffWorktreeChangesResult,
+  DiscardGitDiffWorktreeHunkInput,
+  DiscardGitDiffWorktreeHunkResult,
   GitDiffActionResult,
   GitDiffChangeRequestReferenceInput,
   GitDiffCommitActionResult,
@@ -190,6 +192,12 @@ export const WsGitDiffDiscardWorktreeChangesRpc = Rpc.make(
     error: GitCommandError,
   },
 );
+
+export const WsGitDiffDiscardWorktreeHunkRpc = Rpc.make(WS_METHODS.gitDiffDiscardWorktreeHunk, {
+  payload: DiscardGitDiffWorktreeHunkInput,
+  success: DiscardGitDiffWorktreeHunkResult,
+  error: GitCommandError,
+});
 
 export const WsGitDiffAmendStagedChangesRpc = Rpc.make(WS_METHODS.gitDiffAmendStagedChanges, {
   payload: AmendGitDiffStagedChangesInput,

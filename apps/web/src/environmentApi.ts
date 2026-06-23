@@ -104,6 +104,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       stageWorktreeChanges: rpcClient.gitDiff.stageWorktreeChanges,
       unstageStagedChanges: rpcClient.gitDiff.unstageStagedChanges,
       discardWorktreeChanges: rpcClient.gitDiff.discardWorktreeChanges,
+      discardWorktreeHunk: rpcClient.gitDiff.discardWorktreeHunk,
       amendStagedChanges: rpcClient.gitDiff.amendStagedChanges,
       revertCommit: rpcClient.gitDiff.revertCommit,
       cherryPickCommit: rpcClient.gitDiff.cherryPickCommit,

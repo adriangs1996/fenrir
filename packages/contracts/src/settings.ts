@@ -53,6 +53,7 @@ export const ModelFavorite = Schema.Struct({
 export type ModelFavorite = typeof ModelFavorite.Type;
 
 export const ClientSettingsSchema = Schema.Struct({
+  autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   diffIgnoreWhitespace: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),

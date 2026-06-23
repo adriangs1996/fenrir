@@ -129,8 +129,8 @@ describe("resolveProjectDrawerPresentation", () => {
     expect(
       resolveProjectDrawerPresentation({
         activeRouteProjectDrawerView: "plans",
-        hasActiveThreadRoute: false,
         hasPinnedCollapsedThread: false,
+        projectDrawerRailVisible: false,
         projectDrawerView: "plans",
         projectExpanded: true,
       }),
@@ -146,8 +146,8 @@ describe("resolveProjectDrawerPresentation", () => {
     expect(
       resolveProjectDrawerPresentation({
         activeRouteProjectDrawerView: "plans",
-        hasActiveThreadRoute: false,
         hasPinnedCollapsedThread: false,
+        projectDrawerRailVisible: false,
         projectDrawerView: "plans",
         projectExpanded: false,
       }),
@@ -159,18 +159,35 @@ describe("resolveProjectDrawerPresentation", () => {
     });
   });
 
-  it("preserves the pinned-thread rail behavior for collapsed active thread routes", () => {
+  it("keeps the pinned-thread drawer rail hidden until toggled", () => {
     expect(
       resolveProjectDrawerPresentation({
         activeRouteProjectDrawerView: "threads",
-        hasActiveThreadRoute: true,
         hasPinnedCollapsedThread: true,
+        projectDrawerRailVisible: false,
         projectDrawerView: "files",
         projectExpanded: false,
       }),
     ).toEqual({
       effectiveProjectDrawerView: "threads",
       renderedProjectDrawerView: "threads",
+      shouldShowProjectDrawerPanel: true,
+      shouldShowProjectDrawerRail: false,
+    });
+  });
+
+  it("shows the drawer rail when the project rail is toggled on", () => {
+    expect(
+      resolveProjectDrawerPresentation({
+        activeRouteProjectDrawerView: null,
+        hasPinnedCollapsedThread: false,
+        projectDrawerRailVisible: true,
+        projectDrawerView: "files",
+        projectExpanded: true,
+      }),
+    ).toEqual({
+      effectiveProjectDrawerView: "files",
+      renderedProjectDrawerView: "files",
       shouldShowProjectDrawerPanel: true,
       shouldShowProjectDrawerRail: true,
     });
@@ -180,8 +197,8 @@ describe("resolveProjectDrawerPresentation", () => {
     expect(
       resolveProjectDrawerPresentation({
         activeRouteProjectDrawerView: null,
-        hasActiveThreadRoute: false,
         hasPinnedCollapsedThread: false,
+        projectDrawerRailVisible: false,
         projectDrawerView: "plans",
         projectExpanded: true,
       }),
@@ -648,19 +665,23 @@ describe("resolveThreadStatusPill", () => {
 });
 
 describe("resolveThreadRowClassName", () => {
-  it("keeps the selected fill without adding the blue active outline when a thread is both selected and active", () => {
+  it("uses foreground-only highlighting when a thread is both selected and active", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: true });
-    expect(className).toContain("bg-primary/22");
-    expect(className).toContain("hover:bg-primary/26");
-    expect(className).toContain("dark:bg-primary/30");
+    expect(className).toContain("text-foreground");
+    expect(className).toContain("font-medium");
+    expect(className).not.toContain("bg-primary");
+    expect(className).not.toContain("hover:bg-primary");
+    expect(className).not.toContain("dark:bg-primary");
     expect(className).not.toContain("ring-info/35");
   });
 
-  it("uses selected hover colors for selected threads", () => {
+  it("uses foreground-only highlighting for selected threads", () => {
     const className = resolveThreadRowClassName({ isActive: false, isSelected: true });
-    expect(className).toContain("bg-primary/15");
-    expect(className).toContain("hover:bg-primary/19");
-    expect(className).toContain("dark:bg-primary/22");
+    expect(className).toContain("text-foreground");
+    expect(className).toContain("font-medium");
+    expect(className).not.toContain("bg-primary");
+    expect(className).not.toContain("hover:bg-primary");
+    expect(className).not.toContain("dark:bg-primary");
     expect(className).not.toContain("hover:bg-accent");
   });
 

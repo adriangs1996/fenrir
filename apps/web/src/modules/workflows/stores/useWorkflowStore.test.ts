@@ -8,7 +8,33 @@ import {
   WorkflowRunId,
   type WorkflowRunSnapshot,
 } from "@fenrir/contracts";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const workflowStoreTestMocks = vi.hoisted(() => ({
+  localApi: {
+    persistence: {},
+  },
+  openInConfiguredEmbeddedEditor: vi.fn(async () => "neovim"),
+  openSource: vi.fn(async () => ({ path: "/tmp/fenrir-workflows/workflow.js" })),
+}));
+
+vi.mock("~/editorPreferences", () => ({
+  openInConfiguredEmbeddedEditor: workflowStoreTestMocks.openInConfiguredEmbeddedEditor,
+}));
+
+vi.mock("~/environments/runtime", () => ({
+  getPrimaryEnvironmentConnection: () => ({
+    client: {
+      workflows: {
+        openSource: workflowStoreTestMocks.openSource,
+      },
+    },
+  }),
+}));
+
+vi.mock("~/localApi", () => ({
+  ensureLocalApi: () => workflowStoreTestMocks.localApi,
+}));
 
 import {
   canAttemptWorkflowRun,
@@ -55,8 +81,10 @@ function makeRun(input: {
   readonly runId: string;
   readonly originThreadId?: ThreadId | undefined;
   readonly startedAt?: string | undefined;
+  readonly status?: WorkflowRunSnapshot["status"] | undefined;
 }): WorkflowRunSnapshot {
   const startedAt = input.startedAt ?? "2026-06-22T12:00:00.000Z";
+  const status = input.status ?? "completed";
   return {
     runId: WorkflowRunId.make(input.runId),
     workflowId: WorkflowId.make("workflow-1"),
@@ -65,10 +93,10 @@ function makeRun(input: {
     name: "Workflow",
     args: null,
     sourceHash: "source-hash" as any,
-    status: "completed",
+    status,
     summary: null,
     startedAt: startedAt as any,
-    completedAt: startedAt as any,
+    completedAt: status === "completed" ? (startedAt as any) : null,
     lastUpdatedAt: startedAt as any,
     steps: [],
     agents: [],
@@ -95,6 +123,11 @@ function makePendingInputRequest(runId: WorkflowRunId, title: string) {
 
 describe("useWorkflowStore", () => {
   beforeEach(() => {
+    workflowStoreTestMocks.openInConfiguredEmbeddedEditor.mockClear();
+    workflowStoreTestMocks.openSource.mockClear();
+    workflowStoreTestMocks.openSource.mockResolvedValue({
+      path: "/tmp/fenrir-workflows/workflow.js",
+    });
     useWorkflowStore.setState({
       summariesByThreadKey: {},
       runById: {},
@@ -228,6 +261,27 @@ describe("useWorkflowStore", () => {
     ).toBe(1);
   });
 
+  it("counts running and paused workflow runs as active", () => {
+    const completedRun = makeRun({ runId: "run-completed", status: "completed" });
+    const runningRun = makeRun({ runId: "run-running", status: "running" });
+    const pausedRun = makeRun({ runId: "run-paused", status: "paused" });
+    const cancelledRun = makeRun({ runId: "run-cancelled", status: "cancelled" });
+
+    useWorkflowStore.setState({
+      runById: {
+        [completedRun.runId]: completedRun,
+        [runningRun.runId]: runningRun,
+        [pausedRun.runId]: pausedRun,
+        [cancelledRun.runId]: cancelledRun,
+      },
+    });
+
+    expect(
+      selectThreadWorkflowCounts(useWorkflowStore.getState(), projectId, originThreadId)
+        .activeRunCount,
+    ).toBe(2);
+  });
+
   it("returns stable derived selector references while workflow state is unchanged", () => {
     const workflow = makeWorkflow();
     const run = makeRun({ runId: "run-stable" });
@@ -289,5 +343,20 @@ describe("useWorkflowStore", () => {
     expect(
       selectThreadWorkflowCounts(useWorkflowStore.getState(), projectId, originThreadId).draftCount,
     ).toBe(0);
+  });
+
+  it("opens materialized workflow source in the embedded editor tab", async () => {
+    const path = await useWorkflowStore
+      .getState()
+      .openWorkflowSource(WorkflowId.make("workflow-open"));
+
+    expect(path).toBe("/tmp/fenrir-workflows/workflow.js");
+    expect(workflowStoreTestMocks.openSource).toHaveBeenCalledWith({
+      workflowId: WorkflowId.make("workflow-open"),
+    });
+    expect(workflowStoreTestMocks.openInConfiguredEmbeddedEditor).toHaveBeenCalledWith(
+      workflowStoreTestMocks.localApi,
+      "/tmp/fenrir-workflows/workflow.js",
+    );
   });
 });

@@ -13,6 +13,7 @@ import {
   hasServerAcknowledgedLocalDispatch,
   reconcileMountedTerminalThreadIds,
   resolveSidePanelControlLabel,
+  shouldAutoOpenPlanSidebar,
   shouldWriteThreadErrorToCurrentServerThread,
   waitForStartedServerThread,
 } from "./ChatView.logic";
@@ -48,6 +49,63 @@ describe("resolveSidePanelControlLabel", () => {
         planLabel: "Tasks",
       }),
     ).toBe("Tasks");
+  });
+});
+
+describe("shouldAutoOpenPlanSidebar", () => {
+  const baseInput = {
+    autoOpenPlanSidebar: true,
+    hasActivePlan: true,
+    activePlanScopedToLatestTurn: true,
+    rightPanelActiveTab: null,
+    dismissedTurnKey: null,
+    turnKey: "turn-1",
+  } as const;
+
+  it("opens only when enabled and a current-turn plan exists", () => {
+    expect(shouldAutoOpenPlanSidebar(baseInput)).toBe(true);
+    expect(
+      shouldAutoOpenPlanSidebar({
+        ...baseInput,
+        autoOpenPlanSidebar: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoOpenPlanSidebar({
+        ...baseInput,
+        hasActivePlan: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoOpenPlanSidebar({
+        ...baseInput,
+        activePlanScopedToLatestTurn: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not steal an already open right panel", () => {
+    expect(
+      shouldAutoOpenPlanSidebar({
+        ...baseInput,
+        rightPanelActiveTab: "diff",
+      }),
+    ).toBe(false);
+  });
+
+  it("respects dismissal for the same turn", () => {
+    expect(
+      shouldAutoOpenPlanSidebar({
+        ...baseInput,
+        dismissedTurnKey: "turn-1",
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoOpenPlanSidebar({
+        ...baseInput,
+        dismissedTurnKey: "turn-0",
+      }),
+    ).toBe(true);
   });
 });
 

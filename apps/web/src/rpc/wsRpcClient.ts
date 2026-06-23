@@ -239,6 +239,7 @@ export interface WsRpcClient {
     readonly discardWorktreeChanges: RpcUnaryMethod<
       typeof WS_METHODS.gitDiffDiscardWorktreeChanges
     >;
+    readonly discardWorktreeHunk: RpcUnaryMethod<typeof WS_METHODS.gitDiffDiscardWorktreeHunk>;
     readonly amendStagedChanges: RpcUnaryMethod<typeof WS_METHODS.gitDiffAmendStagedChanges>;
     readonly revertCommit: RpcUnaryMethod<typeof WS_METHODS.gitDiffRevertCommit>;
     readonly cherryPickCommit: RpcUnaryMethod<typeof WS_METHODS.gitDiffCherryPickCommit>;
@@ -662,6 +663,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.gitDiffUnstageStagedChanges](input)),
       discardWorktreeChanges: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffDiscardWorktreeChanges](input)),
+      discardWorktreeHunk: (input) =>
+        transport.request((client) => client[WS_METHODS.gitDiffDiscardWorktreeHunk](input)),
       amendStagedChanges: (input) =>
         transport.request((client) => client[WS_METHODS.gitDiffAmendStagedChanges](input)),
       revertCommit: (input) =>

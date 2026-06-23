@@ -643,6 +643,23 @@ describe("decideOrchestrationCommand", () => {
     });
   });
 
+  describe("thread.context.compact", () => {
+    it("emits context-compact-requested without creating a user turn", async () => {
+      const event = await decideSingle({
+        type: "thread.context.compact",
+        commandId: asCommandId("cmd-compact-1"),
+        threadId: asThreadId("thread-1"),
+        createdAt: now,
+      });
+
+      expect(event.type).toBe("thread.context-compact-requested");
+      expect(event.payload).toEqual({
+        threadId: "thread-1",
+        createdAt: now,
+      });
+    });
+  });
+
   describe("thread.approval.respond", () => {
     it("emits approval-response-requested with requestId metadata", async () => {
       const event = await decideSingle({

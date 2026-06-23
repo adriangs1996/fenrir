@@ -14,7 +14,7 @@ import type {
   WorkflowThreadSummary,
 } from "@fenrir/contracts";
 
-import { openInPreferredEditor } from "~/editorPreferences";
+import { openInConfiguredEmbeddedEditor } from "~/editorPreferences";
 import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
 import { ensureLocalApi } from "~/localApi";
 
@@ -388,7 +388,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   openWorkflowSource: async (workflowId) => {
     const client = getPrimaryEnvironmentConnection().client;
     const result = await client.workflows.openSource({ workflowId });
-    await openInPreferredEditor(ensureLocalApi(), result.path);
+    await openInConfiguredEmbeddedEditor(ensureLocalApi(), result.path);
     return result.path;
   },
 

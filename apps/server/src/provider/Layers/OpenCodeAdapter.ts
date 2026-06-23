@@ -1283,6 +1283,17 @@ export function makeOpenCodeAdapter(options?: OpenCodeAdapterLiveOptions) {
       },
     );
 
+    const compactThread: OpenCodeAdapterShape["compactThread"] = Effect.fn("compactThread")(
+      function* (input) {
+        ensureSessionContext(sessions, input.threadId);
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "thread/compact/start",
+          detail: "Context compaction is not supported by this provider.",
+        });
+      },
+    );
+
     const rollbackThread: OpenCodeAdapterShape["rollbackThread"] = Effect.fn("rollbackThread")(
       function* (threadId, numTurns) {
         const context = ensureSessionContext(sessions, threadId);
@@ -1340,6 +1351,7 @@ export function makeOpenCodeAdapter(options?: OpenCodeAdapterLiveOptions) {
       listSessions,
       hasSession,
       readThread,
+      compactThread,
       rollbackThread,
       stopAll,
       get streamEvents() {

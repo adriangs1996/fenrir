@@ -1,4 +1,4 @@
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, useEffect } from "react";
 import type { EnvironmentId } from "@fenrir/contracts";
 import { type TimestampFormat } from "@fenrir/contracts/settings";
 import { Badge } from "./ui/badge";
@@ -119,7 +119,12 @@ const PlanSidebar = memo(function PlanSidebar({
   const planMarkdown = activeProposedPlan?.planMarkdown ?? null;
   const displayedPlanMarkdown = planMarkdown ? stripDisplayedPlanMarkdown(planMarkdown) : null;
   const planTitle = planMarkdown ? proposedPlanTitle(planMarkdown) : null;
+  const proposedPlanId = activeProposedPlan?.id ?? null;
   const stepSummary = activePlan ? summarizePlanSteps(activePlan.steps) : null;
+
+  useEffect(() => {
+    setProposedPlanExpanded(false);
+  }, [proposedPlanId]);
 
   const handleCopyPlan = useCallback(() => {
     if (!planMarkdown) return;
@@ -333,9 +338,13 @@ const PlanSidebar = memo(function PlanSidebar({
           {/* Empty state */}
           {!activePlan && !planMarkdown ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
-              <p className="text-[13px] text-muted-foreground/40">No active plan yet.</p>
+              <p className="text-[13px] text-muted-foreground/40">
+                {label === "Tasks" ? "No tasks yet." : "No active plan yet."}
+              </p>
               <p className="mt-1 text-[11px] text-muted-foreground/30">
-                Plans will appear here when generated.
+                {label === "Tasks"
+                  ? "Tasks will appear here when generated."
+                  : "Plans will appear here when generated."}
               </p>
             </div>
           ) : null}

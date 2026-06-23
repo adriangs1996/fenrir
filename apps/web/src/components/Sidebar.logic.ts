@@ -298,8 +298,8 @@ export function resolveActiveProjectThreadKeys<
 
 export function resolveProjectDrawerPresentation(input: {
   activeRouteProjectDrawerView: ProjectDrawerView | null;
-  hasActiveThreadRoute: boolean;
   hasPinnedCollapsedThread: boolean;
+  projectDrawerRailVisible: boolean;
   projectDrawerView: ProjectDrawerView;
   projectExpanded: boolean;
 }): {
@@ -313,7 +313,8 @@ export function resolveProjectDrawerPresentation(input: {
   const shouldShowProjectDrawerPanel =
     input.projectExpanded || input.hasPinnedCollapsedThread || hasActiveNonThreadDrawerRoute;
   const shouldShowProjectDrawerRail =
-    shouldShowProjectDrawerPanel && (input.hasActiveThreadRoute || hasActiveNonThreadDrawerRoute);
+    shouldShowProjectDrawerPanel &&
+    (input.projectDrawerRailVisible || hasActiveNonThreadDrawerRoute);
   const effectiveProjectDrawerView = input.hasPinnedCollapsedThread
     ? "threads"
     : input.projectDrawerView;
@@ -343,17 +344,11 @@ export function resolveThreadRowClassName(input: {
     "h-7 w-full translate-x-0 cursor-pointer justify-start px-2 text-left select-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
 
   if (input.isSelected && input.isActive) {
-    return cn(
-      baseClassName,
-      "bg-primary/22 text-foreground font-medium hover:bg-primary/26 hover:text-foreground dark:bg-primary/30 dark:hover:bg-primary/36",
-    );
+    return cn(baseClassName, "text-foreground font-medium hover:text-foreground");
   }
 
   if (input.isSelected) {
-    return cn(
-      baseClassName,
-      "bg-primary/15 text-foreground hover:bg-primary/19 hover:text-foreground dark:bg-primary/22 dark:hover:bg-primary/28",
-    );
+    return cn(baseClassName, "text-foreground font-medium hover:text-foreground");
   }
 
   if (input.isActive) {

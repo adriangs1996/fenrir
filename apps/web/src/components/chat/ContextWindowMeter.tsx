@@ -1,5 +1,8 @@
+import { Minimize2Icon } from "lucide-react";
+
 import { cn } from "~/lib/utils";
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
+import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 
 function formatPercentage(value: number | null): string | null {
@@ -12,8 +15,13 @@ function formatPercentage(value: number | null): string | null {
   return `${Math.round(value)}%`;
 }
 
-export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
-  const { usage } = props;
+export function ContextWindowMeter(props: {
+  usage: ContextWindowSnapshot;
+  compactDisabled?: boolean;
+  compactPending?: boolean;
+  onCompact?: () => void;
+}) {
+  const { compactDisabled = false, compactPending = false, onCompact, usage } = props;
   const usedPercentage = formatPercentage(usage.usedPercentage);
   const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
   const radius = 9.75;
@@ -25,7 +33,7 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
       <PopoverTrigger
         openOnHover
         delay={150}
-        closeDelay={0}
+        closeDelay={onCompact ? 300 : 0}
         render={
           <button
             type="button"
@@ -104,8 +112,25 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
           ) : null}
           {usage.compactsAutomatically ? (
             <div className="text-xs text-muted-foreground">
-              Automatically compacts its context when needed.
+              Can compact its context when needed.
             </div>
+          ) : null}
+          {usage.compactsAutomatically && onCompact ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="secondary"
+              className="mt-2 w-full justify-center gap-1.5"
+              disabled={compactDisabled || compactPending}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onCompact();
+              }}
+            >
+              <Minimize2Icon className="size-3.5" />
+              {compactPending ? "Compacting..." : "Compact context"}
+            </Button>
           ) : null}
         </div>
       </PopoverPopup>

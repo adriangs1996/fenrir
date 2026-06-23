@@ -100,6 +100,13 @@ export const makeGitDiffRoutes = (deps: { readonly refreshGitStatus: RefreshGitS
             .discardWorktreeChanges(input)
             .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
       ),
+      [WS_METHODS.gitDiffDiscardWorktreeHunk]: gitDiff.effect(
+        WS_METHODS.gitDiffDiscardWorktreeHunk,
+        (input) =>
+          gitDiffCore
+            .discardWorktreeHunk(input)
+            .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
       [WS_METHODS.gitDiffAmendStagedChanges]: gitDiff.effect(
         WS_METHODS.gitDiffAmendStagedChanges,
         (input) =>

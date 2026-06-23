@@ -45,6 +45,21 @@ export function resolveSidePanelControlLabel(input: {
   }
 }
 
+export function shouldAutoOpenPlanSidebar(input: {
+  autoOpenPlanSidebar: boolean;
+  hasActivePlan: boolean;
+  activePlanScopedToLatestTurn: boolean;
+  rightPanelActiveTab: RightPanelTab | null;
+  dismissedTurnKey: string | null;
+  turnKey: string;
+}): boolean {
+  if (!input.autoOpenPlanSidebar) return false;
+  if (!input.hasActivePlan) return false;
+  if (!input.activePlanScopedToLatestTurn) return false;
+  if (input.rightPanelActiveTab !== null) return false;
+  return input.dismissedTurnKey !== input.turnKey;
+}
+
 export function buildLocalDraftThread(
   threadId: ThreadId,
   draftThread: DraftThreadState,

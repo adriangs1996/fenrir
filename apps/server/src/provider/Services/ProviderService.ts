@@ -12,6 +12,7 @@
  * @module ProviderService
  */
 import type {
+  ProviderCompactThreadInput,
   ProviderInterruptTurnInput,
   ProviderDriverKind,
   ProviderKind,
@@ -55,6 +56,13 @@ export interface ProviderServiceShape {
    */
   readonly interruptTurn: (
     input: ProviderInterruptTurnInput,
+  ) => Effect.Effect<void, ProviderServiceError>;
+
+  /**
+   * Compact provider-managed context for a thread.
+   */
+  readonly compactThread: (
+    input: ProviderCompactThreadInput,
   ) => Effect.Effect<void, ProviderServiceError>;
 
   /**

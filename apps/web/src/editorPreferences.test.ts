@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  openInConfiguredEmbeddedEditor,
   openInEmbeddedEditor,
   openInEmbeddedVSCode,
   openInPreferredEditor,
@@ -288,6 +289,88 @@ describe("openInPreferredEditor", () => {
     expect(clientSettingsBridge.setClientSettings).toHaveBeenCalledWith(
       expect.objectContaining({ embeddedEditor: "vscode" }),
     );
+    expect(useEditorStore.getState().activeChatTab).toBe("editor");
+  });
+});
+
+describe("openInConfiguredEmbeddedEditor", () => {
+  const openFileMock = vi.fn(async () => undefined);
+  const vscodeOpenFileMock = vi.fn(async () => ({
+    cwd: "/src",
+    url: "http://127.0.0.1:49152",
+    serverKind: "code-server" as const,
+    command: "code-server",
+  }));
+
+  afterEach(async () => {
+    openFileMock.mockClear();
+    vscodeOpenFileMock.mockClear();
+    vi.unstubAllGlobals();
+    useEditorStore.getState().setActiveChatTab("thread");
+    await __resetLocalApiForTests();
+  });
+
+  it("opens in the configured embedded Neovim and ignores the global file-manager preference", async () => {
+    const clientSettingsBridge = createClientSettingsBridge();
+    clientSettingsBridge.getClientSettings.mockResolvedValue({
+      embeddedEditor: "neovim",
+    } as never);
+    vi.stubGlobal("window", {
+      desktopBridge: {
+        ...clientSettingsBridge,
+        isMainWindow: () => true,
+        nvimAvailable: vi.fn(async () => true),
+        vscodeAvailable: vi.fn(async () => true),
+        editor: { openFile: openFileMock },
+        vscodeOpenFile: vscodeOpenFileMock,
+      },
+      nativeApi: { persistence: clientSettingsBridge },
+      localStorage: createLocalStorageStub("file-manager"),
+    });
+
+    await expect(
+      openInConfiguredEmbeddedEditor(
+        { persistence: clientSettingsBridge } as never,
+        "/tmp/fenrir-workflows/workflow.js",
+      ),
+    ).resolves.toBe("neovim");
+
+    expect(openFileMock).toHaveBeenCalledWith({
+      path: "/tmp/fenrir-workflows/workflow.js",
+    });
+    expect(vscodeOpenFileMock).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().activeChatTab).toBe("editor");
+  });
+
+  it("uses embedded VS Code when it is configured and available", async () => {
+    const clientSettingsBridge = createClientSettingsBridge();
+    clientSettingsBridge.getClientSettings.mockResolvedValue({
+      embeddedEditor: "vscode",
+    } as never);
+    vi.stubGlobal("window", {
+      desktopBridge: {
+        ...clientSettingsBridge,
+        isMainWindow: () => true,
+        nvimAvailable: vi.fn(async () => true),
+        vscodeAvailable: vi.fn(async () => true),
+        editor: { openFile: openFileMock },
+        vscodeOpenFile: vscodeOpenFileMock,
+      },
+      nativeApi: { persistence: clientSettingsBridge },
+      localStorage: createLocalStorageStub(),
+    });
+
+    await expect(
+      openInConfiguredEmbeddedEditor(
+        { persistence: clientSettingsBridge } as never,
+        "/tmp/fenrir-workflows/workflow.js",
+      ),
+    ).resolves.toBe("vscode");
+
+    expect(vscodeOpenFileMock).toHaveBeenCalledWith({
+      path: "/tmp/fenrir-workflows/workflow.js",
+    });
+    expect(openFileMock).not.toHaveBeenCalled();
     expect(useEditorStore.getState().activeChatTab).toBe("editor");
   });
 });

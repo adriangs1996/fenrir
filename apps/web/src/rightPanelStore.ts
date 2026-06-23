@@ -1,10 +1,9 @@
 import { create } from "zustand";
 
 export type RightPanelTab = "plan" | "workflows" | "diff";
-export const DEFAULT_RIGHT_PANEL_TAB: RightPanelTab = "plan";
 
 interface RightPanelState {
-  /** Thread-scoped active tab. Missing entries use the open default tab. */
+  /** Thread-scoped active tab. Missing entries are closed. */
   activeTabByThreadKey: Record<string, RightPanelTab | null>;
 
   /** Open the panel to a specific tab */
@@ -27,7 +26,7 @@ export function selectRightPanelActiveTab(
   if (!threadKey) {
     return null;
   }
-  return state.activeTabByThreadKey[threadKey] ?? DEFAULT_RIGHT_PANEL_TAB;
+  return state.activeTabByThreadKey[threadKey] ?? null;
 }
 
 export const useRightPanelStore = create<RightPanelState>((set, get) => ({

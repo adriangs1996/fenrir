@@ -2041,6 +2041,53 @@ describe("GitDiffCoreLive", () => {
       }),
     );
 
+    it.effect("discards a selected worktree hunk while preserving other hunks", () =>
+      Effect.gen(function* () {
+        const cwd = makeCommittedRepo({
+          "src/file.txt": ["one", "two", "three", "four", "five", "six", ""].join("\n"),
+        });
+
+        try {
+          writeFileSync(
+            path.join(cwd, "src/file.txt"),
+            ["one", "TWO", "three", "four", "FIVE", "six", ""].join("\n"),
+          );
+
+          const gitDiff = yield* GitDiffCore;
+          const files = yield* gitDiff.loadDiffFileIndex({
+            cwd,
+            target: { kind: "worktree" },
+            detectRenames: true,
+            detectCopies: true,
+          });
+          const file = files.find((entry) => entry.path === "src/file.txt");
+          expect(file?.hunks).toHaveLength(2);
+
+          const hunk = file?.hunks[0];
+          if (!hunk) {
+            throw new Error("Expected first hunk to be present.");
+          }
+          const result = yield* gitDiff.discardWorktreeHunk({
+            cwd,
+            path: "src/file.txt",
+            hunk,
+          });
+
+          expect(result).toEqual({
+            discardedFilePath: "src/file.txt",
+            hunk,
+          });
+          expect(readFileSync(path.join(cwd, "src/file.txt"), "utf8")).toBe(
+            ["one", "two", "three", "four", "FIVE", "six", ""].join("\n"),
+          );
+          expect(gitOutput(cwd, "diff", "--unified=0", "--", "src/file.txt")).toContain("FIVE");
+          expect(gitOutput(cwd, "diff", "--unified=0", "--", "src/file.txt")).not.toContain("TWO");
+        } finally {
+          rmSync(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+
     it.effect("amends only the requested staged paths", () =>
       Effect.gen(function* () {
         const cwd = makeCommittedRepo({

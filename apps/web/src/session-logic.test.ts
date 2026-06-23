@@ -370,6 +370,33 @@ describe("deriveActivePlanState", () => {
     });
   });
 
+  it("normalizes provider plan step payloads defensively", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "plan-non-canonical",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        tone: "info",
+        turnId: "turn-1",
+        payload: {
+          plan: [
+            { step: " Inspect code ", status: "done" },
+            { step: "Wire sidebar", status: "in_progress" },
+            { step: "  ", status: "completed" },
+            { step: "Run checks", status: "queued" },
+          ],
+        },
+      }),
+    ];
+
+    expect(deriveActivePlanState(activities, TurnId.make("turn-1"))?.steps).toEqual([
+      { step: "Inspect code", status: "completed" },
+      { step: "Wire sidebar", status: "inProgress" },
+      { step: "Run checks", status: "pending" },
+    ]);
+  });
+
   it("treats unscoped plan updates inside the latest turn window as latest-turn work", () => {
     const activePlan = {
       createdAt: "2026-02-23T00:00:02.000Z",
@@ -412,7 +439,7 @@ describe("deriveActivePlanState", () => {
     ]);
   });
 
-  it("settles carried-over previous-turn plan steps while a new turn is running", () => {
+  it("preserves carried-over previous-turn plan step status while a new turn is running", () => {
     const activePlan = {
       createdAt: "2026-02-23T00:00:02.000Z",
       turnId: TurnId.make("turn-1"),
@@ -427,7 +454,25 @@ describe("deriveActivePlanState", () => {
         startedAt: "2026-02-23T00:01:01.000Z",
         completedAt: null,
       })?.steps,
-    ).toEqual([{ step: "Write tests", status: "completed" }]);
+    ).toEqual([{ step: "Write tests", status: "inProgress" }]);
+  });
+
+  it("resets in-progress latest-turn plan steps when the turn is interrupted", () => {
+    const activePlan = {
+      createdAt: "2026-02-23T00:00:02.000Z",
+      turnId: TurnId.make("turn-1"),
+      steps: [{ step: "Write tests", status: "inProgress" as const }],
+    };
+
+    expect(
+      deriveDisplayActivePlanState(activePlan, {
+        turnId: TurnId.make("turn-1"),
+        state: "interrupted",
+        requestedAt: "2026-02-23T00:00:01.000Z",
+        startedAt: "2026-02-23T00:00:01.500Z",
+        completedAt: "2026-02-23T00:00:05.000Z",
+      })?.steps,
+    ).toEqual([{ step: "Write tests", status: "pending" }]);
   });
 });
 

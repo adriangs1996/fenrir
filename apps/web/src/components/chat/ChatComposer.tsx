@@ -160,6 +160,40 @@ const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const COMPOSER_SKILL_RESULT_LIMIT = 64;
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 
+type ContextCompactionRequestState = {
+  threadId: ThreadId;
+  baselineActivityCount: number;
+};
+
+function isContextCompactionTerminalActivity(activity: Thread["activities"][number]): boolean {
+  if (activity.kind === "provider.context.compact.failed") {
+    return true;
+  }
+  if (activity.kind !== "context-compaction") {
+    return false;
+  }
+
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  return (
+    payload?.state === "compacted" ||
+    payload?.status === "completed" ||
+    payload?.status === "failed" ||
+    activity.summary === "Context compacted"
+  );
+}
+
+function hasContextCompactionTerminalActivity(
+  activities: ReadonlyArray<Thread["activities"][number]>,
+  request: ContextCompactionRequestState,
+): boolean {
+  return activities
+    .slice(request.baselineActivityCount)
+    .some((activity) => isContextCompactionTerminalActivity(activity));
+}
+
 const extendReplacementRangeForTrailingSpace = (
   text: string,
   rangeEnd: number,
@@ -193,6 +227,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   runtimeMode: RuntimeMode;
   sidePanelOpen: boolean;
   sidePanelLabel: "Plan" | "Tasks" | "Workflows" | "Diff";
+  showSidePanelToggle: boolean;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   onToggleSidePanel: () => void;
@@ -266,23 +301,27 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         </SelectPopup>
       </Select>
 
-      <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-      <Button
-        variant="ghost"
-        className={cn(
-          "shrink-0 whitespace-nowrap px-2 sm:px-3",
-          props.sidePanelOpen
-            ? "text-primary hover:text-primary"
-            : "text-muted-foreground/70 hover:text-foreground/80",
-        )}
-        size="sm"
-        type="button"
-        onClick={props.onToggleSidePanel}
-        title={sidePanelTitle}
-      >
-        <SidePanelIcon />
-        <span className="sr-only sm:not-sr-only">{props.sidePanelLabel}</span>
-      </Button>
+      {props.showSidePanelToggle ? (
+        <>
+          <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
+          <Button
+            variant="ghost"
+            className={cn(
+              "shrink-0 whitespace-nowrap px-2 sm:px-3",
+              props.sidePanelOpen
+                ? "text-primary hover:text-primary"
+                : "text-muted-foreground/70 hover:text-foreground/80",
+            )}
+            size="sm"
+            type="button"
+            onClick={props.onToggleSidePanel}
+            title={sidePanelTitle}
+          >
+            <SidePanelIcon />
+            <span className="sr-only sm:not-sr-only">{props.sidePanelLabel}</span>
+          </Button>
+        </>
+      ) : null}
     </>
   );
 });
@@ -732,11 +771,20 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   hasSendableContent: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
+  onCompactContext: () => void;
+  isContextCompactionPending: boolean;
   onImplementPlanInNewThread: () => void;
 }) {
   return (
     <>
-      {props.activeContextWindow ? <ContextWindowMeter usage={props.activeContextWindow} /> : null}
+      {props.activeContextWindow ? (
+        <ContextWindowMeter
+          usage={props.activeContextWindow}
+          compactDisabled={props.isRunning || props.isConnecting}
+          compactPending={props.isContextCompactionPending}
+          onCompact={props.onCompactContext}
+        />
+      ) : null}
       {props.isPreparingWorktree ? (
         <span className="text-muted-foreground/70 text-xs">Preparing worktree...</span>
       ) : null}
@@ -749,6 +797,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         isSendBusy={props.isSendBusy}
         isConnecting={props.isConnecting}
         isPreparingWorktree={props.isPreparingWorktree}
+        isContextCompactionPending={props.isContextCompactionPending}
         hasSendableContent={props.hasSendableContent}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
@@ -883,6 +932,7 @@ export interface ChatComposerProps {
   // Callbacks
   onSend: (e?: { preventDefault: () => void }) => void;
   onInterrupt: () => void;
+  onCompactContext: () => Promise<void>;
   onImplementPlanInNewThread: () => void;
   onRespondToApproval: (
     requestId: ApprovalRequestId,
@@ -905,6 +955,7 @@ export interface ChatComposerProps {
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
   sidePanelOpen: boolean;
   sidePanelLabel: "Plan" | "Tasks" | "Workflows" | "Diff";
+  showSidePanelToggle: boolean;
   toggleSidePanel: () => void;
 
   focusComposer: () => void;
@@ -968,6 +1019,7 @@ export const ChatComposer = memo(
       scheduleStickToBottom,
       onSend,
       onInterrupt,
+      onCompactContext,
       onImplementPlanInNewThread,
       onRespondToApproval,
       onSelectActivePendingUserInputOption,
@@ -981,6 +1033,7 @@ export const ChatComposer = memo(
       handleInteractionModeChange,
       sidePanelOpen,
       sidePanelLabel,
+      showSidePanelToggle,
       toggleSidePanel,
       focusComposer,
       scheduleComposerFocus,
@@ -1170,6 +1223,10 @@ export const ChatComposer = memo(
     const [isDragOverComposer, setIsDragOverComposer] = useState(false);
     const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
     const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
+    const [contextCompactionRequest, setContextCompactionRequest] =
+      useState<ContextCompactionRequestState | null>(null);
+    const isContextCompactionPending =
+      contextCompactionRequest !== null && contextCompactionRequest.threadId === activeThreadId;
 
     // ------------------------------------------------------------------
     // Refs
@@ -1198,6 +1255,21 @@ export const ChatComposer = memo(
         }),
       [composerImages.length, composerTerminalContexts, prompt],
     );
+
+    useEffect(() => {
+      if (!contextCompactionRequest) {
+        return;
+      }
+      if (contextCompactionRequest.threadId !== activeThreadId) {
+        setContextCompactionRequest(null);
+        return;
+      }
+      if (
+        hasContextCompactionTerminalActivity(activeThreadActivities ?? [], contextCompactionRequest)
+      ) {
+        setContextCompactionRequest(null);
+      }
+    }, [activeThreadActivities, activeThreadId, contextCompactionRequest]);
 
     // ------------------------------------------------------------------
     // Derived: composer trigger / menu
@@ -1387,12 +1459,13 @@ export const ChatComposer = memo(
       if (showPlanFollowUpPrompt) {
         return prompt.trim().length > 0 ? "plan:refine" : "plan:implement";
       }
-      return `idle:${composerSendState.hasSendableContent}:${isSendBusy}:${isConnecting}:${isPreparingWorktree}`;
+      return `idle:${composerSendState.hasSendableContent}:${isSendBusy}:${isConnecting}:${isPreparingWorktree}:${isContextCompactionPending}`;
     }, [
       activePendingIsResponding,
       activePendingProgress,
       composerSendState.hasSendableContent,
       isConnecting,
+      isContextCompactionPending,
       isPreparingWorktree,
       isSendBusy,
       phase,
@@ -2006,6 +2079,17 @@ export const ChatComposer = memo(
       setComposerHighlightedItemId(itemId);
     }, []);
 
+    const handleComposerSubmit = useCallback(
+      (event?: { preventDefault: () => void }) => {
+        if (isContextCompactionPending) {
+          event?.preventDefault();
+          return;
+        }
+        onSend(event);
+      },
+      [isContextCompactionPending, onSend],
+    );
+
     const nudgeComposerMenuHighlight = useCallback(
       (key: "ArrowDown" | "ArrowUp") => {
         if (composerMenuItems.length === 0) return;
@@ -2053,7 +2137,7 @@ export const ChatComposer = memo(
         }
       }
       if (key === "Enter" && !event.shiftKey) {
-        void onSend();
+        handleComposerSubmit();
         return true;
       }
       return false;
@@ -2160,6 +2244,25 @@ export const ChatComposer = memo(
     const handleInterruptPrimaryAction = useCallback(() => {
       void onInterrupt();
     }, [onInterrupt]);
+    const handleCompactContext = useCallback(() => {
+      if (!activeThreadId || isContextCompactionPending || isConnecting || phase === "running") {
+        return;
+      }
+      setContextCompactionRequest({
+        threadId: activeThreadId,
+        baselineActivityCount: activeThreadActivities?.length ?? 0,
+      });
+      void onCompactContext().catch(() => {
+        setContextCompactionRequest(null);
+      });
+    }, [
+      activeThreadActivities?.length,
+      activeThreadId,
+      isConnecting,
+      isContextCompactionPending,
+      onCompactContext,
+      phase,
+    ]);
     const onProviderInstanceSelect = useCallback(
       (instanceId: string) => {
         const normalizedInstanceId = instanceId.trim();
@@ -2286,7 +2389,7 @@ export const ChatComposer = memo(
     return (
       <form
         ref={composerFormRef}
-        onSubmit={onSend}
+        onSubmit={handleComposerSubmit}
         className="mx-auto w-full min-w-0 max-w-208"
         data-chat-composer-form="true"
       >
@@ -2609,6 +2712,7 @@ export const ChatComposer = memo(
                       interactionMode={interactionMode}
                       sidePanelOpen={sidePanelOpen}
                       sidePanelLabel={sidePanelLabel}
+                      showSidePanelToggle={showSidePanelToggle}
                       runtimeMode={runtimeMode}
                       traitsMenuContent={providerTraitsMenuContent}
                       onToggleInteractionMode={toggleInteractionMode}
@@ -2631,6 +2735,7 @@ export const ChatComposer = memo(
                         runtimeMode={runtimeMode}
                         sidePanelOpen={sidePanelOpen}
                         sidePanelLabel={sidePanelLabel}
+                        showSidePanelToggle={showSidePanelToggle}
                         onToggleInteractionMode={toggleInteractionMode}
                         onRuntimeModeChange={handleRuntimeModeChange}
                         onToggleSidePanel={toggleSidePanel}
@@ -2665,6 +2770,8 @@ export const ChatComposer = memo(
                     }
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
+                    onCompactContext={handleCompactContext}
+                    isContextCompactionPending={isContextCompactionPending}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
                   />
                 </div>

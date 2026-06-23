@@ -793,6 +793,7 @@ describe("wsApi", () => {
 
     await api.persistence.getClientSettings();
     await api.persistence.setClientSettings({
+      autoOpenPlanSidebar: false,
       confirmThreadArchive: true,
       confirmThreadDelete: false,
       diffIgnoreWhitespace: true,
@@ -825,6 +826,7 @@ describe("wsApi", () => {
 
     expect(getClientSettings).toHaveBeenCalledWith();
     expect(setClientSettings).toHaveBeenCalledWith({
+      autoOpenPlanSidebar: false,
       confirmThreadArchive: true,
       confirmThreadDelete: false,
       diffIgnoreWhitespace: true,
@@ -858,6 +860,7 @@ describe("wsApi", () => {
     const api = createLocalApi(rpcClientMock as never);
 
     await api.persistence.setClientSettings({
+      autoOpenPlanSidebar: false,
       confirmThreadArchive: true,
       confirmThreadDelete: false,
       diffIgnoreWhitespace: true,

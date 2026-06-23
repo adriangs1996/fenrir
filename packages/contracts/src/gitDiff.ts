@@ -364,6 +364,19 @@ export const DiscardGitDiffWorktreeChangesResult = Schema.Struct({
 });
 export type DiscardGitDiffWorktreeChangesResult = typeof DiscardGitDiffWorktreeChangesResult.Type;
 
+export const DiscardGitDiffWorktreeHunkInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  path: TrimmedNonEmptyString,
+  hunk: GitDiffHunkSummary,
+});
+export type DiscardGitDiffWorktreeHunkInput = typeof DiscardGitDiffWorktreeHunkInput.Type;
+
+export const DiscardGitDiffWorktreeHunkResult = Schema.Struct({
+  discardedFilePath: TrimmedNonEmptyString,
+  hunk: GitDiffHunkSummary,
+});
+export type DiscardGitDiffWorktreeHunkResult = typeof DiscardGitDiffWorktreeHunkResult.Type;
+
 export const AmendGitDiffStagedChangesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   filePaths: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),

@@ -18,6 +18,7 @@ import {
   type ProviderInstanceId,
   type ProviderKind,
   ThreadId,
+  ProviderCompactThreadInput,
   ProviderInterruptTurnInput,
   ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
@@ -773,6 +774,44 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
+  const compactThread: ProviderServiceShape["compactThread"] = Effect.fn("compactThread")(
+    function* (rawInput) {
+      const input = yield* decodeInputOrValidationError({
+        operation: "ProviderService.compactThread",
+        schema: ProviderCompactThreadInput,
+        payload: rawInput,
+      });
+      let metricProvider = "unknown";
+      return yield* Effect.gen(function* () {
+        const routed = yield* resolveRoutableSession({
+          threadId: input.threadId,
+          operation: "ProviderService.compactThread",
+          allowRecovery: true,
+        });
+        metricProvider = routed.adapter.provider;
+        yield* Effect.annotateCurrentSpan({
+          "provider.operation": "compact-thread",
+          "provider.kind": routed.adapter.provider,
+          "provider.thread_id": input.threadId,
+        });
+        yield* routed.adapter.compactThread({
+          threadId: routed.threadId,
+        });
+        yield* analytics.record("provider.thread.compaction_requested", {
+          provider: routed.adapter.provider,
+        });
+      }).pipe(
+        withMetrics({
+          counter: providerTurnsTotal,
+          outcomeAttributes: () =>
+            providerMetricAttributes(metricProvider, {
+              operation: "compact",
+            }),
+        }),
+      );
+    },
+  );
+
   const respondToRequest: ProviderServiceShape["respondToRequest"] = Effect.fn("respondToRequest")(
     function* (rawInput) {
       const input = yield* decodeInputOrValidationError({
@@ -1046,6 +1085,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     startSession,
     sendTurn,
     interruptTurn,
+    compactThread,
     respondToRequest,
     respondToUserInput,
     stopSession,

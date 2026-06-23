@@ -19,7 +19,9 @@ import {
   type GitDiffRepositoryOperation,
   type GitDiffSelectedLineRange,
   type GitDiffCommit,
+  type GitDiffHunkSummary,
   type GitDiffStash,
+  type DiscardGitDiffWorktreeHunkInput,
   type RevertGitDiffChangeRequestLinesInput,
   type SourceControlProviderError,
 } from "@fenrir/contracts";
@@ -201,6 +203,104 @@ function gitDiffCommandError(
     detail,
     ...(cause !== undefined ? { cause } : {}),
   });
+}
+
+interface ParsedUnifiedPatchHunk {
+  readonly index: number;
+  readonly header: string;
+  readonly oldStart: number;
+  readonly oldLines: number;
+  readonly newStart: number;
+  readonly newLines: number;
+  readonly lines: ReadonlyArray<string>;
+}
+
+interface ParsedUnifiedPatch {
+  readonly fileHeaderLines: ReadonlyArray<string>;
+  readonly hunks: ReadonlyArray<ParsedUnifiedPatchHunk>;
+}
+
+function parseUnifiedHunkHeader(header: string): Omit<ParsedUnifiedPatchHunk, "index" | "lines"> {
+  const match = header.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/u);
+  if (!match) {
+    throw new Error(`Invalid hunk header: ${header}`);
+  }
+
+  return {
+    header: header.trim(),
+    oldStart: Number(match[1]),
+    oldLines: match[2] === undefined ? 1 : Number(match[2]),
+    newStart: Number(match[3]),
+    newLines: match[4] === undefined ? 1 : Number(match[4]),
+  };
+}
+
+function parseUnifiedPatchHunks(patch: string): ParsedUnifiedPatch {
+  const lines = patch.replace(/\r\n/g, "\n").split("\n");
+  if (lines.at(-1) === "") {
+    lines.pop();
+  }
+
+  const firstHunkLineIndex = lines.findIndex((line) => line.startsWith("@@ "));
+  if (firstHunkLineIndex === -1) {
+    return { fileHeaderLines: lines, hunks: [] };
+  }
+
+  const fileHeaderLines = lines.slice(0, firstHunkLineIndex);
+  const hunks: ParsedUnifiedPatchHunk[] = [];
+  let lineIndex = firstHunkLineIndex;
+
+  while (lineIndex < lines.length) {
+    const line = lines[lineIndex] ?? "";
+    if (line.startsWith("diff --git ")) {
+      break;
+    }
+    if (!line.startsWith("@@ ")) {
+      lineIndex += 1;
+      continue;
+    }
+
+    const hunkStartIndex = lineIndex;
+    const parsedHeader = parseUnifiedHunkHeader(line);
+    lineIndex += 1;
+
+    while (
+      lineIndex < lines.length &&
+      !(lines[lineIndex] ?? "").startsWith("@@ ") &&
+      !(lines[lineIndex] ?? "").startsWith("diff --git ")
+    ) {
+      lineIndex += 1;
+    }
+
+    hunks.push({
+      ...parsedHeader,
+      index: hunks.length,
+      lines: lines.slice(hunkStartIndex, lineIndex),
+    });
+  }
+
+  return { fileHeaderLines, hunks };
+}
+
+function isMatchingHunkSummary(
+  current: ParsedUnifiedPatchHunk,
+  expected: GitDiffHunkSummary,
+): boolean {
+  return (
+    current.index === expected.index &&
+    current.header === expected.header &&
+    current.oldStart === expected.oldStart &&
+    current.oldLines === expected.oldLines &&
+    current.newStart === expected.newStart &&
+    current.newLines === expected.newLines
+  );
+}
+
+function buildSingleHunkPatch(input: {
+  readonly fileHeaderLines: ReadonlyArray<string>;
+  readonly hunk: ParsedUnifiedPatchHunk;
+}): string {
+  return [...input.fileHeaderLines, ...input.hunk.lines].join("\n") + "\n";
 }
 
 type ReadDiffFileContentResult =
@@ -1291,6 +1391,103 @@ export const GitDiffCoreLive = Layer.effect(
         };
       });
 
+    const discardWorktreeHunk = (input: DiscardGitDiffWorktreeHunkInput) =>
+      Effect.gen(function* () {
+        const filePath = normalizeRelativePath(input.cwd, input.path);
+        const diffResult = yield* gitCore.execute({
+          operation: "GitDiffCore.discardWorktreeHunk.diff",
+          cwd: input.cwd,
+          args: ["diff", "--no-ext-diff", "--no-color", "--unified=0", "--", filePath],
+          allowNonZeroExit: true,
+          maxOutputBytes: DIFF_FILE_CONTENT_MAX_OUTPUT_BYTES,
+          truncateOutputAtMaxBytes: true,
+        });
+
+        if (diffResult.stdoutTruncated) {
+          return yield* gitDiffCommandError(
+            "GitDiffCore.discardWorktreeHunk.diff",
+            input.cwd,
+            "Worktree diff exceeded the maximum supported size.",
+          );
+        }
+        if (diffResult.code !== 0) {
+          return yield* gitDiffCommandError(
+            "GitDiffCore.discardWorktreeHunk.diff",
+            input.cwd,
+            diffResult.stderr.trim() || diffResult.stdout.trim() || "Failed to load worktree diff.",
+          );
+        }
+        if (diffResult.stdout.trim().length === 0) {
+          return yield* gitDiffCommandError(
+            "GitDiffCore.discardWorktreeHunk.diff",
+            input.cwd,
+            "No tracked worktree changes were found for this file.",
+          );
+        }
+
+        const parsedPatch = yield* Effect.try({
+          try: () => parseUnifiedPatchHunks(diffResult.stdout),
+          catch: (cause) =>
+            gitDiffCommandError(
+              "GitDiffCore.discardWorktreeHunk.parse",
+              input.cwd,
+              cause instanceof Error ? cause.message : "Failed to parse worktree diff.",
+              cause,
+            ),
+        });
+        const currentHunk = parsedPatch.hunks[input.hunk.index];
+        if (!currentHunk || !isMatchingHunkSummary(currentHunk, input.hunk)) {
+          return yield* gitDiffCommandError(
+            "GitDiffCore.discardWorktreeHunk.match",
+            input.cwd,
+            "The selected hunk no longer matches the current worktree diff.",
+          );
+        }
+
+        const hunkPatch = buildSingleHunkPatch({
+          fileHeaderLines: parsedPatch.fileHeaderLines,
+          hunk: currentHunk,
+        });
+        const checkResult = yield* gitCore.execute({
+          operation: "GitDiffCore.discardWorktreeHunk.check",
+          cwd: input.cwd,
+          args: ["apply", "--reverse", "--check", "--unidiff-zero", "--whitespace=nowarn"],
+          stdin: hunkPatch,
+          allowNonZeroExit: true,
+        });
+        if (checkResult.code !== 0) {
+          return yield* gitDiffCommandError(
+            "GitDiffCore.discardWorktreeHunk.check",
+            input.cwd,
+            checkResult.stderr.trim() ||
+              checkResult.stdout.trim() ||
+              "Selected hunk cannot be applied to the current worktree.",
+          );
+        }
+
+        const applyResult = yield* gitCore.execute({
+          operation: "GitDiffCore.discardWorktreeHunk.apply",
+          cwd: input.cwd,
+          args: ["apply", "--reverse", "--unidiff-zero", "--whitespace=nowarn"],
+          stdin: hunkPatch,
+          allowNonZeroExit: true,
+        });
+        if (applyResult.code !== 0) {
+          return yield* gitDiffCommandError(
+            "GitDiffCore.discardWorktreeHunk.apply",
+            input.cwd,
+            applyResult.stderr.trim() ||
+              applyResult.stdout.trim() ||
+              "Failed to discard selected hunk.",
+          );
+        }
+
+        return {
+          discardedFilePath: filePath,
+          hunk: input.hunk,
+        };
+      });
+
     const amendStagedChanges = (input: {
       readonly cwd: string;
       readonly filePaths?: ReadonlyArray<string>;
@@ -2157,6 +2354,7 @@ export const GitDiffCoreLive = Layer.effect(
       stageWorktreeChanges,
       unstageStagedChanges,
       discardWorktreeChanges,
+      discardWorktreeHunk,
       amendStagedChanges,
       revertCommit,
       cherryPickCommit,

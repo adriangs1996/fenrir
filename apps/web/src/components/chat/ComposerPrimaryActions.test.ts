@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { formatPendingPrimaryActionLabel } from "./ComposerPrimaryActions";
+import {
+  formatPendingPrimaryActionLabel,
+  formatPrimarySendBusyLabel,
+} from "./ComposerPrimaryActions";
 
 describe("formatPendingPrimaryActionLabel", () => {
   it("returns 'Submitting...' while responding", () => {
@@ -89,5 +92,37 @@ describe("formatPendingPrimaryActionLabel", () => {
         questionIndex: 5,
       }),
     ).toBe("Submit answers");
+  });
+});
+
+describe("formatPrimarySendBusyLabel", () => {
+  it("prefers the compaction label over send/connect states", () => {
+    expect(
+      formatPrimarySendBusyLabel({
+        isConnecting: true,
+        isSendBusy: true,
+        isContextCompactionPending: true,
+      }),
+    ).toBe("Compacting...");
+  });
+
+  it("returns the sending label while connecting or sending", () => {
+    expect(
+      formatPrimarySendBusyLabel({
+        isConnecting: false,
+        isSendBusy: true,
+        isContextCompactionPending: false,
+      }),
+    ).toBe("Sending...");
+  });
+
+  it("returns null when the primary send action is idle", () => {
+    expect(
+      formatPrimarySendBusyLabel({
+        isConnecting: false,
+        isSendBusy: false,
+        isContextCompactionPending: false,
+      }),
+    ).toBeNull();
   });
 });

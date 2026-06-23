@@ -1,4 +1,11 @@
-import { ArchiveIcon, CloudIcon, GitPullRequestIcon, GlobeIcon, TerminalIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  CloudIcon,
+  GitPullRequestIcon,
+  GlobeIcon,
+  TerminalIcon,
+  WorkflowIcon,
+} from "lucide-react";
 import React, { useCallback, memo, useMemo } from "react";
 import type { ScopedThreadRef } from "@fenrir/contracts";
 import { scopedThreadKey, scopeProjectRef, scopeThreadRef } from "@fenrir/client-runtime";
@@ -8,6 +15,7 @@ import { cn } from "../../lib/utils";
 import { selectProjectByRef, useStore } from "../../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "~/modules/terminal";
 import { useOpenBrowserLabUrl } from "~/modules/browser-lab/openBrowserLabUrl";
+import { selectThreadWorkflowCounts, useWorkflowStore } from "~/modules/workflows";
 import {
   selectLocalServersForThread,
   selectPreferredLocalServer,
@@ -150,6 +158,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const isHighlighted = isActive || isSelected;
   const isThreadRunning =
     thread.session?.status === "running" && thread.session.activeTurnId != null;
+  const activeWorkflowRunCount = useWorkflowStore(
+    (state) => selectThreadWorkflowCounts(state, thread.projectId, thread.id).activeRunCount,
+  );
+  const activeWorkflowRunLabel =
+    activeWorkflowRunCount === 1
+      ? "1 active workflow"
+      : `${activeWorkflowRunCount} active workflows`;
   const threadStatus = resolveThreadStatusPill({
     thread: {
       ...thread,
@@ -359,6 +374,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             </Tooltip>
           )}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
+          {activeWorkflowRunCount > 0 ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    role="img"
+                    aria-label={activeWorkflowRunLabel}
+                    data-testid={`thread-workflow-running-${thread.id}`}
+                    className="workflow-run-indicator relative inline-flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-full border border-info/35 bg-info/12 text-info shadow-[0_0_0_1px_color-mix(in_srgb,var(--info)_18%,transparent)]"
+                  >
+                    <span className="workflow-run-indicator__orbit" aria-hidden="true" />
+                    <WorkflowIcon className="relative z-10 size-3" />
+                  </span>
+                }
+              />
+              <TooltipPopup side="top">{activeWorkflowRunLabel}</TooltipPopup>
+            </Tooltip>
+          ) : null}
           {renamingThreadKey === threadKey ? (
             <input
               ref={handleRenameInputRef}

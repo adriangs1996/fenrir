@@ -1,7 +1,9 @@
 import { EDITORS, EditorId, LocalApi } from "@fenrir/contracts";
+import { DEFAULT_CLIENT_SETTINGS } from "@fenrir/contracts/settings";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "./hooks/useLocalStorage";
 import { useMemo } from "react";
 import { useEditorStore } from "~/modules/neovim-editor";
+import { resolveActiveEmbeddedEditor } from "~/modules/neovim-editor/embeddedEditor";
 import { updateClientSettings } from "./hooks/useSettings";
 
 const LAST_EDITOR_KEY = "fenrir:last-editor";
@@ -58,6 +60,38 @@ export async function openInPreferredEditor(
   }
 
   await api.shell.openInEditor(targetPath, editor);
+  return editor;
+}
+
+export async function openInConfiguredEmbeddedEditor(
+  api: Pick<LocalApi, "persistence">,
+  targetPath: string,
+): Promise<"neovim" | "vscode"> {
+  const bridge = window.desktopBridge;
+  if (!bridge) throw new Error("desktop bridge unavailable");
+  if (!bridge.isMainWindow())
+    throw new Error("embedded editor is only available in the main window");
+
+  const [settings, nvimReady, vscodeReady] = await Promise.all([
+    api.persistence.getClientSettings().catch(() => null),
+    bridge.nvimAvailable().catch(() => false),
+    bridge.vscodeAvailable?.().catch(() => false) ?? Promise.resolve(false),
+  ]);
+
+  if (!nvimReady && !vscodeReady) throw new Error("embedded editor unavailable");
+
+  const editor = resolveActiveEmbeddedEditor({
+    preferredEditor: settings?.embeddedEditor ?? DEFAULT_CLIENT_SETTINGS.embeddedEditor,
+    nvimReady,
+    vscodeReady,
+  });
+
+  if (editor === "neovim") {
+    await openInEmbeddedEditor(targetPath);
+  } else {
+    await openInEmbeddedVSCode(targetPath);
+  }
+
   return editor;
 }
 

@@ -21,6 +21,7 @@ interface ComposerPrimaryActionsProps {
   isSendBusy: boolean;
   isConnecting: boolean;
   isPreparingWorktree: boolean;
+  isContextCompactionPending: boolean;
   hasSendableContent: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
@@ -45,6 +46,20 @@ export const formatPendingPrimaryActionLabel = (input: {
   return input.questionIndex > 0 ? "Submit answers" : "Submit answer";
 };
 
+export const formatPrimarySendBusyLabel = (input: {
+  isConnecting: boolean;
+  isSendBusy: boolean;
+  isContextCompactionPending: boolean;
+}) => {
+  if (input.isContextCompactionPending) {
+    return "Compacting...";
+  }
+  if (input.isConnecting || input.isSendBusy) {
+    return "Sending...";
+  }
+  return null;
+};
+
 export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   compact,
   pendingAction,
@@ -54,11 +69,19 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   isSendBusy,
   isConnecting,
   isPreparingWorktree,
+  isContextCompactionPending,
   hasSendableContent,
   onPreviousPendingQuestion,
   onInterrupt,
   onImplementPlanInNewThread,
 }: ComposerPrimaryActionsProps) {
+  const busyLabel = formatPrimarySendBusyLabel({
+    isConnecting,
+    isSendBusy,
+    isContextCompactionPending,
+  });
+  const isPrimarySubmitBusy = busyLabel !== null;
+
   if (pendingAction) {
     return (
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
@@ -91,16 +114,19 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           size="sm"
           className={cn("rounded-full", compact ? "px-3" : "px-4")}
           disabled={
+            isContextCompactionPending ||
             pendingAction.isResponding ||
             (pendingAction.isLastQuestion ? !pendingAction.isComplete : !pendingAction.canAdvance)
           }
         >
-          {formatPendingPrimaryActionLabel({
-            compact,
-            isLastQuestion: pendingAction.isLastQuestion,
-            isResponding: pendingAction.isResponding,
-            questionIndex: pendingAction.questionIndex,
-          })}
+          {isContextCompactionPending
+            ? "Compacting..."
+            : formatPendingPrimaryActionLabel({
+                compact,
+                isLastQuestion: pendingAction.isLastQuestion,
+                isResponding: pendingAction.isResponding,
+                questionIndex: pendingAction.questionIndex,
+              })}
         </Button>
       </div>
     );
@@ -128,9 +154,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           type="submit"
           size="sm"
           className={cn("rounded-full", compact ? "h-9 px-3 sm:h-8" : "h-9 px-4 sm:h-8")}
-          disabled={isSendBusy || isConnecting}
+          disabled={isPrimarySubmitBusy}
         >
-          {isConnecting || isSendBusy ? "Sending..." : "Refine"}
+          {busyLabel ?? "Refine"}
         </Button>
       );
     }
@@ -141,9 +167,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           type="submit"
           size="sm"
           className={cn("h-9 rounded-l-full rounded-r-none sm:h-8", compact ? "px-3" : "px-4")}
-          disabled={isSendBusy || isConnecting}
+          disabled={isPrimarySubmitBusy}
         >
-          {isConnecting || isSendBusy ? "Sending..." : "Implement"}
+          {busyLabel ?? "Implement"}
         </Button>
         <Menu>
           <MenuTrigger
@@ -153,7 +179,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
                 variant="default"
                 className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
                 aria-label="Implementation actions"
-                disabled={isSendBusy || isConnecting}
+                disabled={isPrimarySubmitBusy}
               />
             }
           >
@@ -161,7 +187,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           </MenuTrigger>
           <MenuPopup align="end" side="top">
             <MenuItem
-              disabled={isSendBusy || isConnecting}
+              disabled={isPrimarySubmitBusy}
               onClick={() => void onImplementPlanInNewThread()}
             >
               Implement in a new thread
@@ -175,19 +201,30 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   return (
     <button
       type="submit"
-      className="flex h-9 w-9 enabled:cursor-pointer items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:pointer-events-none disabled:opacity-30 disabled:hover:scale-100 sm:h-8 sm:w-8"
-      disabled={isSendBusy || isConnecting || !hasSendableContent}
+      className={cn(
+        "flex h-9 enabled:cursor-pointer items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:pointer-events-none disabled:hover:scale-100 sm:h-8",
+        isContextCompactionPending && !compact
+          ? "min-w-32 gap-2 px-3 disabled:opacity-100"
+          : cn(
+              "w-9 sm:w-8",
+              isContextCompactionPending ? "disabled:opacity-100" : "disabled:opacity-30",
+            ),
+      )}
+      disabled={isPrimarySubmitBusy || !hasSendableContent}
+      title={isContextCompactionPending ? "Compacting context" : undefined}
       aria-label={
-        isConnecting
-          ? "Connecting"
-          : isPreparingWorktree
-            ? "Preparing worktree"
-            : isSendBusy
-              ? "Sending"
-              : "Send message"
+        isContextCompactionPending
+          ? "Compacting context"
+          : isConnecting
+            ? "Connecting"
+            : isPreparingWorktree
+              ? "Preparing worktree"
+              : isSendBusy
+                ? "Sending"
+                : "Send message"
       }
     >
-      {isConnecting || isSendBusy ? (
+      {isPrimarySubmitBusy ? (
         <svg
           width="14"
           height="14"
@@ -217,6 +254,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           />
         </svg>
       )}
+      {isContextCompactionPending && !compact ? (
+        <span className="whitespace-nowrap font-medium text-sm leading-none">Compacting...</span>
+      ) : null}
     </button>
   );
 });

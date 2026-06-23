@@ -1043,6 +1043,16 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
         return { threadId, turns: ctx.turns };
       });
 
+    const compactThread: CursorAdapterShape["compactThread"] = (input) =>
+      Effect.gen(function* () {
+        yield* requireSession(input.threadId);
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "thread/compact/start",
+          detail: "Context compaction is not supported by this provider.",
+        });
+      });
+
     const rollbackThread: CursorAdapterShape["rollbackThread"] = (threadId, numTurns) =>
       Effect.gen(function* () {
         const ctx = yield* requireSession(threadId);
@@ -1080,6 +1090,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
       startSession,
       sendTurn,
       interruptTurn,
+      compactThread,
       respondToRequest,
       respondToUserInput,
       stopSession,

@@ -178,6 +178,45 @@ function requestKindFromCanonicalRequestType(
   }
 }
 
+function contextCompactionActivityFromItemEvent(
+  event: ProviderRuntimeEvent,
+  maybeSequence: { readonly sequence?: number },
+): OrchestrationThreadActivity | null {
+  if (
+    event.type !== "item.started" &&
+    event.type !== "item.updated" &&
+    event.type !== "item.completed"
+  ) {
+    return null;
+  }
+  if (event.payload.itemType !== "context_compaction") {
+    return null;
+  }
+
+  const status =
+    event.payload.status ?? (event.type === "item.completed" ? "completed" : "inProgress");
+  return {
+    id: event.eventId,
+    createdAt: event.createdAt,
+    tone: status === "failed" ? "error" : "info",
+    kind: "context-compaction",
+    summary:
+      status === "completed"
+        ? "Context compacted"
+        : status === "failed"
+          ? "Context compaction failed"
+          : "Context compaction started",
+    payload: {
+      itemType: event.payload.itemType,
+      status,
+      ...(event.payload.title ? { title: event.payload.title } : {}),
+      ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+    },
+    turnId: toTurnId(event.turnId) ?? null,
+    ...maybeSequence,
+  };
+}
+
 function runtimeEventToActivities(
   event: ProviderRuntimeEvent,
   providerImageArtifacts: ReadonlyArray<ProviderImageArtifactAttachment> = [],
@@ -454,6 +493,13 @@ function runtimeEventToActivities(
     }
 
     case "item.updated": {
+      const contextCompactionActivity = contextCompactionActivityFromItemEvent(
+        event,
+        maybeSequence,
+      );
+      if (contextCompactionActivity) {
+        return [contextCompactionActivity];
+      }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
@@ -482,6 +528,13 @@ function runtimeEventToActivities(
     }
 
     case "item.completed": {
+      const contextCompactionActivity = contextCompactionActivityFromItemEvent(
+        event,
+        maybeSequence,
+      );
+      if (contextCompactionActivity) {
+        return [contextCompactionActivity];
+      }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
@@ -509,6 +562,13 @@ function runtimeEventToActivities(
     }
 
     case "item.started": {
+      const contextCompactionActivity = contextCompactionActivityFromItemEvent(
+        event,
+        maybeSequence,
+      );
+      if (contextCompactionActivity) {
+        return [contextCompactionActivity];
+      }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }

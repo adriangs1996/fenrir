@@ -35,6 +35,8 @@ import type {
   DeleteGitDiffReviewNoteInput,
   DiscardGitDiffWorktreeChangesInput,
   DiscardGitDiffWorktreeChangesResult,
+  DiscardGitDiffWorktreeHunkInput,
+  DiscardGitDiffWorktreeHunkResult,
   GitDiffActionResult,
   GitDiffChangeRequestReferenceInput,
   GitDiffCommitActionResult,
@@ -1048,6 +1050,9 @@ export interface EnvironmentApi {
     discardWorktreeChanges: (
       input: DiscardGitDiffWorktreeChangesInput,
     ) => Promise<DiscardGitDiffWorktreeChangesResult>;
+    discardWorktreeHunk: (
+      input: DiscardGitDiffWorktreeHunkInput,
+    ) => Promise<DiscardGitDiffWorktreeHunkResult>;
     amendStagedChanges: (
       input: AmendGitDiffStagedChangesInput,
     ) => Promise<AmendGitDiffStagedChangesResult>;

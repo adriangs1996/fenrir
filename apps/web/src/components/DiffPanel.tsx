@@ -2,7 +2,7 @@ import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { scopeThreadRef } from "@fenrir/client-runtime";
+import { scopedThreadKey, scopeThreadRef } from "@fenrir/client-runtime";
 import { buildTerminalFontFamily } from "@fenrir/contracts";
 import type { TurnId } from "@fenrir/contracts";
 import {
@@ -65,8 +65,8 @@ function DiffPanelSidebarCloseButton() {
       size="icon-xs"
       variant="ghost"
       onClick={() => {
-        closeRightPanel();
         if (!routeThreadRef) return;
+        closeRightPanel(scopedThreadKey(routeThreadRef));
         void navigate({
           to: "/$environmentId/$threadId",
           params: buildThreadRouteParams(routeThreadRef),

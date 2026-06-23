@@ -11,6 +11,8 @@ import {
   type DeleteGitDiffReviewNoteInput,
   type DiscardGitDiffWorktreeChangesInput,
   type DiscardGitDiffWorktreeChangesResult,
+  type DiscardGitDiffWorktreeHunkInput,
+  type DiscardGitDiffWorktreeHunkResult,
   type GitDiffActionResult,
   type GitDiffChangeRequestReferenceInput,
   type GitDiffCommitActionResult,
@@ -122,6 +124,9 @@ export interface GitDiffCoreShape {
   readonly discardWorktreeChanges: (
     input: DiscardGitDiffWorktreeChangesInput,
   ) => Effect.Effect<DiscardGitDiffWorktreeChangesResult, GitCommandError>;
+  readonly discardWorktreeHunk: (
+    input: DiscardGitDiffWorktreeHunkInput,
+  ) => Effect.Effect<DiscardGitDiffWorktreeHunkResult, GitCommandError>;
   readonly amendStagedChanges: (
     input: AmendGitDiffStagedChangesInput,
   ) => Effect.Effect<AmendGitDiffStagedChangesResult, GitCommandError>;

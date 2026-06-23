@@ -9,6 +9,8 @@ import type {
   DeleteGitDiffReviewNoteInput,
   DiscardGitDiffWorktreeChangesInput,
   DiscardGitDiffWorktreeChangesResult,
+  DiscardGitDiffWorktreeHunkInput,
+  DiscardGitDiffWorktreeHunkResult,
   DiffTarget,
   EnvironmentId,
   GitDiffActionResult,
@@ -166,6 +168,8 @@ export const gitDiffMutationKeys = {
     ["git-diff", "mutation", "unstage-staged-changes", environmentId, cwd] as const,
   discardWorktreeChanges: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", "mutation", "discard-worktree-changes", environmentId, cwd] as const,
+  discardWorktreeHunk: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git-diff", "mutation", "discard-worktree-hunk", environmentId, cwd] as const,
   amendStagedChanges: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git-diff", "mutation", "amend-staged-changes", environmentId, cwd] as const,
   revertCommit: (environmentId: EnvironmentId | null, cwd: string | null) =>
@@ -859,6 +863,30 @@ export function gitDiffDiscardWorktreeChangesMutationOptions(input: {
         throw new Error("Git discard is unavailable.");
       }
       return ensureEnvironmentApi(input.environmentId).gitDiff.discardWorktreeChanges({
+        cwd: input.cwd,
+        ...args,
+      });
+    },
+    onSettled: async () => {
+      await invalidateGitDiffQueries(input.queryClient, input);
+    },
+  });
+}
+
+export function gitDiffDiscardWorktreeHunkMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly cwd: string | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitDiffMutationKeys.discardWorktreeHunk(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Omit<DiscardGitDiffWorktreeHunkInput, "cwd">,
+    ): Promise<DiscardGitDiffWorktreeHunkResult> => {
+      if (!input.environmentId || !input.cwd) {
+        throw new Error("Git hunk discard is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).gitDiff.discardWorktreeHunk({
         cwd: input.cwd,
         ...args,
       });

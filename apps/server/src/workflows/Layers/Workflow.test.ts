@@ -254,6 +254,44 @@ export default async function run(ctx) {
     }
   });
 
+  it("passes an empty args object to workflow JavaScript when run args are omitted", async () => {
+    const runtime = makeWorkflowRuntime();
+    try {
+      const workflow = await runtime.runPromise(Effect.service(WorkflowService));
+      const draft = await Effect.runPromise(
+        workflow.createDraft({
+          projectId,
+          originThreadId,
+          name: tn("Default Args"),
+          source: `
+export default async function run(ctx, args) {
+  const maxIterations = args.maxIterations ?? 3;
+  await ctx.state.set("maxIterations", maxIterations);
+}
+`,
+        }),
+      );
+
+      const started = await Effect.runPromise(
+        workflow.run({
+          projectId,
+          originThreadId,
+          workflowId: draft.workflow.workflowId,
+        }),
+      );
+      const completed = await waitForRun(
+        workflow,
+        started.run.runId,
+        (run) => run.status === "completed",
+        "default args completion",
+      );
+      expect(completed.args).toBeNull();
+      expect(getStateValue(completed, "maxIterations")).toBe(3);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   it("archives invalid workflow drafts and removes them from the thread list", async () => {
     const runtime = makeWorkflowRuntime();
     try {

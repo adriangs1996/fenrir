@@ -113,6 +113,11 @@ function makeFakeCodexAdapter(provider: ProviderKind = "codex") {
       Effect.void,
   );
 
+  const compactThread = vi.fn(
+    (_input: { readonly threadId: ThreadId }): Effect.Effect<void, ProviderAdapterError> =>
+      Effect.void,
+  );
+
   const respondToRequest = vi.fn(
     (
       _threadId: ThreadId,
@@ -184,6 +189,7 @@ function makeFakeCodexAdapter(provider: ProviderKind = "codex") {
     startSession,
     sendTurn,
     interruptTurn,
+    compactThread,
     respondToRequest,
     respondToUserInput,
     stopSession,
@@ -219,6 +225,7 @@ function makeFakeCodexAdapter(provider: ProviderKind = "codex") {
     startSession,
     sendTurn,
     interruptTurn,
+    compactThread,
     respondToRequest,
     respondToUserInput,
     stopSession,
@@ -567,6 +574,9 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
       yield* provider.interruptTurn({ threadId: session.threadId });
       assert.deepEqual(routing.codex.interruptTurn.mock.calls, [[session.threadId, undefined]]);
+
+      yield* provider.compactThread({ threadId: session.threadId });
+      assert.deepEqual(routing.codex.compactThread.mock.calls, [[{ threadId: session.threadId }]]);
 
       yield* provider.respondToRequest({
         threadId: session.threadId,

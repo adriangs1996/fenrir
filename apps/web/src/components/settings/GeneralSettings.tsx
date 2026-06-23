@@ -352,6 +352,32 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          title="Auto-open task panel"
+          description="Open the right-side plan and task panel automatically when steps appear."
+          resetAction={
+            settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar ? (
+              <SettingResetButton
+                label="auto-open task panel"
+                onClick={() =>
+                  updateSettings({
+                    autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.autoOpenPlanSidebar}
+              onCheckedChange={(checked) =>
+                updateSettings({ autoOpenPlanSidebar: Boolean(checked) })
+              }
+              aria-label="Open the task panel automatically"
+            />
+          }
+        />
+
+        <SettingsRow
           title="Automatic Git fetch interval"
           description="Choose how often Fenrir refreshes remote Git status for open repositories."
           resetAction={

@@ -396,6 +396,9 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
           })
         : missingSessionEffect(provider, threadId);
 
+    const compactThread: ProviderAdapterShape<ProviderAdapterError>["compactThread"] = (input) =>
+      sessions.has(input.threadId) ? Effect.void : missingSessionEffect(provider, input.threadId);
+
     const respondToRequest: ProviderAdapterShape<ProviderAdapterError>["respondToRequest"] = (
       threadId,
       requestId,
@@ -480,6 +483,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       startSession,
       sendTurn,
       interruptTurn,
+      compactThread,
       respondToRequest,
       respondToUserInput,
       stopSession,

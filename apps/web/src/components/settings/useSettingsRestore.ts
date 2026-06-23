@@ -46,6 +46,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
+      ...(settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar
+        ? ["Auto-open task panel"]
+        : []),
       ...(Duration.toMillis(settings.automaticGitFetchInterval) !==
       Duration.toMillis(DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval)
         ? ["Automatic Git fetch interval"]
@@ -87,6 +90,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffIgnoreWhitespace,
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
+      settings.autoOpenPlanSidebar,
       settings.automaticGitFetchInterval,
       settings.addProjectBaseDirectory,
       settings.sidebarThreadPreviewCount,

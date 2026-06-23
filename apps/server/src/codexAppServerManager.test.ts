@@ -734,6 +734,18 @@ describe("thread checkpoint control", () => {
       turns: [],
     });
   });
+
+  it("starts manual context compaction via thread/compact/start", async () => {
+    const { manager, context, sendRequest, updateSession } = createThreadControlHarness();
+    sendRequest.mockResolvedValue({});
+
+    await manager.compactThread(asThreadId("thread_1"));
+
+    expect(sendRequest).toHaveBeenCalledWith(context, "thread/compact/start", {
+      threadId: "thread_1",
+    });
+    expect(updateSession).not.toHaveBeenCalled();
+  });
 });
 
 describe("respondToUserInput", () => {

@@ -20,6 +20,7 @@ import {
   type GitBranch,
   type GitDiffCommit,
   type GitDiffFileSummary,
+  type GitDiffHunkSummary,
   type GitDiffIgnoreList,
   type GitDiffRepository,
   type GitDiffRepositoryOperation,
@@ -152,6 +153,7 @@ import {
   gitDiffCreateStashMutationOptions,
   gitDiffDeleteIgnoreListMutationOptions,
   gitDiffDeleteReviewNoteMutationOptions,
+  gitDiffDiscardWorktreeHunkMutationOptions,
   gitDiffDiscardWorktreeChangesMutationOptions,
   gitDiffDropStashMutationOptions,
   gitDiffFileQueryOptions,
@@ -1568,6 +1570,13 @@ export function GitDiffWorkbench(props: {
       queryClient,
     }),
   );
+  const discardWorktreeHunkMutation = useMutation(
+    gitDiffDiscardWorktreeHunkMutationOptions({
+      environmentId,
+      cwd,
+      queryClient,
+    }),
+  );
   const amendStagedChangesMutation = useMutation(
     gitDiffAmendStagedChangesMutationOptions({
       environmentId,
@@ -1930,6 +1939,23 @@ export function GitDiffWorkbench(props: {
       : isStashView
         ? (selectedStash?.ref ?? "Stashes")
         : "Changes";
+  const selectedWorktreeHunk = useMemo<GitDiffHunkSummary | null>(() => {
+    if (
+      activeDiffTarget?.kind !== "worktree" ||
+      diffIgnoreWhitespace ||
+      !selectedFile ||
+      selectedFile.isUntracked ||
+      !selectedDiffLineSelection
+    ) {
+      return null;
+    }
+
+    const selectedHunkIndex = resolveGitDiffReviewSelectionHunkIndex(
+      selectedFile.hunks,
+      selectedDiffLineSelection,
+    );
+    return selectedHunkIndex === null ? null : (selectedFile.hunks[selectedHunkIndex] ?? null);
+  }, [activeDiffTarget, diffIgnoreWhitespace, selectedDiffLineSelection, selectedFile]);
   const reviewSessionSnapshot = useMemo<GitDiffReviewSessionSnapshot | null>(() => {
     if (!cwd || !activeDiffTarget) return null;
 
@@ -2290,6 +2316,7 @@ export function GitDiffWorkbench(props: {
     stageWorktreeChangesMutation.isPending ||
     unstageStagedChangesMutation.isPending ||
     discardWorktreeChangesMutation.isPending ||
+    discardWorktreeHunkMutation.isPending ||
     amendStagedChangesMutation.isPending ||
     historyActionPending ||
     operationActionPending ||
@@ -2586,6 +2613,26 @@ export function GitDiffWorkbench(props: {
       }),
     );
   }, [discardWorktreeChangesMutation, isStackView, isStashView, runAction, selectedFile]);
+
+  const handleDiscardWorktreeHunk = useCallback(
+    (hunk: GitDiffHunkSummary) => {
+      if (!selectedFile || activeDiffTarget?.kind !== "worktree" || selectedFile.isUntracked) {
+        return;
+      }
+      const confirmed =
+        typeof window === "undefined" ||
+        window.confirm(`Discard selected hunk in ${selectedFile.path}? This cannot be undone.`);
+      if (!confirmed) return;
+
+      void runAction(() =>
+        discardWorktreeHunkMutation.mutateAsync({
+          path: selectedFile.path,
+          hunk,
+        }),
+      );
+    },
+    [activeDiffTarget, discardWorktreeHunkMutation, runAction, selectedFile],
+  );
 
   const handleCreateStash = useCallback(
     (filePaths?: readonly string[]) => {
@@ -3696,9 +3743,11 @@ export function GitDiffWorkbench(props: {
             diffUnsafeCSS={diffUnsafeCSS}
             diffWordWrap={diffWordWrap}
             enableFileDrag={!isStackView && !isStashView}
+            enableHunkDiscardAction={activeDiffTarget?.kind === "worktree"}
             enableLineActions={activeDiffTarget !== null}
             enableLineRevertAction={isStackView && selectedChangeRequestReference !== null}
             error={selectedFileQuery.error}
+            isHunkActionPending={discardWorktreeHunkMutation.isPending}
             isLineActionPending={
               commentChangeRequestLinesMutation.isPending ||
               createReviewNoteMutation.isPending ||
@@ -3715,6 +3764,7 @@ export function GitDiffWorkbench(props: {
             enableLineSelection
             canCommitSelectedFile={selectedStagedFileIsCommittable}
             onCommitSelectedFile={handleCommitSelectedFile}
+            onDiscardHunk={handleDiscardWorktreeHunk}
             onDiscardSelectedFile={handleDiscardSelectedFile}
             onOpenSelectedFile={handleOpenSelectedFile}
             onPromptOpen={openGitDiffReviewPrompt}
@@ -3732,6 +3782,7 @@ export function GitDiffWorkbench(props: {
               void runAction(() => deleteReviewNoteMutation.mutateAsync(id));
             }}
             selectedFile={selectedFile}
+            selectedWorktreeHunk={selectedWorktreeHunk}
             selectedTargetKind={
               isStackView || isHistoryView || isStashView ? null : selectedNormalTargetKind
             }
@@ -4553,6 +4604,10 @@ function isBuiltInHunkSeparator(value: string): value is BuiltInHunkSeparators {
   );
 }
 
+function formatHunkSeparatorLineCount(lines: number): string {
+  return `${lines} unmodified ${lines === 1 ? "line" : "lines"}`;
+}
+
 function resolveParsedFileDiffPath(fileDiff: FileDiffMetadata): string {
   const rawPath = fileDiff.name ?? fileDiff.prevName ?? "";
   if (rawPath.startsWith("a/") || rawPath.startsWith("b/")) {
@@ -4589,12 +4644,16 @@ function GitDiffFileWorkbench(props: {
   readonly rawDiffFontStyle: CSSProperties;
   readonly enableLineActions: boolean;
   readonly enableLineRevertAction: boolean;
+  readonly enableHunkDiscardAction: boolean;
   readonly enableLineSelection: boolean;
   readonly isLineActionPending: boolean;
+  readonly isHunkActionPending: boolean;
   readonly selectedTargetKind: GitDiffWorkbenchTargetKind | null;
+  readonly selectedWorktreeHunk: GitDiffHunkSummary | null;
   readonly isFileActionPending: boolean;
   readonly onCommentSelectedLines: (selection: GitDiffLineSelection) => void;
   readonly onRevertSelectedLines: (selection: GitDiffLineSelection) => void;
+  readonly onDiscardHunk: (hunk: GitDiffHunkSummary) => void;
   readonly onSelectedLineSelectionChange: (selection: GitDiffReviewLineSelection | null) => void;
   readonly canCommitSelectedFile: boolean;
   readonly onCommitSelectedFile: () => void;
@@ -4709,10 +4768,11 @@ function GitDiffFileWorkbench(props: {
         : null,
     [fullFileDiff, props.diff?.patch, props.resolvedTheme],
   );
-  const selectedFileReviewAnnotations = useMemo(() => {
+  const selectedFileLineAnnotations = useMemo(() => {
     if (!props.selectedFile) {
       return [];
     }
+
     return [
       ...buildReviewThreadAnnotations({
         threads: props.reviewThreads,
@@ -4724,7 +4784,7 @@ function GitDiffFileWorkbench(props: {
       }),
     ];
   }, [props.reviewNotes, props.reviewThreads, props.selectedFile]);
-  const parsedFileReviewAnnotations = useMemo(() => {
+  const parsedFileLineAnnotations = useMemo(() => {
     const annotations = new Map<string, DiffLineAnnotation<GitDiffReviewAnnotation>[]>();
     if (renderablePatch?.kind !== "files") {
       return annotations;
@@ -4750,16 +4810,20 @@ function GitDiffFileWorkbench(props: {
 
     return annotations;
   }, [props.reviewNotes, props.reviewThreads, renderablePatch]);
-  const renderReviewThreadAnnotation = useCallback(
-    (annotation: DiffLineAnnotation<GitDiffReviewAnnotation>) =>
-      annotation.metadata.kind === "provider-thread" ? (
-        <GitDiffReviewThreadAnnotationCard threads={annotation.metadata.threads} />
-      ) : (
-        <GitDiffLocalReviewNoteCard
-          notes={annotation.metadata.notes}
-          onDelete={props.onDeleteReviewNote}
-        />
-      ),
+  const renderDiffAnnotation = useCallback(
+    (annotation: DiffLineAnnotation<GitDiffReviewAnnotation>) => {
+      switch (annotation.metadata.kind) {
+        case "provider-thread":
+          return <GitDiffReviewThreadAnnotationCard threads={annotation.metadata.threads} />;
+        case "local-note":
+          return (
+            <GitDiffLocalReviewNoteCard
+              notes={annotation.metadata.notes}
+              onDelete={props.onDeleteReviewNote}
+            />
+          );
+      }
+    },
     [props.onDeleteReviewNote],
   );
   const handleDiffLineClick = useCallback<NonNullable<GitDiffFileDiffOptions["onLineClick"]>>(
@@ -4779,6 +4843,108 @@ function GitDiffFileWorkbench(props: {
     },
     [props.enableLineSelection],
   );
+  const selectedFileForHunkActions = props.selectedFile;
+  const onDiscardHunk = props.onDiscardHunk;
+  const showWorktreeHunkActions =
+    props.enableHunkDiscardAction &&
+    !props.diffIgnoreWhitespace &&
+    selectedFileForHunkActions !== null &&
+    !selectedFileForHunkActions.isUntracked;
+  const hunkActionDisabled = props.isHunkActionPending || props.isFileActionPending;
+  const hunkSeparators = useMemo<GitDiffFileDiffOptions["hunkSeparators"]>(() => {
+    if (!showWorktreeHunkActions || !selectedFileForHunkActions) {
+      return props.diffHunkSeparators;
+    }
+
+    const selectedFile = selectedFileForHunkActions;
+    return (hunk, instance) => {
+      const root = document.createElement("div");
+      root.style.alignItems = "center";
+      root.style.background = "var(--diffs-bg-separator)";
+      root.style.color = "var(--diffs-fg-number)";
+      root.style.display = "flex";
+      root.style.font = "inherit";
+      root.style.gap = "8px";
+      root.style.height = "32px";
+      root.style.justifyContent = "space-between";
+      root.style.minWidth = "0";
+      root.style.padding = "0 10px";
+      root.style.userSelect = "none";
+
+      const left = document.createElement("div");
+      left.style.alignItems = "center";
+      left.style.display = "flex";
+      left.style.gap = "8px";
+      left.style.minWidth = "0";
+
+      if (hunk.expandable) {
+        const expandButton = document.createElement("button");
+        expandButton.type = "button";
+        expandButton.ariaLabel = "Expand hunk context";
+        expandButton.title = "Expand context";
+        expandButton.textContent = "Expand";
+        expandButton.style.appearance = "none";
+        expandButton.style.background = "transparent";
+        expandButton.style.border = "0";
+        expandButton.style.color = "inherit";
+        expandButton.style.cursor = "pointer";
+        expandButton.style.font = "inherit";
+        expandButton.style.padding = "0";
+        expandButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          instance.expandHunk(hunk.hunkIndex, "both");
+        });
+        left.appendChild(expandButton);
+      }
+
+      const label = document.createElement("span");
+      label.textContent = formatHunkSeparatorLineCount(hunk.lines);
+      label.style.minWidth = "0";
+      label.style.overflow = "hidden";
+      label.style.textOverflow = "ellipsis";
+      label.style.whiteSpace = "nowrap";
+      left.appendChild(label);
+
+      const hunkSummary = selectedFile.hunks[hunk.hunkIndex] ?? null;
+      const discardButton = document.createElement("button");
+      discardButton.type = "button";
+      discardButton.ariaLabel =
+        hunkSummary === null ? "Discard hunk" : `Discard hunk ${hunkSummary.index + 1}`;
+      discardButton.title =
+        hunkSummary === null ? "Hunk is unavailable" : `Discard hunk ${hunkSummary.index + 1}`;
+      discardButton.textContent =
+        hunkSummary === null ? "Discard hunk" : `Discard hunk ${hunkSummary.index + 1}`;
+      discardButton.disabled = hunkSummary === null || hunkActionDisabled;
+      discardButton.style.appearance = "none";
+      discardButton.style.background = "var(--background)";
+      discardButton.style.border = "1px solid var(--border)";
+      discardButton.style.borderRadius = "6px";
+      discardButton.style.color = discardButton.disabled
+        ? "color-mix(in srgb, var(--muted-foreground) 55%, transparent)"
+        : "var(--foreground)";
+      discardButton.style.cursor = discardButton.disabled ? "not-allowed" : "pointer";
+      discardButton.style.flexShrink = "0";
+      discardButton.style.font = "inherit";
+      discardButton.style.padding = "2px 8px";
+      discardButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (hunkSummary !== null && !discardButton.disabled) {
+          onDiscardHunk(hunkSummary);
+        }
+      });
+
+      root.append(left, discardButton);
+      return root;
+    };
+  }, [
+    hunkActionDisabled,
+    props.diffHunkSeparators,
+    onDiscardHunk,
+    selectedFileForHunkActions,
+    showWorktreeHunkActions,
+  ]);
   const diffOptions = useMemo<GitDiffFileDiffOptions>(
     () => ({
       collapsedContextThreshold: 12,
@@ -4787,7 +4953,7 @@ function GitDiffFileWorkbench(props: {
       disableLineNumbers: !props.diffLineNumbers,
       enableLineSelection: props.enableLineSelection,
       expansionLineCount: 80,
-      hunkSeparators: props.diffHunkSeparators,
+      ...(hunkSeparators !== undefined ? { hunkSeparators } : {}),
       lineDiffType: props.diffLineHighlightMode === "inline" ? "word-alt" : "none",
       onLineClick: handleDiffLineClick,
       onLineSelected: setSelectedLines,
@@ -4799,7 +4965,7 @@ function GitDiffFileWorkbench(props: {
       unsafeCSS: props.diffUnsafeCSS,
     }),
     [
-      props.diffHunkSeparators,
+      hunkSeparators,
       props.diffLineHighlightMode,
       props.diffLineNumbers,
       props.diffRenderMode,
@@ -5003,6 +5169,30 @@ function GitDiffFileWorkbench(props: {
                   <Undo2Icon />
                 </Button>
               ) : null}
+              {props.enableHunkDiscardAction ? (
+                <Button
+                  aria-label="Discard selected hunk"
+                  disabled={
+                    !props.selectedWorktreeHunk ||
+                    props.isHunkActionPending ||
+                    props.isFileActionPending
+                  }
+                  size="icon-xs"
+                  title={
+                    props.selectedWorktreeHunk
+                      ? `Discard hunk ${props.selectedWorktreeHunk.index + 1}`
+                      : "Select changed lines in a worktree hunk"
+                  }
+                  variant="ghost"
+                  onClick={() => {
+                    if (props.selectedWorktreeHunk) {
+                      props.onDiscardHunk(props.selectedWorktreeHunk);
+                    }
+                  }}
+                >
+                  <Undo2Icon />
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -5126,15 +5316,22 @@ function GitDiffFileWorkbench(props: {
                 overscrollSize: 600,
               }}
             >
+              {showWorktreeHunkActions && props.selectedFile ? (
+                <GitDiffHunkActionsBar
+                  disabled={hunkActionDisabled}
+                  hunks={props.selectedFile.hunks}
+                  onDiscardHunk={props.onDiscardHunk}
+                />
+              ) : null}
               <div
                 key={`${fullFileDiff.cacheKey}:${props.diffRenderMode}:${props.diffHunkSeparators}`}
                 className="mt-2"
               >
                 <FileDiff<GitDiffReviewAnnotation>
                   fileDiff={fullFileDiff}
-                  lineAnnotations={selectedFileReviewAnnotations}
+                  lineAnnotations={selectedFileLineAnnotations}
                   options={diffOptions}
-                  renderAnnotation={renderReviewThreadAnnotation}
+                  renderAnnotation={renderDiffAnnotation}
                   selectedLines={selectedLines}
                 />
               </div>
@@ -5147,6 +5344,13 @@ function GitDiffFileWorkbench(props: {
                 overscrollSize: 600,
               }}
             >
+              {showWorktreeHunkActions && props.selectedFile ? (
+                <GitDiffHunkActionsBar
+                  disabled={hunkActionDisabled}
+                  hunks={props.selectedFile.hunks}
+                  onDiscardHunk={props.onDiscardHunk}
+                />
+              ) : null}
               {renderablePatch.files.map((fileDiff) => (
                 <div
                   key={`${buildParsedFileDiffRenderKey(fileDiff)}:${props.diffRenderMode}:${props.diffHunkSeparators}`}
@@ -5156,10 +5360,10 @@ function GitDiffFileWorkbench(props: {
                   <FileDiff<GitDiffReviewAnnotation>
                     fileDiff={fileDiff}
                     lineAnnotations={
-                      parsedFileReviewAnnotations.get(buildParsedFileDiffRenderKey(fileDiff)) ?? []
+                      parsedFileLineAnnotations.get(buildParsedFileDiffRenderKey(fileDiff)) ?? []
                     }
                     options={diffOptions}
-                    renderAnnotation={renderReviewThreadAnnotation}
+                    renderAnnotation={renderDiffAnnotation}
                     selectedLines={selectedLines}
                   />
                 </div>
@@ -5186,6 +5390,34 @@ function GitDiffFileWorkbench(props: {
         </div>
       </div>
     </main>
+  );
+}
+
+function GitDiffHunkActionsBar(props: {
+  readonly hunks: readonly GitDiffHunkSummary[];
+  readonly disabled: boolean;
+  readonly onDiscardHunk: (hunk: GitDiffHunkSummary) => void;
+}) {
+  if (props.hunks.length === 0) return null;
+
+  return (
+    <div className="sticky top-0 z-10 -mx-2 flex gap-1 overflow-x-auto border-b border-border/70 bg-background/95 px-3 py-2 shadow-sm backdrop-blur">
+      {props.hunks.map((hunk) => (
+        <Button
+          key={hunk.index}
+          aria-label={`Discard hunk ${hunk.index + 1}`}
+          className="gap-1.5"
+          disabled={props.disabled}
+          size="xs"
+          title={`Discard hunk ${hunk.index + 1}`}
+          variant="outline"
+          onClick={() => props.onDiscardHunk(hunk)}
+        >
+          <Undo2Icon className="size-3.5" />
+          Discard hunk {hunk.index + 1}
+        </Button>
+      ))}
+    </div>
   );
 }
 

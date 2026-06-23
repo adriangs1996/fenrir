@@ -95,6 +95,7 @@ function createProviderServiceHarness(
     startSession: () => unsupportedProviderCall(),
     sendTurn: () => unsupportedProviderCall(),
     interruptTurn: () => unsupportedProviderCall(),
+    compactThread: () => unsupportedProviderCall(),
     respondToRequest: () => unsupportedProviderCall(),
     respondToUserInput: () => unsupportedProviderCall(),
     stopSession: () => unsupportedProviderCall(),

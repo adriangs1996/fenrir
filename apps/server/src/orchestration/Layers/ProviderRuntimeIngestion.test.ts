@@ -96,6 +96,7 @@ function createProviderServiceHarness() {
     startSession: () => unsupportedProviderCall(),
     sendTurn: () => unsupportedProviderCall(),
     interruptTurn: () => unsupportedProviderCall(),
+    compactThread: () => unsupportedProviderCall(),
     respondToRequest: () => unsupportedProviderCall(),
     respondToUserInput: () => unsupportedProviderCall(),
     stopSession: () => unsupportedProviderCall(),
@@ -2401,6 +2402,59 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(activity?.summary).toBe("Context compacted");
     expect(activity?.tone).toBe("info");
+  });
+
+  it("projects context compaction item lifecycle into context compaction activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-context-compaction-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-1"),
+      payload: {
+        itemType: "context_compaction",
+        status: "inProgress",
+        title: "Context compaction",
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-context-compaction-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-1"),
+      payload: {
+        itemType: "context_compaction",
+        status: "completed",
+        title: "Context compaction",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-context-compaction-completed",
+      ),
+    );
+
+    const started = thread.activities.find(
+      (candidate: ProviderRuntimeTestActivity) => candidate.id === "evt-context-compaction-started",
+    );
+    const completed = thread.activities.find(
+      (candidate: ProviderRuntimeTestActivity) =>
+        candidate.id === "evt-context-compaction-completed",
+    );
+    expect(started?.kind).toBe("context-compaction");
+    expect(started?.summary).toBe("Context compaction started");
+    expect(completed?.kind).toBe("context-compaction");
+    expect(completed?.summary).toBe("Context compacted");
+    expect(completed?.payload).toMatchObject({ status: "completed" });
   });
 
   it("projects Codex task lifecycle chunks into thread activities", async () => {

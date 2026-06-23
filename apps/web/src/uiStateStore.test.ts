@@ -5,6 +5,7 @@ import {
   clearThreadUi,
   markThreadUnread,
   reorderProjects,
+  setProjectDrawerRailVisible,
   setProjectDrawerView,
   setPlanRunnerFolderExpanded,
   setProjectExpanded,
@@ -12,12 +13,14 @@ import {
   setThreadChangedFilesExpanded,
   syncProjects,
   syncThreads,
+  toggleProjectDrawerRailVisible,
   type UiState,
 } from "./uiStateStore";
 
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
+    projectDrawerRailVisibleByCwd: {},
     projectDrawerViewByCwd: {},
     projectThreadFolderExpandedByCwd: {},
     projectOrder: [],
@@ -261,6 +264,20 @@ describe("uiStateStore pure functions", () => {
     expect(next.projectDrawerViewByCwd[project1Cwd]).toBe("files");
   });
 
+  it("syncProjects preserves visible project drawer rail state for retained projects", () => {
+    const project1 = ProjectId.make("project-1");
+    const project1Cwd = "/tmp/project-1";
+    const initialState = makeUiState({
+      projectDrawerRailVisibleByCwd: {
+        [project1Cwd]: true,
+      },
+    });
+
+    const next = syncProjects(initialState, [{ key: project1, cwd: project1Cwd }]);
+
+    expect(next.projectDrawerRailVisibleByCwd[project1Cwd]).toBe(true);
+  });
+
   it("syncThreads prunes missing thread UI state", () => {
     const thread1 = ThreadId.make("thread-1");
     const thread2 = ThreadId.make("thread-2");
@@ -340,6 +357,34 @@ describe("uiStateStore pure functions", () => {
     const next = setProjectDrawerView(initialState, "/tmp/project-1", "threads");
 
     expect(next.projectDrawerViewByCwd).toEqual({});
+  });
+
+  it("setProjectDrawerRailVisible stores visible rails per cwd", () => {
+    const initialState = makeUiState();
+
+    const next = setProjectDrawerRailVisible(initialState, "/tmp/project-1", true);
+
+    expect(next.projectDrawerRailVisibleByCwd["/tmp/project-1"]).toBe(true);
+  });
+
+  it("setProjectDrawerRailVisible removes hidden rail overrides", () => {
+    const initialState = makeUiState({
+      projectDrawerRailVisibleByCwd: {
+        "/tmp/project-1": true,
+      },
+    });
+
+    const next = setProjectDrawerRailVisible(initialState, "/tmp/project-1", false);
+
+    expect(next.projectDrawerRailVisibleByCwd).toEqual({});
+  });
+
+  it("toggleProjectDrawerRailVisible toggles a project rail from the hidden default", () => {
+    const initialState = makeUiState();
+
+    const next = toggleProjectDrawerRailVisible(initialState, "/tmp/project-1");
+
+    expect(next.projectDrawerRailVisibleByCwd["/tmp/project-1"]).toBe(true);
   });
 
   it("setProjectThreadFolderExpanded stores thread folder expansion per cwd", () => {

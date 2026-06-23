@@ -4,6 +4,7 @@ import {
   FolderTreeIcon,
   FolderIcon,
   MessagesSquareIcon,
+  PanelLeftIcon,
   SquarePenIcon,
   WorkflowIcon,
 } from "lucide-react";
@@ -306,7 +307,13 @@ export const SidebarProjectItem = memo(function SidebarProjectItem(props: Sideba
   const projectDrawerView = useUiStateStore(
     (state) => state.projectDrawerViewByCwd[project.cwd] ?? "threads",
   );
+  const projectDrawerRailVisible = useUiStateStore(
+    (state) => state.projectDrawerRailVisibleByCwd[project.cwd] ?? false,
+  );
   const setProjectDrawerView = useUiStateStore((state) => state.setProjectDrawerView);
+  const toggleProjectDrawerRailVisible = useUiStateStore(
+    (state) => state.toggleProjectDrawerRailVisible,
+  );
   const handleProjectDrawerViewSelect = useCallback(
     (view: ProjectDrawerView) => {
       setProjectDrawerView(project.cwd, view);
@@ -389,8 +396,8 @@ export const SidebarProjectItem = memo(function SidebarProjectItem(props: Sideba
     shouldShowProjectDrawerRail,
   } = resolveProjectDrawerPresentation({
     activeRouteProjectDrawerView,
-    hasActiveThreadRoute: activeRouteThreadKey !== null,
     hasPinnedCollapsedThread: pinnedCollapsedThread !== null,
+    projectDrawerRailVisible,
     projectDrawerView,
     projectExpanded,
   });
@@ -863,6 +870,14 @@ export const SidebarProjectItem = memo(function SidebarProjectItem(props: Sideba
     },
     [handleCreateProjectDraftClick],
   );
+  const handleProjectDrawerRailToggleClick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleProjectDrawerRailVisible(project.cwd);
+    },
+    [project.cwd, toggleProjectDrawerRailVisible],
+  );
 
   const attemptArchiveThread = useCallback(
     async (threadRef: ScopedThreadRef) => {
@@ -1089,6 +1104,27 @@ export const SidebarProjectItem = memo(function SidebarProjectItem(props: Sideba
           </Tooltip>
         )}
         <div className="pointer-events-none absolute top-1 right-1.5 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`${projectDrawerRailVisible ? "Hide" : "Show"} ${project.name} project rail`}
+                  aria-pressed={projectDrawerRailVisible}
+                  className={cn(
+                    "inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-secondary hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
+                    projectDrawerRailVisible ? "bg-secondary text-foreground" : "",
+                  )}
+                  onClick={handleProjectDrawerRailToggleClick}
+                >
+                  <PanelLeftIcon className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">
+              {projectDrawerRailVisible ? "Hide project rail" : "Show project rail"}
+            </TooltipPopup>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger
               render={

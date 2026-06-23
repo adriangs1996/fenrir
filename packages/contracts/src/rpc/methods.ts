@@ -49,6 +49,7 @@ export const WS_METHODS = {
   gitDiffStageWorktreeChanges: "gitDiff.stageWorktreeChanges",
   gitDiffUnstageStagedChanges: "gitDiff.unstageStagedChanges",
   gitDiffDiscardWorktreeChanges: "gitDiff.discardWorktreeChanges",
+  gitDiffDiscardWorktreeHunk: "gitDiff.discardWorktreeHunk",
   gitDiffAmendStagedChanges: "gitDiff.amendStagedChanges",
   gitDiffRevertCommit: "gitDiff.revertCommit",
   gitDiffCherryPickCommit: "gitDiff.cherryPickCommit",

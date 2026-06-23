@@ -756,7 +756,7 @@ export const WorkflowLive = Layer.effect(
                     child.send({
                       type: "start",
                       transformedSource: transformWorkflowSource(source),
-                      args: run.args,
+                      args: run.args ?? {},
                       filename: `fenrir-workflow-${run.workflowId}.js`,
                     });
                     return;

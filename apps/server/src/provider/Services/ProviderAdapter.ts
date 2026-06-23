@@ -9,6 +9,7 @@
  */
 import type {
   ApprovalRequestId,
+  ProviderCompactThreadInput,
   ProviderApprovalDecision,
   ProviderDriverKind,
   ProviderKind,
@@ -76,6 +77,11 @@ export interface ProviderAdapterShape<TError> {
    * Interrupt an active turn.
    */
   readonly interruptTurn: (threadId: ThreadId, turnId?: TurnId) => Effect.Effect<void, TError>;
+
+  /**
+   * Compact provider-managed context for a thread.
+   */
+  readonly compactThread: (input: ProviderCompactThreadInput) => Effect.Effect<void, TError>;
 
   /**
    * Respond to an interactive approval request.

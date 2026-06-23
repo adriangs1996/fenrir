@@ -168,6 +168,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     const interruptTurn = vi.fn((_: unknown) => Effect.void);
+    const compactThread = vi.fn<ProviderServiceShape["compactThread"]>(() => Effect.void);
     const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
     const stopSession = vi.fn((input: unknown) =>
@@ -235,6 +236,7 @@ describe("ProviderCommandReactor", () => {
       startSession: startSession as ProviderServiceShape["startSession"],
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
       interruptTurn: interruptTurn as ProviderServiceShape["interruptTurn"],
+      compactThread,
       respondToRequest: respondToRequest as ProviderServiceShape["respondToRequest"],
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
       stopSession: stopSession as ProviderServiceShape["stopSession"],
@@ -323,6 +325,7 @@ describe("ProviderCommandReactor", () => {
       startSession,
       sendTurn,
       interruptTurn,
+      compactThread,
       respondToRequest,
       respondToUserInput,
       stopSession,
@@ -1387,6 +1390,91 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.interruptTurn.mock.calls.length === 1);
     expect(harness.interruptTurn.mock.calls[0]?.[0]).toEqual({
       threadId: "thread-1",
+    });
+  });
+
+  it("reacts to thread.context-compact-requested by calling provider compact", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-for-compact"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.context.compact",
+        commandId: CommandId.make("cmd-context-compact"),
+        threadId: ThreadId.make("thread-1"),
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.compactThread.mock.calls.length === 1);
+    expect(harness.compactThread.mock.calls[0]?.[0]).toEqual({
+      threadId: "thread-1",
+    });
+  });
+
+  it("rejects thread.context-compact-requested while the provider session is running", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-running-for-compact"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-1"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.context.compact",
+        commandId: CommandId.make("cmd-context-compact-running"),
+        threadId: ThreadId.make("thread-1"),
+        createdAt: now,
+      }),
+    );
+    await harness.drain();
+
+    expect(harness.compactThread).not.toHaveBeenCalled();
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.context.compact.failed",
+    );
+    expect(failureActivity).toMatchObject({
+      summary: "Context compaction failed",
+      payload: {
+        detail: expect.stringContaining("running"),
+      },
+      turnId: null,
     });
   });
 

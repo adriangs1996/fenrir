@@ -15,7 +15,11 @@ import type { EnvironmentId, ProjectId, ThreadId, WorkflowRunId } from "@fenrir/
 import type { TimestampFormat } from "@fenrir/contracts/settings";
 import { Schema } from "effect";
 import { cn } from "~/lib/utils";
-import { useRightPanelStore, type RightPanelTab } from "../../rightPanelStore";
+import {
+  selectRightPanelActiveTab,
+  useRightPanelStore,
+  type RightPanelTab,
+} from "../../rightPanelStore";
 import { Button } from "../ui/button";
 import PlanSidebar from "../PlanSidebar";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
@@ -66,18 +70,34 @@ interface TabButtonProps {
   tab: RightPanelTab;
   icon: ElementType;
   label: string;
+  onActiveClose?: () => void;
+  threadKey: string;
 }
 
-const TabButton = memo(function TabButton({ tab, icon: Icon, label }: TabButtonProps) {
-  const { activeTab, toggleTab } = useRightPanelStore();
+const TabButton = memo(function TabButton({
+  tab,
+  icon: Icon,
+  label,
+  onActiveClose,
+  threadKey,
+}: TabButtonProps) {
+  const activeTab = useRightPanelStore((state) => selectRightPanelActiveTab(state, threadKey));
+  const toggleTab = useRightPanelStore((state) => state.toggleTab);
   const isActive = activeTab === tab;
+  const handleClick = useCallback(() => {
+    if (isActive && onActiveClose) {
+      onActiveClose();
+      return;
+    }
+    toggleTab(threadKey, tab);
+  }, [isActive, onActiveClose, tab, threadKey, toggleTab]);
 
   return (
     <Button
       variant="ghost"
       size="sm"
       type="button"
-      onClick={() => toggleTab(tab)}
+      onClick={handleClick}
       className={cn(
         "shrink-0 gap-1.5 rounded-none border-b-2 px-2 sm:px-3",
         isActive
@@ -96,6 +116,7 @@ const TabButton = memo(function TabButton({ tab, icon: Icon, label }: TabButtonP
 interface RightPanelTabsProps {
   planProps: RightPanelTabsPlanProps;
   workflowProps: RightPanelTabsWorkflowProps;
+  threadKey: string;
   /**
    * "sidebar" = desktop inline panel with resizable width.
    * "sheet" = mobile sheet overlay (full width).
@@ -106,6 +127,7 @@ interface RightPanelTabsProps {
 export const RightPanelTabs = memo(function RightPanelTabs({
   planProps,
   workflowProps,
+  threadKey,
   mode = "sidebar",
 }: RightPanelTabsProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -120,7 +142,7 @@ export const RightPanelTabs = memo(function RightPanelTabs({
   } | null>(null);
   const suppressClickRef = useRef(false);
   const [sidebarWidth, setSidebarWidth] = useState<number | null>(null);
-  const { activeTab } = useRightPanelStore();
+  const activeTab = useRightPanelStore((state) => selectRightPanelActiveTab(state, threadKey));
   const diffPanelMode: DiffPanelMode = mode === "sheet" ? "sheet" : "sidebar";
 
   // Keep DiffPanel mounted once it's first opened so scroll position and
@@ -340,9 +362,15 @@ export const RightPanelTabs = memo(function RightPanelTabs({
 
       {/* Tab bar */}
       <div role="tablist" className="flex h-10 shrink-0 items-end border-b border-border/60 px-1">
-        <TabButton tab="plan" icon={ListTodoIcon} label="Plan" />
-        <TabButton tab="workflows" icon={WorkflowIcon} label="Workflows" />
-        <TabButton tab="diff" icon={DiffIcon} label="Diff" />
+        <TabButton
+          tab="plan"
+          icon={ListTodoIcon}
+          label="Plan"
+          onActiveClose={planProps.onClose}
+          threadKey={threadKey}
+        />
+        <TabButton tab="workflows" icon={WorkflowIcon} label="Workflows" threadKey={threadKey} />
+        <TabButton tab="diff" icon={DiffIcon} label="Diff" threadKey={threadKey} />
       </div>
 
       {/* Tab content */}

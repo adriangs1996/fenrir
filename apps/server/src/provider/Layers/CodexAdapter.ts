@@ -1819,6 +1819,12 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       catch: (cause) => toRequestError(threadId, "turn/interrupt", cause),
     });
 
+  const compactThread: CodexAdapterShape["compactThread"] = (input) =>
+    Effect.tryPromise({
+      try: () => manager.compactThread(input.threadId),
+      catch: (cause) => toRequestError(input.threadId, "thread/compact/start", cause),
+    });
+
   const readThread: CodexAdapterShape["readThread"] = (threadId) =>
     Effect.tryPromise({
       try: () => manager.readThread(threadId),
@@ -1938,6 +1944,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     startSession,
     sendTurn,
     interruptTurn,
+    compactThread,
     readThread,
     rollbackThread,
     respondToRequest,

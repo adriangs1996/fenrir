@@ -96,6 +96,7 @@ type LatestTurnScope = Pick<
   OrchestrationLatestTurn,
   "turnId" | "state" | "requestedAt" | "startedAt" | "completedAt"
 >;
+type ActivePlanStepStatus = ActivePlanState["steps"][number]["status"];
 
 export type TimelineEntry =
   | {
@@ -170,6 +171,30 @@ function isStalePendingRequestFailureDetail(detail: string | undefined): boolean
     normalized.includes("unknown pending permission request") ||
     normalized.includes("unknown pending user-input request")
   );
+}
+
+function normalizeActivePlanStepStatus(status: unknown): ActivePlanStepStatus {
+  switch (status) {
+    case "completed":
+    case "complete":
+    case "done":
+    case "success":
+    case "succeeded":
+      return "completed";
+    case "inProgress":
+    case "in_progress":
+    case "in-progress":
+    case "in progress":
+    case "active":
+    case "running":
+    case "started":
+      return "inProgress";
+    case "pending":
+    case "todo":
+    case "queued":
+    default:
+      return "pending";
+  }
 }
 
 export function derivePendingApprovals(
@@ -356,14 +381,13 @@ export function deriveActivePlanState(
     .map((entry) => {
       if (!entry || typeof entry !== "object") return null;
       const record = entry as Record<string, unknown>;
-      if (typeof record.step !== "string") {
+      const step = typeof record.step === "string" ? record.step.trim() : "";
+      if (step.length === 0) {
         return null;
       }
-      const status =
-        record.status === "completed" || record.status === "inProgress" ? record.status : "pending";
       return {
-        step: record.step,
-        status,
+        step,
+        status: normalizeActivePlanStepStatus(record.status),
       };
     })
     .filter(
@@ -413,13 +437,13 @@ export function deriveDisplayActivePlanState(
   const isScopedToLatestTurn = isActivePlanScopedToLatestTurn(activePlan, latestTurn);
   if (
     (isScopedToLatestTurn && latestTurn.state === "running") ||
+    !isScopedToLatestTurn ||
     activePlan.steps.every((step) => step.status !== "inProgress")
   ) {
     return activePlan;
   }
 
-  const settledStatus =
-    isScopedToLatestTurn && latestTurn.state !== "completed" ? "pending" : "completed";
+  const settledStatus = latestTurn.state === "completed" ? "completed" : "pending";
   return {
     ...activePlan,
     steps: activePlan.steps.map((step) =>

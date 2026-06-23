@@ -117,6 +117,9 @@ export default function Sidebar() {
     [allSidebarThreads, internalPlanRunnerThreadIds, internalWorkflowThreadIds],
   );
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
+  const projectDrawerRailVisibleByCwd = useUiStateStore(
+    (store) => store.projectDrawerRailVisibleByCwd,
+  );
   const projectDrawerViewByCwd = useUiStateStore((store) => store.projectDrawerViewByCwd);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
@@ -545,7 +548,9 @@ export default function Sidebar() {
         const projectDrawerView =
           pinnedCollapsedThread !== null
             ? "threads"
-            : activeRouteProjectKey === project.projectKey && routeThreadKey !== null
+            : activeRouteProjectKey === project.projectKey &&
+                routeThreadKey !== null &&
+                (projectDrawerRailVisibleByCwd[project.cwd] ?? false)
               ? (projectDrawerViewByCwd[project.cwd] ?? "threads")
               : "threads";
         if (projectDrawerView !== "threads") {
@@ -568,6 +573,7 @@ export default function Sidebar() {
       expandedThreadListsByProject,
       activeRouteProjectKey,
       projectExpandedById,
+      projectDrawerRailVisibleByCwd,
       projectDrawerViewByCwd,
       routeThreadKey,
       sortedProjects,

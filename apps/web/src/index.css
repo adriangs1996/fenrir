@@ -1206,6 +1206,61 @@ label:has(> select#reasoning-effort) select {
   background: color-mix(in srgb, var(--card) 92%, var(--background));
 }
 
+@keyframes workflow-run-indicator-orbit {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes workflow-run-indicator-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--info) 24%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--info) 26%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--info) 44%, transparent),
+      0 0 0 3px color-mix(in srgb, var(--info) 0%, transparent);
+  }
+}
+
+.workflow-run-indicator {
+  animation: workflow-run-indicator-glow 1.8s ease-in-out infinite;
+}
+
+.workflow-run-indicator__orbit {
+  position: absolute;
+  inset: -45%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    color-mix(in srgb, var(--info) 0%, transparent) 210deg,
+    color-mix(in srgb, var(--info) 88%, white) 285deg,
+    transparent 330deg
+  );
+  animation: workflow-run-indicator-orbit 1.6s linear infinite;
+}
+
+.workflow-run-indicator__orbit::after {
+  content: "";
+  position: absolute;
+  inset: 36%;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--sidebar) 86%, var(--background));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-run-indicator,
+  .workflow-run-indicator__orbit {
+    animation: none;
+  }
+}
+
 @keyframes ultrathink-rainbow {
   0% {
     background-position: 0% 50%;
