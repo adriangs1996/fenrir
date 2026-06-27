@@ -8,9 +8,13 @@ import type {
   WorkflowEventStreamItem,
   WorkflowId,
   WorkflowInputRequestId,
+  WorkflowMemoryItem,
   WorkflowRunId,
   WorkflowRunSnapshot,
   WorkflowRunStatus,
+  WorkflowSchedule,
+  WorkflowScheduleId,
+  WorkflowThreadLink,
   WorkflowThreadSummary,
 } from "@fenrir/contracts";
 
@@ -21,6 +25,9 @@ import { ensureLocalApi } from "~/localApi";
 const EMPTY_WORKFLOW_SUMMARIES: readonly WorkflowThreadSummary[] = [];
 const EMPTY_WORKFLOW_RUNS: readonly WorkflowRunSnapshot[] = [];
 const EMPTY_WORKFLOW_EVENTS: readonly WorkflowEvent[] = [];
+const EMPTY_WORKFLOW_LINKS: readonly WorkflowThreadLink[] = [];
+const EMPTY_WORKFLOW_SCHEDULES: readonly WorkflowSchedule[] = [];
+const EMPTY_WORKFLOW_MEMORY: readonly WorkflowMemoryItem[] = [];
 const EMPTY_WORKFLOW_COUNTS: WorkflowThreadCounts = {
   hasWorkflows: false,
   draftCount: 0,
@@ -55,9 +62,14 @@ export interface WorkflowInternalThreadOwner {
 
 interface WorkflowState {
   readonly summariesByThreadKey: Record<string, readonly WorkflowThreadSummary[]>;
+  readonly summariesByProjectId: Record<string, readonly WorkflowThreadSummary[]>;
+  readonly linksByProjectId: Record<string, readonly WorkflowThreadLink[]>;
+  readonly schedulesByProjectId: Record<string, readonly WorkflowSchedule[]>;
+  readonly memoryByWorkflowId: Record<string, readonly WorkflowMemoryItem[]>;
   readonly runById: Record<string, WorkflowRunSnapshot>;
   readonly eventsByRunId: Record<string, readonly WorkflowEvent[]>;
   readonly fetchingThreadKeys: ReadonlySet<string>;
+  readonly fetchingProjectIds: ReadonlySet<string>;
 
   readonly setThreadSnapshot: (
     projectId: ProjectId,
@@ -65,22 +77,43 @@ interface WorkflowState {
     workflows: readonly WorkflowThreadSummary[],
     runs: readonly WorkflowRunSnapshot[],
   ) => void;
+  readonly setProjectSnapshot: (
+    projectId: ProjectId,
+    workflows: readonly WorkflowThreadSummary[],
+    runs: readonly WorkflowRunSnapshot[],
+    links: readonly WorkflowThreadLink[],
+    schedules: readonly WorkflowSchedule[],
+  ) => void;
   readonly upsertWorkflow: (workflow: WorkflowDraft) => void;
   readonly upsertRun: (run: WorkflowRunSnapshot) => void;
   readonly appendEvent: (event: WorkflowEvent) => void;
   readonly applyEvent: (event: WorkflowEventStreamItem) => void;
   readonly fetchThread: (projectId: ProjectId, originThreadId: ThreadId) => Promise<void>;
+  readonly fetchProject: (projectId: ProjectId, includeArchived?: boolean) => Promise<void>;
   readonly fetchTimeline: (runId: WorkflowRunId) => Promise<void>;
   readonly runWorkflow: (
     projectId: ProjectId,
-    originThreadId: ThreadId,
+    originThreadId: ThreadId | null,
     workflowId?: WorkflowId,
     args?: unknown,
   ) => Promise<WorkflowRunSnapshot>;
+  readonly scheduleWorkflow: (
+    workflowId: WorkflowId,
+    runAt: string,
+    args?: unknown,
+  ) => Promise<WorkflowSchedule>;
+  readonly cancelScheduledRun: (scheduleId: WorkflowScheduleId) => Promise<WorkflowSchedule>;
   readonly stopRun: (runId: WorkflowRunId) => Promise<void>;
   readonly validateWorkflow: (workflowId: WorkflowId) => Promise<WorkflowDraft>;
   readonly archiveWorkflow: (workflowId: WorkflowId) => Promise<WorkflowDraft>;
   readonly openWorkflowSource: (workflowId: WorkflowId) => Promise<string>;
+  readonly fetchMemory: (
+    workflowId: WorkflowId,
+    includeSuppressed?: boolean,
+  ) => Promise<readonly WorkflowMemoryItem[]>;
+  readonly suppressMemoryItem: (
+    memoryId: WorkflowMemoryItem["memoryId"],
+  ) => Promise<WorkflowMemoryItem>;
   readonly respondToInput: (
     runId: WorkflowRunId,
     requestId: WorkflowInputRequestId,
@@ -216,6 +249,46 @@ function removeWorkflowFromSummaries(
   };
 }
 
+function mergeWorkflowIntoProjectSummaries(
+  summariesByProjectId: Record<string, readonly WorkflowThreadSummary[]>,
+  runById: Record<string, WorkflowRunSnapshot>,
+  workflow: WorkflowDraft,
+): Record<string, readonly WorkflowThreadSummary[]> {
+  const summaries = summariesByProjectId[workflow.projectId] ?? EMPTY_WORKFLOW_SUMMARIES;
+  const latestRun = latestRunForWorkflow(runById, workflow.workflowId);
+  const counts = countsForWorkflow(runById, workflow.workflowId);
+  const existing = summaries.find((summary) => summary.workflow.workflowId === workflow.workflowId);
+  const nextSummary: WorkflowThreadSummary = {
+    workflow,
+    latestRun: latestRun ?? existing?.latestRun ?? null,
+    ...counts,
+  };
+  const nextSummaries = existing
+    ? summaries.map((summary) =>
+        summary.workflow.workflowId === workflow.workflowId ? nextSummary : summary,
+      )
+    : [nextSummary, ...summaries];
+  return {
+    ...summariesByProjectId,
+    [workflow.projectId]: nextSummaries.toSorted((a, b) =>
+      b.workflow.updatedAt.localeCompare(a.workflow.updatedAt),
+    ),
+  };
+}
+
+function removeWorkflowFromProjectSummaries(
+  summariesByProjectId: Record<string, readonly WorkflowThreadSummary[]>,
+  workflow: WorkflowDraft,
+): Record<string, readonly WorkflowThreadSummary[]> {
+  const summaries = summariesByProjectId[workflow.projectId] ?? EMPTY_WORKFLOW_SUMMARIES;
+  return {
+    ...summariesByProjectId,
+    [workflow.projectId]: summaries.filter(
+      (summary) => summary.workflow.workflowId !== workflow.workflowId,
+    ),
+  };
+}
+
 function refreshSummaryForRun(
   summariesByThreadKey: Record<string, readonly WorkflowThreadSummary[]>,
   runById: Record<string, WorkflowRunSnapshot>,
@@ -239,6 +312,27 @@ function refreshSummaryForRun(
   };
 }
 
+function refreshProjectSummaryForRun(
+  summariesByProjectId: Record<string, readonly WorkflowThreadSummary[]>,
+  runById: Record<string, WorkflowRunSnapshot>,
+  run: WorkflowRunSnapshot,
+): Record<string, readonly WorkflowThreadSummary[]> {
+  const summaries = summariesByProjectId[run.projectId];
+  if (!summaries) {
+    return summariesByProjectId;
+  }
+  const counts = countsForWorkflow(runById, run.workflowId);
+  const latestRun = latestRunForWorkflow(runById, run.workflowId);
+  return {
+    ...summariesByProjectId,
+    [run.projectId]: summaries.map((summary) =>
+      summary.workflow.workflowId === run.workflowId
+        ? Object.assign({}, summary, { latestRun }, counts)
+        : summary,
+    ),
+  };
+}
+
 function appendTimelineEvent(
   events: readonly WorkflowEvent[] | undefined,
   event: WorkflowEvent,
@@ -255,9 +349,14 @@ function appendTimelineEvent(
 
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   summariesByThreadKey: {},
+  summariesByProjectId: {},
+  linksByProjectId: {},
+  schedulesByProjectId: {},
+  memoryByWorkflowId: {},
   runById: {},
   eventsByRunId: {},
   fetchingThreadKeys: new Set(),
+  fetchingProjectIds: new Set(),
 
   setThreadSnapshot: (projectId, originThreadId, workflows, runs) =>
     set((state) => {
@@ -279,12 +378,44 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       };
     }),
 
+  setProjectSnapshot: (projectId, workflows, runs, links, schedules) =>
+    set((state) => {
+      const runById = { ...state.runById };
+      for (const [runId, run] of Object.entries(runById)) {
+        if (run.projectId === projectId) {
+          delete runById[runId];
+        }
+      }
+      for (const run of runs) {
+        runById[run.runId] = run;
+      }
+      return {
+        runById,
+        summariesByProjectId: {
+          ...state.summariesByProjectId,
+          [projectId]: workflows,
+        },
+        linksByProjectId: {
+          ...state.linksByProjectId,
+          [projectId]: links,
+        },
+        schedulesByProjectId: {
+          ...state.schedulesByProjectId,
+          [projectId]: schedules,
+        },
+      };
+    }),
+
   upsertWorkflow: (workflow) =>
     set((state) => ({
       summariesByThreadKey:
         workflow.status === "archived" || workflow.archivedAt !== null
           ? removeWorkflowFromSummaries(state.summariesByThreadKey, workflow)
           : mergeWorkflowIntoSummaries(state.summariesByThreadKey, state.runById, workflow),
+      summariesByProjectId:
+        workflow.status === "archived" || workflow.archivedAt !== null
+          ? removeWorkflowFromProjectSummaries(state.summariesByProjectId, workflow)
+          : mergeWorkflowIntoProjectSummaries(state.summariesByProjectId, state.runById, workflow),
     })),
 
   upsertRun: (run) =>
@@ -293,6 +424,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       return {
         runById,
         summariesByThreadKey: refreshSummaryForRun(state.summariesByThreadKey, runById, run),
+        summariesByProjectId: refreshProjectSummaryForRun(state.summariesByProjectId, runById, run),
       };
     }),
 
@@ -341,6 +473,29 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
   },
 
+  fetchProject: async (projectId, includeArchived = false) => {
+    set((state) => ({
+      fetchingProjectIds: new Set(state.fetchingProjectIds).add(projectId),
+    }));
+    try {
+      const client = getPrimaryEnvironmentConnection().client;
+      const result = await client.workflows.listProjectWorkflows({ projectId, includeArchived });
+      get().setProjectSnapshot(
+        projectId,
+        result.workflows,
+        result.runs,
+        result.links,
+        result.schedules,
+      );
+    } finally {
+      set((state) => {
+        const next = new Set(state.fetchingProjectIds);
+        next.delete(projectId);
+        return { fetchingProjectIds: next };
+      });
+    }
+  },
+
   fetchTimeline: async (runId) => {
     const client = getPrimaryEnvironmentConnection().client;
     const result = await client.workflows.getTimeline({ runId });
@@ -356,12 +511,48 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const client = getPrimaryEnvironmentConnection().client;
     const result = await client.workflows.run({
       projectId,
-      originThreadId,
+      ...(originThreadId !== null ? { originThreadId } : {}),
       ...(workflowId !== undefined ? { workflowId } : {}),
       ...(args !== undefined ? { args } : {}),
     });
     get().upsertRun(result.run);
     return result.run;
+  },
+
+  scheduleWorkflow: async (workflowId, runAt, args) => {
+    const client = getPrimaryEnvironmentConnection().client;
+    const result = await client.workflows.scheduleRun({
+      workflowId,
+      runAt: runAt as WorkflowSchedule["runAt"],
+      ...(args !== undefined ? { args } : {}),
+    });
+    set((state) => ({
+      schedulesByProjectId: {
+        ...state.schedulesByProjectId,
+        [result.schedule.projectId]: [
+          result.schedule,
+          ...(state.schedulesByProjectId[result.schedule.projectId] ?? EMPTY_WORKFLOW_SCHEDULES),
+        ],
+      },
+    }));
+    return result.schedule;
+  },
+
+  cancelScheduledRun: async (scheduleId) => {
+    const client = getPrimaryEnvironmentConnection().client;
+    const result = await client.workflows.cancelScheduledRun({ scheduleId });
+    set((state) => {
+      const schedules = state.schedulesByProjectId[result.schedule.projectId] ?? [];
+      return {
+        schedulesByProjectId: {
+          ...state.schedulesByProjectId,
+          [result.schedule.projectId]: schedules.map((schedule) =>
+            schedule.scheduleId === result.schedule.scheduleId ? result.schedule : schedule,
+          ),
+        },
+      };
+    });
+    return result.schedule;
   },
 
   stopRun: async (runId) => {
@@ -390,6 +581,35 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const result = await client.workflows.openSource({ workflowId });
     await openInConfiguredEmbeddedEditor(ensureLocalApi(), result.path);
     return result.path;
+  },
+
+  fetchMemory: async (workflowId, includeSuppressed = false) => {
+    const client = getPrimaryEnvironmentConnection().client;
+    const result = await client.workflows.listMemory({ workflowId, includeSuppressed });
+    set((state) => ({
+      memoryByWorkflowId: {
+        ...state.memoryByWorkflowId,
+        [workflowId]: result.items,
+      },
+    }));
+    return result.items;
+  },
+
+  suppressMemoryItem: async (memoryId) => {
+    const client = getPrimaryEnvironmentConnection().client;
+    const result = await client.workflows.suppressMemoryItem({ memoryId });
+    set((state) => {
+      const items = state.memoryByWorkflowId[result.item.workflowId] ?? EMPTY_WORKFLOW_MEMORY;
+      return {
+        memoryByWorkflowId: {
+          ...state.memoryByWorkflowId,
+          [result.item.workflowId]: items.map((item) =>
+            item.memoryId === result.item.memoryId ? result.item : item,
+          ),
+        },
+      };
+    });
+    return result.item;
   },
 
   respondToInput: async (runId, requestId, response) => {
@@ -470,6 +690,57 @@ export function selectThreadWorkflowCounts(
         };
   cache.set(key, counts);
   return counts;
+}
+
+export function selectProjectWorkflowSummaries(
+  state: Pick<WorkflowState, "summariesByProjectId">,
+  projectId: ProjectId | null,
+): readonly WorkflowThreadSummary[] {
+  if (!projectId) {
+    return EMPTY_WORKFLOW_SUMMARIES;
+  }
+  return state.summariesByProjectId[projectId] ?? EMPTY_WORKFLOW_SUMMARIES;
+}
+
+export function selectProjectWorkflowRuns(
+  state: Pick<WorkflowState, "runById">,
+  projectId: ProjectId | null,
+): readonly WorkflowRunSnapshot[] {
+  if (!projectId) {
+    return EMPTY_WORKFLOW_RUNS;
+  }
+  const runs = Object.values(state.runById).filter((run) => run.projectId === projectId);
+  return runs.length === 0 ? EMPTY_WORKFLOW_RUNS : sortRunsNewestFirst(runs);
+}
+
+export function selectProjectWorkflowLinks(
+  state: Pick<WorkflowState, "linksByProjectId">,
+  projectId: ProjectId | null,
+): readonly WorkflowThreadLink[] {
+  if (!projectId) {
+    return EMPTY_WORKFLOW_LINKS;
+  }
+  return state.linksByProjectId[projectId] ?? EMPTY_WORKFLOW_LINKS;
+}
+
+export function selectProjectWorkflowSchedules(
+  state: Pick<WorkflowState, "schedulesByProjectId">,
+  projectId: ProjectId | null,
+): readonly WorkflowSchedule[] {
+  if (!projectId) {
+    return EMPTY_WORKFLOW_SCHEDULES;
+  }
+  return state.schedulesByProjectId[projectId] ?? EMPTY_WORKFLOW_SCHEDULES;
+}
+
+export function selectWorkflowMemoryItems(
+  state: Pick<WorkflowState, "memoryByWorkflowId">,
+  workflowId: WorkflowId | null,
+): readonly WorkflowMemoryItem[] {
+  if (!workflowId) {
+    return EMPTY_WORKFLOW_MEMORY;
+  }
+  return state.memoryByWorkflowId[workflowId] ?? EMPTY_WORKFLOW_MEMORY;
 }
 
 export function selectInternalWorkflowThreadIds(

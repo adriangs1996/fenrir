@@ -8,6 +8,7 @@
  */
 import {
   IsoDateTime,
+  NonNegativeInt,
   ProjectId,
   ThreadId,
   WorkflowAgentSnapshot,
@@ -15,13 +16,21 @@ import {
   WorkflowEvent,
   WorkflowEventKind,
   WorkflowInputRequestSnapshot,
+  WorkflowMemoryId,
+  WorkflowMemoryItem,
+  WorkflowPromptBuild,
   WorkflowRunId,
+  WorkflowRunTrigger,
   WorkflowRunSnapshot,
   WorkflowRunStatus,
+  WorkflowSchedule,
+  WorkflowScheduleId,
   WorkflowStepSnapshot,
   WorkflowTaskSnapshot,
   WorkflowId,
   WorkflowStateEntry,
+  WorkflowThreadLink,
+  WorkflowThreadLinkRelation,
 } from "@fenrir/contracts";
 import { Context, Option, Schema } from "effect";
 import type { Effect } from "effect";
@@ -36,10 +45,16 @@ export const WorkflowRunRow = Schema.Struct({
   workflowId: WorkflowId,
   projectId: ProjectId,
   originThreadId: ThreadId,
+  trigger: Schema.optionalKey(WorkflowRunTrigger),
+  requestedByThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
+  scheduleId: Schema.optionalKey(Schema.NullOr(WorkflowScheduleId)),
   name: Schema.String,
   args: Schema.Unknown,
+  runtimeContext: Schema.optionalKey(Schema.Unknown),
   sourceSnapshot: Schema.String,
   sourceHash: Schema.String,
+  sourceRevision: Schema.optionalKey(NonNegativeInt),
+  memoryRevision: Schema.optionalKey(NonNegativeInt),
   status: WorkflowRunStatus,
   summary: Schema.NullOr(Schema.String),
   startedAt: IsoDateTime,
@@ -98,6 +113,25 @@ export interface WorkflowRepositoryShape {
     readonly projectId: ProjectId;
     readonly originThreadId: ThreadId;
   }) => Effect.Effect<Option.Option<WorkflowDraftRow>, ProjectionRepositoryError>;
+  readonly listDraftsForProject: (input: {
+    readonly projectId: ProjectId;
+    readonly includeArchived?: boolean | undefined;
+  }) => Effect.Effect<ReadonlyArray<WorkflowDraftRow>, ProjectionRepositoryError>;
+  readonly upsertThreadLink: (
+    link: WorkflowThreadLink,
+  ) => Effect.Effect<WorkflowThreadLink, ProjectionRepositoryError>;
+  readonly listThreadLinks: (input: {
+    readonly projectId: ProjectId;
+    readonly threadId: ThreadId;
+  }) => Effect.Effect<ReadonlyArray<WorkflowThreadLink>, ProjectionRepositoryError>;
+  readonly listProjectThreadLinks: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ReadonlyArray<WorkflowThreadLink>, ProjectionRepositoryError>;
+  readonly deleteThreadLink: (input: {
+    readonly workflowId: WorkflowId;
+    readonly threadId: ThreadId;
+    readonly relation?: WorkflowThreadLinkRelation | undefined;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
 
   readonly insertRun: (row: WorkflowRunRow) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly updateRun: (
@@ -114,10 +148,45 @@ export interface WorkflowRepositoryShape {
     readonly projectId: ProjectId;
     readonly originThreadId: ThreadId;
   }) => Effect.Effect<ReadonlyArray<WorkflowRunSnapshot>, ProjectionRepositoryError>;
+  readonly listRunsForProject: (input: {
+    readonly projectId: ProjectId;
+  }) => Effect.Effect<ReadonlyArray<WorkflowRunSnapshot>, ProjectionRepositoryError>;
   readonly listActiveRuns: () => Effect.Effect<
     ReadonlyArray<WorkflowRunSnapshot>,
     ProjectionRepositoryError
   >;
+
+  readonly insertSchedule: (
+    schedule: WorkflowSchedule,
+  ) => Effect.Effect<WorkflowSchedule, ProjectionRepositoryError>;
+  readonly getSchedule: (
+    scheduleId: WorkflowScheduleId,
+  ) => Effect.Effect<Option.Option<WorkflowSchedule>, ProjectionRepositoryError>;
+  readonly listSchedulesForProject: (input: {
+    readonly projectId: ProjectId;
+    readonly includeCompleted?: boolean | undefined;
+  }) => Effect.Effect<ReadonlyArray<WorkflowSchedule>, ProjectionRepositoryError>;
+  readonly listDueSchedules: (input: {
+    readonly now: IsoDateTime;
+    readonly limit: number;
+  }) => Effect.Effect<ReadonlyArray<WorkflowSchedule>, ProjectionRepositoryError>;
+  readonly claimSchedule: (input: {
+    readonly scheduleId: WorkflowScheduleId;
+    readonly updatedAt: IsoDateTime;
+  }) => Effect.Effect<Option.Option<WorkflowSchedule>, ProjectionRepositoryError>;
+  readonly completeSchedule: (input: {
+    readonly scheduleId: WorkflowScheduleId;
+    readonly runId: WorkflowRunId;
+    readonly updatedAt: IsoDateTime;
+  }) => Effect.Effect<WorkflowSchedule, ProjectionRepositoryError>;
+  readonly failSchedule: (input: {
+    readonly scheduleId: WorkflowScheduleId;
+    readonly updatedAt: IsoDateTime;
+  }) => Effect.Effect<WorkflowSchedule, ProjectionRepositoryError>;
+  readonly cancelSchedule: (input: {
+    readonly scheduleId: WorkflowScheduleId;
+    readonly updatedAt: IsoDateTime;
+  }) => Effect.Effect<WorkflowSchedule, ProjectionRepositoryError>;
 
   readonly upsertStep: (
     step: WorkflowStepSnapshot,
@@ -141,6 +210,27 @@ export interface WorkflowRepositoryShape {
   readonly listEventsForRun: (
     runId: WorkflowRunId,
   ) => Effect.Effect<ReadonlyArray<WorkflowEvent>, ProjectionRepositoryError>;
+  readonly listMemoryItems: (input: {
+    readonly workflowId: WorkflowId;
+    readonly includeSuppressed?: boolean | undefined;
+  }) => Effect.Effect<ReadonlyArray<WorkflowMemoryItem>, ProjectionRepositoryError>;
+  readonly insertMemoryItem: (
+    item: WorkflowMemoryItem,
+  ) => Effect.Effect<WorkflowMemoryItem, ProjectionRepositoryError>;
+  readonly recordMemoryUse: (input: {
+    readonly memoryIds: ReadonlyArray<WorkflowMemoryId>;
+    readonly usedAt: IsoDateTime;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly suppressMemoryItem: (
+    memoryId: WorkflowMemoryId,
+    updatedAt: WorkflowMemoryItem["updatedAt"],
+  ) => Effect.Effect<WorkflowMemoryItem, ProjectionRepositoryError>;
+  readonly insertPromptBuild: (
+    promptBuild: WorkflowPromptBuild,
+  ) => Effect.Effect<WorkflowPromptBuild, ProjectionRepositoryError>;
+  readonly listPromptBuildsForRun: (
+    runId: WorkflowRunId,
+  ) => Effect.Effect<ReadonlyArray<WorkflowPromptBuild>, ProjectionRepositoryError>;
 }
 
 export class WorkflowRepository extends Context.Service<

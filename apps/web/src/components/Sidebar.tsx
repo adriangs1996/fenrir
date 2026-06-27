@@ -150,6 +150,10 @@ export default function Sidebar() {
       runId: params.runId ?? null,
     }),
   });
+  const workflowRouteProjectId = useParams({
+    strict: false,
+    select: (params: { projectId?: string }) => params.projectId ?? null,
+  });
   const planRunnerProjectIdFromFeature = usePlanRunnerStore((s): string | null => {
     const featureName = planRunnerRouteParams.featureName;
     if (!featureName) return null;
@@ -342,6 +346,13 @@ export default function Sidebar() {
         }
       }
     }
+    if (workflowRouteProjectId) {
+      for (const project of sidebarProjects) {
+        if (project.memberProjectRefs.some((ref) => ref.projectId === workflowRouteProjectId)) {
+          return project.projectKey;
+        }
+      }
+    }
     if (draftRouteLogicalProjectKey && sidebarProjectByKey.has(draftRouteLogicalProjectKey)) {
       return draftRouteLogicalProjectKey;
     }
@@ -352,6 +363,7 @@ export default function Sidebar() {
     physicalToLogicalKey,
     planRunnerProjectIdFromRun,
     planRunnerProjectIdFromFeature,
+    workflowRouteProjectId,
     sidebarProjects,
     draftRouteLogicalProjectKey,
     sidebarProjectByKey,

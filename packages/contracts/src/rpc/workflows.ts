@@ -4,14 +4,24 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 import {
   WorkflowCreateDraftInput,
   WorkflowCreateDraftResult,
+  WorkflowCancelScheduledRunInput,
+  WorkflowCancelScheduledRunResult,
   WorkflowArchiveInput,
   WorkflowArchiveResult,
   WorkflowError,
   WorkflowEventStreamItem,
   WorkflowGetTimelineInput,
   WorkflowGetTimelineResult,
+  WorkflowLinkThreadInput,
+  WorkflowLinkThreadResult,
+  WorkflowListMemoryInput,
+  WorkflowListMemoryResult,
+  WorkflowListProjectWorkflowsInput,
+  WorkflowListProjectWorkflowsResult,
   WorkflowListThreadInput,
   WorkflowListThreadResult,
+  WorkflowListThreadWorkflowLinksInput,
+  WorkflowListThreadWorkflowLinksResult,
   WorkflowNotFoundError,
   WorkflowOpenSourceInput,
   WorkflowOpenSourceResult,
@@ -20,9 +30,15 @@ import {
   WorkflowRunInput,
   WorkflowRunResult,
   WorkflowRunSnapshot,
+  WorkflowScheduleRunInput,
+  WorkflowScheduleRunResult,
   WorkflowStopInput,
+  WorkflowSuppressMemoryItemInput,
+  WorkflowSuppressMemoryItemResult,
   WorkflowSyncSourceInput,
   WorkflowSyncSourceResult,
+  WorkflowUnlinkThreadInput,
+  WorkflowUnlinkThreadResult,
   WorkflowValidateInput,
   WorkflowValidateResult,
 } from "../workflows";
@@ -38,6 +54,33 @@ export const WsWorkflowsListThreadRpc = Rpc.make(WS_METHODS.workflowsListThread,
   payload: WorkflowListThreadInput,
   success: WorkflowListThreadResult,
   error: WorkflowError,
+});
+
+export const WsWorkflowsListProjectWorkflowsRpc = Rpc.make(
+  WS_METHODS.workflowsListProjectWorkflows,
+  {
+    payload: WorkflowListProjectWorkflowsInput,
+    success: WorkflowListProjectWorkflowsResult,
+    error: WorkflowError,
+  },
+);
+
+export const WsWorkflowsListThreadLinksRpc = Rpc.make(WS_METHODS.workflowsListThreadLinks, {
+  payload: WorkflowListThreadWorkflowLinksInput,
+  success: WorkflowListThreadWorkflowLinksResult,
+  error: WorkflowError,
+});
+
+export const WsWorkflowsLinkThreadRpc = Rpc.make(WS_METHODS.workflowsLinkThread, {
+  payload: WorkflowLinkThreadInput,
+  success: WorkflowLinkThreadResult,
+  error: Schema.Union([WorkflowError, WorkflowNotFoundError]),
+});
+
+export const WsWorkflowsUnlinkThreadRpc = Rpc.make(WS_METHODS.workflowsUnlinkThread, {
+  payload: WorkflowUnlinkThreadInput,
+  success: WorkflowUnlinkThreadResult,
+  error: Schema.Union([WorkflowError, WorkflowNotFoundError]),
 });
 
 export const WsWorkflowsOpenSourceRpc = Rpc.make(WS_METHODS.workflowsOpenSource, {
@@ -70,6 +113,18 @@ export const WsWorkflowsRunRpc = Rpc.make(WS_METHODS.workflowsRun, {
   error: Schema.Union([WorkflowError, WorkflowNotFoundError]),
 });
 
+export const WsWorkflowsScheduleRunRpc = Rpc.make(WS_METHODS.workflowsScheduleRun, {
+  payload: WorkflowScheduleRunInput,
+  success: WorkflowScheduleRunResult,
+  error: Schema.Union([WorkflowError, WorkflowNotFoundError]),
+});
+
+export const WsWorkflowsCancelScheduledRunRpc = Rpc.make(WS_METHODS.workflowsCancelScheduledRun, {
+  payload: WorkflowCancelScheduledRunInput,
+  success: WorkflowCancelScheduledRunResult,
+  error: Schema.Union([WorkflowError, WorkflowNotFoundError]),
+});
+
 export const WsWorkflowsStopRpc = Rpc.make(WS_METHODS.workflowsStop, {
   payload: WorkflowStopInput,
   error: Schema.Union([WorkflowError, WorkflowNotFoundError]),
@@ -89,6 +144,18 @@ export const WsWorkflowsGetRunRpc = Rpc.make(WS_METHODS.workflowsGetRun, {
 export const WsWorkflowsGetTimelineRpc = Rpc.make(WS_METHODS.workflowsGetTimeline, {
   payload: WorkflowGetTimelineInput,
   success: WorkflowGetTimelineResult,
+  error: Schema.Union([WorkflowError, WorkflowNotFoundError]),
+});
+
+export const WsWorkflowsListMemoryRpc = Rpc.make(WS_METHODS.workflowsListMemory, {
+  payload: WorkflowListMemoryInput,
+  success: WorkflowListMemoryResult,
+  error: Schema.Union([WorkflowError, WorkflowNotFoundError]),
+});
+
+export const WsWorkflowsSuppressMemoryItemRpc = Rpc.make(WS_METHODS.workflowsSuppressMemoryItem, {
+  payload: WorkflowSuppressMemoryItemInput,
+  success: WorkflowSuppressMemoryItemResult,
   error: Schema.Union([WorkflowError, WorkflowNotFoundError]),
 });
 

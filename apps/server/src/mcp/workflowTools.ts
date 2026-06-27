@@ -19,19 +19,44 @@ const emptyInputSchema = {};
 const workflowId = z
   .string()
   .min(1)
-  .describe("Workflow id returned by workflow_list_thread_drafts.");
+  .describe("Workflow id returned by workflow_list_thread_drafts or workflow_list_project.");
 const workflowRunId = z.string().min(1).describe("Workflow run id returned by workflow_run.");
+const referenceVersion = z
+  .string()
+  .min(1)
+  .describe("Reference version returned by workflow_reference in this MCP session.");
+const readToken = z
+  .string()
+  .min(1)
+  .describe("Read token returned by workflow_reference in this MCP session.");
 
 export type WorkflowMcpMode = "management" | "collaboration";
 
 export const WORKFLOW_MANAGEMENT_MCP_TOOLS = [
   {
-    name: "workflow_create_draft",
+    name: "workflow_reference",
     description:
-      "Create a new Fenrir workflow draft for the current chat thread. Use workflow_update_draft instead when fixing or iterating on an existing listed workflowId. Store reviewed JavaScript source only; this does not run the workflow.",
+      "Read the complete Fenrir workflow runtime API reference before creating or updating workflow source. This is mandatory: workflow_create, workflow_create_draft, workflow_update, and workflow_update_draft reject calls without the returned referenceVersion and readToken.",
+    inputSchema: {
+      format: z
+        .enum(["markdown", "json"])
+        .describe("Reference format. Defaults to markdown.")
+        .optional(),
+      section: z
+        .enum(["overview", "ctx", "examples", "capabilities", "errors"])
+        .describe("Optional reference section to return.")
+        .optional(),
+    },
+  },
+  {
+    name: "workflow_create",
+    description:
+      "Create a new Fenrir workflow. You must call workflow_reference first and pass its referenceVersion and readToken. Source must use only the documented workflow ctx API.",
     inputSchema: {
       name: z.string().min(1).describe("Human-readable workflow name."),
       description: z.string().describe("Optional workflow description.").optional(),
+      referenceVersion,
+      readToken,
       source: z
         .string()
         .min(1)
@@ -39,11 +64,44 @@ export const WORKFLOW_MANAGEMENT_MCP_TOOLS = [
     },
   },
   {
-    name: "workflow_update_draft",
+    name: "workflow_create_draft",
     description:
-      "Replace the JavaScript source for an existing workflow draft in the current chat thread and revalidate it. Use this when fixing a validation failure or iterating on a listed workflowId instead of creating a duplicate draft.",
+      "Create a new Fenrir workflow draft for the current chat thread. You must call workflow_reference first and pass its referenceVersion and readToken. Use workflow_update_draft instead when fixing or iterating on an existing listed workflowId. Store reviewed JavaScript source only; this does not run the workflow.",
+    inputSchema: {
+      name: z.string().min(1).describe("Human-readable workflow name."),
+      description: z.string().describe("Optional workflow description.").optional(),
+      referenceVersion,
+      readToken,
+      source: z
+        .string()
+        .min(1)
+        .describe("JavaScript workflow source exporting a default async function run(ctx, args)."),
+    },
+  },
+  {
+    name: "workflow_update",
+    description:
+      "Replace the JavaScript source for an existing workflow. You must call workflow_reference first and pass its referenceVersion and readToken. Source must use only the documented workflow ctx API.",
     inputSchema: {
       workflowId,
+      referenceVersion,
+      readToken,
+      source: z
+        .string()
+        .min(1)
+        .describe(
+          "Replacement JavaScript workflow source exporting a default async function run(ctx, args).",
+        ),
+    },
+  },
+  {
+    name: "workflow_update_draft",
+    description:
+      "Replace the JavaScript source for an existing workflow draft in the current chat thread and revalidate it. You must call workflow_reference first and pass its referenceVersion and readToken. Use this when fixing a validation failure or iterating on a listed workflowId instead of creating a duplicate draft.",
+    inputSchema: {
+      workflowId,
+      referenceVersion,
+      readToken,
       source: z
         .string()
         .min(1)

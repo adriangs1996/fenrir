@@ -33,15 +33,28 @@ export type WorkflowEventId = typeof WorkflowEventId.Type;
 export const WorkflowInputRequestId = makeEntityId("WorkflowInputRequestId");
 export type WorkflowInputRequestId = typeof WorkflowInputRequestId.Type;
 
+export const WorkflowScheduleId = makeEntityId("WorkflowScheduleId");
+export type WorkflowScheduleId = typeof WorkflowScheduleId.Type;
+
+export const WorkflowMemoryId = makeEntityId("WorkflowMemoryId");
+export type WorkflowMemoryId = typeof WorkflowMemoryId.Type;
+
+export const WorkflowPromptBuildId = makeEntityId("WorkflowPromptBuildId");
+export type WorkflowPromptBuildId = typeof WorkflowPromptBuildId.Type;
+
 // ─── State Enums ────────────────────────────────────────────────────────────
 
 export const WorkflowDraftStatus = Schema.Literals(["draft", "validated", "invalid", "archived"]);
 export type WorkflowDraftStatus = typeof WorkflowDraftStatus.Type;
 
+export const WorkflowDefinitionStatus = Schema.Literals(["draft", "active", "invalid", "archived"]);
+export type WorkflowDefinitionStatus = typeof WorkflowDefinitionStatus.Type;
+
 export const WorkflowValidationStatus = Schema.Literals(["pending", "valid", "invalid"]);
 export type WorkflowValidationStatus = typeof WorkflowValidationStatus.Type;
 
 export const WorkflowRunStatus = Schema.Literals([
+  "queued",
   "running",
   "paused",
   "completed",
@@ -50,6 +63,37 @@ export const WorkflowRunStatus = Schema.Literals([
   "interrupted",
 ]);
 export type WorkflowRunStatus = typeof WorkflowRunStatus.Type;
+
+export const WorkflowRunTrigger = Schema.Literals(["manual", "thread", "schedule", "api"]);
+export type WorkflowRunTrigger = typeof WorkflowRunTrigger.Type;
+
+export const WorkflowThreadLinkRelation = Schema.Literals([
+  "created_from",
+  "operator",
+  "subscriber",
+]);
+export type WorkflowThreadLinkRelation = typeof WorkflowThreadLinkRelation.Type;
+
+export const WorkflowScheduleStatus = Schema.Literals([
+  "scheduled",
+  "cancelled",
+  "claimed",
+  "completed",
+  "failed",
+]);
+export type WorkflowScheduleStatus = typeof WorkflowScheduleStatus.Type;
+
+export const WorkflowMemoryKind = Schema.Literals([
+  "repo_fact",
+  "user_preference",
+  "failure_pattern",
+  "prompt_hint",
+  "context_rule",
+]);
+export type WorkflowMemoryKind = typeof WorkflowMemoryKind.Type;
+
+export const WorkflowMemoryStatus = Schema.Literals(["active", "suppressed", "stale"]);
+export type WorkflowMemoryStatus = typeof WorkflowMemoryStatus.Type;
 
 export const WorkflowStepStatus = Schema.Literals([
   "pending",
@@ -103,6 +147,9 @@ export const WorkflowEventKind = Schema.Literals([
   "workflow.run.failed",
   "workflow.run.cancelled",
   "workflow.run.interrupted",
+  "workflow.schedule.created",
+  "workflow.schedule.cancelled",
+  "workflow.schedule.started",
   "workflow.step.started",
   "workflow.step.completed",
   "workflow.step.failed",
@@ -110,6 +157,11 @@ export const WorkflowEventKind = Schema.Literals([
   "workflow.agent.created",
   "workflow.agent.message.sent",
   "workflow.agent.message.completed",
+  "workflow.capability.called",
+  "workflow.prompt.built",
+  "workflow.memory.selected",
+  "workflow.memory.remembered",
+  "workflow.memory.suppressed",
   "workflow.state.updated",
   "workflow.note.added",
   "workflow.task.proposed",
@@ -131,18 +183,98 @@ export const WorkflowDraft = Schema.Struct({
   workflowId: WorkflowId,
   projectId: ProjectId,
   originThreadId: ThreadId,
+  createdFromThreadId: Schema.optionalKey(ThreadId),
   name: TrimmedNonEmptyString,
   description: Schema.NullOr(Schema.String),
   source: Schema.String,
   sourceHash: TrimmedNonEmptyString,
+  sourceRevision: Schema.optionalKey(NonNegativeInt),
   status: WorkflowDraftStatus,
   validationStatus: WorkflowValidationStatus,
   validationError: Schema.NullOr(Schema.String),
+  declaredCapabilities: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+  defaultRuntimeContext: Schema.optionalKey(Schema.Unknown),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime),
 });
 export type WorkflowDraft = typeof WorkflowDraft.Type;
+
+export const WorkflowDefinition = Schema.Struct({
+  workflowId: WorkflowId,
+  projectId: ProjectId,
+  name: TrimmedNonEmptyString,
+  description: Schema.NullOr(Schema.String),
+  source: Schema.String,
+  sourceHash: TrimmedNonEmptyString,
+  sourceRevision: NonNegativeInt,
+  status: WorkflowDefinitionStatus,
+  validationStatus: WorkflowValidationStatus,
+  validationError: Schema.NullOr(Schema.String),
+  declaredCapabilities: Schema.Array(TrimmedNonEmptyString),
+  defaultRuntimeContext: Schema.Unknown,
+  createdFromThreadId: Schema.optionalKey(ThreadId),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  archivedAt: Schema.NullOr(IsoDateTime),
+});
+export type WorkflowDefinition = typeof WorkflowDefinition.Type;
+
+export const WorkflowThreadLink = Schema.Struct({
+  workflowId: WorkflowId,
+  projectId: ProjectId,
+  threadId: ThreadId,
+  relation: WorkflowThreadLinkRelation,
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type WorkflowThreadLink = typeof WorkflowThreadLink.Type;
+
+export const WorkflowSchedule = Schema.Struct({
+  scheduleId: WorkflowScheduleId,
+  workflowId: WorkflowId,
+  projectId: ProjectId,
+  runAt: IsoDateTime,
+  args: Schema.Unknown,
+  runtimeContext: Schema.Unknown,
+  requestedByThreadId: Schema.NullOr(ThreadId),
+  status: WorkflowScheduleStatus,
+  runId: Schema.NullOr(WorkflowRunId),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type WorkflowSchedule = typeof WorkflowSchedule.Type;
+
+export const WorkflowMemoryItem = Schema.Struct({
+  memoryId: WorkflowMemoryId,
+  workflowId: WorkflowId,
+  projectId: ProjectId,
+  kind: WorkflowMemoryKind,
+  content: Schema.String,
+  evidenceRunIds: Schema.Array(WorkflowRunId),
+  evidenceEventIds: Schema.Array(WorkflowEventId),
+  confidence: Schema.Number,
+  status: WorkflowMemoryStatus,
+  usageCount: NonNegativeInt,
+  successCount: NonNegativeInt,
+  lastUsedAt: Schema.NullOr(IsoDateTime),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type WorkflowMemoryItem = typeof WorkflowMemoryItem.Type;
+
+export const WorkflowPromptBuild = Schema.Struct({
+  promptBuildId: WorkflowPromptBuildId,
+  runId: WorkflowRunId,
+  stepId: Schema.NullOr(WorkflowStepId),
+  agentName: Schema.NullOr(TrimmedNonEmptyString),
+  selectedMemoryIds: Schema.Array(WorkflowMemoryId),
+  selectedContextRefs: Schema.Array(TrimmedNonEmptyString),
+  renderedPrompt: Schema.String,
+  rationale: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type WorkflowPromptBuild = typeof WorkflowPromptBuild.Type;
 
 export const WorkflowStepSnapshot = Schema.Struct({
   stepId: WorkflowStepId,
@@ -232,9 +364,15 @@ export const WorkflowRunSnapshot = Schema.Struct({
   workflowId: WorkflowId,
   projectId: ProjectId,
   originThreadId: ThreadId,
+  trigger: Schema.optionalKey(WorkflowRunTrigger),
+  requestedByThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
+  scheduleId: Schema.optionalKey(Schema.NullOr(WorkflowScheduleId)),
   name: TrimmedNonEmptyString,
   args: Schema.Unknown,
+  runtimeContext: Schema.optionalKey(Schema.Unknown),
   sourceHash: TrimmedNonEmptyString,
+  sourceRevision: Schema.optionalKey(NonNegativeInt),
+  memoryRevision: Schema.optionalKey(NonNegativeInt),
   status: WorkflowRunStatus,
   summary: Schema.NullOr(Schema.String),
   startedAt: IsoDateTime,
@@ -284,6 +422,56 @@ export const WorkflowListThreadResult = Schema.Struct({
 });
 export type WorkflowListThreadResult = typeof WorkflowListThreadResult.Type;
 
+export const WorkflowListProjectWorkflowsInput = Schema.Struct({
+  projectId: ProjectId,
+  includeArchived: Schema.optional(Schema.Boolean),
+});
+export type WorkflowListProjectWorkflowsInput = typeof WorkflowListProjectWorkflowsInput.Type;
+
+export const WorkflowListProjectWorkflowsResult = Schema.Struct({
+  workflows: Schema.Array(WorkflowThreadSummary),
+  runs: Schema.Array(WorkflowRunSnapshot),
+  links: Schema.Array(WorkflowThreadLink),
+  schedules: Schema.Array(WorkflowSchedule),
+});
+export type WorkflowListProjectWorkflowsResult = typeof WorkflowListProjectWorkflowsResult.Type;
+
+export const WorkflowListThreadWorkflowLinksInput = Schema.Struct({
+  projectId: ProjectId,
+  threadId: ThreadId,
+});
+export type WorkflowListThreadWorkflowLinksInput = typeof WorkflowListThreadWorkflowLinksInput.Type;
+
+export const WorkflowListThreadWorkflowLinksResult = Schema.Struct({
+  links: Schema.Array(WorkflowThreadLink),
+});
+export type WorkflowListThreadWorkflowLinksResult =
+  typeof WorkflowListThreadWorkflowLinksResult.Type;
+
+export const WorkflowLinkThreadInput = Schema.Struct({
+  workflowId: WorkflowId,
+  threadId: ThreadId,
+  relation: WorkflowThreadLinkRelation,
+});
+export type WorkflowLinkThreadInput = typeof WorkflowLinkThreadInput.Type;
+
+export const WorkflowLinkThreadResult = Schema.Struct({
+  link: WorkflowThreadLink,
+});
+export type WorkflowLinkThreadResult = typeof WorkflowLinkThreadResult.Type;
+
+export const WorkflowUnlinkThreadInput = Schema.Struct({
+  workflowId: WorkflowId,
+  threadId: ThreadId,
+  relation: Schema.optional(WorkflowThreadLinkRelation),
+});
+export type WorkflowUnlinkThreadInput = typeof WorkflowUnlinkThreadInput.Type;
+
+export const WorkflowUnlinkThreadResult = Schema.Struct({
+  unlinked: Schema.Literal(true),
+});
+export type WorkflowUnlinkThreadResult = typeof WorkflowUnlinkThreadResult.Type;
+
 export const WorkflowOpenSourceInput = Schema.Struct({
   workflowId: WorkflowId,
 });
@@ -328,9 +516,13 @@ export type WorkflowArchiveResult = typeof WorkflowArchiveResult.Type;
 
 export const WorkflowRunInput = Schema.Struct({
   projectId: ProjectId,
-  originThreadId: ThreadId,
+  originThreadId: Schema.optionalKey(ThreadId),
   workflowId: Schema.optional(WorkflowId),
   args: Schema.optional(Schema.Unknown),
+  trigger: Schema.optionalKey(WorkflowRunTrigger),
+  requestedByThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
+  scheduleId: Schema.optionalKey(WorkflowScheduleId),
+  runtimeContext: Schema.optionalKey(Schema.Unknown),
 });
 export type WorkflowRunInput = typeof WorkflowRunInput.Type;
 
@@ -366,6 +558,51 @@ export const WorkflowGetTimelineResult = Schema.Struct({
   events: Schema.Array(WorkflowEvent),
 });
 export type WorkflowGetTimelineResult = typeof WorkflowGetTimelineResult.Type;
+
+export const WorkflowScheduleRunInput = Schema.Struct({
+  workflowId: WorkflowId,
+  runAt: IsoDateTime,
+  args: Schema.optional(Schema.Unknown),
+  runtimeContext: Schema.optional(Schema.Unknown),
+  requestedByThreadId: Schema.optionalKey(Schema.NullOr(ThreadId)),
+});
+export type WorkflowScheduleRunInput = typeof WorkflowScheduleRunInput.Type;
+
+export const WorkflowScheduleRunResult = Schema.Struct({
+  schedule: WorkflowSchedule,
+});
+export type WorkflowScheduleRunResult = typeof WorkflowScheduleRunResult.Type;
+
+export const WorkflowCancelScheduledRunInput = Schema.Struct({
+  scheduleId: WorkflowScheduleId,
+});
+export type WorkflowCancelScheduledRunInput = typeof WorkflowCancelScheduledRunInput.Type;
+
+export const WorkflowCancelScheduledRunResult = Schema.Struct({
+  schedule: WorkflowSchedule,
+});
+export type WorkflowCancelScheduledRunResult = typeof WorkflowCancelScheduledRunResult.Type;
+
+export const WorkflowListMemoryInput = Schema.Struct({
+  workflowId: WorkflowId,
+  includeSuppressed: Schema.optional(Schema.Boolean),
+});
+export type WorkflowListMemoryInput = typeof WorkflowListMemoryInput.Type;
+
+export const WorkflowListMemoryResult = Schema.Struct({
+  items: Schema.Array(WorkflowMemoryItem),
+});
+export type WorkflowListMemoryResult = typeof WorkflowListMemoryResult.Type;
+
+export const WorkflowSuppressMemoryItemInput = Schema.Struct({
+  memoryId: WorkflowMemoryId,
+});
+export type WorkflowSuppressMemoryItemInput = typeof WorkflowSuppressMemoryItemInput.Type;
+
+export const WorkflowSuppressMemoryItemResult = Schema.Struct({
+  item: WorkflowMemoryItem,
+});
+export type WorkflowSuppressMemoryItemResult = typeof WorkflowSuppressMemoryItemResult.Type;
 
 export const WorkflowEventStreamItem = Schema.Union([
   Schema.Struct({

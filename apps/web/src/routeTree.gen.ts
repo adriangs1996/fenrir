@@ -27,6 +27,7 @@ import { Route as RemoteHostHostIdRouteImport } from './routes/remote-host.$host
 import { Route as ChatGlobalTerminalRouteImport } from './routes/_chat.global-terminal'
 import { Route as ChatGitdiffRouteImport } from './routes/_chat.gitdiff'
 import { Route as ChatBrowserLabRouteImport } from './routes/_chat.browser-lab'
+import { Route as ChatWorkflowsProjectIdRouteImport } from './routes/_chat.workflows.$projectId'
 import { Route as ChatPlanRunnerRunIdRouteImport } from './routes/_chat.plan-runner.$runId'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
@@ -124,6 +125,11 @@ const ChatBrowserLabRoute = ChatBrowserLabRouteImport.update({
   path: '/browser-lab',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatWorkflowsProjectIdRoute = ChatWorkflowsProjectIdRouteImport.update({
+  id: '/workflows/$projectId',
+  path: '/workflows/$projectId',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatPlanRunnerRunIdRoute = ChatPlanRunnerRunIdRouteImport.update({
   id: '/plan-runner/$runId',
   path: '/plan-runner/$runId',
@@ -173,6 +179,7 @@ export interface FileRoutesByFullPath {
   '/browser-lab': typeof ChatBrowserLabRoute
   '/gitdiff': typeof ChatGitdiffRoute
   '/global-terminal': typeof ChatGlobalTerminalRoute
+  '/workflows/$projectId': typeof ChatWorkflowsProjectIdRoute
   '/remote-host/$hostId': typeof RemoteHostHostIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
@@ -197,6 +204,7 @@ export interface FileRoutesByTo {
   '/browser-lab': typeof ChatBrowserLabRoute
   '/gitdiff': typeof ChatGitdiffRoute
   '/global-terminal': typeof ChatGlobalTerminalRoute
+  '/workflows/$projectId': typeof ChatWorkflowsProjectIdRoute
   '/remote-host/$hostId': typeof RemoteHostHostIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
@@ -225,6 +233,7 @@ export interface FileRoutesById {
   '/_chat/browser-lab': typeof ChatBrowserLabRoute
   '/_chat/gitdiff': typeof ChatGitdiffRoute
   '/_chat/global-terminal': typeof ChatGlobalTerminalRoute
+  '/_chat/workflows/$projectId': typeof ChatWorkflowsProjectIdRoute
   '/remote-host/$hostId': typeof RemoteHostHostIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
@@ -254,6 +263,7 @@ export interface FileRouteTypes {
     | '/browser-lab'
     | '/gitdiff'
     | '/global-terminal'
+    | '/workflows/$projectId'
     | '/remote-host/$hostId'
     | '/settings/archived'
     | '/settings/archived-plans'
@@ -278,6 +288,7 @@ export interface FileRouteTypes {
     | '/browser-lab'
     | '/gitdiff'
     | '/global-terminal'
+    | '/workflows/$projectId'
     | '/remote-host/$hostId'
     | '/settings/archived'
     | '/settings/archived-plans'
@@ -305,6 +316,7 @@ export interface FileRouteTypes {
     | '/_chat/browser-lab'
     | '/_chat/gitdiff'
     | '/_chat/global-terminal'
+    | '/_chat/workflows/$projectId'
     | '/remote-host/$hostId'
     | '/settings/archived'
     | '/settings/archived-plans'
@@ -460,6 +472,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatBrowserLabRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/workflows/$projectId': {
+      id: '/_chat/workflows/$projectId'
+      path: '/workflows/$projectId'
+      fullPath: '/workflows/$projectId'
+      preLoaderRoute: typeof ChatWorkflowsProjectIdRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/plan-runner/$runId': {
       id: '/_chat/plan-runner/$runId'
       path: '/plan-runner/$runId'
@@ -531,6 +550,7 @@ interface ChatRouteChildren {
   ChatBrowserLabRoute: typeof ChatBrowserLabRoute
   ChatGitdiffRoute: typeof ChatGitdiffRoute
   ChatGlobalTerminalRoute: typeof ChatGlobalTerminalRoute
+  ChatWorkflowsProjectIdRoute: typeof ChatWorkflowsProjectIdRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRouteWithChildren
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
@@ -544,6 +564,7 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatBrowserLabRoute: ChatBrowserLabRoute,
   ChatGitdiffRoute: ChatGitdiffRoute,
   ChatGlobalTerminalRoute: ChatGlobalTerminalRoute,
+  ChatWorkflowsProjectIdRoute: ChatWorkflowsProjectIdRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRouteWithChildren,
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,

@@ -121,6 +121,7 @@ export function createLocalApi(rpcClient: WsRpcClient): LocalApi {
       getProcessDiagnostics: rpcClient.server.getProcessDiagnostics,
       getProcessResourceHistory: rpcClient.server.getProcessResourceHistory,
       signalProcess: rpcClient.server.signalProcess,
+      clearLogs: rpcClient.server.clearLogs,
       getSettings: rpcClient.server.getSettings,
       updateSettings: rpcClient.server.updateSettings,
       discoverSourceControl: rpcClient.server.discoverSourceControl,

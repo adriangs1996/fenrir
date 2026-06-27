@@ -4,6 +4,8 @@ import type {
   ThreadId,
   WorkflowArchiveInput,
   WorkflowArchiveResult,
+  WorkflowCancelScheduledRunInput,
+  WorkflowCancelScheduledRunResult,
   ProjectId,
   WorkflowCreateDraftInput,
   WorkflowCreateDraftResult,
@@ -11,8 +13,16 @@ import type {
   WorkflowEventStreamItem,
   WorkflowGetTimelineInput,
   WorkflowGetTimelineResult,
+  WorkflowLinkThreadInput,
+  WorkflowLinkThreadResult,
+  WorkflowListMemoryInput,
+  WorkflowListMemoryResult,
+  WorkflowListProjectWorkflowsInput,
+  WorkflowListProjectWorkflowsResult,
   WorkflowListThreadInput,
   WorkflowListThreadResult,
+  WorkflowListThreadWorkflowLinksInput,
+  WorkflowListThreadWorkflowLinksResult,
   WorkflowNotFoundError,
   WorkflowOpenSourceInput,
   WorkflowOpenSourceResult,
@@ -22,9 +32,15 @@ import type {
   WorkflowRunId,
   WorkflowRunResult,
   WorkflowRunSnapshot,
+  WorkflowScheduleRunInput,
+  WorkflowScheduleRunResult,
   WorkflowStopInput,
+  WorkflowSuppressMemoryItemInput,
+  WorkflowSuppressMemoryItemResult,
   WorkflowSyncSourceInput,
   WorkflowSyncSourceResult,
+  WorkflowUnlinkThreadInput,
+  WorkflowUnlinkThreadResult,
   WorkflowTaskKind,
   WorkflowValidateInput,
   WorkflowValidateResult,
@@ -71,6 +87,18 @@ export interface WorkflowServiceShape {
   readonly listThread: (
     input: WorkflowListThreadInput,
   ) => Effect.Effect<WorkflowListThreadResult, WorkflowError>;
+  readonly listProjectWorkflows: (
+    input: WorkflowListProjectWorkflowsInput,
+  ) => Effect.Effect<WorkflowListProjectWorkflowsResult, WorkflowError>;
+  readonly listThreadLinks: (
+    input: WorkflowListThreadWorkflowLinksInput,
+  ) => Effect.Effect<WorkflowListThreadWorkflowLinksResult, WorkflowError>;
+  readonly linkThread: (
+    input: WorkflowLinkThreadInput,
+  ) => Effect.Effect<WorkflowLinkThreadResult, WorkflowError | WorkflowNotFoundError>;
+  readonly unlinkThread: (
+    input: WorkflowUnlinkThreadInput,
+  ) => Effect.Effect<WorkflowUnlinkThreadResult, WorkflowError | WorkflowNotFoundError>;
   readonly openSource: (
     input: WorkflowOpenSourceInput,
   ) => Effect.Effect<WorkflowOpenSourceResult, WorkflowError | WorkflowNotFoundError>;
@@ -86,6 +114,12 @@ export interface WorkflowServiceShape {
   readonly run: (
     input: WorkflowRunInput,
   ) => Effect.Effect<WorkflowRunResult, WorkflowError | WorkflowNotFoundError>;
+  readonly scheduleRun: (
+    input: WorkflowScheduleRunInput,
+  ) => Effect.Effect<WorkflowScheduleRunResult, WorkflowError | WorkflowNotFoundError>;
+  readonly cancelScheduledRun: (
+    input: WorkflowCancelScheduledRunInput,
+  ) => Effect.Effect<WorkflowCancelScheduledRunResult, WorkflowError | WorkflowNotFoundError>;
   readonly stop: (
     input: WorkflowStopInput,
   ) => Effect.Effect<void, WorkflowError | WorkflowNotFoundError>;
@@ -98,6 +132,12 @@ export interface WorkflowServiceShape {
   readonly getTimeline: (
     input: WorkflowGetTimelineInput,
   ) => Effect.Effect<WorkflowGetTimelineResult, WorkflowError | WorkflowNotFoundError>;
+  readonly listMemory: (
+    input: WorkflowListMemoryInput,
+  ) => Effect.Effect<WorkflowListMemoryResult, WorkflowError | WorkflowNotFoundError>;
+  readonly suppressMemoryItem: (
+    input: WorkflowSuppressMemoryItemInput,
+  ) => Effect.Effect<WorkflowSuppressMemoryItemResult, WorkflowError | WorkflowNotFoundError>;
   readonly collaborationStatePatch: (
     input: WorkflowCollaborationStatePatchInput,
   ) => Effect.Effect<WorkflowRunSnapshot, WorkflowError | WorkflowNotFoundError>;

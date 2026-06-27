@@ -479,6 +479,14 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       provider,
       capabilities: {
         sessionModelSwitch: "in-session",
+        mcp: {
+          supported: true,
+          transports: {
+            stdio: true,
+            http: false,
+            sse: false,
+          },
+        },
       },
       startSession,
       sendTurn,

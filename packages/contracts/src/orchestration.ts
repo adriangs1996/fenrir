@@ -109,7 +109,7 @@ export const ThreadOwner = Schema.Union([
   }),
   Schema.Struct({
     kind: Schema.Literal("workflowAgent"),
-    parentThreadId: ThreadId,
+    parentThreadId: Schema.optionalKey(ThreadId),
     workflowRunId: TrimmedNonEmptyString,
     agentName: TrimmedNonEmptyString,
   }),

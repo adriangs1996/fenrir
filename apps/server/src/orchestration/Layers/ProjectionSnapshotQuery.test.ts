@@ -298,6 +298,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           mcpServerIds: [],
           branch: "feature/bootstrap",
           worktreePath: "/tmp/bootstrap-project/.worktrees/bootstrap",
+          visibility: "normal",
+          owner: null,
+          deleteOnSettled: false,
           latestTurn: {
             turnId: asTurnId("turn-bootstrap"),
             state: "running",
@@ -710,6 +713,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           mcpServerIds: [],
           branch: null,
           worktreePath: null,
+          visibility: "normal",
+          owner: null,
+          deleteOnSettled: false,
           latestTurn: {
             turnId: asTurnId("turn-1"),
             state: "completed",

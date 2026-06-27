@@ -42,7 +42,7 @@ export const FENRIR_BUILT_IN_MCP_SERVERS: ReadonlyArray<McpServerDefinition> = [
     id: FENRIR_WORKFLOWS_MCP_ID,
     name: "Workflows",
     description:
-      "Fenrir workflow tools for creating, listing, running, and stopping workflows scoped to the current chat thread.",
+      "Fenrir workflow tools and workflow_reference runtime API docs for creating, updating, running, and stopping workflows.",
     enabled: true,
     source: "fenrir",
     transport: {

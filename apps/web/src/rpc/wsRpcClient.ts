@@ -300,6 +300,7 @@ export interface WsRpcClient {
       typeof WS_METHODS.serverGetProcessResourceHistory
     >;
     readonly signalProcess: RpcUnaryMethod<typeof WS_METHODS.serverSignalProcess>;
+    readonly clearLogs: RpcUnaryNoArgMethod<typeof WS_METHODS.serverClearLogs>;
     readonly getSettings: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetSettings>;
     readonly updateSettings: (
       patch: ServerSettingsPatch,
@@ -381,15 +382,23 @@ export interface WsRpcClient {
   readonly workflows: {
     readonly createDraft: RpcUnaryMethod<typeof WS_METHODS.workflowsCreateDraft>;
     readonly listThread: RpcUnaryMethod<typeof WS_METHODS.workflowsListThread>;
+    readonly listProjectWorkflows: RpcUnaryMethod<typeof WS_METHODS.workflowsListProjectWorkflows>;
+    readonly listThreadLinks: RpcUnaryMethod<typeof WS_METHODS.workflowsListThreadLinks>;
+    readonly linkThread: RpcUnaryMethod<typeof WS_METHODS.workflowsLinkThread>;
+    readonly unlinkThread: RpcUnaryMethod<typeof WS_METHODS.workflowsUnlinkThread>;
     readonly openSource: RpcUnaryMethod<typeof WS_METHODS.workflowsOpenSource>;
     readonly syncSource: RpcUnaryMethod<typeof WS_METHODS.workflowsSyncSource>;
     readonly validate: RpcUnaryMethod<typeof WS_METHODS.workflowsValidate>;
     readonly archive: RpcUnaryMethod<typeof WS_METHODS.workflowsArchive>;
     readonly run: RpcUnaryMethod<typeof WS_METHODS.workflowsRun>;
+    readonly scheduleRun: RpcUnaryMethod<typeof WS_METHODS.workflowsScheduleRun>;
+    readonly cancelScheduledRun: RpcUnaryMethod<typeof WS_METHODS.workflowsCancelScheduledRun>;
     readonly stop: RpcUnaryMethod<typeof WS_METHODS.workflowsStop>;
     readonly respondToInput: RpcUnaryMethod<typeof WS_METHODS.workflowsRespondToInput>;
     readonly getRun: RpcUnaryMethod<typeof WS_METHODS.workflowsGetRun>;
     readonly getTimeline: RpcUnaryMethod<typeof WS_METHODS.workflowsGetTimeline>;
+    readonly listMemory: RpcUnaryMethod<typeof WS_METHODS.workflowsListMemory>;
+    readonly suppressMemoryItem: RpcUnaryMethod<typeof WS_METHODS.workflowsSuppressMemoryItem>;
     readonly onEvent: RpcStreamMethod<typeof WS_METHODS.subscribeWorkflowEvents>;
   };
   readonly managedProcess: {
@@ -747,6 +756,7 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.serverGetProcessResourceHistory](input)),
       signalProcess: (input) =>
         transport.request((client) => client[WS_METHODS.serverSignalProcess](input)),
+      clearLogs: () => transport.request((client) => client[WS_METHODS.serverClearLogs]({})),
       getSettings: () => transport.request((client) => client[WS_METHODS.serverGetSettings]({})),
       updateSettings: (patch) =>
         transport.request((client) => client[WS_METHODS.serverUpdateSettings]({ patch })),
@@ -885,6 +895,14 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.workflowsCreateDraft](input)),
       listThread: (input) =>
         transport.request((client) => client[WS_METHODS.workflowsListThread](input)),
+      listProjectWorkflows: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsListProjectWorkflows](input)),
+      listThreadLinks: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsListThreadLinks](input)),
+      linkThread: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsLinkThread](input)),
+      unlinkThread: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsUnlinkThread](input)),
       openSource: (input) =>
         transport.request((client) => client[WS_METHODS.workflowsOpenSource](input)),
       syncSource: (input) =>
@@ -893,12 +911,20 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.workflowsValidate](input)),
       archive: (input) => transport.request((client) => client[WS_METHODS.workflowsArchive](input)),
       run: (input) => transport.request((client) => client[WS_METHODS.workflowsRun](input)),
+      scheduleRun: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsScheduleRun](input)),
+      cancelScheduledRun: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsCancelScheduledRun](input)),
       stop: (input) => transport.request((client) => client[WS_METHODS.workflowsStop](input)),
       respondToInput: (input) =>
         transport.request((client) => client[WS_METHODS.workflowsRespondToInput](input)),
       getRun: (input) => transport.request((client) => client[WS_METHODS.workflowsGetRun](input)),
       getTimeline: (input) =>
         transport.request((client) => client[WS_METHODS.workflowsGetTimeline](input)),
+      listMemory: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsListMemory](input)),
+      suppressMemoryItem: (input) =>
+        transport.request((client) => client[WS_METHODS.workflowsSuppressMemoryItem](input)),
       onEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeWorkflowEvents]({}),

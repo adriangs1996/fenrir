@@ -1,828 +1,665 @@
-# Fenrir Workflows Briefing
+# Fenrir Workflows Runtime Source Of Truth
 
-This briefing captures the shared understanding and implementation plan for
-Fenrir's new `workflows` feature. Use it as the reference document while
-implementing the module.
+This document is the canonical source of truth for Fenrir workflows.
 
-## Goal
+It replaces the older thread-scoped workflow briefing. If code, UI copy, tests,
+or agent instructions disagree with this document, this document wins and the
+implementation should be migrated toward it.
 
-Build a new `workflows` module, parallel to `plan-runner`, that lets the active
-chat agent create thread-scoped workflow drafts and lets users or agents run
-those workflows as background work.
+## Status And Scope
 
-Workflows are JavaScript artifacts executed by Fenrir. They orchestrate named
-agents, compose prompts, maintain live run state, ask the user for input when
-needed, and expose progress through a thread-scoped workflow side panel.
+The current implementation already has a `workflows` module, workflow source
+storage, an isolated JavaScript runtime, hidden workflow agent threads, workflow
+events, run state, task proposals, and a thread-scoped web panel.
 
-The long-term direction is for workflows to become the general substrate that
-eventually replaces `.plans` and `PlanRunner`, but `PlanRunner` should remain
-stable while `workflows` matures.
+The target architecture changes the ownership model:
 
-## Research Summary
+- workflows are project/Fenrir resources
+- threads are interfaces that create, link, operate, or monitor workflows
+- Fenrir is the workflow runtime
+- agents are workers and context consumers
+- workflows orchestrate context, prompts, memory, state, tools, and external
+  world interaction through Fenrir capabilities
 
-Claude Code has two relevant concepts:
+The goal is not deterministic replay. LLM workflows are intentionally
+non-deterministic. The goal is causal traceability and steadily improving
+probability of success through better context accumulated from prior runs,
+user edits, failures, checks, and workflow memory.
 
-- Code mode: use executable code as an orchestration surface so the system can
-  loop, branch, filter intermediate data, and avoid forcing every result into
-  the model context.
-- Workflows: JavaScript scripts orchestrate background work and subagents. The
-  script owns control flow, while agents do actual task work. Claude's default
-  lifecycle is closer to generate, approve, run, and optionally save.
+## Product Goal
 
-Fenrir intentionally diverges for v1:
+Build workflows into Fenrir runtime primitives.
 
-- Generated workflows are reviewed drafts first.
-- Drafts are local Fenrir artifacts tied to a chat thread.
-- Workflow source is stable for a run; workflow run state is live.
-- Execution is background and visible through a side panel, not the chat
-  timeline.
+A workflow is a durable, inspectable orchestration artifact that can:
 
-References:
+- create and coordinate named agents
+- build prompts and context for those agents
+- read and write workflow state
+- record a rich event log
+- remember useful lessons across runs
+- expose controlled capabilities for filesystem and workspace interaction
+- run in the background without requiring the originating thread to stay alive
+- be run manually, from a thread, from an API, or from a one-shot schedule
+- be monitored from project-level UI
 
-- https://www.anthropic.com/engineering/code-execution-with-mcp
-- https://code.claude.com/docs/en/workflows
+Threads remain important, but they are not the workflow container. A thread can
+create a workflow, update its source, start a run, subscribe to events, respond
+to user input, or inspect history. The workflow must not depend on that thread
+for execution.
 
-## Core Product Decisions
+## Current Implementation Baseline
 
-- The feature is named `workflows`, not `workflow-runner`.
-- Workflows are a new module, not an extension of `plan-runner`.
-- Workflows are a durable run type, not a provider `interactionMode`.
-- Workflow drafts are created from the current conversation by the active chat
-  agent through structured Fenrir MCP tools.
-- Draft creation writes a reviewed draft artifact and stops. It does not run
+The existing implementation is useful but thread-scoped:
+
+- contracts live in `packages/contracts/src/workflows.ts`
+- server service lives under `apps/server/src/workflows/`
+- persistence uses migration `039_Workflows`
+- workflow MCP tools live under `apps/server/src/mcp/workflow*.ts`
+- web state lives under `apps/web/src/modules/workflows/`
+- `WorkflowDraft`, `WorkflowRunSnapshot`, repository queries, MCP context, and
+  UI selectors rely heavily on `originThreadId`
+- `ctx.team.agent` currently derives provider/runtime defaults from the origin
+  thread
+- the thread panel is currently the primary workflow UI
+
+Migration work should start from that baseline and move deliberately toward the
+model below. Do not keep a permanent dual model.
+
+## Core Decisions
+
+- The feature is named `workflows`.
+- Workflows are a module, not an extension of `plan-runner`.
+- A workflow belongs to a project, not to a thread.
+- `originThreadId` must not be required to create, list, run, schedule, or
+  monitor a workflow.
+- Threads are linked to workflows through explicit relationship rows.
+- Fenrir is the runtime that executes workflow source and exposes capabilities.
+- Workflow source is a durable Fenrir artifact, not a repo file by default.
+- Opening source may materialize a Fenrir-managed editable file, but the DB
+  source remains authoritative.
+- Workflow runs are durable and inspectable.
+- Run state is mutable and auditable.
+- Workflow memory is first-class and may influence future prompt/context builds
   automatically.
-- Thread-scoped generated workflows are Fenrir-local artifacts, not repo
-  commit artifacts.
-- Project-shareable workflows can come later through an explicit export action.
-- The workflow source is stored in Fenrir state or DB, not under the project
-  root.
-- Opening a workflow materializes a Fenrir-managed temp-like file for editor
-  integration.
-- The temp file auto-syncs back to the DB on save or debounce.
-- DB source is canonical. Execution snapshots DB source at run start.
-- Workflows run in the background. The main chat thread remains usable.
-- Workflow UI is scoped to the origin thread, but run lifecycle is independent
-  of the route being mounted.
-- Multiple workflows can run for the same thread.
-- The composer shows a workflow affordance when the current thread has drafts,
-  active runs, completed runs, or pending workflow input.
+- Every memory use and prompt build must be visible in the event log.
+- Scheduling v1 supports manual runs and one-shot `runAt` schedules.
+- Recurring cron/interval schedules are deferred.
+- The main workflow UI is a project-level Workflow Center.
+- Thread UI is contextual and only shows linked or relevant workflows.
+- MCP workflows must expose `workflow_reference`, a skill-like API reference
+  tool that agents must read before creating or updating workflow source.
 
-## Thread Ownership Model
+## Domain Model
 
-Each workflow draft and run has:
+### WorkflowDefinition
 
-- `projectId`
-- `originThreadId`
-- stable workflow IDs
-- local source
-- validation status
-- run history
+`WorkflowDefinition` replaces the mental model of `WorkflowDraft`.
 
-Thread-scoped ownership means:
+```ts
+interface WorkflowDefinition {
+  workflowId: WorkflowId;
+  projectId: ProjectId;
+  name: string;
+  description: string | null;
+  source: string;
+  sourceHash: string;
+  sourceRevision: number;
+  status: "draft" | "active" | "invalid" | "archived";
+  validationStatus: "pending" | "valid" | "invalid";
+  validationError: string | null;
+  declaredCapabilities: WorkflowCapabilityDeclaration[];
+  defaultRuntimeContext: WorkflowRuntimeContext;
+  createdFromThreadId: ThreadId | null;
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+  archivedAt: IsoDateTime | null;
+}
+```
 
-- the current chat thread can discover its workflow drafts and runs quickly
-  from Fenrir state
-- the workflow composer button and side panel only show workflows for the
-  current thread
-- archiving a parent thread does not stop workflows
-- deleting a parent thread should block or require confirmation while workflows
-  are active
+Rules:
 
-Thread ownership is local app state. It should not be committed to the project.
+- `projectId` is required.
+- `createdFromThreadId` is provenance only.
+- `createdFromThreadId` must not be used as an execution dependency.
+- `sourceRevision` increments whenever source changes.
+- `declaredCapabilities` describes what the workflow may ask Fenrir Runtime to
+  do.
 
-## Chat And UI Model
+### WorkflowThreadLink
+
+Threads relate to workflows through link rows.
+
+```ts
+interface WorkflowThreadLink {
+  workflowId: WorkflowId;
+  projectId: ProjectId;
+  threadId: ThreadId;
+  relation: "created_from" | "operator" | "subscriber";
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+}
+```
+
+Relations:
+
+- `created_from`: the thread originated the workflow
+- `operator`: the thread can operate the workflow directly from thread UI
+- `subscriber`: the thread wants lifecycle/status notifications
+
+A workflow may have zero active thread links after creation. Deleting or
+archiving a thread must not delete or stop a workflow.
+
+### WorkflowRun
+
+```ts
+interface WorkflowRun {
+  runId: WorkflowRunId;
+  workflowId: WorkflowId;
+  projectId: ProjectId;
+  trigger: "manual" | "thread" | "schedule" | "api";
+  requestedByThreadId: ThreadId | null;
+  scheduleId: WorkflowScheduleId | null;
+  args: unknown;
+  runtimeContext: WorkflowRuntimeContext;
+  sourceHash: string;
+  sourceRevision: number;
+  memoryRevision: number;
+  status: "queued" | "running" | "paused" | "completed" | "failed" | "cancelled" | "interrupted";
+  summary: string | null;
+  startedAt: IsoDateTime | null;
+  completedAt: IsoDateTime | null;
+  lastUpdatedAt: IsoDateTime;
+}
+```
+
+Rules:
+
+- `requestedByThreadId` is optional provenance for thread-triggered runs.
+- `trigger = "schedule"` requires `scheduleId`.
+- `sourceRevision` and `memoryRevision` record what the run used.
+- Runs do not need to be reproducible, but they must be explainable.
+
+## Thread Relationship Model
+
+Threads are clients of workflows.
+
+Threads can:
+
+- create a workflow definition
+- update source
+- link or unlink themselves
+- run a workflow with thread provenance
+- respond to `ctx.ui.ask`
+- inspect events and memory
+- subscribe to lifecycle notifications
+
+Threads cannot:
+
+- be required for a scheduled run to start
+- be required for workflow source to remain valid
+- own internal workflow agent threads by naming convention
+- hide or delete workflow history implicitly
+
+Internal workflow agent threads must use data ownership:
+
+```ts
+owner: {
+  kind: "workflowAgent";
+  workflowId: WorkflowId;
+  workflowRunId: WorkflowRunId;
+  agentName: string;
+  parentThreadId?: ThreadId;
+}
+```
+
+`parentThreadId` is optional compatibility/provenance. UI hiding must be based
+on owner metadata, not titles.
+
+## Run And Trigger Model
+
+Supported trigger kinds:
+
+- `manual`: user starts a run from Workflow Center
+- `thread`: user or agent starts a run from a thread
+- `schedule`: one-shot schedule starts a run
+- `api`: Fenrir API or future automation starts a run
+
+Run lifecycle:
+
+```txt
+queued -> running -> paused -> running -> completed
+queued -> running -> failed
+queued -> running -> cancelled
+queued -> running -> interrupted
+```
+
+Rules:
+
+- `paused` means the workflow is waiting for user input or an explicit resume
+  condition.
+- `interrupted` is used when Fenrir/server restarts and v1 cannot resume the
+  active run.
+- Restart replay is deferred.
+- Users can inspect the event log and rerun.
+
+## Fenrir Runtime And Capabilities
+
+Workflow source contract:
+
+```ts
+export default async function run(ctx, args) {
+  // workflow code
+}
+```
+
+Fenrir executes workflow source in an isolated runtime. Workflow source must
+not import Fenrir internals or use raw runtime access.
+
+Allowed interaction happens through `ctx`.
+
+Initial runtime API:
+
+```ts
+ctx.step(...)
+ctx.parallel(...)
+ctx.log(...)
+ctx.notify(...)
+
+ctx.team.agent(...)
+agent.ask(...)
+
+ctx.context.build(...)
+ctx.memory.list(...)
+ctx.memory.remember(...)
+ctx.workspace.search(...)
+ctx.workspace.readFile(...)
+ctx.fs.readFile(...)
+ctx.fs.writeFile(...)
+
+ctx.state.get(...)
+ctx.state.set(...)
+ctx.state.update(...)
+ctx.notes.add(...)
+ctx.tasks.propose(...)
+ctx.tasks.accept(...)
+ctx.tasks.reject(...)
+ctx.tasks.run(...)
+ctx.ui.ask(...)
+```
+
+Capability rules:
+
+- all capabilities are declared and enforced by Fenrir Runtime
+- all capability calls are event-logged
+- `workspace.search`, `workspace.readFile`, workflow state, workflow events,
+  workflow memory, workflow task, and workflow agent capabilities are safe
+  defaults
+- `fs.write` is not a default capability
+- raw shell is not a default capability
+- raw DB is forbidden
+- raw network is forbidden unless a future explicit capability is designed
+- raw MCP clients are forbidden in v1
+- raw Fenrir module imports are forbidden
+
+The workflow runtime may expose filesystem/workspace APIs directly because the
+workflow is a Fenrir runtime program, not an agent transcript. Agents should
+not receive hidden direct access to Fenrir internals; they receive prompts,
+tools, and run-scoped collaboration tools selected by the workflow/runtime.
+
+## Context Planning And Workflow Memory
+
+Workflow memory is first-class. It is not a transcript dump.
+
+```ts
+interface WorkflowMemoryItem {
+  memoryId: WorkflowMemoryId;
+  workflowId: WorkflowId;
+  projectId: ProjectId;
+  kind: "repo_fact" | "user_preference" | "failure_pattern" | "prompt_hint" | "context_rule";
+  content: string;
+  evidenceRunIds: WorkflowRunId[];
+  evidenceEventIds: WorkflowEventId[];
+  confidence: number;
+  status: "active" | "suppressed" | "stale";
+  usageCount: number;
+  successCount: number;
+  lastUsedAt: IsoDateTime | null;
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+}
+```
+
+Every agent prompt build should be recorded:
+
+```ts
+interface WorkflowPromptBuild {
+  promptBuildId: WorkflowPromptBuildId;
+  runId: WorkflowRunId;
+  workflowId: WorkflowId;
+  stepId: WorkflowStepId | null;
+  agentName: string | null;
+  selectedMemoryIds: WorkflowMemoryId[];
+  selectedContextRefs: WorkflowContextRef[];
+  renderedPrompt: string;
+  rationale: string;
+  createdAt: IsoDateTime;
+}
+```
+
+Pipeline:
+
+```txt
+workflow events
+  -> signals
+  -> memory items
+  -> context planner
+  -> prompt build
+  -> agent call
+  -> evaluation
+```
+
+Memory sources:
+
+- accepted diffs
+- rejected diffs
+- user corrections
+- failed checks
+- successful checks
+- repeated file selections
+- workflow task outcomes
+- manual memory entries
+- agent notes accepted by workflow policy
+
+Memory rules:
+
+- active memory may be auto-applied to future prompt/context builds
+- memory use must be recorded in `WorkflowPromptBuild`
+- memory can be suppressed by the user
+- suppressed memory must not influence future prompt builds
+- confidence should change over time based on evidence
+- old or low-value memory can become `stale`
+
+The workflow does not need to produce the same output twice. It should become
+more historically informed over time.
+
+## MCP Reference Skill
+
+The `fenrir-workflows` MCP server must include a skill-like tool:
+
+```ts
+workflow_reference({
+  format?: "markdown" | "json";
+  section?: "overview" | "ctx" | "examples" | "capabilities" | "errors";
+})
+```
+
+The tool returns:
+
+```ts
+{
+  referenceVersion: string;
+  readToken: string;
+  expiresAt: string;
+  content: string | object;
+}
+```
+
+Rules:
+
+- agents must call `workflow_reference` before creating or updating workflow
+  source
+- create/update tools require `referenceVersion` and `readToken`
+- tokens are bound to the current MCP session
+- tokens expire after 30 minutes
+- tokens become invalid when the reference version changes
+- errors must instruct the agent to call `workflow_reference`
+- agents must not inspect Fenrir source code to learn the workflow runtime API
+
+The reference must document:
+
+- source contract
+- every `ctx.*` API
+- every capability and default/non-default status
+- emitted events
+- serialization rules
+- examples
+- forbidden APIs
+- runtime limits
+- expected errors and recovery patterns
+
+The reference should be generated from a single registry such as
+`WorkflowRuntimeApiReference` / `WorkflowRuntimeApiRegistry`. There must not be
+a usable `ctx.*` API that is absent from the MCP reference.
+
+## MCP And Agent Tooling
+
+Management MCP tools:
+
+```ts
+workflow_reference(...)
+workflow_create(...)
+workflow_update(...)
+workflow_list_project(...)
+workflow_list_thread_links(...)
+workflow_link_thread(...)
+workflow_unlink_thread(...)
+workflow_run(...)
+workflow_schedule_run(...)
+workflow_cancel_scheduled_run(...)
+workflow_get_status(...)
+workflow_get_timeline(...)
+workflow_get_memory(...)
+workflow_suppress_memory(...)
+workflow_archive(...)
+```
+
+Compatibility aliases may exist temporarily:
+
+```ts
+workflow_create_draft(...)
+workflow_update_draft(...)
+workflow_list_thread_drafts(...)
+workflow_archive_draft(...)
+```
+
+Aliases must migrate toward the project/workflow model and must not become a
+permanent second API.
+
+Collaboration MCP tools for internal workflow agents:
+
+```ts
+workflow_state_patch(...)
+workflow_add_note(...)
+workflow_propose_task(...)
+workflow_message_agent(...)
+workflow_set_flag(...)
+```
+
+Internal workflow agents must not receive management tools by default.
+
+## Public Service APIs
+
+Target service shape:
+
+```ts
+createWorkflow(input)
+updateWorkflowSource(input)
+listProjectWorkflows({ projectId, includeArchived? })
+listThreadWorkflowLinks({ projectId, threadId })
+linkWorkflowThread({ workflowId, threadId, relation })
+unlinkWorkflowThread({ workflowId, threadId })
+runWorkflow({ workflowId, args?, trigger?, runtimeContext? })
+scheduleWorkflowRun({ workflowId, runAt, args?, runtimeContext? })
+cancelScheduledWorkflowRun({ scheduleId })
+getWorkflowRun({ runId })
+getWorkflowTimeline({ runId })
+listWorkflowMemory({ workflowId })
+suppressWorkflowMemoryItem({ memoryId })
+streamWorkflowEvents()
+```
+
+Thread-scoped methods should be removed after migration. Compatibility wrappers
+may call the new APIs during the migration window.
+
+## Scheduling
+
+Scheduling v1 supports one-shot `runAt`.
+
+```ts
+interface WorkflowSchedule {
+  scheduleId: WorkflowScheduleId;
+  workflowId: WorkflowId;
+  projectId: ProjectId;
+  runAt: IsoDateTime;
+  args: unknown;
+  runtimeContext: WorkflowRuntimeContext;
+  status: "scheduled" | "claimed" | "started" | "cancelled" | "failed";
+  createdByThreadId: ThreadId | null;
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+}
+```
+
+Rules:
+
+- schedules survive restart
+- due schedules are claimed before starting a run
+- a claimed schedule should either start exactly once or become inspectably
+  failed
+- recurring schedules are deferred
+
+## Workflow Center UI
+
+Workflow Center is the primary UI for workflows.
+
+Project-level views:
+
+- workflow list
+- active runs
+- historical runs
+- schedules
+- memory
+- prompt builds
+- capability declarations
+- source open/edit
+- run, schedule, stop, archive
+- timeline/events
+
+Thread UI is contextual:
+
+- linked workflows only
+- link/unlink controls
+- run from this thread
+- latest relevant run
+- pending input badge
+- lifecycle anchors in chat only when useful
 
 The chat timeline is not the workflow console.
 
-The chat can contain compact lifecycle anchors:
+## Persistence And Migration Plan
 
-- workflow draft created
-- workflow run started
-- workflow needs input
-- workflow completed or failed
+Create a migration after `039_Workflows`.
 
-Live workflow execution belongs in a side panel or activity drawer scoped to
-the current chat thread.
+Add tables:
 
-Composer behavior:
-
-- If the thread has no workflows, no workflow button is shown.
-- If the thread has one runnable workflow, the button can offer run/open.
-- If the thread has multiple workflows, the button opens a picker sorted by
-  recency with the latest selected.
-- If workflows are active, the button shows status or count and opens the side
-  panel.
-- If a workflow is paused for input, the button shows a needs-input badge.
-
-Side panel shape:
-
-- Drafts
-- Running runs
-- Paused runs requiring input
-- Completed and failed history
-- Timeline of workflow events
-- Steps
-- Named team agents
-- Task proposals
-- Shared state and notes
-- Run actions: run, stop, rerun, open source, open details
-
-`ctx.ui.ask` pauses the workflow and surfaces pending input in the side panel
-and composer badge. It does not inject a normal chat message by default.
-
-## Agent-Initiated Workflow Operations
-
-The active chat agent can create and run workflows through Fenrir MCP tools.
-
-Use a Fenrir-native action surface. Do not rely on brittle assistant text
-scraping.
-
-Initial management tools:
-
-```ts
-workflow_create_draft({ name, description?, source })
-workflow_list_thread_drafts({})
-workflow_run({ workflowId?, args? })
-workflow_get_status({ workflowRunId })
-workflow_stop({ workflowRunId })
+```txt
+workflow_thread_links
+workflow_schedules
+workflow_memory_items
+workflow_prompt_builds
 ```
 
-The server derives sensitive context:
-
-- `projectId`
-- `originThreadId`
-- user/session identity
-
-The agent should not be trusted to provide ownership IDs.
-
-For v1, `workflow_run` runs immediately. No confirmation gate yet.
-
-If `workflowId` is omitted, run the latest runnable workflow for the current
-thread.
-
-## Runnable Workflow Definition
-
-A workflow is runnable only when it is validated and importable.
-
-Minimum validation:
-
-- source exists
-- source length is under a sane cap
-- has name and description from tool input or metadata
-- exports a default async function
-- passes a cheap compile/import check in the workflow sandbox
-- no obvious forbidden v1 APIs or imports, such as:
-  - `fs`
-  - `child_process`
-  - `net`
-  - `http`
-  - raw `fetch`
-  - `Bun.spawn`
-  - raw Fenrir module imports
-
-Validation is not perfect security. It is a preflight quality and safety gate.
-The real runtime must still be isolated and capability-based.
-
-## Workflow Source Contract
-
-Workflow source should be simple JavaScript:
-
-```js
-/**
- * @fenrir-workflow
- * name: Review And Implement Auth Cleanup
- * description: Convert this conversation into a review, plan, implement, verify flow.
- */
-
-export default async function run(ctx, args) {
-  const planner = ctx.team.agent("planner", {
-    role: "Own planning, task routing, and risk discovery.",
-  });
-
-  const implementer = ctx.team.agent("implementer", {
-    role: "Implement accepted tasks and report blockers.",
-  });
-
-  const plan = await ctx.step("plan", () =>
-    planner.ask("Create a plan from the current conversation."),
-  );
-
-  await ctx.step("implement", () => implementer.ask(`Implement this plan:\n${plan.text}`));
-}
-```
-
-Metadata is useful for display and review. DB state remains authoritative for
-ownership and source status.
-
-## Live Workflow Model
-
-The workflow source is stable. The workflow run state is live.
-
-Do not make self-modifying workflow source the core model. Agents should not
-rewrite the executing workflow file mid-run.
-
-Instead:
-
-- the source defines the rules of the game
-- run state is mutable and auditable
-- named agents are persistent hidden threads
-- agents communicate through workflow-mediated events and tools
-- agents can add notes, scoped state, and task proposals
-- workflow JS decides which mutations affect control flow
-
-This allows dynamic behavior without losing auditability:
-
-- optional steps
-- dynamic research branches
-- planner-updated context
-- implementer feedback back to planner
-- visible state changes
-- task proposals that are accepted or rejected by workflow policy
-
-## Runtime Model
-
-Run workflow JS in an isolated worker or VM for v1, architected so it can move
-to a separate OS process later.
-
-Do not run workflow JS in the main server process with only restricted globals.
-
-Runtime rules:
-
-- frozen source snapshot at run start
-- explicit capability-based `ctx`
-- no raw imports of Fenrir modules
-- no direct filesystem, shell, network, raw DB, raw UI, or raw MCP access
-- workflow JS only receives serializable `args`
-- workflow JS talks to Fenrir through `ctx`
-- restart replay is not part of v1
-- if Fenrir/server restarts mid-run, mark active runs `interrupted`
-- users can inspect logs and rerun from the beginning
-
-`ctx.step` is a runtime, control, and UI boundary in v1. It does not need to be
-a replay boundary yet.
-
-## V1 Workflow Context API
-
-Initial capability surface:
-
-```ts
-ctx.step(id, fn)
-ctx.parallel(items, mapper, { concurrency? })
-ctx.log(messageOrEvent)
-ctx.notify({ level, title, body? })
-
-ctx.team.agent(name, {
-  role,
-  modelSelection?,
-  runtimeMode?,
-  mcpServerIds?,
-})
-
-agent.ask(promptOrInput)
-
-ctx.ui.ask(inputRequest)
-
-ctx.state.get(key)
-ctx.state.set(key, value)
-ctx.state.update(key, updater)
-
-ctx.notes.add({ title?, body, visibility? })
-
-ctx.tasks.propose(task)
-ctx.tasks.list(filter?)
-ctx.tasks.accept(taskId)
-ctx.tasks.reject(taskId, reason?)
-ctx.tasks.run(taskId)
-```
-
-Do not expose in v1:
-
-```ts
-ctx.exec(...)
-ctx.readFile(...)
-ctx.writeFile(...)
-ctx.fetch(...)
-ctx.db.query(...)
-ctx.renderReact(...)
-ctx.rawMcpClient(...)
-ctx.orchestrationEngine.dispatch(...)
-```
-
-MCP in v1:
-
-- workflow JS can pass `mcpServerIds` to agents
-- workflow JS can list available servers if needed
-- workflow JS should not call arbitrary MCP tools directly in v1
-
-## Team Agents
-
-`ctx.team.agent(name, options)` creates or reuses one named hidden internal
-thread for the workflow run.
-
-Named agents are persistent for the run. Later turns preserve their own
-provider context.
-
-Default behavior:
-
-- project inherited from the parent thread
-- model/runtime inherited unless overridden
-- hidden internal orchestration thread
-- ownership metadata includes workflow run and agent name
-- logs are projected into the workflow side panel
-- internal agent threads are hidden from normal thread lists
-
-Agents should act like a team, but communication is mediated by the workflow
-runtime. Avoid raw peer-to-peer autonomous chatter in v1.
-
-Recommended team flow:
-
-```js
-const planner = ctx.team.agent("planner", {
-  role: "Own planning and task routing.",
-});
-
-const researcher = ctx.team.agent("researcher", {
-  role: "Research libraries and ecosystem details.",
-});
-
-const implementer = ctx.team.agent("implementer", {
-  role: "Apply code changes from accepted plans.",
-});
-
-const plan = await ctx.step("plan", () =>
-  planner.ask("Create the initial plan and propose extra research tasks if needed."),
-);
-
-const tasks = await ctx.tasks.list({ status: "proposed" });
-
-for (const task of tasks) {
-  if (task.kind === "research") {
-    await ctx.tasks.accept(task.id);
-    await ctx.tasks.run(task.id);
-  }
-}
-```
-
-## Workflow Agent Tools
-
-Internal workflow agents must not receive workflow management tools in v1:
-
-- no `workflow_create_draft`
-- no `workflow_run`
-- no `workflow_stop`
-- no `workflow_delete`
-
-They can receive run-scoped collaboration tools controlled by the workflow
-runtime:
-
-```ts
-workflow_state_patch({ patch })
-workflow_add_note({ title?, body })
-workflow_propose_task({ title, reason, kind, assignee?, prompt })
-workflow_message_agent({ to, message })
-workflow_set_flag({ key, value })
-```
-
-Control-flow changes should not be directly applied by agents. Agents can
-mutate scoped notes/state and propose tasks. The workflow JS accepts, rejects,
-or runs tasks according to its policy.
-
-## Task Proposals
-
-Task proposals are part of v1.
-
-Agents propose tasks; workflow JS accepts, rejects, or runs them.
-
-Example:
-
-```js
-const proposals = await ctx.tasks.list({ status: "proposed" });
-
-for (const task of proposals) {
-  if (task.kind === "research") {
-    await ctx.tasks.accept(task.id);
-    await ctx.tasks.run(task.id);
-  } else if (task.kind === "implementation") {
-    const answer = await ctx.ui.ask({
-      title: "Accept implementation-expanding task?",
-      fields: [
-        {
-          type: "confirm",
-          name: "accept",
-          label: task.title,
-        },
-      ],
-    });
-
-    if (answer.accept) {
-      await ctx.tasks.accept(task.id);
-      await ctx.tasks.run(task.id);
-    } else {
-      await ctx.tasks.reject(task.id, "User declined.");
-    }
-  }
-}
-```
-
-Default generated workflow policy:
-
-- auto-accept research and analysis tasks
-- ask the user before accepting implementation-expanding tasks
-
-## Timeline And Auditability
-
-Collaboration and state mutations are first-class timeline events in the side
-panel.
-
-Examples:
-
-- Planner proposed research task
-- Workflow accepted task
-- Researcher completed research
-- Planner updated shared context
-- Workflow unblocked implementation step
-- Workflow paused for user input
-- User accepted/rejected task
-
-Every state mutation should have provenance:
-
-- run ID
-- step ID if applicable
-- agent name if applicable
-- event type
-- payload
-- timestamp
-
-## Codebase Fit
-
-Existing relevant architecture:
-
-- Provider abstractions are centralized under `apps/server/src/provider`.
-- Provider adapters should avoid cross-provider orchestration concerns.
-- `ProviderSendTurnInput` already carries prompt text, attachments, model
-  selection, and interaction mode.
-- `PlanRunner` already demonstrates durable runs, hidden internal threads,
-  run events, step logs, cancellation, and recovery.
-- `workflows` should reuse the same architectural style, not the same module.
-
-Key files to study:
-
-- `apps/server/src/provider/Services/ProviderAdapter.ts`
-- `apps/server/src/provider/Layers/ProviderService.ts`
-- `packages/contracts/src/provider.ts`
-- `packages/contracts/src/orchestration.ts`
-- `apps/server/src/plan-runner/MODULE.md`
-- `apps/server/src/plan-runner/Layers/PlanRunner.ts`
-- `apps/server/src/persistence/Services/PlanRunnerRepository.ts`
-- `apps/web/src/modules/plan-runner/MODULE.md`
-
-## Implementation Module Layout
-
-Recommended names:
-
-- `packages/contracts/src/workflows.ts`
-- `apps/server/src/workflows/`
-- `apps/web/src/modules/workflows/`
-- RPC domain: `workflows.*`
-- service: `WorkflowService`
-- UI label: `Workflows`
-
-Recommended DB tables:
-
-- `workflows`
-- `workflow_runs`
-- `workflow_steps`
-- `workflow_agents`
-- `workflow_events`
-- `workflow_state`
-- `workflow_tasks`
-
-## Contracts
-
-Add `packages/contracts/src/workflows.ts`.
-
-Core IDs:
-
-- `WorkflowId`
-- `WorkflowRunId`
-- `WorkflowStepId`
-- `WorkflowAgentId`
-- `WorkflowTaskId`
-- `WorkflowEventId`
-- `WorkflowInputRequestId`
-
-Draft state:
-
-- `draft`
-- `validated`
-- `invalid`
-- `archived`
-
-Run state:
-
-- `running`
-- `paused`
-- `completed`
-- `failed`
-- `cancelled`
-- `interrupted`
-
-Step state:
-
-- `pending`
-- `running`
-- `completed`
-- `failed`
-- `skipped`
-
-Task state:
-
-- `proposed`
-- `accepted`
-- `rejected`
-- `running`
-- `completed`
-- `failed`
-
-Agent state:
-
-- `idle`
-- `running`
-- `waiting`
-- `failed`
-- `stopped`
-
-Event kinds should cover:
-
-- draft created
-- source opened
-- source synced
-- validation changed
-- run started
-- run paused
-- run resumed
-- run completed
-- run failed
-- step started
-- step completed
-- step failed
-- agent created
-- agent message sent
-- agent message completed
-- state updated
-- note added
-- task proposed
-- task accepted
-- task rejected
-- task started
-- task completed
-- user input requested
-- user input resolved
-- notification emitted
-
-## Server Service API
-
-Create `apps/server/src/workflows/Services/Workflow.ts` and
-`apps/server/src/workflows/Layers/Workflow.ts`.
-
-Initial service shape:
-
-```ts
-createDraft(input);
-listThreadWorkflows(input);
-openDraftSource(input);
-syncDraftSource(input);
-validateDraft(input);
-run(input);
-stop(input);
-respondToInput(input);
-getRun(input);
-getTimeline(input);
-streamEvents;
-```
-
-Important behavior:
-
-- `createDraft` stores source locally and validates it.
-- `listThreadWorkflows` is fast and DB-backed.
-- `openDraftSource` materializes/syncs a Fenrir-managed file.
-- `run` snapshots source and args.
-- `run` creates a `workflow_run` row and starts isolated execution.
-- `stop` cancels runtime and active hidden agent turns where possible.
-- `respondToInput` resumes a paused `ctx.ui.ask`.
-- `streamEvents` powers side panel and composer badges.
-
-## Persistence Plan
-
-Create a new migration after the current latest migration.
-
-Tables:
-
-### `workflows`
-
-- `workflow_id`
-- `project_id`
-- `origin_thread_id`
-- `name`
-- `description`
-- `source`
-- `source_hash`
-- `validation_status`
-- `validation_error`
-- `created_at`
-- `updated_at`
-- `archived_at`
-
-### `workflow_runs`
-
-- `run_id`
-- `workflow_id`
-- `project_id`
-- `origin_thread_id`
-- `name`
-- `args_json`
-- `source_snapshot`
-- `source_hash`
-- `status`
-- `summary`
-- `started_at`
-- `completed_at`
-- `last_updated_at`
-
-### `workflow_steps`
-
-- `run_id`
-- `step_id`
-- `step_key`
-- `status`
-- `started_at`
-- `completed_at`
-- `result_json`
-- `error`
-- `sequence`
-
-### `workflow_agents`
-
-- `run_id`
-- `agent_id`
-- `name`
-- `role`
-- `thread_id`
-- `status`
-- `created_at`
-- `updated_at`
-
-### `workflow_events`
-
-- `event_id`
-- `run_id`
-- `workflow_id`
-- `step_id`
-- `agent_id`
-- `task_id`
-- `kind`
-- `title`
-- `body`
-- `payload_json`
-- `created_at`
-- `sequence`
-
-### `workflow_state`
-
-- `run_id`
-- `scope`
-- `key`
-- `value_json`
-- `updated_at`
-
-### `workflow_tasks`
-
-- `task_id`
-- `run_id`
-- `title`
-- `reason`
-- `kind`
-- `assignee`
-- `prompt`
-- `status`
-- `created_by_agent_id`
-- `created_at`
-- `updated_at`
-- `result_json`
-- `error`
-
-Create `WorkflowRepository` following the pattern of `PlanRunnerRepository`.
-
-## Web Module
-
-Create `apps/web/src/modules/workflows/`.
-
-Suggested pieces:
-
-- store
-- selectors for current thread workflows
-- lifecycle subscription hook
-- composer button component
-- workflow picker
-- side panel
-- timeline component
-- task proposal component
-- input request component
-- source open/sync hooks
-
-Composer button rules:
-
-- hidden when no thread workflows or runs exist
-- opens picker when multiple drafts exist
-- opens side panel when active or paused runs exist
-- shows needs-input badge when any run is paused for input
-
-Side panel should be the main workflow UI.
-
-## Integration With Hidden Threads
-
-Workflow internal agent threads need the same hiding discipline as PlanRunner
-internal threads.
-
-Add a data-driven way for the web app to derive hidden workflow thread IDs from
-workflow run snapshots or workflow event state.
-
-Do not hide by title heuristics.
-
-Surfaces that list threads must filter workflow internal thread IDs:
-
-- sidebar active threads
-- archive settings
-- direct thread routes
-- counts/previews
-
-If a user navigates directly to a workflow internal thread, redirect to the
-owning workflow run detail or side panel.
+Modify existing tables:
+
+- `workflows.origin_thread_id` becomes `created_from_thread_id`
+- `workflows.source_revision` is added
+- `workflows.declared_capabilities_json` is added
+- `workflows.default_runtime_context_json` is added
+- `workflow_runs.trigger` is added
+- `workflow_runs.requested_by_thread_id` is added
+- `workflow_runs.schedule_id` is added
+- `workflow_runs.runtime_context_json` is added
+- `workflow_runs.source_revision` is added
+- `workflow_runs.memory_revision` is added
+
+Migration behavior:
+
+- for each existing workflow, copy old `origin_thread_id` into
+  `created_from_thread_id`
+- create a `workflow_thread_links` row with `relation = "created_from"`
+- for each existing run, set `trigger = "thread"` and
+  `requested_by_thread_id = old origin_thread_id`
+- keep history inspectable
+- remove public reliance on `originThreadId`
+
+No permanent dual mode.
 
 ## Implementation Phases
 
-1. Contracts, RPC names, and schema tests.
-2. DB migration and `WorkflowRepository` tests.
-3. Server `WorkflowService` for draft create/list/open/sync/validate.
-4. Web store, subscription plumbing, composer button, empty side panel.
-5. Fenrir MCP tools for `workflow_create_draft`, list, run, status, stop.
-6. Isolated JS runtime with `ctx.step`, `ctx.log`, and basic lifecycle.
-7. `ctx.team.agent` and hidden internal agent threads.
-8. Timeline projection of agent messages, step lifecycle, logs, notifications.
-9. Live state and notes APIs.
-10. Task proposal APIs and `ctx.ui.ask` pause/resume flow.
-11. Stop/cancel behavior and interrupted-on-restart handling.
-12. Validation hardening and UX polish.
+1. Rewrite this briefing as the canonical source of truth.
+2. Add `workflow_reference` registry/tool and read-token gating.
+3. Update contracts in `packages/contracts/src/workflows.ts`.
+4. Add persistence migration and repository methods.
+5. Refactor `WorkflowService` away from required `originThreadId`.
+6. Update runtime agent creation so internal agents do not require an origin
+   thread.
+7. Add one-shot `runAt` scheduling.
+8. Add memory extraction, prompt builds, and auto-applied context planning.
+9. Add controlled runtime capabilities.
+10. Build Workflow Center and update web store/selectors.
+11. Remove old thread-scoped workflow assumptions and tests.
 
 ## Test Plan
 
-Required tests:
+Required scenarios:
 
-- contract schema tests
-- migration tests
-- repository create/list/update tests
-- draft create/list tests
-- source open/sync tests
-- validation/import tests
-- MCP tool tests
-- runtime ctx tests
-- hidden agent ownership tests
-- workflow event stream tests
-- web store reducer tests
-- composer visibility tests
-- picker behavior tests
-- side panel event rendering tests
-- input request pause/resume tests
-- task proposal accept/reject/run tests
+- `workflow_reference` markdown and JSON include every registered `ctx.*` API
+- `workflow_create` and `workflow_update` fail without `workflow_reference`
+- stale, expired, or cross-session reference tokens fail
+- workflow can be created from a thread and linked via `created_from`
+- workflow can run from Workflow Center with no active thread
+- thread-triggered run records `requestedByThreadId`
+- scheduled `runAt` survives restart and starts once
+- memory item from one run influences the next prompt build
+- suppressed memory item is not used
+- prompt build records selected memory, context, and rationale
+- internal workflow agent threads remain hidden by ownership metadata
+- event log records capability calls, state changes, prompt builds, memory use,
+  and run lifecycle
 
-Per repo rules, before implementation tasks are considered complete:
+Required repo checks before considering implementation tasks complete:
 
-- `bun fmt`
-- `bun lint`
-- `bun typecheck`
+```bash
+bun fmt
+bun lint
+bun typecheck
+bun run test
+```
 
-Do not run `bun test`; use `bun run test` for Vitest when tests are needed.
+Never run `bun test`; use `bun run test`.
 
-## Deferred For Later
+## Deferred Work
 
-- Project-shareable workflow templates.
-- Export thread-scoped workflow as reusable project template.
-- Full replay/resume from completed steps.
-- Separate OS-process runtime instead of worker/VM.
-- Direct workflow-level MCP tool calls.
-- Rich custom UI rendering.
-- PlanRunner compatibility layer on top of workflows.
-- Migration path from `.plans` to workflow templates.
-- Confirmation policy for agent-initiated `workflow_run`.
+- cron or interval recurring schedules
+- deterministic replay
+- resumable runs after restart
+- direct raw network capability
+- direct raw shell capability
+- project-shareable workflow templates
+- PlanRunner replacement layer
+- migration from `.plans` to workflow templates
 
 ## Non-Negotiables
 
-- Keep provider abstractions provider-agnostic.
-- Workflow orchestration belongs above provider adapters.
-- No raw DB, raw UI, raw fs, raw shell, raw network, or raw MCP from workflow
-  JS in v1.
-- Workflow source is stable during a run.
-- Workflow run state is live, mutable, and auditable.
-- Internal workflow agent threads are hidden by data ownership, not naming.
-- The side panel is the workflow console; chat remains usable.
-- The DB/source registry is authoritative for thread ownership.
+- Workflows are project/Fenrir resources, not thread-owned objects.
+- Threads are workflow clients.
+- Fenrir Runtime owns capabilities, event logging, scheduling, memory, and
+  context planning.
+- Agents do not get hidden direct access to Fenrir internals.
+- Every external-world workflow action goes through a documented capability.
+- Every capability call, prompt build, memory use, and state mutation is
+  traceable.
+- MCP workflow source creation/update must be preceded by `workflow_reference`.
+- The MCP reference is part of the public workflow contract.
+- No raw DB, raw shell, raw network, raw Fenrir imports, or unrestricted
+  filesystem access from workflow source by default.

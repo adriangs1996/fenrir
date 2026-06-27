@@ -70,6 +70,7 @@ import { ProviderInstanceRegistryLive } from "./provider/Layers/ProviderInstance
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { ProviderMaintenanceRunnerLive } from "./provider/providerMaintenanceRunner";
 import { GlobalActionsLive } from "./globalActions";
+import { LogMaintenanceLive } from "./logMaintenance";
 import { ServerSettingsLive } from "./serverSettings";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import {
@@ -354,6 +355,7 @@ const RuntimeDependenciesLive = CoreDependenciesLive.pipe(
   Layer.provideMerge(AnalyticsServiceLayerLive),
   Layer.provideMerge(ProcessDiagnosticsLive),
   Layer.provideMerge(ProcessResourceMonitorLive),
+  Layer.provideMerge(LogMaintenanceLive),
   Layer.provideMerge(OpenLive),
   Layer.provideMerge(ServerLifecycleEventsLive),
   Layer.provideMerge(TraceDiagnosticsLive),

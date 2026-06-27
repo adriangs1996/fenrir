@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js";
@@ -14,6 +16,7 @@ const projectId = process.env.FENRIR_MCP_WORKFLOW_PROJECT_ID?.trim();
 const originThreadId = process.env.FENRIR_MCP_WORKFLOW_THREAD_ID?.trim();
 const workflowRunId = process.env.FENRIR_MCP_WORKFLOW_RUN_ID?.trim();
 const agentName = process.env.FENRIR_MCP_WORKFLOW_AGENT_NAME?.trim();
+const mcpSessionId = randomUUID();
 const mode: WorkflowMcpMode =
   process.env.FENRIR_MCP_WORKFLOW_MODE?.trim() === "collaboration" ? "collaboration" : "management";
 
@@ -42,6 +45,7 @@ async function callTool(toolName: string, input: unknown): Promise<unknown> {
       input,
       projectId,
       originThreadId,
+      mcpSessionId,
       mode,
       ...(workflowRunId ? { workflowRunId } : {}),
       ...(agentName ? { agentName } : {}),

@@ -4,6 +4,7 @@ import {
   RefreshCwIcon,
   SignalIcon,
   TimerResetIcon,
+  Trash2Icon,
 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -187,19 +188,27 @@ function ProcessCommandCell({ process }: { process: ServerProcessDiagnosticsEntr
 }
 
 function DiagnosticsHeaderActions({
+  clearingLogs,
   onRefresh,
   onOpenLogs,
+  onClearLogs,
   refreshing,
 }: {
+  clearingLogs?: boolean;
   onRefresh: () => void;
   onOpenLogs: () => void;
+  onClearLogs: () => void;
   refreshing?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <Button size="xs" variant="outline" onClick={onOpenLogs}>
         <FolderOpenIcon className="size-3.5" />
         Open logs
+      </Button>
+      <Button size="xs" variant="destructive-outline" disabled={clearingLogs} onClick={onClearLogs}>
+        <Trash2Icon className="size-3.5" />
+        {clearingLogs ? "Clearing..." : "Clear logs"}
       </Button>
       <Button size="xs" variant="outline" onClick={onRefresh}>
         <RefreshCwIcon className={cn("size-3.5", refreshing && "animate-spin")} />
@@ -259,6 +268,7 @@ export function DiagnosticsSettingsPanel() {
     (typeof HISTORY_WINDOW_OPTIONS)[number]["label"]
   >(HISTORY_WINDOW_OPTIONS[1]!.label);
   const [signalingPid, setSignalingPid] = useState<number | null>(null);
+  const [clearingLogs, setClearingLogs] = useState(false);
 
   const selectedWindow =
     HISTORY_WINDOW_OPTIONS.find((option) => option.label === selectedWindowLabel) ??
@@ -293,6 +303,32 @@ export function DiagnosticsSettingsPanel() {
     traceDiagnostics.refresh();
     processDiagnostics.refresh();
     processHistory.refresh();
+  };
+
+  const clearLogs = async () => {
+    const confirmed = await ensureLocalApi().dialogs.confirm(
+      "Clear all application logs? This removes local trace, provider, terminal, desktop, and backend log files.",
+    );
+    if (!confirmed) return;
+
+    setClearingLogs(true);
+    try {
+      const result = await ensureLocalApi().server.clearLogs();
+      toastManager.add({
+        type: "success",
+        title: "Logs cleared",
+        description: `${formatCount(result.removedEntryCount)} log entries removed.`,
+      });
+      refreshAll();
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Unable to clear logs",
+        description: error instanceof Error ? error.message : "Unknown error clearing logs.",
+      });
+    } finally {
+      setClearingLogs(false);
+    }
   };
 
   const signalProcess = async (pid: number, signal: ServerProcessSignal) => {
@@ -348,8 +384,10 @@ export function DiagnosticsSettingsPanel() {
         icon={<SignalIcon className="size-3.5" />}
         headerAction={
           <DiagnosticsHeaderActions
+            clearingLogs={clearingLogs}
             onRefresh={refreshAll}
             onOpenLogs={openLogsDirectory}
+            onClearLogs={clearLogs}
             refreshing={
               traceDiagnostics.isPending || processDiagnostics.isPending || processHistory.isPending
             }

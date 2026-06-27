@@ -10,11 +10,15 @@ import {
   WorkflowEventId,
   WorkflowId,
   WorkflowInputRequestSnapshot,
+  WorkflowMemoryItem,
+  WorkflowPromptBuild,
   WorkflowRunId,
   WorkflowRunSnapshot,
+  WorkflowSchedule,
   WorkflowStateEntry,
   WorkflowStepSnapshot,
   WorkflowTaskSnapshot,
+  WorkflowThreadLink,
 } from "@fenrir/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -32,9 +36,18 @@ import {
 const WorkflowRunDbRow = WorkflowRunRow.mapFields(
   Struct.assign({
     args: Schema.fromJsonString(Schema.Unknown),
+    runtimeContext: Schema.fromJsonString(Schema.Unknown),
   }),
 );
 type WorkflowRunDbRow = typeof WorkflowRunDbRow.Type;
+
+const WorkflowDraftDbRow = WorkflowDraftRow.mapFields(
+  Struct.assign({
+    declaredCapabilities: Schema.fromJsonString(Schema.Array(Schema.String)),
+    defaultRuntimeContext: Schema.fromJsonString(Schema.Unknown),
+  }),
+);
+type WorkflowDraftDbRow = typeof WorkflowDraftDbRow.Type;
 
 const WorkflowStepDbRow = WorkflowStepSnapshot.mapFields(
   Struct.assign({
@@ -81,6 +94,30 @@ const WorkflowEventDbRow = WorkflowEvent.mapFields(
 );
 type WorkflowEventDbRow = typeof WorkflowEventDbRow.Type;
 
+const WorkflowScheduleDbRow = WorkflowSchedule.mapFields(
+  Struct.assign({
+    args: Schema.fromJsonString(Schema.Unknown),
+    runtimeContext: Schema.fromJsonString(Schema.Unknown),
+  }),
+);
+type WorkflowScheduleDbRow = typeof WorkflowScheduleDbRow.Type;
+
+const WorkflowMemoryItemDbRow = WorkflowMemoryItem.mapFields(
+  Struct.assign({
+    evidenceRunIds: Schema.fromJsonString(Schema.Array(WorkflowRunId)),
+    evidenceEventIds: Schema.fromJsonString(Schema.Array(WorkflowEventId)),
+  }),
+);
+type WorkflowMemoryItemDbRow = typeof WorkflowMemoryItemDbRow.Type;
+
+const WorkflowPromptBuildDbRow = WorkflowPromptBuild.mapFields(
+  Struct.assign({
+    selectedMemoryIds: Schema.fromJsonString(Schema.Array(WorkflowMemoryItem.fields.memoryId)),
+    selectedContextRefs: Schema.fromJsonString(Schema.Array(Schema.String)),
+  }),
+);
+type WorkflowPromptBuildDbRow = typeof WorkflowPromptBuildDbRow.Type;
+
 function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
   return (cause: unknown) =>
     Schema.isSchemaError(cause)
@@ -88,10 +125,21 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
       : toPersistenceSqlError(sqlOperation)(cause);
 }
 
+function dbDraftRowToDraftRow(row: WorkflowDraftDbRow): WorkflowDraftRow {
+  return {
+    ...row,
+    declaredCapabilities: (row.declaredCapabilities ?? []) as NonNullable<
+      WorkflowDraftRow["declaredCapabilities"]
+    >,
+    defaultRuntimeContext: row.defaultRuntimeContext,
+  };
+}
+
 function dbRunRowToRunRow(row: WorkflowRunDbRow): WorkflowRunRow {
   return {
     ...row,
     args: row.args,
+    runtimeContext: row.runtimeContext,
   };
 }
 
@@ -118,6 +166,30 @@ function dbEventRowToEvent(row: WorkflowEventDbRow): WorkflowEvent {
   };
 }
 
+function dbScheduleRowToSchedule(row: WorkflowScheduleDbRow): WorkflowSchedule {
+  return {
+    ...row,
+    args: row.args,
+    runtimeContext: row.runtimeContext,
+  };
+}
+
+function dbMemoryItemRowToMemoryItem(row: WorkflowMemoryItemDbRow): WorkflowMemoryItem {
+  return {
+    ...row,
+    evidenceRunIds: row.evidenceRunIds,
+    evidenceEventIds: row.evidenceEventIds,
+  };
+}
+
+function dbPromptBuildRowToPromptBuild(row: WorkflowPromptBuildDbRow): WorkflowPromptBuild {
+  return {
+    ...row,
+    selectedMemoryIds: row.selectedMemoryIds,
+    selectedContextRefs: row.selectedContextRefs as WorkflowPromptBuild["selectedContextRefs"],
+  };
+}
+
 function buildSnapshot(input: {
   readonly run: WorkflowRunRow;
   readonly steps: ReadonlyArray<WorkflowStepDbRow>;
@@ -134,6 +206,14 @@ function buildSnapshot(input: {
     name: input.run.name,
     args: input.run.args,
     sourceHash: input.run.sourceHash,
+    ...(input.run.trigger !== undefined ? { trigger: input.run.trigger } : {}),
+    ...(input.run.requestedByThreadId !== undefined
+      ? { requestedByThreadId: input.run.requestedByThreadId }
+      : {}),
+    ...(input.run.scheduleId !== undefined ? { scheduleId: input.run.scheduleId } : {}),
+    ...(input.run.runtimeContext !== undefined ? { runtimeContext: input.run.runtimeContext } : {}),
+    ...(input.run.sourceRevision !== undefined ? { sourceRevision: input.run.sourceRevision } : {}),
+    ...(input.run.memoryRevision !== undefined ? { memoryRevision: input.run.memoryRevision } : {}),
     status: input.run.status,
     summary: input.run.summary,
     startedAt: input.run.startedAt,
@@ -155,20 +235,24 @@ const makeWorkflowRepository = Effect.gen(function* () {
 
   const getDraftRow = SqlSchema.findOneOption({
     Request: Schema.Struct({ workflowId: WorkflowId }),
-    Result: WorkflowDraftRow,
+    Result: WorkflowDraftDbRow,
     execute: ({ workflowId }) =>
       sql`
         SELECT
           workflow_id AS "workflowId",
           project_id AS "projectId",
           origin_thread_id AS "originThreadId",
+          created_from_thread_id AS "createdFromThreadId",
           name,
           description,
           source,
           source_hash AS "sourceHash",
+          source_revision AS "sourceRevision",
           status,
           validation_status AS "validationStatus",
           validation_error AS "validationError",
+          declared_capabilities_json AS "declaredCapabilities",
+          default_runtime_context_json AS "defaultRuntimeContext",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt"
@@ -180,20 +264,24 @@ const makeWorkflowRepository = Effect.gen(function* () {
 
   const listDraftRowsForThread = SqlSchema.findAll({
     Request: Schema.Struct({ projectId: Schema.String, originThreadId: Schema.String }),
-    Result: WorkflowDraftRow,
+    Result: WorkflowDraftDbRow,
     execute: ({ projectId, originThreadId }) =>
       sql`
         SELECT
           workflow_id AS "workflowId",
           project_id AS "projectId",
           origin_thread_id AS "originThreadId",
+          created_from_thread_id AS "createdFromThreadId",
           name,
           description,
           source,
           source_hash AS "sourceHash",
+          source_revision AS "sourceRevision",
           status,
           validation_status AS "validationStatus",
           validation_error AS "validationError",
+          declared_capabilities_json AS "declaredCapabilities",
+          default_runtime_context_json AS "defaultRuntimeContext",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt"
@@ -207,20 +295,24 @@ const makeWorkflowRepository = Effect.gen(function* () {
 
   const latestRunnableDraftRowForThread = SqlSchema.findOneOption({
     Request: Schema.Struct({ projectId: Schema.String, originThreadId: Schema.String }),
-    Result: WorkflowDraftRow,
+    Result: WorkflowDraftDbRow,
     execute: ({ projectId, originThreadId }) =>
       sql`
         SELECT
           workflow_id AS "workflowId",
           project_id AS "projectId",
           origin_thread_id AS "originThreadId",
+          created_from_thread_id AS "createdFromThreadId",
           name,
           description,
           source,
           source_hash AS "sourceHash",
+          source_revision AS "sourceRevision",
           status,
           validation_status AS "validationStatus",
           validation_error AS "validationError",
+          declared_capabilities_json AS "declaredCapabilities",
+          default_runtime_context_json AS "defaultRuntimeContext",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt"
@@ -235,6 +327,145 @@ const makeWorkflowRepository = Effect.gen(function* () {
       `,
   });
 
+  const listDraftRowsForProject = SqlSchema.findAll({
+    Request: Schema.Struct({ projectId: Schema.String, includeArchived: Schema.Boolean }),
+    Result: WorkflowDraftDbRow,
+    execute: ({ projectId, includeArchived }) =>
+      sql`
+        SELECT
+          workflow_id AS "workflowId",
+          project_id AS "projectId",
+          origin_thread_id AS "originThreadId",
+          created_from_thread_id AS "createdFromThreadId",
+          name,
+          description,
+          source,
+          source_hash AS "sourceHash",
+          source_revision AS "sourceRevision",
+          status,
+          validation_status AS "validationStatus",
+          validation_error AS "validationError",
+          declared_capabilities_json AS "declaredCapabilities",
+          default_runtime_context_json AS "defaultRuntimeContext",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt",
+          archived_at AS "archivedAt"
+        FROM workflows
+        WHERE project_id = ${projectId}
+          AND (${includeArchived ? 1 : 0} = 1 OR archived_at IS NULL)
+        ORDER BY updated_at DESC, workflow_id ASC
+      `,
+  });
+
+  const listThreadLinkRows = SqlSchema.findAll({
+    Request: Schema.Struct({ projectId: Schema.String, threadId: Schema.String }),
+    Result: WorkflowThreadLink,
+    execute: ({ projectId, threadId }) =>
+      sql`
+        SELECT
+          workflow_id AS "workflowId",
+          project_id AS "projectId",
+          thread_id AS "threadId",
+          relation,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM workflow_thread_links
+        WHERE project_id = ${projectId}
+          AND thread_id = ${threadId}
+        ORDER BY updated_at DESC, workflow_id ASC, relation ASC
+      `,
+  });
+
+  const listProjectThreadLinkRows = SqlSchema.findAll({
+    Request: Schema.Struct({ projectId: Schema.String }),
+    Result: WorkflowThreadLink,
+    execute: ({ projectId }) =>
+      sql`
+        SELECT
+          workflow_id AS "workflowId",
+          project_id AS "projectId",
+          thread_id AS "threadId",
+          relation,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM workflow_thread_links
+        WHERE project_id = ${projectId}
+        ORDER BY updated_at DESC, workflow_id ASC, thread_id ASC, relation ASC
+      `,
+  });
+
+  const getScheduleRow = SqlSchema.findOneOption({
+    Request: Schema.Struct({ scheduleId: WorkflowSchedule.fields.scheduleId }),
+    Result: WorkflowScheduleDbRow,
+    execute: ({ scheduleId }) =>
+      sql`
+        SELECT
+          schedule_id AS "scheduleId",
+          workflow_id AS "workflowId",
+          project_id AS "projectId",
+          run_at AS "runAt",
+          args_json AS "args",
+          runtime_context_json AS "runtimeContext",
+          requested_by_thread_id AS "requestedByThreadId",
+          status,
+          run_id AS "runId",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM workflow_schedules
+        WHERE schedule_id = ${scheduleId}
+        LIMIT 1
+      `,
+  });
+
+  const listScheduleRowsForProject = SqlSchema.findAll({
+    Request: Schema.Struct({ projectId: Schema.String, includeCompleted: Schema.Boolean }),
+    Result: WorkflowScheduleDbRow,
+    execute: ({ projectId, includeCompleted }) =>
+      sql`
+        SELECT
+          schedule_id AS "scheduleId",
+          workflow_id AS "workflowId",
+          project_id AS "projectId",
+          run_at AS "runAt",
+          args_json AS "args",
+          runtime_context_json AS "runtimeContext",
+          requested_by_thread_id AS "requestedByThreadId",
+          status,
+          run_id AS "runId",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM workflow_schedules
+        WHERE project_id = ${projectId}
+          AND (${includeCompleted ? 1 : 0} = 1 OR status IN ('scheduled', 'claimed'))
+        ORDER BY run_at DESC, schedule_id ASC
+      `,
+  });
+
+  const listDueScheduleRows = SqlSchema.findAll({
+    Request: Schema.Struct({ now: Schema.String, limit: Schema.Number }),
+    Result: WorkflowScheduleDbRow,
+    execute: ({ now, limit }) =>
+      sql`
+        SELECT
+          schedule_id AS "scheduleId",
+          workflow_id AS "workflowId",
+          project_id AS "projectId",
+          run_at AS "runAt",
+          args_json AS "args",
+          runtime_context_json AS "runtimeContext",
+          requested_by_thread_id AS "requestedByThreadId",
+          status,
+          run_id AS "runId",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM workflow_schedules
+        WHERE status = 'scheduled'
+          AND run_at <= ${now}
+        ORDER BY run_at ASC, schedule_id ASC
+        LIMIT ${Math.max(1, Math.min(100, Math.trunc(limit)))}
+      `,
+  });
+
   const getRunRow = SqlSchema.findOneOption({
     Request: Schema.Struct({ runId: WorkflowRunId }),
     Result: WorkflowRunDbRow,
@@ -245,10 +476,16 @@ const makeWorkflowRepository = Effect.gen(function* () {
           workflow_id AS "workflowId",
           project_id AS "projectId",
           origin_thread_id AS "originThreadId",
+          trigger,
+          requested_by_thread_id AS "requestedByThreadId",
+          schedule_id AS "scheduleId",
           name,
           args_json AS "args",
+          runtime_context_json AS "runtimeContext",
           source_snapshot AS "sourceSnapshot",
           source_hash AS "sourceHash",
+          source_revision AS "sourceRevision",
+          memory_revision AS "memoryRevision",
           status,
           summary,
           started_at AS "startedAt",
@@ -270,10 +507,16 @@ const makeWorkflowRepository = Effect.gen(function* () {
           workflow_id AS "workflowId",
           project_id AS "projectId",
           origin_thread_id AS "originThreadId",
+          trigger,
+          requested_by_thread_id AS "requestedByThreadId",
+          schedule_id AS "scheduleId",
           name,
           args_json AS "args",
+          runtime_context_json AS "runtimeContext",
           source_snapshot AS "sourceSnapshot",
           source_hash AS "sourceHash",
+          source_revision AS "sourceRevision",
+          memory_revision AS "memoryRevision",
           status,
           summary,
           started_at AS "startedAt",
@@ -295,10 +538,16 @@ const makeWorkflowRepository = Effect.gen(function* () {
           workflow_id AS "workflowId",
           project_id AS "projectId",
           origin_thread_id AS "originThreadId",
+          trigger,
+          requested_by_thread_id AS "requestedByThreadId",
+          schedule_id AS "scheduleId",
           name,
           args_json AS "args",
+          runtime_context_json AS "runtimeContext",
           source_snapshot AS "sourceSnapshot",
           source_hash AS "sourceHash",
+          source_revision AS "sourceRevision",
+          memory_revision AS "memoryRevision",
           status,
           summary,
           started_at AS "startedAt",
@@ -307,6 +556,37 @@ const makeWorkflowRepository = Effect.gen(function* () {
         FROM workflow_runs
         WHERE project_id = ${projectId}
           AND origin_thread_id = ${originThreadId}
+        ORDER BY last_updated_at DESC, run_id ASC
+      `,
+  });
+
+  const listRunRowsForProject = SqlSchema.findAll({
+    Request: Schema.Struct({ projectId: Schema.String }),
+    Result: WorkflowRunDbRow,
+    execute: ({ projectId }) =>
+      sql`
+        SELECT
+          run_id AS "runId",
+          workflow_id AS "workflowId",
+          project_id AS "projectId",
+          origin_thread_id AS "originThreadId",
+          trigger,
+          requested_by_thread_id AS "requestedByThreadId",
+          schedule_id AS "scheduleId",
+          name,
+          args_json AS "args",
+          runtime_context_json AS "runtimeContext",
+          source_snapshot AS "sourceSnapshot",
+          source_hash AS "sourceHash",
+          source_revision AS "sourceRevision",
+          memory_revision AS "memoryRevision",
+          status,
+          summary,
+          started_at AS "startedAt",
+          completed_at AS "completedAt",
+          last_updated_at AS "lastUpdatedAt"
+        FROM workflow_runs
+        WHERE project_id = ${projectId}
         ORDER BY last_updated_at DESC, run_id ASC
       `,
   });
@@ -321,10 +601,16 @@ const makeWorkflowRepository = Effect.gen(function* () {
           workflow_id AS "workflowId",
           project_id AS "projectId",
           origin_thread_id AS "originThreadId",
+          trigger,
+          requested_by_thread_id AS "requestedByThreadId",
+          schedule_id AS "scheduleId",
           name,
           args_json AS "args",
+          runtime_context_json AS "runtimeContext",
           source_snapshot AS "sourceSnapshot",
           source_hash AS "sourceHash",
+          source_revision AS "sourceRevision",
+          memory_revision AS "memoryRevision",
           status,
           summary,
           started_at AS "startedAt",
@@ -467,6 +753,80 @@ const makeWorkflowRepository = Effect.gen(function* () {
       `,
   });
 
+  const listMemoryItemRows = SqlSchema.findAll({
+    Request: Schema.Struct({ workflowId: WorkflowId, includeSuppressed: Schema.Boolean }),
+    Result: WorkflowMemoryItemDbRow,
+    execute: ({ workflowId, includeSuppressed }) =>
+      sql`
+        SELECT
+          memory_id AS "memoryId",
+          workflow_id AS "workflowId",
+          project_id AS "projectId",
+          kind,
+          content,
+          evidence_run_ids_json AS "evidenceRunIds",
+          evidence_event_ids_json AS "evidenceEventIds",
+          confidence,
+          status,
+          usage_count AS "usageCount",
+          success_count AS "successCount",
+          last_used_at AS "lastUsedAt",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM workflow_memory_items
+        WHERE workflow_id = ${workflowId}
+          AND (${includeSuppressed ? 1 : 0} = 1 OR status != 'suppressed')
+        ORDER BY updated_at DESC, memory_id ASC
+      `,
+  });
+
+  const getMemoryItemRow = SqlSchema.findOneOption({
+    Request: Schema.Struct({ memoryId: WorkflowMemoryItem.fields.memoryId }),
+    Result: WorkflowMemoryItemDbRow,
+    execute: ({ memoryId }) =>
+      sql`
+        SELECT
+          memory_id AS "memoryId",
+          workflow_id AS "workflowId",
+          project_id AS "projectId",
+          kind,
+          content,
+          evidence_run_ids_json AS "evidenceRunIds",
+          evidence_event_ids_json AS "evidenceEventIds",
+          confidence,
+          status,
+          usage_count AS "usageCount",
+          success_count AS "successCount",
+          last_used_at AS "lastUsedAt",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM workflow_memory_items
+        WHERE memory_id = ${memoryId}
+        LIMIT 1
+      `,
+  });
+
+  const listPromptBuildRowsForRun = SqlSchema.findAll({
+    Request: Schema.Struct({ runId: WorkflowRunId }),
+    Result: WorkflowPromptBuildDbRow,
+    execute: ({ runId }) =>
+      sql`
+        SELECT
+          prompt_build_id AS "promptBuildId",
+          run_id AS "runId",
+          step_id AS "stepId",
+          agent_name AS "agentName",
+          selected_memory_ids_json AS "selectedMemoryIds",
+          selected_context_refs_json AS "selectedContextRefs",
+          rendered_prompt AS "renderedPrompt",
+          rationale,
+          created_at AS "createdAt"
+        FROM workflow_prompt_builds
+        WHERE run_id = ${runId}
+        ORDER BY created_at ASC, prompt_build_id ASC
+      `,
+  });
+
   const reconstructSnapshot = (runDbRow: WorkflowRunDbRow) =>
     Effect.gen(function* () {
       const run = dbRunRowToRunRow(runDbRow);
@@ -491,13 +851,17 @@ const makeWorkflowRepository = Effect.gen(function* () {
           workflow_id,
           project_id,
           origin_thread_id,
+          created_from_thread_id,
           name,
           description,
           source,
           source_hash,
+          source_revision,
           status,
           validation_status,
           validation_error,
+          declared_capabilities_json,
+          default_runtime_context_json,
           created_at,
           updated_at,
           archived_at
@@ -506,13 +870,17 @@ const makeWorkflowRepository = Effect.gen(function* () {
           ${row.workflowId},
           ${row.projectId},
           ${row.originThreadId},
+          ${row.createdFromThreadId ?? null},
           ${row.name},
           ${row.description},
           ${row.source},
           ${row.sourceHash},
+          ${row.sourceRevision ?? 1},
           ${row.status},
           ${row.validationStatus},
           ${row.validationError},
+          ${JSON.stringify(row.declaredCapabilities ?? [])},
+          ${JSON.stringify(row.defaultRuntimeContext ?? {})},
           ${row.createdAt},
           ${row.updatedAt},
           ${row.archivedAt}
@@ -529,10 +897,16 @@ const makeWorkflowRepository = Effect.gen(function* () {
           workflow_id,
           project_id,
           origin_thread_id,
+          trigger,
+          requested_by_thread_id,
+          schedule_id,
           name,
           args_json,
+          runtime_context_json,
           source_snapshot,
           source_hash,
+          source_revision,
+          memory_revision,
           status,
           summary,
           started_at,
@@ -544,15 +918,99 @@ const makeWorkflowRepository = Effect.gen(function* () {
           ${row.workflowId},
           ${row.projectId},
           ${row.originThreadId},
+          ${row.trigger ?? "thread"},
+          ${
+            row.requestedByThreadId !== undefined
+              ? row.requestedByThreadId
+              : row.trigger === "thread"
+                ? row.originThreadId
+                : null
+          },
+          ${row.scheduleId ?? null},
           ${row.name},
           ${JSON.stringify(row.args ?? null)},
+          ${JSON.stringify(row.runtimeContext ?? {})},
           ${row.sourceSnapshot},
           ${row.sourceHash},
+          ${row.sourceRevision ?? 1},
+          ${row.memoryRevision ?? 0},
           ${row.status},
           ${row.summary},
           ${row.startedAt},
           ${row.completedAt},
           ${row.lastUpdatedAt}
+        )
+      `,
+  });
+
+  const insertScheduleRow = SqlSchema.void({
+    Request: WorkflowSchedule,
+    execute: (schedule) =>
+      sql`
+        INSERT INTO workflow_schedules (
+          schedule_id,
+          workflow_id,
+          project_id,
+          run_at,
+          args_json,
+          runtime_context_json,
+          requested_by_thread_id,
+          status,
+          run_id,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          ${schedule.scheduleId},
+          ${schedule.workflowId},
+          ${schedule.projectId},
+          ${schedule.runAt},
+          ${JSON.stringify(schedule.args ?? null)},
+          ${JSON.stringify(schedule.runtimeContext ?? {})},
+          ${schedule.requestedByThreadId},
+          ${schedule.status},
+          ${schedule.runId},
+          ${schedule.createdAt},
+          ${schedule.updatedAt}
+        )
+      `,
+  });
+
+  const insertMemoryItemRow = SqlSchema.void({
+    Request: WorkflowMemoryItem,
+    execute: (item) =>
+      sql`
+        INSERT INTO workflow_memory_items (
+          memory_id,
+          workflow_id,
+          project_id,
+          kind,
+          content,
+          evidence_run_ids_json,
+          evidence_event_ids_json,
+          confidence,
+          status,
+          usage_count,
+          success_count,
+          last_used_at,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          ${item.memoryId},
+          ${item.workflowId},
+          ${item.projectId},
+          ${item.kind},
+          ${item.content},
+          ${JSON.stringify(item.evidenceRunIds)},
+          ${JSON.stringify(item.evidenceEventIds)},
+          ${item.confidence},
+          ${item.status},
+          ${item.usageCount},
+          ${item.successCount},
+          ${item.lastUsedAt},
+          ${item.createdAt},
+          ${item.updatedAt}
         )
       `,
   });
@@ -604,12 +1062,13 @@ const makeWorkflowRepository = Effect.gen(function* () {
               new Error("Workflow draft not found"),
             ),
           ),
-        onSome: Effect.succeed,
+        onSome: (row) => Effect.succeed(dbDraftRowToDraftRow(row)),
       });
     });
 
   const getDraft: WorkflowRepositoryShape["getDraft"] = (workflowId) =>
     getDraftRow({ workflowId }).pipe(
+      Effect.map(Option.map(dbDraftRowToDraftRow)),
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "WorkflowRepository.getDraft:query",
@@ -620,6 +1079,7 @@ const makeWorkflowRepository = Effect.gen(function* () {
 
   const listDraftsForThread: WorkflowRepositoryShape["listDraftsForThread"] = (input) =>
     listDraftRowsForThread(input).pipe(
+      Effect.map((rows) => rows.map(dbDraftRowToDraftRow)),
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "WorkflowRepository.listDraftsForThread:query",
@@ -632,12 +1092,85 @@ const makeWorkflowRepository = Effect.gen(function* () {
     input,
   ) =>
     latestRunnableDraftRowForThread(input).pipe(
+      Effect.map(Option.map(dbDraftRowToDraftRow)),
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "WorkflowRepository.latestRunnableDraftForThread:query",
           "WorkflowRepository.latestRunnableDraftForThread:decodeRows",
         ),
       ),
+    );
+
+  const listDraftsForProject: WorkflowRepositoryShape["listDraftsForProject"] = (input) =>
+    listDraftRowsForProject({
+      projectId: input.projectId,
+      includeArchived: input.includeArchived ?? false,
+    }).pipe(
+      Effect.map((rows) => rows.map(dbDraftRowToDraftRow)),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "WorkflowRepository.listDraftsForProject:query",
+          "WorkflowRepository.listDraftsForProject:decodeRows",
+        ),
+      ),
+    );
+
+  const upsertThreadLink: WorkflowRepositoryShape["upsertThreadLink"] = (link) =>
+    sql`
+      INSERT INTO workflow_thread_links (
+        workflow_id,
+        project_id,
+        thread_id,
+        relation,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${link.workflowId},
+        ${link.projectId},
+        ${link.threadId},
+        ${link.relation},
+        ${link.createdAt},
+        ${link.updatedAt}
+      )
+      ON CONFLICT(workflow_id, thread_id, relation)
+      DO UPDATE SET
+        project_id = excluded.project_id,
+        updated_at = excluded.updated_at
+    `.pipe(
+      Effect.as(link),
+      Effect.mapError(toPersistenceSqlError("WorkflowRepository.upsertThreadLink:query")),
+    );
+
+  const listThreadLinks: WorkflowRepositoryShape["listThreadLinks"] = (input) =>
+    listThreadLinkRows(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "WorkflowRepository.listThreadLinks:query",
+          "WorkflowRepository.listThreadLinks:decodeRows",
+        ),
+      ),
+    );
+
+  const listProjectThreadLinks: WorkflowRepositoryShape["listProjectThreadLinks"] = (projectId) =>
+    listProjectThreadLinkRows({ projectId }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "WorkflowRepository.listProjectThreadLinks:query",
+          "WorkflowRepository.listProjectThreadLinks:decodeRows",
+        ),
+      ),
+    );
+
+  const deleteThreadLink: WorkflowRepositoryShape["deleteThreadLink"] = (input) =>
+    sql`
+      DELETE FROM workflow_thread_links
+      WHERE workflow_id = ${input.workflowId}
+        AND thread_id = ${input.threadId}
+        AND (${input.relation === undefined ? 1 : 0} = 1 OR relation = ${input.relation ?? null})
+    `.pipe(
+      Effect.asVoid,
+      Effect.mapError(toPersistenceSqlError("WorkflowRepository.deleteThreadLink:query")),
     );
 
   const insertRun: WorkflowRepositoryShape["insertRun"] = (row) =>
@@ -742,6 +1275,17 @@ const makeWorkflowRepository = Effect.gen(function* () {
       ),
     );
 
+  const listRunsForProject: WorkflowRepositoryShape["listRunsForProject"] = (input) =>
+    listRunRowsForProject(input).pipe(
+      Effect.flatMap(listSnapshots),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "WorkflowRepository.listRunsForProject:query",
+          "WorkflowRepository.listRunsForProject:decodeRows",
+        ),
+      ),
+    );
+
   const listActiveRuns: WorkflowRepositoryShape["listActiveRuns"] = () =>
     listActiveRunRows({}).pipe(
       Effect.flatMap(listSnapshots),
@@ -752,6 +1296,140 @@ const makeWorkflowRepository = Effect.gen(function* () {
         ),
       ),
     );
+
+  const insertSchedule: WorkflowRepositoryShape["insertSchedule"] = (schedule) =>
+    insertScheduleRow(schedule).pipe(
+      Effect.as(schedule),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "WorkflowRepository.insertSchedule:query",
+          "WorkflowRepository.insertSchedule:encodeRequest",
+        ),
+      ),
+    );
+
+  const getSchedule: WorkflowRepositoryShape["getSchedule"] = (scheduleId) =>
+    getScheduleRow({ scheduleId }).pipe(
+      Effect.map(Option.map(dbScheduleRowToSchedule)),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "WorkflowRepository.getSchedule:query",
+          "WorkflowRepository.getSchedule:decodeRows",
+        ),
+      ),
+    );
+
+  const listSchedulesForProject: WorkflowRepositoryShape["listSchedulesForProject"] = (input) =>
+    listScheduleRowsForProject({
+      projectId: input.projectId,
+      includeCompleted: input.includeCompleted ?? false,
+    }).pipe(
+      Effect.map((rows) => rows.map(dbScheduleRowToSchedule)),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "WorkflowRepository.listSchedulesForProject:query",
+          "WorkflowRepository.listSchedulesForProject:decodeRows",
+        ),
+      ),
+    );
+
+  const listDueSchedules: WorkflowRepositoryShape["listDueSchedules"] = (input) =>
+    listDueScheduleRows(input).pipe(
+      Effect.map((rows) => rows.map(dbScheduleRowToSchedule)),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "WorkflowRepository.listDueSchedules:query",
+          "WorkflowRepository.listDueSchedules:decodeRows",
+        ),
+      ),
+    );
+
+  const claimSchedule: WorkflowRepositoryShape["claimSchedule"] = (input) =>
+    Effect.gen(function* () {
+      yield* sql`
+        UPDATE workflow_schedules
+        SET status = 'claimed',
+            updated_at = ${input.updatedAt}
+        WHERE schedule_id = ${input.scheduleId}
+          AND status = 'scheduled'
+      `.pipe(Effect.mapError(toPersistenceSqlError("WorkflowRepository.claimSchedule:update")));
+      const rowOption = yield* getScheduleRow({ scheduleId: input.scheduleId }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "WorkflowRepository.claimSchedule:query",
+            "WorkflowRepository.claimSchedule:decodeRows",
+          ),
+        ),
+      );
+      return Option.flatMap(rowOption, (row) =>
+        row.status === "claimed" && row.updatedAt === input.updatedAt
+          ? Option.some(dbScheduleRowToSchedule(row))
+          : Option.none(),
+      );
+    });
+
+  const updateScheduleStatus = (input: {
+    readonly scheduleId: WorkflowSchedule["scheduleId"];
+    readonly status: WorkflowSchedule["status"];
+    readonly runId?: WorkflowSchedule["runId"] | undefined;
+    readonly updatedAt: WorkflowSchedule["updatedAt"];
+    readonly operation: string;
+  }) =>
+    Effect.gen(function* () {
+      yield* sql`
+        UPDATE workflow_schedules
+        SET status = ${input.status},
+            run_id = CASE
+              WHEN ${input.runId !== undefined ? 1 : 0} = 1
+                THEN ${input.runId === undefined ? null : input.runId}
+              ELSE run_id
+            END,
+            updated_at = ${input.updatedAt}
+        WHERE schedule_id = ${input.scheduleId}
+      `.pipe(Effect.mapError(toPersistenceSqlError(`${input.operation}:update`)));
+      const rowOption = yield* getScheduleRow({ scheduleId: input.scheduleId }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            `${input.operation}:query`,
+            `${input.operation}:decodeRows`,
+          ),
+        ),
+      );
+      return yield* Option.match(rowOption, {
+        onNone: () =>
+          Effect.fail(
+            toPersistenceSqlError(`${input.operation}:notFound`)(
+              new Error("Workflow schedule not found"),
+            ),
+          ),
+        onSome: (row) => Effect.succeed(dbScheduleRowToSchedule(row)),
+      });
+    });
+
+  const completeSchedule: WorkflowRepositoryShape["completeSchedule"] = (input) =>
+    updateScheduleStatus({
+      scheduleId: input.scheduleId,
+      status: "completed",
+      runId: input.runId,
+      updatedAt: input.updatedAt,
+      operation: "WorkflowRepository.completeSchedule",
+    });
+
+  const failSchedule: WorkflowRepositoryShape["failSchedule"] = (input) =>
+    updateScheduleStatus({
+      scheduleId: input.scheduleId,
+      status: "failed",
+      updatedAt: input.updatedAt,
+      operation: "WorkflowRepository.failSchedule",
+    });
+
+  const cancelSchedule: WorkflowRepositoryShape["cancelSchedule"] = (input) =>
+    updateScheduleStatus({
+      scheduleId: input.scheduleId,
+      status: "cancelled",
+      updatedAt: input.updatedAt,
+      operation: "WorkflowRepository.cancelSchedule",
+    });
 
   const upsertStep: WorkflowRepositoryShape["upsertStep"] = (step) =>
     sql`
@@ -1037,18 +1715,140 @@ const makeWorkflowRepository = Effect.gen(function* () {
       ),
     );
 
+  const listMemoryItems: WorkflowRepositoryShape["listMemoryItems"] = (input) =>
+    listMemoryItemRows({
+      workflowId: input.workflowId,
+      includeSuppressed: input.includeSuppressed ?? false,
+    }).pipe(
+      Effect.map((rows) => rows.map(dbMemoryItemRowToMemoryItem)),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "WorkflowRepository.listMemoryItems:query",
+          "WorkflowRepository.listMemoryItems:decodeRows",
+        ),
+      ),
+    );
+
+  const insertMemoryItem: WorkflowRepositoryShape["insertMemoryItem"] = (item) =>
+    insertMemoryItemRow(item).pipe(
+      Effect.as(item),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "WorkflowRepository.insertMemoryItem:query",
+          "WorkflowRepository.insertMemoryItem:encodeRequest",
+        ),
+      ),
+    );
+
+  const recordMemoryUse: WorkflowRepositoryShape["recordMemoryUse"] = (input) =>
+    Effect.forEach(
+      input.memoryIds,
+      (memoryId) =>
+        sql`
+          UPDATE workflow_memory_items
+          SET usage_count = usage_count + 1,
+              last_used_at = ${input.usedAt},
+              updated_at = ${input.usedAt}
+          WHERE memory_id = ${memoryId}
+        `.pipe(Effect.mapError(toPersistenceSqlError("WorkflowRepository.recordMemoryUse:update"))),
+      { concurrency: "unbounded", discard: true },
+    );
+
+  const suppressMemoryItem: WorkflowRepositoryShape["suppressMemoryItem"] = (memoryId, updatedAt) =>
+    Effect.gen(function* () {
+      yield* sql`
+        UPDATE workflow_memory_items
+        SET status = 'suppressed',
+            updated_at = ${updatedAt}
+        WHERE memory_id = ${memoryId}
+      `.pipe(
+        Effect.mapError(toPersistenceSqlError("WorkflowRepository.suppressMemoryItem:update")),
+      );
+      const rowOption = yield* getMemoryItemRow({ memoryId }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "WorkflowRepository.suppressMemoryItem:query",
+            "WorkflowRepository.suppressMemoryItem:decodeRows",
+          ),
+        ),
+      );
+      return yield* Option.match(rowOption, {
+        onNone: () =>
+          Effect.fail(
+            toPersistenceSqlError("WorkflowRepository.suppressMemoryItem:notFound")(
+              new Error("Workflow memory item not found"),
+            ),
+          ),
+        onSome: (row) => Effect.succeed(dbMemoryItemRowToMemoryItem(row)),
+      });
+    });
+
+  const insertPromptBuild: WorkflowRepositoryShape["insertPromptBuild"] = (promptBuild) =>
+    sql`
+      INSERT INTO workflow_prompt_builds (
+        prompt_build_id,
+        run_id,
+        step_id,
+        agent_name,
+        selected_memory_ids_json,
+        selected_context_refs_json,
+        rendered_prompt,
+        rationale,
+        created_at
+      )
+      VALUES (
+        ${promptBuild.promptBuildId},
+        ${promptBuild.runId},
+        ${promptBuild.stepId},
+        ${promptBuild.agentName},
+        ${JSON.stringify(promptBuild.selectedMemoryIds)},
+        ${JSON.stringify(promptBuild.selectedContextRefs)},
+        ${promptBuild.renderedPrompt},
+        ${promptBuild.rationale},
+        ${promptBuild.createdAt}
+      )
+    `.pipe(
+      Effect.as(promptBuild),
+      Effect.mapError(toPersistenceSqlError("WorkflowRepository.insertPromptBuild:query")),
+    );
+
+  const listPromptBuildsForRun: WorkflowRepositoryShape["listPromptBuildsForRun"] = (runId) =>
+    listPromptBuildRowsForRun({ runId }).pipe(
+      Effect.map((rows) => rows.map(dbPromptBuildRowToPromptBuild)),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "WorkflowRepository.listPromptBuildsForRun:query",
+          "WorkflowRepository.listPromptBuildsForRun:decodeRows",
+        ),
+      ),
+    );
+
   return {
     insertDraft,
     updateDraft,
     getDraft,
     listDraftsForThread,
     latestRunnableDraftForThread,
+    listDraftsForProject,
+    upsertThreadLink,
+    listThreadLinks,
+    listProjectThreadLinks,
+    deleteThreadLink,
     insertRun,
     updateRun,
     getRun,
     listRunsForWorkflow,
     listRunsForThread,
+    listRunsForProject,
     listActiveRuns,
+    insertSchedule,
+    getSchedule,
+    listSchedulesForProject,
+    listDueSchedules,
+    claimSchedule,
+    completeSchedule,
+    failSchedule,
+    cancelSchedule,
     upsertStep,
     upsertAgent,
     upsertTask,
@@ -1056,6 +1856,12 @@ const makeWorkflowRepository = Effect.gen(function* () {
     upsertState,
     appendEvent,
     listEventsForRun,
+    listMemoryItems,
+    insertMemoryItem,
+    recordMemoryUse,
+    suppressMemoryItem,
+    insertPromptBuild,
+    listPromptBuildsForRun,
   } satisfies WorkflowRepositoryShape;
 });
 

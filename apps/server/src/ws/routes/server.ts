@@ -1,7 +1,7 @@
 import { Effect, Stream } from "effect";
 import { homedir } from "node:os";
 
-import { GlobalActionsRpcError, WS_METHODS } from "@fenrir/contracts";
+import { GlobalActionsRpcError, ServerClearLogsError, WS_METHODS } from "@fenrir/contracts";
 
 import { ServerConfig } from "../../config";
 import { ProcessDiagnostics } from "../../diagnostics/ProcessDiagnostics";
@@ -9,6 +9,7 @@ import { ProcessResourceMonitor } from "../../diagnostics/ProcessResourceMonitor
 import { TraceDiagnostics } from "../../diagnostics/TraceDiagnostics";
 import { GlobalActionsService } from "../../globalActions";
 import { Keybindings } from "../../keybindings";
+import { LogMaintenance } from "../../logMaintenance";
 import { resolveAvailableEditors } from "../../open";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry";
 import { ProviderMaintenanceRunner } from "../../provider/providerMaintenanceRunner";
@@ -31,6 +32,7 @@ export const makeServerRoutes = Effect.gen(function* () {
   const processDiagnostics = yield* ProcessDiagnostics;
   const processResourceMonitor = yield* ProcessResourceMonitor;
   const traceDiagnostics = yield* TraceDiagnostics;
+  const logMaintenance = yield* LogMaintenance;
 
   const loadServerConfig = Effect.gen(function* () {
     const keybindingsConfig = yield* keybindings.loadConfigState;
@@ -121,6 +123,17 @@ export const makeServerRoutes = Effect.gen(function* () {
     ),
     [WS_METHODS.serverSignalProcess]: server.effect(WS_METHODS.serverSignalProcess, (input) =>
       processDiagnostics.signal(input),
+    ),
+    [WS_METHODS.serverClearLogs]: server.effect(WS_METHODS.serverClearLogs, (_input) =>
+      logMaintenance.clearAllLogs.pipe(
+        Effect.mapError(
+          (e) =>
+            new ServerClearLogsError({
+              message: e.message.trim() || "Failed to clear application logs.",
+              cause: e,
+            }),
+        ),
+      ),
     ),
     [WS_METHODS.serverGetSettings]: server.effect(
       WS_METHODS.serverGetSettings,

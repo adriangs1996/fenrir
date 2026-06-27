@@ -133,6 +133,7 @@ import type {
 } from "./project";
 import type {
   ServerConfig,
+  ServerClearLogsResult,
   ServerProcessDiagnosticsResult,
   ServerProcessResourceHistoryInput,
   ServerProcessResourceHistoryResult,
@@ -254,13 +255,23 @@ import type {
 import type {
   WorkflowArchiveInput,
   WorkflowArchiveResult,
+  WorkflowCancelScheduledRunInput,
+  WorkflowCancelScheduledRunResult,
   WorkflowCreateDraftInput,
   WorkflowCreateDraftResult,
   WorkflowEventStreamItem,
   WorkflowGetTimelineInput,
   WorkflowGetTimelineResult,
+  WorkflowLinkThreadInput,
+  WorkflowLinkThreadResult,
+  WorkflowListMemoryInput,
+  WorkflowListMemoryResult,
+  WorkflowListProjectWorkflowsInput,
+  WorkflowListProjectWorkflowsResult,
   WorkflowListThreadInput,
   WorkflowListThreadResult,
+  WorkflowListThreadWorkflowLinksInput,
+  WorkflowListThreadWorkflowLinksResult,
   WorkflowOpenSourceInput,
   WorkflowOpenSourceResult,
   WorkflowRespondToInputInput,
@@ -268,9 +279,15 @@ import type {
   WorkflowRunInput,
   WorkflowRunResult,
   WorkflowRunSnapshot,
+  WorkflowScheduleRunInput,
+  WorkflowScheduleRunResult,
   WorkflowStopInput,
+  WorkflowSuppressMemoryItemInput,
+  WorkflowSuppressMemoryItemResult,
   WorkflowSyncSourceInput,
   WorkflowSyncSourceResult,
+  WorkflowUnlinkThreadInput,
+  WorkflowUnlinkThreadResult,
   WorkflowValidateInput,
   WorkflowValidateResult,
 } from "./workflows";
@@ -849,6 +866,7 @@ export interface LocalApi {
       input: ServerProcessResourceHistoryInput,
     ) => Promise<ServerProcessResourceHistoryResult>;
     signalProcess: (input: ServerSignalProcessInput) => Promise<ServerSignalProcessResult>;
+    clearLogs: () => Promise<ServerClearLogsResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
     discoverSourceControl: () => Promise<SourceControlDiscoveryResult>;
@@ -1086,15 +1104,31 @@ export interface EnvironmentApi {
   workflows: {
     createDraft: (input: WorkflowCreateDraftInput) => Promise<WorkflowCreateDraftResult>;
     listThread: (input: WorkflowListThreadInput) => Promise<WorkflowListThreadResult>;
+    listProjectWorkflows: (
+      input: WorkflowListProjectWorkflowsInput,
+    ) => Promise<WorkflowListProjectWorkflowsResult>;
+    listThreadLinks: (
+      input: WorkflowListThreadWorkflowLinksInput,
+    ) => Promise<WorkflowListThreadWorkflowLinksResult>;
+    linkThread: (input: WorkflowLinkThreadInput) => Promise<WorkflowLinkThreadResult>;
+    unlinkThread: (input: WorkflowUnlinkThreadInput) => Promise<WorkflowUnlinkThreadResult>;
     openSource: (input: WorkflowOpenSourceInput) => Promise<WorkflowOpenSourceResult>;
     syncSource: (input: WorkflowSyncSourceInput) => Promise<WorkflowSyncSourceResult>;
     validate: (input: WorkflowValidateInput) => Promise<WorkflowValidateResult>;
     archive: (input: WorkflowArchiveInput) => Promise<WorkflowArchiveResult>;
     run: (input: WorkflowRunInput) => Promise<WorkflowRunResult>;
+    scheduleRun: (input: WorkflowScheduleRunInput) => Promise<WorkflowScheduleRunResult>;
+    cancelScheduledRun: (
+      input: WorkflowCancelScheduledRunInput,
+    ) => Promise<WorkflowCancelScheduledRunResult>;
     stop: (input: WorkflowStopInput) => Promise<void>;
     respondToInput: (input: WorkflowRespondToInputInput) => Promise<void>;
     getRun: (input: WorkflowRunByIdInput) => Promise<WorkflowRunSnapshot>;
     getTimeline: (input: WorkflowGetTimelineInput) => Promise<WorkflowGetTimelineResult>;
+    listMemory: (input: WorkflowListMemoryInput) => Promise<WorkflowListMemoryResult>;
+    suppressMemoryItem: (
+      input: WorkflowSuppressMemoryItemInput,
+    ) => Promise<WorkflowSuppressMemoryItemResult>;
     onEvent: (callback: (event: WorkflowEventStreamItem) => void) => () => void;
   };
   orchestration: {

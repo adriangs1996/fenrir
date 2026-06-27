@@ -16,6 +16,21 @@ export const makeWorkflowRoutes = Effect.gen(function* () {
     [WS_METHODS.workflowsListThread]: workflows.effect(WS_METHODS.workflowsListThread, (input) =>
       workflowService.listThread(input),
     ),
+    [WS_METHODS.workflowsListProjectWorkflows]: workflows.effect(
+      WS_METHODS.workflowsListProjectWorkflows,
+      (input) => workflowService.listProjectWorkflows(input),
+    ),
+    [WS_METHODS.workflowsListThreadLinks]: workflows.effect(
+      WS_METHODS.workflowsListThreadLinks,
+      (input) => workflowService.listThreadLinks(input),
+    ),
+    [WS_METHODS.workflowsLinkThread]: workflows.effect(WS_METHODS.workflowsLinkThread, (input) =>
+      workflowService.linkThread(input),
+    ),
+    [WS_METHODS.workflowsUnlinkThread]: workflows.effect(
+      WS_METHODS.workflowsUnlinkThread,
+      (input) => workflowService.unlinkThread(input),
+    ),
     [WS_METHODS.workflowsOpenSource]: workflows.effect(WS_METHODS.workflowsOpenSource, (input) =>
       workflowService.openSource(input),
     ),
@@ -31,6 +46,13 @@ export const makeWorkflowRoutes = Effect.gen(function* () {
     [WS_METHODS.workflowsRun]: workflows.effect(WS_METHODS.workflowsRun, (input) =>
       workflowService.run(input),
     ),
+    [WS_METHODS.workflowsScheduleRun]: workflows.effect(WS_METHODS.workflowsScheduleRun, (input) =>
+      workflowService.scheduleRun(input),
+    ),
+    [WS_METHODS.workflowsCancelScheduledRun]: workflows.effect(
+      WS_METHODS.workflowsCancelScheduledRun,
+      (input) => workflowService.cancelScheduledRun(input),
+    ),
     [WS_METHODS.workflowsStop]: workflows.effect(WS_METHODS.workflowsStop, (input) =>
       workflowService.stop(input),
     ),
@@ -43,6 +65,13 @@ export const makeWorkflowRoutes = Effect.gen(function* () {
     ),
     [WS_METHODS.workflowsGetTimeline]: workflows.effect(WS_METHODS.workflowsGetTimeline, (input) =>
       workflowService.getTimeline(input),
+    ),
+    [WS_METHODS.workflowsListMemory]: workflows.effect(WS_METHODS.workflowsListMemory, (input) =>
+      workflowService.listMemory(input),
+    ),
+    [WS_METHODS.workflowsSuppressMemoryItem]: workflows.effect(
+      WS_METHODS.workflowsSuppressMemoryItem,
+      (input) => workflowService.suppressMemoryItem(input),
     ),
     [WS_METHODS.subscribeWorkflowEvents]: workflows.stream(
       WS_METHODS.subscribeWorkflowEvents,

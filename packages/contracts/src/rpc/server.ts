@@ -9,6 +9,8 @@ import { ProviderInstanceId } from "../providerInstance";
 import {
   ServerConfigStreamEvent,
   ServerConfig,
+  ServerClearLogsResult,
+  ServerClearLogsError,
   ServerProcessDiagnosticsResult,
   ServerProcessResourceHistoryInput,
   ServerProcessResourceHistoryResult,
@@ -62,6 +64,12 @@ export const WsServerGetProcessResourceHistoryRpc = Rpc.make(
 export const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess, {
   payload: ServerSignalProcessInput,
   success: ServerSignalProcessResult,
+});
+
+export const WsServerClearLogsRpc = Rpc.make(WS_METHODS.serverClearLogs, {
+  payload: Schema.Struct({}),
+  success: ServerClearLogsResult,
+  error: ServerClearLogsError,
 });
 
 export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {

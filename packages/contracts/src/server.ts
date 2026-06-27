@@ -243,6 +243,20 @@ export const ServerTraceDiagnosticsResult = Schema.Struct({
 });
 export type ServerTraceDiagnosticsResult = typeof ServerTraceDiagnosticsResult.Type;
 
+export const ServerClearLogsResult = Schema.Struct({
+  logsDirectoryPath: TrimmedNonEmptyString,
+  removedEntryCount: NonNegativeInt,
+});
+export type ServerClearLogsResult = typeof ServerClearLogsResult.Type;
+
+export class ServerClearLogsError extends Schema.TaggedErrorClass<ServerClearLogsError>()(
+  "ServerClearLogsError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
 export const ServerProcessSignal = Schema.Literals(["SIGINT", "SIGKILL"]);
 export type ServerProcessSignal = typeof ServerProcessSignal.Type;
 

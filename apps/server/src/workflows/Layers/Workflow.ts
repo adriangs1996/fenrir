@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, type ChildProcess } from "node:child_process";
+import * as nodeFs from "node:fs/promises";
+import nodePath from "node:path";
 import vm from "node:vm";
 
 import {
@@ -14,9 +16,13 @@ import {
   WorkflowId,
   WorkflowInputRequestId,
   WorkflowInputRequestSnapshot,
+  WorkflowMemoryId,
+  WorkflowMemoryItem,
   WorkflowNotFoundError,
+  WorkflowPromptBuildId,
   WorkflowRunId,
   WorkflowRunSnapshot,
+  WorkflowScheduleId,
   WorkflowStateEntry,
   WorkflowStepId,
   WorkflowTaskId,
@@ -231,6 +237,22 @@ function makeCtx() {
     call("notify", { notification, currentStepId: currentStepId() });
   ctx.mcp = Object.freeze({
     listAvailableServers: () => call("mcp.listAvailableServers", {}),
+  });
+  ctx.context = Object.freeze({
+    build: (input) => call("context.build", { input, currentStepId: currentStepId() }),
+  });
+  ctx.memory = Object.freeze({
+    list: (filter) => call("memory.list", { filter }),
+    remember: (input) => call("memory.remember", { input, currentStepId: currentStepId() }),
+  });
+  ctx.workspace = Object.freeze({
+    search: (input) => call("workspace.search", { input, currentStepId: currentStepId() }),
+    readFile: (filePath) => call("workspace.readFile", { filePath, currentStepId: currentStepId() }),
+  });
+  ctx.fs = Object.freeze({
+    readFile: (filePath) => call("fs.readFile", { filePath, currentStepId: currentStepId() }),
+    writeFile: (filePath, content) =>
+      call("fs.writeFile", { filePath, content, currentStepId: currentStepId() }),
   });
   ctx.team = Object.freeze({
     agent: (name, options) =>
@@ -483,6 +505,108 @@ function latestAssistantText(
       .at(-1)?.text ?? ""
   );
 }
+
+const WORKFLOW_MEMORY_KINDS = new Set<WorkflowMemoryItem["kind"]>([
+  "repo_fact",
+  "user_preference",
+  "failure_pattern",
+  "prompt_hint",
+  "context_rule",
+]);
+
+function runtimeMemoryKind(value: unknown): WorkflowMemoryItem["kind"] {
+  return typeof value === "string" && WORKFLOW_MEMORY_KINDS.has(value as WorkflowMemoryItem["kind"])
+    ? (value as WorkflowMemoryItem["kind"])
+    : "prompt_hint";
+}
+
+function clampConfidence(value: unknown): number {
+  const numeric = typeof value === "number" && Number.isFinite(value) ? value : 0.6;
+  return Math.max(0, Math.min(1, numeric));
+}
+
+function resolveWorkspacePath(root: string, requestedPath: unknown): string {
+  const requested = typeof requestedPath === "string" ? requestedPath : "";
+  if (!requested.trim()) {
+    throw new Error("Workspace path is required.");
+  }
+  const rootPath = nodePath.resolve(root);
+  const resolved = nodePath.resolve(rootPath, requested);
+  if (resolved !== rootPath && !resolved.startsWith(`${rootPath}${nodePath.sep}`)) {
+    throw new Error("Workflow filesystem access must stay inside the project workspace.");
+  }
+  return resolved;
+}
+
+async function searchWorkspace(input: {
+  readonly root: string;
+  readonly query: unknown;
+  readonly limit?: unknown;
+}): Promise<ReadonlyArray<{ readonly path: string; readonly kind: "file" | "directory" }>> {
+  const query = typeof input.query === "string" ? input.query.trim().toLowerCase() : "";
+  if (!query) {
+    return [];
+  }
+  const limit =
+    typeof input.limit === "number" && Number.isFinite(input.limit)
+      ? Math.max(1, Math.min(100, Math.trunc(input.limit)))
+      : 50;
+  const root = nodePath.resolve(input.root);
+  const ignored = new Set([".git", "node_modules", "dist", "build", ".next", ".turbo"]);
+  const results: Array<{ readonly path: string; readonly kind: "file" | "directory" }> = [];
+
+  async function walk(dir: string): Promise<void> {
+    if (results.length >= limit) {
+      return;
+    }
+    const entries = await nodeFs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (results.length >= limit) {
+        return;
+      }
+      if (ignored.has(entry.name)) {
+        continue;
+      }
+      const absolutePath = nodePath.join(dir, entry.name);
+      const relativePath = nodePath.relative(root, absolutePath);
+      const kind = entry.isDirectory() ? "directory" : "file";
+      if (relativePath.toLowerCase().includes(query)) {
+        results.push({ path: relativePath, kind });
+      }
+      if (entry.isDirectory()) {
+        await walk(absolutePath);
+      }
+    }
+  }
+
+  await walk(root);
+  return results;
+}
+
+const summarizeWorkflows = (
+  drafts: ReadonlyArray<WorkflowDraft>,
+  runs: ReadonlyArray<WorkflowRunSnapshot>,
+) =>
+  drafts.map((workflow) => {
+    const workflowRuns = runs.filter((run) => run.workflowId === workflow.workflowId);
+    const latestRun = workflowRuns[0] ?? null;
+    const activeRunCount = workflowRuns.filter(
+      (run) => run.status === "running" || run.status === "paused",
+    ).length;
+    const pendingInputCount = workflowRuns.reduce(
+      (count, run) =>
+        run.status === "running" || run.status === "paused"
+          ? count + run.inputRequests.filter((request) => request.status === "pending").length
+          : count,
+      0,
+    );
+    return {
+      workflow,
+      latestRun,
+      activeRunCount: NonNegativeInt.make(activeRunCount),
+      pendingInputCount: NonNegativeInt.make(pendingInputCount),
+    };
+  });
 
 export const WorkflowLive = Layer.effect(
   WorkflowService,
@@ -844,31 +968,41 @@ export const WorkflowLive = Layer.effect(
         const originThread = readModel.threads.find(
           (thread) => thread.id === input.run.originThreadId,
         );
-        if (!originThread) {
+        const project = readModel.projects.find(
+          (candidate) => candidate.id === input.run.projectId,
+        );
+        const modelSelection =
+          input.options.modelSelection ??
+          originThread?.modelSelection ??
+          project?.defaultModelSelection;
+        if (!modelSelection) {
           return yield* Effect.fail(
-            workflowError(`Origin thread not found: ${input.run.originThreadId}`),
+            workflowError(
+              "Workflow agent requires a model selection. Provide one in ctx.team.agent options or configure the project default model.",
+            ),
           );
         }
         const threadId = ThreadId.make(makeId());
         const createdAt = now();
+        const parentThreadId = input.run.requestedByThreadId ?? null;
         yield* dispatchOrFail({
           type: "thread.create",
           commandId: CommandId.make(`workflow-agent:create:${makeId()}`),
           threadId,
           projectId: input.run.projectId,
           title: `[Workflow] ${input.run.name}: ${input.agent.name}` as any,
-          modelSelection: input.options.modelSelection ?? originThread.modelSelection,
-          runtimeMode: input.options.runtimeMode ?? originThread.runtimeMode,
+          modelSelection,
+          runtimeMode: input.options.runtimeMode ?? originThread?.runtimeMode ?? "full-access",
           interactionMode: "default",
           mcpServerIds: withoutWorkflowManagementMcp(
-            input.options.mcpServerIds ?? originThread.mcpServerIds,
+            input.options.mcpServerIds ?? originThread?.mcpServerIds ?? [],
           ) as any,
-          branch: originThread.branch as any,
-          worktreePath: originThread.worktreePath as any,
+          branch: (originThread?.branch ?? null) as any,
+          worktreePath: (originThread?.worktreePath ?? null) as any,
           visibility: "internal",
           owner: {
             kind: "workflowAgent",
-            parentThreadId: input.run.originThreadId,
+            ...(parentThreadId !== null ? { parentThreadId } : {}),
             workflowRunId: input.run.runId,
             agentName: input.agent.name,
           },
@@ -907,6 +1041,144 @@ export const WorkflowLive = Layer.effect(
         const stateScope = "workflow" as any;
 
         const getLatestRun = () => getRunSnapshot(run.runId);
+
+        const workflowProject = () =>
+          orchestrationEngine.getReadModel().pipe(
+            Effect.flatMap((readModel) => {
+              const project = readModel.projects.find((entry) => entry.id === run.projectId);
+              return project
+                ? Effect.succeed(project)
+                : Effect.fail(workflowError(`Workflow project not found: ${run.projectId}`));
+            }),
+          );
+
+        const logCapabilityCall = (capability: string, payload: unknown) =>
+          appendEvent({
+            workflowId: run.workflowId,
+            runId: run.runId,
+            stepId: currentStepId(),
+            agentId: null,
+            taskId: null,
+            kind: "workflow.capability.called",
+            title: `Capability called: ${capability}`,
+            body: null,
+            payload,
+            createdAt: now() as any,
+          });
+
+        const buildPrompt = (input: {
+          readonly goal: string;
+          readonly agentName?: string | undefined;
+          readonly memoryKinds?: ReadonlyArray<string> | undefined;
+          readonly refs?: ReadonlyArray<string> | undefined;
+        }) =>
+          Effect.gen(function* () {
+            const createdAt = now();
+            const allMemory = yield* repo
+              .listMemoryItems({ workflowId: run.workflowId })
+              .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+            const requestedKinds = new Set(input.memoryKinds ?? []);
+            const selectedMemory = allMemory
+              .filter((item) => item.status === "active")
+              .filter((item) => requestedKinds.size === 0 || requestedKinds.has(item.kind))
+              .filter((item) => item.confidence >= 0.2)
+              .toSorted((left, right) => {
+                const confidence = right.confidence - left.confidence;
+                if (confidence !== 0) return confidence;
+                const usage = Number(right.successCount) - Number(left.successCount);
+                if (usage !== 0) return usage;
+                return right.updatedAt.localeCompare(left.updatedAt);
+              })
+              .slice(0, 12);
+            const selectedMemoryIds = selectedMemory.map((item) => item.memoryId);
+            const selectedContextRefs = (input.refs ?? [])
+              .filter((ref): ref is string => typeof ref === "string" && ref.trim().length > 0)
+              .slice(0, 20) as any;
+            if (selectedMemoryIds.length > 0) {
+              yield* repo
+                .recordMemoryUse({ memoryIds: selectedMemoryIds, usedAt: createdAt as any })
+                .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+              yield* appendEvent({
+                workflowId: run.workflowId,
+                runId: run.runId,
+                stepId: currentStepId(),
+                agentId: null,
+                taskId: null,
+                kind: "workflow.memory.selected",
+                title: "Workflow memory selected",
+                body: null,
+                payload: { selectedMemoryIds },
+                createdAt: createdAt as any,
+              });
+            }
+            const memoryBlock =
+              selectedMemory.length > 0
+                ? selectedMemory
+                    .map(
+                      (item, index) =>
+                        `${index + 1}. [${item.kind}, confidence ${item.confidence.toFixed(2)}] ${item.content}`,
+                    )
+                    .join("\n")
+                : "No active workflow memory selected.";
+            const refsBlock =
+              selectedContextRefs.length > 0 ? selectedContextRefs.join("\n") : "No explicit refs.";
+            const renderedPrompt = [
+              "You are a Fenrir workflow agent.",
+              input.agentName ? `Agent: ${input.agentName}` : null,
+              "",
+              "Goal:",
+              input.goal,
+              "",
+              "Workflow memory:",
+              memoryBlock,
+              "",
+              "Context refs:",
+              refsBlock,
+            ]
+              .filter((part) => part !== null)
+              .join("\n");
+            const rationale =
+              selectedMemory.length > 0
+                ? "Selected active workflow memory by requested kind, confidence, success count, and recency."
+                : "No active workflow memory matched the prompt build filters.";
+            const promptBuild = {
+              promptBuildId: WorkflowPromptBuildId.make(makeId()),
+              runId: run.runId,
+              stepId: currentStepId(),
+              agentName: (input.agentName as any) ?? null,
+              selectedMemoryIds,
+              selectedContextRefs,
+              renderedPrompt,
+              rationale,
+              createdAt: createdAt as any,
+            };
+            yield* repo
+              .insertPromptBuild(promptBuild)
+              .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+            yield* appendEvent({
+              workflowId: run.workflowId,
+              runId: run.runId,
+              stepId: currentStepId(),
+              agentId: null,
+              taskId: null,
+              kind: "workflow.prompt.built",
+              title: "Workflow prompt built",
+              body: rationale,
+              payload: {
+                promptBuildId: promptBuild.promptBuildId,
+                agentName: promptBuild.agentName,
+                selectedMemoryIds,
+                selectedContextRefs,
+              },
+              createdAt: createdAt as any,
+            });
+            return {
+              prompt: renderedPrompt,
+              selectedMemoryIds,
+              selectedContextRefs,
+              rationale,
+            };
+          });
 
         const persistState = (key: string, value: unknown, scope: string = stateScope) =>
           Effect.gen(function* () {
@@ -984,6 +1256,12 @@ export const WorkflowLive = Layer.effect(
             const agent = yield* getOrCreateAgent(name, options);
             const threadId = yield* ensureAgentThread({ run: snapshot, agent, options });
             const startedAt = now();
+            const promptBuild = yield* buildPrompt({
+              goal: prompt,
+              agentName: name,
+              memoryKinds: ["repo_fact", "user_preference", "failure_pattern", "prompt_hint"],
+            });
+            const renderedPrompt = promptBuild.prompt;
             const runningAgent = {
               ...agent,
               threadId,
@@ -1001,8 +1279,8 @@ export const WorkflowLive = Layer.effect(
               taskId: null,
               kind: "workflow.agent.message.sent",
               title: `Message sent to ${name}`,
-              body: prompt,
-              payload: { threadId },
+              body: renderedPrompt,
+              payload: { threadId, rawPrompt: prompt },
               createdAt: startedAt as any,
             });
             yield* dispatchOrFail({
@@ -1012,7 +1290,7 @@ export const WorkflowLive = Layer.effect(
               message: {
                 messageId: MessageId.make(makeId()),
                 role: "user",
-                text: prompt,
+                text: renderedPrompt,
                 attachments: [],
               },
               modelSelection: options.modelSelection ?? agent.modelSelection,
@@ -1218,6 +1496,134 @@ export const WorkflowLive = Layer.effect(
                   source: server.source,
                   enabled: server.enabled,
                 }));
+            },
+          },
+          context: {
+            build: (input: {
+              readonly goal?: string;
+              readonly agentName?: string;
+              readonly memoryKinds?: ReadonlyArray<string>;
+              readonly refs?: ReadonlyArray<string>;
+            }) =>
+              Effect.runPromise(
+                logCapabilityCall("workflow.context", { input }).pipe(
+                  Effect.flatMap(() =>
+                    buildPrompt({
+                      goal: runtimeString(input.goal, "Workflow prompt"),
+                      agentName: input.agentName,
+                      memoryKinds: input.memoryKinds,
+                      refs: input.refs,
+                    }),
+                  ),
+                ),
+              ),
+          },
+          memory: {
+            list: async (filter?: {
+              readonly kind?: string;
+              readonly status?: string;
+              readonly minConfidence?: number;
+            }) => {
+              await Effect.runPromise(logCapabilityCall("workflow.memory", { filter }));
+              const items = await Effect.runPromise(
+                repo
+                  .listMemoryItems({
+                    workflowId: run.workflowId,
+                    includeSuppressed: filter?.status !== "active",
+                  })
+                  .pipe(Effect.mapError((error) => workflowError(error.message, error))),
+              );
+              return items.filter(
+                (item) =>
+                  (filter?.kind === undefined || item.kind === filter.kind) &&
+                  (filter?.status === undefined || item.status === filter.status) &&
+                  (filter?.minConfidence === undefined || item.confidence >= filter.minConfidence),
+              );
+            },
+            remember: async (input: {
+              readonly kind?: string;
+              readonly content?: string;
+              readonly confidence?: number;
+              readonly evidenceEventIds?: ReadonlyArray<string>;
+            }) => {
+              await Effect.runPromise(logCapabilityCall("workflow.memory.write", { input }));
+              const createdAt = now();
+              const memoryItem: WorkflowMemoryItem = {
+                memoryId: WorkflowMemoryId.make(makeId()),
+                workflowId: run.workflowId,
+                projectId: run.projectId,
+                kind: runtimeMemoryKind(input.kind),
+                content: runtimeString(input.content, "").slice(0, 8_000),
+                evidenceRunIds: [run.runId],
+                evidenceEventIds: (input.evidenceEventIds ?? [])
+                  .filter((eventId): eventId is string => typeof eventId === "string")
+                  .map((eventId) => eventId as any),
+                confidence: clampConfidence(input.confidence),
+                status: "active",
+                usageCount: NonNegativeInt.make(0),
+                successCount: NonNegativeInt.make(0),
+                lastUsedAt: null,
+                createdAt: createdAt as any,
+                updatedAt: createdAt as any,
+              };
+              if (!memoryItem.content.trim()) {
+                throw new Error("Workflow memory content is required.");
+              }
+              await Effect.runPromise(
+                repo.insertMemoryItem(memoryItem).pipe(
+                  Effect.mapError((error) => workflowError(error.message, error)),
+                  Effect.flatMap((item) =>
+                    appendEvent({
+                      workflowId: run.workflowId,
+                      runId: run.runId,
+                      stepId: currentStepId(),
+                      agentId: null,
+                      taskId: null,
+                      kind: "workflow.memory.remembered",
+                      title: `Workflow memory remembered: ${item.kind}`,
+                      body: item.content,
+                      payload: { memoryId: item.memoryId, confidence: item.confidence },
+                      createdAt: createdAt as any,
+                    }).pipe(Effect.as(item)),
+                  ),
+                ),
+              );
+              return memoryItem;
+            },
+          },
+          workspace: {
+            search: async (input: { readonly query?: string; readonly limit?: number }) => {
+              await Effect.runPromise(logCapabilityCall("workflow.workspace.search", { input }));
+              const project = await Effect.runPromise(workflowProject());
+              return await searchWorkspace({
+                root: project.workspaceRoot,
+                query: input.query,
+                limit: input.limit,
+              });
+            },
+            readFile: async (filePath: string) => {
+              await Effect.runPromise(
+                logCapabilityCall("workflow.workspace.readFile", { filePath }),
+              );
+              const project = await Effect.runPromise(workflowProject());
+              const absolutePath = resolveWorkspacePath(project.workspaceRoot, filePath);
+              return await nodeFs.readFile(absolutePath, "utf8");
+            },
+          },
+          fs: {
+            readFile: async (filePath: string) => {
+              await Effect.runPromise(logCapabilityCall("workflow.fs.readFile", { filePath }));
+              const project = await Effect.runPromise(workflowProject());
+              const absolutePath = resolveWorkspacePath(project.workspaceRoot, filePath);
+              return await nodeFs.readFile(absolutePath, "utf8");
+            },
+            writeFile: async (filePath: string, content: unknown) => {
+              await Effect.runPromise(logCapabilityCall("workflow.fs.writeFile", { filePath }));
+              const project = await Effect.runPromise(workflowProject());
+              const absolutePath = resolveWorkspacePath(project.workspaceRoot, filePath);
+              await nodeFs.mkdir(nodePath.dirname(absolutePath), { recursive: true });
+              await nodeFs.writeFile(absolutePath, String(content ?? ""), "utf8");
+              return { path: nodePath.relative(project.workspaceRoot, absolutePath) };
             },
           },
           team: {
@@ -1698,6 +2104,38 @@ export const WorkflowLive = Layer.effect(
                   catch: (error) =>
                     workflowError(error instanceof Error ? error.message : String(error), error),
                 });
+              case "context.build":
+                return withStep(() =>
+                  ctx.context.build(
+                    isRecord(record.input) ? (record.input as any) : { goal: "Workflow prompt" },
+                  ),
+                );
+              case "memory.list":
+                return Effect.tryPromise({
+                  try: () => ctx.memory.list(isRecord(record.filter) ? (record.filter as any) : {}),
+                  catch: (error) =>
+                    workflowError(error instanceof Error ? error.message : String(error), error),
+                });
+              case "memory.remember":
+                return withStep(() =>
+                  ctx.memory.remember(
+                    isRecord(record.input) ? (record.input as any) : { content: "" },
+                  ),
+                );
+              case "workspace.search":
+                return withStep(() =>
+                  ctx.workspace.search(
+                    isRecord(record.input) ? (record.input as any) : { query: "" },
+                  ),
+                );
+              case "workspace.readFile":
+                return withStep(() => ctx.workspace.readFile(runtimeString(record.filePath, "")));
+              case "fs.readFile":
+                return withStep(() => ctx.fs.readFile(runtimeString(record.filePath, "")));
+              case "fs.writeFile":
+                return withStep(() =>
+                  ctx.fs.writeFile(runtimeString(record.filePath, ""), record.content),
+                );
               case "team.agent.ask":
                 return withStep(() =>
                   ctx.team
@@ -1939,19 +2377,33 @@ export const WorkflowLive = Layer.effect(
           workflowId: WorkflowId.make(makeId()),
           projectId: input.projectId,
           originThreadId: input.originThreadId,
+          createdFromThreadId: input.originThreadId,
           name: input.name,
           description: input.description ?? null,
           source: input.source,
           sourceHash: hashSource(input.source) as any,
+          sourceRevision: NonNegativeInt.make(1),
           status: "draft",
           validationStatus: "pending",
           validationError: null,
+          declaredCapabilities: [],
+          defaultRuntimeContext: {},
           createdAt: createdAt as any,
           updatedAt: createdAt as any,
           archivedAt: null,
         };
         yield* repo
           .insertDraft(workflow)
+          .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+        yield* repo
+          .upsertThreadLink({
+            workflowId: workflow.workflowId,
+            projectId: workflow.projectId,
+            threadId: input.originThreadId,
+            relation: "created_from",
+            createdAt: createdAt as any,
+            updatedAt: createdAt as any,
+          })
           .pipe(Effect.mapError((error) => workflowError(error.message, error)));
         yield* appendEvent({
           workflowId: workflow.workflowId,
@@ -1977,28 +2429,86 @@ export const WorkflowLive = Layer.effect(
         ).pipe(Effect.mapError((error) => workflowError(error.message, error)));
         return {
           runs,
-          workflows: drafts.map((workflow) => {
-            const workflowRuns = runs.filter((run) => run.workflowId === workflow.workflowId);
-            const latestRun = workflowRuns[0] ?? null;
-            const activeRunCount = workflowRuns.filter(
-              (run) => run.status === "running" || run.status === "paused",
-            ).length;
-            const pendingInputCount = workflowRuns.reduce(
-              (count, run) =>
-                run.status === "running" || run.status === "paused"
-                  ? count +
-                    run.inputRequests.filter((request) => request.status === "pending").length
-                  : count,
-              0,
-            );
-            return {
-              workflow,
-              latestRun,
-              activeRunCount: NonNegativeInt.make(activeRunCount),
-              pendingInputCount: NonNegativeInt.make(pendingInputCount),
-            };
-          }),
+          workflows: summarizeWorkflows(drafts, runs),
         };
+      });
+
+    const listProjectWorkflows: WorkflowServiceShape["listProjectWorkflows"] = (input) =>
+      Effect.gen(function* () {
+        const [drafts, runs, links, schedules] = yield* Effect.all(
+          [
+            repo.listDraftsForProject(input),
+            repo.listRunsForProject({ projectId: input.projectId }),
+            repo.listProjectThreadLinks(input.projectId),
+            repo.listSchedulesForProject({
+              projectId: input.projectId,
+              includeCompleted: input.includeArchived ?? false,
+            }),
+          ],
+          { concurrency: "unbounded" },
+        ).pipe(Effect.mapError((error) => workflowError(error.message, error)));
+        return {
+          workflows: summarizeWorkflows(drafts, runs),
+          runs,
+          links,
+          schedules,
+        };
+      });
+
+    const listThreadLinks: WorkflowServiceShape["listThreadLinks"] = (input) =>
+      repo.listThreadLinks({ projectId: input.projectId, threadId: input.threadId }).pipe(
+        Effect.map((links) => ({ links })),
+        Effect.mapError((error) => workflowError(error.message, error)),
+      );
+
+    const linkThread: WorkflowServiceShape["linkThread"] = (input) =>
+      Effect.gen(function* () {
+        const workflow = yield* getWorkflowDraft(input.workflowId);
+        const linkedAt = now();
+        const link = yield* repo
+          .upsertThreadLink({
+            workflowId: workflow.workflowId,
+            projectId: workflow.projectId,
+            threadId: input.threadId,
+            relation: input.relation,
+            createdAt: linkedAt as any,
+            updatedAt: linkedAt as any,
+          })
+          .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+        yield* appendEvent({
+          workflowId: workflow.workflowId,
+          runId: null,
+          stepId: null,
+          agentId: null,
+          taskId: null,
+          kind: "workflow.note.added",
+          title: `Workflow linked to thread: ${input.relation}`,
+          body: null,
+          payload: { threadId: input.threadId, relation: input.relation },
+          createdAt: linkedAt as any,
+        });
+        return { link };
+      });
+
+    const unlinkThread: WorkflowServiceShape["unlinkThread"] = (input) =>
+      Effect.gen(function* () {
+        const workflow = yield* getWorkflowDraft(input.workflowId);
+        yield* repo
+          .deleteThreadLink(input)
+          .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+        yield* appendEvent({
+          workflowId: workflow.workflowId,
+          runId: null,
+          stepId: null,
+          agentId: null,
+          taskId: null,
+          kind: "workflow.note.added",
+          title: "Workflow unlinked from thread",
+          body: null,
+          payload: { threadId: input.threadId, relation: input.relation ?? null },
+          createdAt: now() as any,
+        });
+        return { unlinked: true as const };
       });
 
     const openSource: WorkflowServiceShape["openSource"] = (input) =>
@@ -2083,28 +2593,55 @@ export const WorkflowLive = Layer.effect(
 
     const run: WorkflowServiceShape["run"] = (input) =>
       Effect.gen(function* () {
-        const workflow =
-          input.workflowId !== undefined
-            ? yield* getWorkflowDraft(input.workflowId)
-            : yield* repo.latestRunnableDraftForThread(input).pipe(
-                Effect.mapError((error) => workflowError(error.message, error)),
-                Effect.flatMap((workflowOption) =>
-                  Option.match(workflowOption, {
-                    onNone: () =>
-                      Effect.fail(
-                        workflowError("No validated workflow exists for the current thread."),
-                      ),
-                    onSome: Effect.succeed,
-                  }),
-                ),
-              );
-        if (
-          workflow.projectId !== input.projectId ||
-          workflow.originThreadId !== input.originThreadId
-        ) {
+        const requestedOriginThreadId = input.originThreadId;
+        if (input.workflowId === undefined && requestedOriginThreadId === undefined) {
           return yield* Effect.fail(
-            workflowError("Workflow does not belong to the requested thread."),
+            workflowError("workflowId is required when running a workflow without a thread."),
           );
+        }
+        const workflow = yield* (() => {
+          if (input.workflowId !== undefined) {
+            return getWorkflowDraft(input.workflowId);
+          }
+          if (requestedOriginThreadId === undefined) {
+            return Effect.fail(
+              workflowError("workflowId is required when running a workflow without a thread."),
+            );
+          }
+          return repo
+            .latestRunnableDraftForThread({
+              projectId: input.projectId,
+              originThreadId: requestedOriginThreadId,
+            })
+            .pipe(
+              Effect.mapError((error) => workflowError(error.message, error)),
+              Effect.flatMap((workflowOption) =>
+                Option.match(workflowOption, {
+                  onNone: () =>
+                    Effect.fail(
+                      workflowError("No validated workflow exists for the current thread."),
+                    ),
+                  onSome: Effect.succeed,
+                }),
+              ),
+            );
+        })();
+        if (workflow.projectId !== input.projectId) {
+          return yield* Effect.fail(workflowError("Workflow does not belong to the project."));
+        }
+        if (
+          requestedOriginThreadId !== undefined &&
+          workflow.originThreadId !== requestedOriginThreadId
+        ) {
+          const links = yield* repo
+            .listThreadLinks({ projectId: input.projectId, threadId: requestedOriginThreadId })
+            .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+          const linked = links.some((link) => link.workflowId === workflow.workflowId);
+          if (!linked) {
+            return yield* Effect.fail(
+              workflowError("Workflow is not linked to the requested thread."),
+            );
+          }
         }
         if (workflow.status !== "validated" || workflow.validationStatus !== "valid") {
           return yield* Effect.fail(workflowError("Workflow must be validated before running."));
@@ -2115,15 +2652,26 @@ export const WorkflowLive = Layer.effect(
           return yield* Effect.fail(workflowError(validation.error ?? "Workflow is invalid."));
         }
         const startedAt = now();
+        const trigger =
+          input.trigger ?? (requestedOriginThreadId !== undefined ? "thread" : "manual");
+        const requestedByThreadId =
+          input.requestedByThreadId ??
+          (trigger === "thread" ? (requestedOriginThreadId ?? null) : null);
         const runRow: WorkflowRunRow = {
           runId: WorkflowRunId.make(makeId()),
           workflowId: workflow.workflowId,
           projectId: workflow.projectId,
           originThreadId: workflow.originThreadId,
+          trigger,
+          requestedByThreadId,
+          scheduleId: input.scheduleId ?? null,
           name: workflow.name,
           args: input.args ?? null,
+          runtimeContext: input.runtimeContext ?? workflow.defaultRuntimeContext ?? {},
           sourceSnapshot: workflow.source,
           sourceHash: workflow.sourceHash,
+          sourceRevision: workflow.sourceRevision ?? NonNegativeInt.make(1),
+          memoryRevision: NonNegativeInt.make(0),
           status: "running",
           summary: null,
           startedAt: startedAt as any,
@@ -2144,7 +2692,13 @@ export const WorkflowLive = Layer.effect(
           kind: "workflow.run.started",
           title: `Workflow started: ${workflow.name}`,
           body: workflow.description,
-          payload: { args: input.args ?? null, sourceHash: workflow.sourceHash },
+          payload: {
+            args: input.args ?? null,
+            trigger,
+            requestedByThreadId,
+            sourceHash: workflow.sourceHash,
+            sourceRevision: workflow.sourceRevision ?? 1,
+          },
           createdAt: startedAt as any,
         });
         const fiber = yield* executeRun(snapshot, workflow.source).pipe(
@@ -2157,6 +2711,136 @@ export const WorkflowLive = Layer.effect(
         });
         return { run: snapshot };
       });
+
+    const scheduleRun: WorkflowServiceShape["scheduleRun"] = (input) =>
+      Effect.gen(function* () {
+        const workflow = yield* getWorkflowDraft(input.workflowId);
+        if (workflow.status !== "validated" || workflow.validationStatus !== "valid") {
+          return yield* Effect.fail(
+            workflowError("Workflow must be validated before scheduling a run."),
+          );
+        }
+        const scheduledAt = now();
+        const schedule = {
+          scheduleId: WorkflowScheduleId.make(makeId()),
+          workflowId: workflow.workflowId,
+          projectId: workflow.projectId,
+          runAt: input.runAt,
+          args: input.args ?? null,
+          runtimeContext: input.runtimeContext ?? workflow.defaultRuntimeContext ?? {},
+          requestedByThreadId: input.requestedByThreadId ?? null,
+          status: "scheduled" as const,
+          runId: null,
+          createdAt: scheduledAt as any,
+          updatedAt: scheduledAt as any,
+        };
+        const persisted = yield* repo
+          .insertSchedule(schedule)
+          .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+        yield* appendEvent({
+          workflowId: workflow.workflowId,
+          runId: null,
+          stepId: null,
+          agentId: null,
+          taskId: null,
+          kind: "workflow.schedule.created",
+          title: `Workflow scheduled: ${workflow.name}`,
+          body: null,
+          payload: {
+            scheduleId: persisted.scheduleId,
+            runAt: persisted.runAt,
+            requestedByThreadId: persisted.requestedByThreadId,
+          },
+          createdAt: scheduledAt as any,
+        });
+        return { schedule: persisted };
+      });
+
+    const cancelScheduledRun: WorkflowServiceShape["cancelScheduledRun"] = (input) =>
+      Effect.gen(function* () {
+        const cancelledAt = now();
+        const schedule = yield* repo
+          .cancelSchedule({ scheduleId: input.scheduleId, updatedAt: cancelledAt as any })
+          .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+        yield* appendEvent({
+          workflowId: schedule.workflowId,
+          runId: schedule.runId,
+          stepId: null,
+          agentId: null,
+          taskId: null,
+          kind: "workflow.schedule.cancelled",
+          title: "Workflow schedule cancelled",
+          body: null,
+          payload: { scheduleId: schedule.scheduleId },
+          createdAt: cancelledAt as any,
+        });
+        return { schedule };
+      });
+
+    const processDueSchedules = Effect.fn("processDueWorkflowSchedules")(function* () {
+      const dueSchedules = yield* repo
+        .listDueSchedules({ now: now() as any, limit: 25 })
+        .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+      for (const schedule of dueSchedules) {
+        const claimedAt = now();
+        const claimedOption = yield* repo
+          .claimSchedule({ scheduleId: schedule.scheduleId, updatedAt: claimedAt as any })
+          .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+        if (Option.isNone(claimedOption)) {
+          continue;
+        }
+        const claimed = claimedOption.value;
+        yield* appendEvent({
+          workflowId: claimed.workflowId,
+          runId: null,
+          stepId: null,
+          agentId: null,
+          taskId: null,
+          kind: "workflow.schedule.started",
+          title: "Workflow schedule started",
+          body: null,
+          payload: { scheduleId: claimed.scheduleId, runAt: claimed.runAt },
+          createdAt: claimedAt as any,
+        });
+        const runExit = yield* Effect.exit(
+          run({
+            projectId: claimed.projectId,
+            workflowId: claimed.workflowId,
+            args: claimed.args,
+            trigger: "schedule",
+            requestedByThreadId: claimed.requestedByThreadId,
+            scheduleId: claimed.scheduleId,
+            runtimeContext: claimed.runtimeContext,
+          }),
+        );
+        if (Exit.isSuccess(runExit)) {
+          yield* repo
+            .completeSchedule({
+              scheduleId: claimed.scheduleId,
+              runId: runExit.value.run.runId,
+              updatedAt: now() as any,
+            })
+            .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+        } else {
+          yield* repo
+            .failSchedule({ scheduleId: claimed.scheduleId, updatedAt: now() as any })
+            .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+          yield* Effect.logWarning("workflow scheduled run failed to start", {
+            scheduleId: claimed.scheduleId,
+            cause: Cause.pretty(runExit.cause),
+          });
+        }
+      }
+    });
+
+    const schedulerLoop = processDueSchedules().pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("workflow scheduler tick failed", { cause: Cause.pretty(cause) }),
+      ),
+      Effect.andThen(Effect.sleep(Duration.seconds(1))),
+      Effect.forever,
+    );
+    yield* schedulerLoop.pipe(Effect.forkIn(runtimeScope));
 
     const stop: WorkflowServiceShape["stop"] = (input) =>
       Effect.gen(function* () {
@@ -2349,6 +3033,39 @@ export const WorkflowLive = Layer.effect(
         return { runId: input.runId, events };
       });
 
+    const listMemory: WorkflowServiceShape["listMemory"] = (input) =>
+      Effect.gen(function* () {
+        yield* getWorkflowDraft(input.workflowId);
+        const items = yield* repo
+          .listMemoryItems({
+            workflowId: input.workflowId,
+            includeSuppressed: input.includeSuppressed ?? false,
+          })
+          .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+        return { items };
+      });
+
+    const suppressMemoryItem: WorkflowServiceShape["suppressMemoryItem"] = (input) =>
+      Effect.gen(function* () {
+        const suppressedAt = now();
+        const item = yield* repo
+          .suppressMemoryItem(input.memoryId, suppressedAt as any)
+          .pipe(Effect.mapError((error) => workflowError(error.message, error)));
+        yield* appendEvent({
+          workflowId: item.workflowId,
+          runId: null,
+          stepId: null,
+          agentId: null,
+          taskId: null,
+          kind: "workflow.memory.suppressed",
+          title: "Workflow memory suppressed",
+          body: item.content,
+          payload: { memoryId: item.memoryId },
+          createdAt: suppressedAt as any,
+        });
+        return { item };
+      });
+
     const resolveCollaborationContext = (
       context: Parameters<WorkflowServiceShape["collaborationAddNote"]>[0]["context"],
     ) =>
@@ -2508,15 +3225,23 @@ export const WorkflowLive = Layer.effect(
     return {
       createDraft,
       listThread,
+      listProjectWorkflows,
+      listThreadLinks,
+      linkThread,
+      unlinkThread,
       openSource,
       syncSource,
       validate,
       archive,
       run,
+      scheduleRun,
+      cancelScheduledRun,
       stop,
       respondToInput,
       getRun,
       getTimeline,
+      listMemory,
+      suppressMemoryItem,
       collaborationStatePatch,
       collaborationAddNote,
       collaborationProposeTask,

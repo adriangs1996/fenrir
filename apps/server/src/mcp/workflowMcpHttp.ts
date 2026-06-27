@@ -22,6 +22,10 @@ import {
   WORKFLOW_MANAGEMENT_MCP_TOOLS,
   type WorkflowMcpMode,
 } from "./workflowTools.ts";
+import {
+  validateWorkflowReferenceReceipt,
+  workflowReferenceResponse,
+} from "./workflowReference.ts";
 
 const WorkflowMcpCall = Schema.Struct({
   toolName: Schema.String,
@@ -33,17 +37,29 @@ const WorkflowMcpCall = Schema.Struct({
   ),
   workflowRunId: Schema.optional(WorkflowRunId),
   agentName: Schema.optional(TrimmedNonEmptyString),
+  mcpSessionId: TrimmedNonEmptyString,
 });
 
 const WorkflowCreateDraftToolInput = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.optional(Schema.String),
+  referenceVersion: TrimmedNonEmptyString,
+  readToken: TrimmedNonEmptyString,
   source: Schema.String,
 });
 
 const WorkflowUpdateDraftToolInput = Schema.Struct({
   workflowId: WorkflowId,
+  referenceVersion: TrimmedNonEmptyString,
+  readToken: TrimmedNonEmptyString,
   source: Schema.String,
+});
+
+const WorkflowReferenceToolInput = Schema.Struct({
+  format: Schema.optional(Schema.Literals(["markdown", "json"])),
+  section: Schema.optional(
+    Schema.Literals(["overview", "ctx", "examples", "capabilities", "errors"]),
+  ),
 });
 
 const WorkflowRunToolInput = Schema.Struct({
@@ -89,6 +105,7 @@ const WorkflowSetFlagToolInput = Schema.Struct({
 
 const decodeCreateDraftInput = Schema.decodeUnknownSync(WorkflowCreateDraftToolInput);
 const decodeUpdateDraftInput = Schema.decodeUnknownSync(WorkflowUpdateDraftToolInput);
+const decodeReferenceInput = Schema.decodeUnknownSync(WorkflowReferenceToolInput);
 const decodeRunInput = Schema.decodeUnknownSync(WorkflowRunToolInput);
 const decodeRunIdInput = Schema.decodeUnknownSync(WorkflowRunIdToolInput);
 const decodeWorkflowIdInput = Schema.decodeUnknownSync(WorkflowIdToolInput);
@@ -147,10 +164,25 @@ export function callWorkflowMcpTool(
     readonly mode?: WorkflowMcpMode | undefined;
     readonly workflowRunId?: WorkflowRunId | undefined;
     readonly agentName?: string | undefined;
+    readonly mcpSessionId?: string | undefined;
   },
   input: unknown = {},
 ): Effect.Effect<unknown, WorkflowError | WorkflowNotFoundError> {
   const mode = context.mode ?? "management";
+  const mcpSessionId = context.mcpSessionId ?? "default";
+  const requireReferenceRead = (decoded: {
+    readonly referenceVersion: string;
+    readonly readToken: string;
+  }): Effect.Effect<void, WorkflowError> => {
+    const validation = validateWorkflowReferenceReceipt({
+      sessionId: mcpSessionId,
+      referenceVersion: decoded.referenceVersion,
+      readToken: decoded.readToken,
+    });
+    return validation.valid
+      ? Effect.void
+      : Effect.fail(new WorkflowError({ message: validation.message }));
+  };
   const collaborationContext = (): Effect.Effect<WorkflowCollaborationContext, WorkflowError> =>
     Effect.gen(function* () {
       if (!context.workflowRunId || !context.agentName) {
@@ -194,19 +226,36 @@ export function callWorkflowMcpTool(
 
   const dispatchTool = (): Effect.Effect<unknown, WorkflowError | WorkflowNotFoundError> => {
     switch (toolName) {
+      case "workflow_reference": {
+        const decoded = decodeReferenceInput(input);
+        return Effect.succeed(
+          workflowReferenceResponse({
+            sessionId: mcpSessionId,
+            format: decoded.format,
+            section: decoded.section,
+          }),
+        );
+      }
+      case "workflow_create":
       case "workflow_create_draft": {
         const decoded = decodeCreateDraftInput(input);
-        return workflows.createDraft({
-          projectId: context.projectId,
-          originThreadId: context.originThreadId,
-          name: decoded.name,
-          source: decoded.source,
-          ...(decoded.description !== undefined ? { description: decoded.description } : {}),
-        });
+        return requireReferenceRead(decoded).pipe(
+          Effect.flatMap(() =>
+            workflows.createDraft({
+              projectId: context.projectId,
+              originThreadId: context.originThreadId,
+              name: decoded.name,
+              source: decoded.source,
+              ...(decoded.description !== undefined ? { description: decoded.description } : {}),
+            }),
+          ),
+        );
       }
+      case "workflow_update":
       case "workflow_update_draft": {
         const decoded = decodeUpdateDraftInput(input);
-        return ensureWorkflowForContext(decoded.workflowId).pipe(
+        return requireReferenceRead(decoded).pipe(
+          Effect.flatMap(() => ensureWorkflowForContext(decoded.workflowId)),
           Effect.flatMap(() =>
             workflows.syncSource({
               workflowId: decoded.workflowId,
@@ -331,6 +380,7 @@ export const workflowMcpCallRouteLayer = HttpRouter.add(
         projectId: payload.projectId,
         originThreadId: payload.originThreadId,
         mode: payload.mode,
+        mcpSessionId: payload.mcpSessionId,
         ...(payload.workflowRunId !== undefined ? { workflowRunId: payload.workflowRunId } : {}),
         ...(payload.agentName !== undefined ? { agentName: payload.agentName } : {}),
       },

@@ -320,6 +320,12 @@ export const SidebarProjectItem = memo(function SidebarProjectItem(props: Sideba
     },
     [project.cwd, setProjectDrawerView],
   );
+  const handleWorkflowCenterClick = useCallback(() => {
+    void router.navigate({
+      to: "/workflows/$projectId" as never,
+      params: { projectId: project.id } as never,
+    });
+  }, [project.id, router]);
   const threadLastVisitedAts = useUiStateStore(
     useShallow((state) =>
       projectThreads.map(
@@ -1104,6 +1110,21 @@ export const SidebarProjectItem = memo(function SidebarProjectItem(props: Sideba
           </Tooltip>
         )}
         <div className="pointer-events-none absolute top-1 right-1.5 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`Open ${project.name} Workflow Center`}
+                  className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-secondary hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                  onClick={handleWorkflowCenterClick}
+                >
+                  <WorkflowIcon className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">Workflow Center</TooltipPopup>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger
               render={

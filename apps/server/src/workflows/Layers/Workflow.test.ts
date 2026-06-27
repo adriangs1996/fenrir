@@ -21,6 +21,7 @@ import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Lay
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { WorkflowRepositoryLive } from "../../persistence/Layers/WorkflowRepository.ts";
+import { WorkflowRepository } from "../../persistence/Services/WorkflowRepository.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { WorkflowService, type WorkflowServiceShape } from "../Services/Workflow.ts";
 import { WorkflowLive } from "./Workflow.ts";
@@ -287,6 +288,59 @@ export default async function run(ctx, args) {
       );
       expect(completed.args).toBeNull();
       expect(getStateValue(completed, "maxIterations")).toBe(3);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("links workflows created from a thread and runs them manually without an active thread", async () => {
+    const runtime = makeWorkflowRuntime();
+    try {
+      const workflow = await runtime.runPromise(Effect.service(WorkflowService));
+      const repo = await runtime.runPromise(Effect.service(WorkflowRepository));
+      const draft = await Effect.runPromise(
+        workflow.createDraft({
+          projectId,
+          originThreadId,
+          name: tn("Project Manual Run"),
+          source: `
+export default async function run(ctx) {
+  await ctx.state.set("project-run", true);
+}
+`,
+        }),
+      );
+
+      const links = await Effect.runPromise(
+        repo.listThreadLinks({ projectId, threadId: originThreadId }),
+      );
+      expect(links).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            workflowId: draft.workflow.workflowId,
+            relation: "created_from",
+            threadId: originThreadId,
+          }),
+        ]),
+      );
+
+      const started = await Effect.runPromise(
+        workflow.run({
+          projectId,
+          workflowId: draft.workflow.workflowId,
+        }),
+      );
+      const completed = await waitForRun(
+        workflow,
+        started.run.runId,
+        (run) => run.status === "completed",
+        "project manual run completion",
+      );
+
+      expect(completed.trigger).toBe("manual");
+      expect(completed.requestedByThreadId).toBeNull();
+      expect(completed.originThreadId).toBe(originThreadId);
+      expect(getStateValue(completed, "project-run")).toBe(true);
     } finally {
       await runtime.dispose();
     }

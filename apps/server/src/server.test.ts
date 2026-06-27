@@ -76,6 +76,7 @@ import {
   type GitWorkflowServiceShape,
 } from "./git/Services/GitWorkflowService.ts";
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
+import { LogMaintenance, type LogMaintenanceShape } from "./logMaintenance.ts";
 import { Open, type OpenShape } from "./open.ts";
 import {
   OrchestrationEngineService,
@@ -458,6 +459,7 @@ const buildAppUnderTest = (options?: {
     browserLabControlService?: Partial<BrowserLabControlServiceShape>;
     remoteControllerService?: Partial<RemoteControllerServiceShape>;
     localServerDiscovery?: Partial<LocalServerDiscoveryShape>;
+    logMaintenance?: Partial<LogMaintenanceShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -1108,6 +1110,15 @@ const buildAppUnderTest = (options?: {
               signaled: true,
               message: Option.none(),
             }),
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(LogMaintenance)({
+          clearAllLogs: Effect.succeed({
+            logsDirectoryPath: config.logsDir,
+            removedEntryCount: 0,
+          }),
+          ...options?.layers?.logMaintenance,
         }),
       ),
       Layer.provide(
