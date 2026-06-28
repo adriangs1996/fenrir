@@ -81,6 +81,7 @@ import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import {
+  getComposerPromptInjectionState,
   getComposerProviderState,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
@@ -1144,16 +1145,27 @@ export const ChatComposer = memo(
       [providerStatuses, selectedProvider],
     );
 
+    const composerPromptInjectionState = useMemo(
+      () => getComposerPromptInjectionState(prompt),
+      [prompt],
+    );
+
     const composerProviderState = useMemo(
       () =>
         getComposerProviderState({
           provider: selectedProvider,
           model: selectedModel,
           models: selectedProviderModels,
-          prompt,
+          promptInjectionState: composerPromptInjectionState,
           modelOptions: composerModelOptions,
         }),
-      [composerModelOptions, prompt, selectedModel, selectedProvider, selectedProviderModels],
+      [
+        composerModelOptions,
+        composerPromptInjectionState,
+        selectedModel,
+        selectedProvider,
+        selectedProviderModels,
+      ],
     );
 
     const selectedPromptEffort = composerProviderState.promptEffort;

@@ -11,10 +11,11 @@ import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import {
+  DEFAULT_TIMEOUT_MS,
   buildServerProvider,
-  detailFromResult,
   isCommandMissingCause,
   parseGenericCliVersion,
   type CommandResult,
@@ -23,6 +24,7 @@ import { runProcess } from "../../processRunner.ts";
 import { createModelCapabilitiesFromDescriptors } from "../modelCapabilities.ts";
 
 const DRIVER = ProviderDriverKind.make("cursor");
+export const CURSOR_CLI_INSTALLATION_DOCS_URL = "https://cursor.com/docs/cli/installation";
 
 class CursorProbeCommandError extends Data.TaggedError("CursorProbeCommandError")<{
   readonly cause: unknown;
@@ -40,6 +42,53 @@ function cursorGlobalArgs(cursorSettings: Pick<CursorSettings, "apiEndpoint">): 
 
 function formatCursorAuthMessage(detail: string): string {
   return `${detail} Run \`agent login\` or set \`CURSOR_API_KEY\` and try again.`;
+}
+
+export function formatCursorCliCommandMissingMessage(binaryPath: string): string {
+  return [
+    `Cursor CLI command \`${binaryPath}\` was not found.`,
+    `Install or enable the Cursor CLI, make sure \`${binaryPath}\` is on PATH, then restart Fenrir.`,
+    `See ${CURSOR_CLI_INSTALLATION_DOCS_URL}.`,
+  ].join(" ");
+}
+
+export function formatCursorCliHealthCheckFailure(input: {
+  readonly timedOut?: boolean;
+  readonly code?: number | null;
+}): string {
+  const detail =
+    input.timedOut === true
+      ? "Timed out while running `agent --version`."
+      : typeof input.code === "number"
+        ? `\`agent --version\` exited with code ${input.code}.`
+        : "The health check could not be executed.";
+  return [
+    "Cursor CLI is installed but failed the health check.",
+    detail,
+    "Check your Cursor CLI setup and restart Fenrir.",
+    `See ${CURSOR_CLI_INSTALLATION_DOCS_URL}.`,
+  ].join(" ");
+}
+
+export function formatCursorAcpSetupFailureMessage(): string {
+  return [
+    "Cursor ACP setup failed.",
+    "Cursor CLI setup may be incomplete; install or enable the Cursor CLI, restart Fenrir, and try again.",
+    `See ${CURSOR_CLI_INSTALLATION_DOCS_URL}.`,
+    "Check server logs for ACP details.",
+  ].join(" ");
+}
+
+function isCursorCommandMissingCause(cause: unknown): boolean {
+  if (isCommandMissingCause(cause)) {
+    return true;
+  }
+  if (cause instanceof CursorProbeCommandError) {
+    return (
+      isCommandMissingCause(cause.cause) || cause.detail.toLowerCase().includes("command not found")
+    );
+  }
+  return false;
 }
 
 export function parseCursorAuthStatusFromOutput(result: CommandResult): {
@@ -70,13 +119,13 @@ export function parseCursorAuthStatusFromOutput(result: CommandResult): {
     };
   }
 
-  const detail = detailFromResult(result);
   return {
     status: "warning",
     auth: { status: "unknown" },
-    message: detail
-      ? `Could not verify Cursor authentication status. ${detail}`
-      : "Could not verify Cursor authentication status.",
+    message:
+      result.code !== 0
+        ? `Could not verify Cursor authentication status. \`agent status\` exited with code ${result.code}.`
+        : "Could not verify Cursor authentication status.",
   };
 }
 
@@ -103,6 +152,7 @@ const runCursorCommand = (
       stdout: result.stdout,
       stderr: result.stderr,
       code: result.code ?? 1,
+      timedOut: result.timedOut,
     })),
   );
 
@@ -193,7 +243,9 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
   }
 
   const versionExit = yield* Effect.exit(
-    runCursorCommand(cursorSettings, ["--version"], cwd, environment),
+    runCursorCommand(cursorSettings, ["--version"], cwd, environment).pipe(
+      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+    ),
   );
   if (versionExit._tag === "Failure") {
     const cause = Cause.squash(versionExit.cause);
@@ -204,19 +256,55 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       checkedAt,
       models,
       probe: {
-        installed: !isCommandMissingCause(cause),
+        installed: !isCursorCommandMissingCause(cause),
         version: null,
         status: "error",
         auth: { status: "unknown" },
-        message: isCommandMissingCause(cause)
-          ? "Cursor agent (`agent`) is not installed or not on PATH."
-          : `Failed to execute Cursor CLI health check: ${cause instanceof Error ? cause.message : "unknown error"}`,
+        message: isCursorCommandMissingCause(cause)
+          ? formatCursorCliCommandMissingMessage(cursorSettings.binaryPath)
+          : formatCursorCliHealthCheckFailure({}),
       },
     });
   }
 
-  const versionResult = versionExit.value;
+  if (Option.isNone(versionExit.value)) {
+    return buildServerProvider({
+      driver: DRIVER,
+      displayName: "Cursor",
+      enabled: true,
+      checkedAt,
+      models,
+      probe: {
+        installed: true,
+        version: null,
+        status: "error",
+        auth: { status: "unknown" },
+        message: formatCursorCliHealthCheckFailure({ timedOut: true }),
+      },
+    });
+  }
+
+  const versionResult = versionExit.value.value;
   const version = parseGenericCliVersion(`${versionResult.stdout}\n${versionResult.stderr}`);
+  if (versionResult.timedOut || versionResult.code !== 0) {
+    return buildServerProvider({
+      driver: DRIVER,
+      displayName: "Cursor",
+      enabled: true,
+      checkedAt,
+      models,
+      probe: {
+        installed: true,
+        version,
+        status: "error",
+        auth: { status: "unknown" },
+        message: formatCursorCliHealthCheckFailure({
+          timedOut: versionResult.timedOut,
+          code: versionResult.code,
+        }),
+      },
+    });
+  }
 
   const statusResult = yield* runCursorCommand(cursorSettings, ["status"], cwd, environment).pipe(
     Effect.catch((error) =>

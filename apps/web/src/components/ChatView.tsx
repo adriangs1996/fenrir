@@ -24,6 +24,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@fenrir/client-runtime";
+import { CHAT_LIST_ANCHOR_OFFSET } from "@fenrir/shared/chatList";
 import { applyClaudePromptEffortPrefix } from "@fenrir/shared/model";
 import { projectScriptCwd } from "@fenrir/shared/projectScripts";
 import { truncate } from "@fenrir/shared/String";
@@ -541,6 +542,18 @@ export default function ChatView(props: ChatViewProps) {
       .join("|"),
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
+  const [timelineAnchor, setTimelineAnchor] = useState<{
+    readonly threadKey: string | null;
+    readonly messageId: MessageId | null;
+  }>({ threadKey: activeThreadKey, messageId: null });
+  useEffect(() => {
+    setTimelineAnchor((current) =>
+      current.threadKey === activeThreadKey
+        ? current
+        : { threadKey: activeThreadKey, messageId: null },
+    );
+  }, [activeThreadKey]);
+  const timelineAnchorMessageId = timelineAnchor.messageId;
   const existingOpenTerminalThreadKeys = useMemo(() => {
     const existingThreadKeys = new Set<string>([...serverThreadKeys, ...draftThreadKeys]);
     return openTerminalThreadKeys.filter((nextThreadKey) => existingThreadKeys.has(nextThreadKey));
@@ -1572,10 +1585,85 @@ export default function ChatView(props: ChatViewProps) {
     ],
   );
 
-  // Scroll helpers — LegendList handles auto-scroll via maintainScrollAtEnd.
+  // Scroll helpers. Timeline changes explicitly request bottom stickiness only
+  // while the user is already at the live edge.
   const scrollToEnd = useCallback((animated = false) => {
-    legendListRef.current?.scrollToEnd?.({ animated });
+    void legendListRef.current?.scrollToEnd?.({ animated });
   }, []);
+  const positionedTimelineAnchorRef = useRef<MessageId | null>(null);
+  const settledTimelineAnchorRef = useRef<MessageId | null>(null);
+  const anchorSettleFrameRef = useRef<number | null>(null);
+  const contentStickFrameRef = useRef<number | null>(null);
+  const onTimelineContentChanged = useCallback(() => {
+    if (!isAtEndRef.current || contentStickFrameRef.current !== null) {
+      return;
+    }
+
+    contentStickFrameRef.current = window.requestAnimationFrame(() => {
+      contentStickFrameRef.current = null;
+      if (isAtEndRef.current) {
+        scrollToEnd(false);
+      }
+    });
+  }, [scrollToEnd]);
+  const onTimelineAnchorReady = useCallback((messageId: MessageId, anchorIndex: number) => {
+    if (positionedTimelineAnchorRef.current === messageId) {
+      return;
+    }
+
+    positionedTimelineAnchorRef.current = messageId;
+    settledTimelineAnchorRef.current = null;
+    if (anchorSettleFrameRef.current !== null) {
+      window.cancelAnimationFrame(anchorSettleFrameRef.current);
+    }
+
+    anchorSettleFrameRef.current = window.requestAnimationFrame(() => {
+      anchorSettleFrameRef.current = window.requestAnimationFrame(() => {
+        anchorSettleFrameRef.current = null;
+        if (positionedTimelineAnchorRef.current !== messageId) {
+          return;
+        }
+
+        const list = legendListRef.current;
+        if (!list) {
+          return;
+        }
+
+        if (isAtEndRef.current) {
+          void list.scrollToEnd({ animated: false, viewOffset: CHAT_LIST_ANCHOR_OFFSET });
+        } else {
+          void list.scrollToIndex({
+            index: anchorIndex,
+            animated: false,
+            viewPosition: 1,
+            viewOffset: CHAT_LIST_ANCHOR_OFFSET,
+          });
+        }
+        settledTimelineAnchorRef.current = messageId;
+      });
+    });
+  }, []);
+  const onTimelineAnchorSizeChanged = useCallback(
+    (messageId: MessageId) => {
+      if (settledTimelineAnchorRef.current !== messageId || !isAtEndRef.current) {
+        return;
+      }
+      onTimelineContentChanged();
+    },
+    [onTimelineContentChanged],
+  );
+
+  useEffect(
+    () => () => {
+      if (anchorSettleFrameRef.current !== null) {
+        window.cancelAnimationFrame(anchorSettleFrameRef.current);
+      }
+      if (contentStickFrameRef.current !== null) {
+        window.cancelAnimationFrame(contentStickFrameRef.current);
+      }
+    },
+    [],
+  );
 
   const showScrollDebouncer = useRef(
     new Debouncer(() => setShowScrollToBottom(true), { wait: 150 }),
@@ -1594,6 +1682,8 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     setPullRequestDialogState(null);
     isAtEndRef.current = true;
+    positionedTimelineAnchorRef.current = null;
+    settledTimelineAnchorRef.current = null;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
     if (planSidebarOpenOnNextThreadRef.current) {
@@ -2670,7 +2760,10 @@ export default function ChatView(props: ChatViewProps) {
     isAtEndRef.current = true;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
-    await legendListRef.current?.scrollToEnd?.({ animated: false });
+    setTimelineAnchor({
+      threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
+      messageId: messageIdForSend,
+    });
 
     setOptimisticUserMessages((existing) => [
       ...existing,
@@ -3114,7 +3207,10 @@ export default function ChatView(props: ChatViewProps) {
       isAtEndRef.current = true;
       showScrollDebouncer.current.cancel();
       setShowScrollToBottom(false);
-      await legendListRef.current?.scrollToEnd?.({ animated: false });
+      setTimelineAnchor({
+        threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
+        messageId: messageIdForSend,
+      });
       setOptimisticUserMessages((existing) => [
         ...existing,
         {
@@ -3556,6 +3652,10 @@ export default function ChatView(props: ChatViewProps) {
                 actionRuns={actionRunReceipts}
                 onOpenActionRun={handleOpenActionRun}
                 onRetryActionRun={handleRetryActionRun}
+                anchorMessageId={timelineAnchorMessageId}
+                onAnchorReady={onTimelineAnchorReady}
+                onAnchorSizeChanged={onTimelineAnchorSizeChanged}
+                onTimelineContentChanged={onTimelineContentChanged}
                 onIsAtEndChange={onIsAtEndChange}
               />
 

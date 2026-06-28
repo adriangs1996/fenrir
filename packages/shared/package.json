@@ -88,6 +88,10 @@
       "types": "./src/toolActivity.ts",
       "import": "./src/toolActivity.ts"
     },
+    "./chatList": {
+      "types": "./src/chatList.ts",
+      "import": "./src/chatList.ts"
+    },
     "./jsonFile": {
       "types": "./src/jsonFile.ts",
       "import": "./src/jsonFile.ts"

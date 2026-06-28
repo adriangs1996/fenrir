@@ -27,9 +27,11 @@ export type ComposerProviderStateInput = {
   provider: ProviderSelectionKind;
   model: string;
   models: ReadonlyArray<ServerProviderModel>;
-  prompt: string;
+  promptInjectionState?: ComposerPromptInjectionState;
   modelOptions: ProviderModelOptions | null | undefined;
 };
+
+export type ComposerPromptInjectionState = "none" | "ultrathink";
 
 export type ComposerProviderState = {
   provider: ProviderSelectionKind;
@@ -72,7 +74,7 @@ function hasComposerTraitsTarget(input: {
 function getProviderStateFromCapabilities(
   input: ComposerProviderStateInput,
 ): ComposerProviderState {
-  const { provider, model, models, prompt, modelOptions } = input;
+  const { provider, model, models, promptInjectionState = "none", modelOptions } = input;
   const caps = getProviderModelCapabilities(models, model, provider);
   const providerOptions = modelOptions?.[provider];
 
@@ -99,7 +101,7 @@ function getProviderStateFromCapabilities(
 
   // Ultrathink styling (driven by capabilities data, not provider identity)
   const ultrathinkActive =
-    caps.promptInjectedEffortLevels.length > 0 && isClaudeUltrathinkPrompt(prompt);
+    caps.promptInjectedEffortLevels.length > 0 && promptInjectionState === "ultrathink";
 
   return {
     provider,
@@ -111,6 +113,10 @@ function getProviderStateFromCapabilities(
       : {}),
     ...(ultrathinkActive ? { modelPickerIconClassName: "ultrathink-chroma" } : {}),
   };
+}
+
+export function getComposerPromptInjectionState(prompt: string): ComposerPromptInjectionState {
+  return isClaudeUltrathinkPrompt(prompt) ? "ultrathink" : "none";
 }
 
 const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {

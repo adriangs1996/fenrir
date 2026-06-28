@@ -250,7 +250,13 @@ export function WorkflowCenter({ projectId }: WorkflowCenterProps) {
   const selectedRun = selectedRunId
     ? (runs.find((run) => run.runId === selectedRunId) ?? null)
     : (selectedWorkflowRuns[0] ?? null);
-  const timeline = selectedRun ? (eventsByRunId[selectedRun.runId] ?? EMPTY_EVENTS) : EMPTY_EVENTS;
+  const selectedWorkflowIdForEffects = selectedWorkflow?.workflowId ?? null;
+  const selectedRunIdForEffects = selectedRun?.runId ?? null;
+  const hasSelectedRunTimeline =
+    selectedRunIdForEffects !== null && eventsByRunId[selectedRunIdForEffects] !== undefined;
+  const timeline = selectedRunIdForEffects
+    ? (eventsByRunId[selectedRunIdForEffects] ?? EMPTY_EVENTS)
+    : EMPTY_EVENTS;
   const activeRuns = useMemo(() => runs.filter(isActiveRun), [runs]);
   const selectedSchedules = selectedWorkflow
     ? schedules.filter((schedule) => schedule.workflowId === selectedWorkflow.workflowId)
@@ -263,24 +269,36 @@ export function WorkflowCenter({ projectId }: WorkflowCenterProps) {
   }, [fetchProject, projectId]);
 
   useEffect(() => {
-    if (!selectedWorkflow && summaries[0]) {
-      setSelectedWorkflowId(summaries[0].workflow.workflowId);
+    const fallbackWorkflowId = summaries[0]?.workflow.workflowId ?? null;
+    const selectedStillExists =
+      selectedWorkflowId !== null &&
+      summaries.some((summary) => summary.workflow.workflowId === selectedWorkflowId);
+
+    if (fallbackWorkflowId === null) {
+      if (selectedWorkflowId !== null) {
+        setSelectedWorkflowId(null);
+      }
+      return;
     }
-  }, [selectedWorkflow, summaries]);
+
+    if (!selectedStillExists) {
+      setSelectedWorkflowId(fallbackWorkflowId);
+    }
+  }, [selectedWorkflowId, summaries]);
 
   useEffect(() => {
-    if (!selectedWorkflow) return;
-    void fetchMemory(selectedWorkflow.workflowId).catch((error) => {
+    if (!selectedWorkflowIdForEffects) return;
+    void fetchMemory(selectedWorkflowIdForEffects).catch((error) => {
       console.error("workflows.listMemory failed:", error);
     });
-  }, [fetchMemory, selectedWorkflow]);
+  }, [fetchMemory, selectedWorkflowIdForEffects]);
 
   useEffect(() => {
-    if (!selectedRun || eventsByRunId[selectedRun.runId]) return;
-    void fetchTimeline(selectedRun.runId).catch((error) => {
+    if (!selectedRunIdForEffects || hasSelectedRunTimeline) return;
+    void fetchTimeline(selectedRunIdForEffects).catch((error) => {
       console.error("workflows.getTimeline failed:", error);
     });
-  }, [eventsByRunId, fetchTimeline, selectedRun]);
+  }, [fetchTimeline, hasSelectedRunTimeline, selectedRunIdForEffects]);
 
   const withBusy = useCallback(async (key: string, action: () => Promise<void>) => {
     setBusyKey(key);

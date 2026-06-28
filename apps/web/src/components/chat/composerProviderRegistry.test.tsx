@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ServerProviderModel } from "@fenrir/contracts";
 import {
+  getComposerPromptInjectionState,
   getComposerProviderState,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
@@ -115,12 +116,19 @@ const CLAUDE_MODELS_WITH_CONTEXT_WINDOW: ReadonlyArray<ServerProviderModel> = [
 ];
 
 describe("getComposerProviderState", () => {
+  it("derives a stable prompt injection state for ordinary prompt edits", () => {
+    expect(getComposerPromptInjectionState("Investigate this failure")).toBe("none");
+    expect(getComposerPromptInjectionState("Investigate this other failure")).toBe("none");
+    expect(getComposerPromptInjectionState("Ultrathink:\nInvestigate this failure")).toBe(
+      "ultrathink",
+    );
+  });
+
   it("returns codex defaults when no codex draft options exist", () => {
     const state = getComposerProviderState({
       provider: "codex",
       model: "gpt-5.4",
       models: CODEX_MODELS,
-      prompt: "",
       modelOptions: undefined,
     });
 
@@ -136,7 +144,6 @@ describe("getComposerProviderState", () => {
       provider: "codex",
       model: "gpt-5.4",
       models: CODEX_MODELS,
-      prompt: "",
       modelOptions: {
         codex: {
           reasoningEffort: "low",
@@ -157,7 +164,6 @@ describe("getComposerProviderState", () => {
       provider: "codex",
       model: "gpt-5.4",
       models: CODEX_MODELS,
-      prompt: "",
       modelOptions: {
         codex: {
           fastMode: true,
@@ -177,7 +183,6 @@ describe("getComposerProviderState", () => {
       provider: "codex",
       model: "gpt-5.4",
       models: CODEX_MODELS,
-      prompt: "",
       modelOptions: {
         codex: {
           reasoningEffort: "high",
@@ -198,7 +203,6 @@ describe("getComposerProviderState", () => {
       provider: "claudeAgent",
       model: "claude-sonnet-4-6",
       models: CLAUDE_MODELS,
-      prompt: "",
       modelOptions: undefined,
     });
 
@@ -209,12 +213,14 @@ describe("getComposerProviderState", () => {
     });
   });
 
-  it("tracks Claude ultrathink from the prompt without changing dispatch effort", () => {
+  it("tracks Claude ultrathink from prompt injection state without changing dispatch effort", () => {
     const state = getComposerProviderState({
       provider: "claudeAgent",
       model: "claude-sonnet-4-6",
       models: CLAUDE_MODELS,
-      prompt: "Ultrathink:\nInvestigate this failure",
+      promptInjectionState: getComposerPromptInjectionState(
+        "Ultrathink:\nInvestigate this failure",
+      ),
       modelOptions: {
         claudeAgent: {
           effort: "medium",
@@ -232,12 +238,73 @@ describe("getComposerProviderState", () => {
     });
   });
 
+  it("keeps dispatch options stable when only prompt injection styling changes", () => {
+    const baseInput = {
+      provider: "claudeAgent" as const,
+      model: "claude-sonnet-4-6",
+      models: CLAUDE_MODELS,
+      modelOptions: {
+        claudeAgent: {
+          effort: "medium",
+        },
+      },
+    };
+
+    const ordinaryState = getComposerProviderState({
+      ...baseInput,
+      promptInjectionState: getComposerPromptInjectionState("Investigate this failure"),
+    });
+    const ultrathinkState = getComposerProviderState({
+      ...baseInput,
+      promptInjectionState: getComposerPromptInjectionState(
+        "Ultrathink:\nInvestigate this failure",
+      ),
+    });
+
+    expect(ordinaryState.modelOptionsForDispatch).toEqual(ultrathinkState.modelOptionsForDispatch);
+    expect(ordinaryState.promptEffort).toBe(ultrathinkState.promptEffort);
+    expect(ordinaryState).not.toHaveProperty("composerFrameClassName");
+    expect(ultrathinkState).toMatchObject({
+      composerFrameClassName: "ultrathink-frame",
+      composerSurfaceClassName: "shadow-[0_0_0_1px_rgba(255,255,255,0.04)_inset]",
+      modelPickerIconClassName: "ultrathink-chroma",
+    });
+  });
+
+  it("ignores prompt injection state for providers without prompt-injected effort", () => {
+    const ordinaryState = getComposerProviderState({
+      provider: "codex",
+      model: "gpt-5.4",
+      models: CODEX_MODELS,
+      promptInjectionState: "none",
+      modelOptions: {
+        codex: {
+          reasoningEffort: "low",
+          fastMode: true,
+        },
+      },
+    });
+    const injectedState = getComposerProviderState({
+      provider: "codex",
+      model: "gpt-5.4",
+      models: CODEX_MODELS,
+      promptInjectionState: "ultrathink",
+      modelOptions: {
+        codex: {
+          reasoningEffort: "low",
+          fastMode: true,
+        },
+      },
+    });
+
+    expect(injectedState).toEqual(ordinaryState);
+  });
+
   it("drops unsupported Claude effort options for models without effort controls", () => {
     const state = getComposerProviderState({
       provider: "claudeAgent",
       model: "claude-haiku-4-5",
       models: CLAUDE_MODELS,
-      prompt: "",
       modelOptions: {
         claudeAgent: {
           effort: "max",
@@ -258,7 +325,6 @@ describe("getComposerProviderState", () => {
       provider: "claudeAgent",
       model: "claude-opus-4-6",
       models: CLAUDE_MODELS,
-      prompt: "",
       modelOptions: {
         claudeAgent: {
           fastMode: true,
@@ -278,7 +344,6 @@ describe("getComposerProviderState", () => {
       provider: "claudeAgent",
       model: "claude-opus-4-6",
       models: CLAUDE_MODELS,
-      prompt: "",
       modelOptions: {
         claudeAgent: {
           effort: "high",
@@ -301,7 +366,6 @@ describe("getComposerProviderState", () => {
       provider: "claudeAgent",
       model: "claude-opus-4-6",
       models: CLAUDE_MODELS,
-      prompt: "",
       modelOptions: {
         claudeAgent: {
           effort: "high",
@@ -320,7 +384,6 @@ describe("getComposerProviderState", () => {
       provider: "claudeAgent",
       model: "claude-haiku-4-5",
       models: CLAUDE_MODELS,
-      prompt: "",
       modelOptions: {
         claudeAgent: {
           thinking: true,
@@ -336,7 +399,6 @@ describe("getComposerProviderState", () => {
       provider: "claudeAgent",
       model: "claude-opus-4-6",
       models: CLAUDE_MODELS_WITH_CONTEXT_WINDOW,
-      prompt: "",
       modelOptions: {
         claudeAgent: {
           effort: "high",
@@ -357,7 +419,6 @@ describe("getComposerProviderState", () => {
       provider: "claudeAgent",
       model: "claude-opus-4-6",
       models: CLAUDE_MODELS_WITH_CONTEXT_WINDOW,
-      prompt: "",
       modelOptions: {
         claudeAgent: {
           contextWindow: "200k",
@@ -376,7 +437,6 @@ describe("getComposerProviderState", () => {
       provider: "claudeAgent",
       model: "claude-haiku-4-5",
       models: CLAUDE_MODELS_WITH_CONTEXT_WINDOW,
-      prompt: "",
       modelOptions: {
         claudeAgent: {
           contextWindow: "1m",
@@ -392,7 +452,6 @@ describe("getComposerProviderState", () => {
       provider: "claudeAgent",
       model: "claude-sonnet-4-6",
       models: CLAUDE_MODELS,
-      prompt: "",
       modelOptions: {
         claudeAgent: {
           effort: "high",

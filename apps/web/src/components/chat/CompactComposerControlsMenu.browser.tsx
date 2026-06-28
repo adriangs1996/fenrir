@@ -194,8 +194,8 @@ describe("CompactComposerControlsMenu", () => {
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
       expect(text).toContain("Fast Mode");
-      expect(text).toContain("off");
-      expect(text).toContain("on");
+      expect(text).toContain("Off");
+      expect(text).toContain("On");
     });
   });
 
@@ -242,7 +242,7 @@ describe("CompactComposerControlsMenu", () => {
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
       expect(text).toContain("Thinking");
-      expect(text).toContain("On (default)");
+      expect(text).toContain("On");
       expect(text).toContain("Off");
     });
   });
@@ -281,7 +281,7 @@ describe("CompactComposerControlsMenu", () => {
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
       expect(text).toContain(
-        'Your prompt contains "ultrathink" in the text. Remove it to change effort.',
+        'Your prompt contains "ultrathink" in the text. Remove it to change this option.',
       );
     });
   });

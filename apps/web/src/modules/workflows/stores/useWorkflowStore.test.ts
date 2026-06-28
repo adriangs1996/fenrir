@@ -39,6 +39,7 @@ vi.mock("~/localApi", () => ({
 import {
   canAttemptWorkflowRun,
   isRunnableWorkflow,
+  selectProjectWorkflowRuns,
   selectThreadWorkflowCounts,
   selectThreadWorkflowRuns,
   useWorkflowStore,
@@ -308,6 +309,21 @@ describe("useWorkflowStore", () => {
 
     expect(selectThreadWorkflowRuns(state, projectId, originThreadId)).toBe(runs);
     expect(selectThreadWorkflowCounts(state, projectId, originThreadId)).toBe(counts);
+  });
+
+  it("returns stable project run selector references while workflow state is unchanged", () => {
+    const run = makeRun({ runId: "run-project-stable" });
+
+    useWorkflowStore.setState({
+      runById: {
+        [run.runId]: run,
+      },
+    });
+
+    const state = useWorkflowStore.getState();
+    const runs = selectProjectWorkflowRuns(state, projectId);
+
+    expect(selectProjectWorkflowRuns(state, projectId)).toBe(runs);
   });
 
   it("removes archived workflow drafts from thread summaries", () => {

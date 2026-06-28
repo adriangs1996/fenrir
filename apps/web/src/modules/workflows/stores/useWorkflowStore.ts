@@ -42,6 +42,10 @@ const threadRunsCache = new WeakMap<
   Record<string, WorkflowRunSnapshot>,
   Map<string, readonly WorkflowRunSnapshot[]>
 >();
+const projectRunsCache = new WeakMap<
+  Record<string, WorkflowRunSnapshot>,
+  Map<string, readonly WorkflowRunSnapshot[]>
+>();
 const threadCountsCache = new WeakMap<
   Record<string, readonly WorkflowThreadSummary[]>,
   WeakMap<Record<string, WorkflowRunSnapshot>, Map<string, WorkflowThreadCounts>>
@@ -161,6 +165,19 @@ function getThreadRunsCache(
 
   const next = new Map<string, readonly WorkflowRunSnapshot[]>();
   threadRunsCache.set(runById, next);
+  return next;
+}
+
+function getProjectRunsCache(
+  runById: Record<string, WorkflowRunSnapshot>,
+): Map<string, readonly WorkflowRunSnapshot[]> {
+  const cached = projectRunsCache.get(runById);
+  if (cached) {
+    return cached;
+  }
+
+  const next = new Map<string, readonly WorkflowRunSnapshot[]>();
+  projectRunsCache.set(runById, next);
   return next;
 }
 
@@ -709,8 +726,16 @@ export function selectProjectWorkflowRuns(
   if (!projectId) {
     return EMPTY_WORKFLOW_RUNS;
   }
+  const cache = getProjectRunsCache(state.runById);
+  const cached = cache.get(projectId);
+  if (cached) {
+    return cached;
+  }
+
   const runs = Object.values(state.runById).filter((run) => run.projectId === projectId);
-  return runs.length === 0 ? EMPTY_WORKFLOW_RUNS : sortRunsNewestFirst(runs);
+  const sortedRuns = runs.length === 0 ? EMPTY_WORKFLOW_RUNS : sortRunsNewestFirst(runs);
+  cache.set(projectId, sortedRuns);
+  return sortedRuns;
 }
 
 export function selectProjectWorkflowLinks(

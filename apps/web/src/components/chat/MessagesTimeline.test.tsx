@@ -7,13 +7,36 @@ import type { LegendListRef } from "@legendapp/list/react";
 function MockLegendList(props: {
   data: Array<{ id: string }>;
   keyExtractor: (item: { id: string }) => string;
+  getItemType?: (item: { id: string }) => string;
   renderItem: (args: { item: { id: string } }) => ReactNode;
   ListHeaderComponent?: ReactNode;
   ListFooterComponent?: ReactNode;
+  className?: string;
+  maintainScrollAtEnd?: boolean;
+  maintainVisibleContentPosition?: boolean | { data?: boolean; size?: boolean };
   ref?: Ref<LegendListRef>;
 }) {
   return (
-    <div data-testid="legend-list">
+    <div
+      data-testid="legend-list"
+      data-class-name={props.className}
+      data-maintain-scroll-at-end={props.maintainScrollAtEnd}
+      data-maintain-visible-content-position={
+        typeof props.maintainVisibleContentPosition === "object"
+          ? "object"
+          : props.maintainVisibleContentPosition
+      }
+      data-maintain-visible-content-position-data={
+        typeof props.maintainVisibleContentPosition === "object"
+          ? props.maintainVisibleContentPosition.data
+          : undefined
+      }
+      data-maintain-visible-content-position-size={
+        typeof props.maintainVisibleContentPosition === "object"
+          ? props.maintainVisibleContentPosition.size
+          : undefined
+      }
+    >
       {props.ListHeaderComponent}
       {props.data.map((item) => (
         <div key={props.keyExtractor(item)}>{props.renderItem({ item })}</div>
@@ -91,6 +114,10 @@ function buildProps() {
     resolvedTheme: "light" as const,
     timestampFormat: "locale" as const,
     workspaceRoot: undefined,
+    anchorMessageId: null,
+    onAnchorReady: () => {},
+    onAnchorSizeChanged: () => {},
+    onTimelineContentChanged: () => {},
     onIsAtEndChange: () => {},
   };
 }
@@ -117,6 +144,22 @@ function buildUserTimelineEntry(text: string) {
 }
 
 describe("MessagesTimeline", () => {
+  it("uses explicit content anchoring instead of automatic end maintenance", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[buildUserTimelineEntry("Newest prompt.")]}
+      />,
+    );
+
+    expect(markup).toContain("[overflow-anchor:none]");
+    expect(markup).not.toContain("data-maintain-scroll-at-end=");
+    expect(markup).toContain('data-maintain-visible-content-position="object"');
+    expect(markup).toContain('data-maintain-visible-content-position-data="true"');
+    expect(markup).toContain('data-maintain-visible-content-position-size="false"');
+  });
+
   it("renders collapse controls for long user messages", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(

@@ -4,6 +4,7 @@ import {
   type ServerProviderSkill,
   type TurnId,
 } from "@fenrir/contracts";
+import { resolveChatListAnchor } from "@fenrir/shared/chatList";
 import {
   createContext,
   memo,
@@ -136,6 +137,10 @@ interface MessagesTimelineProps {
   actionRuns?: ReadonlyArray<ActionRun>;
   onOpenActionRun?: (run: ActionRun) => void;
   onRetryActionRun?: (run: ActionRun) => void;
+  anchorMessageId: MessageId | null;
+  onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
+  onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
+  onTimelineContentChanged: () => void;
   onIsAtEndChange: (isAtEnd: boolean) => void;
 }
 
@@ -166,6 +171,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   actionRuns,
   onOpenActionRun,
   onRetryActionRun,
+  anchorMessageId,
+  onAnchorReady,
+  onAnchorSizeChanged,
+  onTimelineContentChanged,
   onIsAtEndChange,
 }: MessagesTimelineProps) {
   const rawRows = useMemo(
@@ -196,6 +205,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     ],
   );
   const rows = useStableRows(rawRows);
+  const anchor = useMemo(
+    () =>
+      resolveChatListAnchor(rows, anchorMessageId, (row) =>
+        row.kind === "message" ? row.message.id : null,
+      ),
+    [anchorMessageId, rows],
+  );
 
   const handleScroll = useCallback(() => {
     const state = listRef.current?.getState?.();
@@ -203,6 +219,35 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onIsAtEndChange(state.isAtEnd);
     }
   }, [listRef, onIsAtEndChange]);
+
+  const handleItemSizeChanged = useCallback(
+    (info: { itemData: MessagesTimelineRow; size: number }) => {
+      const row = info.itemData;
+      if (row.kind === "message" && row.message.id === anchorMessageId) {
+        onAnchorSizeChanged(row.message.id, info.size);
+      }
+      onTimelineContentChanged();
+    },
+    [anchorMessageId, onAnchorSizeChanged, onTimelineContentChanged],
+  );
+
+  useEffect(() => {
+    if (!anchor || anchorMessageId === null) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      onAnchorReady(anchorMessageId, anchor.anchorIndex);
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [anchor, anchorMessageId, onAnchorReady]);
+
+  const contentSignature = useMemo(() => buildTimelineContentSignature(rows), [rows]);
+  useEffect(() => {
+    onTimelineContentChanged();
+  }, [contentSignature, onTimelineContentChanged]);
 
   const previousRowCountRef = useRef(rows.length);
   useEffect(() => {
@@ -286,14 +331,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           ref={listRef}
           data={rows}
           keyExtractor={keyExtractor}
+          getItemType={getItemType}
           renderItem={renderItem}
           estimatedItemSize={90}
           initialScrollAtEnd
-          maintainScrollAtEnd
-          maintainScrollAtEndThreshold={0.1}
-          maintainVisibleContentPosition
+          maintainVisibleContentPosition={{
+            data: true,
+            size: false,
+          }}
+          onItemSizeChanged={handleItemSizeChanged}
           onScroll={handleScroll}
-          className="h-full overflow-x-hidden overscroll-y-contain px-3 sm:px-5"
+          className="h-full overflow-x-hidden overscroll-y-contain px-3 [overflow-anchor:none] sm:px-5"
           ListHeaderComponent={TIMELINE_LIST_HEADER}
           ListFooterComponent={TIMELINE_LIST_FOOTER}
         />
@@ -306,7 +354,38 @@ function keyExtractor(item: MessagesTimelineRow) {
   return item.id;
 }
 
+function getItemType(item: MessagesTimelineRow) {
+  return item.kind === "message" ? `message:${item.message.role}` : item.kind;
+}
+
 function noopActionRunHandler(_run: ActionRun) {}
+
+function buildTimelineContentSignature(rows: ReadonlyArray<MessagesTimelineRow>) {
+  return rows
+    .map((row) => {
+      switch (row.kind) {
+        case "message":
+          return [
+            row.id,
+            row.kind,
+            row.message.role,
+            row.message.text?.length ?? 0,
+            row.message.streaming ? "streaming" : "settled",
+            row.message.attachments?.length ?? 0,
+            row.assistantTurnDiffSummary?.files.length ?? 0,
+          ].join(":");
+        case "work":
+          return [row.id, row.kind, row.groupedEntries.length].join(":");
+        case "action-run":
+          return [row.id, row.kind, row.run.status, row.run.outputTail.length].join(":");
+        case "proposed-plan":
+          return [row.id, row.kind, row.proposedPlan.planMarkdown.length].join(":");
+        case "working":
+          return [row.id, row.kind, row.createdAt ?? ""].join(":");
+      }
+    })
+    .join("|");
+}
 
 type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
 type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];

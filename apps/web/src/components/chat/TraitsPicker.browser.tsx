@@ -256,8 +256,8 @@ describe("TraitsPicker (Claude)", () => {
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
       expect(text).toContain("Fast Mode");
-      expect(text).toContain("off");
-      expect(text).toContain("on");
+      expect(text).toContain("Off");
+      expect(text).toContain("On");
     });
   });
 
@@ -302,7 +302,7 @@ describe("TraitsPicker (Claude)", () => {
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
       expect(text).toContain("Thinking");
-      expect(text).toContain("On (default)");
+      expect(text).toContain("On");
       expect(text).toContain("Off");
     });
   });
@@ -339,7 +339,7 @@ describe("TraitsPicker (Claude)", () => {
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
       expect(text).toContain(
-        'Your prompt contains "ultrathink" in the text. Remove it to change effort.',
+        'Your prompt contains "ultrathink" in the text. Remove it to change this option.',
       );
     });
   });
@@ -355,12 +355,10 @@ describe("TraitsPicker (Claude)", () => {
 
     expect(
       useComposerDraftStore.getState().stickyModelSelectionByProvider.claudeAgent,
-    ).toMatchObject({
-      provider: "claudeAgent",
-      options: {
-        effort: "max",
-      },
-    });
+    ).toMatchObject({ provider: "claudeAgent" });
+    expect(
+      useComposerDraftStore.getState().stickyModelSelectionByProvider.claudeAgent?.options,
+    ).toContainEqual({ id: "effort", value: "max" });
   });
 
   it("accepts outline trigger styling", async () => {
@@ -458,8 +456,8 @@ describe("TraitsPicker (Codex)", () => {
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
       expect(text).toContain("Fast Mode");
-      expect(text).toContain("off");
-      expect(text).toContain("on");
+      expect(text).toContain("Off");
+      expect(text).toContain("On");
     });
   });
 
@@ -499,7 +497,9 @@ describe("TraitsPicker (Codex)", () => {
 
     expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toMatchObject({
       provider: "codex",
-      options: { fastMode: true },
     });
+    expect(
+      useComposerDraftStore.getState().stickyModelSelectionByProvider.codex?.options,
+    ).toContainEqual({ id: "fastMode", value: true });
   });
 });

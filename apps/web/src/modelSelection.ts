@@ -198,7 +198,6 @@ export function resolveAppModelSelectionState(
     provider,
     model,
     models: getProviderModels(providers, provider),
-    prompt: "",
     modelOptions:
       provider === selection.provider && selection.options
         ? { [provider]: selection.options }

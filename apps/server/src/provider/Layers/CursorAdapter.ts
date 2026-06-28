@@ -51,6 +51,7 @@ import {
 import { acpPermissionOutcome, mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
 import { makeCursorAcpRuntime, resolveCursorAcpBaseModelId } from "../acp/CursorAcpSupport.ts";
 import { type AcpSessionRuntimeShape } from "../acp/AcpSessionRuntime.ts";
+import { formatCursorAcpSetupFailureMessage } from "./CursorProvider.ts";
 import {
   makeAcpAssistantItemEvent,
   makeAcpContentDeltaEvent,
@@ -513,7 +514,7 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
                 new ProviderAdapterProcessError({
                   provider: PROVIDER,
                   threadId: input.threadId,
-                  detail: cause.message,
+                  detail: formatCursorAcpSetupFailureMessage(),
                   cause,
                 }),
             ),
@@ -681,8 +682,14 @@ export function makeCursorAdapter(options?: CursorAdapterLiveOptions) {
             ) as Effect.Effect<void, never, never>;
             return yield* acp.start();
           }).pipe(
-            Effect.mapError((error) =>
-              mapAcpToAdapterError(PROVIDER, input.threadId, "session/start", error),
+            Effect.mapError(
+              (error) =>
+                new ProviderAdapterRequestError({
+                  provider: PROVIDER,
+                  method: "session/start",
+                  detail: formatCursorAcpSetupFailureMessage(),
+                  cause: error,
+                }),
             ),
           );
 

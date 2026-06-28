@@ -48,6 +48,28 @@ describe("remote environment api", () => {
     });
   });
 
+  it("accepts websocket pairing url protocols", () => {
+    expect(
+      resolveRemotePairingTarget({
+        pairingUrl: "ws://remote.example.com/pair#token=pairing-token",
+      }),
+    ).toEqual({
+      credential: "pairing-token",
+      httpBaseUrl: "http://remote.example.com/",
+      wsBaseUrl: "ws://remote.example.com/",
+    });
+
+    expect(
+      resolveRemotePairingTarget({
+        pairingUrl: "wss://remote.example.com/pair#token=pairing-token",
+      }),
+    ).toEqual({
+      credential: "pairing-token",
+      httpBaseUrl: "https://remote.example.com/",
+      wsBaseUrl: "wss://remote.example.com/",
+    });
+  });
+
   it("derives backend urls from a host and pairing code", () => {
     expect(
       resolveRemotePairingTarget({
@@ -72,6 +94,23 @@ describe("remote environment api", () => {
       httpBaseUrl: "https://myserver.com:3000/",
       wsBaseUrl: "wss://myserver.com:3000/",
     });
+  });
+
+  it("rejects unsupported pairing url protocols", () => {
+    expect(() =>
+      resolveRemotePairingTarget({
+        pairingUrl: "ftp://remote.example.com/pair#token=pairing-token",
+      }),
+    ).toThrow("Remote backend URL uses unsupported protocol ftp:");
+  });
+
+  it("rejects unsupported host protocols", () => {
+    expect(() =>
+      resolveRemotePairingTarget({
+        host: "ftp://remote.example.com",
+        pairingCode: "pairing-token",
+      }),
+    ).toThrow("Remote backend URL uses unsupported protocol ftp:");
   });
 
   it("bootstraps bearer auth against a remote backend", async () => {
