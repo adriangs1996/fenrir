@@ -27,6 +27,7 @@ const REPLAY_RECOVERY_RETRY_DELAY_MS = 100;
 const MAX_NO_PROGRESS_REPLAY_RETRIES = 3;
 const RECOVERY_TRANSPORT_RETRY_DELAY_MS = 250;
 const MAX_RECOVERY_TRANSPORT_RETRIES = 20;
+const RECONNECT_SNAPSHOT_GATE_TIMEOUT_MS = 5_000;
 
 export interface EnvironmentConnection {
   readonly kind: "primary" | "saved";
@@ -35,7 +36,23 @@ export interface EnvironmentConnection {
   readonly client: WsRpcClient;
   readonly ensureBootstrapped: () => Promise<void>;
   readonly reconnect: () => Promise<void>;
+  readonly requestReconnect: (reason: EnvironmentReconnectReason) => Promise<boolean>;
   readonly dispose: () => Promise<void>;
+}
+
+export type EnvironmentReconnectReason = "browser-resume" | "user-retry";
+
+export type EnvironmentDomainSyncFailureReason =
+  | "projection-replay-failed"
+  | "projection-snapshot-failed"
+  | "shell-event-failed"
+  | "shell-snapshot-failed"
+  | "managed-process-snapshot-failed"
+  | "thread-snapshot-failed";
+
+export interface EnvironmentDomainSyncFailure {
+  readonly reason: EnvironmentDomainSyncFailureReason;
+  readonly error: unknown;
 }
 
 interface OrchestrationHandlers {
@@ -68,37 +85,96 @@ interface EnvironmentConnectionInput extends OrchestrationHandlers {
   readonly knownEnvironment: KnownEnvironment;
   readonly client: WsRpcClient;
   readonly refreshMetadata?: () => Promise<void>;
+  readonly onDomainSyncFailure?: (failure: EnvironmentDomainSyncFailure) => void;
+  readonly onDomainSyncSuccess?: (reason: EnvironmentDomainSyncFailureReason) => void;
   readonly onConfigSnapshot?: (config: ServerConfig) => void;
   readonly onWelcome?: (payload: ServerLifecycleWelcomePayload) => void;
+}
+
+class SnapshotGateResetError extends Error {
+  constructor() {
+    super("Snapshot gate was reset.");
+    this.name = "SnapshotGateResetError";
+  }
+}
+
+function isSnapshotGateResetError(error: unknown): error is SnapshotGateResetError {
+  return error instanceof SnapshotGateResetError;
 }
 
 function createSnapshotGate() {
   let resolve: (() => void) | null = null;
   let reject: ((error: unknown) => void) | null = null;
+  let waiterCount = 0;
   let promise = new Promise<void>((nextResolve, nextReject) => {
     resolve = nextResolve;
     reject = nextReject;
   });
 
   return {
-    wait: () => promise,
+    wait: () => {
+      waiterCount += 1;
+      return promise.finally(() => {
+        waiterCount = Math.max(0, waiterCount - 1);
+      });
+    },
     resolve: () => {
       resolve?.();
       resolve = null;
       reject = null;
     },
     reject: (error: unknown) => {
-      reject?.(error);
+      if (waiterCount > 0) {
+        reject?.(error);
+      }
       resolve = null;
       reject = null;
     },
     reset: () => {
+      if (waiterCount > 0) {
+        reject?.(new SnapshotGateResetError());
+      }
       promise = new Promise<void>((nextResolve, nextReject) => {
         resolve = nextResolve;
         reject = nextReject;
       });
     },
   };
+}
+
+async function waitForSnapshotGate(input: {
+  readonly wait: () => Promise<void>;
+  readonly timeoutMs: number;
+  readonly label: string;
+}): Promise<void> {
+  const startedAt = Date.now();
+
+  for (;;) {
+    const remainingMs = input.timeoutMs - (Date.now() - startedAt);
+    if (remainingMs <= 0) {
+      throw new Error(`Timed out waiting for ${input.label} snapshot after reconnect.`);
+    }
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error(`Timed out waiting for ${input.label} snapshot after reconnect.`));
+        }, remainingMs);
+        input
+          .wait()
+          .then(resolve, reject)
+          .finally(() => {
+            clearTimeout(timeoutId);
+          });
+      });
+      return;
+    } catch (error) {
+      if (isSnapshotGateResetError(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
 }
 
 function createSnapshotBootstrapController(input: {
@@ -148,6 +224,8 @@ export function createEnvironmentConnection(
   }
 
   let disposed = false;
+  let reconnectChain: Promise<void> = Promise.resolve();
+  let browserResumeReconnectInFlight: Promise<boolean> | null = null;
   const shellSnapshotGate = createSnapshotGate();
   const managedProcessSnapshotGate = createSnapshotGate();
 
@@ -166,11 +244,7 @@ export function createEnvironmentConnection(
     }
 
     const events = pendingDomainEvents.splice(0, pendingDomainEvents.length);
-    const nextEvents = recovery.markEventBatchApplied(events);
-    if (nextEvents.length === 0) {
-      return;
-    }
-    input.applyEventBatch(nextEvents, environmentId);
+    applyProjectionEvents(events);
   };
 
   const schedulePendingDomainEventFlush = () => {
@@ -206,8 +280,53 @@ export function createEnvironmentConnection(
       }
     }
   };
+  const reportDomainSyncFailure = (failure: EnvironmentDomainSyncFailure) => {
+    input.onDomainSyncFailure?.(failure);
+  };
+  const reportDomainSyncSuccess = (reason: EnvironmentDomainSyncFailureReason) => {
+    input.onDomainSyncSuccess?.(reason);
+  };
+
+  const applyDomainSync = (
+    reason: EnvironmentDomainSyncFailureReason,
+    operation: () => void,
+  ): boolean => {
+    try {
+      operation();
+      reportDomainSyncSuccess(reason);
+      return true;
+    } catch (error) {
+      reportDomainSyncFailure({ reason, error });
+      return false;
+    }
+  };
+
+  const applyProjectionEvents = (events: ReadonlyArray<OrchestrationEvent>): boolean => {
+    const latestSequence = recovery.getState().latestSequence;
+    const nextEvents = events
+      .filter((event) => event.sequence > latestSequence)
+      .toSorted((left, right) => left.sequence - right.sequence);
+    if (nextEvents.length === 0) {
+      return true;
+    }
+
+    const didSync = applyDomainSync("projection-replay-failed", () => {
+      input.applyEventBatch(nextEvents, environmentId);
+    });
+    if (!didSync) {
+      return false;
+    }
+
+    recovery.markEventBatchApplied(nextEvents);
+    return true;
+  };
+
   const scheduleReplayRecovery = (reason: "sequence-gap" | "resubscribe") => {
-    void runReplayRecovery(reason).catch(() => undefined);
+    void runReplayRecovery(reason).catch((error: unknown) => {
+      if (!disposed) {
+        reportDomainSyncFailure({ reason: "projection-replay-failed", error });
+      }
+    });
   };
 
   const runReplayRecovery = async (reason: "sequence-gap" | "resubscribe"): Promise<void> => {
@@ -221,18 +340,33 @@ export function createEnvironmentConnection(
         input.client.orchestration.replayEvents({ fromSequenceExclusive }),
       );
       if (!disposed) {
-        const nextEvents = recovery.markEventBatchApplied(events);
-        if (nextEvents.length > 0) {
-          input.applyEventBatch(nextEvents, environmentId);
+        const didSync = applyProjectionEvents(events);
+        if (!didSync) {
+          replayRetryTracker = null;
+          recovery.failReplayRecovery();
+          try {
+            await snapshotBootstrap.ensureSnapshotRecovery("replay-failed");
+          } catch (snapshotError) {
+            reportDomainSyncFailure({
+              reason: "projection-snapshot-failed",
+              error: snapshotError,
+            });
+          }
+          return;
         }
       }
-    } catch {
+    } catch (error) {
       replayRetryTracker = null;
       recovery.failReplayRecovery();
       if (disposed) {
         return;
       }
-      await snapshotBootstrap.ensureSnapshotRecovery("replay-failed");
+      try {
+        await snapshotBootstrap.ensureSnapshotRecovery("replay-failed");
+      } catch (snapshotError) {
+        reportDomainSyncFailure({ reason: "projection-snapshot-failed", error: snapshotError });
+      }
+      reportDomainSyncFailure({ reason: "projection-replay-failed", error });
       return;
     }
 
@@ -288,7 +422,17 @@ export function createEnvironmentConnection(
             )
           : await retryTransportRecoveryOperation(() => input.client.orchestration.getSnapshot());
       if (!disposed) {
-        input.syncSnapshot(snapshot, environmentId, reason === "bootstrap" ? "bootstrap" : "full");
+        const didSync = applyDomainSync("projection-snapshot-failed", () => {
+          input.syncSnapshot(
+            snapshot,
+            environmentId,
+            reason === "bootstrap" ? "bootstrap" : "full",
+          );
+        });
+        if (!didSync) {
+          recovery.failSnapshotRecovery();
+          return;
+        }
         if (recovery.completeSnapshotRecovery(snapshot.snapshotSequence)) {
           scheduleReplayRecovery("sequence-gap");
         }
@@ -331,12 +475,16 @@ export function createEnvironmentConnection(
     (item: Parameters<Parameters<WsRpcClient["orchestration"]["subscribeShell"]>[0]>[0]) => {
       if (item.kind === "snapshot") {
         if (recovery.getState().bootstrapped) {
-          input.syncShellSnapshot(item.snapshot, environmentId);
+          applyDomainSync("shell-snapshot-failed", () => {
+            input.syncShellSnapshot(item.snapshot, environmentId);
+          });
         }
         shellSnapshotGate.resolve();
         return;
       }
-      input.applyShellEvent(item, environmentId);
+      applyDomainSync("shell-event-failed", () => {
+        input.applyShellEvent(item, environmentId);
+      });
     },
     {
       onResubscribe: () => {
@@ -352,7 +500,9 @@ export function createEnvironmentConnection(
     (
       item: Parameters<Parameters<WsRpcClient["orchestration"]["subscribeManagedProcesses"]>[0]>[0],
     ) => {
-      input.syncManagedProcessSnapshot(item.snapshot, environmentId);
+      applyDomainSync("managed-process-snapshot-failed", () => {
+        input.syncManagedProcessSnapshot(item.snapshot, environmentId);
+      });
       managedProcessSnapshotGate.resolve();
     },
     {
@@ -407,6 +557,36 @@ export function createEnvironmentConnection(
     unsubTerminalEvent();
     unsubLifecycle();
     unsubConfig();
+    shellSnapshotGate.reject(new Error("Environment connection disposed."));
+    managedProcessSnapshotGate.reject(new Error("Environment connection disposed."));
+  };
+
+  const reconnect = async (): Promise<void> => {
+    const reconnectOperation = reconnectChain.then(async () => {
+      if (disposed) {
+        throw new Error("Environment connection disposed.");
+      }
+
+      shellSnapshotGate.reset();
+      managedProcessSnapshotGate.reset();
+      await input.client.reconnect();
+      await input.refreshMetadata?.();
+      await Promise.all([
+        waitForSnapshotGate({
+          wait: shellSnapshotGate.wait,
+          timeoutMs: RECONNECT_SNAPSHOT_GATE_TIMEOUT_MS,
+          label: "shell",
+        }),
+        waitForSnapshotGate({
+          wait: managedProcessSnapshotGate.wait,
+          timeoutMs: RECONNECT_SNAPSHOT_GATE_TIMEOUT_MS,
+          label: "managed process",
+        }),
+      ]);
+      await snapshotBootstrap.ensureSnapshotRecovery("bootstrap");
+    });
+    reconnectChain = reconnectOperation.catch(() => undefined);
+    await reconnectOperation;
   };
 
   return {
@@ -415,19 +595,30 @@ export function createEnvironmentConnection(
     knownEnvironment: input.knownEnvironment,
     client: input.client,
     ensureBootstrapped: () => snapshotBootstrap.ensureSnapshotRecovery("bootstrap"),
-    reconnect: async () => {
-      shellSnapshotGate.reset();
-      managedProcessSnapshotGate.reset();
-      await input.client.reconnect();
-      await input.refreshMetadata?.();
-      try {
-        await Promise.all([shellSnapshotGate.wait(), managedProcessSnapshotGate.wait()]);
-      } catch (error) {
-        shellSnapshotGate.reject(error);
-        managedProcessSnapshotGate.reject(error);
-        throw error;
+    reconnect,
+    requestReconnect: async (reason) => {
+      if (reason === "user-retry") {
+        await reconnect();
+        return true;
       }
-      await snapshotBootstrap.ensureSnapshotRecovery("bootstrap");
+
+      if (input.client.isHeartbeatFresh()) {
+        return false;
+      }
+
+      if (browserResumeReconnectInFlight) {
+        return browserResumeReconnectInFlight;
+      }
+
+      const reconnectRequest = reconnect()
+        .then(() => true)
+        .finally(() => {
+          if (browserResumeReconnectInFlight === reconnectRequest) {
+            browserResumeReconnectInFlight = null;
+          }
+        });
+      browserResumeReconnectInFlight = reconnectRequest;
+      return reconnectRequest;
     },
     dispose: async () => {
       cleanup();

@@ -84,7 +84,7 @@ import { useServerKeybindings } from "../rpc/serverState";
 import { deriveLogicalProjectKey } from "../logicalProject";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import {
-  getPrimaryEnvironmentConnection,
+  usePrimaryEnvironmentConnection,
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
@@ -202,13 +202,7 @@ export default function Sidebar() {
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const platform = navigator.platform;
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const primaryEnvironmentConnection = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection();
-    } catch {
-      return null;
-    }
-  }, []);
+  const primaryEnvironmentConnection = usePrimaryEnvironmentConnection();
   const savedEnvironmentRegistry = useSavedEnvironmentRegistryStore((s) => s.byId);
   const savedEnvironmentRuntimeById = useSavedEnvironmentRuntimeStore((s) => s.byId);
   const orderedProjects = useMemo(() => {

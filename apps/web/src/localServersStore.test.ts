@@ -86,4 +86,34 @@ describe("localServersStore", () => {
     stopSecond();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
+
+  it("replaces the websocket subscription when the environment client changes", () => {
+    const unsubscribeFirst = vi.fn();
+    const unsubscribeSecond = vi.fn();
+    const subscribeFirst = vi.fn(() => unsubscribeFirst);
+    const subscribeSecond = vi.fn(() => unsubscribeSecond);
+    const firstClient = {
+      localServers: {
+        subscribe: subscribeFirst,
+      },
+    } as unknown as WsRpcClient;
+    const secondClient = {
+      localServers: {
+        subscribe: subscribeSecond,
+      },
+    } as unknown as WsRpcClient;
+
+    const stopFirst = subscribeToLocalServers({ client: firstClient, environmentId });
+    const stopSecond = subscribeToLocalServers({ client: secondClient, environmentId });
+
+    expect(subscribeFirst).toHaveBeenCalledTimes(1);
+    expect(unsubscribeFirst).toHaveBeenCalledTimes(1);
+    expect(subscribeSecond).toHaveBeenCalledTimes(1);
+
+    stopFirst();
+    expect(unsubscribeSecond).not.toHaveBeenCalled();
+
+    stopSecond();
+    expect(unsubscribeSecond).toHaveBeenCalledTimes(1);
+  });
 });

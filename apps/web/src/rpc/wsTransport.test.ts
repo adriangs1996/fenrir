@@ -198,6 +198,33 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("surfaces async websocket url provider failures through lifecycle handlers", async () => {
+    const tokenError = new Error("Remote auth request failed (401).");
+    const onError = vi.fn();
+    const transport = createTransport(
+      async () => {
+        throw tokenError;
+      },
+      {
+        reportGlobalStatus: false,
+        onError,
+      },
+    );
+
+    try {
+      await waitFor(() => {
+        expect(onError).toHaveBeenCalledWith("Remote auth request failed (401).");
+      });
+      expect(onError).toHaveBeenCalledWith("Remote auth request failed (401).");
+      expect(getWsConnectionStatus()).toMatchObject({
+        attemptCount: 0,
+        phase: "idle",
+      });
+    } finally {
+      await transport.dispose();
+    }
+  });
+
   it("tracks initial connection failures for the app error state", async () => {
     const transport = createTransport("ws://localhost:3020");
 
@@ -295,6 +322,41 @@ describe("WsTransport", () => {
         phase: "connecting",
       });
     }, 2_000);
+
+    await transport.dispose();
+  });
+
+  it("can scope lifecycle handlers away from the primary global websocket status", async () => {
+    const onOpen = vi.fn();
+    const onClose = vi.fn();
+    const transport = createTransport("ws://remote.example.test", {
+      reportGlobalStatus: false,
+      onOpen,
+      onClose,
+    });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const socket = getSocket();
+    socket.open();
+    socket.close(1012, "remote restart");
+
+    await waitFor(() => {
+      expect(onOpen).toHaveBeenCalledOnce();
+      expect(onClose).toHaveBeenCalledWith({
+        code: 1012,
+        reason: "remote restart",
+      });
+    });
+
+    expect(getWsConnectionStatus()).toMatchObject({
+      attemptCount: 0,
+      closeReason: null,
+      hasConnected: false,
+      phase: "idle",
+    });
 
     await transport.dispose();
   });

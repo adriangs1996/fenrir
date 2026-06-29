@@ -3,7 +3,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { cn } from "../../../lib/utils";
 import { BodyViewer } from "./BodyViewer";
-import { getPrimaryEnvironmentConnection } from "../../../environments/runtime/service";
+import { withPrimaryEnvironmentClient } from "../../../environments/runtime";
 import {
   decodeBase64ToText,
   encodeTextToBase64,
@@ -101,16 +101,17 @@ export function TrafficLensRepeater({ initialDetail, onClose }: TrafficLensRepea
     setSending(true);
     setError(null);
     try {
-      const client = getPrimaryEnvironmentConnection().client;
       const headers = parseHeadersText(headersText);
       const body = bodyText.length > 0 ? encodeTextToBase64(bodyText) : null;
-      const result = await client.trafficLens.replayRequest({
-        trafficId: initialDetail?.id,
-        method,
-        url,
-        headers,
-        body,
-      });
+      const result = await withPrimaryEnvironmentClient((client) =>
+        client.trafficLens.replayRequest({
+          trafficId: initialDetail?.id,
+          method,
+          url,
+          headers,
+          body,
+        }),
+      );
       setResponse(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");

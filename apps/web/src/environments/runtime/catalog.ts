@@ -245,11 +245,17 @@ export async function removeSavedEnvironmentBearerToken(
 
 export type SavedEnvironmentConnectionState = "connecting" | "connected" | "disconnected" | "error";
 
-export type SavedEnvironmentAuthState = "authenticated" | "requires-auth" | "unknown";
+export type SavedEnvironmentAuthState = "authenticated" | "blocked" | "requires-auth" | "unknown";
+
+export type SavedEnvironmentSyncState = "ok" | "error";
 
 export interface SavedEnvironmentRuntimeState {
   readonly connectionState: SavedEnvironmentConnectionState;
   readonly authState: SavedEnvironmentAuthState;
+  readonly syncState: SavedEnvironmentSyncState;
+  readonly lastSyncError: string | null;
+  readonly lastSyncErrorAt: string | null;
+  readonly lastSyncFailureReason: string | null;
   readonly lastError: string | null;
   readonly lastErrorAt: string | null;
   readonly role: AuthSessionRole | null;
@@ -273,6 +279,10 @@ interface SavedEnvironmentRuntimeStoreState {
 const DEFAULT_SAVED_ENVIRONMENT_RUNTIME_STATE: SavedEnvironmentRuntimeState = Object.freeze({
   connectionState: "disconnected",
   authState: "unknown",
+  syncState: "ok",
+  lastSyncError: null,
+  lastSyncErrorAt: null,
+  lastSyncFailureReason: null,
   lastError: null,
   lastErrorAt: null,
   role: null,

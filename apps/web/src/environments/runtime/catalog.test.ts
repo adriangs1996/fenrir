@@ -64,6 +64,10 @@ describe("environment runtime catalog stores", () => {
 
     useSavedEnvironmentRuntimeStore.getState().patch(environmentId, {
       connectionState: "connected",
+      syncState: "error",
+      lastSyncError: "Shell snapshot failed",
+      lastSyncErrorAt: "2026-04-09T00:00:01.000Z",
+      lastSyncFailureReason: "shell-snapshot-failed",
       connectedAt: "2026-04-09T00:00:00.000Z",
     });
 
@@ -72,6 +76,29 @@ describe("environment runtime catalog stores", () => {
     resetSavedEnvironmentRuntimeStoreForTests();
 
     expect(useSavedEnvironmentRuntimeStore.getState().byId).toEqual({});
+  });
+
+  it("tracks sync errors separately from transport connection errors", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+
+    useSavedEnvironmentRuntimeStore.getState().patch(environmentId, {
+      connectionState: "connected",
+      lastError: null,
+      lastErrorAt: null,
+      syncState: "error",
+      lastSyncError: "Managed process projection failed",
+      lastSyncErrorAt: "2026-04-09T00:00:01.000Z",
+      lastSyncFailureReason: "managed-process-snapshot-failed",
+    });
+
+    expect(useSavedEnvironmentRuntimeStore.getState().byId[environmentId]).toMatchObject({
+      connectionState: "connected",
+      lastError: null,
+      lastErrorAt: null,
+      syncState: "error",
+      lastSyncError: "Managed process projection failed",
+      lastSyncFailureReason: "managed-process-snapshot-failed",
+    });
   });
 
   it("does not throw when local api lookup fails during registry persistence", async () => {

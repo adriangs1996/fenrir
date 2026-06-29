@@ -19,7 +19,7 @@ import type {
 } from "@fenrir/contracts";
 
 import { openInConfiguredEmbeddedEditor } from "~/editorPreferences";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
+import { withPrimaryEnvironmentClient } from "~/environments/runtime";
 import { ensureLocalApi } from "~/localApi";
 
 const EMPTY_WORKFLOW_SUMMARIES: readonly WorkflowThreadSummary[] = [];
@@ -478,8 +478,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       fetchingThreadKeys: new Set(state.fetchingThreadKeys).add(key),
     }));
     try {
-      const client = getPrimaryEnvironmentConnection().client;
-      const result = await client.workflows.listThread({ projectId, originThreadId });
+      const result = await withPrimaryEnvironmentClient((client) =>
+        client.workflows.listThread({ projectId, originThreadId }),
+      );
       get().setThreadSnapshot(projectId, originThreadId, result.workflows, result.runs);
     } finally {
       set((state) => {
@@ -495,8 +496,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       fetchingProjectIds: new Set(state.fetchingProjectIds).add(projectId),
     }));
     try {
-      const client = getPrimaryEnvironmentConnection().client;
-      const result = await client.workflows.listProjectWorkflows({ projectId, includeArchived });
+      const result = await withPrimaryEnvironmentClient((client) =>
+        client.workflows.listProjectWorkflows({ projectId, includeArchived }),
+      );
       get().setProjectSnapshot(
         projectId,
         result.workflows,
@@ -514,8 +516,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   fetchTimeline: async (runId) => {
-    const client = getPrimaryEnvironmentConnection().client;
-    const result = await client.workflows.getTimeline({ runId });
+    const result = await withPrimaryEnvironmentClient((client) =>
+      client.workflows.getTimeline({ runId }),
+    );
     set((state) => ({
       eventsByRunId: {
         ...state.eventsByRunId,
@@ -525,24 +528,26 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   runWorkflow: async (projectId, originThreadId, workflowId, args) => {
-    const client = getPrimaryEnvironmentConnection().client;
-    const result = await client.workflows.run({
-      projectId,
-      ...(originThreadId !== null ? { originThreadId } : {}),
-      ...(workflowId !== undefined ? { workflowId } : {}),
-      ...(args !== undefined ? { args } : {}),
-    });
+    const result = await withPrimaryEnvironmentClient((client) =>
+      client.workflows.run({
+        projectId,
+        ...(originThreadId !== null ? { originThreadId } : {}),
+        ...(workflowId !== undefined ? { workflowId } : {}),
+        ...(args !== undefined ? { args } : {}),
+      }),
+    );
     get().upsertRun(result.run);
     return result.run;
   },
 
   scheduleWorkflow: async (workflowId, runAt, args) => {
-    const client = getPrimaryEnvironmentConnection().client;
-    const result = await client.workflows.scheduleRun({
-      workflowId,
-      runAt: runAt as WorkflowSchedule["runAt"],
-      ...(args !== undefined ? { args } : {}),
-    });
+    const result = await withPrimaryEnvironmentClient((client) =>
+      client.workflows.scheduleRun({
+        workflowId,
+        runAt: runAt as WorkflowSchedule["runAt"],
+        ...(args !== undefined ? { args } : {}),
+      }),
+    );
     set((state) => ({
       schedulesByProjectId: {
         ...state.schedulesByProjectId,
@@ -556,8 +561,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   cancelScheduledRun: async (scheduleId) => {
-    const client = getPrimaryEnvironmentConnection().client;
-    const result = await client.workflows.cancelScheduledRun({ scheduleId });
+    const result = await withPrimaryEnvironmentClient((client) =>
+      client.workflows.cancelScheduledRun({ scheduleId }),
+    );
     set((state) => {
       const schedules = state.schedulesByProjectId[result.schedule.projectId] ?? [];
       return {
@@ -573,36 +579,41 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   stopRun: async (runId) => {
-    const client = getPrimaryEnvironmentConnection().client;
-    await client.workflows.stop({ runId });
-    const run = await client.workflows.getRun({ runId });
+    const run = await withPrimaryEnvironmentClient(async (client) => {
+      await client.workflows.stop({ runId });
+      return client.workflows.getRun({ runId });
+    });
     get().upsertRun(run);
   },
 
   validateWorkflow: async (workflowId) => {
-    const client = getPrimaryEnvironmentConnection().client;
-    const result = await client.workflows.validate({ workflowId });
+    const result = await withPrimaryEnvironmentClient((client) =>
+      client.workflows.validate({ workflowId }),
+    );
     get().upsertWorkflow(result.workflow);
     return result.workflow;
   },
 
   archiveWorkflow: async (workflowId) => {
-    const client = getPrimaryEnvironmentConnection().client;
-    const result = await client.workflows.archive({ workflowId });
+    const result = await withPrimaryEnvironmentClient((client) =>
+      client.workflows.archive({ workflowId }),
+    );
     get().upsertWorkflow(result.workflow);
     return result.workflow;
   },
 
   openWorkflowSource: async (workflowId) => {
-    const client = getPrimaryEnvironmentConnection().client;
-    const result = await client.workflows.openSource({ workflowId });
+    const result = await withPrimaryEnvironmentClient((client) =>
+      client.workflows.openSource({ workflowId }),
+    );
     await openInConfiguredEmbeddedEditor(ensureLocalApi(), result.path);
     return result.path;
   },
 
   fetchMemory: async (workflowId, includeSuppressed = false) => {
-    const client = getPrimaryEnvironmentConnection().client;
-    const result = await client.workflows.listMemory({ workflowId, includeSuppressed });
+    const result = await withPrimaryEnvironmentClient((client) =>
+      client.workflows.listMemory({ workflowId, includeSuppressed }),
+    );
     set((state) => ({
       memoryByWorkflowId: {
         ...state.memoryByWorkflowId,
@@ -613,8 +624,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   suppressMemoryItem: async (memoryId) => {
-    const client = getPrimaryEnvironmentConnection().client;
-    const result = await client.workflows.suppressMemoryItem({ memoryId });
+    const result = await withPrimaryEnvironmentClient((client) =>
+      client.workflows.suppressMemoryItem({ memoryId }),
+    );
     set((state) => {
       const items = state.memoryByWorkflowId[result.item.workflowId] ?? EMPTY_WORKFLOW_MEMORY;
       return {
@@ -630,9 +642,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   respondToInput: async (runId, requestId, response) => {
-    const client = getPrimaryEnvironmentConnection().client;
-    await client.workflows.respondToInput({ runId, requestId, response });
-    const run = await client.workflows.getRun({ runId });
+    const run = await withPrimaryEnvironmentClient(async (client) => {
+      await client.workflows.respondToInput({ runId, requestId, response });
+      return client.workflows.getRun({ runId });
+    });
     get().upsertRun(run);
   },
 }));

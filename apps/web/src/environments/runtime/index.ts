@@ -27,4 +27,8 @@ export {
   resetEnvironmentServiceForTests,
   startEnvironmentConnectionService,
   subscribeEnvironmentConnections,
+  withEnvironmentClient,
+  withPrimaryEnvironmentClient,
 } from "./service";
+
+export { usePrimaryEnvironmentClient, usePrimaryEnvironmentConnection } from "./react";

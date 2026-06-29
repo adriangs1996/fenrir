@@ -30,6 +30,18 @@ vi.mock("~/environments/runtime", () => ({
       },
     },
   }),
+  withPrimaryEnvironmentClient: (
+    operation: (client: {
+      workflows: { openSource: typeof workflowStoreTestMocks.openSource };
+    }) => unknown,
+  ) =>
+    Promise.resolve(
+      operation({
+        workflows: {
+          openSource: workflowStoreTestMocks.openSource,
+        },
+      }),
+    ),
 }));
 
 vi.mock("~/localApi", () => ({

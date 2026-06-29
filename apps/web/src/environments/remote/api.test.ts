@@ -5,6 +5,8 @@ import {
   fetchRemoteEnvironmentDescriptor,
   fetchRemoteSessionState,
   issueRemoteWebSocketToken,
+  isRemoteAuthBlockedStatus,
+  isRemoteEnvironmentAuthHttpError,
   resolveRemoteWebSocketConnectionUrl,
 } from "./api";
 import { resolveRemotePairingTarget } from "./target";
@@ -266,6 +268,50 @@ describe("remote environment api", () => {
         bearerToken: "bearer-token",
       }),
     ).resolves.toBe("wss://remote.example.com/?wsToken=ws-token");
+  });
+
+  it("classifies 401 and 403 remote auth failures as auth-blocking", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: "pairing required" }), {
+        status: 401,
+      }),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    let caught: unknown;
+    try {
+      await fetchRemoteSessionState({
+        httpBaseUrl: "https://remote.example.com/",
+        bearerToken: "expired-token",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(isRemoteEnvironmentAuthHttpError(caught)).toBe(true);
+    expect(isRemoteEnvironmentAuthHttpError(caught) ? caught.status : null).toBe(401);
+    expect(isRemoteAuthBlockedStatus(401)).toBe(true);
+    expect(isRemoteAuthBlockedStatus(403)).toBe(true);
+    expect(isRemoteAuthBlockedStatus(503)).toBe(false);
+  });
+
+  it("keeps transient remote auth fetch failures retryable", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("network down"));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    let caught: unknown;
+    try {
+      await issueRemoteWebSocketToken({
+        httpBaseUrl: "https://remote.example.com/",
+        bearerToken: "bearer-token",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(isRemoteEnvironmentAuthHttpError(caught)).toBe(false);
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toContain("Failed to fetch remote auth endpoint");
   });
 });
 

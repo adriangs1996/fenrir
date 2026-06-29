@@ -14,7 +14,7 @@ import { useFeatureProjectId } from "../hooks/useFeatureProjectId";
 import { usePlanRunnerModelSelection } from "../hooks/usePlanRunnerModelSelection";
 import { getFeatureRunStatus, isFeatureStartBlocked } from "./featureRunStatus";
 import { PlanRunnerModelSelectionPanel } from "./PlanRunnerModelSelectionPanel";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
+import { usePrimaryEnvironmentClient } from "~/environments/runtime";
 import { Button } from "~/components/ui/button";
 import { PlanDagView, type DagPlan } from "./PlanDagView";
 
@@ -37,13 +37,7 @@ export const PlanRunnerConfigureView = memo(function PlanRunnerConfigureView({
   const setPlans = usePlanRunnerStore((s) => s.setPlans);
 
   // ── RPC client ──────────────────────────────────────────────────────
-  const rpcClient = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection().client;
-    } catch {
-      return null;
-    }
-  }, []);
+  const rpcClient = usePrimaryEnvironmentClient();
 
   // ── Resolve projectId from store ────────────────────────────────────
   const projectId = useFeatureProjectId(featureName);

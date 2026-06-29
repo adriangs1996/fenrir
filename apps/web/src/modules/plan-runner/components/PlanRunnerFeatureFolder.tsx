@@ -28,7 +28,7 @@ import {
 } from "@fenrir/contracts";
 import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { getFeatureRunStatus, type FeatureRunStatus } from "./featureRunStatus";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
+import { usePrimaryEnvironmentClient } from "~/environments/runtime";
 import { SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton } from "~/components/ui/sidebar";
 import { Button } from "~/components/ui/button";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "~/components/ui/collapsible";
@@ -97,13 +97,7 @@ export const PlanRunnerFeatureFolder = memo(function PlanRunnerFeatureFolder({
   const [renameInput, setRenameInput] = useState(feature.featureName);
   const [renamePending, setRenamePending] = useState(false);
 
-  const rpcClient = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection().client;
-    } catch {
-      return null;
-    }
-  }, []);
+  const rpcClient = usePrimaryEnvironmentClient();
 
   // Fetch plans when expanded — skip if already cached in store
   useEffect(() => {

@@ -6,6 +6,7 @@ import {
   WorkflowId,
   WorkflowNotFoundError,
   WorkflowRunId,
+  WorkflowTaskKind,
   type WorkflowRunSnapshot,
 } from "@fenrir/contracts";
 import { Effect, Layer, Schema } from "effect";
@@ -88,7 +89,7 @@ const WorkflowAddNoteToolInput = Schema.Struct({
 const WorkflowProposeTaskToolInput = Schema.Struct({
   title: TrimmedNonEmptyString,
   reason: Schema.optional(Schema.String),
-  kind: Schema.Literals(["research", "analysis", "implementation", "other"]),
+  kind: WorkflowTaskKind,
   assignee: Schema.optional(TrimmedNonEmptyString),
   prompt: TrimmedNonEmptyString,
 });

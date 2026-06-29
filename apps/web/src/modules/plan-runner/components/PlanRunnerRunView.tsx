@@ -25,7 +25,7 @@ import {
 import { useStepLogFetcher } from "../hooks/useStepLogFetcher";
 import { usePlanRunnerModelSelection } from "../hooks/usePlanRunnerModelSelection";
 import { getFeatureRunStatus, isFeatureStartBlocked } from "./featureRunStatus";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
+import { usePrimaryEnvironmentClient } from "~/environments/runtime";
 import { useSettings } from "~/hooks/useSettings";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
@@ -82,13 +82,7 @@ export const PlanRunnerRunView = memo(function PlanRunnerRunView({
     handleProviderModelChange,
   } = usePlanRunnerModelSelection();
 
-  const rpcClient = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection().client;
-    } catch {
-      return null;
-    }
-  }, []);
+  const rpcClient = usePrimaryEnvironmentClient();
 
   const brandedRunId = useMemo(() => PlanRunIdSchema.make(runId), [runId]);
 

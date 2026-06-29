@@ -18,6 +18,11 @@ vi.mock("../remote/api", () => ({
   bootstrapRemoteBearerSession: mockBootstrapRemoteBearerSession,
   fetchRemoteEnvironmentDescriptor: mockFetchRemoteEnvironmentDescriptor,
   fetchRemoteSessionState: vi.fn(),
+  isRemoteAuthBlockedStatus: (status: number) => status === 401 || status === 403,
+  isRemoteEnvironmentAuthHttpError: (error: unknown) =>
+    error instanceof Error &&
+    error.name === "RemoteEnvironmentAuthHttpError" &&
+    typeof (error as { status?: unknown }).status === "number",
   resolveRemoteWebSocketConnectionUrl: vi.fn(),
 }));
 

@@ -27,7 +27,18 @@ import {
 
 let cachedApi: LocalApi | undefined;
 
-export function createLocalApi(rpcClient: WsRpcClient): LocalApi {
+type LocalClientResolver = WsRpcClient | (() => WsRpcClient);
+
+function createLocalClientResolver(rpcClientOrResolver: LocalClientResolver): () => WsRpcClient {
+  if (typeof rpcClientOrResolver === "function") {
+    return rpcClientOrResolver;
+  }
+  return () => rpcClientOrResolver;
+}
+
+export function createLocalApi(rpcClientOrResolver: LocalClientResolver): LocalApi {
+  const resolveClient = createLocalClientResolver(rpcClientOrResolver);
+
   return {
     dialogs: {
       pickFolder: async (options) => {
@@ -42,7 +53,7 @@ export function createLocalApi(rpcClient: WsRpcClient): LocalApi {
       },
     },
     shell: {
-      openInEditor: (cwd, editor) => rpcClient.shell.openInEditor({ cwd, editor }),
+      openInEditor: (cwd, editor) => resolveClient().shell.openInEditor({ cwd, editor }),
       openExternal: async (url) => {
         if (window.desktopBridge) {
           const opened = await window.desktopBridge.openExternal(url);
@@ -111,24 +122,27 @@ export function createLocalApi(rpcClient: WsRpcClient): LocalApi {
       },
     },
     server: {
-      getConfig: rpcClient.server.getConfig,
-      listProviderSkills: rpcClient.server.listProviderSkills,
-      refreshProviders: rpcClient.server.refreshProviders,
-      updateProvider: rpcClient.server.updateProvider,
-      upsertKeybinding: rpcClient.server.upsertKeybinding,
-      removeKeybinding: rpcClient.server.removeKeybinding,
-      getTraceDiagnostics: rpcClient.server.getTraceDiagnostics,
-      getProcessDiagnostics: rpcClient.server.getProcessDiagnostics,
-      getProcessResourceHistory: rpcClient.server.getProcessResourceHistory,
-      signalProcess: rpcClient.server.signalProcess,
-      clearLogs: rpcClient.server.clearLogs,
-      getSettings: rpcClient.server.getSettings,
-      updateSettings: rpcClient.server.updateSettings,
-      discoverSourceControl: rpcClient.server.discoverSourceControl,
-      getGlobalActions: async () => [...(await rpcClient.server.getGlobalActions())],
-      createGlobalAction: rpcClient.server.createGlobalAction,
-      updateGlobalAction: rpcClient.server.updateGlobalAction,
-      deleteGlobalAction: rpcClient.server.deleteGlobalAction,
+      getConfig: () => resolveClient().server.getConfig(),
+      listProviderSkills: (input) => resolveClient().server.listProviderSkills(input),
+      refreshProviders: (input) =>
+        input === undefined
+          ? resolveClient().server.refreshProviders()
+          : resolveClient().server.refreshProviders(input),
+      updateProvider: (input) => resolveClient().server.updateProvider(input),
+      upsertKeybinding: (input) => resolveClient().server.upsertKeybinding(input),
+      removeKeybinding: (input) => resolveClient().server.removeKeybinding(input),
+      getTraceDiagnostics: () => resolveClient().server.getTraceDiagnostics(),
+      getProcessDiagnostics: () => resolveClient().server.getProcessDiagnostics(),
+      getProcessResourceHistory: (input) => resolveClient().server.getProcessResourceHistory(input),
+      signalProcess: (input) => resolveClient().server.signalProcess(input),
+      clearLogs: () => resolveClient().server.clearLogs(),
+      getSettings: () => resolveClient().server.getSettings(),
+      updateSettings: (patch) => resolveClient().server.updateSettings(patch),
+      discoverSourceControl: () => resolveClient().server.discoverSourceControl(),
+      getGlobalActions: async () => [...(await resolveClient().server.getGlobalActions())],
+      createGlobalAction: (input) => resolveClient().server.createGlobalAction(input),
+      updateGlobalAction: (id, input) => resolveClient().server.updateGlobalAction(id, input),
+      deleteGlobalAction: (id) => resolveClient().server.deleteGlobalAction(id),
     },
   };
 }
@@ -142,7 +156,7 @@ export function readLocalApi(): LocalApi | undefined {
     return cachedApi;
   }
 
-  cachedApi = createLocalApi(getPrimaryEnvironmentConnection().client);
+  cachedApi = createLocalApi(() => getPrimaryEnvironmentConnection().client);
   return cachedApi;
 }
 

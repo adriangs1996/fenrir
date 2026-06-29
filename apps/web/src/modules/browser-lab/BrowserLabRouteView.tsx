@@ -27,6 +27,8 @@ import {
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { SidebarInset, SidebarTrigger, useSidebar } from "~/components/ui/sidebar";
+import { usePrimaryEnvironmentId } from "~/environments/primary";
+import { usePrimaryEnvironmentClient } from "~/environments/runtime";
 import { isElectron } from "~/env";
 import { useDesktopBridgeAvailable, useIsMainWindow } from "~/hooks/useDesktopBridge";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
@@ -50,7 +52,6 @@ import {
   useTrafficLensLifecycle,
   useTrafficLensStore,
 } from "~/modules/traffic-lens";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime/service";
 import {
   subscribeToLocalServers,
   useLocalServersStore,
@@ -147,15 +148,8 @@ export function BrowserLabRouteView() {
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [railSection, setRailSection] = useState<BrowserLabRailSection>("servers");
   const [railQuery, setRailQuery] = useState("");
-  const primaryEnvironmentConnection = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection();
-    } catch {
-      return null;
-    }
-  }, []);
-  const rpcClient = primaryEnvironmentConnection?.client ?? null;
-  const localServersEnvironmentId = primaryEnvironmentConnection?.environmentId ?? null;
+  const rpcClient = usePrimaryEnvironmentClient();
+  const localServersEnvironmentId = usePrimaryEnvironmentId();
   const localServersState = useLocalServersStore((state) =>
     localServersEnvironmentId ? (state.byEnvironmentId[localServersEnvironmentId] ?? null) : null,
   );
@@ -224,15 +218,15 @@ export function BrowserLabRouteView() {
   }, []);
 
   useEffect(() => {
-    if (!primaryEnvironmentConnection || !desktopBridgeAvailable || !isMainWindow) {
+    if (!rpcClient || !localServersEnvironmentId || !desktopBridgeAvailable || !isMainWindow) {
       return;
     }
 
     return subscribeToLocalServers({
-      client: primaryEnvironmentConnection.client,
-      environmentId: primaryEnvironmentConnection.environmentId,
+      client: rpcClient,
+      environmentId: localServersEnvironmentId,
     });
-  }, [desktopBridgeAvailable, isMainWindow, primaryEnvironmentConnection]);
+  }, [desktopBridgeAvailable, isMainWindow, localServersEnvironmentId, rpcClient]);
 
   const createBrowserTab = useCallback(
     async (url: string) => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type {
   TrafficLensArchivedSessionStorageSummary,
   TrafficLensCookieEntry,
@@ -9,7 +9,7 @@ import type {
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { cn } from "~/lib/utils";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime/service";
+import { usePrimaryEnvironmentClient } from "~/environments/runtime";
 import {
   type TrafficLensStoragePanelArea,
   useTrafficLensStore,
@@ -211,13 +211,7 @@ export function StoragePanel() {
   >([]);
   const [busyState, setBusyState] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<string | null>(null);
-  const rpcClient = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection().client;
-    } catch {
-      return null;
-    }
-  }, []);
+  const rpcClient = usePrimaryEnvironmentClient();
   const profileId = selectedProfileId as any;
 
   const activeTab = activeTabId ? tabs[activeTabId] : null;

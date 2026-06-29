@@ -1,7 +1,7 @@
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { useTrafficLensStore } from "../stores/useTrafficLensStore";
 import { useTrafficLensSync } from "./useTrafficLensSync";
-import { getPrimaryEnvironmentConnection } from "../../../environments/runtime";
+import { usePrimaryEnvironmentClient } from "../../../environments/runtime";
 
 /**
  * Manages the full Traffic Lens lifecycle:
@@ -11,13 +11,7 @@ import { getPrimaryEnvironmentConnection } from "../../../environments/runtime";
  * - Cleans up on unmount
  */
 export function useTrafficLensLifecycle() {
-  const rpcClient = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection().client;
-    } catch {
-      return null;
-    }
-  }, []);
+  const rpcClient = usePrimaryEnvironmentClient();
 
   useTrafficLensSync(rpcClient);
 

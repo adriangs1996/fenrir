@@ -21,7 +21,7 @@ import {
 import React, { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { nextManagedProcessId } from "~/projectScripts";
-import { readEnvironmentConnection } from "~/environments/runtime";
+import { withEnvironmentClient } from "~/environments/runtime";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -372,8 +372,9 @@ export function ManagedProcessForm({
 
     setSubmitting(true);
     try {
-      const conn = readEnvironmentConnection(environmentId);
-      await conn?.client.managedProcess.upsertDefinition({ projectId, definition });
+      await withEnvironmentClient(environmentId, (client) =>
+        client.managedProcess.upsertDefinition({ projectId, definition }),
+      );
       onClose();
     } catch (error) {
       setValidationError(error instanceof Error ? error.message : "Failed to save.");
@@ -387,8 +388,9 @@ export function ManagedProcessForm({
     if (!initial) return;
     setDeleteConfirmOpen(false);
     try {
-      const conn = readEnvironmentConnection(environmentId);
-      await conn?.client.managedProcess.deleteDefinition({ projectId, processDefId: initial.id });
+      await withEnvironmentClient(environmentId, (client) =>
+        client.managedProcess.deleteDefinition({ projectId, processDefId: initial.id }),
+      );
       onClose();
     } catch (error) {
       setValidationError(error instanceof Error ? error.message : "Failed to delete.");

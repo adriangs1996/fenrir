@@ -1,11 +1,11 @@
 import { ArrowLeftIcon, PencilIcon } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { scopeProjectRef } from "@fenrir/client-runtime";
 import type { ProjectId } from "@fenrir/contracts";
 import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { buildPlanRefinementPrompt } from "../planPrompts";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
+import { usePrimaryEnvironmentClient } from "~/environments/runtime";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
@@ -25,13 +25,7 @@ export const PlanRunnerPlanPreview = memo(function PlanRunnerPlanPreview({
   const { handleNewThread } = useNewThreadHandler();
   const setPlans = usePlanRunnerStore((s) => s.setPlans);
 
-  const rpcClient = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection().client;
-    } catch {
-      return null;
-    }
-  }, []);
+  const rpcClient = usePrimaryEnvironmentClient();
 
   // Find the plan across all cached feature keys
   const plan = usePlanRunnerStore((s) => {

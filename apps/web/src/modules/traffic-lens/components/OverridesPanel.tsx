@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { TrafficLensOverrideId } from "@fenrir/contracts";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime/service";
+import { usePrimaryEnvironmentClient } from "~/environments/runtime";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { useTrafficLensStore } from "../stores/useTrafficLensStore";
@@ -21,13 +21,7 @@ export function OverridesPanel() {
   const [statusCode, setStatusCode] = useState("200");
   const [contentType, setContentType] = useState("application/json");
   const [bodyText, setBodyText] = useState('{"ok":true}');
-  const rpcClient = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection().client;
-    } catch {
-      return null;
-    }
-  }, []);
+  const rpcClient = usePrimaryEnvironmentClient();
 
   const handleCreateOverride = async () => {
     if (!rpcClient || !window.desktopBridge) {

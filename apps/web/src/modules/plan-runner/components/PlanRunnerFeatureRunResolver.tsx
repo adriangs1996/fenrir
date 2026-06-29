@@ -1,11 +1,11 @@
 import { Loader2Icon } from "lucide-react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { TrimmedNonEmptyString } from "@fenrir/contracts";
 import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { useFeatureProjectId } from "../hooks/useFeatureProjectId";
 import { PlanRunnerRunView } from "./PlanRunnerRunView";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
+import { usePrimaryEnvironmentClient } from "~/environments/runtime";
 
 interface PlanRunnerFeatureRunResolverProps {
   featureName: string;
@@ -36,13 +36,7 @@ export const PlanRunnerFeatureRunResolver = memo(function PlanRunnerFeatureRunRe
   const projectId = useFeatureProjectId(featureName);
   const upsertRun = usePlanRunnerStore((s) => s.upsertRun);
 
-  const rpcClient = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection().client;
-    } catch {
-      return null;
-    }
-  }, []);
+  const rpcClient = usePrimaryEnvironmentClient();
 
   const [state, setState] = useState<ResolveState>({ status: "loading" });
 

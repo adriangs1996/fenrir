@@ -1,9 +1,9 @@
 import { ChevronRightIcon, FolderOpenIcon } from "lucide-react";
-import { memo, useEffect, useMemo } from "react";
+import { memo, useEffect } from "react";
 import type { ProjectId } from "@fenrir/contracts";
 import { usePlanRunnerStore } from "../stores/usePlanRunnerStore";
 import { PlanRunnerFeatureFolder } from "./PlanRunnerFeatureFolder";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
+import { usePrimaryEnvironmentClient } from "~/environments/runtime";
 import { SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton } from "~/components/ui/sidebar";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "~/components/ui/collapsible";
 import { useUiStateStore } from "~/uiStateStore";
@@ -32,13 +32,7 @@ export const PlanRunnerProjectSection = memo(function PlanRunnerProjectSection({
   const features = usePlanRunnerStore((s) => s.featuresByProjectId[projectId] ?? EMPTY_FEATURES);
   const setFeatures = usePlanRunnerStore((s) => s.setFeatures);
 
-  const rpcClient = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection().client;
-    } catch {
-      return null;
-    }
-  }, []);
+  const rpcClient = usePrimaryEnvironmentClient();
 
   // Fetch features on mount / expand
   useEffect(() => {

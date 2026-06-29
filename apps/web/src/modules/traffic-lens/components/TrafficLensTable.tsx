@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { getPrimaryEnvironmentConnection } from "../../../environments/runtime/service";
+import { withPrimaryEnvironmentClient } from "../../../environments/runtime";
 import { cn } from "../../../lib/utils";
 import type { TrafficLensEntry } from "@fenrir/contracts";
 import { Input } from "../../../components/ui/input";
@@ -156,15 +156,13 @@ export function TrafficLensTable({ onSelectEntry, selectedId }: TrafficLensTable
             className="hover:text-foreground"
             onClick={() => {
               const activeTabId = useTrafficLensStore.getState().activeTabId ?? undefined;
-              try {
-                void getPrimaryEnvironmentConnection()
-                  .client.trafficLens.clearTraffic({ tabId: activeTabId })
-                  .finally(() => {
-                    useTrafficLensStore.getState().clearTraffic();
-                  });
-              } catch {
-                useTrafficLensStore.getState().clearTraffic();
-              }
+              void withPrimaryEnvironmentClient((client) =>
+                client.trafficLens.clearTraffic({ tabId: activeTabId }),
+              )
+                .catch(() => undefined)
+                .finally(() => {
+                  useTrafficLensStore.getState().clearTraffic();
+                });
             }}
           >
             Clear

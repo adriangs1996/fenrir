@@ -5,7 +5,7 @@ import type {
   ExecutionEnvironmentDescriptor,
 } from "@fenrir/contracts";
 
-class RemoteEnvironmentAuthHttpError extends Error {
+export class RemoteEnvironmentAuthHttpError extends Error {
   readonly status: number;
 
   constructor(message: string, status: number) {
@@ -13,6 +13,16 @@ class RemoteEnvironmentAuthHttpError extends Error {
     this.name = "RemoteEnvironmentAuthHttpError";
     this.status = status;
   }
+}
+
+export function isRemoteEnvironmentAuthHttpError(
+  error: unknown,
+): error is RemoteEnvironmentAuthHttpError {
+  return error instanceof RemoteEnvironmentAuthHttpError;
+}
+
+export function isRemoteAuthBlockedStatus(status: number): boolean {
+  return status === 401 || status === 403;
 }
 
 function remoteEndpointUrl(httpBaseUrl: string, pathname: string): string {

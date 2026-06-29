@@ -12,7 +12,7 @@ import {
   PlanFileSummary as PlanFileSummarySchema,
   ArchivedFeatureSummary as ArchivedFeatureSummarySchema,
 } from "@fenrir/contracts";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
+import { withPrimaryEnvironmentClient } from "~/environments/runtime";
 
 type FeatureSummary = typeof FeatureSummarySchema.Type;
 type PlanFileSummary = typeof PlanFileSummarySchema.Type;
@@ -368,8 +368,9 @@ export const usePlanRunnerStore = create<PlanRunnerState>((set, get) => ({
     }));
 
     try {
-      const client = getPrimaryEnvironmentConnection().client;
-      await client.planRunner.archiveFeature({ projectId, featureName });
+      await withPrimaryEnvironmentClient((client) =>
+        client.planRunner.archiveFeature({ projectId, featureName }),
+      );
     } catch (err) {
       // Roll back optimistic removal
       set((state) => ({
@@ -384,8 +385,9 @@ export const usePlanRunnerStore = create<PlanRunnerState>((set, get) => ({
 
   fetchArchivedFeatures: async (projectId) => {
     try {
-      const client = getPrimaryEnvironmentConnection().client;
-      const result = await client.planRunner.listArchivedFeatures(projectId ? { projectId } : {});
+      const result = await withPrimaryEnvironmentClient((client) =>
+        client.planRunner.listArchivedFeatures(projectId ? { projectId } : {}),
+      );
       // Group returned features by projectId
       const grouped: Record<string, ArchivedFeatureSummary[]> = {};
       for (const feature of result.features) {
@@ -405,11 +407,12 @@ export const usePlanRunnerStore = create<PlanRunnerState>((set, get) => ({
   },
 
   unarchiveFeature: async (projectId, archivedDirName) => {
-    const client = getPrimaryEnvironmentConnection().client;
-    const result = await client.planRunner.unarchiveFeature({
-      projectId,
-      archivedDirName,
-    });
+    const result = await withPrimaryEnvironmentClient((client) =>
+      client.planRunner.unarchiveFeature({
+        projectId,
+        archivedDirName,
+      }),
+    );
     // Watcher events refresh both lists via archivedFeaturesChanged / featuresChanged.
     return { featureName: result.featureName };
   },
@@ -469,12 +472,13 @@ export const usePlanRunnerStore = create<PlanRunnerState>((set, get) => ({
     });
 
     try {
-      const client = getPrimaryEnvironmentConnection().client;
-      const result = await client.planRunner.renameFeature({
-        projectId,
-        featureName,
-        newFeatureName,
-      });
+      const result = await withPrimaryEnvironmentClient((client) =>
+        client.planRunner.renameFeature({
+          projectId,
+          featureName,
+          newFeatureName,
+        }),
+      );
       return { featureName: result.featureName };
     } catch (err) {
       // Roll back optimistic mutation.

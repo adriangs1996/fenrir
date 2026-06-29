@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { cn } from "../../../lib/utils";
 import { BodyViewer } from "./BodyViewer";
-import { getPrimaryEnvironmentConnection } from "../../../environments/runtime/service";
+import { withPrimaryEnvironmentClient } from "../../../environments/runtime";
 import { parseHeadersJson } from "../httpSerialization";
 import type { TrafficLensDetail } from "@fenrir/contracts";
 
@@ -90,8 +90,9 @@ export function TrafficLensInspector({ trafficId, onSendToRepeater }: TrafficLen
     setDetail(null);
     (async () => {
       try {
-        const client = getPrimaryEnvironmentConnection().client;
-        const result = await client.trafficLens.getTrafficDetail({ id: trafficId });
+        const result = await withPrimaryEnvironmentClient((client) =>
+          client.trafficLens.getTrafficDetail({ id: trafficId }),
+        );
         if (!cancelled) {
           setDetail(result);
           setLoading(false);

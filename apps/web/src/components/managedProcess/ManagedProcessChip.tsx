@@ -24,7 +24,7 @@ import { useCallback } from "react";
 
 import { cn } from "~/lib/utils";
 import { isSameHostAsServer, urlForDisplay } from "~/managedProcess";
-import { readEnvironmentConnection } from "~/environments/runtime";
+import { withEnvironmentClient } from "~/environments/runtime";
 import { toastManager } from "~/components/ui/toast";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { Button } from "~/components/ui/button";
@@ -128,8 +128,9 @@ async function startProcess(
   worktreePath: string | null,
 ): Promise<void> {
   try {
-    const conn = readEnvironmentConnection(environmentId);
-    await conn?.client.managedProcess.start({ projectId, processDefId, worktreePath });
+    await withEnvironmentClient(environmentId, (client) =>
+      client.managedProcess.start({ projectId, processDefId, worktreePath }),
+    );
   } catch (error) {
     handleRpcError(error);
   }
@@ -137,8 +138,9 @@ async function startProcess(
 
 async function stopProcess(environmentId: EnvironmentId, instanceId: string): Promise<void> {
   try {
-    const conn = readEnvironmentConnection(environmentId);
-    await conn?.client.managedProcess.stop({ instanceId });
+    await withEnvironmentClient(environmentId, (client) =>
+      client.managedProcess.stop({ instanceId }),
+    );
   } catch (error) {
     handleRpcError(error);
   }
@@ -146,8 +148,9 @@ async function stopProcess(environmentId: EnvironmentId, instanceId: string): Pr
 
 async function restartProcess(environmentId: EnvironmentId, instanceId: string): Promise<void> {
   try {
-    const conn = readEnvironmentConnection(environmentId);
-    await conn?.client.managedProcess.restart({ instanceId });
+    await withEnvironmentClient(environmentId, (client) =>
+      client.managedProcess.restart({ instanceId }),
+    );
   } catch (error) {
     handleRpcError(error);
   }
@@ -155,8 +158,9 @@ async function restartProcess(environmentId: EnvironmentId, instanceId: string):
 
 async function forceKillProcess(environmentId: EnvironmentId, instanceId: string): Promise<void> {
   try {
-    const conn = readEnvironmentConnection(environmentId);
-    await conn?.client.managedProcess.forceKill({ instanceId });
+    await withEnvironmentClient(environmentId, (client) =>
+      client.managedProcess.forceKill({ instanceId }),
+    );
   } catch (error) {
     handleRpcError(error);
   }

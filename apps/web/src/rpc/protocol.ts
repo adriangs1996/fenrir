@@ -18,6 +18,7 @@ import {
 } from "./wsConnectionState";
 
 export interface WsProtocolLifecycleHandlers {
+  readonly reportGlobalStatus?: boolean;
   readonly isActive?: () => boolean;
   readonly onAttempt?: (socketUrl: string) => void;
   readonly onOpen?: () => void;
@@ -52,6 +53,7 @@ function resolveWsRpcSocketUrl(rawUrl: string): string {
 
 function defaultLifecycleHandlers(): Required<WsProtocolLifecycleHandlers> {
   return {
+    reportGlobalStatus: true,
     isActive: () => true,
     onAttempt: recordWsConnectionAttempt,
     onOpen: recordWsConnectionOpened,
@@ -73,21 +75,27 @@ function composeLifecycleHandlers(
 ): Required<WsProtocolLifecycleHandlers> {
   const defaults = defaultLifecycleHandlers();
   const isActive = handlers?.isActive ?? (() => true);
+  const reportGlobalStatus = handlers?.reportGlobalStatus ?? true;
 
   return {
+    reportGlobalStatus,
     isActive,
     onAttempt: (socketUrl) => {
       if (!isActive()) {
         return;
       }
-      defaults.onAttempt(socketUrl);
+      if (reportGlobalStatus) {
+        defaults.onAttempt(socketUrl);
+      }
       handlers?.onAttempt?.(socketUrl);
     },
     onOpen: () => {
       if (!isActive()) {
         return;
       }
-      defaults.onOpen();
+      if (reportGlobalStatus) {
+        defaults.onOpen();
+      }
       handlers?.onOpen?.();
     },
     onInboundMessage: () => {
@@ -108,17 +116,34 @@ function composeLifecycleHandlers(
       if (!isActive()) {
         return;
       }
-      defaults.onError(message);
+      if (reportGlobalStatus) {
+        defaults.onError(message);
+      }
       handlers?.onError?.(message);
     },
     onClose: (details) => {
       if (!isActive()) {
         return;
       }
-      defaults.onClose(details);
+      if (reportGlobalStatus) {
+        defaults.onClose(details);
+      }
       handlers?.onClose?.(details);
     },
   };
+}
+
+function resolveAsyncWsRpcSocketUrl(
+  url: () => Promise<string>,
+  lifecycle: Required<WsProtocolLifecycleHandlers>,
+): Effect.Effect<string> {
+  const resolvedUrl = Promise.resolve().then(url).then(resolveWsRpcSocketUrl);
+
+  void resolvedUrl.catch((error: unknown) => {
+    lifecycle.onError(formatSocketErrorMessage(error));
+  });
+
+  return Effect.promise(() => resolvedUrl);
 }
 
 export function createWsRpcProtocolLayer(
@@ -128,15 +153,7 @@ export function createWsRpcProtocolLayer(
   const lifecycle = composeLifecycleHandlers(handlers);
   const resolvedUrl =
     typeof url === "function"
-      ? Effect.promise(() => url()).pipe(
-          Effect.map((rawUrl) => resolveWsRpcSocketUrl(rawUrl)),
-          Effect.tapError((error) =>
-            Effect.sync(() => {
-              lifecycle.onError(formatSocketErrorMessage(error));
-            }),
-          ),
-          Effect.orDie,
-        )
+      ? resolveAsyncWsRpcSocketUrl(url, lifecycle)
       : resolveWsRpcSocketUrl(url);
 
   const trackingWebSocketConstructorLayer = Layer.succeed(

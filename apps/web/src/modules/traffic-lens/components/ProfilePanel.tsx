@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { TrafficLensProfileId } from "@fenrir/contracts";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime/service";
+import { usePrimaryEnvironmentClient } from "~/environments/runtime";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { useTrafficLensStore } from "../stores/useTrafficLensStore";
@@ -25,13 +25,7 @@ export function ProfilePanel() {
   );
   const [newProfileName, setNewProfileName] = useState("");
   const [userAgentPreset, setUserAgentPreset] = useState("");
-  const rpcClient = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection().client;
-    } catch {
-      return null;
-    }
-  }, []);
+  const rpcClient = usePrimaryEnvironmentClient();
 
   const handleCreateProfile = async () => {
     if (!rpcClient || !window.desktopBridge || !newProfileName.trim()) {

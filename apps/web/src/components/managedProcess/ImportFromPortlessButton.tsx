@@ -2,7 +2,7 @@ import type { EnvironmentId, ManagedProcessImportProposal, ProjectId } from "@fe
 import { DownloadIcon, LoaderIcon } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { readEnvironmentConnection } from "~/environments/runtime";
+import { withEnvironmentClient } from "~/environments/runtime";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -79,9 +79,9 @@ export function ImportFromPortlessButton({
     setLoading(true);
     setError(null);
     try {
-      const conn = readEnvironmentConnection(environmentId);
-      if (!conn) return;
-      const result = await conn.client.managedProcess.proposedImports({ projectId });
+      const result = await withEnvironmentClient(environmentId, (client) =>
+        client.managedProcess.proposedImports({ projectId }),
+      );
       if (result.length === 0) {
         setEmptyAlertOpen(true);
         return;
@@ -117,14 +117,14 @@ export function ImportFromPortlessButton({
     setImporting(true);
     setError(null);
     try {
-      const conn = readEnvironmentConnection(environmentId);
-      if (!conn) return;
       const toImport = proposals.filter((_, i) => selected.has(i));
       for (const proposal of toImport) {
-        await conn.client.managedProcess.upsertDefinition({
-          projectId,
-          definition: proposal.suggestedDefinition,
-        });
+        await withEnvironmentClient(environmentId, (client) =>
+          client.managedProcess.upsertDefinition({
+            projectId,
+            definition: proposal.suggestedDefinition,
+          }),
+        );
       }
       setProposals(null);
     } catch (err) {

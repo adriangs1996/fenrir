@@ -25,6 +25,8 @@ vi.mock("~/environments/runtime", () => ({
   getPrimaryEnvironmentConnection: () => ({
     client: { planRunner: rpcMock },
   }),
+  withPrimaryEnvironmentClient: (operation: (client: { planRunner: typeof rpcMock }) => unknown) =>
+    Promise.resolve(operation({ planRunner: rpcMock })),
 }));
 
 import {

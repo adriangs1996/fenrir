@@ -25,7 +25,7 @@ interface GitStatusState {
 
 type GitStatusClient = Pick<WsRpcClient["vcs"], "onStatus" | "refreshStatus">;
 interface ResolvedGitStatusClient {
-  readonly clientIdentity: string;
+  readonly clientIdentity: unknown;
   readonly client: GitStatusClient;
 }
 
@@ -83,9 +83,7 @@ function readResolvedGitStatusClient(target: GitStatusTarget): ResolvedGitStatus
     return null;
   }
   const connection = readEnvironmentConnection(target.environmentId);
-  return connection
-    ? { clientIdentity: connection.environmentId, client: connection.client.vcs }
-    : null;
+  return connection ? { clientIdentity: connection, client: connection.client.vcs } : null;
 }
 
 export function getGitStatusSnapshot(target: GitStatusTarget): GitStatusState {
@@ -204,7 +202,7 @@ function subscribeToGitStatusTarget(
   }
 
   const cwd = target.cwd;
-  let currentClientIdentity: string | null = null;
+  let currentClientIdentity: unknown = null;
   let currentUnsubscribe = NOOP;
 
   const syncClientSubscription = () => {

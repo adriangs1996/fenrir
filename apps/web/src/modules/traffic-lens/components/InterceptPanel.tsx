@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { TrafficLensRuleId } from "@fenrir/contracts";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime/service";
+import { usePrimaryEnvironmentClient } from "~/environments/runtime";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { useTrafficLensStore } from "../stores/useTrafficLensStore";
@@ -41,13 +41,7 @@ export function InterceptPanel() {
   const [ruleMethod, setRuleMethod] = useState("GET");
   const [ruleUrlPattern, setRuleUrlPattern] = useState("*api*");
   const [rulePhase, setRulePhase] = useState<"beforeRequest" | "beforeResponse">("beforeRequest");
-  const rpcClient = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection().client;
-    } catch {
-      return null;
-    }
-  }, []);
+  const rpcClient = usePrimaryEnvironmentClient();
 
   useEffect(() => {
     if (!selectedPaused) {

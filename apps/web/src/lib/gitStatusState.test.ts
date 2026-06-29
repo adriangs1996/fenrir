@@ -398,6 +398,27 @@ describe("gitStatusState", () => {
     release();
   });
 
+  it("resubscribes when a connection is replaced for the same environment", () => {
+    const firstClient = createRegisteredGitStatusClient(ENVIRONMENT_ID);
+    const release = watchGitStatus(TARGET);
+
+    firstClient.emit(BASE_VCS_STATUS);
+    expect(getGitStatusSnapshot(TARGET).data?.branch).toBe("feature/push-status");
+
+    const secondClient = createRegisteredGitStatusClient(ENVIRONMENT_ID);
+    firstClient.emit({ ...BASE_VCS_STATUS, refName: "stale-branch" });
+    secondClient.emit({ ...BASE_VCS_STATUS, refName: "replacement-branch" });
+
+    expect(getGitStatusSnapshot(TARGET)).toEqual({
+      data: { ...BASE_STATUS, branch: "replacement-branch" },
+      error: null,
+      cause: null,
+      isPending: false,
+    });
+
+    release();
+  });
+
   it("returns the cached snapshot when refresh is requested before the client is registered", async () => {
     await expect(refreshGitStatus(TARGET)).resolves.toBeNull();
   });

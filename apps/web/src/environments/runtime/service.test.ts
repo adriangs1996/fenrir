@@ -1,10 +1,30 @@
-import { describe, expect, it } from "vitest";
+import { EnvironmentId } from "@fenrir/contracts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  refreshSavedEnvironmentMetadata,
   shouldApplyProjectionEvent,
   shouldApplyProjectionSnapshot,
   shouldApplyTerminalEvent,
 } from "./service";
+import {
+  getSavedEnvironmentRuntimeState,
+  resetSavedEnvironmentRuntimeStoreForTests,
+  type SavedEnvironmentRecord,
+} from "./catalog";
+import type { WsRpcClient } from "~/rpc/wsRpcClient";
+
+const originalFetch = globalThis.fetch;
+
+beforeEach(() => {
+  resetSavedEnvironmentRuntimeStoreForTests();
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  resetSavedEnvironmentRuntimeStoreForTests();
+  vi.restoreAllMocks();
+});
 
 describe("shouldApplyTerminalEvent", () => {
   it("applies terminal events for draft-only threads", () => {
@@ -144,5 +164,58 @@ describe("shouldApplyProjectionEvent", () => {
         sequence: 6,
       }),
     ).toBe(true);
+  });
+});
+
+describe("refreshSavedEnvironmentMetadata", () => {
+  it("marks a saved environment connected only after config and auth metadata respond", async () => {
+    const environmentId = EnvironmentId.make("env-remote");
+    const record: SavedEnvironmentRecord = {
+      environmentId,
+      label: "Remote",
+      httpBaseUrl: "https://remote.example.com/",
+      wsBaseUrl: "wss://remote.example.com/",
+      createdAt: "2026-04-22T10:00:00.000Z",
+      lastConnectedAt: null,
+    };
+    const getConfig = vi.fn(async () => ({
+      environment: {
+        environmentId,
+        label: "Remote",
+      },
+      availableEditors: [],
+    }));
+    const client = {
+      server: {
+        getConfig,
+      },
+    } as unknown as WsRpcClient;
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          authenticated: true,
+          role: "client",
+        }),
+        { status: 200 },
+      ),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    expect(getSavedEnvironmentRuntimeState(environmentId).connectionState).toBe("disconnected");
+
+    await refreshSavedEnvironmentMetadata(record, "bearer-token", client);
+
+    expect(getConfig).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith("https://remote.example.com/api/auth/session", {
+      method: "GET",
+      headers: {
+        authorization: "Bearer bearer-token",
+      },
+    });
+    expect(getSavedEnvironmentRuntimeState(environmentId)).toMatchObject({
+      authState: "authenticated",
+      connectionState: "connected",
+      role: "client",
+    });
   });
 });

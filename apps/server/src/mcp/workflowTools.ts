@@ -1,3 +1,4 @@
+import { WORKFLOW_TASK_KIND_VALUES } from "@fenrir/contracts";
 import { z } from "zod";
 import type * as z4 from "zod/v4/core";
 
@@ -167,7 +168,7 @@ export const WORKFLOW_COLLABORATION_MCP_TOOLS = [
     inputSchema: {
       title: z.string().min(1).describe("Task title."),
       reason: z.string().describe("Optional reason for the proposal.").optional(),
-      kind: z.enum(["research", "analysis", "implementation", "other"]).describe("Task kind."),
+      kind: z.enum(WORKFLOW_TASK_KIND_VALUES).describe("Task kind."),
       assignee: z
         .string()
         .min(1)

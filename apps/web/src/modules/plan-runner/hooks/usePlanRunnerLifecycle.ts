@@ -1,6 +1,5 @@
-import { useMemo } from "react";
 import { usePlanRunnerSync } from "./usePlanRunnerSync";
-import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
+import { usePrimaryEnvironmentClient } from "~/environments/runtime";
 
 /**
  * Manages the Plan Runner lifecycle:
@@ -9,13 +8,7 @@ import { getPrimaryEnvironmentConnection } from "~/environments/runtime";
  * - Cleans up on unmount
  */
 export function usePlanRunnerLifecycle() {
-  const rpcClient = useMemo(() => {
-    try {
-      return getPrimaryEnvironmentConnection().client;
-    } catch {
-      return null;
-    }
-  }, []);
+  const rpcClient = usePrimaryEnvironmentClient();
 
   usePlanRunnerSync(rpcClient);
 }

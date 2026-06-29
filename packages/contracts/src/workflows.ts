@@ -123,13 +123,24 @@ export const WorkflowTaskStatus = Schema.Literals([
 ]);
 export type WorkflowTaskStatus = typeof WorkflowTaskStatus.Type;
 
-export const WorkflowTaskKind = Schema.Literals([
+export const WORKFLOW_TASK_KIND_VALUES = [
   "research",
   "analysis",
+  "review",
   "implementation",
   "other",
-]);
+] as const;
+
+export const WorkflowTaskKind = Schema.Literals(WORKFLOW_TASK_KIND_VALUES);
 export type WorkflowTaskKind = typeof WorkflowTaskKind.Type;
+
+export function isWorkflowTaskKind(value: unknown): value is WorkflowTaskKind {
+  return typeof value === "string" && WORKFLOW_TASK_KIND_VALUES.includes(value as WorkflowTaskKind);
+}
+
+export function normalizeWorkflowTaskKind(value: unknown): WorkflowTaskKind {
+  return isWorkflowTaskKind(value) ? value : "other";
+}
 
 export const WorkflowInputRequestStatus = Schema.Literals(["pending", "resolved", "cancelled"]);
 export type WorkflowInputRequestStatus = typeof WorkflowInputRequestStatus.Type;

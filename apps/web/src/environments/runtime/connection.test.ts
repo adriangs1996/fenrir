@@ -8,12 +8,15 @@ function createTestClient(options?: {
   readonly getBootstrapSnapshot?: () => Promise<{ readonly snapshotSequence: number }>;
   readonly getSnapshot?: () => Promise<{ readonly snapshotSequence: number }>;
   readonly replayEvents?: () => Promise<ReadonlyArray<any>>;
+  readonly reconnect?: () => Promise<void>;
+  readonly isHeartbeatFresh?: () => boolean;
 }) {
   const lifecycleListeners = new Set<(event: any) => void>();
   const configListeners = new Set<(event: any) => void>();
   const terminalListeners = new Set<(event: any) => void>();
   const shellListeners = new Set<(item: any) => void>();
   const managedProcessListeners = new Set<(item: any) => void>();
+  const domainListeners = new Set<(event: any) => void>();
   let domainResubscribe: (() => void) | undefined;
   let shellResubscribe: (() => void) | undefined;
   let managedProcessResubscribe: (() => void) | undefined;
@@ -40,7 +43,8 @@ function createTestClient(options?: {
 
   const client = {
     dispose: vi.fn(async () => undefined),
-    reconnect: vi.fn(async () => undefined),
+    reconnect: vi.fn(options?.reconnect ?? (async () => undefined)),
+    isHeartbeatFresh: vi.fn(options?.isHeartbeatFresh ?? (() => false)),
     server: {
       getConfig: vi.fn(async () => ({
         environment: {
@@ -120,14 +124,18 @@ function createTestClient(options?: {
       getTurnDiff: vi.fn(async () => undefined),
       getFullThreadDiff: vi.fn(async () => undefined),
       replayEvents,
-      onDomainEvent: vi.fn((_: (event: any) => void, options?: { onResubscribe?: () => void }) => {
-        domainResubscribe = options?.onResubscribe;
-        return () => {
-          if (domainResubscribe === options?.onResubscribe) {
-            domainResubscribe = undefined;
-          }
-        };
-      }),
+      onDomainEvent: vi.fn(
+        (listener: (event: any) => void, options?: { onResubscribe?: () => void }) => {
+          domainListeners.add(listener);
+          domainResubscribe = options?.onResubscribe;
+          return () => {
+            domainListeners.delete(listener);
+            if (domainResubscribe === options?.onResubscribe) {
+              domainResubscribe = undefined;
+            }
+          };
+        },
+      ),
     },
     terminal: {
       open: vi.fn(async () => undefined),
@@ -202,6 +210,15 @@ function createTestClient(options?: {
               environmentId,
             },
           },
+        });
+      }
+    },
+    emitDomainEvent: (sequence: number) => {
+      for (const listener of domainListeners) {
+        listener({
+          sequence,
+          type: "thread.updated",
+          payload: {},
         });
       }
     },
@@ -409,6 +426,78 @@ describe("createEnvironmentConnection", () => {
 
     await connection.dispose();
   });
+
+  it("does not advance replay sequence when applying a domain event fails", async () => {
+    const environmentId = EnvironmentId.make("env-1");
+    const applyError = new Error("projection cache write failed");
+    let shouldThrowApplyError = true;
+    const applyEventBatch = vi.fn(() => {
+      if (shouldThrowApplyError) {
+        throw applyError;
+      }
+    });
+    const onDomainSyncFailure = vi.fn();
+    const { client, emitDomainEvent, replayEvents } = createTestClient({
+      replayEvents: async () => [
+        {
+          sequence: 2,
+          type: "thread.updated",
+          payload: {},
+        },
+        {
+          sequence: 3,
+          type: "thread.updated",
+          payload: {},
+        },
+      ],
+    });
+
+    const connection = createEnvironmentConnection({
+      kind: "saved",
+      knownEnvironment: {
+        id: "env-1",
+        label: "Remote env",
+        source: "manual",
+        target: {
+          httpBaseUrl: "http://example.test",
+          wsBaseUrl: "ws://example.test",
+        },
+        environmentId,
+      },
+      client,
+      syncManagedProcessSnapshot: vi.fn(),
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
+      applyEventBatch,
+      syncSnapshot: vi.fn(),
+      applyTerminalEvent: vi.fn(),
+      onDomainSyncFailure,
+    });
+
+    await connection.ensureBootstrapped();
+
+    emitDomainEvent(2);
+    await Promise.resolve();
+
+    expect(onDomainSyncFailure).toHaveBeenCalledWith({
+      reason: "projection-replay-failed",
+      error: applyError,
+    });
+
+    shouldThrowApplyError = false;
+    emitDomainEvent(3);
+
+    await vi.waitFor(() => {
+      expect(replayEvents).toHaveBeenCalledWith({ fromSequenceExclusive: 1 });
+      expect(applyEventBatch).toHaveBeenCalledWith(
+        [expect.objectContaining({ sequence: 2 }), expect.objectContaining({ sequence: 3 })],
+        environmentId,
+      );
+    });
+
+    await connection.dispose();
+  });
+
   it("swallows replay recovery failures triggered by resubscribe", async () => {
     const environmentId = EnvironmentId.make("env-1");
     const snapshotError = new Error("snapshot failed");
@@ -527,6 +616,368 @@ describe("createEnvironmentConnection", () => {
     await reconnectPromise;
 
     expect(client.reconnect).toHaveBeenCalledTimes(1);
+
+    await connection.dispose();
+  });
+
+  it("serializes reconnect calls", async () => {
+    const environmentId = EnvironmentId.make("env-1");
+    const releaseReconnects: Array<() => void> = [];
+    const reconnectStarted: Promise<void>[] = [];
+    const { client, emitManagedProcessSnapshot, emitShellSnapshot } = createTestClient({
+      reconnect: () => {
+        const started = Promise.resolve();
+        reconnectStarted.push(started);
+        return new Promise<void>((resolve) => {
+          releaseReconnects.push(resolve);
+        });
+      },
+    });
+
+    const connection = createEnvironmentConnection({
+      kind: "saved",
+      knownEnvironment: {
+        id: "env-1",
+        label: "Remote env",
+        source: "manual",
+        target: {
+          httpBaseUrl: "http://example.test",
+          wsBaseUrl: "ws://example.test",
+        },
+        environmentId,
+      },
+      client,
+      syncManagedProcessSnapshot: vi.fn(),
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
+      applyEventBatch: vi.fn(),
+      syncSnapshot: vi.fn(),
+      applyTerminalEvent: vi.fn(),
+    });
+
+    const firstReconnect = connection.reconnect();
+    const secondReconnect = connection.reconnect();
+    await Promise.resolve();
+
+    expect(client.reconnect).toHaveBeenCalledTimes(1);
+
+    releaseReconnects.shift()?.();
+    emitShellSnapshot(2);
+    emitManagedProcessSnapshot([]);
+    await reconnectStarted[0];
+
+    await vi.waitFor(() => {
+      expect(client.reconnect).toHaveBeenCalledTimes(2);
+    });
+
+    releaseReconnects.shift()?.();
+    emitShellSnapshot(3);
+    emitManagedProcessSnapshot([]);
+
+    await Promise.all([firstReconnect, secondReconnect]);
+    expect(client.reconnect).toHaveBeenCalledTimes(2);
+
+    await connection.dispose();
+  });
+
+  it("times out reconnect when fresh snapshots never arrive", async () => {
+    vi.useFakeTimers();
+    const environmentId = EnvironmentId.make("env-1");
+    const { client } = createTestClient();
+
+    const connection = createEnvironmentConnection({
+      kind: "saved",
+      knownEnvironment: {
+        id: "env-1",
+        label: "Remote env",
+        source: "manual",
+        target: {
+          httpBaseUrl: "http://example.test",
+          wsBaseUrl: "ws://example.test",
+        },
+        environmentId,
+      },
+      client,
+      syncManagedProcessSnapshot: vi.fn(),
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
+      applyEventBatch: vi.fn(),
+      syncSnapshot: vi.fn(),
+      applyTerminalEvent: vi.fn(),
+    });
+
+    try {
+      const reconnectPromise = connection.reconnect();
+      await Promise.resolve();
+      const reconnectExpectation = expect(reconnectPromise).rejects.toThrow(
+        "Timed out waiting for shell snapshot after reconnect.",
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+      await reconnectExpectation;
+    } finally {
+      await connection.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("continues waiting on the newest snapshot gate after a reset", async () => {
+    const environmentId = EnvironmentId.make("env-1");
+    const {
+      client,
+      emitManagedProcessSnapshot,
+      emitShellSnapshot,
+      triggerManagedProcessResubscribe,
+      triggerShellResubscribe,
+    } = createTestClient();
+
+    const connection = createEnvironmentConnection({
+      kind: "saved",
+      knownEnvironment: {
+        id: "env-1",
+        label: "Remote env",
+        source: "manual",
+        target: {
+          httpBaseUrl: "http://example.test",
+          wsBaseUrl: "ws://example.test",
+        },
+        environmentId,
+      },
+      client,
+      syncManagedProcessSnapshot: vi.fn(),
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
+      applyEventBatch: vi.fn(),
+      syncSnapshot: vi.fn(),
+      applyTerminalEvent: vi.fn(),
+    });
+
+    const reconnectPromise = connection.reconnect();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    triggerShellResubscribe();
+    triggerManagedProcessResubscribe();
+    await Promise.resolve();
+
+    emitShellSnapshot(2);
+    emitManagedProcessSnapshot([]);
+
+    await expect(reconnectPromise).resolves.toBeUndefined();
+    await connection.dispose();
+  });
+
+  it("reports shell snapshot sync failures without throwing from the subscription", async () => {
+    const environmentId = EnvironmentId.make("env-1");
+    const { client, emitShellSnapshot } = createTestClient();
+    const syncError = new Error("shell cache write failed");
+    let shouldThrowSyncError = true;
+    const syncShellSnapshot = vi.fn(() => {
+      if (shouldThrowSyncError) {
+        throw syncError;
+      }
+    });
+    const onDomainSyncFailure = vi.fn();
+    const onDomainSyncSuccess = vi.fn();
+
+    const connection = createEnvironmentConnection({
+      kind: "saved",
+      knownEnvironment: {
+        id: "env-1",
+        label: "Remote env",
+        source: "manual",
+        target: {
+          httpBaseUrl: "http://example.test",
+          wsBaseUrl: "ws://example.test",
+        },
+        environmentId,
+      },
+      client,
+      syncManagedProcessSnapshot: vi.fn(),
+      syncShellSnapshot,
+      applyShellEvent: vi.fn(),
+      applyEventBatch: vi.fn(),
+      syncSnapshot: vi.fn(),
+      applyTerminalEvent: vi.fn(),
+      onDomainSyncFailure,
+      onDomainSyncSuccess,
+    });
+
+    await connection.ensureBootstrapped();
+
+    expect(() => emitShellSnapshot(2)).not.toThrow();
+    expect(onDomainSyncFailure).toHaveBeenCalledWith({
+      reason: "shell-snapshot-failed",
+      error: syncError,
+    });
+
+    shouldThrowSyncError = false;
+    emitShellSnapshot(3);
+
+    expect(onDomainSyncSuccess).toHaveBeenCalledWith("shell-snapshot-failed");
+
+    await connection.dispose();
+  });
+
+  it("reports managed-process snapshot sync failures without throwing from the subscription", async () => {
+    const environmentId = EnvironmentId.make("env-1");
+    const syncError = new Error("managed process cache write failed");
+    const syncManagedProcessSnapshot = vi.fn(() => {
+      throw syncError;
+    });
+    const onDomainSyncFailure = vi.fn();
+
+    const { client } = createTestClient();
+
+    const connection = createEnvironmentConnection({
+      kind: "saved",
+      knownEnvironment: {
+        id: "env-1",
+        label: "Remote env",
+        source: "manual",
+        target: {
+          httpBaseUrl: "http://example.test",
+          wsBaseUrl: "ws://example.test",
+        },
+        environmentId,
+      },
+      client,
+      syncManagedProcessSnapshot,
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
+      applyEventBatch: vi.fn(),
+      syncSnapshot: vi.fn(),
+      applyTerminalEvent: vi.fn(),
+      onDomainSyncFailure,
+    });
+
+    expect(onDomainSyncFailure).toHaveBeenCalledWith({
+      reason: "managed-process-snapshot-failed",
+      error: syncError,
+    });
+
+    await connection.dispose();
+  });
+
+  it("skips browser-resume reconnects while the heartbeat is fresh", async () => {
+    const environmentId = EnvironmentId.make("env-1");
+    const { client } = createTestClient({
+      isHeartbeatFresh: () => true,
+    });
+
+    const connection = createEnvironmentConnection({
+      kind: "saved",
+      knownEnvironment: {
+        id: "env-1",
+        label: "Remote env",
+        source: "manual",
+        target: {
+          httpBaseUrl: "http://example.test",
+          wsBaseUrl: "ws://example.test",
+        },
+        environmentId,
+      },
+      client,
+      syncManagedProcessSnapshot: vi.fn(),
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
+      applyEventBatch: vi.fn(),
+      syncSnapshot: vi.fn(),
+      applyTerminalEvent: vi.fn(),
+    });
+
+    await expect(connection.requestReconnect("browser-resume")).resolves.toBe(false);
+
+    expect(client.isHeartbeatFresh).toHaveBeenCalledOnce();
+    expect(client.reconnect).not.toHaveBeenCalled();
+
+    await connection.dispose();
+  });
+
+  it("coalesces stale browser-resume reconnect requests", async () => {
+    const environmentId = EnvironmentId.make("env-1");
+    const releaseReconnects: Array<() => void> = [];
+    const { client, emitManagedProcessSnapshot, emitShellSnapshot } = createTestClient({
+      reconnect: () =>
+        new Promise<void>((resolve) => {
+          releaseReconnects.push(resolve);
+        }),
+    });
+
+    const connection = createEnvironmentConnection({
+      kind: "saved",
+      knownEnvironment: {
+        id: "env-1",
+        label: "Remote env",
+        source: "manual",
+        target: {
+          httpBaseUrl: "http://example.test",
+          wsBaseUrl: "ws://example.test",
+        },
+        environmentId,
+      },
+      client,
+      syncManagedProcessSnapshot: vi.fn(),
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
+      applyEventBatch: vi.fn(),
+      syncSnapshot: vi.fn(),
+      applyTerminalEvent: vi.fn(),
+    });
+
+    const firstReconnect = connection.requestReconnect("browser-resume");
+    const secondReconnect = connection.requestReconnect("browser-resume");
+    await Promise.resolve();
+
+    expect(client.isHeartbeatFresh).toHaveBeenCalledTimes(2);
+    expect(client.reconnect).toHaveBeenCalledOnce();
+
+    releaseReconnects.shift()?.();
+    emitShellSnapshot(2);
+    emitManagedProcessSnapshot([]);
+
+    await expect(Promise.all([firstReconnect, secondReconnect])).resolves.toEqual([true, true]);
+    expect(client.reconnect).toHaveBeenCalledOnce();
+
+    await connection.dispose();
+  });
+
+  it("forces user retry reconnects even while the heartbeat is fresh", async () => {
+    const environmentId = EnvironmentId.make("env-1");
+    const { client, emitManagedProcessSnapshot, emitShellSnapshot } = createTestClient({
+      isHeartbeatFresh: () => true,
+    });
+
+    const connection = createEnvironmentConnection({
+      kind: "saved",
+      knownEnvironment: {
+        id: "env-1",
+        label: "Remote env",
+        source: "manual",
+        target: {
+          httpBaseUrl: "http://example.test",
+          wsBaseUrl: "ws://example.test",
+        },
+        environmentId,
+      },
+      client,
+      syncManagedProcessSnapshot: vi.fn(),
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
+      applyEventBatch: vi.fn(),
+      syncSnapshot: vi.fn(),
+      applyTerminalEvent: vi.fn(),
+    });
+
+    const reconnectPromise = connection.requestReconnect("user-retry");
+    await Promise.resolve();
+
+    emitShellSnapshot(2);
+    emitManagedProcessSnapshot([]);
+
+    await expect(reconnectPromise).resolves.toBe(true);
+
+    expect(client.isHeartbeatFresh).not.toHaveBeenCalled();
+    expect(client.reconnect).toHaveBeenCalledOnce();
 
     await connection.dispose();
   });

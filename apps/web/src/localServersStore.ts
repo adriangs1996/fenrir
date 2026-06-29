@@ -24,8 +24,10 @@ export interface LocalServersStoreState {
 }
 
 interface LocalServersSubscription {
+  readonly client: WsRpcClient;
   readonly unsubscribe: () => void;
   refCount: number;
+  active: boolean;
 }
 
 const idleState: LocalServersEnvironmentState = {
@@ -35,6 +37,28 @@ const idleState: LocalServersEnvironmentState = {
 };
 const emptyLocalServers: readonly DiscoveredLocalServer[] = Object.freeze([]);
 const activeSubscriptions = new Map<string, LocalServersSubscription>();
+
+function closeLocalServersSubscription(key: string, subscription: LocalServersSubscription): void {
+  if (!subscription.active) {
+    return;
+  }
+  if (activeSubscriptions.get(key) === subscription) {
+    activeSubscriptions.delete(key);
+  }
+  subscription.active = false;
+  subscription.unsubscribe();
+}
+
+function releaseLocalServersSubscription(
+  key: string,
+  subscription: LocalServersSubscription,
+): void {
+  subscription.refCount = Math.max(0, subscription.refCount - 1);
+  if (subscription.refCount > 0 && subscription.active) {
+    return;
+  }
+  closeLocalServersSubscription(key, subscription);
+}
 
 function getEnvironmentState(
   state: LocalServersStoreState,
@@ -128,14 +152,12 @@ export function subscribeToLocalServers(input: {
 }): () => void {
   const subscriptionKey = input.environmentId;
   const activeSubscription = activeSubscriptions.get(subscriptionKey);
-  if (activeSubscription) {
+  if (activeSubscription && activeSubscription.client === input.client) {
     activeSubscription.refCount += 1;
-    return () => {
-      activeSubscription.refCount -= 1;
-      if (activeSubscription.refCount > 0) return;
-      activeSubscriptions.delete(subscriptionKey);
-      activeSubscription.unsubscribe();
-    };
+    return () => releaseLocalServersSubscription(subscriptionKey, activeSubscription);
+  }
+  if (activeSubscription) {
+    closeLocalServersSubscription(subscriptionKey, activeSubscription);
   }
 
   const store = useLocalServersStore.getState();
@@ -153,16 +175,13 @@ export function subscribeToLocalServers(input: {
       },
     );
     const subscription: LocalServersSubscription = {
+      client: input.client,
       unsubscribe,
       refCount: 1,
+      active: true,
     };
     activeSubscriptions.set(subscriptionKey, subscription);
-    return () => {
-      subscription.refCount -= 1;
-      if (subscription.refCount > 0) return;
-      activeSubscriptions.delete(subscriptionKey);
-      unsubscribe();
-    };
+    return () => releaseLocalServersSubscription(subscriptionKey, subscription);
   } catch (error) {
     useLocalServersStore
       .getState()

@@ -63,9 +63,9 @@ import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
   addSavedEnvironment,
-  getPrimaryEnvironmentConnection,
   reconnectSavedEnvironment,
   removeSavedEnvironment,
+  usePrimaryEnvironmentClient,
 } from "~/environments/runtime";
 
 const accessTimestampFormatter = new Intl.DateTimeFormat(undefined, {
@@ -141,6 +141,12 @@ function getSavedBackendStatusTooltip(
   nowMs: number,
 ) {
   const connectionState = runtime?.connectionState ?? "disconnected";
+
+  if (runtime?.syncState === "error") {
+    return runtime.lastSyncError
+      ? `Data synchronization failed: ${runtime.lastSyncError}`
+      : "Data synchronization failed.";
+  }
 
   if (connectionState === "connected") {
     const connectedAt = runtime?.connectedAt ?? record.lastConnectedAt;
@@ -689,14 +695,17 @@ function SavedBackendListRow({
   }
 
   const connectionState = runtime?.connectionState ?? "disconnected";
+  const syncState = runtime?.syncState ?? "ok";
   const stateDotClassName =
-    connectionState === "connected"
-      ? "bg-success"
-      : connectionState === "connecting"
-        ? "bg-warning"
-        : connectionState === "error"
-          ? "bg-destructive"
-          : "bg-muted-foreground/40";
+    syncState === "error"
+      ? "bg-warning"
+      : connectionState === "connected"
+        ? "bg-success"
+        : connectionState === "connecting"
+          ? "bg-warning"
+          : connectionState === "error"
+            ? "bg-destructive"
+            : "bg-muted-foreground/40";
   const roleLabel = runtime?.role ? (runtime.role === "owner" ? "Owner" : "Client") : null;
   const descriptorLabel = runtime?.descriptor?.label ?? null;
   const statusTooltip = getSavedBackendStatusTooltip(runtime, record, nowMs);
@@ -753,6 +762,7 @@ function SavedBackendListRow({
 
 export function ConnectionsSettings() {
   const desktopBridge = window.desktopBridge;
+  const primaryRpcClient = usePrimaryEnvironmentClient();
   const [currentSessionRole, setCurrentSessionRole] = useState<"owner" | "client" | null>(
     desktopBridge ? "owner" : null,
   );
@@ -1011,69 +1021,73 @@ export function ConnectionsSettings() {
 
   useEffect(() => {
     if (!canManageLocalBackend) return;
+    if (!primaryRpcClient) {
+      setIsLoadingDesktopAccessManagement(false);
+      setDesktopAccessManagementError(null);
+      return;
+    }
 
     let cancelled = false;
     setIsLoadingDesktopAccessManagement(true);
     type AuthAccessEvent = Parameters<
       Parameters<WsRpcClient["server"]["subscribeAuthAccess"]>[0]
     >[0];
-    const unsubscribeAuthAccess =
-      getPrimaryEnvironmentConnection().client.server.subscribeAuthAccess(
-        (event: AuthAccessEvent) => {
-          if (cancelled) {
-            return;
-          }
+    const unsubscribeAuthAccess = primaryRpcClient.server.subscribeAuthAccess(
+      (event: AuthAccessEvent) => {
+        if (cancelled) {
+          return;
+        }
 
-          switch (event.type) {
-            case "snapshot":
-              setDesktopPairingLinks(
-                sortDesktopPairingLinks(
-                  event.payload.pairingLinks.map((pairingLink: AuthPairingLink) =>
-                    toDesktopPairingLinkRecord(pairingLink),
-                  ),
+        switch (event.type) {
+          case "snapshot":
+            setDesktopPairingLinks(
+              sortDesktopPairingLinks(
+                event.payload.pairingLinks.map((pairingLink: AuthPairingLink) =>
+                  toDesktopPairingLinkRecord(pairingLink),
                 ),
-              );
-              setDesktopClientSessions(
-                sortDesktopClientSessions(
-                  event.payload.clientSessions.map((clientSession: AuthClientSession) =>
-                    toDesktopClientSessionRecord(clientSession),
-                  ),
+              ),
+            );
+            setDesktopClientSessions(
+              sortDesktopClientSessions(
+                event.payload.clientSessions.map((clientSession: AuthClientSession) =>
+                  toDesktopClientSessionRecord(clientSession),
                 ),
-              );
-              break;
-            case "pairingLinkUpserted":
-              setDesktopPairingLinks((current) =>
-                upsertDesktopPairingLink(current, toDesktopPairingLinkRecord(event.payload)),
-              );
-              break;
-            case "pairingLinkRemoved":
-              setDesktopPairingLinks((current) =>
-                removeDesktopPairingLink(current, event.payload.id),
-              );
-              break;
-            case "clientUpserted":
-              setDesktopClientSessions((current) =>
-                upsertDesktopClientSession(current, toDesktopClientSessionRecord(event.payload)),
-              );
-              break;
-            case "clientRemoved":
-              setDesktopClientSessions((current) =>
-                removeDesktopClientSession(current, event.payload.sessionId),
-              );
-              break;
-          }
+              ),
+            );
+            break;
+          case "pairingLinkUpserted":
+            setDesktopPairingLinks((current) =>
+              upsertDesktopPairingLink(current, toDesktopPairingLinkRecord(event.payload)),
+            );
+            break;
+          case "pairingLinkRemoved":
+            setDesktopPairingLinks((current) =>
+              removeDesktopPairingLink(current, event.payload.id),
+            );
+            break;
+          case "clientUpserted":
+            setDesktopClientSessions((current) =>
+              upsertDesktopClientSession(current, toDesktopClientSessionRecord(event.payload)),
+            );
+            break;
+          case "clientRemoved":
+            setDesktopClientSessions((current) =>
+              removeDesktopClientSession(current, event.payload.sessionId),
+            );
+            break;
+        }
 
-          setDesktopAccessManagementError(null);
-          setIsLoadingDesktopAccessManagement(false);
+        setDesktopAccessManagementError(null);
+        setIsLoadingDesktopAccessManagement(false);
+      },
+      {
+        onResubscribe: () => {
+          if (!cancelled) {
+            setIsLoadingDesktopAccessManagement(true);
+          }
         },
-        {
-          onResubscribe: () => {
-            if (!cancelled) {
-              setIsLoadingDesktopAccessManagement(true);
-            }
-          },
-        },
-      );
+      },
+    );
     if (desktopBridge) {
       void desktopBridge
         .getServerExposureState()
@@ -1096,7 +1110,7 @@ export function ConnectionsSettings() {
       cancelled = true;
       unsubscribeAuthAccess();
     };
-  }, [canManageLocalBackend, desktopBridge]);
+  }, [canManageLocalBackend, desktopBridge, primaryRpcClient]);
 
   useEffect(() => {
     if (canManageLocalBackend) return;

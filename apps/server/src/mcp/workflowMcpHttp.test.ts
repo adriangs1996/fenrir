@@ -12,6 +12,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  type WorkflowCollaborationProposeTaskInput,
   type WorkflowCollaborationStatePatchInput,
   type WorkflowServiceShape,
 } from "../workflows/Services/Workflow.ts";
@@ -532,6 +533,41 @@ describe("callWorkflowMcpTool", () => {
       "Workflow tool workflow_create_draft is not available in collaboration mode.",
     );
     expect(createCount).toBe(0);
+  });
+
+  it("accepts review task proposals from collaboration MCP tools", async () => {
+    const runIdValue = "run-review-task";
+    const runId = WorkflowRunId.make(runIdValue);
+    let capturedKind: WorkflowCollaborationProposeTaskInput["kind"] | null = null;
+    const workflows = {
+      collaborationProposeTask: (input: WorkflowCollaborationProposeTaskInput) =>
+        Effect.sync(() => {
+          capturedKind = input.kind;
+          return makeRun({ runId: runIdValue });
+        }),
+    } as unknown as WorkflowServiceShape;
+
+    await expect(
+      Effect.runPromise(
+        callWorkflowMcpTool(
+          workflows,
+          "workflow_propose_task",
+          {
+            projectId,
+            originThreadId,
+            mode: "collaboration",
+            workflowRunId: runId,
+            agentName: "reviewer",
+          },
+          {
+            title: "Review proposed changes",
+            kind: "review",
+            prompt: "Review the completed implementation.",
+          },
+        ),
+      ),
+    ).resolves.toMatchObject({ runId });
+    expect(capturedKind).toBe("review");
   });
 
   it("defaults collaboration state patches to the workflow-readable state scope", async () => {

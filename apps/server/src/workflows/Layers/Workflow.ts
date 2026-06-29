@@ -10,6 +10,7 @@ import {
   MessageId,
   NonNegativeInt,
   ThreadId,
+  normalizeWorkflowTaskKind,
   WorkflowAgentId,
   WorkflowError,
   WorkflowEventStreamItem,
@@ -1757,7 +1758,7 @@ export const WorkflowLive = Layer.effect(
                 runId: run.runId,
                 title: taskInput.title as any,
                 reason: taskInput.reason ?? null,
-                kind: taskInput.kind ?? "other",
+                kind: normalizeWorkflowTaskKind(taskInput.kind),
                 assignee: (taskInput.assignee as any) ?? null,
                 prompt: taskInput.prompt,
                 status: "proposed",
@@ -1950,7 +1951,9 @@ export const WorkflowLive = Layer.effect(
             ...(typeof value.status === "string"
               ? { status: value.status as WorkflowTaskSnapshot["status"] }
               : {}),
-            ...(typeof value.kind === "string" ? { kind: value.kind as WorkflowTaskKind } : {}),
+            ...(typeof value.kind === "string"
+              ? { kind: normalizeWorkflowTaskKind(value.kind) }
+              : {}),
           };
         };
         const runtimeStateScope = (value: unknown) => runtimeString(value, stateScope);

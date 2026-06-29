@@ -37,10 +37,13 @@ import {
   bootstrapRemoteBearerSession,
   fetchRemoteEnvironmentDescriptor,
   fetchRemoteSessionState,
+  isRemoteAuthBlockedStatus,
+  isRemoteEnvironmentAuthHttpError,
   resolveRemoteWebSocketConnectionUrl,
 } from "../remote/api";
 import { resolveRemotePairingTarget } from "../remote/target";
 import {
+  getSavedEnvironmentRuntimeState,
   getSavedEnvironmentRecord,
   hasSavedEnvironmentRegistryHydrated,
   listSavedEnvironmentRecords,
@@ -53,7 +56,12 @@ import {
   waitForSavedEnvironmentRegistryHydration,
   writeSavedEnvironmentBearerToken,
 } from "./catalog";
-import { createEnvironmentConnection, type EnvironmentConnection } from "./connection";
+import {
+  createEnvironmentConnection,
+  type EnvironmentConnection,
+  type EnvironmentDomainSyncFailure,
+  type EnvironmentDomainSyncFailureReason,
+} from "./connection";
 import {
   useStore,
   selectProjectsAcrossEnvironments,
@@ -87,6 +95,7 @@ let activeService: EnvironmentServiceState | null = null;
 let needsProviderInvalidation = false;
 let lastBrowserHiddenAt: number | null = null;
 let lastBrowserResumeReconnectAt = Number.NEGATIVE_INFINITY;
+let browserResumeReconnectSweep: Promise<void> | null = null;
 const BROWSER_RESUME_RECONNECT_COOLDOWN_MS = 2_000;
 const NOOP = () => undefined;
 const threadSnapshotHydrationInFlight = new Map<string, Promise<void>>();
@@ -198,6 +207,15 @@ function getRuntimeErrorFields(error: unknown) {
   } as const;
 }
 
+function getRuntimeSyncErrorFields(failure: EnvironmentDomainSyncFailure) {
+  return {
+    syncState: "error",
+    lastSyncError: failure.error instanceof Error ? failure.error.message : String(failure.error),
+    lastSyncErrorAt: new Date().toISOString(),
+    lastSyncFailureReason: failure.reason,
+  } as const;
+}
+
 function isoNow(): string {
   return new Date().toISOString();
 }
@@ -236,12 +254,104 @@ function setRuntimeDisconnected(environmentId: EnvironmentId, reason?: string | 
   });
 }
 
+function setRuntimeAuthFailure(environmentId: EnvironmentId, error: unknown) {
+  const authState =
+    isRemoteEnvironmentAuthHttpError(error) && error.status === 403 ? "blocked" : "requires-auth";
+  useSavedEnvironmentRuntimeStore.getState().patch(environmentId, {
+    authState,
+    role: null,
+    connectionState: "disconnected",
+    disconnectedAt: isoNow(),
+    ...getRuntimeErrorFields(error),
+  });
+}
+
 function setRuntimeError(environmentId: EnvironmentId, error: unknown) {
+  if (isRemoteEnvironmentAuthHttpError(error) && isRemoteAuthBlockedStatus(error.status)) {
+    setRuntimeAuthFailure(environmentId, error);
+    return;
+  }
+
   useSavedEnvironmentRuntimeStore.getState().patch(environmentId, {
     connectionState: "error",
     ...getRuntimeErrorFields(error),
   });
 }
+
+function setRuntimeSyncFailure(
+  environmentId: EnvironmentId,
+  failure: EnvironmentDomainSyncFailure,
+) {
+  useSavedEnvironmentRuntimeStore
+    .getState()
+    .patch(environmentId, getRuntimeSyncErrorFields(failure));
+}
+
+function getSyncFailureDomain(
+  reason: string | null,
+): "projection" | "shell" | "managed-process" | "thread" | null {
+  switch (reason) {
+    case "projection-replay-failed":
+    case "projection-snapshot-failed":
+      return "projection";
+    case "shell-event-failed":
+    case "shell-snapshot-failed":
+      return "shell";
+    case "managed-process-snapshot-failed":
+      return "managed-process";
+    case "thread-snapshot-failed":
+      return "thread";
+    default:
+      return null;
+  }
+}
+
+function clearRuntimeSyncFailure(
+  environmentId: EnvironmentId,
+  reason: EnvironmentDomainSyncFailureReason,
+) {
+  const runtime = getSavedEnvironmentRuntimeState(environmentId);
+  if (runtime.syncState === "ok") {
+    return;
+  }
+  if (getSyncFailureDomain(runtime.lastSyncFailureReason) !== getSyncFailureDomain(reason)) {
+    return;
+  }
+
+  useSavedEnvironmentRuntimeStore.getState().patch(environmentId, {
+    syncState: "ok",
+    lastSyncError: null,
+    lastSyncErrorAt: null,
+    lastSyncFailureReason: null,
+  });
+}
+
+function createSavedEnvironmentRuntimeStatusOwner(environmentId: EnvironmentId) {
+  return {
+    connecting: () => {
+      setRuntimeConnecting(environmentId);
+    },
+    connected: () => {
+      setRuntimeConnected(environmentId);
+    },
+    disconnected: (reason?: string | null) => {
+      setRuntimeDisconnected(environmentId, reason);
+    },
+    failed: (error: unknown) => {
+      setRuntimeError(environmentId, error);
+    },
+    syncFailed: (failure: EnvironmentDomainSyncFailure) => {
+      setRuntimeSyncFailure(environmentId, failure);
+    },
+    syncSucceeded: (reason: EnvironmentDomainSyncFailureReason) => {
+      clearRuntimeSyncFailure(environmentId, reason);
+    },
+  };
+}
+
+type SavedEnvironmentRuntimeStatusOwner = ReturnType<
+  typeof createSavedEnvironmentRuntimeStatusOwner
+>;
 
 function coalesceOrchestrationUiEvents(
   events: ReadonlyArray<OrchestrationEvent>,
@@ -534,6 +644,7 @@ function createPrimaryEnvironmentClient(
 function createSavedEnvironmentClient(
   record: SavedEnvironmentRecord,
   bearerToken: string,
+  statusOwner: SavedEnvironmentRuntimeStatusOwner,
 ): WsRpcClient {
   useSavedEnvironmentRuntimeStore.getState().ensure(record.environmentId);
 
@@ -546,33 +657,28 @@ function createSavedEnvironmentClient(
           bearerToken,
         }),
       {
+        reportGlobalStatus: false,
         onAttempt: () => {
-          setRuntimeConnecting(record.environmentId);
-        },
-        onOpen: () => {
-          setRuntimeConnected(record.environmentId);
+          statusOwner.connecting();
         },
         onError: (message: string) => {
-          useSavedEnvironmentRuntimeStore.getState().patch(record.environmentId, {
-            connectionState: "error",
-            lastError: message,
-            lastErrorAt: isoNow(),
-          });
+          statusOwner.failed(new Error(message));
         },
         onClose: (details: { readonly code: number; readonly reason: string }) => {
-          setRuntimeDisconnected(record.environmentId, details.reason);
+          statusOwner.disconnected(details.reason);
         },
       },
     ),
   );
 }
 
-async function refreshSavedEnvironmentMetadata(
+export async function refreshSavedEnvironmentMetadata(
   record: SavedEnvironmentRecord,
   bearerToken: string,
   client: WsRpcClient,
   roleHint?: AuthSessionRole | null,
   configHint?: ServerConfig | null,
+  statusOwner = createSavedEnvironmentRuntimeStatusOwner(record.environmentId),
 ): Promise<void> {
   const [serverConfig, sessionState] = await Promise.all([
     configHint ? Promise.resolve(configHint) : client.server.getConfig(),
@@ -588,6 +694,11 @@ async function refreshSavedEnvironmentMetadata(
     serverConfig,
     role: sessionState.authenticated ? (sessionState.role ?? roleHint ?? null) : null,
   });
+  if (sessionState.authenticated) {
+    statusOwner.connected();
+  } else {
+    statusOwner.disconnected();
+  }
 }
 
 function registerConnection(connection: EnvironmentConnection): EnvironmentConnection {
@@ -661,7 +772,8 @@ async function ensureSavedEnvironmentConnection(
     throw new Error("Saved environment is missing its saved credential.");
   }
 
-  const client = options?.client ?? createSavedEnvironmentClient(record, bearerToken);
+  const statusOwner = createSavedEnvironmentRuntimeStatusOwner(record.environmentId);
+  const client = options?.client ?? createSavedEnvironmentClient(record, bearerToken, statusOwner);
   const knownEnvironment = createKnownEnvironment({
     id: record.environmentId,
     label: record.label,
@@ -679,8 +791,10 @@ async function ensureSavedEnvironmentConnection(
     },
     client,
     refreshMetadata: async () => {
-      await refreshSavedEnvironmentMetadata(record, bearerToken, client);
+      await refreshSavedEnvironmentMetadata(record, bearerToken, client, null, null, statusOwner);
     },
+    onDomainSyncFailure: statusOwner.syncFailed,
+    onDomainSyncSuccess: statusOwner.syncSucceeded,
     onConfigSnapshot: (config) => {
       useSavedEnvironmentRuntimeStore.getState().patch(record.environmentId, {
         descriptor: config.environment,
@@ -704,10 +818,11 @@ async function ensureSavedEnvironmentConnection(
       client,
       options?.role ?? null,
       options?.serverConfig ?? null,
+      statusOwner,
     );
     return connection;
   } catch (error) {
-    setRuntimeError(record.environmentId, error);
+    statusOwner.failed(error);
     await removeConnection(record.environmentId).catch(() => false);
     throw error;
   }
@@ -740,20 +855,35 @@ function reconnectEnvironmentConnectionsAfterBrowserResume(reason: string): void
   if (now - lastBrowserResumeReconnectAt < BROWSER_RESUME_RECONNECT_COOLDOWN_MS) {
     return;
   }
-  lastBrowserResumeReconnectAt = now;
+  if (browserResumeReconnectSweep) {
+    return;
+  }
 
-  for (const connection of environmentConnections.values()) {
-    if (connection.client.isHeartbeatFresh()) {
-      continue;
-    }
-    void connection.reconnect().catch((error) => {
+  const reconnectRequests = [...environmentConnections.values()].map(async (connection) => {
+    try {
+      return await connection.requestReconnect("browser-resume");
+    } catch (error) {
       console.warn("Environment reconnect after browser resume failed", {
         environmentId: connection.environmentId,
         reason,
         error: error instanceof Error ? error.message : String(error),
       });
+      return false;
+    }
+  });
+
+  const reconnectSweep = Promise.all(reconnectRequests)
+    .then((results) => {
+      if (results.some(Boolean)) {
+        lastBrowserResumeReconnectAt = now;
+      }
+    })
+    .finally(() => {
+      if (browserResumeReconnectSweep === reconnectSweep) {
+        browserResumeReconnectSweep = null;
+      }
     });
-  }
+  browserResumeReconnectSweep = reconnectSweep;
 }
 
 function subscribeBrowserResumeReconnects(): () => void {
@@ -815,6 +945,21 @@ export function getPrimaryEnvironmentConnection(): EnvironmentConnection {
   return createPrimaryEnvironmentConnection();
 }
 
+export function withEnvironmentClient<T>(
+  environmentId: EnvironmentId,
+  operation: (client: WsRpcClient, connection: EnvironmentConnection) => T | Promise<T>,
+): Promise<T> {
+  const connection = requireEnvironmentConnection(environmentId);
+  return Promise.resolve(operation(connection.client, connection));
+}
+
+export function withPrimaryEnvironmentClient<T>(
+  operation: (client: WsRpcClient, connection: EnvironmentConnection) => T | Promise<T>,
+): Promise<T> {
+  const connection = getPrimaryEnvironmentConnection();
+  return Promise.resolve(operation(connection.client, connection));
+}
+
 export async function disconnectSavedEnvironment(environmentId: EnvironmentId): Promise<void> {
   const connection = environmentConnections.get(environmentId);
   if (connection?.kind !== "saved") {
@@ -837,11 +982,18 @@ export async function reconnectSavedEnvironment(environmentId: EnvironmentId): P
     return;
   }
 
-  setRuntimeConnecting(environmentId);
+  const statusOwner = createSavedEnvironmentRuntimeStatusOwner(environmentId);
+  statusOwner.connecting();
   try {
-    await connection.reconnect();
+    if (connection.kind === "saved") {
+      await removeConnection(environmentId);
+      const nextConnection = await ensureSavedEnvironmentConnection(record);
+      await nextConnection.requestReconnect("user-retry");
+      return;
+    }
+    await connection.requestReconnect("user-retry");
   } catch (error) {
-    setRuntimeError(environmentId, error);
+    statusOwner.failed(error);
     throw error;
   }
 }
@@ -928,14 +1080,29 @@ export async function hydrateEnvironmentThreadSnapshot(input: {
     return existing;
   }
 
-  const connection = requireEnvironmentConnection(input.environmentId);
-  const next = connection.client.orchestration
-    .getThreadSnapshot({ threadId: input.threadId })
-    .then((thread) => {
+  const next = withEnvironmentClient(input.environmentId, async (client, connection) => {
+    const thread = await client.orchestration.getThreadSnapshot({ threadId: input.threadId });
+    return { thread, kind: connection.kind };
+  })
+    .then(({ thread, kind }) => {
       if (thread === null) {
         return;
       }
-      useStore.getState().syncThreadSnapshot(thread, input.environmentId);
+      try {
+        useStore.getState().syncThreadSnapshot(thread, input.environmentId);
+        if (kind === "saved") {
+          clearRuntimeSyncFailure(input.environmentId, "thread-snapshot-failed");
+        }
+      } catch (error) {
+        if (kind === "saved") {
+          setRuntimeSyncFailure(input.environmentId, {
+            reason: "thread-snapshot-failed",
+            error,
+          });
+          return;
+        }
+        throw error;
+      }
     })
     .finally(() => {
       if (threadSnapshotHydrationInFlight.get(key) === next) {
@@ -1019,6 +1186,7 @@ export async function resetEnvironmentServiceForTests(): Promise<void> {
   stopActiveService();
   lastBrowserHiddenAt = null;
   lastBrowserResumeReconnectAt = Number.NEGATIVE_INFINITY;
+  browserResumeReconnectSweep = null;
   lastAppliedProjectionVersionByEnvironment.clear();
   threadSnapshotHydrationInFlight.clear();
   await Promise.all(

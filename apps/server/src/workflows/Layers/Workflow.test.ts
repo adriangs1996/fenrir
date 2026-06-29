@@ -495,7 +495,7 @@ export default async function run(ctx, args) {
       await ctx.state.set("scoped-read-" + name, scopedValue);
       const task = await ctx.tasks.propose({
         title: "Task " + name,
-        kind: "analysis",
+        kind: name === "alpha" ? "review" : "unknown-kind",
         prompt: "Inspect " + name
       });
       await ctx.tasks.accept(task.taskId);
@@ -547,6 +547,12 @@ export default async function run(ctx, args) {
       expect(getStateValue(completed, "scoped-read-beta")).toBe("beta");
       expect(completed.tasks).toHaveLength(2);
       expect(completed.tasks.every((task) => task.status === "completed")).toBe(true);
+      expect(completed.tasks.map((task) => [task.title, task.kind])).toEqual(
+        expect.arrayContaining([
+          ["Task alpha", "review"],
+          ["Task beta", "other"],
+        ]),
+      );
 
       const stepsByKey = new Map(completed.steps.map((step) => [step.stepKey, step]));
       for (const stepKey of ["alpha", "beta"] as const) {

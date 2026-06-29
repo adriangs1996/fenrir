@@ -12,7 +12,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { ensureEnvironmentApi } from "../environmentApi";
-import { requireEnvironmentConnection } from "../environments/runtime";
+import { withEnvironmentClient } from "../environments/runtime";
 
 const GIT_BRANCHES_STALE_TIME_MS = 15_000;
 const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
@@ -183,16 +183,19 @@ export function gitRunStackedActionMutationOptions(input: {
       onProgress?: (event: GitActionProgressEvent) => void;
     }) => {
       if (!input.cwd || !input.environmentId) throw new Error("Git action is unavailable.");
-      return requireEnvironmentConnection(input.environmentId).client.git.runStackedAction(
-        {
-          action,
-          actionId,
-          cwd: input.cwd,
-          ...(commitMessage ? { commitMessage } : {}),
-          ...(featureBranch ? { featureBranch: true } : {}),
-          ...(filePaths && filePaths.length > 0 ? { filePaths } : {}),
-        },
-        ...(onProgress ? [{ onProgress }] : []),
+      const cwd = input.cwd;
+      return withEnvironmentClient(input.environmentId, (client) =>
+        client.git.runStackedAction(
+          {
+            action,
+            actionId,
+            cwd,
+            ...(commitMessage ? { commitMessage } : {}),
+            ...(featureBranch ? { featureBranch: true } : {}),
+            ...(filePaths && filePaths.length > 0 ? { filePaths } : {}),
+          },
+          ...(onProgress ? [{ onProgress }] : []),
+        ),
       );
     },
     onSuccess: async () => {
