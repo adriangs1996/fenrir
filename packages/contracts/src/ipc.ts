@@ -679,6 +679,22 @@ export interface DesktopBridge {
   };
 }
 
+/**
+ * Adapter boundary for host-shell capabilities exposed to the web runtime.
+ *
+ * `DesktopBridge` is the current Electron preload implementation. Web code that
+ * only needs to know "am I running inside a desktop host?" should depend on this
+ * wrapper rather than treating `window.desktopBridge` as an Electron-specific
+ * global. A future native terminal shell can provide an equivalent host adapter
+ * while keeping server/backend interactions on WebSocket contracts.
+ */
+export type DesktopHostKind = "electron" | "native-terminal";
+
+export interface DesktopHostAdapter {
+  readonly kind: DesktopHostKind;
+  readonly bridge: DesktopBridge;
+}
+
 export interface CellMetrics {
   width: number;
   height: number;

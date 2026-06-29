@@ -3,11 +3,11 @@ import { Effect } from "effect";
 import { WS_METHODS } from "@fenrir/contracts";
 
 import { WorkflowService } from "../../workflows/Services/Workflow";
-import { makeRpcDomain } from "../handlers";
+import { makeControlPlaneDomain } from "../controlPlane";
 
 export const makeWorkflowRoutes = Effect.gen(function* () {
   const workflowService = yield* WorkflowService;
-  const workflows = makeRpcDomain("workflows");
+  const workflows = makeControlPlaneDomain("workflows");
 
   return {
     [WS_METHODS.workflowsCreateDraft]: workflows.effect(WS_METHODS.workflowsCreateDraft, (input) =>

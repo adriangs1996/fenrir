@@ -15,6 +15,10 @@ export const rpcRequestDuration = Metric.timer("t3_rpc_request_duration", {
   description: "RPC request handling duration.",
 });
 
+export const rpcStreamItemsTotal = Metric.counter("t3_rpc_stream_items_total", {
+  description: "Total WebSocket RPC stream items emitted by method and stream plane.",
+});
+
 export const orchestrationCommandsTotal = Metric.counter("t3_orchestration_commands_total", {
   description: "Total orchestration commands dispatched.",
 });

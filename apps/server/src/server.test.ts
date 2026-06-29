@@ -96,6 +96,7 @@ import {
 import { ServerLifecycleEvents, type ServerLifecycleEventsShape } from "./serverLifecycleEvents.ts";
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService, type ServerSettingsShape } from "./serverSettings.ts";
+import { TerminalBackendLive } from "./terminal/Layers/Backend.ts";
 import { TerminalManager, type TerminalManagerShape } from "./terminal/Services/Manager.ts";
 import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager.ts";
 import {
@@ -799,6 +800,25 @@ const buildAppUnderTest = (options?: {
       }),
     );
 
+    const terminalManagerLayer = Layer.mock(TerminalManager)({
+      ...options?.layers?.terminalManager,
+    });
+    const tmuxSessionManagerLayer = Layer.mock(TmuxSessionManager)({
+      createSession: () => Effect.void,
+      attachSession: () => Effect.die(new Error("not available in test")),
+      detachSession: () => Effect.void,
+      killSession: () => Effect.void,
+      hasSession: () => Effect.succeed(false),
+      isTmuxAvailable: Effect.succeed(false),
+      writeToSession: () => Effect.void,
+      resizeSession: () => Effect.void,
+      sessionName: (projectId: string) => `fenrir-${projectId}`,
+    });
+    const terminalBackendLayer = TerminalBackendLive.pipe(
+      Layer.provide(terminalManagerLayer),
+      Layer.provide(tmuxSessionManagerLayer),
+    );
+
     const servedRoutesLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
       disableLogger: true,
@@ -867,22 +887,7 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(TerminalManager)({
-          ...options?.layers?.terminalManager,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(TmuxSessionManager)({
-          createSession: () => Effect.void,
-          attachSession: () => Effect.die(new Error("not available in test")),
-          detachSession: () => Effect.void,
-          killSession: () => Effect.void,
-          hasSession: () => Effect.succeed(false),
-          isTmuxAvailable: Effect.succeed(false),
-          writeToSession: () => Effect.void,
-          resizeSession: () => Effect.void,
-          sessionName: (projectId: string) => `fenrir-${projectId}`,
-        }),
+        Layer.mergeAll(terminalManagerLayer, tmuxSessionManagerLayer, terminalBackendLayer),
       ),
       Layer.provide(
         Layer.mock(RawTcpListenerService)({

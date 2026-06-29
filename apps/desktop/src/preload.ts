@@ -168,6 +168,9 @@ ipcRenderer.on(RENDER_FRAME_CHANNEL, (_event, frame: unknown) => {
   dispatchFrame(frame);
 });
 
+// Electron implementation of the renderer host adapter. Keep this surface
+// limited to local desktop-host capabilities; backend/server interactions should
+// continue to use WebSocket contracts unless an explicit data plane is added.
 contextBridge.exposeInMainWorld("desktopBridge", {
   getLocalEnvironmentBootstrap: () => {
     const result = ipcRenderer.sendSync(GET_LOCAL_ENVIRONMENT_BOOTSTRAP_CHANNEL);

@@ -89,6 +89,29 @@ Multi-format display for base64 bodies. Modes: `auto`, `text`, `json` (pretty-pr
 | `rpcClient.trafficLens` | `@/rpc/wsRpcClient`    | Traffic queries + event subscription |
 | `window.desktopBridge`  | Electron preload (IPC) | Tab lifecycle + bounds sync          |
 
+## Terminal Adapter Boundary
+
+Traffic Lens exposes both terminal-renderable metadata and host-only browser
+view operations.
+
+Terminal clients can render:
+
+- traffic tables, filters, selected request/response detail, and body previews;
+- Repeater request/response metadata and decoded body views;
+- findings, profiles, rules, overrides, cookie snapshots, localStorage, and
+  persisted sessionStorage snapshots.
+
+Visual browser host required:
+
+- `TrafficLensViewContainer` and bounds sync;
+- creating/showing/hiding/closing live tabs;
+- navigation controls, mobile viewport presets, and embedded page interaction;
+- live sessionStorage capture/mutation against an open tab.
+
+Keep new inspection and persistence features on WebSocket/server RPC when they
+can be represented as metadata or artifacts. Use the desktop host adapter only
+for live browser view ownership and CDP-backed actions.
+
 ### Packages
 
 - `@fenrir/contracts` — `TrafficLensTabSnapshot`, `TrafficLensTabEvent`, `TrafficLensEntry`, `TrafficLensDetail`, `TrafficLensReplayResponse`

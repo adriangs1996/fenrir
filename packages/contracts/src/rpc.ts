@@ -1,4 +1,5 @@
 export * from "./rpc/methods";
+export * from "./rpc/planes";
 export * from "./rpc/server";
 export * from "./rpc/sourceControl";
 export * from "./rpc/project";

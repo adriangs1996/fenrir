@@ -1,6 +1,6 @@
 # Module: Neovim Editor (Web)
 
-> Embedded Neovim editor as a chat workspace view. Single instance per Electron main window; respawned per project cwd. Speaks to desktop process via `window.desktopBridge.editor.*`.
+> Embedded Neovim editor as a chat workspace view. Single instance per primary desktop host surface; respawned per project cwd. Speaks to the local desktop host adapter via `getDesktopHostAdapter().bridge.editor.*` (currently backed by Electron `window.desktopBridge`).
 
 ## Public API
 
@@ -47,7 +47,7 @@ Push cwd to desktop bridge across route changes. Mounted at app shell. Shows con
 
 #### `useEditorEventListener` → `void`
 
-Subscribe to nvim → app events from `desktopBridge.editor.onEvent`. Mounted at app shell.
+Subscribe to nvim → app events from the desktop host adapter's `editor.onEvent`. Mounted at app shell.
 
 **Exported helpers (testable):**
 
@@ -206,8 +206,8 @@ apps/web/src/modules/neovim-editor/
 ## Integration Points
 
 - **Upstream**: `ChatView.tsx` imports `useEditorStore`, `formatEditorContextLabel`, `appendEditorContextsToPrompt` for composing messages with editor context. `__root.tsx` mounts `useEditorCwdSync` + `useEditorEventListener` + `useEditorSendToComposerListener` in an `EditorCwdSync` render-null component at the app shell level.
-- **Downstream**: `window.desktopBridge.editor.*` (IPC to Electron main process), `window.desktopBridge.neovimSetCwd`, `window.desktopBridge.confirm`.
-- **Events**: Consumes `EditorEvent`, `EditorSendToComposer`, `EditorCmd` from desktop bridge IPC. Emits `fenrir:editor:bufWritePost` window CustomEvent for external listeners (e.g. diff refresh).
+- **Downstream**: desktop host adapter bridge (`editor.*`, `neovimSetCwd`, `confirm`). Electron currently implements this as `window.desktopBridge`; future native hosts should provide equivalent adapter semantics without changing this module's public API.
+- **Events**: Consumes `EditorEvent`, `EditorSendToComposer`, `EditorCmd` from the desktop host adapter. Emits `fenrir:editor:bufWritePost` window CustomEvent for external listeners (e.g. diff refresh).
 
 ## Working On This Module
 
@@ -222,6 +222,6 @@ apps/web/src/modules/neovim-editor/
 ### For consumers (working in OTHER modules):
 
 - Import ONLY from `~/modules/neovim-editor` (barrel). Never import from internal paths.
-- `desktopBridge.editor.invokeBridge` accepts only whitelisted function names; expand the whitelist in `apps/desktop/src/neovim/NeovimSource.ts` before adding new app→nvim Lua calls.
+- The host adapter's `editor.invokeBridge` accepts only whitelisted function names; expand the whitelist in `apps/desktop/src/neovim/NeovimSource.ts` before adding new app→nvim Lua calls.
 - `pendingContexts` are cleared by the consumer after message send — call `clearPendingContexts()`.
 - Use `extractTrailingEditorContexts()` to parse editor context from received message text for inline chip rendering.

@@ -36,6 +36,7 @@ import { GitCoreLive } from "./git/Layers/GitCore";
 import { GitDiffCoreLive } from "./git/Layers/GitDiffCore";
 import { GitHubCliLive } from "./git/Layers/GitHubCli";
 import { RoutingTextGenerationLive } from "./git/Layers/RoutingTextGeneration";
+import { TerminalBackendLive } from "./terminal/Layers/Backend";
 import { TerminalManagerLive } from "./terminal/Layers/Manager";
 import { TerminalHistoryManagerLive } from "./terminal/Layers/HistoryManager";
 import { TerminalShellResolverLive } from "./terminal/Layers/ShellResolver";
@@ -257,7 +258,7 @@ const SourceControlStackLayerLive = SourceControlStackServiceLive.pipe(
   Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
 );
 
-const TerminalLayerLive = Layer.mergeAll(
+const TerminalRuntimeLayerLive = Layer.mergeAll(
   TerminalManagerLive.pipe(
     Layer.provide(TerminalHistoryManagerLive),
     Layer.provide(TerminalShellResolverLive),
@@ -265,6 +266,8 @@ const TerminalLayerLive = Layer.mergeAll(
   ),
   TmuxSessionManagerLive,
 ).pipe(Layer.provide(PtyAdapterLive));
+
+const TerminalLayerLive = TerminalBackendLive.pipe(Layer.provideMerge(TerminalRuntimeLayerLive));
 
 const WorkspaceLayerLive = Layer.mergeAll(
   WorkspacePathsLive,

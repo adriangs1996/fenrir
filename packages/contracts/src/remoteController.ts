@@ -32,6 +32,9 @@ export type RemoteConnectionStatus = typeof RemoteConnectionStatus.Type;
 export const RemoteCommandRunStatus = Schema.Literals(["running", "succeeded", "failed"]);
 export type RemoteCommandRunStatus = typeof RemoteCommandRunStatus.Type;
 
+// Remote controller payloads describe server-side host, connection, and command
+// run state for any client. Command output is bounded snapshot metadata, not an
+// interactive terminal byte stream or browser/Electron UI contract.
 export const RemoteDirectoryEntryKind = Schema.Literals(["directory", "file", "symlink", "other"]);
 export type RemoteDirectoryEntryKind = typeof RemoteDirectoryEntryKind.Type;
 

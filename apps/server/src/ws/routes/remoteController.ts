@@ -3,12 +3,12 @@ import { Effect, Queue, Stream } from "effect";
 import { type RemoteControllerEvent, WS_METHODS } from "@fenrir/contracts";
 
 import { RemoteControllerService } from "../../puppeteer/Services/RemoteControllerService";
-import { makeRpcDomain } from "../handlers";
+import { makeControlPlaneDomain } from "../controlPlane";
 
 export const makeRemoteControllerRoutes = Effect.gen(function* () {
   const remoteControllerService = yield* RemoteControllerService;
 
-  const remoteController = makeRpcDomain("remoteController");
+  const remoteController = makeControlPlaneDomain("remoteController");
 
   return {
     [WS_METHODS.remoteControllerListHosts]: remoteController.effect(

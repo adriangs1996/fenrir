@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { VpnConnectionState, VpnProfile } from "@fenrir/contracts";
+import { getDesktopHostAdapter } from "./useDesktopBridge";
 
 interface UseVpnStateResult {
-  /** null when desktop bridge unavailable (web-only mode) */
+  /** null when desktop host adapter unavailable (web-only mode) */
   state: VpnConnectionState | null;
   profiles: readonly VpnProfile[];
   isDesktop: boolean;
@@ -14,30 +15,26 @@ interface UseVpnStateResult {
   refreshProfiles: () => Promise<void>;
 }
 
-function getDesktopBridge() {
-  return typeof window !== "undefined"
-    ? ((window as unknown as Record<string, unknown>).desktopBridge as
-        | import("@fenrir/contracts").DesktopBridge
-        | undefined)
-    : undefined;
+function getVpnBridge() {
+  return getDesktopHostAdapter()?.bridge;
 }
 
 export function useVpnState(): UseVpnStateResult {
   const [state, setState] = useState<VpnConnectionState | null>(null);
   const [profiles, setProfiles] = useState<readonly VpnProfile[]>([]);
 
-  const bridge = getDesktopBridge();
+  const bridge = getVpnBridge();
   const isDesktop = Boolean(bridge?.getVpnState);
 
   const refreshProfiles = useCallback(async () => {
-    const b = getDesktopBridge();
+    const b = getVpnBridge();
     if (!b?.getVpnProfiles) return;
     const p = await b.getVpnProfiles();
     setProfiles(p);
   }, []);
 
   useEffect(() => {
-    const b = getDesktopBridge();
+    const b = getVpnBridge();
     if (!b?.getVpnState) return;
 
     void b.getVpnState().then(setState);
@@ -52,14 +49,14 @@ export function useVpnState(): UseVpnStateResult {
   }, []);
 
   const connect = useCallback(async (profileId: string) => {
-    const b = getDesktopBridge();
+    const b = getVpnBridge();
     if (!b?.connectVpn) return;
     const result = await b.connectVpn(profileId);
     setState(result);
   }, []);
 
   const disconnect = useCallback(async () => {
-    const b = getDesktopBridge();
+    const b = getVpnBridge();
     if (!b?.disconnectVpn) return;
     const result = await b.disconnectVpn();
     setState(result);
@@ -67,7 +64,7 @@ export function useVpnState(): UseVpnStateResult {
 
   const addProfile = useCallback(
     async (label: string, configPath: string): Promise<VpnProfile | null> => {
-      const b = getDesktopBridge();
+      const b = getVpnBridge();
       if (!b?.addVpnProfile) return null;
       const profile = await b.addVpnProfile(label, configPath);
       await refreshProfiles();
@@ -78,7 +75,7 @@ export function useVpnState(): UseVpnStateResult {
 
   const removeProfile = useCallback(
     async (profileId: string) => {
-      const b = getDesktopBridge();
+      const b = getVpnBridge();
       if (!b?.removeVpnProfile) return;
       await b.removeVpnProfile(profileId);
       await refreshProfiles();
@@ -87,7 +84,7 @@ export function useVpnState(): UseVpnStateResult {
   );
 
   const pickOvpnFile = useCallback(async (): Promise<string | null> => {
-    const b = getDesktopBridge();
+    const b = getVpnBridge();
     if (!b?.pickFile) return null;
     return b.pickFile({ filters: [{ name: "OpenVPN Config", extensions: ["ovpn"] }] });
   }, []);

@@ -3,6 +3,13 @@ import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas";
 
 export const MANAGED_PROCESS_LOG_CHANNEL = "managedProcess.logStream" as const;
 
+/**
+ * Legacy low-level channel message for log subscriptions.
+ *
+ * Preferred clients should use the WebSocket RPC stream
+ * `managedProcess.subscribeLog`, which has the same instance identity and
+ * delivers one `backfill` message followed by ordered `chunk` messages.
+ */
 export const ManagedProcessLogSubscribe = Schema.Struct({
   type: Schema.Literal("subscribe"),
   instanceId: TrimmedNonEmptyString,

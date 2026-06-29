@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { getDesktopHostAdapter } from "./useDesktopBridge";
 import {
   CUSTOM_THEME_CLASS_NAMES,
   isTheme,
@@ -121,8 +122,7 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
 }
 
 function syncDesktopTheme(theme: Theme) {
-  if (typeof window === "undefined") return;
-  const bridge = window.desktopBridge;
+  const bridge = getDesktopHostAdapter()?.bridge;
   if (!bridge || lastDesktopTheme === theme) {
     return;
   }
@@ -140,8 +140,7 @@ function syncNeovimTheme(
   theme: Theme,
   syntaxTheme: ReturnType<typeof resolveThemeState>["syntaxTheme"],
 ) {
-  if (typeof window === "undefined") return;
-  const bridge = window.desktopBridge;
+  const bridge = getDesktopHostAdapter()?.bridge;
   if (!bridge?.neovimSetTheme) {
     return;
   }

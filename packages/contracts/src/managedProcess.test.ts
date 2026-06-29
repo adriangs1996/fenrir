@@ -10,6 +10,12 @@ import {
 } from "./orchestration";
 
 import {
+  MANAGED_PROCESS_STDIN_MAX_CHARS,
+  ManagedProcessLogSubscribeInput,
+  ManagedProcessStdinWriteInput,
+} from "./managedProcess";
+
+import {
   ManagedProcessLogClientMessage,
   ManagedProcessLogServerMessage,
 } from "./managedProcessLog";
@@ -19,6 +25,8 @@ const encodeManagedProcess = Schema.encodeSync(ManagedProcess);
 const decodeManagedProcessInstance = Schema.decodeUnknownEffect(ManagedProcessInstance);
 const encodeManagedProcessInstance = Schema.encodeSync(ManagedProcessInstance);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
+const decodeStdinWriteInput = Schema.decodeUnknownEffect(ManagedProcessStdinWriteInput);
+const decodeLogSubscribeInput = Schema.decodeUnknownEffect(ManagedProcessLogSubscribeInput);
 const decodeLogClientMessage = Schema.decodeUnknownEffect(ManagedProcessLogClientMessage);
 const decodeLogServerMessage = Schema.decodeUnknownEffect(ManagedProcessLogServerMessage);
 
@@ -305,6 +313,9 @@ it.effect("rejects unknown orchestration event type", () =>
 
 it.effect("round-trips log subscribe client message", () =>
   Effect.gen(function* () {
+    const input = yield* decodeLogSubscribeInput({ instanceId: "inst-1" });
+    assert.strictEqual(input.instanceId, "inst-1");
+
     const parsed = yield* decodeLogClientMessage({
       type: "subscribe",
       instanceId: "inst-1",
@@ -358,19 +369,23 @@ it.effect("round-trips log chunk server message", () =>
 
 it.effect("rejects oversized stdin data via schema check", () =>
   Effect.gen(function* () {
-    const StdinDataSchema = Schema.String.check(Schema.isMaxLength(64 * 1024));
-    const decode = Schema.decodeUnknownEffect(StdinDataSchema);
-    const result = yield* Effect.exit(decode("x".repeat(64 * 1024 + 1)));
+    const result = yield* Effect.exit(
+      decodeStdinWriteInput({
+        instanceId: "inst-1",
+        data: "x".repeat(MANAGED_PROCESS_STDIN_MAX_CHARS + 1),
+      }),
+    );
     assert.strictEqual(result._tag, "Failure");
   }),
 );
 
 it.effect("accepts stdin data within limit", () =>
   Effect.gen(function* () {
-    const StdinDataSchema = Schema.String.check(Schema.isMaxLength(64 * 1024));
-    const decode = Schema.decodeUnknownEffect(StdinDataSchema);
-    const parsed = yield* decode("x".repeat(64 * 1024));
-    assert.strictEqual(parsed.length, 64 * 1024);
+    const parsed = yield* decodeStdinWriteInput({
+      instanceId: "inst-1",
+      data: "x".repeat(MANAGED_PROCESS_STDIN_MAX_CHARS),
+    });
+    assert.strictEqual(parsed.data.length, MANAGED_PROCESS_STDIN_MAX_CHARS);
   }),
 );
 

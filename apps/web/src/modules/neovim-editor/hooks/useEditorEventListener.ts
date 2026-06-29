@@ -1,6 +1,10 @@
 import { useEffect } from "react";
 import type { EditorEvent } from "@fenrir/contracts";
-import { useDesktopBridgeAvailable, useIsMainWindow } from "~/hooks/useDesktopBridge";
+import {
+  getDesktopHostAdapter,
+  useDesktopBridgeAvailable,
+  useIsMainWindow,
+} from "~/hooks/useDesktopBridge";
 import { useEditorStore } from "../stores/editorStore";
 
 /** Window CustomEvent name fired on `buf_write_post`. */
@@ -37,7 +41,7 @@ export function handleEditorEvent(
 }
 
 /**
- * Subscribes to nvim → app events from desktopBridge.editor.onEvent.
+ * Subscribes to nvim → app events from the desktop host adapter.
  * Mounted once at the app shell level so events are captured regardless
  * of the current route.
  */
@@ -47,7 +51,7 @@ export function useEditorEventListener(): void {
 
   useEffect(() => {
     if (!shouldSubscribe(bridge, main)) return;
-    const editor = window.desktopBridge?.editor;
+    const editor = getDesktopHostAdapter()?.bridge.editor;
     if (!editor) return;
 
     const off = editor.onEvent((ev: EditorEvent) => {

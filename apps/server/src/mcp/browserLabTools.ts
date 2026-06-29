@@ -62,7 +62,7 @@ const profileInputSchema = {
     .string()
     .min(1)
     .describe(
-      "Optional Electron session partition key. Omit for a persistent key derived from the profile name. Use persist:traffic-lens:<slug> when supplying your own key so cookies and storage survive restarts.",
+      "Optional browser host session partition key. Omit for a persistent key derived from the profile name. Use persist:traffic-lens:<slug> when supplying your own key so cookies and storage survive restarts.",
     )
     .optional(),
   userAgentPreset: z
@@ -93,7 +93,7 @@ const updateProfileSchema = {
   id: profileId,
   name: profileInputSchema.name.optional(),
   partitionKey: profileInputSchema.partitionKey.describe(
-    "Optional new Electron session partition key. Changing it switches future tabs to a different cookie/storage jar and does not migrate existing browser state.",
+    "Optional new browser host session partition key. Changing it switches future tabs to a different cookie/storage jar and does not migrate existing browser state.",
   ),
   userAgentPreset: profileInputSchema.userAgentPreset,
   proxyPreset: profileInputSchema.proxyPreset,
@@ -200,7 +200,7 @@ const setCookieForOriginSchema = {
   domain: z.string().describe("Optional cookie domain. Omit for a host-only cookie.").optional(),
   path: z
     .string()
-    .describe("Optional cookie path. Defaults to Electron's cookie behavior.")
+    .describe("Optional cookie path. Defaults to the connected browser host's cookie behavior.")
     .optional(),
   secure: z.boolean().describe("Whether the cookie is Secure.").optional(),
   httpOnly: z.boolean().describe("Whether the cookie is HttpOnly.").optional(),
@@ -321,7 +321,9 @@ export const BROWSER_LAB_MCP_TOOLS = [
     description: "Press a keyboard key in the active or selected page.",
     inputSchema: {
       tabId: optionalTabId,
-      key: z.string().describe("Electron keyCode, for example Enter, Escape, Tab, or ArrowDown."),
+      key: z
+        .string()
+        .describe("Browser host key name, for example Enter, Escape, Tab, or ArrowDown."),
     },
   },
   {
@@ -382,7 +384,7 @@ export const BROWSER_LAB_MCP_TOOLS = [
   {
     name: "traffic_lens_list_profiles",
     description:
-      "List Browser Lab profiles. Each profile maps to an Electron session partition, so tabs opened with its profileId share that profile's cookies, localStorage, cache, and login state across Browser Lab restarts.",
+      "List Browser Lab profiles. Each profile maps to a browser host session partition, so tabs opened with its profileId share that profile's cookies, localStorage, cache, and login state across Browser Lab restarts.",
     inputSchema: emptyInputSchema,
   },
   {

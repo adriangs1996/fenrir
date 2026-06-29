@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ResolvedKeybindingsConfig } from "@fenrir/contracts";
 import { Spinner } from "~/components/ui/spinner";
+import { getDesktopHostAdapter } from "~/hooks/useDesktopBridge";
 import { VSCodeMissingCard } from "./VSCodeMissingCard";
 
 interface Props {
@@ -28,7 +29,7 @@ export function VSCodePane({
   const [retryToken, setRetryToken] = useState(0);
 
   const updateBounds = useCallback(() => {
-    const bridge = window.desktopBridge;
+    const bridge = getDesktopHostAdapter()?.bridge;
     const el = containerRef.current;
     if (!bridge?.vscodeSetBounds || !el) return;
 
@@ -46,7 +47,7 @@ export function VSCodePane({
   }, []);
 
   useEffect(() => {
-    const probe = window.desktopBridge?.vscodeProbeDetail;
+    const probe = getDesktopHostAdapter()?.bridge.vscodeProbeDetail;
     if (!probe) return;
     let cancelled = false;
     void probe()
@@ -67,7 +68,7 @@ export function VSCodePane({
 
   useEffect(() => {
     if (!visible) return;
-    void window.desktopBridge?.vscodeSetShortcutState?.({
+    void getDesktopHostAdapter()?.bridge.vscodeSetShortcutState?.({
       keybindings,
       platform: navigator.platform,
       context: {
@@ -79,11 +80,11 @@ export function VSCodePane({
 
   useEffect(() => {
     if (!visible || focusRequestId === 0) return;
-    void window.desktopBridge?.vscodeShow?.();
+    void getDesktopHostAdapter()?.bridge.vscodeShow?.();
   }, [focusRequestId, visible]);
 
   useEffect(() => {
-    const bridge = window.desktopBridge;
+    const bridge = getDesktopHostAdapter()?.bridge;
     if (!visible) {
       void bridge?.vscodeHide?.();
       return;
@@ -127,7 +128,7 @@ export function VSCodePane({
   useEffect(() => {
     if (!visible) return;
     const el = containerRef.current;
-    const bridge = window.desktopBridge;
+    const bridge = getDesktopHostAdapter()?.bridge;
     if (!el || !bridge?.vscodeSetBounds) return;
 
     const observer = new ResizeObserver(() => {

@@ -23,6 +23,13 @@ import { execFileSync } from "node:child_process";
 import { Effect, Layer } from "effect";
 
 import { ServerConfig } from "../../config.ts";
+import {
+  checkTmuxSync,
+  execTmuxSync,
+  makeTmuxSessionName,
+  MANAGED_PROCESS_TMUX_SESSION_PREFIX,
+  tmuxTarget,
+} from "../../terminal/tmuxRuntime.ts";
 import { Executor, ExecutorError } from "../Services/Executor.ts";
 import type { ExecutorHandle, ExecutorSpawnInput } from "../Services/Executor.ts";
 
@@ -30,17 +37,11 @@ import type { ExecutorHandle, ExecutorSpawnInput } from "../Services/Executor.ts
 // Constants
 // ---------------------------------------------------------------------------
 
-const MP_SESSION_PREFIX = "fenrir-mp-";
 const POLL_INTERVAL_MS = 500;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Replace `.` and `:` with `-` to produce a tmux-safe name. */
-function sanitizeSessionName(projectId: string): string {
-  return `${MP_SESSION_PREFIX}${projectId.replace(/[.:]/g, "-")}`;
-}
 
 /**
  * Parse instanceId into projectId and a sanitized FIFO-safe name.
@@ -57,28 +58,15 @@ function parseInstanceId(instanceId: string): { projectId: string; fifoName: str
  * Run a tmux command synchronously and return stdout (trimmed).
  * Throws on non-zero exit.
  */
-function tmuxExec(args: string[]): string {
-  return execFileSync("tmux", args, {
-    encoding: "utf-8",
-    stdio: ["pipe", "pipe", "pipe"],
-    timeout: 10_000,
-  }).trim();
+function tmuxExec(args: readonly string[]): string {
+  return execTmuxSync(args);
 }
 
 /**
  * Run a tmux command synchronously, returning `true` on exit 0.
  */
-function tmuxCheck(args: string[]): boolean {
-  try {
-    execFileSync("tmux", args, {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 10_000,
-    });
-    return true;
-  } catch {
-    return false;
-  }
+function tmuxCheck(args: readonly string[]): boolean {
+  return checkTmuxSync(args);
 }
 
 /**
@@ -139,7 +127,7 @@ function panePid(sessionName: string, windowName: string): number | null {
       "display-message",
       "-p",
       "-t",
-      `${sessionName}:${windowName}`,
+      tmuxTarget(sessionName, windowName),
       "#{pane_pid}",
     ]);
     const n = parseInt(raw, 10);
@@ -162,7 +150,7 @@ function paneDeadStatus(
       "display-message",
       "-p",
       "-t",
-      `${sessionName}:${windowName}`,
+      tmuxTarget(sessionName, windowName),
       "#{pane_dead} #{pane_dead_status}",
     ]);
     const parts = raw.split(" ");
@@ -210,7 +198,7 @@ interface TmuxHandleInput {
 
 function buildHandle(input: TmuxHandleInput): ExecutorHandle {
   const { sessionName, windowName, fifoPath } = input;
-  const target = `${sessionName}:${windowName}`;
+  const target = tmuxTarget(sessionName, windowName);
 
   let userInitiated = false;
   let disposed = false;
@@ -409,9 +397,9 @@ export const TmuxExecutorLive = Layer.effect(
         Effect.try({
           try: () => {
             const { projectId, fifoName } = parseInstanceId(input.instanceId);
-            const sessionName = sanitizeSessionName(projectId);
+            const sessionName = makeTmuxSessionName(MANAGED_PROCESS_TMUX_SESSION_PREFIX, projectId);
             const windowName = `mp-${input.instanceId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-            const target = `${sessionName}:${windowName}`;
+            const target = tmuxTarget(sessionName, windowName);
 
             // 1. Ensure session exists with correct options
             ensureSession(sessionName, input.cwd);
@@ -488,14 +476,14 @@ export const TmuxExecutorLive = Layer.effect(
               );
             }
 
-            const projectId = sessionName.slice(MP_SESSION_PREFIX.length);
+            const projectId = sessionName.slice(MANAGED_PROCESS_TMUX_SESSION_PREFIX.length);
 
             // Re-create FIFO and pipe-pane
             const fifoPath = createFifo(stateDir, projectId, fifoName);
 
             // Cancel any existing pipe-pane, then re-attach
             try {
-              tmuxExec(["pipe-pane", "-t", `${sessionName}:${windowName}`]);
+              tmuxExec(["pipe-pane", "-t", tmuxTarget(sessionName, windowName)]);
             } catch {
               // no existing pipe — fine
             }
@@ -504,7 +492,7 @@ export const TmuxExecutorLive = Layer.effect(
               "pipe-pane",
               "-o",
               "-t",
-              `${sessionName}:${windowName}`,
+              tmuxTarget(sessionName, windowName),
               `cat > ${shellEscape(fifoPath)}`,
             ]);
 
@@ -541,7 +529,7 @@ function findSessionForWindow(windowName: string): string | null {
   try {
     const sessions = tmuxExec(["list-sessions", "-F", "#{session_name}"]);
     for (const session of sessions.split("\n")) {
-      if (!session.startsWith(MP_SESSION_PREFIX)) continue;
+      if (!session.startsWith(MANAGED_PROCESS_TMUX_SESSION_PREFIX)) continue;
       if (windowExists(session, windowName)) return session;
     }
   } catch {

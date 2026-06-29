@@ -20,6 +20,7 @@ import type {
   ManagedProcessExecutorKind,
   ManagedProcessInstance,
   ManagedProcessInstanceStatus,
+  ManagedProcessStdinWriteInput,
   ProjectId,
 } from "@fenrir/contracts";
 
@@ -704,10 +705,9 @@ const makeManagedProcessManager = Effect.gen(function* () {
 
   // ── writeStdin ─────────────────────────────────────────────────────────
 
-  const writeStdinImpl = (input: {
-    instanceId: string;
-    data: string;
-  }): Effect.Effect<void, ManagedProcessRpcError> =>
+  const writeStdinImpl = (
+    input: ManagedProcessStdinWriteInput,
+  ): Effect.Effect<void, ManagedProcessRpcError> =>
     Effect.gen(function* () {
       const inst = byId.get(input.instanceId);
       if (!inst) {

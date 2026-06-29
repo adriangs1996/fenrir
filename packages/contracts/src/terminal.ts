@@ -237,7 +237,7 @@ export const TmuxDetachInput = Schema.Struct({
   projectId: Schema.NonEmptyString,
 });
 
-export type TmuxDetachInput = typeof TmuxAttachInput.Type;
+export type TmuxDetachInput = typeof TmuxDetachInput.Type;
 
 export const TmuxSessionSnapshot = Schema.Struct({
   projectId: Schema.NonEmptyString,

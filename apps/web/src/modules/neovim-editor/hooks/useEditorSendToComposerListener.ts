@@ -1,7 +1,11 @@
 import { useEffect, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
 import type { EditorSendToComposer } from "@fenrir/contracts";
-import { useDesktopBridgeAvailable, useIsMainWindow } from "~/hooks/useDesktopBridge";
+import {
+  getDesktopHostAdapter,
+  useDesktopBridgeAvailable,
+  useIsMainWindow,
+} from "~/hooks/useDesktopBridge";
 import { resolveThreadRouteTarget, type ThreadRouteTarget } from "~/threadRoutes";
 import { randomUUID } from "~/lib/utils";
 import type { EditorContextDraft } from "../editorContext";
@@ -43,7 +47,7 @@ export function composerTargetIdFromRouteTarget(target: ThreadRouteTarget | null
 
 /**
  * Subscribes to nvim → app send-to-composer events from
- * `desktopBridge.editor.onSendToComposer`. Creates an `EditorContextDraft`,
+ * the desktop host adapter's `editor.onSendToComposer`. Creates an `EditorContextDraft`,
  * pushes it into the editor store, switches to the thread tab, and
  * focuses the composer textarea.
  *
@@ -65,7 +69,7 @@ export function useEditorSendToComposerListener(): void {
 
   useEffect(() => {
     if (!shouldSubscribe(bridge, main)) return;
-    const editor = window.desktopBridge?.editor;
+    const editor = getDesktopHostAdapter()?.bridge.editor;
     if (!editor) return;
 
     const off = editor.onSendToComposer((ev: EditorSendToComposer) => {

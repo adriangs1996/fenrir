@@ -480,7 +480,7 @@ function terminateRuntimeProcess(child: ChildProcess): Effect.Effect<void> {
   });
 }
 
-function terminalRunStatus(status: WorkflowRunSnapshot["status"]): boolean {
+function isFinalRunStatus(status: WorkflowRunSnapshot["status"]): boolean {
   return (
     status === "completed" ||
     status === "failed" ||
@@ -2069,7 +2069,7 @@ export const WorkflowLive = Layer.effect(
           const stepId = runtimeWorkflowStepId(record);
           const ensureRuntimeRunActive = getLatestRun().pipe(
             Effect.flatMap((latest) =>
-              terminalRunStatus(latest.status)
+              isFinalRunStatus(latest.status)
                 ? Effect.fail(workflowError("Workflow run is no longer active."))
                 : Effect.succeed(latest),
             ),
@@ -2220,7 +2220,7 @@ export const WorkflowLive = Layer.effect(
             Effect.flatMap(() =>
               getRunSnapshot(run.runId).pipe(
                 Effect.flatMap((latest) => {
-                  if (terminalRunStatus(latest.status)) {
+                  if (isFinalRunStatus(latest.status)) {
                     return Effect.succeed(latest);
                   }
                   const completedAt = now();
@@ -2254,7 +2254,7 @@ export const WorkflowLive = Layer.effect(
         if (Exit.isFailure(runExit)) {
           const latestExit = yield* Effect.exit(getRunSnapshot(run.runId));
           const latest = Exit.isFailure(latestExit) ? run : latestExit.value;
-          if (terminalRunStatus(latest.status)) {
+          if (isFinalRunStatus(latest.status)) {
             return;
           }
           const failedAt = now();
@@ -2848,7 +2848,7 @@ export const WorkflowLive = Layer.effect(
     const stop: WorkflowServiceShape["stop"] = (input) =>
       Effect.gen(function* () {
         const snapshot = yield* getRunSnapshot(input.runId);
-        if (terminalRunStatus(snapshot.status)) {
+        if (isFinalRunStatus(snapshot.status)) {
           return;
         }
         const stoppedAt = now();
@@ -2963,8 +2963,8 @@ export const WorkflowLive = Layer.effect(
     const respondToInput: WorkflowServiceShape["respondToInput"] = (input) =>
       Effect.gen(function* () {
         const snapshot = yield* getRunSnapshot(input.runId);
-        if (terminalRunStatus(snapshot.status)) {
-          return yield* Effect.fail(workflowError("Cannot respond to a terminal workflow run."));
+        if (isFinalRunStatus(snapshot.status)) {
+          return yield* Effect.fail(workflowError("Cannot respond to a final workflow run."));
         }
         const request = snapshot.inputRequests.find(
           (entry) => entry.requestId === input.requestId && entry.status === "pending",

@@ -1,6 +1,8 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Exit, Metric, Stream } from "effect";
 
+import { WS_METHODS } from "@fenrir/contracts";
+
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -30,6 +32,7 @@ describe("RpcInstrumentation", () => {
       assert.equal(
         hasMetricSnapshot(snapshots, "t3_rpc_requests_total", {
           method: "rpc.instrumentation.success",
+          plane: "control",
           outcome: "success",
         }),
         true,
@@ -37,6 +40,7 @@ describe("RpcInstrumentation", () => {
       assert.equal(
         hasMetricSnapshot(snapshots, "t3_rpc_request_duration", {
           method: "rpc.instrumentation.success",
+          plane: "control",
         }),
         true,
       );
@@ -56,6 +60,7 @@ describe("RpcInstrumentation", () => {
       assert.equal(
         hasMetricSnapshot(snapshots, "t3_rpc_requests_total", {
           method: "rpc.instrumentation.failure",
+          plane: "control",
           outcome: "failure",
         }),
         true,
@@ -63,6 +68,7 @@ describe("RpcInstrumentation", () => {
       assert.equal(
         hasMetricSnapshot(snapshots, "t3_rpc_request_duration", {
           method: "rpc.instrumentation.failure",
+          plane: "control",
         }),
         true,
       );
@@ -86,6 +92,7 @@ describe("RpcInstrumentation", () => {
       assert.equal(
         hasMetricSnapshot(snapshots, "t3_rpc_requests_total", {
           method: "rpc.instrumentation.stream",
+          plane: "control",
           outcome: "success",
         }),
         true,
@@ -93,6 +100,14 @@ describe("RpcInstrumentation", () => {
       assert.equal(
         hasMetricSnapshot(snapshots, "t3_rpc_request_duration", {
           method: "rpc.instrumentation.stream",
+          plane: "control",
+        }),
+        true,
+      );
+      assert.equal(
+        hasMetricSnapshot(snapshots, "t3_rpc_stream_items_total", {
+          method: "rpc.instrumentation.stream",
+          plane: "control",
         }),
         true,
       );
@@ -116,6 +131,7 @@ describe("RpcInstrumentation", () => {
       assert.equal(
         hasMetricSnapshot(snapshots, "t3_rpc_requests_total", {
           method: "rpc.instrumentation.stream.failure",
+          plane: "control",
           outcome: "failure",
         }),
         true,
@@ -123,6 +139,7 @@ describe("RpcInstrumentation", () => {
       assert.equal(
         hasMetricSnapshot(snapshots, "t3_rpc_request_duration", {
           method: "rpc.instrumentation.stream.failure",
+          plane: "control",
         }),
         true,
       );
@@ -146,6 +163,7 @@ describe("RpcInstrumentation", () => {
       assert.equal(
         hasMetricSnapshot(snapshots, "t3_rpc_requests_total", {
           method: "rpc.instrumentation.stream.effect.failure",
+          plane: "control",
           outcome: "failure",
         }),
         true,
@@ -153,6 +171,27 @@ describe("RpcInstrumentation", () => {
       assert.equal(
         hasMetricSnapshot(snapshots, "t3_rpc_request_duration", {
           method: "rpc.instrumentation.stream.effect.failure",
+          plane: "control",
+        }),
+        true,
+      );
+    }),
+  );
+
+  it.effect("labels known compatibility data streams by plane", () =>
+    Effect.gen(function* () {
+      yield* Stream.runCollect(
+        observeRpcStream(WS_METHODS.subscribeTerminalEvents, Stream.make("chunk"), {
+          "rpc.aggregate": "terminal",
+        }).pipe(Stream.withSpan("rpc.instrumentation.compat.stream.span")),
+      );
+
+      const snapshots = yield* Metric.snapshot;
+
+      assert.equal(
+        hasMetricSnapshot(snapshots, "t3_rpc_stream_items_total", {
+          method: WS_METHODS.subscribeTerminalEvents,
+          plane: "compat-data-stream",
         }),
         true,
       );

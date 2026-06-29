@@ -78,6 +78,21 @@ apps/server/src/traffic-lens/
 - **Downstream**: `SqlClient` for persistence
 - **Events**: `traffic.captured` streamed to web clients via `subscribeTrafficLensEvents` RPC
 
+## Terminal Adapter Boundary
+
+Traffic Lens server data is terminal-renderable by default:
+
+- request summaries and detail records;
+- replay inputs/results;
+- findings, profiles, rules, overrides, cookies, and persisted storage snapshots;
+- captured-event streams used to refresh metadata views.
+
+The server does not own the embedded browser viewport, CDP interaction loop, or
+live WebContents positioning. Those remain visual host-adapter concerns in the
+desktop/browser layer. Terminal clients should use the server RPC surface for
+inspection, replay, and artifact metadata, and should only expose browser-view
+actions when a compatible visual browser host is available.
+
 ## Working On This Module
 
 ### For implementers (working INSIDE this module):

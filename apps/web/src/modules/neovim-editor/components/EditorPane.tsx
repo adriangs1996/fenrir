@@ -12,6 +12,7 @@ import {
 import { RenderSurface } from "~/components/RenderSurface";
 import { Button } from "~/components/ui/button";
 import {
+  getDesktopHostAdapter,
   useDesktopBridgeAvailable,
   useIsMainWindow,
   useNvimAvailable,
@@ -89,7 +90,7 @@ export function EditorPane({
 
   useEffect(() => {
     if (!bridge) return;
-    const probe = window.desktopBridge?.nvimProbeDetail;
+    const probe = getDesktopHostAdapter()?.bridge.nvimProbeDetail;
     if (!probe) return;
     let cancelled = false;
     void probe().then((d) => {

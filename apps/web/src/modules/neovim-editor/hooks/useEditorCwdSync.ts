@@ -1,5 +1,9 @@
 import { useEffect, useRef } from "react";
-import { useDesktopBridgeAvailable, useIsMainWindow } from "~/hooks/useDesktopBridge";
+import {
+  getDesktopHostAdapter,
+  useDesktopBridgeAvailable,
+  useIsMainWindow,
+} from "~/hooks/useDesktopBridge";
 import { useActiveEditorCwd } from "./useActiveEditorCwd";
 import { useEditorStore } from "../stores/editorStore";
 
@@ -36,7 +40,7 @@ export function dirtyConfirmMessage(dirtyCount: number): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Pushes the active thread's cwd to the desktop bridge whenever it changes.
+ * Pushes the active thread's cwd to the desktop host adapter whenever it changes.
  * Mounted at the app shell so it runs across route changes — keeps nvim
  * warmed against the active project even when the editor tab is hidden or
  * the user is on a non-chat route.
@@ -53,7 +57,7 @@ export function useEditorCwdSync(): void {
   useEffect(() => {
     if (!shouldPush({ bridgeAvailable, main, cwd, lastPushed: lastPushedRef.current })) return;
 
-    const bridge = window.desktopBridge;
+    const bridge = getDesktopHostAdapter()?.bridge;
     if (!bridge) return;
 
     const performPush = async () => {

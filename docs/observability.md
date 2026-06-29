@@ -45,6 +45,35 @@ Metrics are not written to a local file.
 
 If OTLP is not configured, metrics still exist in-process, but you will not have a local artifact to inspect.
 
+#### High-Volume Stream Readiness
+
+WebSocket RPC streams are instrumented at the shared handler boundary in
+`apps/server/src/observability/RpcInstrumentation.ts`.
+
+Useful stream metrics:
+
+- `t3_rpc_requests_total`: subscription activations and exits, labeled by
+  `method`, `plane`, and `outcome`.
+- `t3_rpc_request_duration`: subscription lifetime, labeled by `method` and
+  `plane`.
+- `t3_rpc_stream_items_total`: emitted stream items, labeled by `method` and
+  `plane`.
+
+The `plane` label comes from `packages/contracts/src/rpc/planes.ts`:
+
+- `control`: unary/lifecycle methods.
+- `event-stream`: metadata and lifecycle subscriptions.
+- `compat-data-stream`: existing WebSocket compatibility streams that may carry
+  bulk or byte-like data, such as terminal output, managed process logs, raw TCP
+  events, or orchestration domain events with provider/user message text.
+
+These counters make high-volume streams visible, but they are not a
+backpressure mechanism. New terminal, provider-token, process-log, or browser
+pixel streams should add an explicit data-plane boundary before increasing
+throughput assumptions. Route-local queues created with `Stream.callback` should
+document whether they are bounded, whether they drop, and which metric or log
+signals overflow.
+
 ### Related Artifacts
 
 Provider event NDJSON files still exist for provider runtime streams. Those are separate from the main server trace file.

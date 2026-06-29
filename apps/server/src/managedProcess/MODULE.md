@@ -107,3 +107,25 @@ The two managers share the PTY adapter and shell resolver but have fundamentally
 ## API Surface
 
 Other modules consume `ManagedProcessManagerShape` exclusively — they never reach into runtime state. The `events` stream is the only mechanism for lifecycle fan-out to the orchestration domain channel.
+
+## Client Neutrality
+
+Managed process lifecycle, stdin, and log APIs are client-neutral WebSocket
+contracts. Web, Electron, and future native terminal clients should all use the
+same `managedProcess.*` RPC methods rather than Electron IPC or terminal-tab
+identity.
+
+- `start`, `stop`, `forceKill`, `restart`, and `list` operate on declarative
+  process instances, not terminal UI sessions.
+- `writeStdin` forwards the RPC string payload to the selected executor
+  unchanged. Clients are responsible for chunking writes to the contract string
+  length limit (`MANAGED_PROCESS_STDIN_MAX_CHARS` in `@fenrir/contracts`); this
+  is not a byte-stream backpressure boundary.
+- `subscribeLog` is the log data plane for managed processes. The stream sends
+  exactly one `backfill` message followed by live `chunk` messages.
+- `sequenceNumber` is monotonic per instance and should be used by clients for
+  ordering or deduplication. UI render timing is not part of the contract.
+- The backfill source is a bounded in-memory ring buffer (2 MiB and 10,000
+  lines). Slow or disconnected clients should resubscribe and honor
+  `truncated: true`; the server does not provide unbounded replay or per-client
+  flow control.

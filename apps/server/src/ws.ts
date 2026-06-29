@@ -26,6 +26,9 @@ import { makeWorkflowRoutes } from "./ws/routes/workflows";
 import { makeWorkspaceRoutes } from "./ws/routes/workspace";
 import { makeRefreshGitStatus } from "./ws/shared";
 
+// Build route handlers per authenticated WebSocket connection. The auth routes
+// use this session id to mark the current client without assuming a singleton
+// browser/Electron/native client.
 const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
   WsRpcGroup.toLayer(
     Effect.gen(function* () {

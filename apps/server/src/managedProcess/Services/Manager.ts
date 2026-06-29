@@ -11,6 +11,7 @@ import type {
   ManagedProcessInstanceStatus,
   ManagedProcessExecutorKind,
   ManagedProcessRpcError,
+  ManagedProcessStdinWriteInput,
   ProjectId,
 } from "@fenrir/contracts";
 import type { Effect, Stream } from "effect";
@@ -62,10 +63,8 @@ export interface ManagedProcessManagerShape {
   forceKill(instanceId: string): Effect.Effect<ManagedProcessInstance, ManagedProcessRpcError>;
   restart(instanceId: string): Effect.Effect<ManagedProcessInstance, ManagedProcessRpcError>;
 
-  writeStdin(input: {
-    instanceId: string;
-    data: string;
-  }): Effect.Effect<void, ManagedProcessRpcError>;
+  /** Raw client input forwarded to the process executor unchanged. */
+  writeStdin(input: ManagedProcessStdinWriteInput): Effect.Effect<void, ManagedProcessRpcError>;
 
   list(projectId: ProjectId): Effect.Effect<ManagedProcessInstance[], never>;
   listAll(): Effect.Effect<ManagedProcessInstance[], never>;
@@ -73,7 +72,15 @@ export interface ManagedProcessManagerShape {
   /** Stream lifecycle events for fan-out to orchestration domain channel. */
   readonly events: Stream.Stream<ManagerLifecycleEvent>;
 
-  /** Subscribe to log chunks for an instance. Returns backfill + live stream. */
+  /**
+   * Subscribe to log output for an instance.
+   *
+   * Stream semantics are client-neutral:
+   * - callers receive current ring-buffer backfill first, then live chunks;
+   * - sequenceNumber is monotonic per instance and should drive ordering;
+   * - the server ring buffer is bounded, so slow clients may observe
+   *   `truncated: true` on a later resubscribe rather than unlimited replay.
+   */
   subscribeLog(instanceId: string): Effect.Effect<
     {
       backfill: {

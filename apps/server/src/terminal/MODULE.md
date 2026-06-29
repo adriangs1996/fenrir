@@ -6,6 +6,23 @@
 
 ### Services
 
+#### `TerminalBackend` (public — consumed by RPC handlers)
+
+Narrow backend boundary for terminal implementations. The current live backend
+delegates thread terminals to `TerminalManager` and tmux compatibility to
+`TmuxSessionManager`.
+
+| Method       | Input                 | Output                    | Errors          | Description                                  |
+| ------------ | --------------------- | ------------------------- | --------------- | -------------------------------------------- |
+| `open`       | `TerminalOpenInput`   | `TerminalSessionSnapshot` | `TerminalError` | Open or attach to thread terminal session    |
+| `write`      | `TerminalWriteInput`  | `void`                    | `TerminalError` | Write input bytes to thread terminal session |
+| `resize`     | `TerminalResizeInput` | `void`                    | `TerminalError` | Resize thread terminal backend               |
+| `close`      | `TerminalCloseInput`  | `void`                    | `TerminalError` | Close thread terminal session(s)             |
+| `attachTmux` | `TmuxAttachInput`     | `TmuxSessionSnapshot`     | `TmuxError`     | Attach/create project tmux session           |
+| `detachTmux` | `TmuxDetachInput`     | `void`                    | `TmuxError`     | Detach active project tmux session           |
+| `writeTmux`  | `TmuxWriteInput`      | `void`                    | `TmuxError`     | Write input bytes to project tmux session    |
+| `resizeTmux` | `TmuxResizeInput`     | `void`                    | `TmuxError`     | Resize project tmux session                  |
+
 #### `TerminalManager` (public — consumed by RPC handlers, orchestration)
 
 | Method              | Input                             | Output                    | Errors          | Description                                   |
@@ -125,6 +142,7 @@
 apps/server/src/terminal/
   MODULE.md
   Services/
+    Backend.ts              # TerminalBackend public backend boundary (STABLE)
     Manager.ts              # TerminalManager public service interface (STABLE)
     PTY.ts                  # PtyAdapter public service interface (STABLE)
     TmuxSessionManager.ts   # TmuxSessionManager public service interface (STABLE)
@@ -132,6 +150,7 @@ apps/server/src/terminal/
     ShellResolver.ts        # TerminalShellResolver internal service (NEW)
     ProcessLifecycle.ts     # TerminalProcessLifecycle internal service (NEW)
   Layers/
+    Backend.ts              # Compatibility backend: TerminalManager + tmux adapter
     Manager.ts              # Orchestration layer — delegates to sub-services (~600 lines)
     HistoryManager.ts       # History persistence layer (NEW, ~300 lines)
     ShellResolver.ts        # Shell resolution layer (NEW, ~120 lines)
@@ -150,7 +169,7 @@ apps/server/src/terminal/
 
 ## Integration Points
 
-- **Upstream**: `ws.ts` RPC handlers (open/write/resize/clear/restart/close, tmux ops), `ProjectSetupScriptRunner` (open + write)
+- **Upstream**: `ws.ts` RPC handlers (`TerminalBackend` for open/write/resize/close and tmux ops; `TerminalManager` for clear/restart/events), `ProjectSetupScriptRunner` (open + write)
 - **Downstream**: `PtyAdapter` (NodePTY or BunPTY), `ServerConfig`, `FileSystem`, `processRunner`, Metrics
 - **Events**: Terminal events pushed to RPC subscribers via `ws.ts`, consumed by web client `terminalStateStore`
 - **Shared consumer**: `MetasploitService` uses `PtyAdapter` directly (not TerminalManager)
@@ -167,7 +186,7 @@ apps/server/src/terminal/
 
 ### For consumers (working in OTHER modules):
 
-- Import ONLY from `Services/Manager.ts`, `Services/PTY.ts`, `Services/TmuxSessionManager.ts`
+- Import ONLY from `Services/Backend.ts`, `Services/Manager.ts`, `Services/PTY.ts`, `Services/TmuxSessionManager.ts`
 - Never import from `Layers/` or internal services
 - Handle all declared error types in `TerminalError` union
 - Subscribe to events via `TerminalManager.subscribe()`, not by importing internals

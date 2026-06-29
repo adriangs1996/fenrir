@@ -6,12 +6,7 @@ import {
 } from "../Services/TmuxSessionManager";
 import { PtyAdapter, PtyProcess } from "../Services/PTY";
 import { withPierreDarkLazygitThemeEnv } from "./LazygitTheme";
-
-const SESSION_PREFIX = "fenrir-";
-
-function sanitizeSessionName(projectId: string): string {
-  return `${SESSION_PREFIX}${projectId.replace(/[.:]/g, "-")}`;
-}
+import { makeTmuxSessionName, TERMINAL_TMUX_SESSION_PREFIX } from "../tmuxRuntime";
 
 function waitForExitCode(proc: PtyProcess) {
   return Effect.callback<number>((resume) => {
@@ -57,11 +52,12 @@ export const TmuxSessionManagerLive = Layer.effect(
       });
 
     return {
-      sessionName: (projectId: string) => sanitizeSessionName(projectId),
+      sessionName: (projectId: string) =>
+        makeTmuxSessionName(TERMINAL_TMUX_SESSION_PREFIX, projectId),
 
       createSession: (projectId, cwd) =>
         Effect.gen(function* () {
-          const name = sanitizeSessionName(projectId);
+          const name = makeTmuxSessionName(TERMINAL_TMUX_SESSION_PREFIX, projectId);
           const proc = yield* execTmux(["new-session", "-d", "-s", name, "-c", cwd], name);
           const exitCode = yield* waitForExitCode(proc);
           if (exitCode === 0) return;
@@ -75,7 +71,7 @@ export const TmuxSessionManagerLive = Layer.effect(
         }),
 
       killSession: (projectId: string) => {
-        const name = sanitizeSessionName(projectId);
+        const name = makeTmuxSessionName(TERMINAL_TMUX_SESSION_PREFIX, projectId);
         const proc = attachedProcesses.get(projectId);
         if (proc) {
           proc.kill();
@@ -103,7 +99,8 @@ export const TmuxSessionManagerLive = Layer.effect(
         });
       },
 
-      hasSession: (projectId: string) => hasSessionByName(sanitizeSessionName(projectId)),
+      hasSession: (projectId: string) =>
+        hasSessionByName(makeTmuxSessionName(TERMINAL_TMUX_SESSION_PREFIX, projectId)),
 
       isTmuxAvailable: Effect.gen(function* () {
         const proc = yield* ptyAdapter.spawn({
@@ -149,7 +146,7 @@ export const TmuxSessionManagerLive = Layer.effect(
 
       attachSession: (projectId, cols, rows) =>
         Effect.gen(function* () {
-          const name = sanitizeSessionName(projectId);
+          const name = makeTmuxSessionName(TERMINAL_TMUX_SESSION_PREFIX, projectId);
           const exists = yield* Effect.gen(function* () {
             const proc = yield* execTmux(["has-session", "-t", name], name);
             const exitCode = yield* waitForExitCode(proc);

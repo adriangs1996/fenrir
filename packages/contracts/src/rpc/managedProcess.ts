@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 
 import { ProjectId, TrimmedNonEmptyString } from "../baseSchemas";
+import { ManagedProcessLogSubscribeInput, ManagedProcessStdinWriteInput } from "../managedProcess";
 import { ManagedProcessLogServerMessage } from "../managedProcessLog";
 import { ManagedProcess, ManagedProcessInstance, ManagedProcessRpcError } from "../orchestration";
 import { WS_METHODS } from "./methods";
@@ -41,10 +42,7 @@ export const WsManagedProcessRestartRpc = Rpc.make(WS_METHODS.managedProcessRest
 });
 
 export const WsManagedProcessWriteStdinRpc = Rpc.make(WS_METHODS.managedProcessWriteStdin, {
-  payload: Schema.Struct({
-    instanceId: TrimmedNonEmptyString,
-    data: Schema.String.check(Schema.isMaxLength(64 * 1024)),
-  }),
+  payload: ManagedProcessStdinWriteInput,
   error: ManagedProcessRpcError,
 });
 
@@ -71,7 +69,7 @@ export const WsManagedProcessDeleteDefinitionRpc = Rpc.make(
 );
 
 export const WsManagedProcessSubscribeLogRpc = Rpc.make(WS_METHODS.managedProcessSubscribeLog, {
-  payload: Schema.Struct({ instanceId: TrimmedNonEmptyString }),
+  payload: ManagedProcessLogSubscribeInput,
   success: ManagedProcessLogServerMessage,
   error: ManagedProcessRpcError,
   stream: true,

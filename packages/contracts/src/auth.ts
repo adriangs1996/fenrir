@@ -73,6 +73,17 @@ export const AuthSessionRole = Schema.Literals(["owner", "client"]);
 export type AuthSessionRole = typeof AuthSessionRole.Type;
 
 /**
+ * Auth roles are coarse access scopes, not UI roles and not broad RBAC.
+ *
+ * - `owner`: can create/revoke pairing credentials and revoke client sessions.
+ * - `client`: can use authenticated capabilities but cannot administer access.
+ *
+ * Future per-project permissions should extend the auth contract explicitly
+ * instead of inferring authority from browser, Electron, CLI, or terminal-client
+ * transport.
+ */
+
+/**
  * Server-advertised auth capabilities for a specific execution environment.
  *
  * Clients should treat this as the authoritative description of how that
@@ -180,6 +191,13 @@ export const AuthClientSession = Schema.Struct({
 });
 export type AuthClientSession = typeof AuthClientSession.Type;
 
+/**
+ * Access-management stream payloads are metadata only.
+ *
+ * They let owner clients observe pairing links, active client sessions,
+ * connectivity, and revocation. They must remain independent of UI shell and
+ * terminal data-plane concerns.
+ */
 export const AuthAccessSnapshot = Schema.Struct({
   pairingLinks: Schema.Array(AuthPairingLink),
   clientSessions: Schema.Array(AuthClientSession),

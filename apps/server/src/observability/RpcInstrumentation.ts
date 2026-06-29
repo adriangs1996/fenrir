@@ -1,7 +1,18 @@
 import { Duration, Effect, Exit, Metric, Stream } from "effect";
 
+import { getWsMethodPlane, type WsMethodName } from "@fenrir/contracts";
+
 import { outcomeFromExit } from "./Attributes.ts";
-import { metricAttributes, rpcRequestDuration, rpcRequestsTotal, withMetrics } from "./Metrics.ts";
+import {
+  increment,
+  metricAttributes,
+  rpcRequestDuration,
+  rpcRequestsTotal,
+  rpcStreamItemsTotal,
+  withMetrics,
+} from "./Metrics.ts";
+
+const methodPlane = (method: string) => getWsMethodPlane(method as WsMethodName);
 
 const annotateRpcSpan = (
   method: string,
@@ -9,6 +20,7 @@ const annotateRpcSpan = (
 ): Effect.Effect<void, never, never> =>
   Effect.annotateCurrentSpan({
     "rpc.method": method,
+    "rpc.stream.plane": methodPlane(method),
     ...traceAttributes,
   });
 
@@ -18,8 +30,9 @@ const recordRpcStreamMetrics = <E>(
   exit: Exit.Exit<unknown, E>,
 ): Effect.Effect<void, never, never> =>
   Effect.gen(function* () {
+    const plane = methodPlane(method);
     yield* Metric.update(
-      Metric.withAttributes(rpcRequestDuration, metricAttributes({ method })),
+      Metric.withAttributes(rpcRequestDuration, metricAttributes({ method, plane })),
       Duration.millis(Math.max(0, Date.now() - startedAt)),
     );
     yield* Metric.update(
@@ -27,6 +40,7 @@ const recordRpcStreamMetrics = <E>(
         rpcRequestsTotal,
         metricAttributes({
           method,
+          plane,
           outcome: outcomeFromExit(exit),
         }),
       ),
@@ -48,9 +62,16 @@ export const observeRpcEffect = <A, E, R>(
         timer: rpcRequestDuration,
         attributes: {
           method,
+          plane: methodPlane(method),
         },
       }),
     );
+  });
+
+const countRpcStreamItem = (method: string): Effect.Effect<void, never, never> =>
+  increment(rpcStreamItemsTotal, {
+    method,
+    plane: methodPlane(method),
   });
 
 export const observeRpcStream = <A, E, R>(
@@ -62,7 +83,10 @@ export const observeRpcStream = <A, E, R>(
     Effect.gen(function* () {
       yield* annotateRpcSpan(method, traceAttributes);
       const startedAt = Date.now();
-      return stream.pipe(Stream.onExit((exit) => recordRpcStreamMetrics(method, startedAt, exit)));
+      return stream.pipe(
+        Stream.tap(() => countRpcStreamItem(method)),
+        Stream.onExit((exit) => recordRpcStreamMetrics(method, startedAt, exit)),
+      );
     }),
   );
 
@@ -83,6 +107,7 @@ export const observeRpcStreamEffect = <A, StreamError, StreamContext, EffectErro
       }
 
       return exit.value.pipe(
+        Stream.tap(() => countRpcStreamItem(method)),
         Stream.onExit((streamExit) => recordRpcStreamMetrics(method, startedAt, streamExit)),
       );
     }),

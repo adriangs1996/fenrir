@@ -31,4 +31,5 @@ export * from "./planRunner";
 export * from "./workflows";
 export * from "./fonts";
 export * from "./skill";
+export * from "./managedProcess";
 export * from "./managedProcessLog";

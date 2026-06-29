@@ -1,7 +1,12 @@
 import type { DesktopBridge } from "@fenrir/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { useDesktopBridgeAvailable, useIsMainWindow, useNvimAvailable } from "./useDesktopBridge";
+import {
+  getDesktopHostAdapter,
+  useDesktopBridgeAvailable,
+  useIsMainWindow,
+  useNvimAvailable,
+} from "./useDesktopBridge";
 
 // ---------- helpers ----------
 
@@ -33,6 +38,23 @@ describe("useDesktopBridgeAvailable", () => {
   it("returns false when desktopBridge is undefined", () => {
     vi.stubGlobal("window", { desktopBridge: undefined });
     expect(useDesktopBridgeAvailable()).toBe(false);
+  });
+});
+
+describe("getDesktopHostAdapter", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns null outside a desktop host", () => {
+    vi.stubGlobal("window", {});
+    expect(getDesktopHostAdapter()).toBeNull();
+  });
+
+  it("wraps the current desktopBridge as the Electron host adapter", () => {
+    const bridge = makeBridgeMock();
+    vi.stubGlobal("window", { desktopBridge: bridge });
+    expect(getDesktopHostAdapter()).toEqual({ kind: "electron", bridge });
   });
 });
 

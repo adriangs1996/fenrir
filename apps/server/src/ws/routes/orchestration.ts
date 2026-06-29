@@ -27,7 +27,7 @@ import { ServerRuntimeStartup } from "../../serverRuntimeStartup";
 import { SourceControl } from "../../sourceControl/Services/SourceControl";
 import { SourceControlWorkflows } from "../../sourceControl/Services/SourceControlWorkflows";
 import { TerminalManager } from "../../terminal/Services/Manager";
-import { makeRpcDomain } from "../handlers";
+import { makeControlPlaneDomain } from "../controlPlane";
 import {
   makeRpcErrorMapper,
   toBootstrapDispatchCommandCauseError,
@@ -409,7 +409,7 @@ export const makeOrchestrationRoutes = (deps: { readonly refreshGitStatus: Refre
         );
     };
 
-    const orchestration = makeRpcDomain("orchestration");
+    const orchestration = makeControlPlaneDomain("orchestration");
 
     return {
       [ORCHESTRATION_WS_METHODS.getBootstrapSnapshot]: orchestration.effect(

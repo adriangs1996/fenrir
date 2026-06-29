@@ -145,6 +145,9 @@ export function normalizeWorkflowTaskKind(value: unknown): WorkflowTaskKind {
 export const WorkflowInputRequestStatus = Schema.Literals(["pending", "resolved", "cancelled"]);
 export type WorkflowInputRequestStatus = typeof WorkflowInputRequestStatus.Type;
 
+// Workflow snapshots and events are client-neutral control-plane state. Clients
+// decide how to render input requests and timelines; these contracts must not
+// assume a browser DOM, Electron shell, or terminal emulator surface.
 export const WorkflowEventKind = Schema.Literals([
   "workflow.draft.created",
   "workflow.draft.archived",

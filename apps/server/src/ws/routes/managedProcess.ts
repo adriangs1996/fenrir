@@ -10,7 +10,7 @@ import { resolveManagedProcessCwd } from "@fenrir/shared/projectScripts";
 import { ImportResolver } from "../../managedProcess/Services/ImportResolver";
 import { ManagedProcessManager } from "../../managedProcess/Services/Manager";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine";
-import { makeRpcDomainWithErrors } from "../handlers";
+import { makeControlPlaneDomainWithErrors } from "../controlPlane";
 import { toManagedProcessRpcError } from "../rpcErrors";
 import { serverCommandId } from "../shared";
 
@@ -19,7 +19,10 @@ export const makeManagedProcessRoutes = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const importResolver = yield* ImportResolver;
 
-  const managedProcess = makeRpcDomainWithErrors("managedProcess", toManagedProcessRpcError);
+  const managedProcess = makeControlPlaneDomainWithErrors(
+    "managedProcess",
+    toManagedProcessRpcError,
+  );
 
   return {
     [WS_METHODS.managedProcessList]: managedProcess.effect(WS_METHODS.managedProcessList, (input) =>
