@@ -156,6 +156,28 @@ export interface WsRpcClient {
     readonly writeTmux: RpcUnaryMethod<typeof WS_METHODS.terminalWriteTmux>;
     readonly resizeTmux: RpcUnaryMethod<typeof WS_METHODS.terminalResizeTmux>;
   };
+  readonly tmuxKernel: {
+    readonly listWorkspaces: RpcUnaryMethod<typeof WS_METHODS.tmuxWorkspaceList>;
+    readonly ensureWorkspace: RpcUnaryMethod<typeof WS_METHODS.tmuxWorkspaceEnsure>;
+    readonly getWorkspaceSnapshot: RpcUnaryMethod<typeof WS_METHODS.tmuxWorkspaceGetSnapshot>;
+    readonly reconnectWorkspace: RpcUnaryMethod<typeof WS_METHODS.tmuxWorkspaceReconnect>;
+    readonly subscribeWorkspace: RpcStreamMethodWithInput<typeof WS_METHODS.tmuxWorkspaceSubscribe>;
+    readonly createWindow: RpcUnaryMethod<typeof WS_METHODS.tmuxWindowCreate>;
+    readonly closeWindow: RpcUnaryMethod<typeof WS_METHODS.tmuxWindowClose>;
+    readonly createPane: RpcUnaryMethod<typeof WS_METHODS.tmuxPaneCreate>;
+    readonly createNeovimPane: RpcUnaryMethod<typeof WS_METHODS.tmuxNeovimPaneCreate>;
+    readonly reconnectNeovimPane: RpcUnaryMethod<typeof WS_METHODS.tmuxNeovimPaneReconnect>;
+    readonly attachPaneMetadata: RpcUnaryMethod<typeof WS_METHODS.tmuxPaneAttachMetadata>;
+    readonly listOperationalPaneStatuses: RpcUnaryMethod<
+      typeof WS_METHODS.tmuxOperationalPaneStatuses
+    >;
+    readonly closePane: RpcUnaryMethod<typeof WS_METHODS.tmuxPaneClose>;
+    readonly resizePane: RpcUnaryMethod<typeof WS_METHODS.tmuxPaneResize>;
+    readonly writePane: RpcUnaryMethod<typeof WS_METHODS.tmuxPaneWrite>;
+    readonly subscribePaneStream: RpcStreamMethodWithInput<
+      typeof WS_METHODS.tmuxPaneSubscribeStream
+    >;
+  };
   readonly rawTcp: {
     readonly createListener: RpcUnaryMethod<typeof WS_METHODS.rawTcpCreateListener>;
     readonly stopListener: RpcUnaryMethod<typeof WS_METHODS.rawTcpStopListener>;
@@ -526,6 +548,46 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
 
       resizeTmux: (input) =>
         transport.request((client) => client[WS_METHODS.terminalResizeTmux](input)),
+    },
+    tmuxKernel: {
+      listWorkspaces: (input) =>
+        transport.request((client) => client[WS_METHODS.tmuxWorkspaceList](input)),
+      ensureWorkspace: (input) =>
+        transport.request((client) => client[WS_METHODS.tmuxWorkspaceEnsure](input)),
+      getWorkspaceSnapshot: (input) =>
+        transport.request((client) => client[WS_METHODS.tmuxWorkspaceGetSnapshot](input)),
+      reconnectWorkspace: (input) =>
+        transport.request((client) => client[WS_METHODS.tmuxWorkspaceReconnect](input)),
+      subscribeWorkspace: (input, listener, options) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.tmuxWorkspaceSubscribe](input),
+          listener,
+          options,
+        ),
+      createWindow: (input) =>
+        transport.request((client) => client[WS_METHODS.tmuxWindowCreate](input)),
+      closeWindow: (input) =>
+        transport.request((client) => client[WS_METHODS.tmuxWindowClose](input)),
+      createPane: (input) =>
+        transport.request((client) => client[WS_METHODS.tmuxPaneCreate](input)),
+      createNeovimPane: (input) =>
+        transport.request((client) => client[WS_METHODS.tmuxNeovimPaneCreate](input)),
+      reconnectNeovimPane: (input) =>
+        transport.request((client) => client[WS_METHODS.tmuxNeovimPaneReconnect](input)),
+      attachPaneMetadata: (input) =>
+        transport.request((client) => client[WS_METHODS.tmuxPaneAttachMetadata](input)),
+      listOperationalPaneStatuses: (input) =>
+        transport.request((client) => client[WS_METHODS.tmuxOperationalPaneStatuses](input)),
+      closePane: (input) => transport.request((client) => client[WS_METHODS.tmuxPaneClose](input)),
+      resizePane: (input) =>
+        transport.request((client) => client[WS_METHODS.tmuxPaneResize](input)),
+      writePane: (input) => transport.request((client) => client[WS_METHODS.tmuxPaneWrite](input)),
+      subscribePaneStream: (input, listener, options) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.tmuxPaneSubscribeStream](input),
+          listener,
+          options,
+        ),
     },
     rawTcp: {
       createListener: (input) =>

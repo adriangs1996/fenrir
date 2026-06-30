@@ -42,6 +42,9 @@ import { TerminalHistoryManagerLive } from "./terminal/Layers/HistoryManager";
 import { TerminalShellResolverLive } from "./terminal/Layers/ShellResolver";
 import { TerminalProcessLifecycleLive } from "./terminal/Layers/ProcessLifecycle";
 import { TmuxSessionManagerLive } from "./terminal/Layers/TmuxSessionManager";
+import { TmuxControlModeAdapterLive } from "./terminal/Layers/TmuxControlMode";
+import { TmuxPaneStreamServiceLive } from "./terminal/Layers/TmuxPaneStreamService";
+import { TmuxWorkspaceServiceLive } from "./terminal/Layers/TmuxWorkspaceService";
 import { RawTcpListenerServiceLive } from "./raw-tcp/Layers/RawTcpListenerService";
 import { RemoteController } from "./puppeteer/Layers/RemoteController";
 import { RemoteConnectionManagerLive } from "./puppeteer/Layers/RemoteConnectionManager";
@@ -265,6 +268,11 @@ const TerminalRuntimeLayerLive = Layer.mergeAll(
     Layer.provide(TerminalProcessLifecycleLive),
   ),
   TmuxSessionManagerLive,
+  TmuxControlModeAdapterLive,
+  TmuxPaneStreamServiceLive,
+  TmuxWorkspaceServiceLive.pipe(
+    Layer.provide(Layer.mergeAll(TmuxControlModeAdapterLive, TmuxPaneStreamServiceLive)),
+  ),
 ).pipe(Layer.provide(PtyAdapterLive));
 
 const TerminalLayerLive = TerminalBackendLive.pipe(Layer.provideMerge(TerminalRuntimeLayerLive));

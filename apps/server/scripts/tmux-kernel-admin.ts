@@ -1,18 +1,20 @@
+#!/usr/bin/env bun
+
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
+import { NetService } from "@fenrir/shared/Net";
+import { Effect, Layer } from "effect";
 import { Command } from "effect/unstable/cli";
 import type * as CliError from "effect/unstable/cli/CliError";
 
-import { NetService } from "@fenrir/shared/Net";
-import { cli } from "./cli";
+import { cli } from "../src/cli.ts";
 import { version } from "../package.json" with { type: "json" };
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
-(Command.run(cli, { version }) as Effect.Effect<void, CliError.CliError | Error>).pipe(
-  Effect.scoped,
-  Effect.provide(CliRuntimeLayer),
-  NodeRuntime.runMain,
-);
+(
+  Command.runWith(cli, { version })(["tmux-kernel", ...process.argv.slice(2)]) as Effect.Effect<
+    void,
+    CliError.CliError | Error
+  >
+).pipe(Effect.scoped, Effect.provide(CliRuntimeLayer), NodeRuntime.runMain);

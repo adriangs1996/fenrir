@@ -1,12 +1,27 @@
 import { NetService } from "@fenrir/shared/Net";
 import { parsePersistedServerObservabilitySettings } from "@fenrir/shared/serverSettings";
-import { AuthSessionId } from "@fenrir/contracts";
+import {
+  AuthWebSocketTokenResult,
+  AuthSessionId,
+  ProjectId,
+  TmuxWorkspaceId,
+  WS_METHODS,
+  WsRpcGroup,
+  type RemoteConnectionSnapshot,
+  type RemoteHostSnapshot,
+  type TmuxActor,
+  type TmuxKernelError,
+  type TmuxOperationalPaneStatusResult,
+  type TmuxWorkspaceListResult,
+  type TmuxWorkspaceSnapshot,
+} from "@fenrir/contracts";
 import {
   Config,
   Console,
   Duration,
   Effect,
   FileSystem,
+  Layer,
   LogLevel,
   Option,
   Path,
@@ -15,7 +30,10 @@ import {
   SchemaIssue,
   SchemaTransformation,
 } from "effect";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
+import * as Socket from "effect/unstable/socket/Socket";
+import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 
 import {
   DEFAULT_PORT,
@@ -37,6 +55,24 @@ import {
   formatSessionList,
 } from "./cliAuthFormat";
 import { AuthControlPlane, AuthControlPlaneShape } from "./auth/Services/AuthControlPlane.ts";
+import { TmuxControlModeAdapterLive } from "./terminal/Layers/TmuxControlMode.ts";
+import { TmuxPaneStreamServiceLive } from "./terminal/Layers/TmuxPaneStreamService.ts";
+import { TmuxWorkspaceServiceLive } from "./terminal/Layers/TmuxWorkspaceService.ts";
+import {
+  TmuxWorkspaceService,
+  type TmuxWorkspaceServiceShape,
+} from "./terminal/Services/TmuxWorkspaceService.ts";
+
+const PtyAdapterLive = Layer.unwrap(
+  Effect.gen(function* () {
+    if (typeof Bun !== "undefined") {
+      const BunPTY = yield* Effect.promise(() => import("./terminal/Layers/BunPTY.ts"));
+      return BunPTY.layer;
+    }
+    const NodePTY = yield* Effect.promise(() => import("./terminal/Layers/NodePTY.ts"));
+    return NodePTY.layer;
+  }),
+);
 
 const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }));
 
@@ -454,6 +490,393 @@ const runWithAuthControlPlane = <A, E>(
     );
   });
 
+interface CliTmuxKernelAdminFlags extends CliAuthLocationFlags {
+  readonly actorSessionId: AuthSessionId;
+  readonly actorSubject: string;
+}
+
+interface CliTmuxKernelLiveFlags {
+  readonly serverUrl: Option.Option<URL>;
+  readonly bearerToken: Option.Option<string>;
+}
+
+interface CliTmuxKernelJsonFlag {
+  readonly json: boolean;
+}
+
+export interface TmuxKernelMetadataStorageSnapshot {
+  readonly path: string;
+  readonly exists: boolean;
+  readonly bytes: number | null;
+}
+
+export interface TmuxKernelRemoteTargetsSnapshot {
+  readonly hosts: readonly RemoteHostSnapshot[];
+  readonly connections: readonly RemoteConnectionSnapshot[];
+}
+
+const TmuxKernelAdminLayerLive = Layer.mergeAll(
+  TmuxControlModeAdapterLive,
+  TmuxPaneStreamServiceLive,
+  TmuxWorkspaceServiceLive.pipe(
+    Layer.provide(Layer.mergeAll(TmuxControlModeAdapterLive, TmuxPaneStreamServiceLive)),
+  ),
+).pipe(Layer.provide(PtyAdapterLive));
+
+const tmuxWorkspaceMetadataPath = (path: Path.Path, stateDir: string): string =>
+  path.join(stateDir, "tmux-workspaces", "metadata.json");
+
+const makeTmuxKernelActor = (flags: CliTmuxKernelAdminFlags): TmuxActor => ({
+  sessionId: flags.actorSessionId,
+  subject: flags.actorSubject,
+});
+
+const decodeAuthWebSocketTokenResult = Schema.decodeUnknownSync(AuthWebSocketTokenResult);
+const makeWsRpcClient = RpcClient.make(WsRpcGroup);
+type WsRpcClient =
+  typeof makeWsRpcClient extends Effect.Effect<infer Client, any, any> ? Client : never;
+
+const resolveRequiredLiveTarget = (
+  flags: CliTmuxKernelLiveFlags,
+): Effect.Effect<{ readonly serverUrl: URL; readonly bearerToken: string }, Error> => {
+  const serverUrl = Option.getOrUndefined(flags.serverUrl);
+  const bearerToken = Option.getOrUndefined(flags.bearerToken);
+  if (!serverUrl || !bearerToken || bearerToken.trim().length === 0) {
+    return Effect.fail(
+      new Error(
+        "Live tmux-kernel admin commands require --server-url and --bearer-token. Use `auth session issue --token-only` to create a bearer session.",
+      ),
+    );
+  }
+  return Effect.succeed({ serverUrl, bearerToken });
+};
+
+const websocketUrlForServer = (serverUrl: URL, wsToken: string): string => {
+  const url = new URL("/ws", serverUrl);
+  url.protocol = serverUrl.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("wsToken", wsToken);
+  return url.toString();
+};
+
+const issueLiveWebSocketToken = Effect.fn(function* (target: {
+  readonly serverUrl: URL;
+  readonly bearerToken: string;
+}) {
+  const tokenUrl = new URL("/api/auth/ws-token", target.serverUrl);
+  const response = yield* Effect.promise(() =>
+    fetch(tokenUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${target.bearerToken}`,
+      },
+    }),
+  );
+  if (!response.ok) {
+    return yield* Effect.fail(
+      new Error(`Failed to issue websocket token from ${tokenUrl}: HTTP ${response.status}`),
+    );
+  }
+  const raw = yield* Effect.promise(() => response.json());
+  return decodeAuthWebSocketTokenResult(raw);
+});
+
+const wsRpcProtocolLayer = (wsUrl: string) => {
+  const webSocketConstructorLayer = Layer.succeed(
+    Socket.WebSocketConstructor,
+    (socketUrl, protocols) =>
+      new NodeSocket.NodeWS.WebSocket(socketUrl, protocols) as unknown as globalThis.WebSocket,
+  );
+
+  return RpcClient.layerProtocolSocket().pipe(
+    Layer.provide(Socket.layerWebSocket(wsUrl).pipe(Layer.provide(webSocketConstructorLayer))),
+    Layer.provide(RpcSerialization.layerJson),
+  );
+};
+
+const withLiveWsRpcClient = <A, E, R>(
+  target: { readonly serverUrl: URL; readonly bearerToken: string },
+  run: (client: WsRpcClient) => Effect.Effect<A, E, R>,
+) =>
+  Effect.gen(function* () {
+    const websocketToken = yield* issueLiveWebSocketToken(target);
+    return yield* Effect.scoped(
+      makeWsRpcClient.pipe(
+        Effect.flatMap(run),
+        Effect.provide(
+          wsRpcProtocolLayer(websocketUrlForServer(target.serverUrl, websocketToken.token)),
+        ),
+      ),
+    );
+  });
+
+const readTmuxKernelMetadataStorage = Effect.fn(function* () {
+  const serverConfig = yield* ServerConfig;
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const metadataPath = tmuxWorkspaceMetadataPath(path, serverConfig.stateDir);
+  const stat = yield* fs.stat(metadataPath).pipe(Effect.catch(() => Effect.succeed(null)));
+  return {
+    path: metadataPath,
+    exists: stat !== null,
+    bytes: stat === null ? null : Number(stat.size),
+  } satisfies TmuxKernelMetadataStorageSnapshot;
+});
+
+const runWithTmuxKernelAdmin = <A, E>(
+  flags: CliTmuxKernelAdminFlags,
+  run: Effect.Effect<A, E, TmuxWorkspaceService | ServerConfig | FileSystem.FileSystem | Path.Path>,
+  options?: {
+    readonly quietLogs?: boolean;
+  },
+) =>
+  Effect.gen(function* () {
+    const logLevel = yield* GlobalFlag.LogLevel;
+    const config = yield* resolveCliAuthConfig(flags, logLevel);
+    const minimumLogLevel = options?.quietLogs ? "Error" : config.logLevel;
+    return yield* run.pipe(
+      Effect.provide(TmuxKernelAdminLayerLive),
+      Effect.provideService(ServerConfig, config),
+      Effect.provideService(References.MinimumLogLevel, minimumLogLevel),
+    );
+  });
+
+const formatJson = (value: unknown): string => JSON.stringify(value, null, 2);
+
+export const formatTmuxWorkspaceList = (
+  result: TmuxWorkspaceListResult,
+  options: { readonly json: boolean },
+): string => {
+  if (options.json) return formatJson(result);
+  if (result.workspaces.length === 0) {
+    return "No tmux kernel workspaces are visible to the selected actor.";
+  }
+  return result.workspaces
+    .map(
+      (workspace) =>
+        `${workspace.workspaceId}  project=${workspace.projectId}  status=${workspace.status}  session=${workspace.tmuxSessionName}  updated=${workspace.updatedAt}`,
+    )
+    .join("\n");
+};
+
+export const formatTmuxWorkspaceSnapshot = (
+  snapshot: TmuxWorkspaceSnapshot,
+  options: { readonly json: boolean },
+): string => {
+  if (options.json) return formatJson(snapshot);
+  const windows = snapshot.windows
+    .map(
+      (window) =>
+        `  window ${window.windowId}  name=${window.name}  status=${window.status}  tmux=${window.tmuxWindowId}`,
+    )
+    .join("\n");
+  const panes = snapshot.panes
+    .map(
+      (pane) =>
+        `  pane ${pane.paneId}  kind=${pane.metadata.kind}  status=${pane.status}  tmux=${pane.tmuxPaneId}  window=${pane.windowId}`,
+    )
+    .join("\n");
+  return [
+    `workspace ${snapshot.workspace.workspaceId}`,
+    `project: ${snapshot.workspace.projectId}`,
+    `status: ${snapshot.workspace.status}`,
+    `session: ${snapshot.workspace.tmuxSessionName}`,
+    `revision: ${snapshot.revision}`,
+    "windows:",
+    windows.length > 0 ? windows : "  none",
+    "panes:",
+    panes.length > 0 ? panes : "  none",
+  ].join("\n");
+};
+
+export const formatTmuxOperationalPaneStatuses = (
+  result: TmuxOperationalPaneStatusResult,
+  options: { readonly json: boolean },
+): string => {
+  if (options.json) return formatJson(result);
+  if (result.panes.length === 0) {
+    return `No operational panes are registered in workspace ${result.workspaceId}.`;
+  }
+  return result.panes
+    .map(
+      (pane) =>
+        `${pane.paneId}  kind=${pane.kind}  status=${pane.status}  window=${pane.windowId}  stream=${pane.stream.streamId}  updated=${pane.updatedAt}`,
+    )
+    .join("\n");
+};
+
+export const formatTmuxKernelMetadataStorage = (
+  snapshot: TmuxKernelMetadataStorageSnapshot,
+  options: { readonly json: boolean },
+): string => {
+  if (options.json) return formatJson(snapshot);
+  return [
+    "tmux kernel metadata storage",
+    `path: ${snapshot.path}`,
+    `exists: ${snapshot.exists ? "yes" : "no"}`,
+    `bytes: ${snapshot.bytes ?? "n/a"}`,
+  ].join("\n");
+};
+
+export const formatTmuxKernelRemoteTargets = (
+  snapshot: TmuxKernelRemoteTargetsSnapshot,
+  options: { readonly json: boolean },
+): string => {
+  if (options.json) return formatJson(snapshot);
+  const hosts =
+    snapshot.hosts.length === 0
+      ? "  none"
+      : snapshot.hosts
+          .map(
+            (host) =>
+              `  host ${host.hostId}  label=${host.label}  transport=${host.transport.type}`,
+          )
+          .join("\n");
+  const connections =
+    snapshot.connections.length === 0
+      ? "  none"
+      : snapshot.connections
+          .map(
+            (connection) =>
+              `  connection ${connection.connectionId}  label=${connection.label}  status=${connection.status}  path=${connection.state.path}`,
+          )
+          .join("\n");
+  return ["remote connection targets", "hosts:", hosts, "connections:", connections].join("\n");
+};
+
+interface TmuxKernelListFlags extends CliTmuxKernelAdminFlags, CliTmuxKernelJsonFlag {
+  readonly projectId: Option.Option<ProjectId>;
+}
+
+interface TmuxKernelWorkspaceFlags extends CliTmuxKernelAdminFlags, CliTmuxKernelJsonFlag {
+  readonly workspaceId: TmuxWorkspaceId;
+}
+
+interface TmuxKernelLiveWorkspaceFlags extends TmuxKernelWorkspaceFlags, CliTmuxKernelLiveFlags {}
+
+interface TmuxKernelLiveRemoteTargetsFlags
+  extends CliAuthLocationFlags, CliTmuxKernelJsonFlag, CliTmuxKernelLiveFlags {}
+
+export interface TmuxKernelOfflineAdminHandlers {
+  readonly listWorkspaces: (
+    input: Parameters<TmuxWorkspaceServiceShape["listWorkspaces"]>[0],
+  ) => Effect.Effect<TmuxWorkspaceListResult, TmuxKernelError | Error>;
+  readonly getSnapshot: (
+    input: Parameters<TmuxWorkspaceServiceShape["getSnapshot"]>[0],
+  ) => Effect.Effect<TmuxWorkspaceSnapshot, TmuxKernelError | Error>;
+  readonly listOperationalPaneStatuses: (
+    input: Parameters<TmuxWorkspaceServiceShape["listOperationalPaneStatuses"]>[0],
+  ) => Effect.Effect<TmuxOperationalPaneStatusResult, TmuxKernelError | Error>;
+}
+
+export interface TmuxKernelLiveAdminHandlers {
+  readonly reconnectWorkspace: (input: {
+    readonly target: { readonly serverUrl: URL; readonly bearerToken: string };
+    readonly actor: TmuxActor;
+    readonly workspaceId: TmuxWorkspaceId;
+  }) => Effect.Effect<TmuxWorkspaceSnapshot, TmuxKernelError | Error>;
+  readonly listRemoteTargets: (input: {
+    readonly target: { readonly serverUrl: URL; readonly bearerToken: string };
+  }) => Effect.Effect<TmuxKernelRemoteTargetsSnapshot, Error>;
+}
+
+const serviceOfflineHandlers: Effect.Effect<
+  TmuxKernelOfflineAdminHandlers,
+  never,
+  TmuxWorkspaceService
+> = Effect.gen(function* () {
+  const service = yield* TmuxWorkspaceService;
+  return {
+    listWorkspaces: (input) => service.listWorkspaces(input),
+    getSnapshot: (input) => service.getSnapshot(input),
+    listOperationalPaneStatuses: (input) => service.listOperationalPaneStatuses(input),
+  };
+});
+
+const liveRpcHandlers: TmuxKernelLiveAdminHandlers = {
+  reconnectWorkspace: (input) =>
+    withLiveWsRpcClient(input.target, (client) =>
+      client[WS_METHODS.tmuxWorkspaceReconnect]({
+        actor: input.actor,
+        workspaceId: input.workspaceId,
+      }),
+    ).pipe(Effect.mapError((cause) => (cause instanceof Error ? cause : new Error(String(cause))))),
+  listRemoteTargets: (input) =>
+    withLiveWsRpcClient(input.target, (client) =>
+      Effect.gen(function* () {
+        const hosts = yield* client[WS_METHODS.remoteControllerListHosts]({});
+        const connections = yield* client[WS_METHODS.remoteControllerListConnections]({});
+        return { hosts, connections };
+      }),
+    ).pipe(Effect.mapError((cause) => (cause instanceof Error ? cause : new Error(String(cause))))),
+};
+
+export const runTmuxKernelListAdminHandler = (
+  flags: TmuxKernelListFlags,
+  handlers: TmuxKernelOfflineAdminHandlers,
+) =>
+  Effect.gen(function* () {
+    const actor = makeTmuxKernelActor(flags);
+    const result = yield* handlers.listWorkspaces({
+      actor,
+      ...(Option.isSome(flags.projectId) ? { projectId: flags.projectId.value } : {}),
+    });
+    yield* Console.log(formatTmuxWorkspaceList(result, { json: flags.json }));
+  });
+
+export const runTmuxKernelInspectAdminHandler = (
+  flags: TmuxKernelWorkspaceFlags,
+  handlers: TmuxKernelOfflineAdminHandlers,
+) =>
+  Effect.gen(function* () {
+    const snapshot = yield* handlers.getSnapshot({
+      actor: makeTmuxKernelActor(flags),
+      workspaceId: flags.workspaceId,
+    });
+    yield* Console.log(formatTmuxWorkspaceSnapshot(snapshot, { json: flags.json }));
+  });
+
+export const runTmuxKernelReconnectAdminHandler = (
+  flags: TmuxKernelLiveWorkspaceFlags,
+  handlers: TmuxKernelLiveAdminHandlers,
+) =>
+  Effect.gen(function* () {
+    const target = yield* resolveRequiredLiveTarget(flags);
+    const snapshot = yield* handlers.reconnectWorkspace({
+      target,
+      actor: makeTmuxKernelActor(flags),
+      workspaceId: flags.workspaceId,
+    });
+    yield* Console.log(formatTmuxWorkspaceSnapshot(snapshot, { json: flags.json }));
+  });
+
+export const runTmuxKernelPanesAdminHandler = (
+  flags: TmuxKernelWorkspaceFlags,
+  handlers: TmuxKernelOfflineAdminHandlers,
+) =>
+  Effect.gen(function* () {
+    const result = yield* handlers.listOperationalPaneStatuses({
+      actor: makeTmuxKernelActor(flags),
+      workspaceId: flags.workspaceId,
+    });
+    yield* Console.log(formatTmuxOperationalPaneStatuses(result, { json: flags.json }));
+  });
+
+export const runTmuxKernelMetadataAdminHandler = (flags: CliTmuxKernelJsonFlag) =>
+  Effect.gen(function* () {
+    const snapshot = yield* readTmuxKernelMetadataStorage();
+    yield* Console.log(formatTmuxKernelMetadataStorage(snapshot, { json: flags.json }));
+  });
+
+export const runTmuxKernelRemoteTargetsAdminHandler = (
+  flags: TmuxKernelLiveRemoteTargetsFlags,
+  handlers: TmuxKernelLiveAdminHandlers,
+) =>
+  Effect.gen(function* () {
+    const target = yield* resolveRequiredLiveTarget(flags);
+    const snapshot = yield* handlers.listRemoteTargets({ target });
+    yield* Console.log(formatTmuxKernelRemoteTargets(snapshot, { json: flags.json }));
+  });
+
 const commandFlags = {
   mode: modeFlag,
   port: portFlag,
@@ -486,6 +909,65 @@ const ttlFlag = Flag.string("ttl").pipe(
 const jsonFlag = Flag.boolean("json").pipe(
   Flag.withDescription("Emit JSON instead of human-readable output."),
   Flag.withDefault(false),
+);
+
+const tmuxKernelActorSessionIdFlag = Flag.string("actor-session-id").pipe(
+  Flag.withSchema(AuthSessionId),
+  Flag.withDescription("Explicit tmux-kernel actor session id used for permission checks."),
+  Flag.withDefault("auth-session-cli-admin" as AuthSessionId),
+);
+
+const tmuxKernelRequiredActorSessionIdFlag = Flag.string("actor-session-id").pipe(
+  Flag.withSchema(AuthSessionId),
+  Flag.withDescription(
+    "Authenticated bearer session id for live tmux-kernel permission checks. Must match the bearer token session.",
+  ),
+);
+
+const tmuxKernelActorSubjectFlag = Flag.string("actor-subject").pipe(
+  Flag.withDescription("Explicit tmux-kernel actor subject used for permission checks."),
+  Flag.withDefault("cli-admin"),
+);
+
+const tmuxKernelAdminFlags = {
+  ...authLocationFlags,
+  actorSessionId: tmuxKernelActorSessionIdFlag,
+  actorSubject: tmuxKernelActorSubjectFlag,
+  json: jsonFlag,
+} as const;
+
+const tmuxKernelLiveAdminFlags = {
+  ...authLocationFlags,
+  actorSessionId: tmuxKernelRequiredActorSessionIdFlag,
+  actorSubject: tmuxKernelActorSubjectFlag,
+  json: jsonFlag,
+} as const;
+
+const serverUrlFlag = Flag.string("server-url").pipe(
+  Flag.withSchema(Schema.URLFromString),
+  Flag.withDescription("Running Fenrir server base URL for live admin commands."),
+  Flag.optional,
+);
+
+const bearerTokenFlag = Flag.string("bearer-token").pipe(
+  Flag.withDescription("Bearer session token used to authenticate live admin commands."),
+  Flag.optional,
+);
+
+const tmuxKernelLiveFlags = {
+  serverUrl: serverUrlFlag,
+  bearerToken: bearerTokenFlag,
+} as const;
+
+const tmuxWorkspaceIdArgument = Argument.string("workspace-id").pipe(
+  Argument.withDescription("Tmux kernel workspace id."),
+  Argument.withSchema(TmuxWorkspaceId),
+);
+
+const tmuxProjectIdFlag = Flag.string("project-id").pipe(
+  Flag.withDescription("Limit tmux kernel workspace listing to a project id."),
+  Flag.withSchema(ProjectId),
+  Flag.optional,
 );
 
 const sessionRoleFlag = Flag.choice("role", ["owner", "client"]).pipe(
@@ -676,6 +1158,105 @@ const authCommand = Command.make("auth").pipe(
   Command.withSubcommands([pairingCommand, sessionCommand]),
 );
 
+const tmuxKernelListCommand = Command.make("list", {
+  ...tmuxKernelAdminFlags,
+  projectId: tmuxProjectIdFlag,
+}).pipe(
+  Command.withDescription("List tmux kernel workspaces visible to the explicit actor."),
+  Command.withHandler((flags) =>
+    runWithTmuxKernelAdmin(
+      flags,
+      Effect.gen(function* () {
+        const handlers = yield* serviceOfflineHandlers;
+        yield* runTmuxKernelListAdminHandler(flags, handlers);
+      }),
+      { quietLogs: flags.json },
+    ),
+  ),
+);
+
+const tmuxKernelInspectCommand = Command.make("inspect", {
+  ...tmuxKernelAdminFlags,
+  workspaceId: tmuxWorkspaceIdArgument,
+}).pipe(
+  Command.withDescription("Inspect a tmux kernel workspace snapshot, including windows and panes."),
+  Command.withHandler((flags) =>
+    runWithTmuxKernelAdmin(
+      flags,
+      Effect.gen(function* () {
+        const handlers = yield* serviceOfflineHandlers;
+        yield* runTmuxKernelInspectAdminHandler(flags, handlers);
+      }),
+      { quietLogs: flags.json },
+    ),
+  ),
+);
+
+const tmuxKernelReconnectCommand = Command.make("reconnect", {
+  ...tmuxKernelLiveAdminFlags,
+  ...tmuxKernelLiveFlags,
+  workspaceId: tmuxWorkspaceIdArgument,
+}).pipe(
+  Command.withDescription("Reconnect and reconcile a live server-owned tmux kernel workspace."),
+  Command.withHandler((flags) => runTmuxKernelReconnectAdminHandler(flags, liveRpcHandlers)),
+);
+
+const tmuxKernelPanesCommand = Command.make("panes", {
+  ...tmuxKernelAdminFlags,
+  workspaceId: tmuxWorkspaceIdArgument,
+}).pipe(
+  Command.withDescription("List registered operational pane metadata and lifecycle status."),
+  Command.withHandler((flags) =>
+    runWithTmuxKernelAdmin(
+      flags,
+      Effect.gen(function* () {
+        const handlers = yield* serviceOfflineHandlers;
+        yield* runTmuxKernelPanesAdminHandler(flags, handlers);
+      }),
+      { quietLogs: flags.json },
+    ),
+  ),
+);
+
+const tmuxKernelMetadataCommand = Command.make("metadata", {
+  ...authLocationFlags,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Show tmux kernel metadata storage location and file state."),
+  Command.withHandler((flags) =>
+    runWithTmuxKernelAdmin(
+      {
+        ...flags,
+        actorSessionId: "auth-session-cli-admin" as AuthSessionId,
+        actorSubject: "cli-admin",
+      },
+      runTmuxKernelMetadataAdminHandler(flags),
+      { quietLogs: flags.json },
+    ),
+  ),
+);
+
+const tmuxKernelRemoteTargetsCommand = Command.make("remote-targets", {
+  ...authLocationFlags,
+  ...tmuxKernelLiveFlags,
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("List remote host and connection targets from a live Fenrir server."),
+  Command.withHandler((flags) => runTmuxKernelRemoteTargetsAdminHandler(flags, liveRpcHandlers)),
+);
+
+const tmuxKernelCommand = Command.make("tmux-kernel").pipe(
+  Command.withDescription("Inspect and administer tmux session-kernel state."),
+  Command.withSubcommands([
+    tmuxKernelListCommand,
+    tmuxKernelInspectCommand,
+    tmuxKernelReconnectCommand,
+    tmuxKernelPanesCommand,
+    tmuxKernelMetadataCommand,
+    tmuxKernelRemoteTargetsCommand,
+  ]),
+);
+
 const startCommand = Command.make("start", commandFlags).pipe(
   Command.withDescription("Run the Fenrir server."),
   Command.withHandler((flags) =>
@@ -696,5 +1277,5 @@ export const cli = Command.make("t3", commandFlags).pipe(
       return yield* runServer.pipe(Effect.provideService(ServerConfig, config));
     }),
   ),
-  Command.withSubcommands([startCommand, authCommand]),
+  Command.withSubcommands([startCommand, authCommand, tmuxKernelCommand]),
 );

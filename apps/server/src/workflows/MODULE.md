@@ -22,6 +22,19 @@ updates. Do not route terminal byte streams, remote command output streams, or
 provider token streams through workflow orchestration helpers unless a separate
 data-plane boundary is introduced.
 
+Workflow runs and agents may attach tmux operational pane metadata through the
+terminal kernel (`tmux.pane.attachMetadata` and
+`tmux.operationalPanes.statuses`). That linkage is an operational surface only:
+workflow snapshots and provider events remain the source of truth for workflow
+state and do not gain terminal UI fields.
+
+When a workflow or agent needs an operational pane, it must use the terminal
+kernel contracts with an explicit `TmuxActor` and workspace grant. Do not infer
+permission from a local workflow runner, Electron process, browser websocket, or
+future native terminal transport. Pane output stays on
+`tmux.pane.subscribeStream`; workflow event streams may reference pane identity
+or lifecycle metadata but must not carry terminal bytes.
+
 ## Runner Boundary
 
 `apps/server/src/workflows/Layers/Workflow.ts` starts an isolated JavaScript

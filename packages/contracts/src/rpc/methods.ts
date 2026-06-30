@@ -111,6 +111,24 @@ export const WS_METHODS = {
   terminalWriteTmux: "terminal.writeTmux",
   terminalResizeTmux: "terminal.resizeTmux",
 
+  // Tmux session kernel
+  tmuxWorkspaceList: "tmux.workspace.list",
+  tmuxWorkspaceEnsure: "tmux.workspace.ensure",
+  tmuxWorkspaceGetSnapshot: "tmux.workspace.getSnapshot",
+  tmuxWorkspaceReconnect: "tmux.workspace.reconnect",
+  tmuxWorkspaceSubscribe: "tmux.workspace.subscribe",
+  tmuxWindowCreate: "tmux.window.create",
+  tmuxWindowClose: "tmux.window.close",
+  tmuxPaneCreate: "tmux.pane.create",
+  tmuxNeovimPaneCreate: "tmux.neovimPane.create",
+  tmuxNeovimPaneReconnect: "tmux.neovimPane.reconnect",
+  tmuxPaneAttachMetadata: "tmux.pane.attachMetadata",
+  tmuxOperationalPaneStatuses: "tmux.operationalPanes.statuses",
+  tmuxPaneClose: "tmux.pane.close",
+  tmuxPaneResize: "tmux.pane.resize",
+  tmuxPaneWrite: "tmux.pane.write",
+  tmuxPaneSubscribeStream: "tmux.pane.subscribeStream",
+
   // Raw TCP Listener
   rawTcpCreateListener: "rawTcp.createListener",
   rawTcpStopListener: "rawTcp.stopListener",

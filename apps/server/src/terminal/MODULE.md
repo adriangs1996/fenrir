@@ -1,6 +1,12 @@
 # Module: Terminal (Server)
 
-> PTY-backed terminal session lifecycle management for thread-scoped terminals.
+> Terminal compatibility services plus the server-owned tmux session kernel.
+
+The terminal module owns both legacy PTY/thread terminal behavior and the tmux
+session kernel foundation. The kernel maps project/workspace to tmux session,
+Fenrir tab/window to tmux window, and Fenrir pane to tmux pane. Pane bytes belong
+to the explicit pane data plane (`TmuxPaneStreamService` and
+`tmux.pane.subscribeStream`), not generic orchestration or workflow event paths.
 
 ## Public API
 
@@ -56,6 +62,81 @@ delegates thread terminals to `TerminalManager` and tmux compatibility to
 | `writeToSession`  | `projectId, data`       | `void`       | `TmuxSessionError`                      | Write data to tmux session     |
 | `resizeSession`   | `projectId, cols, rows` | `void`       | `TmuxSessionError`                      | Resize tmux session            |
 
+#### `TmuxControlModeAdapter` (public — consumed by tmux kernel services)
+
+Owns one `tmux -C` control-mode client process per connection and emits typed
+control-mode events. This is the target integration boundary for synchronized
+tmux workspace/window/pane state. Command helpers remain bootstrap/admin
+fallback only.
+
+| Method         | Input                         | Output                      | Errors                 | Description                                       |
+| -------------- | ----------------------------- | --------------------------- | ---------------------- | ------------------------------------------------- |
+| `connect`      | `TmuxControlModeConnectInput` | `TmuxControlModeConnection` | `TmuxControlModeError` | Spawn `tmux -C` attach/new-session control client |
+| `adminCommand` | `args, { timeoutMs? }`        | `string`                    | `TmuxControlModeError` | Bounded tmux command fallback for bootstrap/admin |
+
+`TmuxControlModeConnection` exposes `command`, `restart`, `stop`, `status`,
+`pid`, and `subscribe`. Pane output is parsed into typed adapter events for the
+pane data plane; it must not be forwarded through orchestration streams.
+
+#### `TmuxWorkspaceService` (public — server-owned tmux session kernel)
+
+Owns the Fenrir workspace/window/pane model backed by tmux sessions/windows/panes.
+This service is the durable server boundary for the tmux kernel and preserves the
+legacy web/Electron tmux routes by living alongside `TmuxSessionManager`.
+
+| Method                        | Input                            | Output                            | Errors            | Description                                       |
+| ----------------------------- | -------------------------------- | --------------------------------- | ----------------- | ------------------------------------------------- |
+| `listWorkspaces`              | `TmuxWorkspaceListInput`         | `TmuxWorkspaceListResult`         | `TmuxKernelError` | List server-known tmux workspaces                 |
+| `ensureWorkspace`             | `TmuxWorkspaceEnsureInput`       | `TmuxWorkspaceSnapshot`           | `TmuxKernelError` | Create/attach control-mode workspace kernel       |
+| `reconnectWorkspace`          | `TmuxWorkspaceGetSnapshotInput`  | `TmuxWorkspaceSnapshot`           | `TmuxKernelError` | Restart control-mode client and reconcile         |
+| `getSnapshot`                 | `TmuxWorkspaceGetSnapshotInput`  | `TmuxWorkspaceSnapshot`           | `TmuxKernelError` | Read current server snapshot                      |
+| `createWindow`                | `TmuxWindowCreateInput`          | `TmuxWorkspaceSnapshot`           | `TmuxKernelError` | Create tmux window and reconcile IDs              |
+| `renameWindow`                | `TmuxWindowRenameInput`          | `TmuxWindow`                      | `TmuxKernelError` | Rename tmux window                                |
+| `focusWindow`                 | `TmuxWindowFocusInput`           | `TmuxWorkspaceSnapshot`           | `TmuxKernelError` | Select active tmux window                         |
+| `closeWindow`                 | `TmuxWindowCloseInput`           | `TmuxWorkspaceSnapshot`           | `TmuxKernelError` | Detach/kill Fenrir window                         |
+| `createPane`                  | `TmuxPaneCreateInput`            | `TmuxWorkspaceSnapshot`           | `TmuxKernelError` | Split tmux pane with kind-specific metadata       |
+| `attachPaneMetadata`          | `TmuxPaneAttachMetadataInput`    | `TmuxPane`                        | `TmuxKernelError` | Attach operational metadata to existing pane      |
+| `listOperationalPaneStatuses` | `TmuxOperationalPaneStatusInput` | `TmuxOperationalPaneStatusResult` | `TmuxKernelError` | Report agent/workflow/process surface pane status |
+| `focusPane`                   | `TmuxPaneFocusInput`             | `TmuxWorkspaceSnapshot`           | `TmuxKernelError` | Select active tmux pane                           |
+| `resizePane`                  | `TmuxPaneResizeInput`            | `TmuxPane`                        | `TmuxKernelError` | Resize tmux pane and update metadata              |
+| `closePane`                   | `TmuxPaneCloseInput`             | `TmuxWorkspaceSnapshot`           | `TmuxKernelError` | Detach/terminate/kill Fenrir pane                 |
+| `writePane`                   | `TmuxPaneWriteInput`             | `TmuxPaneWriteResult`             | `TmuxKernelError` | Bounded pane input with accepted/rejected ack     |
+| `subscribePaneStream`         | `TmuxPaneStreamSubscribeInput`   | `TmuxPaneStreamEvent`             | `TmuxKernelError` | Explicit pane data-plane stream with replay       |
+| `subscribe`                   | `workspaceId, listener`          | `() => void`                      | `TmuxKernelError` | Typed kernel events without pane byte data        |
+| `sessionNameForProject`       | `ProjectId`                      | `string`                          | —                 | Stable project → tmux session mapping             |
+
+`TmuxWorkspaceService` uses `TmuxControlModeAdapter` for the live control client
+and lifecycle/event synchronization. Bounded tmux admin commands are retained for
+bootstrap and reconciliation operations that require authoritative tmux IDs
+(`list-panes`, `new-window -P`, `split-window -P`, `select-*`, `resize-pane`,
+`kill-*`). Pane output events are appended into `TmuxPaneStreamService`; kernel
+events only publish stream descriptors and lifecycle overflow metadata, never
+pane bytes. Workspace/window/pane metadata is persisted at
+`{stateDir}/tmux-workspaces/metadata.json` and restored as detached state before
+the next control-mode reconnect validates the tmux session marker and reconciles
+live tmux IDs.
+
+#### `TmuxPaneStreamService` (internal — pane data plane foundation)
+
+Owns append-only bounded buffers per pane and per-subscriber bounded queues. It
+is intentionally separate from orchestration/RPC event paths so high-volume pane
+bytes have explicit sequencing, backfill, overflow, and slow-client behavior.
+
+| Method       | Input                          | Output                       | Errors            | Description                                   |
+| ------------ | ------------------------------ | ---------------------------- | ----------------- | --------------------------------------------- |
+| `ensurePane` | `TmuxPaneStreamDescriptor`     | `TmuxPaneStreamDescriptor`   | —                 | Register stream state and normalize restore   |
+| `append`     | `paneId, data`                 | descriptor + overflow result | `TmuxKernelError` | Append chunk with monotonic sequence          |
+| `closePane`  | `paneId, reason`               | `void`                       | —                 | Close subscribers with protocol closed event  |
+| `subscribe`  | `TmuxPaneStreamSubscribeInput` | `TmuxPaneStreamEvent stream` | `TmuxKernelError` | Backfill from sequence or follow latest bytes |
+
+Buffers keep the latest bounded replay window in memory. If requested backfill
+starts before the retained window, subscribers receive `gap` before resumed
+chunks. On server restart, descriptors retain high-water marks but replay chunks
+are not durable, so subscriptions receive a `server-restart` gap rather than
+stale bytes. Slow subscribers use explicit policy: `fast-forward` clears their
+queue and emits `overflow` + `gap`; `close` emits `overflow` + `closed` and ends
+the queue.
+
 #### `TerminalHistoryManager` (internal — consumed by TerminalManager only)
 
 | Method               | Input                           | Output   | Errors                 | Description                         |
@@ -106,11 +187,11 @@ delegates thread terminals to `TerminalManager` and tmux compatibility to
 
 ### Services Consumed
 
-| Service        | From Module         | Why                      |
-| -------------- | ------------------- | ------------------------ |
-| `PtyAdapter`   | `terminal/Services` | Spawn PTY processes      |
-| `ServerConfig` | `config`            | `terminalLogsDir` path   |
-| `FileSystem`   | `effect`            | Read/write history files |
+| Service        | From Module         | Why                                 |
+| -------------- | ------------------- | ----------------------------------- |
+| `PtyAdapter`   | `terminal/Services` | Spawn PTY processes                 |
+| `ServerConfig` | `config`            | `terminalLogsDir`, `stateDir` paths |
+| `FileSystem`   | `effect`            | Read/write history files            |
 
 ### Packages
 
@@ -146,6 +227,8 @@ apps/server/src/terminal/
     Manager.ts              # TerminalManager public service interface (STABLE)
     PTY.ts                  # PtyAdapter public service interface (STABLE)
     TmuxSessionManager.ts   # TmuxSessionManager public service interface (STABLE)
+    TmuxControlMode.ts      # tmux -C adapter public service interface (NEW)
+    TmuxWorkspaceService.ts # tmux workspace/window/pane kernel service (NEW)
     HistoryManager.ts       # TerminalHistoryManager internal service (NEW)
     ShellResolver.ts        # TerminalShellResolver internal service (NEW)
     ProcessLifecycle.ts     # TerminalProcessLifecycle internal service (NEW)
@@ -158,8 +241,14 @@ apps/server/src/terminal/
     NodePTY.ts              # node-pty adapter (unchanged)
     BunPTY.ts               # Bun PTY adapter (unchanged)
     TmuxSessionManager.ts   # Tmux implementation (unchanged)
+    TmuxControlMode.ts      # tmux -C adapter + parser (NEW)
+    TmuxWorkspaceService.ts # server-owned tmux session kernel (NEW)
+    TmuxPaneStreamService.ts # pane data-plane buffers and stream protocol (NEW)
   __tests__/
     TmuxSessionManager.test.ts
+    TmuxControlMode.test.ts      # NEW parser and adapter boundary tests
+    TmuxWorkspaceService.test.ts # NEW workspace lifecycle/reconcile tests
+    TmuxPaneStreamService.test.ts # NEW stream replay/overflow tests
     HistoryManager.test.ts       # NEW unit tests
     ShellResolver.test.ts        # NEW unit tests
     ProcessLifecycle.test.ts     # NEW unit tests
@@ -180,13 +269,24 @@ apps/server/src/terminal/
 
 - Layer implementations in `Layers/` — change freely without breaking consumers
 - `Services/Manager.ts`, `Services/PTY.ts`, `Services/TmuxSessionManager.ts` are PUBLIC contracts — changes are BREAKING
+- `Services/TmuxWorkspaceService.ts` is the public tmux kernel boundary for
+  workspace/window/pane lifecycle, Neovim panes, operational pane metadata,
+  permissions, write acknowledgements, and stream subscriptions
+- `Services/TmuxPaneStreamService.ts` owns pane byte sequencing/backfill/
+  overflow/slow-client behavior; do not route pane bytes through
+  `TerminalManager.subscribe`, workflow streams, or orchestration snapshots
 - `Services/HistoryManager.ts`, `Services/ShellResolver.ts`, `Services/ProcessLifecycle.ts` are INTERNAL — change freely
 - Tests: integration tests in `Manager.test.ts` cover public API; unit tests per sub-service cover internals
 - ANSI sanitization lives in `@fenrir/shared/ansiSanitizer` — pure functions, test independently
 
 ### For consumers (working in OTHER modules):
 
-- Import ONLY from `Services/Backend.ts`, `Services/Manager.ts`, `Services/PTY.ts`, `Services/TmuxSessionManager.ts`
+- Import ONLY from public service boundaries:
+  `Services/Backend.ts`, `Services/Manager.ts`, `Services/PTY.ts`,
+  `Services/TmuxSessionManager.ts`, and `Services/TmuxWorkspaceService.ts`
 - Never import from `Layers/` or internal services
 - Handle all declared error types in `TerminalError` union
 - Subscribe to events via `TerminalManager.subscribe()`, not by importing internals
+- For tmux kernel panes, subscribe through `TmuxWorkspaceService.subscribe` for
+  metadata lifecycle events and `TmuxWorkspaceService.subscribePaneStream` for
+  pane bytes. Metadata events must not include terminal output.

@@ -6,6 +6,7 @@ export * from "./rpc/project";
 export * from "./rpc/vcs";
 export * from "./rpc/gitDiff";
 export * from "./rpc/terminal";
+export * from "./rpc/terminalKernel";
 export * from "./rpc/orchestration";
 export * from "./rpc/rawTcp";
 export * from "./rpc/remoteController";

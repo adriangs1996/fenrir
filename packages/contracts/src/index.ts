@@ -4,6 +4,7 @@ export * from "./environment";
 export * from "./ipc";
 export * from "./ipcChannels";
 export * from "./terminal";
+export * from "./terminalKernel";
 export * from "./provider";
 export * from "./providerInstance";
 export * from "./providerRuntime";

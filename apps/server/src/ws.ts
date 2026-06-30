@@ -20,6 +20,7 @@ import { makeServerRoutes } from "./ws/routes/server";
 import { makeSourceControlRoutes } from "./ws/routes/sourceControl";
 import { sourceControlStackRoutes } from "./ws/routes/sourceControlStack";
 import { makeTerminalRoutes } from "./ws/routes/terminal";
+import { makeTmuxWorkspaceRoutes } from "./ws/routes/tmuxWorkspace";
 import { makeTrafficLensRoutes } from "./ws/routes/trafficLens";
 import { makeVcsRoutes } from "./ws/routes/vcs";
 import { makeWorkflowRoutes } from "./ws/routes/workflows";
@@ -35,6 +36,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const refreshGitStatus = yield* makeRefreshGitStatus;
 
       const terminalRoutes = yield* makeTerminalRoutes;
+      const tmuxWorkspaceRoutes = yield* makeTmuxWorkspaceRoutes({ currentSessionId });
       const orchestrationRoutes = yield* makeOrchestrationRoutes({ refreshGitStatus });
       const serverRoutes = yield* makeServerRoutes;
       const authRoutes = yield* makeAuthRoutes({ currentSessionId });
@@ -52,6 +54,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
 
       return WsRpcGroup.of({
         ...terminalRoutes,
+        ...tmuxWorkspaceRoutes,
         ...orchestrationRoutes,
         ...serverRoutes,
         ...authRoutes,

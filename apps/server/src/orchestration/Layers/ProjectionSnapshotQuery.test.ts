@@ -1,10 +1,11 @@
 import { CheckpointRef, EventId, MessageId, ProjectId, ThreadId, TurnId } from "@fenrir/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { runProcess } from "../../processRunner.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -14,6 +15,8 @@ const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asEventId = (value: string): EventId => EventId.make(value);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(value);
+const git = (cwd: string, args: ReadonlyArray<string>) =>
+  Effect.promise(() => runProcess("git", ["-C", cwd, ...args]));
 
 const projectionSnapshotLayer = it.layer(
   OrchestrationProjectionSnapshotQueryLive.pipe(
@@ -37,6 +40,53 @@ function resetProjectionTables(sql: SqlClient.SqlClient) {
 }
 
 projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
+  it.effect("resolves repository identity for projected projects", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const cwd = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "fenrir-projection-repository-identity-",
+      });
+
+      yield* git(cwd, ["init"]);
+      yield* git(cwd, ["remote", "add", "origin", "git@github.com:Fenrir/fenrir.git"]);
+      yield* resetProjectionTables(sql);
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          managed_processes_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-repository',
+          'Repository Project',
+          ${cwd},
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '[]',
+          '2026-03-03T00:00:00.000Z',
+          '2026-03-03T00:00:01.000Z',
+          NULL
+        )
+      `;
+
+      const snapshot = yield* snapshotQuery.getSnapshot();
+
+      assert.equal(
+        snapshot.projects[0]?.repositoryIdentity?.canonicalKey,
+        "github.com/fenrir/fenrir",
+      );
+      assert.equal(snapshot.projects[0]?.repositoryIdentity?.displayName, "fenrir/fenrir");
+    }),
+  );
+
   it.effect("hydrates bootstrap thread shells with summary metadata", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

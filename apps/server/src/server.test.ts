@@ -99,6 +99,7 @@ import { ServerSettingsService, type ServerSettingsShape } from "./serverSetting
 import { TerminalBackendLive } from "./terminal/Layers/Backend.ts";
 import { TerminalManager, type TerminalManagerShape } from "./terminal/Services/Manager.ts";
 import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager.ts";
+import { TmuxWorkspaceService } from "./terminal/Services/TmuxWorkspaceService.ts";
 import {
   BrowserTraceCollector,
   type BrowserTraceCollectorShape,
@@ -888,6 +889,26 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provide(
         Layer.mergeAll(terminalManagerLayer, tmuxSessionManagerLayer, terminalBackendLayer),
+      ),
+      Layer.provide(
+        Layer.mock(TmuxWorkspaceService)({
+          listWorkspaces: () => Effect.succeed({ workspaces: [], revision: 0 }),
+          ensureWorkspace: () => Effect.die(new Error("not available in test")),
+          reconnectWorkspace: () => Effect.die(new Error("not available in test")),
+          getSnapshot: () => Effect.die(new Error("not available in test")),
+          createWindow: () => Effect.die(new Error("not available in test")),
+          renameWindow: () => Effect.die(new Error("not available in test")),
+          focusWindow: () => Effect.die(new Error("not available in test")),
+          closeWindow: () => Effect.die(new Error("not available in test")),
+          createPane: () => Effect.die(new Error("not available in test")),
+          focusPane: () => Effect.die(new Error("not available in test")),
+          resizePane: () => Effect.die(new Error("not available in test")),
+          closePane: () => Effect.die(new Error("not available in test")),
+          writePane: () => Effect.die(new Error("not available in test")),
+          subscribePaneStream: () => Effect.succeed(Stream.empty),
+          subscribe: () => Effect.succeed(() => {}),
+          sessionNameForProject: (projectId) => `fenrir-ws-${projectId}`,
+        }),
       ),
       Layer.provide(
         Layer.mock(RawTcpListenerService)({

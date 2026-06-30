@@ -31,6 +31,18 @@ describe("WsRpcGroup", () => {
     expect(getWsRpcGroupMethods()).toEqual(getDeclaredWsRpcMethods());
   });
 
+  it("live-mounts tmux kernel descriptors now that runtime routes exist", () => {
+    const methods = new Set(getWsRpcGroupMethods());
+    expect(methods).toContain(WS_METHODS.tmuxWorkspaceList);
+    expect(methods).toContain(WS_METHODS.tmuxWorkspaceEnsure);
+    expect(methods).toContain(WS_METHODS.tmuxWorkspaceReconnect);
+    expect(methods).toContain(WS_METHODS.tmuxNeovimPaneCreate);
+    expect(methods).toContain(WS_METHODS.tmuxNeovimPaneReconnect);
+    expect(methods).toContain(WS_METHODS.tmuxPaneAttachMetadata);
+    expect(methods).toContain(WS_METHODS.tmuxOperationalPaneStatuses);
+    expect(methods).toContain(WS_METHODS.tmuxPaneSubscribeStream);
+  });
+
   it("does not expose legacy local git operation RPC names", () => {
     const methods = new Set(getWsRpcGroupMethods());
     const legacyMethods = [
@@ -61,6 +73,16 @@ describe("WsRpcGroup", () => {
     expect(getWsMethodPlane(WS_METHODS.subscribeVcsStatus)).toBe("event-stream");
     expect(getWsMethodPlane(WS_METHODS.subscribeWorkflowEvents)).toBe("event-stream");
     expect(getWsMethodPlane(WS_METHODS.subscribeRemoteControllerEvents)).toBe("event-stream");
+    expect(getWsMethodPlane(WS_METHODS.tmuxWorkspaceEnsure)).toBe("control");
+    expect(getWsMethodPlane(WS_METHODS.tmuxWorkspaceReconnect)).toBe("control");
+    expect(getWsMethodPlane(WS_METHODS.tmuxPaneCreate)).toBe("control");
+    expect(getWsMethodPlane(WS_METHODS.tmuxNeovimPaneCreate)).toBe("control");
+    expect(getWsMethodPlane(WS_METHODS.tmuxNeovimPaneReconnect)).toBe("control");
+    expect(getWsMethodPlane(WS_METHODS.tmuxPaneAttachMetadata)).toBe("control");
+    expect(getWsMethodPlane(WS_METHODS.tmuxOperationalPaneStatuses)).toBe("control");
+    expect(getWsMethodPlane(WS_METHODS.tmuxWorkspaceSubscribe)).toBe("event-stream");
+    expect(getWsMethodPlane(WS_METHODS.tmuxPaneWrite)).toBe("data-stream");
+    expect(getWsMethodPlane(WS_METHODS.tmuxPaneSubscribeStream)).toBe("data-stream");
     expect(getWsMethodPlane(ORCHESTRATION_WS_METHODS.dispatchCommand)).toBe("control");
     expect(getWsMethodPlane(ORCHESTRATION_WS_METHODS.subscribeShell)).toBe("event-stream");
   });
