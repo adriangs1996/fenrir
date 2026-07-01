@@ -88,6 +88,10 @@ export function shouldAutoReconnect(
 ): boolean {
   const uiState = getWsConnectionUiState(status);
 
+  if (status.phase === "connecting" || status.reconnectPhase === "attempting") {
+    return false;
+  }
+
   if (trigger === "online") {
     return (
       uiState === "offline" ||

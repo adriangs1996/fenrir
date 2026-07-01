@@ -1,13 +1,18 @@
 import { CheckpointRef, EventId, MessageId, ProjectId, ThreadId, TurnId } from "@fenrir/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer } from "effect";
+import { Duration, Effect, Fiber, FileSystem, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { runProcess } from "../../processRunner.ts";
+import { SourceControl } from "../../sourceControl/Services/SourceControl.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
-import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
+import {
+  makeProjectionSnapshotQuery,
+  OrchestrationProjectionSnapshotQueryLive,
+} from "./ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.make(value);
@@ -22,6 +27,22 @@ const projectionSnapshotLayer = it.layer(
   OrchestrationProjectionSnapshotQueryLive.pipe(
     Layer.provideMerge(SqlitePersistenceMemory),
     Layer.provideMerge(NodeServices.layer),
+  ),
+);
+
+const blockingSourceControlProjectionSnapshotLayer = it.layer(
+  Layer.effect(ProjectionSnapshotQuery, makeProjectionSnapshotQuery).pipe(
+    Layer.provideMerge(SqlitePersistenceMemory),
+    Layer.provideMerge(
+      Layer.succeed(
+        SourceControl,
+        SourceControl.of({
+          resolveWorkspace: () => Effect.never,
+          isSupportedWorkspace: () => Effect.never,
+          resolveRepositoryIdentity: () => Effect.never,
+        }),
+      ),
+    ),
   ),
 );
 
@@ -86,7 +107,55 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.equal(snapshot.projects[0]?.repositoryIdentity?.displayName, "fenrir/fenrir");
     }),
   );
+});
 
+blockingSourceControlProjectionSnapshotLayer(
+  "ProjectionSnapshotQuery repository identity",
+  (it) => {
+    it.effect("does not block bootstrap snapshots on repository identity resolution", () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* resetProjectionTables(sql);
+        yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          managed_processes_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-slow-repository',
+          'Slow Repository Project',
+          '/tmp/slow-repository-project',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '[]',
+          '2026-03-03T00:00:00.000Z',
+          '2026-03-03T00:00:01.000Z',
+          NULL
+        )
+      `;
+
+        const snapshotFiber = yield* snapshotQuery.getBootstrapSnapshot().pipe(Effect.forkScoped);
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust(Duration.millis(750));
+        const snapshot = yield* Fiber.join(snapshotFiber);
+
+        assert.equal(snapshot.projects[0]?.id, asProjectId("project-slow-repository"));
+        assert.equal(snapshot.projects[0]?.repositoryIdentity, null);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+  },
+);
+
+projectionSnapshotLayer("ProjectionSnapshotQuery snapshots", (it) => {
   it.effect("hydrates bootstrap thread shells with summary metadata", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

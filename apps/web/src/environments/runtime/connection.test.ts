@@ -4,12 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 import { createEnvironmentConnection } from "./connection";
 import type { WsRpcClient } from "~/rpc/wsRpcClient";
 
-function createTestClient(options?: {
+function createTestClient(testOptions?: {
   readonly getBootstrapSnapshot?: () => Promise<{ readonly snapshotSequence: number }>;
   readonly getSnapshot?: () => Promise<{ readonly snapshotSequence: number }>;
   readonly replayEvents?: () => Promise<ReadonlyArray<any>>;
   readonly reconnect?: () => Promise<void>;
   readonly isHeartbeatFresh?: () => boolean;
+  readonly emitInitialShellSnapshot?: boolean;
 }) {
   const lifecycleListeners = new Set<(event: any) => void>();
   const configListeners = new Set<(event: any) => void>();
@@ -22,7 +23,7 @@ function createTestClient(options?: {
   let managedProcessResubscribe: (() => void) | undefined;
 
   const getBootstrapSnapshot = vi.fn(
-    options?.getBootstrapSnapshot ??
+    testOptions?.getBootstrapSnapshot ??
       (async () =>
         ({
           snapshotSequence: 1,
@@ -31,7 +32,7 @@ function createTestClient(options?: {
         }) as any),
   );
   const getSnapshot = vi.fn(
-    options?.getSnapshot ??
+    testOptions?.getSnapshot ??
       (async () =>
         ({
           snapshotSequence: 1,
@@ -39,12 +40,12 @@ function createTestClient(options?: {
           threads: [],
         }) as any),
   );
-  const replayEvents = vi.fn(options?.replayEvents ?? (async () => []));
+  const replayEvents = vi.fn(testOptions?.replayEvents ?? (async () => []));
 
   const client = {
     dispose: vi.fn(async () => undefined),
-    reconnect: vi.fn(options?.reconnect ?? (async () => undefined)),
-    isHeartbeatFresh: vi.fn(options?.isHeartbeatFresh ?? (() => false)),
+    reconnect: vi.fn(testOptions?.reconnect ?? (async () => undefined)),
+    isHeartbeatFresh: vi.fn(testOptions?.isHeartbeatFresh ?? (() => false)),
     server: {
       getConfig: vi.fn(async () => ({
         environment: {
@@ -84,15 +85,17 @@ function createTestClient(options?: {
         (listener: (item: any) => void, options?: { onResubscribe?: () => void }) => {
           shellListeners.add(listener);
           shellResubscribe = options?.onResubscribe;
-          listener({
-            kind: "snapshot",
-            snapshot: {
-              snapshotSequence: 1,
-              projects: [],
-              threads: [],
-              updatedAt: "2026-04-22T10:00:00.000Z",
-            },
-          });
+          if (testOptions?.emitInitialShellSnapshot !== false) {
+            listener({
+              kind: "snapshot",
+              snapshot: {
+                snapshotSequence: 1,
+                projects: [],
+                threads: [],
+                updatedAt: "2026-04-22T10:00:00.000Z",
+              },
+            });
+          }
           return () => {
             shellListeners.delete(listener);
             if (shellResubscribe === options?.onResubscribe) {
@@ -259,7 +262,7 @@ function createTestClient(options?: {
 }
 
 describe("createEnvironmentConnection", () => {
-  it("bootstraps a snapshot immediately for a new connection", async () => {
+  it("bootstraps from the shell subscription snapshot for a new connection", async () => {
     const environmentId = EnvironmentId.make("env-1");
     const { client, getBootstrapSnapshot } = createTestClient();
     const syncSnapshot = vi.fn();
@@ -288,9 +291,9 @@ describe("createEnvironmentConnection", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(getBootstrapSnapshot).toHaveBeenCalledTimes(1);
+    expect(getBootstrapSnapshot).not.toHaveBeenCalled();
     expect(syncSnapshot).toHaveBeenCalledWith(
-      expect.objectContaining({ snapshotSequence: 1 }),
+      expect.objectContaining({ snapshotSequence: 1, managedProcessInstances: [] }),
       environmentId,
       "bootstrap",
     );
@@ -330,39 +333,51 @@ describe("createEnvironmentConnection", () => {
     await connection.dispose();
   });
 
-  it("rejects ensureBootstrapped when snapshot recovery fails", async () => {
-    const environmentId = EnvironmentId.make("env-1");
-    const snapshotError = new Error("snapshot failed");
-    const { client } = createTestClient({
-      getBootstrapSnapshot: async () => {
-        throw snapshotError;
-      },
-    });
+  it("falls back to the bootstrap snapshot RPC when the shell snapshot is delayed", async () => {
+    vi.useFakeTimers();
+    try {
+      const environmentId = EnvironmentId.make("env-1");
+      const { client, getBootstrapSnapshot } = createTestClient({
+        emitInitialShellSnapshot: false,
+      });
+      const syncSnapshot = vi.fn();
 
-    const connection = createEnvironmentConnection({
-      kind: "saved",
-      knownEnvironment: {
-        id: "env-1",
-        label: "Remote env",
-        source: "manual",
-        target: {
-          httpBaseUrl: "http://example.test",
-          wsBaseUrl: "ws://example.test",
+      const connection = createEnvironmentConnection({
+        kind: "saved",
+        knownEnvironment: {
+          id: "env-1",
+          label: "Remote env",
+          source: "manual",
+          target: {
+            httpBaseUrl: "http://example.test",
+            wsBaseUrl: "ws://example.test",
+          },
+          environmentId,
         },
+        client,
+        syncManagedProcessSnapshot: vi.fn(),
+        syncShellSnapshot: vi.fn(),
+        applyShellEvent: vi.fn(),
+        applyEventBatch: vi.fn(),
+        syncSnapshot,
+        applyTerminalEvent: vi.fn(),
+      });
+
+      const bootstrapped = connection.ensureBootstrapped();
+      await vi.advanceTimersByTimeAsync(1_500);
+      await bootstrapped;
+
+      expect(getBootstrapSnapshot).toHaveBeenCalledOnce();
+      expect(syncSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ snapshotSequence: 1 }),
         environmentId,
-      },
-      client,
-      syncManagedProcessSnapshot: vi.fn(),
-      syncShellSnapshot: vi.fn(),
-      applyShellEvent: vi.fn(),
-      applyEventBatch: vi.fn(),
-      syncSnapshot: vi.fn(),
-      applyTerminalEvent: vi.fn(),
-    });
+        "bootstrap",
+      );
 
-    await expect(connection.ensureBootstrapped()).rejects.toThrow("snapshot failed");
-
-    await connection.dispose();
+      await connection.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retries replay recovery after transport disconnects during resubscribe", async () => {

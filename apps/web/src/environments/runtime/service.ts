@@ -73,6 +73,7 @@ import { useActionRunStore } from "~/modules/action-runs";
 import { useUiStateStore } from "~/uiStateStore";
 import { WsTransport } from "../../rpc/wsTransport";
 import { createWsRpcClient, type WsRpcClient } from "../../rpc/wsRpcClient";
+import { emitWelcome, setServerConfigSnapshot } from "../../rpc/serverState";
 
 type EnvironmentServiceState = {
   readonly queryClient: QueryClient;
@@ -97,8 +98,10 @@ let lastBrowserHiddenAt: number | null = null;
 let lastBrowserResumeReconnectAt = Number.NEGATIVE_INFINITY;
 let browserResumeReconnectSweep: Promise<void> | null = null;
 const BROWSER_RESUME_RECONNECT_COOLDOWN_MS = 2_000;
+const BROWSER_RESUME_MIN_HIDDEN_MS = 1_500;
 const NOOP = () => undefined;
 const threadSnapshotHydrationInFlight = new Map<string, Promise<void>>();
+let rendererUnloading = false;
 
 function compareAppliedProjectionVersion(
   left: { readonly sequence: number; readonly updatedAt: string | null },
@@ -740,6 +743,8 @@ function createPrimaryEnvironmentConnection(): EnvironmentConnection {
       kind: "primary",
       knownEnvironment,
       client: createPrimaryEnvironmentClient(knownEnvironment),
+      onConfigSnapshot: setServerConfigSnapshot,
+      onWelcome: emitWelcome,
       ...createEnvironmentConnectionHandlers(),
     }),
   );
@@ -851,6 +856,10 @@ function stopActiveService() {
 }
 
 function reconnectEnvironmentConnectionsAfterBrowserResume(reason: string): void {
+  if (rendererUnloading) {
+    return;
+  }
+
   const now = Date.now();
   if (now - lastBrowserResumeReconnectAt < BROWSER_RESUME_RECONNECT_COOLDOWN_MS) {
     return;
@@ -897,16 +906,21 @@ function subscribeBrowserResumeReconnects(): () => void {
       return;
     }
     if (document.visibilityState === "visible" && lastBrowserHiddenAt !== null) {
+      const hiddenDurationMs = Date.now() - lastBrowserHiddenAt;
       lastBrowserHiddenAt = null;
+      if (hiddenDurationMs < BROWSER_RESUME_MIN_HIDDEN_MS) {
+        return;
+      }
       reconnectEnvironmentConnectionsAfterBrowserResume("visibilitychange");
     }
   };
 
   const handlePageShow = (event: PageTransitionEvent) => {
-    if (event.persisted || lastBrowserHiddenAt !== null) {
-      lastBrowserHiddenAt = null;
-      reconnectEnvironmentConnectionsAfterBrowserResume("pageshow");
+    if (!event.persisted) {
+      return;
     }
+    lastBrowserHiddenAt = null;
+    reconnectEnvironmentConnectionsAfterBrowserResume("pageshow");
   };
 
   document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -914,6 +928,53 @@ function subscribeBrowserResumeReconnects(): () => void {
   return () => {
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     window.removeEventListener("pageshow", handlePageShow);
+  };
+}
+
+function disposeEnvironmentConnectionsForRendererUnload(reason: string): void {
+  if (rendererUnloading) {
+    return;
+  }
+  rendererUnloading = true;
+  stopActiveService();
+
+  const connections = [...environmentConnections.values()];
+  environmentConnections.clear();
+  lastAppliedProjectionVersionByEnvironment.clear();
+  threadSnapshotHydrationInFlight.clear();
+  emitEnvironmentConnectionRegistryChange();
+
+  for (const connection of connections) {
+    void connection.dispose().catch((error) => {
+      console.warn("Environment connection dispose during renderer unload failed", {
+        environmentId: connection.environmentId,
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+}
+
+function subscribeRendererUnloadCleanup(): () => void {
+  if (typeof window === "undefined") {
+    return NOOP;
+  }
+
+  const handleBeforeUnload = () => {
+    disposeEnvironmentConnectionsForRendererUnload("beforeunload");
+  };
+  const handlePageHide = (event: PageTransitionEvent) => {
+    if (event.persisted) {
+      return;
+    }
+    disposeEnvironmentConnectionsForRendererUnload("pagehide");
+  };
+
+  window.addEventListener("beforeunload", handleBeforeUnload);
+  window.addEventListener("pagehide", handlePageHide);
+  return () => {
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+    window.removeEventListener("pagehide", handlePageHide);
   };
 }
 export function subscribeEnvironmentConnections(listener: () => void): () => void {
@@ -1159,6 +1220,7 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
     .then(() => syncSavedEnvironmentConnections(listSavedEnvironmentRecords()))
     .catch(() => undefined);
   const unsubscribeBrowserResumeReconnects = subscribeBrowserResumeReconnects();
+  const unsubscribeRendererUnloadCleanup = subscribeRendererUnloadCleanup();
 
   activeService = {
     queryClient,
@@ -1167,6 +1229,7 @@ export function startEnvironmentConnectionService(queryClient: QueryClient): () 
     stop: () => {
       unsubscribeSavedEnvironments();
       unsubscribeBrowserResumeReconnects();
+      unsubscribeRendererUnloadCleanup();
       queryInvalidationThrottler.cancel();
     },
   };
@@ -1187,6 +1250,7 @@ export async function resetEnvironmentServiceForTests(): Promise<void> {
   lastBrowserHiddenAt = null;
   lastBrowserResumeReconnectAt = Number.NEGATIVE_INFINITY;
   browserResumeReconnectSweep = null;
+  rendererUnloading = false;
   lastAppliedProjectionVersionByEnvironment.clear();
   threadSnapshotHydrationInFlight.clear();
   await Promise.all(

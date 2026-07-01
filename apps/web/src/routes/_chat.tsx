@@ -1,10 +1,7 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect } from "react";
 
-import {
-  ensurePrimaryEnvironmentReady,
-  resolveInitialServerAuthGateState,
-} from "../environments/primary";
+import { resolveInitialServerAuthGateState } from "../environments/primary";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import {
   isTerminalFocused,
@@ -120,10 +117,7 @@ function ChatRouteLayout() {
 
 export const Route = createFileRoute("/_chat")({
   beforeLoad: async () => {
-    const [, authGateState] = await Promise.all([
-      ensurePrimaryEnvironmentReady(),
-      resolveInitialServerAuthGateState(),
-    ]);
+    const authGateState = await resolveInitialServerAuthGateState();
     if (authGateState.status !== "authenticated") {
       throw redirect({ to: "/pair", replace: true });
     }

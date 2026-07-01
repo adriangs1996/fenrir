@@ -173,6 +173,7 @@ describe("environment reconnect service", () => {
       expect(visibilityHandler).toBeDefined();
       documentMock.visibilityState = "hidden";
       visibilityHandler?.();
+      await vi.advanceTimersByTimeAsync(1_501);
       documentMock.visibilityState = "visible";
       visibilityHandler?.();
       await Promise.resolve();
@@ -183,6 +184,7 @@ describe("environment reconnect service", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       documentMock.visibilityState = "hidden";
       visibilityHandler?.();
+      await vi.advanceTimersByTimeAsync(1_501);
       documentMock.visibilityState = "visible";
       visibilityHandler?.();
       await Promise.resolve();
@@ -193,6 +195,109 @@ describe("environment reconnect service", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not reconnect after brief hidden visibility changes", async () => {
+    vi.useFakeTimers();
+    try {
+      const addEventListener = vi.fn();
+      const documentMock = {
+        visibilityState: "visible",
+        addEventListener,
+        removeEventListener: vi.fn(),
+      };
+      vi.stubGlobal("document", documentMock);
+      vi.stubGlobal("window", {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      });
+
+      const { startEnvironmentConnectionService } = await import("./service");
+      const stop = startEnvironmentConnectionService({
+        invalidateQueries: vi.fn(),
+      } as any);
+      const connection = mockCreateEnvironmentConnection.mock.results[0]?.value;
+      const visibilityHandler = addEventListener.mock.calls.find(
+        ([eventName]) => eventName === "visibilitychange",
+      )?.[1] as (() => void) | undefined;
+
+      expect(visibilityHandler).toBeDefined();
+      documentMock.visibilityState = "hidden";
+      visibilityHandler?.();
+      await vi.advanceTimersByTimeAsync(500);
+      documentMock.visibilityState = "visible";
+      visibilityHandler?.();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(connection.requestReconnect).not.toHaveBeenCalled();
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("disposes active connections during a non-persisted renderer unload", async () => {
+    const documentMock = {
+      visibilityState: "visible",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    const windowMock = {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal("document", documentMock);
+    vi.stubGlobal("window", windowMock);
+
+    const { startEnvironmentConnectionService, listEnvironmentConnections } =
+      await import("./service");
+    startEnvironmentConnectionService({
+      invalidateQueries: vi.fn(),
+    } as any);
+    const connection = mockCreateEnvironmentConnection.mock.results[0]?.value;
+    const pageHideHandler = windowMock.addEventListener.mock.calls.find(
+      ([eventName]) => eventName === "pagehide",
+    )?.[1] as ((event: { readonly persisted: boolean }) => void) | undefined;
+
+    expect(pageHideHandler).toBeDefined();
+    pageHideHandler?.({ persisted: false });
+    await Promise.resolve();
+
+    expect(connection.dispose).toHaveBeenCalledOnce();
+    expect(listEnvironmentConnections()).toEqual([]);
+  });
+
+  it("keeps active connections for bfcache pagehide events", async () => {
+    const documentMock = {
+      visibilityState: "visible",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    const windowMock = {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal("document", documentMock);
+    vi.stubGlobal("window", windowMock);
+
+    const { startEnvironmentConnectionService, listEnvironmentConnections } =
+      await import("./service");
+    const stop = startEnvironmentConnectionService({
+      invalidateQueries: vi.fn(),
+    } as any);
+    const connection = mockCreateEnvironmentConnection.mock.results[0]?.value;
+    const pageHideHandler = windowMock.addEventListener.mock.calls.find(
+      ([eventName]) => eventName === "pagehide",
+    )?.[1] as ((event: { readonly persisted: boolean }) => void) | undefined;
+
+    expect(pageHideHandler).toBeDefined();
+    pageHideHandler?.({ persisted: true });
+    await Promise.resolve();
+
+    expect(connection.dispose).not.toHaveBeenCalled();
+    expect(listEnvironmentConnections()).toHaveLength(1);
+    stop();
   });
 
   it("rebuilds saved connections with the latest bearer token before explicit retry", async () => {

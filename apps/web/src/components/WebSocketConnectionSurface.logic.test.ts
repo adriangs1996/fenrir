@@ -81,6 +81,21 @@ describe("WebSocketConnectionSurface.logic", () => {
     ).toBe(true);
   });
 
+  it("does not force reconnect while a reconnect attempt is already active", () => {
+    expect(
+      shouldAutoReconnect(
+        makeStatus({
+          hasConnected: true,
+          online: true,
+          phase: "connecting",
+          reconnectAttemptCount: 2,
+          reconnectPhase: "attempting",
+        }),
+        "focus",
+      ),
+    ).toBe(false);
+  });
+
   it("restarts a stalled reconnect window after the scheduled retry time passes", () => {
     expect(
       shouldRestartStalledReconnect(

@@ -28,7 +28,6 @@ import { readLocalApi } from "../localApi";
 import {
   getServerConfigUpdatedNotification,
   ServerConfigUpdatedNotification,
-  startServerStateSync,
   useServerConfig,
   useServerConfigUpdatedSubscription,
   useServerWelcomeSubscription,
@@ -39,7 +38,6 @@ import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import {
   ensureEnvironmentConnectionBootstrapped,
   startEnvironmentConnectionService,
-  usePrimaryEnvironmentClient,
 } from "../environments/runtime";
 import { configureClientTracing } from "../observability/clientTracing";
 import {
@@ -131,7 +129,6 @@ function RootRouteView() {
       <AnchoredToastProvider>
         <AuthenticatedTracingBootstrap />
         <FontSettingsSync />
-        <ServerStateBootstrap />
         <EnvironmentConnectionManagerBootstrap />
         <EditorCwdSync />
         <EventRouter />
@@ -226,19 +223,6 @@ function EditorCwdSync() {
   useEditorCwdSync();
   useEditorEventListener();
   useEditorSendToComposerListener();
-  return null;
-}
-
-function ServerStateBootstrap() {
-  const rpcClient = usePrimaryEnvironmentClient();
-
-  useEffect(() => {
-    if (!rpcClient) {
-      return;
-    }
-    return startServerStateSync(rpcClient.server);
-  }, [rpcClient]);
-
   return null;
 }
 

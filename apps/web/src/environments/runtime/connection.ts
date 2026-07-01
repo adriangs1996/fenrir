@@ -28,6 +28,8 @@ const MAX_NO_PROGRESS_REPLAY_RETRIES = 3;
 const RECOVERY_TRANSPORT_RETRY_DELAY_MS = 250;
 const MAX_RECOVERY_TRANSPORT_RETRIES = 20;
 const RECONNECT_SNAPSHOT_GATE_TIMEOUT_MS = 5_000;
+const BOOTSTRAP_SHELL_SNAPSHOT_FALLBACK_MS = 1_500;
+const BOOTSTRAP_SHELL_SNAPSHOT_TIMEOUT_MS = 30_000;
 
 export interface EnvironmentConnection {
   readonly kind: "primary" | "saved";
@@ -208,6 +210,13 @@ function createSnapshotBootstrapController(input: {
   };
 }
 
+function toBootstrapSnapshot(snapshot: OrchestrationShellSnapshot): OrchestrationBootstrapSnapshot {
+  return {
+    ...snapshot,
+    managedProcessInstances: [],
+  };
+}
+
 export function createEnvironmentConnection(
   input: EnvironmentConnectionInput,
 ): EnvironmentConnection {
@@ -228,6 +237,53 @@ export function createEnvironmentConnection(
   let browserResumeReconnectInFlight: Promise<boolean> | null = null;
   const shellSnapshotGate = createSnapshotGate();
   const managedProcessSnapshotGate = createSnapshotGate();
+  let latestShellSnapshot: OrchestrationShellSnapshot | null = null;
+  let shellSnapshotWaiters: ReadonlyArray<{
+    readonly resolve: (snapshot: OrchestrationShellSnapshot) => void;
+    readonly reject: (error: unknown) => void;
+  }> = [];
+
+  const resolveShellSnapshotWaiters = (snapshot: OrchestrationShellSnapshot) => {
+    const waiters = shellSnapshotWaiters;
+    shellSnapshotWaiters = [];
+    for (const waiter of waiters) {
+      waiter.resolve(snapshot);
+    }
+  };
+
+  const rejectShellSnapshotWaiters = (error: unknown) => {
+    const waiters = shellSnapshotWaiters;
+    shellSnapshotWaiters = [];
+    for (const waiter of waiters) {
+      waiter.reject(error);
+    }
+  };
+
+  const waitForShellSnapshot = async (
+    timeoutMs = BOOTSTRAP_SHELL_SNAPSHOT_TIMEOUT_MS,
+  ): Promise<OrchestrationShellSnapshot> => {
+    if (latestShellSnapshot) {
+      return latestShellSnapshot;
+    }
+
+    return new Promise<OrchestrationShellSnapshot>((resolve, reject) => {
+      const waiter = {
+        resolve: (snapshot: OrchestrationShellSnapshot) => {
+          clearTimeout(timeoutId);
+          resolve(snapshot);
+        },
+        reject: (error: unknown) => {
+          clearTimeout(timeoutId);
+          reject(error);
+        },
+      };
+      const timeoutId = setTimeout(() => {
+        shellSnapshotWaiters = shellSnapshotWaiters.filter((entry) => entry !== waiter);
+        reject(new Error(`Timed out waiting for shell bootstrap snapshot after ${timeoutMs}ms.`));
+      }, timeoutMs);
+      shellSnapshotWaiters = [...shellSnapshotWaiters, waiter];
+    });
+  };
 
   const observeEnvironmentIdentity = (nextEnvironmentId: EnvironmentId, source: string) => {
     if (environmentId !== nextEnvironmentId) {
@@ -278,6 +334,18 @@ export function createEnvironmentConnection(
           throw error;
         }
       }
+    }
+  };
+  const resolveBootstrapSnapshot = async (): Promise<OrchestrationBootstrapSnapshot> => {
+    try {
+      return toBootstrapSnapshot(await waitForShellSnapshot(BOOTSTRAP_SHELL_SNAPSHOT_FALLBACK_MS));
+    } catch (error) {
+      if (disposed) {
+        throw error;
+      }
+      return retryTransportRecoveryOperation(() =>
+        input.client.orchestration.getBootstrapSnapshot(),
+      );
     }
   };
   const reportDomainSyncFailure = (failure: EnvironmentDomainSyncFailure) => {
@@ -417,9 +485,7 @@ export function createEnvironmentConnection(
     try {
       const snapshot: OrchestrationBootstrapSnapshot | OrchestrationReadModel =
         reason === "bootstrap"
-          ? await retryTransportRecoveryOperation(() =>
-              input.client.orchestration.getBootstrapSnapshot(),
-            )
+          ? await resolveBootstrapSnapshot()
           : await retryTransportRecoveryOperation(() => input.client.orchestration.getSnapshot());
       if (!disposed) {
         const didSync = applyDomainSync("projection-snapshot-failed", () => {
@@ -474,6 +540,8 @@ export function createEnvironmentConnection(
   const unsubShell = input.client.orchestration.subscribeShell(
     (item: Parameters<Parameters<WsRpcClient["orchestration"]["subscribeShell"]>[0]>[0]) => {
       if (item.kind === "snapshot") {
+        latestShellSnapshot = item.snapshot;
+        resolveShellSnapshotWaiters(item.snapshot);
         if (recovery.getState().bootstrapped) {
           applyDomainSync("shell-snapshot-failed", () => {
             input.syncShellSnapshot(item.snapshot, environmentId);
@@ -491,6 +559,7 @@ export function createEnvironmentConnection(
         if (disposed) {
           return;
         }
+        latestShellSnapshot = null;
         shellSnapshotGate.reset();
       },
     },
@@ -551,6 +620,7 @@ export function createEnvironmentConnection(
     disposed = true;
     flushPendingDomainEventsScheduled = false;
     pendingDomainEvents.length = 0;
+    rejectShellSnapshotWaiters(new Error("Environment connection disposed."));
     unsubShell();
     unsubManagedProcesses();
     unsubDomainEvent();

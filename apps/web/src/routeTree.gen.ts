@@ -179,7 +179,6 @@ export interface FileRoutesByFullPath {
   '/browser-lab': typeof ChatBrowserLabRoute
   '/gitdiff': typeof ChatGitdiffRoute
   '/global-terminal': typeof ChatGlobalTerminalRoute
-  '/workflows/$projectId': typeof ChatWorkflowsProjectIdRoute
   '/remote-host/$hostId': typeof RemoteHostHostIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
@@ -193,6 +192,7 @@ export interface FileRoutesByFullPath {
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRouteWithChildren
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/plan-runner/$runId': typeof ChatPlanRunnerRunIdRoute
+  '/workflows/$projectId': typeof ChatWorkflowsProjectIdRoute
   '/$environmentId/$threadId/gitdiff': typeof ChatEnvironmentIdThreadIdGitdiffRoute
   '/plan-runner/$featureName/$planId': typeof ChatPlanRunnerFeatureNamePlanIdRoute
   '/plan-runner/$featureName/configure': typeof ChatPlanRunnerFeatureNameConfigureRoute
@@ -204,7 +204,6 @@ export interface FileRoutesByTo {
   '/browser-lab': typeof ChatBrowserLabRoute
   '/gitdiff': typeof ChatGitdiffRoute
   '/global-terminal': typeof ChatGlobalTerminalRoute
-  '/workflows/$projectId': typeof ChatWorkflowsProjectIdRoute
   '/remote-host/$hostId': typeof RemoteHostHostIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
@@ -219,6 +218,7 @@ export interface FileRoutesByTo {
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRouteWithChildren
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/plan-runner/$runId': typeof ChatPlanRunnerRunIdRoute
+  '/workflows/$projectId': typeof ChatWorkflowsProjectIdRoute
   '/$environmentId/$threadId/gitdiff': typeof ChatEnvironmentIdThreadIdGitdiffRoute
   '/plan-runner/$featureName/$planId': typeof ChatPlanRunnerFeatureNamePlanIdRoute
   '/plan-runner/$featureName/configure': typeof ChatPlanRunnerFeatureNameConfigureRoute
@@ -233,7 +233,6 @@ export interface FileRoutesById {
   '/_chat/browser-lab': typeof ChatBrowserLabRoute
   '/_chat/gitdiff': typeof ChatGitdiffRoute
   '/_chat/global-terminal': typeof ChatGlobalTerminalRoute
-  '/_chat/workflows/$projectId': typeof ChatWorkflowsProjectIdRoute
   '/remote-host/$hostId': typeof RemoteHostHostIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/archived-plans': typeof SettingsArchivedPlansRoute
@@ -248,6 +247,7 @@ export interface FileRoutesById {
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRouteWithChildren
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/_chat/plan-runner/$runId': typeof ChatPlanRunnerRunIdRoute
+  '/_chat/workflows/$projectId': typeof ChatWorkflowsProjectIdRoute
   '/_chat/$environmentId/$threadId/gitdiff': typeof ChatEnvironmentIdThreadIdGitdiffRoute
   '/_chat/plan-runner/$featureName/$planId': typeof ChatPlanRunnerFeatureNamePlanIdRoute
   '/_chat/plan-runner/$featureName/configure': typeof ChatPlanRunnerFeatureNameConfigureRoute
@@ -263,7 +263,6 @@ export interface FileRouteTypes {
     | '/browser-lab'
     | '/gitdiff'
     | '/global-terminal'
-    | '/workflows/$projectId'
     | '/remote-host/$hostId'
     | '/settings/archived'
     | '/settings/archived-plans'
@@ -277,6 +276,7 @@ export interface FileRouteTypes {
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/plan-runner/$runId'
+    | '/workflows/$projectId'
     | '/$environmentId/$threadId/gitdiff'
     | '/plan-runner/$featureName/$planId'
     | '/plan-runner/$featureName/configure'
@@ -288,7 +288,6 @@ export interface FileRouteTypes {
     | '/browser-lab'
     | '/gitdiff'
     | '/global-terminal'
-    | '/workflows/$projectId'
     | '/remote-host/$hostId'
     | '/settings/archived'
     | '/settings/archived-plans'
@@ -303,6 +302,7 @@ export interface FileRouteTypes {
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/plan-runner/$runId'
+    | '/workflows/$projectId'
     | '/$environmentId/$threadId/gitdiff'
     | '/plan-runner/$featureName/$planId'
     | '/plan-runner/$featureName/configure'
@@ -316,7 +316,6 @@ export interface FileRouteTypes {
     | '/_chat/browser-lab'
     | '/_chat/gitdiff'
     | '/_chat/global-terminal'
-    | '/_chat/workflows/$projectId'
     | '/remote-host/$hostId'
     | '/settings/archived'
     | '/settings/archived-plans'
@@ -331,6 +330,7 @@ export interface FileRouteTypes {
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
     | '/_chat/plan-runner/$runId'
+    | '/_chat/workflows/$projectId'
     | '/_chat/$environmentId/$threadId/gitdiff'
     | '/_chat/plan-runner/$featureName/$planId'
     | '/_chat/plan-runner/$featureName/configure'
@@ -550,11 +550,11 @@ interface ChatRouteChildren {
   ChatBrowserLabRoute: typeof ChatBrowserLabRoute
   ChatGitdiffRoute: typeof ChatGitdiffRoute
   ChatGlobalTerminalRoute: typeof ChatGlobalTerminalRoute
-  ChatWorkflowsProjectIdRoute: typeof ChatWorkflowsProjectIdRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRouteWithChildren
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
   ChatPlanRunnerRunIdRoute: typeof ChatPlanRunnerRunIdRoute
+  ChatWorkflowsProjectIdRoute: typeof ChatWorkflowsProjectIdRoute
   ChatPlanRunnerFeatureNamePlanIdRoute: typeof ChatPlanRunnerFeatureNamePlanIdRoute
   ChatPlanRunnerFeatureNameConfigureRoute: typeof ChatPlanRunnerFeatureNameConfigureRoute
   ChatPlanRunnerFeatureNameRunRoute: typeof ChatPlanRunnerFeatureNameRunRoute
@@ -564,11 +564,11 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatBrowserLabRoute: ChatBrowserLabRoute,
   ChatGitdiffRoute: ChatGitdiffRoute,
   ChatGlobalTerminalRoute: ChatGlobalTerminalRoute,
-  ChatWorkflowsProjectIdRoute: ChatWorkflowsProjectIdRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRouteWithChildren,
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,
   ChatPlanRunnerRunIdRoute: ChatPlanRunnerRunIdRoute,
+  ChatWorkflowsProjectIdRoute: ChatWorkflowsProjectIdRoute,
   ChatPlanRunnerFeatureNamePlanIdRoute: ChatPlanRunnerFeatureNamePlanIdRoute,
   ChatPlanRunnerFeatureNameConfigureRoute:
     ChatPlanRunnerFeatureNameConfigureRoute,

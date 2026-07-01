@@ -27,7 +27,7 @@ import {
   ProjectId,
   ThreadId,
 } from "@fenrir/contracts";
-import { Effect, Layer, Option, Schema, Struct } from "effect";
+import { Duration, Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
@@ -269,10 +269,11 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
       : toPersistenceSqlError(sqlOperation)(cause);
 }
 
-const makeProjectionSnapshotQuery = Effect.gen(function* () {
+export const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const sourceControl = yield* SourceControl;
   const repositoryIdentityResolutionConcurrency = 4;
+  const repositoryIdentityResolutionTimeout = Duration.millis(750);
 
   const listProjectRows = SqlSchema.findAll({
     Request: Schema.Void,
@@ -916,11 +917,13 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   ) {
     const repositoryIdentities = new Map(
       yield* Effect.forEach(
-        projectRows,
+        projectRows.filter((row) => row.deletedAt === null),
         (row) =>
-          sourceControl
-            .resolveRepositoryIdentity(row.workspaceRoot)
-            .pipe(Effect.map((identity) => [row.projectId, identity] as const)),
+          sourceControl.resolveRepositoryIdentity(row.workspaceRoot).pipe(
+            Effect.timeoutOption(repositoryIdentityResolutionTimeout),
+            Effect.map(Option.getOrNull),
+            Effect.map((identity) => [row.projectId, identity] as const),
+          ),
         { concurrency: repositoryIdentityResolutionConcurrency },
       ),
     );
