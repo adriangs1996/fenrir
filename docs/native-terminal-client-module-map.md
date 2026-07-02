@@ -242,32 +242,73 @@ without making those surfaces part of the tmux pane grid.
 ### `AgentInteraction`
 
 - Responsibility:
-  - Own agent composer, terminal-context attachments, conversation transcripts,
-    provider/agent selection, response streams, result actions, and promotion to
-    workflows.
+  - Own agent composer, terminal-context attachments, prompt dispatch to
+    pane-hosted agent CLIs (D-040), and promotion to workflows.
   - Package terminal context captured from `TerminalViewport` into bounded,
     structured agent prompts.
-  - Keep conversations workspace-scoped rather than making chat the primary app
-    navigation model.
+  - Resolve dispatch targets: an existing agent pane or a new agent pane
+    spawned with launch input, never an ambiguous target.
+  - There is no native chat view (D-037): conversation transcripts, response
+    rendering, model/provider pickers, and approval prompts are owned by the
+    agent CLI running in its pane and are not reproduced here.
 - Public surface:
-  - specific actions for opening a composer, attaching context, sending a
-    prompt, streaming a response, continuing a conversation, listing active
-    conversations, and promoting a conversation to workflow
+  - specific actions for opening a composer, attaching context, editing a
+    draft, dispatching a prompt to an agent pane, and promoting to workflow
   - terminal-context attachment contracts
-  - conversation summary contracts for sidebar/palette/notifications
+  - dispatch target and dispatch result contracts for shell/palette surfaces
 - Allowed dependencies:
   - `WorkspaceOverlays`
   - `Notifications`
-  - feature-specific agent/conversation service ports whose live adapters use
-    `ServerConnection`
+  - `AgentIntegration` presence/detection contracts for dispatch targeting
+  - `NativeRuntime` only through public pane spawn/write actions for dispatch
 - Must not know:
   - raw Ghostty types
   - terminal renderer internals
   - raw server transport payloads
   - workflow execution internals
   - tmux command strings
+  - agent-specific config formats (those belong to `AgentIntegration` adapters)
 
 Agents do not write directly into user panes in the base native client.
+User-authored prompt dispatch into agent-owned panes is user input (amended
+D-022), delivered exactly once through runtime write acknowledgements.
+
+### `AgentIntegration`
+
+- Responsibility:
+  - Own provisioning of external agent CLIs (Claude Code, Codex, Cursor,
+    OpenCode, and future providers): hook installation, skill installation, and
+    Fenrir MCP configuration (D-039).
+  - Own agent CLI detection, integration status/version reporting, and repair/
+    upgrade flows.
+  - Own parsing and validation of hook-emitted OSC presence payloads into typed
+    presence contracts (D-038): session started, busy, awaiting input/approval,
+    turn completed, failed, session ended, with workspace/pane provenance.
+  - Project agent presence to `WorkspaceIndex`, `Notifications`, and palette
+    attention surfaces.
+- Public surface:
+  - specific actions for detecting installed agents, reporting integration
+    status, installing/updating/removing hooks and skills, provisioning MCP
+    entries, and ingesting presence events
+  - agent descriptor, integration status, and presence contracts for sidebar,
+    palette, notifications, and `AgentInteraction` dispatch targeting
+- Allowed dependencies:
+  - `Settings` for integration preferences
+  - `Diagnostics` for dropped/malformed presence payload events
+  - MCP configuration service ports whose live adapters use `ServerConnection`
+  - filesystem adapter layers for agent config directories (ownership-marked,
+    idempotent, atomic writes)
+- Must not know:
+  - raw Ghostty types
+  - terminal renderer internals
+  - raw server transport payloads
+  - terminal byte streams beyond the typed presence events forwarded by
+    `TerminalViewport`
+
+One installer adapter per agent CLI behind the common contract;
+agent-specific config formats never leak outside the adapter. Presence is
+advisory UI state only: it never authorizes actions and never triggers pane
+writes. Unprovisioned agents keep working as plain terminal panes.
 
 ### `WorkflowControl`
 
@@ -580,6 +621,9 @@ WorkspaceShell contracts ─────┘
 WorkspaceCoordinator <──── ClientControl
 
 TerminalViewport ─────> AgentInteraction ─────> WorkspaceOverlays
+TerminalViewport ── presence OSC events ──> AgentIntegration
+AgentIntegration ─────> WorkspaceIndex, Notifications, Settings, Diagnostics
+AgentInteraction ─────> AgentIntegration contracts, NativeRuntime dispatch
 WorkflowControl ───────────────────────────────> WorkspaceOverlays
 
 WorkspaceShell ─────> PaneGrid, WorkspaceOverlays, AgentInteraction,
@@ -590,7 +634,8 @@ NativeHost/application shell ── composes ──> ClientControl,
                                              WorkspaceCoordinator,
                                              WorkspaceShell, AuthSession,
                                              Settings, Notifications,
-                                             AgentInteraction, WorkflowControl,
+                                             AgentInteraction, AgentIntegration,
+                                             WorkflowControl,
                                              Diagnostics, NativeDistribution,
                                              NeovimBridge
 
@@ -625,7 +670,16 @@ Examples:
 - Send terminal context to agent:
   - keybinding -> `WorkspaceShell` action -> `TerminalViewport` context capture
     action -> `AgentInteraction` composer action -> `WorkspaceOverlays`
-    presentation action
+    presentation action -> `AgentInteraction` dispatch action ->
+    `NativeRuntime` pane spawn/write service
+- Agent presence signal:
+  - hook-emitted OSC on the agent pane stream -> `TerminalViewport` strip and
+    forward -> `AgentIntegration` presence ingest action -> `WorkspaceIndex`
+    badge / `Notifications` alert -> focus action on the exact pane
+- Provision an agent CLI:
+  - palette or settings entry -> `AgentIntegration` install action -> per-agent
+    installer adapter layer -> integration status contract -> sidebar/palette
+    status update
 - Workflow attention item:
   - sidebar or palette result -> `WorkflowControl` action -> linked
     `WorkspaceOverlays` or `NativeRuntime` focus action
@@ -656,8 +710,9 @@ Expected end-to-end coverage stays small. The first e2e paths should be:
 
 ## Scope Notes
 
-- Agent conversations belong to `AgentInteraction`, not `WorkflowControl`,
-  `Notifications`, `PaneGrid`, or `TerminalViewport`.
+- There is no native chat view (D-037). Agent conversations live in the agent
+  CLI's own TUI inside its pane. `AgentInteraction` owns composer and dispatch;
+  `AgentIntegration` owns provisioning and presence; neither owns transcripts.
 - Workflow visualization/control belongs to `WorkflowControl`; workflow
   execution remains server-owned.
 - Native overlays belong to `WorkspaceOverlays` and stay outside the tmux pane

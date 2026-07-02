@@ -24,15 +24,308 @@ app.run()
 
 @MainActor
 final class FenrirNativeApplication: NSObject, NSApplicationDelegate {
-    private let workspaceWindows: NativeWorkspaceWindowRegistry
-    private let serverConnection: NativeAppServerConnectionContext
-    private let serverEventIntegration: NativeServerEventIntegrationGraph
+    private let bootstrapCoordinator: NativeApplicationBootstrapCoordinator
+    private let terminationBridge: NativeApplicationTerminationBridge
+    private var startupTask: Task<NativeApplicationStartupSnapshot, Never>?
+
+    override init() {
+        bootstrapCoordinator = NativeApplicationBootstrapCoordinator()
+        terminationBridge = NativeApplicationTerminationBridge(
+            terminate: { coordinator, startupTask in
+                await coordinator.terminate(waitingFor: startupTask)
+            },
+            replyToApplicationShouldTerminate: { shouldTerminate in
+                NSApp.reply(toApplicationShouldTerminate: shouldTerminate)
+            }
+        )
+        super.init()
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        startupTask = bootstrapCoordinator.startTask()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        terminationBridge.requestTermination(
+            coordinator: bootstrapCoordinator,
+            waitingFor: startupTask
+        )
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        terminationBridge.markApplicationWillTerminate()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+}
+
+@MainActor
+final class NativeApplicationTerminationBridge {
+    typealias Terminate = @MainActor (
+        NativeApplicationBootstrapCoordinator,
+        Task<NativeApplicationStartupSnapshot, Never>?
+    ) async -> NativeApplicationShutdownSnapshot
+    typealias ReplyToApplicationShouldTerminate = @MainActor (Bool) -> Void
+
+    private let terminate: Terminate
+    private let replyToApplicationShouldTerminate: ReplyToApplicationShouldTerminate
+    private var terminationTask: Task<Void, Never>?
+    private var hasReplied = false
+
+    init(
+        terminate: @escaping Terminate,
+        replyToApplicationShouldTerminate: @escaping ReplyToApplicationShouldTerminate
+    ) {
+        self.terminate = terminate
+        self.replyToApplicationShouldTerminate = replyToApplicationShouldTerminate
+    }
+
+    func requestTermination(
+        coordinator: NativeApplicationBootstrapCoordinator,
+        waitingFor startupTask: Task<NativeApplicationStartupSnapshot, Never>?
+    ) -> NSApplication.TerminateReply {
+        if hasReplied {
+            return .terminateNow
+        }
+
+        if terminationTask == nil {
+            terminationTask = Task { @MainActor in
+                _ = await terminate(coordinator, startupTask)
+                guard !hasReplied else {
+                    return
+                }
+                hasReplied = true
+                replyToApplicationShouldTerminate(true)
+            }
+        }
+
+        return .terminateLater
+    }
+
+    func markApplicationWillTerminate() {
+        hasReplied = true
+    }
+}
+
+enum NativeApplicationStartupMode: Equatable, Sendable {
+    case preparedLocalDefault
+    case degradedLocalDefault(preparationError: ServerConnection.ServerConnectionError)
+}
+
+enum NativeApplicationStartupPhase: Equatable, Sendable {
+    case idle
+    case preparing
+    case running(NativeApplicationStartupMode)
+    case terminated
+}
+
+struct NativeApplicationStartupSnapshot: Equatable, Sendable {
+    let phase: NativeApplicationStartupPhase
+    let preparationError: ServerConnection.ServerConnectionError?
+
+    static let idle = NativeApplicationStartupSnapshot(phase: .idle, preparationError: nil)
+}
+
+struct NativeApplicationShutdownSnapshot: Equatable, Sendable {
+    let didRequestPreparedLocalServerShutdown: Bool
+    let shutdownError: ServerConnection.ServerConnectionError?
+}
+
+@MainActor
+final class NativeApplicationBootstrapCoordinator {
+    typealias PrepareLocalDefault = @Sendable () async -> Result<NativeAppServerConnectionContext, ServerConnection.ServerConnectionError>
+    typealias FallbackLocalDefault = @MainActor () -> NativeAppServerConnectionContext
+    typealias ComposeRuntime = @MainActor (NativeAppServerConnectionContext, Bool) -> NativeApplicationRuntime
+    typealias RuntimeHook = @MainActor (NativeApplicationRuntime) -> Void
+    typealias ActivateApplication = @MainActor () -> Void
+    typealias ShutdownPreparedLocalServer = @Sendable (NativeAppServerConnectionContext) async -> Result<ServerConnection.ShutdownLocalServerResult, ServerConnection.ServerConnectionError>
+    typealias LogMessage = @MainActor (String) -> Void
+
+    private let prepareLocalDefault: PrepareLocalDefault
+    private let fallbackLocalDefault: FallbackLocalDefault
+    private let composeRuntime: ComposeRuntime
+    private let openInitialWorkspace: RuntimeHook
+    private let startClientControlSocket: RuntimeHook
+    private let activateApplication: ActivateApplication
+    private let shutdownPreparedLocalServer: ShutdownPreparedLocalServer
+    private let logMessage: LogMessage
+
+    private(set) var startupSnapshot: NativeApplicationStartupSnapshot = .idle
+    private(set) var shutdownSnapshot: NativeApplicationShutdownSnapshot?
+    private(set) var runtime: NativeApplicationRuntime?
+    private(set) var terminationRequested = false
+
+    init(
+        prepareLocalDefault: @escaping PrepareLocalDefault = {
+            await NativeAppServerConnectionContext.preparedLocalDefault()
+        },
+        fallbackLocalDefault: @escaping FallbackLocalDefault = {
+            NativeAppServerConnectionContext.localDefault()
+        },
+        composeRuntime: @escaping ComposeRuntime = { context, isPreparedLocalDefault in
+            NativeApplicationRuntime.live(
+                serverConnection: context,
+                shouldShutdownPreparedLocalServer: isPreparedLocalDefault
+            )
+        },
+        openInitialWorkspace: @escaping RuntimeHook = { runtime in
+            runtime.workspaceWindows.openInitialWorkspace()
+        },
+        startClientControlSocket: @escaping RuntimeHook = { runtime in
+            runtime.startClientControlSocket()
+        },
+        activateApplication: @escaping ActivateApplication = {
+            NSApp.activate(ignoringOtherApps: true)
+        },
+        shutdownPreparedLocalServer: @escaping ShutdownPreparedLocalServer = { context in
+            await context.shutdownPreparedLocalServer()
+        },
+        logMessage: @escaping LogMessage = { message in
+            NSLog("%@", message)
+        }
+    ) {
+        self.prepareLocalDefault = prepareLocalDefault
+        self.fallbackLocalDefault = fallbackLocalDefault
+        self.composeRuntime = composeRuntime
+        self.openInitialWorkspace = openInitialWorkspace
+        self.startClientControlSocket = startClientControlSocket
+        self.activateApplication = activateApplication
+        self.shutdownPreparedLocalServer = shutdownPreparedLocalServer
+        self.logMessage = logMessage
+    }
+
+    func startTask() -> Task<NativeApplicationStartupSnapshot, Never> {
+        Task { @MainActor in
+            await start()
+        }
+    }
+
+    func start() async -> NativeApplicationStartupSnapshot {
+        startupSnapshot = NativeApplicationStartupSnapshot(phase: .preparing, preparationError: nil)
+
+        let context: NativeAppServerConnectionContext
+        let shouldShutdownPreparedLocalServer: Bool
+        let mode: NativeApplicationStartupMode
+        switch await prepareLocalDefault() {
+        case .success(let preparedContext):
+            if terminationRequested {
+                shutdownSnapshot = await shutdownPreparedContext(preparedContext)
+                let snapshot = NativeApplicationStartupSnapshot(phase: .terminated, preparationError: nil)
+                startupSnapshot = snapshot
+                return snapshot
+            }
+            context = preparedContext
+            shouldShutdownPreparedLocalServer = true
+            mode = .preparedLocalDefault
+        case .failure(let error):
+            if terminationRequested {
+                let snapshot = NativeApplicationStartupSnapshot(phase: .terminated, preparationError: error)
+                startupSnapshot = snapshot
+                shutdownSnapshot = NativeApplicationShutdownSnapshot(didRequestPreparedLocalServerShutdown: false, shutdownError: nil)
+                return snapshot
+            }
+            logMessage("Fenrir Native failed to prepare local server; continuing with degraded localDefault context: \(error.rawValue)")
+            context = fallbackLocalDefault()
+            shouldShutdownPreparedLocalServer = false
+            mode = .degradedLocalDefault(preparationError: error)
+        }
+
+        let runtime = composeRuntime(context, shouldShutdownPreparedLocalServer)
+        self.runtime = runtime
+        openInitialWorkspace(runtime)
+        startClientControlSocket(runtime)
+        activateApplication()
+
+        let snapshot = NativeApplicationStartupSnapshot(
+            phase: .running(mode),
+            preparationError: mode.preparationError
+        )
+        startupSnapshot = snapshot
+        return snapshot
+    }
+
+    func terminate(waitingFor startupTask: Task<NativeApplicationStartupSnapshot, Never>? = nil) async -> NativeApplicationShutdownSnapshot {
+        terminationRequested = true
+
+        if runtime == nil, let startupTask {
+            _ = await startupTask.value
+        }
+
+        if let shutdownSnapshot {
+            return shutdownSnapshot
+        }
+
+        let snapshot = await shutdownPreparedRuntime()
+        shutdownSnapshot = snapshot
+        startupSnapshot = NativeApplicationStartupSnapshot(phase: .terminated, preparationError: startupSnapshot.preparationError)
+        return snapshot
+    }
+
+    private func shutdownPreparedRuntime() async -> NativeApplicationShutdownSnapshot {
+        guard let runtime else {
+            startupSnapshot = NativeApplicationStartupSnapshot(phase: .terminated, preparationError: startupSnapshot.preparationError)
+            return NativeApplicationShutdownSnapshot(didRequestPreparedLocalServerShutdown: false, shutdownError: nil)
+        }
+
+        runtime.stopClientControlSocket()
+        guard runtime.shouldShutdownPreparedLocalServer else {
+            return NativeApplicationShutdownSnapshot(didRequestPreparedLocalServerShutdown: false, shutdownError: nil)
+        }
+
+        return await shutdownPreparedContext(runtime.serverConnection)
+    }
+
+    private func shutdownPreparedContext(_ context: NativeAppServerConnectionContext) async -> NativeApplicationShutdownSnapshot {
+        let result = await shutdownPreparedLocalServer(context)
+        switch result {
+        case .success:
+            return NativeApplicationShutdownSnapshot(didRequestPreparedLocalServerShutdown: true, shutdownError: nil)
+        case .failure(let error):
+            logMessage("Fenrir Native failed to shut down prepared local server: \(error.rawValue)")
+            return NativeApplicationShutdownSnapshot(didRequestPreparedLocalServerShutdown: true, shutdownError: error)
+        }
+    }
+}
+
+private extension NativeApplicationStartupMode {
+    var preparationError: ServerConnection.ServerConnectionError? {
+        switch self {
+        case .preparedLocalDefault:
+            nil
+        case .degradedLocalDefault(let preparationError):
+            preparationError
+        }
+    }
+}
+
+@MainActor
+final class NativeApplicationRuntime {
+    let serverConnection: NativeAppServerConnectionContext
+    let workspaceWindows: NativeWorkspaceWindowRegistry
+    let serverEventIntegration: NativeServerEventIntegrationGraph
+    let shouldShutdownPreparedLocalServer: Bool
     private var clientControlSocketServer: NativeHostLocalCLISocketServer?
     private var serverEventController: NativeHostServerEventController?
 
-    override init() {
-        serverConnection = NativeAppServerConnectionContext.localDefault()
-        workspaceWindows = NativeWorkspaceWindowRegistry(
+    init(
+        serverConnection: NativeAppServerConnectionContext,
+        workspaceWindows: NativeWorkspaceWindowRegistry,
+        serverEventIntegration: NativeServerEventIntegrationGraph,
+        shouldShutdownPreparedLocalServer: Bool
+    ) {
+        self.serverConnection = serverConnection
+        self.workspaceWindows = workspaceWindows
+        self.serverEventIntegration = serverEventIntegration
+        self.shouldShutdownPreparedLocalServer = shouldShutdownPreparedLocalServer
+    }
+
+    static func live(
+        serverConnection: NativeAppServerConnectionContext,
+        shouldShutdownPreparedLocalServer: Bool
+    ) -> NativeApplicationRuntime {
+        let workspaceWindows = NativeWorkspaceWindowRegistry(
             paneGridRuntimeFactory: serverConnection.paneGridRuntimeFactory,
             paneStreamSubscriber: serverConnection.paneStreamSubscriber,
             agentPromptSubmitterFactory: serverConnection.agentPromptSubmitterFactory,
@@ -40,25 +333,15 @@ final class FenrirNativeApplication: NSObject, NSApplicationDelegate {
             workflowServerClientFactory: serverConnection.workflowServerClientFactory,
             workflowNotificationStore: serverConnection.notificationStore
         )
-        serverEventIntegration = serverConnection.serverEventIntegrationGraph(workspaceWindows: workspaceWindows)
-        super.init()
+        return NativeApplicationRuntime(
+            serverConnection: serverConnection,
+            workspaceWindows: workspaceWindows,
+            serverEventIntegration: serverConnection.serverEventIntegrationGraph(workspaceWindows: workspaceWindows),
+            shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer
+        )
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        workspaceWindows.openInitialWorkspace()
-        startClientControlSocket()
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    func applicationWillTerminate(_ notification: Notification) {
-        clientControlSocketServer?.stop()
-    }
-
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
-    }
-
-    private func startClientControlSocket() {
+    func startClientControlSocket() {
         let dispatcher = NativeHostVisibleStateDispatcher(
             workspaceWindows: workspaceWindows,
             workspaceProjector: NativeServerTmuxVisibleWorkspaceProjector(
@@ -102,6 +385,11 @@ final class FenrirNativeApplication: NSObject, NSApplicationDelegate {
         } catch {
             NSLog("Fenrir Native failed to start local CLI control socket: \(String(describing: error))")
         }
+    }
+
+    func stopClientControlSocket() {
+        clientControlSocketServer?.stop()
+        clientControlSocketServer = nil
     }
 }
 
@@ -2794,13 +3082,14 @@ private extension AgentInteraction.ComposerState {
 
 struct NativeAppServerConnectionContext: Sendable {
     let sessionID: ServerConnection.SessionID
-    let store: any ServerConnection.ServerConnectionStore
+    let store: any ServerConnection.ServerConnectionStore & ServerConnection.LocalServerSupervisorStateStore
     let sendServerRequest: ServerConnection.SendServerRequest
     let streamServerRequest: @Sendable (NativeRuntime.ServerRPCRequest) -> AsyncThrowingStream<Data, Error>
     let serverEventSource: NativeAppServerEventSource
     let notificationStore: any Notifications.NotificationStore
     private let rpcTransport: any NativeAppServerRPCTransporting
     private let bootstrapCredential: String?
+    private let localServerProcessManager: (any ServerConnection.LocalServerProcessManaging)?
 
     var agentPromptSubmitterFactory: any NativeAgentPromptSubmitterMaking {
         NativeAgentServerConnectionPromptSubmitterFactory(
@@ -2863,14 +3152,66 @@ struct NativeAppServerConnectionContext: Sendable {
         bootstrapCredential: String? = NativeAppServerConnectionContext.localBootstrapCredential()
     ) -> NativeAppServerConnectionContext {
         let sessionID = ServerConnection.SessionID(rawValue: "native-app-local")
-        let endpoint = ServerConnection.LocalServerSpec(
-            httpBaseURL: "http://127.0.0.1:31337",
-            webSocketURL: "ws://127.0.0.1:31337/ws"
-        ).endpoint
-        let store = NativeAppServerConnectionStore(session: NativeAppServerConnectionContext.connectedSession(
+        return NativeAppServerConnectionContext.connectedLocalDefault(
+            sessionID: sessionID,
+            endpoint: NativeAppServerConnectionContext.localDefaultSpec().endpoint,
+            supervisorState: nil,
+            transport: transport,
+            bootstrapCredential: bootstrapCredential
+        )
+    }
+
+    static func preparedLocalDefault(
+        spec: ServerConnection.LocalServerSpec = NativeAppServerConnectionContext.localDefaultSpec(),
+        supervisor: NativeLocalServerSupervisor = NativeLocalServerSupervisor.localDefault(),
+        transport: any NativeAppServerRPCTransporting = NativeAppURLSessionServerRPCTransport(),
+        bootstrapCredential: String? = NativeAppServerConnectionContext.localBootstrapCredential(),
+        restartPolicy: ServerConnection.LocalServerRestartPolicy = ServerConnection.LocalServerRestartPolicy(),
+        requestID: RequestID = "native-local-default-prepare"
+    ) async -> Result<NativeAppServerConnectionContext, ServerConnection.ServerConnectionError> {
+        let sessionID = ServerConnection.SessionID(rawValue: "native-app-local")
+        let store = NativeAppServerConnectionStore()
+        let prepareResult = await ServerConnection.PrepareLocalServerConnection(
+            discovery: supervisor,
+            spawner: supervisor,
+            readiness: supervisor,
+            processManager: supervisor,
+            stateStore: store,
+            clock: NativeAppServerConnectionClock()
+        ).run(ServerConnection.PrepareLocalServerConnectionInput(
+            requestID: requestID,
+            mode: .localDefault(spec),
+            restartPolicy: restartPolicy
+        ))
+
+        switch prepareResult {
+        case .success(let prepared):
+            return .success(NativeAppServerConnectionContext.connectedLocalDefault(
+                sessionID: sessionID,
+                endpoint: prepared.endpoint,
+                supervisorState: prepared.supervisorState,
+                localServerProcessManager: supervisor,
+                transport: transport,
+                bootstrapCredential: bootstrapCredential
+            ))
+        case .failure(let error):
+            return .failure(error)
+        }
+    }
+
+    private static func connectedLocalDefault(
+        sessionID: ServerConnection.SessionID,
+        endpoint: ServerConnection.Endpoint,
+        supervisorState: ServerConnection.LocalServerSupervisorState?,
+        localServerProcessManager: (any ServerConnection.LocalServerProcessManaging)? = nil,
+        transport: any NativeAppServerRPCTransporting,
+        bootstrapCredential: String?
+    ) -> NativeAppServerConnectionContext {
+        let session = NativeAppServerConnectionContext.connectedSession(
             sessionID: sessionID,
             endpoint: endpoint
-        ))
+        )
+        let store = NativeAppServerConnectionStore(session: session, supervisorState: supervisorState)
         let serverEventSource = NativeAppServerEventSource(sessionID: sessionID)
         let notificationStore = Notifications.inMemoryNotificationStore()
         return NativeAppServerConnectionContext(
@@ -2893,7 +3234,29 @@ struct NativeAppServerConnectionContext: Sendable {
             serverEventSource: serverEventSource,
             notificationStore: notificationStore,
             rpcTransport: transport,
-            bootstrapCredential: bootstrapCredential
+            bootstrapCredential: bootstrapCredential,
+            localServerProcessManager: localServerProcessManager
+        )
+    }
+
+    func shutdownPreparedLocalServer(
+        requestID: RequestID = "native-local-default-shutdown"
+    ) async -> Result<ServerConnection.ShutdownLocalServerResult, ServerConnection.ServerConnectionError> {
+        guard let localServerProcessManager else {
+            return .failure(.invalidStateTransition)
+        }
+
+        return await ServerConnection.ShutdownLocalServer(
+            processManager: localServerProcessManager,
+            stateStore: store,
+            clock: NativeAppServerConnectionClock()
+        ).run(ServerConnection.ShutdownLocalServerInput(requestID: requestID))
+    }
+
+    private static func localDefaultSpec() -> ServerConnection.LocalServerSpec {
+        ServerConnection.LocalServerSpec(
+            httpBaseURL: "http://127.0.0.1:31337",
+            webSocketURL: "ws://127.0.0.1:31337/ws"
         )
     }
 
@@ -4192,14 +4555,21 @@ private enum NativeAppServerRPCWire {
     }
 }
 
-private actor NativeAppServerConnectionStore: ServerConnection.ServerConnectionStore {
+private actor NativeAppServerConnectionStore: ServerConnection.ServerConnectionStore,
+    ServerConnection.LocalServerSupervisorStateStore
+{
     private var session: ServerConnection.Session?
     private var activeRequests = 0
     private var streams: [ServerConnection.StreamID: ServerConnection.StreamHandle] = [:]
     private var stats = ServerConnection.TransportStats()
+    private var supervisorState: ServerConnection.LocalServerSupervisorState?
 
-    init(session: ServerConnection.Session) {
+    init(
+        session: ServerConnection.Session? = nil,
+        supervisorState: ServerConnection.LocalServerSupervisorState? = nil
+    ) {
         self.session = session
+        self.supervisorState = supervisorState
     }
 
     func loadSession(sessionID: ServerConnection.SessionID?) async throws -> ServerConnection.Session? {
@@ -4268,6 +4638,18 @@ private actor NativeAppServerConnectionStore: ServerConnection.ServerConnectionS
         stats = commit.transportStats
         streams = Dictionary(uniqueKeysWithValues: commit.streams.map { ($0.streamID, $0) })
         activeRequests = 0
+    }
+
+    func loadLocalServerSupervisorState() async throws -> ServerConnection.LocalServerSupervisorState? {
+        supervisorState
+    }
+
+    func saveLocalServerSupervisorState(_ state: ServerConnection.LocalServerSupervisorState) async throws {
+        supervisorState = state
+    }
+
+    func clearLocalServerSupervisorState() async throws {
+        supervisorState = nil
     }
 }
 

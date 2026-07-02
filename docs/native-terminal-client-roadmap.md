@@ -13,6 +13,7 @@ Related references:
 - `docs/native-terminal-client-module-map.md`
 - `docs/native-terminal-client-runtime-boundary.md`
 - `docs/tmux-session-kernel-architecture.md`
+- `docs/native-terminal-ui-shell.html` (D-041 shell visual contract, interactive)
 - `native/FenrirNative/README.md`
 - `references/supacode`
 
@@ -32,6 +33,16 @@ native shell is built around Fenrir concepts:
 - agents, workflows, Neovim, terminal context capture, and future git/review
   surfaces are first-class developer workflows around that terminal shell
 - tmux runtime sessions are namespaced by actor/user by default
+
+Fenrir Native is a different interface to Fenrir, not a port of the Electron
+chat experience (D-037). There is no native chat view: agent CLIs (Claude Code,
+Codex, Cursor, OpenCode, and future providers) run as normal processes in tmux
+panes with their own TUIs. Fenrir integrates them from the outside — it
+provisions hooks, skills, and MCP configuration into each agent (D-039), reads
+agent presence from hook-emitted OSC signals (D-038), and dispatches
+user-authored prompts with terminal context into agent panes (D-040). The
+native client is a terminal that knows how to manage and talk to the specific
+applications developers run inside it: agents, Neovim, gh-dash, hunks, lazygit.
 
 The server remains separate and non-negotiable. The native app connects to a
 local or remote Fenrir server, and all multiuser, remote, auth, runtime, tmux,
@@ -54,6 +65,10 @@ Supacode patterns to reuse:
 - use Supacode's sidebar and command-palette ideas as product inspiration:
   cached projections, active/pinned sections, badges, hotkey slots, recency, and
   mixed entity/action search
+- provision per-agent hooks/skills through ownership-marked, idempotent
+  settings installers, one adapter per agent CLI
+- read agent presence and notifications from hook-emitted OSC sequences on the
+  agent's own terminal stream, which also works over SSH
 
 Supacode patterns to adapt:
 
@@ -61,8 +76,10 @@ Supacode patterns to adapt:
 - copy the boundary idea, not necessarily TCA itself
 - use Fenrir server contracts instead of local-only worktree scripts as the
   source of truth
-- use server-authenticated workflow and tmux metadata instead of relying only on
-  terminal OSC messages for agent state
+- use server-authenticated workflow and tmux metadata for server-executed
+  workflows (D-020); for pane-hosted agent CLIs, hook-emitted OSC presence is
+  the primary state channel (D-038) since the server does not mediate those
+  sessions
 - keep `libGhostty` internal to `TerminalViewport` through a Fenrir wrapper
 - import tmux's effective keymap from the runtime/server instead of treating
   tmux shortcuts as static defaults
@@ -111,6 +128,8 @@ Major missing live pieces:
 - fully native sidebar, tab strip, switcher, and pane grid host around live tmux
   pane projection
 - production Neovim bridge, workflow, agent, and terminal-context surfaces
+- agent CLI integration: hook/skill/MCP provisioning installers and the OSC
+  presence pipeline (Workstream 24)
 - packaging, signing, updater, crash reporting, and performance hardening
 
 Implemented documentation should distinguish this scaffolded/partially wired
@@ -258,7 +277,7 @@ Required outcomes:
 ### Terminal Context And Agent Interaction
 
 Decision: sending terminal context to an agent is explicit, bounded, and
-composer-driven.
+composer-driven; delivery targets pane-hosted agent CLIs.
 
 Required outcomes:
 
@@ -266,9 +285,36 @@ Required outcomes:
 - keybindings trigger context capture and open a native composer overlay
 - the user can edit prompt/context before sending
 - context carries workspace/tab/pane/source/sequence metadata where available
-- agents do not write directly into user panes in the base native client
-- context sent to an agent is part of the conversation transcript, not logs or
-  telemetry
+- agents do not write directly into user panes in the base native client;
+  user-authored prompt dispatch into agent panes is user input (D-040), not
+  agent write authority
+- the receiving agent CLI owns the conversation transcript; sent context is
+  never treated as logs or telemetry, and the native client keeps no parallel
+  transcript store
+
+### D-037/D-038/D-039/D-040: Agent CLI Integration Model
+
+Decision: agents run as normal CLI processes in tmux panes; there is no native
+chat view. Fenrir provisions hooks, skills, and MCP configuration into each
+supported agent CLI behind a common integration contract, reads presence from
+hook-emitted OSC sequences, and dispatches composer prompts into agent panes.
+
+Required outcomes:
+
+- no native transcript store, response renderer, provider/model picker, or
+  approval panel in the base client; those live in the agent's own TUI
+- per-agent installer adapters (Claude Code, Codex, Cursor, OpenCode initially)
+  with ownership markers, idempotent reapply, version stamping, and clean
+  uninstall
+- a reserved OSC sequence carries metadata-only presence (started, busy,
+  awaiting input/approval, completed, failed, ended); `TerminalViewport`
+  strips/forwards it, `AgentIntegration` parses it
+- presence feeds sidebar attention, palette `!` domain, and notifications; it
+  is never an authorization signal
+- prompt dispatch spawns a new agent pane with launch input or writes into an
+  existing agent pane via the authenticated runtime write path with bracketed
+  paste, exactly once, with focus following dispatch
+- unprovisioned agent CLIs keep working as plain terminal panes
 
 ### Workspace Overlays
 
@@ -698,8 +744,13 @@ Deliverables:
 
 - cached sidebar projection for active, pinned, recent, remote, missing, and
   archived workspaces
-- Supacode-inspired active/pinned sections, attention badges, hotkey slots, and
-  row-level projections
+- workspace tree per D-041: each workspace expands into agent sessions (hook
+  presence), integrated apps (Neovim, gh-dash, hunks via `AgentIntegration`
+  detection adapters), and dev servers (managed-process metadata rows); active
+  workspace auto-expands, collapsed workspaces roll attention into badges
+- Supacode-inspired attention section, hotkey slots, and row-level projections
+- themed rendering through the shared design-token contract (D-041); no
+  hardcoded colors
 - notification badges for workspace, pane, agent, workflow, future git/PR, and
   server-health signals
 - fast search/list model shared with the switcher and CLI list output
@@ -791,21 +842,24 @@ Dependencies:
 
 ## Workstream 16: WorkspaceOverlays, AgentInteraction, And WorkflowControl
 
-Goal: make agents and Fenrir workflows first-class terminal-native citizens
-without turning chats or overlays into fake tmux panes.
+Goal: make pane-hosted agents and Fenrir workflows first-class terminal-native
+citizens without turning overlays into fake tmux panes and without rebuilding a
+chat view (D-037).
 
 Deliverables:
 
-- `WorkspaceOverlays` module for composer, conversations, results, diagnostics,
-  help, focus return targets, pin/restore, and tmux-like overlay navigation
+- `WorkspaceOverlays` module for composer, results, diagnostics, help, focus
+  return targets, pin/restore, and tmux-like overlay navigation
 - `AgentInteraction` module for composer input, terminal context attachments,
-  conversation transcripts, response streams, provider/agent selection, result
-  actions, and promotion to workflow
+  prompt dispatch to pane-hosted agent CLIs (D-040), and promotion to workflow
 - terminal context composer triggered from selection, visible viewport, or last
   N lines
-- agent responses shown in overlays/sidebar/activity by default, not as tmux
-  panes
-- no agent writes to user panes in the base client
+- dispatch targeting: pick an existing agent pane or spawn a new agent pane;
+  never dispatch to an ambiguous target; focus follows dispatch
+- no native transcript store, response stream renderer, provider/model picker,
+  or approval panel; the agent's own TUI owns those surfaces in its pane
+- no agent writes to user panes in the base client (user-authored prompt
+  dispatch into agent panes is user input, per amended D-022)
 - `WorkflowControl` module for server-backed workflow list, run detail, step
   detail, structured logs, status, awaiting input, cancel, retry, and
   pause/resume where supported
@@ -813,15 +867,14 @@ Deliverables:
 - ability to open/focus workflow overlays or linked workflow panes from sidebar,
   palette, CLI, and shell commands
 - separation between workflow state and terminal byte streams
-- optional terminal OSC bridge only as a supplemental signal, not the source of
-  truth
 
 Validation:
 
 - workflow state remains correct after terminal viewport recreation
-- conversation transcripts remain outside terminal byte streams
-- sent terminal context is persisted as conversation content, not diagnostics or
-  telemetry
+- prompt dispatch delivers exactly once through runtime write acknowledgements,
+  or fails visibly; reconnect does not double-send
+- sent terminal context is delivered into the target agent pane session and is
+  not persisted as diagnostics or telemetry
 - workflow logs can be tailed without using generic terminal byte paths unless
   intentionally attached to a pane
 - cancelling/retrying workflows routes through authenticated server actions
@@ -833,6 +886,7 @@ Dependencies:
 - Workstream 9
 - Workstream 12
 - Workstream 15
+- Workstream 24 for agent pane detection and presence
 
 ## Workstream 17: Neovim Integration
 
@@ -1069,6 +1123,68 @@ Dependencies:
 - Workstream 8
 - Workstream 20
 
+## Workstream 24: Agent CLI Integration
+
+Goal: make external agent CLIs first-class citizens of the terminal through
+provisioned hooks, skills, MCP configuration, and presence — the core
+differentiator of the native product (D-037, D-038, D-039, D-040).
+
+Deliverables:
+
+- `AgentIntegration` module with the canonical structure, added to the module
+  map, owning integration contracts: agent CLI detection, integration status,
+  hook/skill install/update/remove, and MCP provisioning
+- one installer adapter per supported agent CLI (Claude Code, Codex, Cursor,
+  OpenCode initially) behind the common contract; agent-specific config
+  formats never leak outside the adapter
+- ownership-marked, idempotent, version-stamped, cleanly uninstallable config
+  edits; user-owned content outside markers is never rewritten; atomic writes
+  with backup on conflict
+- hook content that emits Fenrir's reserved OSC presence sequence with
+  metadata-only payloads: session started, busy, awaiting input/approval, turn
+  completed, failed, session ended, plus workspace/pane provenance
+- skill content that teaches agents to drive the `fenrir` CLI control surface
+  and to use Fenrir MCP tools
+- MCP provisioning sourced from the server's MCP configuration contracts per
+  workspace/project, translated into each agent's config format
+- presence pipeline: `TerminalViewport` strips/forwards the reserved OSC
+  sequence; `AgentIntegration` parses and validates it into typed presence
+  contracts consumed by `WorkspaceIndex`, `Notifications`, and the palette `!`
+  domain
+- agent pane metadata (which agent, integration version, presence state) for
+  sidebar rows, palette results, and dispatch targeting in Workstream 16
+- first-run integration prompt plus palette/settings repair and upgrade
+  actions; missing or outdated integration is a visible degraded state with a
+  one-action fix
+- optional supplemental reporting from hooks to an authenticated server
+  endpoint, with no base-client feature depending on it
+
+Validation:
+
+- installing an integration twice produces no diff; uninstalling restores the
+  agent config to its pre-Fenrir state modulo user edits
+- user-authored content in agent config files survives install/update/remove
+- presence from a pane-hosted agent updates sidebar/notifications within a
+  bounded delay, with no terminal byte scraping outside the reserved OSC
+  channel
+- an agent running over SSH in a remote workspace still reports presence
+- malformed presence payloads are dropped with a diagnostics event and never
+  reach render output or crash parsing
+- presence never triggers pane writes or privileged actions
+- unprovisioned agent CLIs work as plain terminal panes with no degraded
+  terminal behavior
+
+Dependencies:
+
+- Workstream 9
+- Workstream 10
+- Workstream 13
+- Workstream 15
+- D-037 agent execution model
+- D-038 agent presence channel
+- D-039 agent integration provisioning
+- D-040 prompt dispatch
+
 ## Execution Order
 
 The implementation should be done in release-grade passes. Each pass must leave
@@ -1087,12 +1203,14 @@ boundary it touches.
 10. Build `PaneGrid` and `WorkspaceShell`.
 11. Build operational sidebar, universal palette, notifications, and tmux
     keymap import.
-12. Build `WorkspaceOverlays`, `AgentInteraction`, terminal-context composer,
-    and `WorkflowControl`.
-13. Add native-feeling Neovim integration.
-14. Keep git/review, browser-lab, managed-process, and remote-process native
+12. Build `AgentIntegration`: per-agent hook/skill/MCP provisioning and the
+    OSC presence pipeline into sidebar, palette, and notifications.
+13. Build `WorkspaceOverlays`, `AgentInteraction`, terminal-context composer
+    with prompt dispatch into agent panes, and `WorkflowControl`.
+14. Add native-feeling Neovim integration.
+15. Keep git/review, browser-lab, managed-process, and remote-process native
     surfaces behind explicit future decisions.
-15. Harden observability, performance, testing, packaging, server management,
+16. Harden observability, performance, testing, packaging, server management,
     tmux dependency handling, and migration.
 
 ## Completion Criteria
@@ -1116,7 +1234,19 @@ The native terminal client is architecturally complete when:
 - workflows, agents, terminal-context composer, overlays, and Neovim are
   accessible from sidebar, palette, keybindings, and CLI where appropriate
 - workflow execution remains server-owned and native owns visualization/control
-- agents do not write directly into user panes in the base client
+- supported agent CLIs can be provisioned with Fenrir hooks, skills, and MCP
+  configuration through one-action install/repair, and unprovisioned agents
+  still work as plain panes
+- pane-hosted agent presence (busy, awaiting input, completed, failed) is
+  visible in sidebar, palette `!` domain, and notifications, and can focus the
+  exact pane
+- the composer loop works end to end: capture terminal context, edit the
+  prompt, dispatch into an agent pane exactly once, and get focused back on
+  that pane when the agent needs input or finishes
+- there is no native chat view, transcript store, or approval panel; agent TUIs
+  own those surfaces in their panes
+- agents do not write directly into user panes in the base client;
+  user-authored prompt dispatch into agent panes is user input
 - browser-lab and dedicated managed/remote process native surfaces are not base
   completion criteria
 - module boundaries remain uniform and actions stay atomic

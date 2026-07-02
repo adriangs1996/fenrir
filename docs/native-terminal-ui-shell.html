@@ -1,0 +1,1337 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fenrir Native — Shell Reference (chosen direction)</title>
+    <style>
+      :root {
+        --mono: ui-monospace, "SF Mono", "Menlo", "Cascadia Mono", monospace;
+        --page-bg: #08090b;
+        --page-ink: #b9b5ac;
+        --page-dim: #5c5951;
+        --page-hair: #1d1e22;
+        --page-accent: #e8a33d;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        background: var(--page-bg);
+      }
+      body {
+        font-family: var(--mono);
+        color: var(--page-ink);
+        min-height: 100vh;
+        background:
+          radial-gradient(1200px 500px at 50% -10%, #101014 0%, transparent 60%), var(--page-bg);
+        padding-bottom: 96px;
+      }
+      ::selection {
+        background: #e8a33d33;
+      }
+
+      .page-head {
+        max-width: 1320px;
+        margin: 0 auto;
+        padding: 48px 32px 20px;
+        animation: rise 0.5s ease both;
+      }
+      .kicker {
+        font-size: 11px;
+        letter-spacing: 0.22em;
+        color: var(--page-dim);
+        text-transform: uppercase;
+      }
+      .kicker b {
+        color: var(--page-accent);
+        font-weight: 400;
+      }
+      h1 {
+        font-size: 26px;
+        font-weight: 500;
+        margin: 10px 0 8px;
+        color: #e4e1d9;
+        letter-spacing: -0.01em;
+      }
+      .page-head p {
+        font-size: 12.5px;
+        line-height: 1.7;
+        color: var(--page-dim);
+        max-width: 78ch;
+      }
+      .page-head p b {
+        color: var(--page-ink);
+        font-weight: 400;
+      }
+
+      .controls {
+        max-width: 1320px;
+        margin: 18px auto 26px;
+        padding: 0 32px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        animation: rise 0.5s 0.08s ease both;
+      }
+      .seg {
+        display: flex;
+        border: 1px solid var(--page-hair);
+      }
+      .seg button,
+      .toggle {
+        font: 12px var(--mono);
+        color: var(--page-dim);
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        padding: 7px 12px;
+        transition:
+          color 0.15s,
+          background 0.15s;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .seg button + button {
+        border-left: 1px solid var(--page-hair);
+      }
+      .seg button.on {
+        color: #0b0b0d;
+        background: var(--page-accent);
+      }
+      .seg button .sw {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        border: 1px solid #0006;
+      }
+      .toggle {
+        border: 1px solid var(--page-hair);
+      }
+      .toggle.on {
+        color: var(--page-accent);
+        border-color: #e8a33d55;
+      }
+      .toggle:hover,
+      .seg button:hover:not(.on) {
+        color: var(--page-ink);
+      }
+      .keys {
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--page-dim);
+      }
+      .keys kbd {
+        font: 10.5px var(--mono);
+        border: 1px solid var(--page-hair);
+        padding: 2px 5px;
+        color: var(--page-ink);
+        border-radius: 3px;
+        margin: 0 1px;
+      }
+
+      main {
+        max-width: 1320px;
+        margin: 0 auto;
+        padding: 0 32px;
+        animation: rise 0.45s 0.12s ease both;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes blink {
+        0%,
+        55% {
+          opacity: 1;
+        }
+        56%,
+        100% {
+          opacity: 0;
+        }
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.35;
+        }
+      }
+      @keyframes overlayIn {
+        from {
+          opacity: 0;
+          transform: translate(-50%, -46%) scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(1);
+        }
+      }
+      .cursor {
+        animation: blink 1.1s step-end infinite;
+      }
+
+      /* ============================================================
+         THEMES — design tokens, same registry ids as Fenrir Desktop
+         (apps/web/src/lib/theme.ts). Swapping data-theme swaps the
+         whole shell: chrome, tree, presence, ANSI, overlays.
+         ============================================================ */
+      .shell[data-theme="fenrir-dark"] {
+        --bg: #0a0f16;
+        --panel: #0d141e;
+        --side: #0b111a;
+        --ink: #c3cdd9;
+        --dim: #566677;
+        --hair: #1a2432;
+        --accent: #3fb8af;
+        --attn: #f0b429;
+        --ok: #4cc38a;
+        --fail: #e5534b;
+        --wf: #9d7bd8;
+        --blue: #6ea8dc;
+        --yellow: #d8b25e;
+        --red: #e5534b;
+        --green: #63b06d;
+        --magenta: #b088c2;
+      }
+      .shell[data-theme="catppuccin-mocha"] {
+        --bg: #11111b;
+        --panel: #1e1e2e;
+        --side: #181825;
+        --ink: #cdd6f4;
+        --dim: #6c7086;
+        --hair: #313244;
+        --accent: #cba6f7;
+        --attn: #f9e2af;
+        --ok: #a6e3a1;
+        --fail: #f38ba8;
+        --wf: #b4befe;
+        --blue: #89b4fa;
+        --yellow: #f9e2af;
+        --red: #f38ba8;
+        --green: #a6e3a1;
+        --magenta: #f5c2e7;
+      }
+      .shell[data-theme="kanagawa"] {
+        --bg: #16161d;
+        --panel: #1f1f28;
+        --side: #1a1a22;
+        --ink: #dcd7ba;
+        --dim: #727169;
+        --hair: #2f2f3d;
+        --accent: #7e9cd8;
+        --attn: #e6c384;
+        --ok: #98bb6c;
+        --fail: #c34043;
+        --wf: #957fb8;
+        --blue: #7e9cd8;
+        --yellow: #c0a36e;
+        --red: #c34043;
+        --green: #76946a;
+        --magenta: #957fb8;
+      }
+      .shell[data-theme="tokyonight-moon"] {
+        --bg: #1e2030;
+        --panel: #222436;
+        --side: #1b1d2d;
+        --ink: #c8d3f5;
+        --dim: #636da6;
+        --hair: #2f334d;
+        --accent: #82aaff;
+        --attn: #ffc777;
+        --ok: #c3e88d;
+        --fail: #ff757f;
+        --wf: #c099ff;
+        --blue: #82aaff;
+        --yellow: #ffc777;
+        --red: #ff757f;
+        --green: #c3e88d;
+        --magenta: #c099ff;
+      }
+      .shell[data-theme="nord"] {
+        --bg: #242933;
+        --panel: #2e3440;
+        --side: #272c37;
+        --ink: #d8dee9;
+        --dim: #616e88;
+        --hair: #3b4252;
+        --accent: #88c0d0;
+        --attn: #ebcb8b;
+        --ok: #a3be8c;
+        --fail: #bf616a;
+        --wf: #b48ead;
+        --blue: #81a1c1;
+        --yellow: #ebcb8b;
+        --red: #bf616a;
+        --green: #a3be8c;
+        --magenta: #b48ead;
+      }
+
+      /* ============================================================
+         SHELL — operations deck base · quiet tmux tabs · tree sidebar
+         ============================================================ */
+      .shell {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid var(--hair);
+        border-radius: 10px;
+        box-shadow:
+          0 30px 80px -20px #000,
+          0 2px 6px #0008;
+        min-height: 720px;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+        transition:
+          background 0.25s,
+          border-color 0.25s;
+      }
+
+      /* titlebar: traffic lights + quiet tmux tabs + health */
+      .titlebar {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 10px 14px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--hair);
+      }
+      .lights {
+        display: flex;
+        gap: 8px;
+        flex: none;
+      }
+      .lights i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+      }
+      .lights i:nth-child(1) {
+        background: #b2544f;
+      }
+      .lights i:nth-child(2) {
+        background: #ba8a3d;
+      }
+      .lights i:nth-child(3) {
+        background: #5d9455;
+      }
+      .wtabs {
+        display: flex;
+        gap: 2px;
+        font-size: 11.5px;
+      }
+      .wtab {
+        color: var(--dim);
+        padding: 3px 10px;
+        border-bottom: 1px solid transparent;
+      }
+      .wtab.active {
+        color: var(--ink);
+        border-bottom-color: var(--accent);
+      }
+      .wtab .pd {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--attn);
+        margin-left: 7px;
+        vertical-align: 1px;
+        animation: pulse 1.4s ease infinite;
+      }
+      .health {
+        margin-left: auto;
+        display: flex;
+        gap: 14px;
+        font-size: 10.5px;
+        color: var(--dim);
+      }
+      .health .srv::before {
+        content: "●";
+        color: var(--ok);
+        margin-right: 5px;
+        font-size: 9px;
+      }
+      .health .bell {
+        color: var(--attn);
+      }
+
+      .body-row {
+        flex: 1;
+        display: flex;
+        min-height: 0;
+      }
+
+      /* ---------- sidebar: workspace tree ---------- */
+      .sidebar {
+        width: 264px;
+        flex: none;
+        background: var(--side);
+        border-right: 1px solid var(--hair);
+        display: flex;
+        flex-direction: column;
+        transition: margin-left 0.2s ease;
+        overflow: hidden;
+      }
+      .shell.side-off .sidebar {
+        margin-left: -265px;
+      }
+      .side-scroll {
+        flex: 1;
+        overflow: hidden;
+        padding: 8px 0 4px;
+      }
+      .sec {
+        font-size: 9.5px;
+        letter-spacing: 0.2em;
+        color: var(--dim);
+        padding: 12px 14px 6px;
+        text-transform: uppercase;
+      }
+      .sec.attn {
+        color: var(--attn);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 14px;
+        font-size: 12px;
+        color: var(--ink);
+      }
+      .row .st {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex: none;
+      }
+      .row .st.busy {
+        background: var(--attn);
+        animation: pulse 1.4s ease infinite;
+      }
+      .row .st.need {
+        background: var(--attn);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--attn) 18%, transparent);
+      }
+      .row .st.ok {
+        background: var(--ok);
+      }
+      .row .st.off {
+        background: var(--hair);
+      }
+      .row .st.warn {
+        background: var(--fail);
+        animation: pulse 1.4s ease infinite;
+      }
+      .row .meta {
+        color: var(--dim);
+        font-size: 10.5px;
+      }
+      .row .hk {
+        margin-left: auto;
+        font-size: 10px;
+        color: var(--dim);
+        border: 1px solid var(--hair);
+        padding: 1px 5px;
+        border-radius: 3px;
+      }
+      .row.attn-row {
+        color: var(--attn);
+      }
+      .row.attn-row .meta {
+        color: color-mix(in srgb, var(--attn) 60%, transparent);
+      }
+
+      /* tree */
+      .ws {
+        margin-bottom: 2px;
+      }
+      .ws-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        font-size: 12px;
+        color: var(--ink);
+        cursor: default;
+      }
+      .ws-head .tw {
+        color: var(--dim);
+        font-size: 9px;
+        width: 10px;
+        flex: none;
+      }
+      .ws-head .br {
+        color: var(--dim);
+        font-size: 10.5px;
+      }
+      .ws-head .hk {
+        margin-left: auto;
+        font-size: 10px;
+        color: var(--dim);
+        border: 1px solid var(--hair);
+        padding: 1px 5px;
+        border-radius: 3px;
+      }
+      .ws.open > .ws-head {
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
+        box-shadow: inset 2px 0 0 var(--accent);
+      }
+      .ws-kids {
+        border-left: 1px solid var(--hair);
+        margin-left: 24px;
+        padding: 2px 0 4px;
+      }
+      .ws:not(.open) .ws-kids {
+        display: none;
+      }
+      .kid-sec {
+        font-size: 9px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--dim);
+        padding: 6px 12px 2px;
+      }
+      .kid {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 3.5px 12px;
+        font-size: 11.5px;
+        color: var(--ink);
+      }
+      .kid .st {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex: none;
+      }
+      .kid .st.busy {
+        background: var(--ok);
+        animation: pulse 1.4s ease infinite;
+      }
+      .kid .st.need {
+        background: var(--attn);
+        box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--attn) 20%, transparent);
+        animation: pulse 1.4s ease infinite;
+      }
+      .kid .st.on {
+        background: var(--ok);
+      }
+      .kid .st.off {
+        background: var(--hair);
+      }
+      .kid .meta {
+        color: var(--dim);
+        font-size: 10px;
+      }
+      .kid .loc {
+        margin-left: auto;
+        font-size: 9.5px;
+        color: var(--dim);
+      }
+      .kid.attn-kid {
+        color: var(--attn);
+      }
+      .badges {
+        display: flex;
+        gap: 5px;
+        margin-left: 4px;
+      }
+      .bdg {
+        font-size: 9.5px;
+        padding: 1px 6px;
+        border-radius: 8px;
+      }
+      .bdg.agent {
+        background: color-mix(in srgb, var(--attn) 14%, transparent);
+        color: var(--attn);
+      }
+      .bdg.wf {
+        background: color-mix(in srgb, var(--wf) 14%, transparent);
+        color: var(--wf);
+      }
+      .side-foot {
+        border-top: 1px solid var(--hair);
+        padding: 10px 14px;
+        font-size: 10.5px;
+        color: var(--dim);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .side-foot .ok {
+        color: var(--ok);
+      }
+
+      /* ---------- main column ---------- */
+      .main-col {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .panes {
+        flex: 1;
+        display: grid;
+        gap: 6px;
+        padding: 8px;
+        background: var(--bg);
+        grid-template-columns: 1.35fr 1fr;
+        grid-template-rows: 1fr 1fr;
+        min-height: 0;
+      }
+      .pane {
+        background: var(--panel);
+        border: 1px solid var(--hair);
+        border-radius: 6px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-height: 0;
+      }
+      .pane.agent {
+        grid-row: 1 / 3;
+      }
+      .pane.focused {
+        border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+      }
+      .phead {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 5px 12px;
+        border-bottom: 1px solid var(--hair);
+        font-size: 10.5px;
+        color: var(--dim);
+        background: color-mix(in srgb, var(--side) 60%, var(--panel));
+      }
+      .phead .proc {
+        color: var(--ink);
+      }
+      .pchip {
+        margin-left: auto;
+        font-size: 9.5px;
+        padding: 1px 7px;
+        border-radius: 8px;
+      }
+      .pchip.need {
+        background: color-mix(in srgb, var(--attn) 14%, transparent);
+        color: var(--attn);
+      }
+      .pchip.run {
+        background: color-mix(in srgb, var(--ok) 14%, transparent);
+        color: var(--ok);
+      }
+      .pane pre {
+        padding: 10px 14px;
+        flex: 1;
+        overflow: hidden;
+      }
+      pre {
+        font: 12px/1.55 var(--mono);
+        color: var(--ink);
+      }
+      pre .p {
+        color: var(--dim);
+      }
+      pre .g {
+        color: var(--green);
+      }
+      pre .b {
+        color: var(--blue);
+      }
+      pre .y {
+        color: var(--yellow);
+      }
+      pre .r {
+        color: var(--red);
+      }
+      pre .m {
+        color: var(--magenta);
+      }
+      pre .c {
+        color: var(--accent);
+      }
+      pre .a {
+        color: var(--attn);
+      }
+      pre .ink {
+        color: var(--ink);
+      }
+      pre .inv {
+        background: var(--attn);
+        color: var(--side);
+        padding: 0 4px;
+      }
+
+      .statusbar {
+        display: flex;
+        gap: 20px;
+        align-items: center;
+        padding: 6px 14px;
+        border-top: 1px solid var(--hair);
+        font-size: 10.5px;
+        color: var(--dim);
+        background: var(--panel);
+      }
+      .statusbar .ok::before {
+        content: "●";
+        color: var(--ok);
+        margin-right: 5px;
+        font-size: 9px;
+      }
+      .statusbar .attn {
+        color: var(--attn);
+      }
+      .statusbar .right {
+        margin-left: auto;
+        display: flex;
+        gap: 16px;
+      }
+
+      /* ---------- overlays ---------- */
+      .scrim {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        display: none;
+        background: radial-gradient(80% 80% at 50% 40%, #00000055, #000000a8);
+      }
+      .scrim.show {
+        display: block;
+      }
+      .overlay {
+        position: absolute;
+        left: 50%;
+        top: 46%;
+        transform: translate(-50%, -50%);
+        width: 620px;
+        max-width: 88%;
+        display: none;
+        z-index: 30;
+        animation: overlayIn 0.16s ease both;
+      }
+      .overlay.show {
+        display: block;
+      }
+      .overlay .box {
+        background: color-mix(in srgb, var(--panel) 96%, transparent);
+        border: 1px solid var(--hair);
+        border-radius: 10px;
+        box-shadow:
+          0 24px 70px -10px #000,
+          0 0 0 4px color-mix(in srgb, var(--accent) 8%, transparent);
+        overflow: hidden;
+      }
+      .ov-input {
+        display: flex;
+        gap: 10px;
+        padding: 14px 18px;
+        font-size: 13px;
+        border-bottom: 1px solid var(--hair);
+        color: var(--ink);
+      }
+      .ov-input .pr {
+        color: var(--accent);
+      }
+      .ov-hint {
+        padding: 8px 18px;
+        font-size: 10.5px;
+        color: var(--dim);
+        border-bottom: 1px solid var(--hair);
+      }
+      .ov-hint b {
+        color: var(--accent);
+        font-weight: 400;
+      }
+      .ov-row {
+        display: flex;
+        gap: 14px;
+        padding: 10px 18px;
+        font-size: 12px;
+        color: var(--dim);
+        align-items: baseline;
+      }
+      .ov-row.sel {
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        color: var(--ink);
+      }
+      .ov-row .name {
+        min-width: 220px;
+      }
+      .ov-row .name .d {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        margin-right: 8px;
+      }
+      .ov-row .d.on {
+        background: var(--ok);
+      }
+      .ov-row .d.off {
+        background: var(--hair);
+      }
+      .ov-row .act {
+        margin-left: auto;
+        font-size: 11px;
+      }
+      .ov-row.attn {
+        color: var(--attn);
+        border-top: 1px solid var(--hair);
+      }
+      .cmp-head {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 13px 18px;
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--dim);
+        border-bottom: 1px solid var(--hair);
+      }
+      .chip {
+        font-size: 11px;
+        background: color-mix(in srgb, var(--hair) 55%, transparent);
+        border: 1px solid var(--hair);
+        padding: 2px 9px;
+        border-radius: 10px;
+        color: var(--ink);
+        letter-spacing: 0;
+        text-transform: none;
+      }
+      .chip .x {
+        color: var(--dim);
+        margin-left: 6px;
+      }
+      .cmp-target {
+        padding: 11px 18px;
+        font-size: 12px;
+        color: var(--dim);
+        border-bottom: 1px solid var(--hair);
+      }
+      .cmp-target b {
+        color: var(--attn);
+        font-weight: 400;
+      }
+      .cmp-body {
+        padding: 14px 18px 18px;
+        font-size: 12.5px;
+        line-height: 1.6;
+        color: var(--ink);
+        min-height: 92px;
+      }
+      .cmp-foot {
+        display: flex;
+        gap: 18px;
+        padding: 10px 18px;
+        font-size: 10.5px;
+        color: var(--dim);
+        border-top: 1px solid var(--hair);
+        background: color-mix(in srgb, var(--side) 60%, var(--panel));
+      }
+      .cmp-foot .right {
+        margin-left: auto;
+      }
+
+      /* annotations */
+      .dot-note {
+        position: absolute;
+        z-index: 40;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        font: 10px/16px var(--mono);
+        text-align: center;
+        background: var(--page-accent);
+        color: #0b0b0d;
+        cursor: default;
+        display: none;
+        box-shadow: 0 0 0 3px #e8a33d2b;
+      }
+      .annotated .dot-note {
+        display: block;
+      }
+      .notes-panel {
+        max-width: 1320px;
+        margin: 18px auto 0;
+        padding: 0 32px;
+        display: none;
+        animation: rise 0.3s ease both;
+      }
+      body.annotated .notes-panel {
+        display: block;
+      }
+      .notes-panel ol {
+        list-style: none;
+        counter-reset: n;
+        columns: 2;
+        gap: 40px;
+      }
+      .notes-panel li {
+        counter-increment: n;
+        font-size: 12px;
+        color: var(--page-dim);
+        line-height: 1.6;
+        margin-bottom: 10px;
+        break-inside: avoid;
+        padding-left: 28px;
+        position: relative;
+      }
+      .notes-panel li::before {
+        content: counter(n);
+        position: absolute;
+        left: 0;
+        top: 1px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        text-align: center;
+        font-size: 10px;
+        line-height: 16px;
+        background: var(--page-accent);
+        color: #0b0b0d;
+      }
+      .notes-panel li b {
+        color: var(--page-ink);
+        font-weight: 500;
+      }
+
+      .contract {
+        max-width: 1320px;
+        margin: 44px auto 0;
+        padding: 28px 32px 0;
+        border-top: 1px solid var(--page-hair);
+      }
+      .contract h2 {
+        font-size: 13px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        font-weight: 400;
+        color: var(--page-dim);
+        margin-bottom: 16px;
+      }
+      .contract ul {
+        list-style: none;
+        columns: 2;
+        gap: 40px;
+      }
+      .contract li {
+        font-size: 12px;
+        color: var(--page-dim);
+        line-height: 1.65;
+        margin-bottom: 12px;
+        padding-left: 16px;
+        position: relative;
+        break-inside: avoid;
+      }
+      .contract li::before {
+        content: "▸";
+        position: absolute;
+        left: 0;
+        color: var(--page-accent);
+      }
+      .contract li b {
+        color: var(--page-ink);
+        font-weight: 500;
+      }
+
+      @media (max-width: 900px) {
+        .notes-panel ol,
+        .contract ul {
+          columns: 1;
+        }
+        .sidebar {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page-head">
+      <div class="kicker">
+        fenrir native · <b>shell reference — chosen direction</b> · supersedes
+        native-terminal-ui-concepts.html
+      </div>
+      <h1>Operations Deck · quiet tabs · workspace tree · themeable</h1>
+      <p>
+        The chosen hybrid: <b>operations-deck base</b> with a <b>collapsible sidebar</b> whose rows
+        form a <b>workspace tree</b> (workspace → agent sessions → integrated apps → dev servers),
+        the <b>quiet tmux tabs</b> from concept A in the titlebar, and
+        <b>themes shared with Fenrir Desktop's registry</b> — swapping a theme swaps every token:
+        chrome, tree, presence, ANSI, overlays. Tree rows come from pane metadata and hook presence
+        (D-038/D-039), never from scraping.
+      </p>
+    </header>
+
+    <div class="controls">
+      <div class="seg" id="themes"></div>
+      <button class="toggle" id="tg-side" onclick="toggleSidebar()">sidebar</button>
+      <button class="toggle" id="tg-palette" onclick="toggleOverlay('palette')">palette</button>
+      <button class="toggle" id="tg-composer" onclick="toggleOverlay('composer')">composer</button>
+      <button class="toggle" id="tg-notes" onclick="toggleNotes()">annotations</button>
+      <span class="keys">
+        <kbd>t</kbd> theme · <kbd>s</kbd> sidebar · <kbd>p</kbd> palette · <kbd>c</kbd> composer ·
+        <kbd>a</kbd> notes
+      </span>
+    </div>
+
+    <main>
+      <div class="shell" id="shell" data-theme="fenrir-dark">
+        <div class="titlebar">
+          <div class="lights"><i></i><i></i><i></i></div>
+          <div class="wtabs">
+            <span class="wtab active">1 main<span class="pd"></span></span>
+            <span class="wtab">2 server</span>
+            <span class="wtab">3 review</span>
+          </div>
+          <span class="dot-note" style="top: 9px; left: 300px">1</span>
+          <div class="health">
+            <span class="srv">local · 12ms</span>
+            <span>streams 3/3</span>
+            <span class="bell">◉ 1 needs input</span>
+          </div>
+        </div>
+
+        <div class="body-row">
+          <div class="sidebar">
+            <div class="side-scroll">
+              <div class="sec attn">attention</div>
+              <div class="row attn-row">
+                <span class="st need"></span>claude · approval<span class="meta">fenrir %1</span>
+                <span class="hk">⌘J</span>
+              </div>
+              <span class="dot-note" style="top: 46px; left: 238px">2</span>
+
+              <div class="sec">workspaces</div>
+
+              <div class="ws open">
+                <div class="ws-head">
+                  <span class="tw">▾</span>fenrir<span class="br">⎇ term-em</span>
+                  <span class="hk">⌘1</span>
+                </div>
+                <div class="ws-kids">
+                  <div class="kid-sec">agents</div>
+                  <div class="kid attn-kid">
+                    <span class="st need"></span>claude<span class="meta">needs input</span>
+                    <span class="loc">%1</span>
+                  </div>
+                  <div class="kid">
+                    <span class="st busy"></span>codex<span class="meta">working · 4m</span>
+                    <span class="loc">%4</span>
+                  </div>
+                  <span class="dot-note" style="top: 148px; left: 238px">3</span>
+
+                  <div class="kid-sec">apps</div>
+                  <div class="kid">
+                    <span class="st on"></span>nvim<span class="meta">main.swift</span>
+                    <span class="loc">%2</span>
+                  </div>
+                  <div class="kid">
+                    <span class="st on"></span>gh-dash<span class="meta">3 PRs</span>
+                    <span class="loc">w2</span>
+                  </div>
+                  <div class="kid">
+                    <span class="st off"></span>hunks<span class="meta">12 files</span>
+                  </div>
+                  <span class="dot-note" style="top: 232px; left: 238px">4</span>
+
+                  <div class="kid-sec">dev servers</div>
+                  <div class="kid">
+                    <span class="st on"></span>web<span class="meta">:3000 · 214ms</span>
+                  </div>
+                  <div class="kid">
+                    <span class="st off"></span>api<span class="meta">:31337 · stopped</span>
+                  </div>
+                  <span class="dot-note" style="top: 310px; left: 238px">5</span>
+                </div>
+              </div>
+
+              <div class="ws">
+                <div class="ws-head">
+                  <span class="tw">▸</span>t3code-upstream
+                  <span class="badges"><span class="bdg wf">⚙ 1</span></span>
+                  <span class="hk">⌘2</span>
+                </div>
+              </div>
+              <div class="ws">
+                <div class="ws-head">
+                  <span class="tw">▸</span>hunks-playground
+                  <span class="hk">⌘3</span>
+                </div>
+              </div>
+
+              <div class="sec">recent</div>
+              <div class="row">
+                <span class="st off"></span>guruwalk-api<span class="meta">2h</span>
+              </div>
+              <div class="row">
+                <span class="st off"></span>dotfiles<span class="meta">1d</span>
+              </div>
+
+              <div class="sec">remote · work</div>
+              <div class="row">
+                <span class="st warn"></span>redtrail<span class="meta">reconnecting…</span>
+              </div>
+            </div>
+            <div class="side-foot">
+              <span class="ok">● local server · 31337 · 12ms</span>
+              <span>⚙ 2 workflows running · 0 failed</span>
+            </div>
+          </div>
+
+          <div class="main-col">
+            <div class="panes">
+              <div class="pane agent focused">
+                <div class="phead">
+                  <span class="proc">claude</span><span>%1</span><span>hooks v3</span>
+                  <span class="pchip need">◉ needs input</span>
+                </div>
+                <span class="dot-note" style="top: 36px; right: 14px">6</span>
+                <pre>
+<span class="a">✳</span> <span class="ink">Claude Code</span> <span class="p">— fenrir (term-em)</span>
+
+<span class="p">❯</span> <span class="ink">Wire the local server supervisor into app startup</span>
+
+<span class="g">⏺</span> <span class="ink">Read</span> <span class="p">main.swift (lines 1–80)</span>
+<span class="g">⏺</span> <span class="ink">Edit</span> <span class="p">NativeAppServerConnectionContext…</span> <span class="g">✓</span>
+<span class="g">⏺</span> <span class="ink">Bash</span> <span class="p">bun run test</span>
+  <span class="p">⎿ 386 pass, 0 fail (1.31s)</span>
+
+<span class="a">╭─ Approval required ─────────────────────────────╮</span>
+<span class="a">│</span> <span class="ink">Run:</span> <span class="c">swift test --filter NativeHost</span>            <span class="a">│</span>
+<span class="a">│</span>                                                 <span class="a">│</span>
+<span class="a">│</span> <span class="inv"> ❯ 1. Yes </span>  <span class="p">2. Yes, don't ask   3. No</span>        <span class="a">│</span>
+<span class="a">╰─────────────────────────────────────────────────╯</span>
+<span class="cursor ink">▍</span></pre>
+              </div>
+
+              <div class="pane">
+                <div class="phead">
+                  <span class="proc">nvim</span><span>%2</span><span>main.swift</span>
+                </div>
+                <pre>
+<span class="p"> 84 │</span> <span class="m">final class</span> <span class="c">NativeLocalServerSupervisor</span> {
+<span class="p"> 85 │</span>   <span class="m">private let</span> launcher: <span class="c">ProcessLaunching</span>
+<span class="p"> 86 │</span>   <span class="m">private let</span> probe: <span class="c">ReadinessProbing</span>
+<span class="p"> 87 │</span>   <span class="m">private var</span> owned: <span class="c">OwnedProcess</span>?
+<span class="p"> 88 │</span>
+<span class="inv">NORMAL</span> <span class="p"> main.swift · 89:14 · ⎇ term-em</span></pre>
+              </div>
+
+              <div class="pane">
+                <div class="phead">
+                  <span class="proc">zsh</span><span>%3</span>
+                  <span class="pchip run">✓ exit 0</span>
+                </div>
+                <pre>
+<span class="c">❯</span> <span class="ink">bun run test</span>
+ <span class="g">✓</span> <span class="p">Modules/ServerConnection</span> <span class="g">(33)</span>
+ <span class="g">✓</span> <span class="p">Modules/NativeRuntime</span> <span class="g">(34)</span>
+ <span class="p">386 pass · 0 fail · 1.31s</span>
+<span class="c">❯</span> <span class="cursor ink">▍</span></pre>
+              </div>
+            </div>
+
+            <div class="statusbar">
+              <span class="ok">connected · ws 12ms</span>
+              <span>tmux fenrir/main · 3 panes</span>
+              <span class="attn">◉ claude awaiting approval</span>
+              <div class="right"><span>⌘P palette</span><span>⌘B sidebar</span></div>
+              <span class="dot-note" style="bottom: 4px; left: 240px">7</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="scrim" data-ov></div>
+
+        <div class="overlay" data-overlay="palette">
+          <div class="box">
+            <div class="ov-input"><span class="pr">❯</span> fen<span class="cursor">▍</span></div>
+            <div class="ov-hint">
+              workspaces · <b>@</b> actions · <b>$</b> files · <b>%</b> panes · <b>!</b> attention ·
+              <b>?</b> help
+            </div>
+            <div class="ov-row sel">
+              <span class="name"><span class="d on"></span>fenrir</span>
+              <span>⎇ term-em · this window</span><span class="act">⏎ focus</span>
+            </div>
+            <div class="ov-row">
+              <span class="name"><span class="d on"></span>t3code-upstream</span>
+              <span>pinned</span><span class="act">open</span>
+            </div>
+            <div class="ov-row">
+              <span class="name"><span class="d off"></span>guruwalk-api</span>
+              <span>recent · 2h</span><span class="act">open</span>
+            </div>
+            <div class="ov-row attn">
+              <span class="name">! claude — approval</span><span>fenrir %1</span>
+              <span class="act">jump</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="overlay" data-overlay="composer">
+          <div class="box">
+            <div class="cmp-head">
+              send to agent
+              <span class="chip">selection · %3 zsh · 6 lines<span class="x">×</span></span>
+            </div>
+            <div class="cmp-target">
+              target <b>◉ claude — pane %1</b> <span>▾</span> · or: new claude pane · new codex pane
+            </div>
+            <div class="cmp-body">
+              The test summary above is green but the run before it had 3 NativeHostControl retries
+              — find what makes them flaky and fix it.<span class="cursor">▍</span>
+            </div>
+            <div class="cmp-foot">
+              <span>⏎ dispatch</span><span>⇧⏎ newline</span><span>esc cancel</span>
+              <span class="right">exactly-once · runtime write-ack</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <div class="notes-panel">
+      <ol>
+        <li>
+          <b>Quiet tmux tabs, kept from concept A</b> (D-010): bare text in the titlebar, active
+          underline in the theme accent, one pulsing dot rolling up pane presence per tmux window.
+          No favicons, no close buttons.
+        </li>
+        <li>
+          <b>Attention outranks navigation</b> (D-027): awaiting-input agents pin above the tree
+          with a jump hotkey, mirrored in the palette <b>!</b> domain.
+        </li>
+        <li>
+          <b>Agent rows come from hook presence</b> (D-038/D-039): identity + state + pane target.
+          Selecting one focuses the pane; it never writes to it.
+        </li>
+        <li>
+          <b>App rows are integration-detected panes</b> (D-019 metadata + D-039 detection): nvim,
+          gh-dash, hunks appear when Fenrir recognizes the pane process, with app-specific metadata
+          (file, PR count, changed files). Unrecognized processes simply don't appear — no fake
+          entries.
+        </li>
+        <li>
+          <b>Dev server rows are managed-process metadata</b> over WS (D-034): passive
+          status/port/latency rows, not a dedicated native surface. Row action = focus the linked
+          pane or tail logs in one.
+        </li>
+        <li>
+          <b>Pane headers carry agent identity</b>: process, pane id, hooks version (integration
+          status), presence chip. The operations-deck bet, kept.
+        </li>
+        <li>
+          <b>The status bar is stream health</b> (WS20): ws latency, pane count, attention echo,
+          sidebar/palette hints.
+        </li>
+      </ol>
+    </div>
+
+    <footer class="contract">
+      <h2>Contract notes for implementation</h2>
+      <ul>
+        <li>
+          <b>Themes are design tokens</b> shared with Fenrir Desktop's registry
+          (apps/web/src/lib/theme.ts ids: fenrir dark, pierre dark, catppuccin mocha, rose pine,
+          kanagawa, tokyonight moon, nord…). One token set drives chrome, tree, presence, ANSI, and
+          overlays — no surface may hardcode a color.
+        </li>
+        <li>
+          <b>Sidebar default: visible</b>, collapsible to zero chrome with ⌘B — collapsed state must
+          keep attention reachable via titlebar bell + palette <b>!</b> domain.
+        </li>
+        <li>
+          <b>Tree data sources</b>: agents from hook presence (D-038), apps from pane
+          process/metadata detection (D-039 adapters decide which apps are "supported"), dev servers
+          from managed-process WS contracts (D-034). No terminal scraping anywhere.
+        </li>
+        <li>
+          <b>Tree rows are row-level cached</b> (WS13): presence flaps update one row, never the
+          tree. Collapsed workspaces roll their attention up into badges on the workspace row.
+        </li>
+        <li>
+          <b>Presence coding is chromatic</b>: attention amber, health green, failure red, workflows
+          violet — each theme maps these four semantic slots to its own palette.
+        </li>
+        <li>
+          <b>Open micro-questions</b>: does the tree auto-expand the active workspace only (mocked
+          here)? Do app rows for tools without live metadata (hunks idle) show at all? Is dev-server
+          start/stop an allowed row action or palette-only?
+        </li>
+      </ul>
+    </footer>
+
+    <script>
+      const THEMES = [
+        { id: "fenrir-dark", label: "fenrir dark", sw: "#3fb8af" },
+        { id: "catppuccin-mocha", label: "catppuccin", sw: "#cba6f7" },
+        { id: "kanagawa", label: "kanagawa", sw: "#7e9cd8" },
+        { id: "tokyonight-moon", label: "tokyonight", sw: "#82aaff" },
+        { id: "nord", label: "nord", sw: "#88c0d0" },
+      ];
+      let themeIdx = 0;
+      let overlayOn = null;
+
+      const seg = document.getElementById("themes");
+      THEMES.forEach((t, i) => {
+        const b = document.createElement("button");
+        b.innerHTML = `<span class="sw" style="background:${t.sw}"></span>${t.label}`;
+        b.onclick = () => setTheme(i);
+        seg.appendChild(b);
+      });
+      function setTheme(i) {
+        themeIdx = i;
+        document.getElementById("shell").dataset.theme = THEMES[i].id;
+        [...seg.children].forEach((b, j) => b.classList.toggle("on", j === i));
+      }
+      setTheme(0);
+
+      function toggleOverlay(name) {
+        overlayOn = overlayOn === name ? null : name;
+        document.querySelectorAll("[data-overlay]").forEach((o) => {
+          o.classList.toggle("show", o.dataset.overlay === overlayOn);
+        });
+        document.querySelector("[data-ov]").classList.toggle("show", overlayOn !== null);
+        document.getElementById("tg-palette").classList.toggle("on", overlayOn === "palette");
+        document.getElementById("tg-composer").classList.toggle("on", overlayOn === "composer");
+      }
+      function toggleSidebar() {
+        const s = document.getElementById("shell");
+        s.classList.toggle("side-off");
+        document.getElementById("tg-side").classList.toggle("on", s.classList.contains("side-off"));
+      }
+      function toggleNotes() {
+        document.body.classList.toggle("annotated");
+        document.getElementById("shell").classList.toggle("annotated");
+        document.getElementById("tg-notes").classList.toggle("on");
+      }
+      document.addEventListener("keydown", (e) => {
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        if (e.key === "t") setTheme((themeIdx + 1) % THEMES.length);
+        else if (e.key === "p") toggleOverlay("palette");
+        else if (e.key === "c") toggleOverlay("composer");
+        else if (e.key === "s") toggleSidebar();
+        else if (e.key === "a") toggleNotes();
+        else if (e.key === "Escape" && overlayOn) toggleOverlay(overlayOn);
+      });
+    </script>
+  </body>
+</html>

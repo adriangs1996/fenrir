@@ -28,8 +28,8 @@ The executable opens the native AppKit application. The app behaves like a
 terminal app rather than a document editor:
 
 - local default mode opens the native app and connects to the configured local
-  Fenrir server endpoint; native-managed server spawn/supervision is future
-  distribution work
+  Fenrir server endpoint; the prepared NativeHost path can attach to an
+  already-running server or spawn the bundled server under native supervision
 - existing-local mode attaches to a separately managed local server without
   killing or restarting it
 - remote mode is explicit and connects to a named remote profile or endpoint
@@ -75,8 +75,18 @@ commands; they are not aliases for native window behavior.
 The workspace shell is AppKit-owned. SwiftUI is allowed only for contained
 auxiliary islands.
 
-- sidebar: operational workspace/activity surface for active, pinned, recent,
-  remote/profile, degraded, workflow, agent, and notification state
+Visual reference: `docs/native-terminal-ui-shell.html` is the accepted shell
+visual contract (D-041). Open it in a browser — it is interactive: theme
+switching, sidebar collapse, palette and composer overlays, and numbered
+annotations tied to decisions. Shell surfaces should match it: operations-deck
+chrome, quiet tmux tabs in the titlebar, workspace-tree sidebar, and design
+tokens shared with the Fenrir Desktop theme registry. Do not hardcode colors in
+shell surfaces; render through the theme-token contract.
+
+- sidebar: collapsible operational surface with an attention section pinned on
+  top and a workspace tree (D-041): each workspace expands into agent sessions
+  (hook presence), integrated apps (Neovim, gh-dash, hunks via integration
+  detection), and dev servers (managed-process metadata rows)
 - palette: `Cmd+P` opens the native palette, defaulting to workspaces; prefixes
   route to `@` actions, `$` files, `%` tabs/panes, `!` workflow/agent attention,
   and `?` help/keybindings
@@ -228,8 +238,8 @@ Fenrir Native keeps the Fenrir server as a separate component. The startup
 readiness model distinguishes three modes:
 
 - Local default: the current app connects to the configured local server
-  endpoint. Packaged native-managed local server spawn/supervision is future
-  distribution work.
+  endpoint. The prepared NativeHost path can attach to an already-running
+  server or spawn the bundled server under native supervision.
 - Existing local server: the app verifies local `tmux` for local workspace
   behavior, then attaches to a server managed outside the native app. The
   bundled server asset is not required and must not be killed or restarted by

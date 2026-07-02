@@ -97,7 +97,10 @@ describe("environmentBootstrap", () => {
     ]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost/.well-known/t3/environment", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost/.well-known/t3/environment",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it("uses https descriptor urls when the primary environment uses wss", async () => {
@@ -107,7 +110,10 @@ describe("environmentBootstrap", () => {
     vi.stubEnv("VITE_WS_URL", "wss://remote.example.com");
 
     await expect(resolveInitialPrimaryEnvironmentDescriptor()).resolves.toEqual(BASE_ENVIRONMENT);
-    expect(fetchMock).toHaveBeenCalledWith("https://remote.example.com/.well-known/t3/environment", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://remote.example.com/.well-known/t3/environment",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it("derives the websocket url when only VITE_HTTP_URL is configured", async () => {
@@ -116,7 +122,10 @@ describe("environmentBootstrap", () => {
     vi.stubEnv("VITE_HTTP_URL", "https://remote.example.com");
 
     await expect(resolveInitialPrimaryEnvironmentDescriptor()).resolves.toEqual(BASE_ENVIRONMENT);
-    expect(fetchMock).toHaveBeenCalledWith("https://remote.example.com/.well-known/t3/environment", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://remote.example.com/.well-known/t3/environment",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     expect(getPrimaryKnownEnvironment()?.target).toEqual({
       httpBaseUrl: "https://remote.example.com/",
       wsBaseUrl: "wss://remote.example.com/",
@@ -129,7 +138,10 @@ describe("environmentBootstrap", () => {
     vi.stubEnv("VITE_WS_URL", "wss://remote.example.com");
 
     await expect(resolveInitialPrimaryEnvironmentDescriptor()).resolves.toEqual(BASE_ENVIRONMENT);
-    expect(fetchMock).toHaveBeenCalledWith("https://remote.example.com/.well-known/t3/environment", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://remote.example.com/.well-known/t3/environment",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     expect(getPrimaryKnownEnvironment()?.target).toEqual({
       httpBaseUrl: "https://remote.example.com/",
       wsBaseUrl: "wss://remote.example.com/",
@@ -142,7 +154,10 @@ describe("environmentBootstrap", () => {
     installTestBrowser("http://localhost:5735/");
 
     await expect(resolveInitialPrimaryEnvironmentDescriptor()).resolves.toEqual(BASE_ENVIRONMENT);
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5735/.well-known/t3/environment", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5735/.well-known/t3/environment",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it("does not fetch descriptor urls from the packaged desktop app protocol", async () => {
@@ -176,6 +191,9 @@ describe("environmentBootstrap", () => {
     });
 
     await expect(resolveInitialPrimaryEnvironmentDescriptor()).resolves.toEqual(BASE_ENVIRONMENT);
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:5733/.well-known/t3/environment", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:5733/.well-known/t3/environment",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 });

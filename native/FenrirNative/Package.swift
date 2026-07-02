@@ -25,6 +25,7 @@ let package = Package(
                 "Keybinding",
                 "Notifications",
                 "WorkspaceOverlays",
+                "AgentIntegration",
                 "AgentInteraction",
                 "WorkflowControl",
                 "Diagnostics",
@@ -60,6 +61,12 @@ let package = Package(
             name: "WorkspaceOverlays",
             dependencies: ["FenrirNativeShared", "Keybinding", "Notifications"],
             path: "Sources/FenrirNativeFoundation/Modules/WorkspaceOverlays",
+            exclude: ["MODULE.md", "__tests__"]
+        ),
+        .target(
+            name: "AgentIntegration",
+            dependencies: ["FenrirNativeShared"],
+            path: "Sources/FenrirNativeFoundation/Modules/AgentIntegration",
             exclude: ["MODULE.md", "__tests__"]
         ),
         .target(
@@ -179,6 +186,7 @@ let package = Package(
                 "Keybinding",
                 "Notifications",
                 "WorkspaceOverlays",
+                "AgentIntegration",
                 "AgentInteraction",
                 "WorkflowControl",
                 "Diagnostics",
@@ -204,6 +212,7 @@ let package = Package(
                 "Keybinding",
                 "Notifications",
                 "WorkspaceOverlays",
+                "AgentIntegration",
                 "AgentInteraction",
                 "WorkflowControl",
                 "Diagnostics",
