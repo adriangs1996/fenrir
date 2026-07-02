@@ -7,6 +7,15 @@ import FenrirNativeShared
 @testable import WorkspaceIndex
 @testable import WorkspaceShell
 @testable import WorkspaceCoordinator
+import Settings
+import Keybinding
+import Notifications
+import WorkspaceOverlays
+import AgentInteraction
+import WorkflowControl
+import Diagnostics
+import NativeDistribution
+import NeovimBridge
 
 struct FixedClock:
     AuthSession.AuthSessionClock,
@@ -15,7 +24,16 @@ struct FixedClock:
     TerminalViewport.TerminalViewportClock,
     WorkspaceIndex.WorkspaceIndexClock,
     WorkspaceShell.WorkspaceShellClock,
-    WorkspaceCoordinator.WorkspaceCoordinatorClock
+    WorkspaceCoordinator.WorkspaceCoordinatorClock,
+    Settings.SettingsClock,
+    Keybinding.KeybindingClock,
+    Notifications.NotificationsClock,
+    WorkspaceOverlays.WorkspaceOverlaysClock,
+    AgentInteraction.AgentInteractionClock,
+    WorkflowControl.WorkflowControlClock,
+    Diagnostics.DiagnosticsClock,
+    NativeDistribution.NativeDistributionClock,
+    NeovimBridge.NeovimBridgeClock
 {
     let timestamp: FenrirTimestamp
 

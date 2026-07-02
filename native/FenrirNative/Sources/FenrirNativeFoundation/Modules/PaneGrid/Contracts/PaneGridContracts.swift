@@ -1,5 +1,6 @@
 import Foundation
 import FenrirNativeShared
+import NativeRuntime
 
 public extension PaneGrid {
     enum SplitAxis: String, Codable, Equatable, Sendable {
@@ -54,12 +55,23 @@ public extension PaneGrid {
 
     struct PaneSnapshot: Codable, Equatable, Sendable {
         public let paneID: PaneID
+        public let tmuxPaneID: NativeRuntime.TmuxPaneID
+        public let streamID: StreamID?
         public let title: String?
         public let rect: PaneRect
         public let status: PaneLifecycleStatus
 
-        public init(paneID: PaneID, title: String? = nil, rect: PaneRect, status: PaneLifecycleStatus = .open) {
+        public init(
+            paneID: PaneID,
+            tmuxPaneID: NativeRuntime.TmuxPaneID,
+            streamID: StreamID? = nil,
+            title: String? = nil,
+            rect: PaneRect,
+            status: PaneLifecycleStatus = .open
+        ) {
             self.paneID = paneID
+            self.tmuxPaneID = tmuxPaneID
+            self.streamID = streamID
             self.title = title
             self.rect = rect
             self.status = status
@@ -112,13 +124,25 @@ public extension PaneGrid {
 
     struct PanePresentation: Codable, Equatable, Sendable {
         public let paneID: PaneID
+        public let tmuxPaneID: NativeRuntime.TmuxPaneID
+        public let streamID: StreamID?
         public let viewportID: ViewportID
         public let title: String?
         public let rect: PaneRect
         public let isFocused: Bool
 
-        public init(paneID: PaneID, viewportID: ViewportID, title: String? = nil, rect: PaneRect, isFocused: Bool) {
+        public init(
+            paneID: PaneID,
+            tmuxPaneID: NativeRuntime.TmuxPaneID,
+            streamID: StreamID? = nil,
+            viewportID: ViewportID,
+            title: String? = nil,
+            rect: PaneRect,
+            isFocused: Bool
+        ) {
             self.paneID = paneID
+            self.tmuxPaneID = tmuxPaneID
+            self.streamID = streamID
             self.viewportID = viewportID
             self.title = title
             self.rect = rect
@@ -193,6 +217,72 @@ public extension PaneGrid {
             self.unit = unit
             self.direction = direction
         }
+    }
+
+    struct PaneKernelTarget: Codable, Equatable, Sendable {
+        public let workspaceID: WorkspaceID
+        public let windowID: FenrirWindowID
+        public let tmuxWindowID: String
+        public let paneID: PaneID
+        public let tmuxPaneID: NativeRuntime.TmuxPaneID
+
+        public init(
+            workspaceID: WorkspaceID,
+            windowID: FenrirWindowID,
+            tmuxWindowID: String,
+            paneID: PaneID,
+            tmuxPaneID: NativeRuntime.TmuxPaneID
+        ) {
+            self.workspaceID = workspaceID
+            self.windowID = windowID
+            self.tmuxWindowID = tmuxWindowID
+            self.paneID = paneID
+            self.tmuxPaneID = tmuxPaneID
+        }
+    }
+
+    struct FocusPaneCommand: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let target: PaneKernelTarget
+        public let source: ActionSource
+    }
+
+    struct SplitPaneCommand: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let target: PaneKernelTarget
+        public let axis: SplitAxis
+        public let source: ActionSource
+    }
+
+    struct ClosePaneCommand: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let target: PaneKernelTarget
+        public let source: ActionSource
+    }
+
+    struct MovePaneCommand: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let target: PaneKernelTarget
+        public let destinationWindowID: FenrirWindowID
+        public let destinationTmuxWindowID: String
+        public let source: ActionSource
+    }
+
+    struct ResizePaneAllocationCommand: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let target: PaneKernelTarget
+        public let delta: Int
+        public let unit: ResizeUnit
+        public let direction: FocusDirection
+        public let source: ActionSource
+    }
+
+    struct SelectTabWindowCommand: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let workspaceID: WorkspaceID
+        public let windowID: FenrirWindowID
+        public let tmuxWindowID: String
+        public let source: ActionSource
     }
 
     struct CreatePaneGridInput: Codable, Equatable, Sendable {

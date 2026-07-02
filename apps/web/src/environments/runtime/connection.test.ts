@@ -442,6 +442,59 @@ describe("createEnvironmentConnection", () => {
     await connection.dispose();
   });
 
+  it("falls back to snapshot recovery when the replayed events have a sequence gap", async () => {
+    const environmentId = EnvironmentId.make("env-1");
+    const applyEventBatch = vi.fn();
+    // The client cursor is at sequence 1; the server has pruned events 2..4
+    // (retention), so replay starts at 5 — a gap that must not be applied.
+    const { client, replayEvents, getSnapshot, triggerDomainResubscribe } = createTestClient({
+      replayEvents: async () => [
+        {
+          sequence: 5,
+          type: "thread.updated",
+          payload: {},
+        },
+      ],
+    });
+
+    const connection = createEnvironmentConnection({
+      kind: "saved",
+      knownEnvironment: {
+        id: "env-1",
+        label: "Remote env",
+        source: "manual",
+        target: {
+          httpBaseUrl: "http://example.test",
+          wsBaseUrl: "ws://example.test",
+        },
+        environmentId,
+      },
+      client,
+      syncManagedProcessSnapshot: vi.fn(),
+      syncShellSnapshot: vi.fn(),
+      applyShellEvent: vi.fn(),
+      applyEventBatch,
+      syncSnapshot: vi.fn(),
+      applyTerminalEvent: vi.fn(),
+    });
+
+    await connection.ensureBootstrapped();
+
+    triggerDomainResubscribe();
+
+    await vi.waitFor(() => {
+      expect(replayEvents).toHaveBeenCalled();
+      // Full snapshot resync replaces the gapped replay.
+      expect(getSnapshot).toHaveBeenCalled();
+    });
+    expect(applyEventBatch).not.toHaveBeenCalledWith(
+      [expect.objectContaining({ sequence: 5 })],
+      environmentId,
+    );
+
+    await connection.dispose();
+  });
+
   it("does not advance replay sequence when applying a domain event fails", async () => {
     const environmentId = EnvironmentId.make("env-1");
     const applyError = new Error("projection cache write failed");

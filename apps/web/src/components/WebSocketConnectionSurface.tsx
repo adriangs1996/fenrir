@@ -14,6 +14,14 @@ import { toastManager } from "./ui/toast";
 import { getPrimaryEnvironmentConnection } from "../environments/runtime";
 
 const FORCED_WS_RECONNECT_DEBOUNCE_MS = 5_000;
+// Servers answer client protocol pings every 5s, so a connection that looks
+// "connected" but has a stale heartbeat is half-open (typical after laptop
+// sleep or a hung server) and must be re-established proactively.
+export const HEARTBEAT_WATCHDOG_INTERVAL_MS = 10_000;
+export const HEARTBEAT_WATCHDOG_GRACE_MS = 20_000;
+// Once the protocol-level retry budget is exhausted, keep retrying on a slow
+// cadence forever instead of waiting for a manual click.
+export const EXHAUSTED_AUTO_RETRY_DELAY_MS = 30_000;
 type WsAutoReconnectTrigger = "focus" | "online";
 
 const connectionTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -50,7 +58,7 @@ function formatReconnectAttemptLabel(status: WsConnectionStatus): string {
 }
 
 function describeExhaustedToast(): string {
-  return "Retries exhausted trying to reconnect";
+  return "Connection lost. Retrying in the background...";
 }
 
 function buildReconnectTitle(_status: WsConnectionStatus): string {
@@ -106,6 +114,31 @@ export function shouldAutoReconnect(
     status.hasConnected &&
     (uiState === "reconnecting" || status.reconnectPhase === "exhausted")
   );
+}
+
+export function shouldWatchdogReconnect(
+  status: WsConnectionStatus,
+  input: {
+    readonly nowMs: number;
+    readonly heartbeatFresh: boolean;
+  },
+): boolean {
+  if (status.phase !== "connected" || input.heartbeatFresh) {
+    return false;
+  }
+
+  const connectedAtMs = status.connectedAt === null ? null : new Date(status.connectedAt).getTime();
+  if (connectedAtMs === null || Number.isNaN(connectedAtMs)) {
+    return false;
+  }
+
+  return input.nowMs - connectedAtMs >= HEARTBEAT_WATCHDOG_GRACE_MS;
+}
+
+export function shouldScheduleExhaustedRetry(status: WsConnectionStatus): boolean {
+  // Also retry when the very first connection never succeeded (e.g. the
+  // desktop backend was still booting), otherwise the app stays blank forever.
+  return status.reconnectPhase === "exhausted" && status.online;
 }
 
 export function shouldRestartStalledReconnect(
@@ -191,6 +224,46 @@ export function WebSocketConnectionCoordinator() {
       window.removeEventListener("focus", handleFocus);
     };
   }, []);
+
+  // Half-open connection watchdog: the socket reports "connected" but no
+  // inbound traffic (server pongs) arrived recently — force a fresh session.
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      const currentStatus = getWsConnectionStatus();
+      const heartbeatFresh = getPrimaryEnvironmentConnection().client.isHeartbeatFresh();
+      if (!shouldWatchdogReconnect(currentStatus, { nowMs: Date.now(), heartbeatFresh })) {
+        return;
+      }
+      if (Date.now() - lastForcedReconnectAtRef.current < FORCED_WS_RECONNECT_DEBOUNCE_MS) {
+        return;
+      }
+
+      runReconnect(false);
+    }, HEARTBEAT_WATCHDOG_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  // Endless slow-cadence retry once the protocol retry budget is exhausted.
+  useEffect(() => {
+    if (!shouldScheduleExhaustedRetry(getWsConnectionStatus())) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (!shouldScheduleExhaustedRetry(getWsConnectionStatus())) {
+        return;
+      }
+
+      runReconnect(false);
+    }, EXHAUSTED_AUTO_RETRY_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [status.attemptCount, status.online, status.reconnectPhase]);
 
   useEffect(() => {
     if (status.reconnectPhase !== "waiting" || status.nextRetryAt === null) {

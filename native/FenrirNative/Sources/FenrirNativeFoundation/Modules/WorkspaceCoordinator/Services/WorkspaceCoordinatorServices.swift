@@ -6,16 +6,16 @@ import NativeRuntime
 import PaneGrid
 import TerminalViewport
 
-extension WorkspaceCoordinator {
+public extension WorkspaceCoordinator {
     protocol WorkspaceCoordinatorClock: Sendable {
         func now() -> FenrirTimestamp
     }
 
     protocol WorkspaceIndexCoordinating: Sendable {
         func resolveWorkspace(requestID: RequestID, identity: WorkspaceIndex.WorkspaceIdentity) async throws -> WorkspaceIndex.WorkspaceSummary
-        func attachWorkspace(requestID: RequestID, workspaceID: WorkspaceID, windowID: FenrirWindowID) async throws -> WorkspaceIndex.WorkspaceSummary
-        func detachWorkspace(requestID: RequestID, workspaceID: WorkspaceID) async throws -> WorkspaceIndex.WorkspaceSummary
-        func markRecent(requestID: RequestID, workspaceID: WorkspaceID) async throws
+        func attachWorkspace(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIndex.WorkspaceIdentity?, windowID: FenrirWindowID) async throws -> WorkspaceIndex.WorkspaceSummary
+        func detachWorkspace(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIndex.WorkspaceIdentity?) async throws -> WorkspaceIndex.WorkspaceSummary
+        func markRecent(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIndex.WorkspaceIdentity?) async throws
     }
 
     protocol WorkspaceServerSelecting: Sendable {
@@ -25,13 +25,13 @@ extension WorkspaceCoordinator {
     protocol WorkspaceWindowCoordinating: Sendable {
         func openWindow(workspace: WorkspaceIndex.WorkspaceSummary) async throws -> FenrirWindowID
         func focusWindow(workspace: WorkspaceIndex.WorkspaceSummary) async throws -> FenrirWindowID
-        func closeWindow(workspaceID: WorkspaceID) async throws
+        func closeWindow(workspace: WorkspaceIndex.WorkspaceSummary) async throws
     }
 
     protocol WorkspaceRuntimeCoordinating: Sendable {
         func attachWorkspaceRuntime(requestID: RequestID, workspaceID: WorkspaceID, server: ServerConnection.Endpoint?) async throws -> NativeRuntime.WorkspaceRuntimeState
-        func reconnectWorkspaceRuntime(requestID: RequestID, workspaceID: WorkspaceID, server: ServerConnection.Endpoint?) async throws -> NativeRuntime.WorkspaceRuntimeState
-        func detachWorkspaceRuntime(requestID: RequestID, workspaceID: WorkspaceID) async throws
+        func reconnectWorkspaceRuntime(requestID: RequestID, workspaceID: WorkspaceID, server: ServerConnection.Endpoint?) async throws -> (workspace: NativeRuntime.WorkspaceRuntimeState, panes: [NativeRuntime.PaneRuntimeState])
+        func detachWorkspaceRuntime(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIndex.WorkspaceIdentity?) async throws
     }
 
     protocol WorkspaceLayoutRestoring: Sendable {

@@ -1,7 +1,7 @@
 import Foundation
 import FenrirNativeShared
 
-extension PaneGrid {
+public extension PaneGrid {
     protocol PaneGridClock: Sendable {
         func now() -> FenrirTimestamp
     }
@@ -22,12 +22,12 @@ extension PaneGrid {
     }
 
     protocol PaneKernelControlling: Sendable {
-        func focusPane(_ input: FocusPaneInput) async throws
-        func splitPane(_ input: SplitPaneInput) async throws -> PaneID
-        func closePane(_ input: ClosePaneInput) async throws
-        func movePane(_ input: MovePaneInput) async throws
-        func resizePaneAllocation(_ input: ResizePaneAllocationInput) async throws
-        func selectWindow(_ input: SelectTabWindowInput) async throws
+        func focusPane(_ command: FocusPaneCommand) async throws
+        func splitPane(_ command: SplitPaneCommand) async throws -> PaneID
+        func closePane(_ command: ClosePaneCommand) async throws
+        func movePane(_ command: MovePaneCommand) async throws
+        func resizePaneAllocation(_ command: ResizePaneAllocationCommand) async throws
+        func selectWindow(_ command: SelectTabWindowCommand) async throws
     }
 
     protocol PaneGridEventPublishing: Sendable {

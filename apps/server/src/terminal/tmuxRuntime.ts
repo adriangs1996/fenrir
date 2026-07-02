@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 
 export const TERMINAL_TMUX_SESSION_PREFIX = "fenrir-";
 export const MANAGED_PROCESS_TMUX_SESSION_PREFIX = "fenrir-mp-";
@@ -14,6 +14,30 @@ export function makeTmuxSessionName(prefix: string, projectId: string): string {
 
 export function tmuxTarget(sessionName: string, windowName: string): string {
   return `${sessionName}:${windowName}`;
+}
+
+export function execTmux(
+  args: readonly string[],
+  options?: { readonly timeoutMs?: number },
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "tmux",
+      [...args],
+      {
+        encoding: "utf-8",
+        timeout: options?.timeoutMs ?? DEFAULT_TMUX_COMMAND_TIMEOUT_MS,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = stderr.trim();
+          reject(detail.length > 0 ? new Error(`${error.message}: ${detail}`) : error);
+          return;
+        }
+        resolve(stdout.trim());
+      },
+    );
+  });
 }
 
 export function execTmuxSync(

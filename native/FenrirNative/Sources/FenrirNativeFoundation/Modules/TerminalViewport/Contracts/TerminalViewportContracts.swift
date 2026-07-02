@@ -41,6 +41,20 @@ public extension TerminalViewport {
         case resizeFailed = "TerminalResizeFailed"
         case invalidDimensions = "TerminalViewportInvalidDimensions"
         case streamOrderViolation = "TerminalViewportStreamOrderViolation"
+        case outputBackpressure = "TerminalOutputBackpressure"
+        case contextCaptureFailed = "TerminalViewportContextCaptureFailed"
+        case redactionFailed = "TerminalViewportRedactionFailed"
+    }
+
+    enum CaptureKind: String, Codable, Equatable, Sendable {
+        case selection
+        case viewport
+        case lastLines
+    }
+
+    enum ScreenBufferKind: String, Codable, Equatable, Sendable {
+        case primary
+        case alternate
     }
 
     struct Size: Codable, Equatable, Sendable {
@@ -70,6 +84,7 @@ public extension TerminalViewport {
     struct State: Codable, Equatable, Sendable {
         public let viewportID: ViewportID
         public let workspaceID: WorkspaceID
+        public let tabID: FenrirWindowID?
         public let paneID: PaneID
         public let streamID: StreamID?
         public let lastAppliedSequence: UInt64?
@@ -81,6 +96,7 @@ public extension TerminalViewport {
         public init(
             viewportID: ViewportID,
             workspaceID: WorkspaceID,
+            tabID: FenrirWindowID? = nil,
             paneID: PaneID,
             streamID: StreamID? = nil,
             lastAppliedSequence: UInt64? = nil,
@@ -91,6 +107,7 @@ public extension TerminalViewport {
         ) {
             self.viewportID = viewportID
             self.workspaceID = workspaceID
+            self.tabID = tabID
             self.paneID = paneID
             self.streamID = streamID
             self.lastAppliedSequence = lastAppliedSequence
@@ -141,14 +158,16 @@ public extension TerminalViewport {
         public let requestID: RequestID
         public let viewportID: ViewportID
         public let workspaceID: WorkspaceID
+        public let tabID: FenrirWindowID?
         public let paneID: PaneID
         public let size: Size?
         public let source: ActionSource
 
-        public init(requestID: RequestID, viewportID: ViewportID, workspaceID: WorkspaceID, paneID: PaneID, size: Size? = nil, source: ActionSource) {
+        public init(requestID: RequestID, viewportID: ViewportID, workspaceID: WorkspaceID, tabID: FenrirWindowID? = nil, paneID: PaneID, size: Size? = nil, source: ActionSource) {
             self.requestID = requestID
             self.viewportID = viewportID
             self.workspaceID = workspaceID
+            self.tabID = tabID
             self.paneID = paneID
             self.size = size
             self.source = source
@@ -253,6 +272,71 @@ public extension TerminalViewport {
         public let timestamp: FenrirTimestamp
     }
 
+    struct TerminalOutputBackpressurePolicy: Codable, Equatable, Sendable {
+        public let maxChunksPerBatch: Int
+        public let maxBytesPerBatch: Int
+        public let maxBytesPerRendererWrite: Int
+
+        public init(
+            maxChunksPerBatch: Int = 256,
+            maxBytesPerBatch: Int = 1_048_576,
+            maxBytesPerRendererWrite: Int = 65_536
+        ) {
+            self.maxChunksPerBatch = max(1, maxChunksPerBatch)
+            self.maxBytesPerBatch = max(1, maxBytesPerBatch)
+            self.maxBytesPerRendererWrite = max(1, maxBytesPerRendererWrite)
+        }
+
+        public static let defaults = TerminalOutputBackpressurePolicy()
+    }
+
+    struct TerminalOutputChunk: Codable, Equatable, Sendable {
+        public let sequence: UInt64
+        public let bytes: Data
+
+        public init(sequence: UInt64, bytes: Data) {
+            self.sequence = sequence
+            self.bytes = bytes
+        }
+    }
+
+    struct IngestTerminalOutputBatchInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let viewportID: ViewportID
+        public let paneID: PaneID
+        public let streamID: StreamID
+        public let chunks: [TerminalOutputChunk]
+        public let policy: TerminalOutputBackpressurePolicy
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            viewportID: ViewportID,
+            paneID: PaneID,
+            streamID: StreamID,
+            chunks: [TerminalOutputChunk],
+            policy: TerminalOutputBackpressurePolicy = .defaults,
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.viewportID = viewportID
+            self.paneID = paneID
+            self.streamID = streamID
+            self.chunks = chunks
+            self.policy = policy
+            self.source = source
+        }
+    }
+
+    struct IngestTerminalOutputBatchResult: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let state: State
+        public let appliedSequence: UInt64
+        public let chunkCount: Int
+        public let rendererWriteCount: Int
+        public let timestamp: FenrirTimestamp
+    }
+
     struct SendTerminalInputInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let viewportID: ViewportID
@@ -326,6 +410,167 @@ public extension TerminalViewport {
         public let timestamp: FenrirTimestamp
     }
 
+    struct CaptureLimit: Codable, Equatable, Sendable {
+        public let maxLines: Int?
+        public let maxCharacters: Int
+
+        public init(maxLines: Int? = nil, maxCharacters: Int) {
+            self.maxLines = maxLines
+            self.maxCharacters = max(0, maxCharacters)
+        }
+    }
+
+    struct ContextProvenance: Codable, Equatable, Sendable {
+        public let workspaceID: WorkspaceID
+        public let tabID: FenrirWindowID?
+        public let paneID: PaneID
+        public let viewportID: ViewportID
+        public let streamID: StreamID?
+        public let lastAppliedSequence: UInt64?
+
+        public init(
+            workspaceID: WorkspaceID,
+            tabID: FenrirWindowID? = nil,
+            paneID: PaneID,
+            viewportID: ViewportID,
+            streamID: StreamID? = nil,
+            lastAppliedSequence: UInt64? = nil
+        ) {
+            self.workspaceID = workspaceID
+            self.tabID = tabID
+            self.paneID = paneID
+            self.viewportID = viewportID
+            self.streamID = streamID
+            self.lastAppliedSequence = lastAppliedSequence
+        }
+    }
+
+    struct CapturedTextBuffer: Codable, Equatable, Sendable {
+        public let text: String
+        public let screen: ScreenBufferKind
+
+        public init(text: String, screen: ScreenBufferKind = .primary) {
+            self.text = text
+            self.screen = screen
+        }
+    }
+
+    struct RedactionReport: Codable, Equatable, Sendable {
+        public let replacementCount: Int
+        public let labels: [String]
+
+        public init(replacementCount: Int = 0, labels: [String] = []) {
+            self.replacementCount = replacementCount
+            self.labels = labels
+        }
+    }
+
+    struct RedactedCapture: Codable, Equatable, Sendable {
+        public let text: String
+        public let report: RedactionReport
+
+        public init(text: String, report: RedactionReport = RedactionReport()) {
+            self.text = text
+            self.report = report
+        }
+    }
+
+    struct CapturedContext: Codable, Equatable, Sendable {
+        public let provenance: ContextProvenance
+        public let kind: CaptureKind
+        public let screen: ScreenBufferKind
+        public let text: String
+        public let lineCount: Int
+        public let characterCount: Int
+        public let isTruncated: Bool
+        public let redactionReport: RedactionReport
+        public let capturedAt: FenrirTimestamp
+
+        public init(
+            provenance: ContextProvenance,
+            kind: CaptureKind,
+            screen: ScreenBufferKind,
+            text: String,
+            lineCount: Int,
+            characterCount: Int,
+            isTruncated: Bool,
+            redactionReport: RedactionReport,
+            capturedAt: FenrirTimestamp
+        ) {
+            self.provenance = provenance
+            self.kind = kind
+            self.screen = screen
+            self.text = text
+            self.lineCount = lineCount
+            self.characterCount = characterCount
+            self.isTruncated = isTruncated
+            self.redactionReport = redactionReport
+            self.capturedAt = capturedAt
+        }
+    }
+
+    struct CapturedContextSummary: Codable, Equatable, Sendable {
+        public let provenance: ContextProvenance
+        public let kind: CaptureKind
+        public let screen: ScreenBufferKind
+        public let lineCount: Int
+        public let characterCount: Int
+        public let isTruncated: Bool
+        public let redactionReport: RedactionReport
+
+        public init(context: CapturedContext) {
+            self.provenance = context.provenance
+            self.kind = context.kind
+            self.screen = context.screen
+            self.lineCount = context.lineCount
+            self.characterCount = context.characterCount
+            self.isTruncated = context.isTruncated
+            self.redactionReport = context.redactionReport
+        }
+    }
+
+    struct CaptureTerminalContextInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let viewportID: ViewportID
+        public let workspaceID: WorkspaceID
+        public let tabID: FenrirWindowID?
+        public let paneID: PaneID
+        public let limit: CaptureLimit
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            viewportID: ViewportID,
+            workspaceID: WorkspaceID,
+            tabID: FenrirWindowID? = nil,
+            paneID: PaneID,
+            limit: CaptureLimit,
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.viewportID = viewportID
+            self.workspaceID = workspaceID
+            self.tabID = tabID
+            self.paneID = paneID
+            self.limit = limit
+            self.source = source
+        }
+    }
+
+    typealias CaptureTerminalSelectionInput = CaptureTerminalContextInput
+    typealias CaptureTerminalViewportInput = CaptureTerminalContextInput
+    typealias CaptureTerminalLastLinesInput = CaptureTerminalContextInput
+
+    struct CaptureTerminalContextResult: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let context: CapturedContext
+        public let timestamp: FenrirTimestamp
+    }
+
+    typealias CaptureTerminalSelectionResult = CaptureTerminalContextResult
+    typealias CaptureTerminalViewportResult = CaptureTerminalContextResult
+    typealias CaptureTerminalLastLinesResult = CaptureTerminalContextResult
+
     struct SnapshotTerminalViewportInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let viewportID: ViewportID
@@ -356,5 +601,6 @@ public extension TerminalViewport {
         case terminalViewportResized(ViewportID, Size)
         case terminalViewportFocused(ViewportID, Bool)
         case terminalViewportSnapshotted(ViewportID)
+        case terminalContextCaptured(CapturedContextSummary)
     }
 }

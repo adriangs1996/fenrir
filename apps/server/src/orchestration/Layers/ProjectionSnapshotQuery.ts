@@ -47,6 +47,14 @@ import { ProjectionThreadSession } from "../../persistence/Services/ProjectionTh
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
 import { SourceControlWorkspaceLive } from "../../sourceControl/SourceControlModule.ts";
 import { SourceControl } from "../../sourceControl/Services/SourceControl.ts";
+import {
+  THREAD_ACTIVITY_READ_MODEL_LIMIT,
+  THREAD_ACTIVITY_READ_MODEL_PAYLOAD_BUDGET_BYTES,
+  THREAD_MESSAGE_READ_MODEL_LIMIT,
+  THREAD_MESSAGE_READ_MODEL_PAYLOAD_BUDGET_BYTES,
+  THREAD_PROPOSED_PLAN_READ_MODEL_LIMIT,
+  THREAD_PROPOSED_PLAN_READ_MODEL_PAYLOAD_BUDGET_BYTES,
+} from "../projector.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   ProjectionSnapshotQuery,
@@ -330,17 +338,44 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: () =>
       sql`
         SELECT
-          message_id AS "messageId",
-          thread_id AS "threadId",
-          turn_id AS "turnId",
+          "messageId",
+          "threadId",
+          "turnId",
           role,
           text,
-          attachments_json AS "attachments",
-          is_streaming AS "isStreaming",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt"
-        FROM projection_thread_messages
-        ORDER BY thread_id ASC, created_at ASC, message_id ASC
+          attachments,
+          "isStreaming",
+          "createdAt",
+          "updatedAt"
+        FROM (
+          SELECT
+            message_id AS "messageId",
+            thread_id AS "threadId",
+            turn_id AS "turnId",
+            role,
+            text,
+            attachments_json AS attachments,
+            is_streaming AS "isStreaming",
+            created_at AS "createdAt",
+            updated_at AS "updatedAt",
+            ROW_NUMBER() OVER (
+              PARTITION BY thread_id
+              ORDER BY created_at DESC, message_id DESC
+            ) AS "recencyRank",
+            SUM(COALESCE(LENGTH(text), 0) + COALESCE(LENGTH(attachments_json), 0)) OVER (
+              PARTITION BY thread_id
+              ORDER BY created_at DESC, message_id DESC
+              ROWS UNBOUNDED PRECEDING
+            ) AS "recencyPayloadBytes"
+          FROM projection_thread_messages
+        )
+        WHERE
+          "recencyRank" <= ${THREAD_MESSAGE_READ_MODEL_LIMIT}
+          AND (
+            "recencyRank" = 1
+            OR "recencyPayloadBytes" <= ${THREAD_MESSAGE_READ_MODEL_PAYLOAD_BUDGET_BYTES}
+          )
+        ORDER BY "threadId" ASC, "createdAt" ASC, "messageId" ASC
       `,
   });
 
@@ -350,16 +385,42 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: () =>
       sql`
         SELECT
-          plan_id AS "planId",
-          thread_id AS "threadId",
-          turn_id AS "turnId",
-          plan_markdown AS "planMarkdown",
-          implemented_at AS "implementedAt",
-          implementation_thread_id AS "implementationThreadId",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt"
-        FROM projection_thread_proposed_plans
-        ORDER BY thread_id ASC, created_at ASC, plan_id ASC
+          "planId",
+          "threadId",
+          "turnId",
+          "planMarkdown",
+          "implementedAt",
+          "implementationThreadId",
+          "createdAt",
+          "updatedAt"
+        FROM (
+          SELECT
+            plan_id AS "planId",
+            thread_id AS "threadId",
+            turn_id AS "turnId",
+            plan_markdown AS "planMarkdown",
+            implemented_at AS "implementedAt",
+            implementation_thread_id AS "implementationThreadId",
+            created_at AS "createdAt",
+            updated_at AS "updatedAt",
+            ROW_NUMBER() OVER (
+              PARTITION BY thread_id
+              ORDER BY created_at DESC, plan_id DESC
+            ) AS "recencyRank",
+            SUM(COALESCE(LENGTH(plan_markdown), 0)) OVER (
+              PARTITION BY thread_id
+              ORDER BY created_at DESC, plan_id DESC
+              ROWS UNBOUNDED PRECEDING
+            ) AS "recencyPayloadBytes"
+          FROM projection_thread_proposed_plans
+        )
+        WHERE
+          "recencyRank" <= ${THREAD_PROPOSED_PLAN_READ_MODEL_LIMIT}
+          AND (
+            "recencyRank" = 1
+            OR "recencyPayloadBytes" <= ${THREAD_PROPOSED_PLAN_READ_MODEL_PAYLOAD_BUDGET_BYTES}
+          )
+        ORDER BY "threadId" ASC, "createdAt" ASC, "planId" ASC
       `,
   });
 
@@ -369,22 +430,57 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: () =>
       sql`
         SELECT
-          activity_id AS "activityId",
-          thread_id AS "threadId",
-          turn_id AS "turnId",
+          "activityId",
+          "threadId",
+          "turnId",
           tone,
           kind,
           summary,
-          payload_json AS "payload",
+          payload,
           sequence,
-          created_at AS "createdAt"
-        FROM projection_thread_activities
+          "createdAt"
+        FROM (
+          SELECT
+            activity_id AS "activityId",
+            thread_id AS "threadId",
+            turn_id AS "turnId",
+            tone,
+            kind,
+            summary,
+            payload_json AS payload,
+            sequence,
+            created_at AS "createdAt",
+            ROW_NUMBER() OVER (
+              PARTITION BY thread_id
+              ORDER BY
+                CASE WHEN sequence IS NULL THEN 1 ELSE 0 END ASC,
+                sequence DESC,
+                created_at DESC,
+                activity_id DESC
+            ) AS "recencyRank",
+            SUM(LENGTH(payload_json)) OVER (
+              PARTITION BY thread_id
+              ORDER BY
+                CASE WHEN sequence IS NULL THEN 1 ELSE 0 END ASC,
+                sequence DESC,
+                created_at DESC,
+                activity_id DESC
+              ROWS UNBOUNDED PRECEDING
+            ) AS "recencyPayloadBytes"
+          FROM projection_thread_activities
+        )
+        WHERE
+          "recencyRank" <= ${THREAD_ACTIVITY_READ_MODEL_LIMIT}
+          AND (
+            "recencyRank" = 1
+            OR "recencyPayloadBytes" <= ${THREAD_ACTIVITY_READ_MODEL_PAYLOAD_BUDGET_BYTES}
+          )
         ORDER BY
-          thread_id ASC,
+          "threadId" ASC,
           CASE WHEN sequence IS NULL THEN 0 ELSE 1 END ASC,
           sequence ASC,
-          created_at ASC,
-          activity_id ASC
+          "createdAt" ASC,
+          "activityId" ASC
       `,
   });
 

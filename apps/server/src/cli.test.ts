@@ -1,6 +1,9 @@
 import { mkdtempSync } from "node:fs";
+import * as fs from "node:fs/promises";
+import { spawn, type ChildProcess } from "node:child_process";
+import * as net from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { NetService } from "@fenrir/shared/Net";
@@ -29,6 +32,7 @@ import {
   formatTmuxOperationalPaneStatuses,
   formatTmuxWorkspaceList,
   formatTmuxWorkspaceSnapshot,
+  nativeControlRoutes,
   runTmuxKernelInspectAdminHandler,
   runTmuxKernelListAdminHandler,
   runTmuxKernelPanesAdminHandler,
@@ -38,6 +42,13 @@ import {
   type TmuxKernelLiveAdminHandlers,
   type TmuxKernelOfflineAdminHandlers,
 } from "./cli.ts";
+import {
+  NATIVE_HOST_CONTROL_PROTOCOL_VERSION,
+  NativeHostControlClientError,
+  encodeNativeHostControlFrame,
+  type NativeHostControlWireRequest,
+  type NativeHostControlWireResponse,
+} from "./nativeHostControlClient.ts";
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
@@ -59,6 +70,124 @@ const captureStdout = <A, E extends Error | CliError.CliError | TmuxKernelError 
       "";
     return { result, output };
   }).pipe(Effect.provide(Layer.mergeAll(CliRuntimeLayer, TestConsole.layer)));
+
+const makeNativeControlCliServer = async () => {
+  const directory = await fs.mkdtemp(join(tmpdir(), "fenrir-native-cli-parse-"));
+  const socketPath = join(directory, "native-control.sock");
+  const requests: Array<NativeHostControlWireRequest> = [];
+  const server = net.createServer((socket) => {
+    socket.once("data", (data) => {
+      const length = data.readUInt32BE(0);
+      const request = JSON.parse(
+        data.subarray(4, 4 + length).toString("utf8"),
+      ) as NativeHostControlWireRequest;
+      requests.push(request);
+      const response: NativeHostControlWireResponse = {
+        protocolVersion: NATIVE_HOST_CONTROL_PROTOCOL_VERSION,
+        requestID: request.requestID,
+        command: request.command,
+        ok: true,
+        resultKind: "Parsed",
+        payload: request.parameters ?? {},
+      };
+      socket.end(encodeNativeHostControlFrame(response));
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  server.unref();
+  return {
+    socketPath,
+    requests,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve();
+          }
+        });
+      }),
+  };
+};
+
+const waitForNativeControlSocket = async (socketPath: string, process: ChildProcess) => {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (process.exitCode !== null) {
+      throw new Error(`FenrirNativeApp exited before creating ${socketPath}`);
+    }
+    try {
+      const stat = await fs.stat(socketPath);
+      if (stat.isSocket()) {
+        return;
+      }
+    } catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out waiting for FenrirNativeApp socket at ${socketPath}`);
+};
+
+const launchFenrirNativeApp = async () => {
+  const packageRoot = resolve(process.cwd(), "../../native/FenrirNative");
+  const executable = join(packageRoot, ".build/debug/FenrirNativeApp");
+  try {
+    await fs.access(executable);
+  } catch (cause) {
+    throw new Error(`FenrirNativeApp executable is missing at ${executable}; run swift build.`, {
+      cause,
+    });
+  }
+
+  const directory = await fs.mkdtemp(join(tmpdir(), "fenrir-native-cli-e2e-"));
+  const socketPath = join(directory, "native-control.sock");
+  const app = spawn(executable, {
+    cwd: packageRoot,
+    env: {
+      ...process.env,
+      FENRIR_NATIVE_CONTROL_SOCKET: socketPath,
+    },
+    stdio: "ignore",
+  });
+  await waitForNativeControlSocket(socketPath, app);
+  return {
+    socketPath,
+    close: async () => {
+      if (app.exitCode === null) {
+        app.kill("SIGTERM");
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      if (app.exitCode === null) {
+        app.kill("SIGKILL");
+      }
+      await fs.rm(dirname(socketPath), { recursive: true, force: true });
+    },
+  };
+};
+
+const nativeFlags = (socketPath: string) => [
+  "--socket",
+  socketPath,
+  "--timeout-ms",
+  "1500",
+  "--json",
+];
+
+const runNativeCliJson = async (
+  args: ReadonlyArray<string>,
+): Promise<NativeHostControlWireResponse> => {
+  const output = await Effect.runPromise(captureStdout(runCliWithRuntime(args)));
+  return JSON.parse(output.output) as NativeHostControlWireResponse;
+};
+
+const workspaceIDsFromList = (response: NativeHostControlWireResponse): ReadonlyArray<string> =>
+  response.payload?.workspaceIDs?.split(",").filter(Boolean) ?? [];
 
 const makeTmuxWorkspaceSnapshotFixture = (): TmuxWorkspaceSnapshot =>
   ({
@@ -241,6 +370,204 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
         assert.fail(`Expected ShowHelp, got ${error._tag}`);
       }
       assert.deepEqual(error.commandPath, ["t3", "tmux-kernel", "inspect"]);
+    }),
+  );
+
+  it("maps native product CLI commands to explicit NativeHost routes", () => {
+    assert.deepEqual(nativeControlRoutes.open("workspace-a"), {
+      command: "open",
+      parameters: { workspaceID: "workspace-a" },
+    });
+    assert.deepEqual(nativeControlRoutes.switchWorkspace("workspace-a"), {
+      command: "switch",
+      parameters: { workspaceID: "workspace-a" },
+    });
+    assert.deepEqual(nativeControlRoutes.attach("workspace-a"), {
+      command: "attach",
+      parameters: { workspaceID: "workspace-a" },
+    });
+    assert.deepEqual(nativeControlRoutes.remove("workspace-a"), {
+      command: "remove",
+      parameters: { workspaceID: "workspace-a" },
+    });
+    assert.deepEqual(nativeControlRoutes.listWorkspaces(), {
+      command: "list",
+      parameters: {},
+    });
+    assert.deepEqual(nativeControlRoutes.paletteOpen("diag"), {
+      command: "palette",
+      parameters: { query: "diag" },
+    });
+    assert.deepEqual(nativeControlRoutes.paletteRun("action-diagnostics"), {
+      command: "palette",
+      parameters: { operation: "run", actionID: "action-diagnostics" },
+    });
+    assert.deepEqual(nativeControlRoutes.workflowOpen(), {
+      command: "workflow",
+      parameters: { operation: "open" },
+    });
+    assert.deepEqual(nativeControlRoutes.workflowTimeline("run-a"), {
+      command: "workflow",
+      parameters: { operation: "timeline", runID: "run-a" },
+    });
+    assert.deepEqual(nativeControlRoutes.diagnosticsOpen(), {
+      command: "diagnostics",
+      parameters: {},
+    });
+  });
+
+  it("parses native product CLI commands and sends explicit NativeHost requests", async () => {
+    const server = await makeNativeControlCliServer();
+    const nativeFlags = ["--socket", server.socketPath, "--timeout-ms", "200", "--json"];
+    try {
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["open", ...nativeFlags, "workspace-a"])),
+      );
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["switch", ...nativeFlags, "workspace-a"])),
+      );
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["attach", ...nativeFlags, "workspace-a"])),
+      );
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["remove", ...nativeFlags, "workspace-a"])),
+      );
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["list", "workspaces", ...nativeFlags])),
+      );
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["palette", "open", ...nativeFlags, "diag"])),
+      );
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["palette", "run", ...nativeFlags, "action-diagnostics"])),
+      );
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["workflow", "open", ...nativeFlags])),
+      );
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["workflow", "timeline", ...nativeFlags, "run-a"])),
+      );
+      await Effect.runPromise(captureStdout(runCliWithRuntime(["diagnostics", ...nativeFlags])));
+
+      assert.deepEqual(
+        server.requests.map(({ command, parameters }) => ({ command, parameters })),
+        [
+          { command: "open", parameters: { workspaceID: "workspace-a" } },
+          { command: "switch", parameters: { workspaceID: "workspace-a" } },
+          { command: "attach", parameters: { workspaceID: "workspace-a" } },
+          { command: "remove", parameters: { workspaceID: "workspace-a" } },
+          { command: "list", parameters: {} },
+          { command: "palette", parameters: { query: "diag" } },
+          {
+            command: "palette",
+            parameters: { operation: "run", actionID: "action-diagnostics" },
+          },
+          { command: "workflow", parameters: { operation: "open" } },
+          { command: "workflow", parameters: { operation: "timeline", runID: "run-a" } },
+          { command: "diagnostics", parameters: {} },
+        ],
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it.skipIf(process.env.FENRIR_NATIVE_CLI_E2E !== "1")(
+    "runs no-mock native CLI workspace commands against the real native app (set FENRIR_NATIVE_CLI_E2E=1)",
+    async () => {
+      const app = await launchFenrirNativeApp();
+      const flags = nativeFlags(app.socketPath);
+      const suffix = `${process.pid}-${Date.now()}`;
+      const workspaceA = `native-cli-a-${suffix}`;
+      const workspaceB = `native-cli-b-${suffix}`;
+
+      try {
+        const initial = await runNativeCliJson(["list", "workspaces", ...flags]);
+        assert.equal(initial.ok, true);
+        assert.include(workspaceIDsFromList(initial), "local-workspace");
+
+        const opened = await runNativeCliJson(["open", ...flags, workspaceA]);
+        assert.equal(opened.resultKind, "WorkspaceOpened");
+        assert.equal(opened.payload?.workspaceID, workspaceA);
+
+        const afterOpen = await runNativeCliJson(["list", "workspaces", ...flags]);
+        assert.include(workspaceIDsFromList(afterOpen), workspaceA);
+        assert.equal(afterOpen.payload?.activeWorkspaceID, workspaceA);
+
+        const attached = await runNativeCliJson(["attach", ...flags, workspaceB]);
+        assert.equal(attached.resultKind, "WorkspaceAttached");
+        assert.equal(attached.payload?.workspaceID, workspaceB);
+
+        const afterAttach = await runNativeCliJson(["list", "workspaces", ...flags]);
+        assert.include(workspaceIDsFromList(afterAttach), workspaceA);
+        assert.include(workspaceIDsFromList(afterAttach), workspaceB);
+        assert.equal(afterAttach.payload?.activeWorkspaceID, workspaceB);
+
+        const switched = await runNativeCliJson(["switch", ...flags, workspaceA]);
+        assert.equal(switched.resultKind, "WorkspaceSwitched");
+        assert.equal(switched.payload?.workspaceID, workspaceA);
+
+        const afterSwitch = await runNativeCliJson(["list", "workspaces", ...flags]);
+        assert.equal(afterSwitch.payload?.activeWorkspaceID, workspaceA);
+
+        const removedA = await runNativeCliJson(["remove", ...flags, workspaceA]);
+        assert.equal(removedA.resultKind, "WorkspaceRemoved");
+        assert.equal(removedA.payload?.workspaceID, workspaceA);
+
+        const afterRemoveA = await runNativeCliJson(["list", "workspaces", ...flags]);
+        assert.notInclude(workspaceIDsFromList(afterRemoveA), workspaceA);
+        assert.include(workspaceIDsFromList(afterRemoveA), workspaceB);
+
+        const removedB = await runNativeCliJson(["remove", ...flags, workspaceB]);
+        assert.equal(removedB.resultKind, "WorkspaceRemoved");
+        const afterRemoveB = await runNativeCliJson(["list", "workspaces", ...flags]);
+        assert.notInclude(workspaceIDsFromList(afterRemoveB), workspaceB);
+      } finally {
+        await app.close();
+      }
+    },
+  );
+
+  it.effect("native CLI reports no app running when the socket is absent", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        fs.mkdtemp(join(tmpdir(), "fenrir-native-cli-missing-")),
+      );
+      const missingSocket = join(directory, "native-control.sock");
+
+      const error = yield* runCliWithRuntime([
+        "list",
+        "workspaces",
+        "--socket",
+        missingSocket,
+        "--timeout-ms",
+        "50",
+      ]).pipe(Effect.flip);
+
+      assert.instanceOf(error, NativeHostControlClientError);
+      assert.equal((error as NativeHostControlClientError).code, "no-app-running");
+    }),
+  );
+
+  it.effect("native CLI reports stale socket when the endpoint is not a socket", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        fs.mkdtemp(join(tmpdir(), "fenrir-native-cli-stale-")),
+      );
+      const staleSocket = join(directory, "native-control.sock");
+      yield* Effect.promise(() => fs.writeFile(staleSocket, ""));
+
+      const error = yield* runCliWithRuntime([
+        "list",
+        "workspaces",
+        "--socket",
+        staleSocket,
+        "--timeout-ms",
+        "50",
+      ]).pipe(Effect.flip);
+
+      assert.instanceOf(error, NativeHostControlClientError);
+      assert.equal((error as NativeHostControlClientError).code, "stale-socket");
     }),
   );
 

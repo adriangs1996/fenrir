@@ -16,7 +16,7 @@ import type {
   OrchestrationReadModel,
 } from "@fenrir/contracts";
 import { Context } from "effect";
-import type { Effect, Stream } from "effect";
+import type { Effect, Scope, Stream } from "effect";
 
 import type { OrchestrationDispatchError } from "../Errors.ts";
 import type { OrchestrationEventStoreError } from "../../persistence/Errors.ts";
@@ -59,8 +59,23 @@ export interface OrchestrationEngineShape {
    * Stream persisted domain events in dispatch order.
    *
    * This is a hot runtime stream (new events only), not a historical replay.
+   * The underlying PubSub subscription is only created when the stream is
+   * first pulled — events published before that are not delivered.
    */
   readonly streamDomainEvents: Stream.Stream<OrchestrationEvent>;
+
+  /**
+   * Eagerly subscribe to domain events, buffering from the moment the effect
+   * runs. Use this instead of `streamDomainEvents` when events must not be
+   * lost between a snapshot read and stream consumption: subscribe first,
+   * then read the snapshot, then drain the returned stream. The subscription
+   * is released when the provided Scope closes.
+   */
+  readonly subscribeDomainEvents: Effect.Effect<
+    Stream.Stream<OrchestrationEvent>,
+    never,
+    Scope.Scope
+  >;
 
   /**
    * Inject an external (non-command-originated) event into the read model and

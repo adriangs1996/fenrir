@@ -8,7 +8,12 @@ import * as os from "node:os";
 import { describe, expect, afterAll } from "vitest";
 
 import { ServerConfig } from "../../config.ts";
+import {
+  makeTmuxSessionName,
+  MANAGED_PROCESS_TMUX_SESSION_PREFIX,
+} from "../../terminal/tmuxRuntime.ts";
 import { Executor } from "../Services/Executor.ts";
+import type { ExecutorHandle } from "../Services/Executor.ts";
 import { TmuxExecutorLive } from "./TmuxExecutor.ts";
 
 // ── Tmux availability check ──
@@ -31,6 +36,57 @@ nodeFs.mkdirSync(testStateDir, { recursive: true });
 
 /** Stable project ID shared across all test inputs */
 const TEST_PROJECT = `tmux-test-${process.pid}`;
+const TEST_TMUX_SESSION = makeTmuxSessionName(MANAGED_PROCESS_TMUX_SESSION_PREFIX, TEST_PROJECT);
+
+function listTestStateDirProcesses(): Array<{ pid: number; command: string }> {
+  try {
+    const output = execFileSync("ps", ["-axo", "pid=,command="], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 5_000,
+    });
+    return output.split("\n").flatMap((line) => {
+      const match = line.match(/^\s*(\d+)\s+(.+)$/);
+      if (!match) return [];
+      const pidText = match[1];
+      const command = match[2];
+      if (!pidText || !command) return [];
+      const pid = Number(pidText);
+      if (pid === process.pid || !command.includes(testStateDir)) return [];
+      return [{ pid, command }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function killTestStateDirProcesses(): void {
+  for (const { pid } of listTestStateDirProcesses()) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // already gone
+    }
+  }
+  for (const { pid } of listTestStateDirProcesses()) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
+}
+
+function waitForNoTestStateDirProcesses(): Effect.Effect<void> {
+  return Effect.promise(async () => {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const processes = listTestStateDirProcesses();
+      if (processes.length === 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(listTestStateDirProcesses()).toEqual([]);
+  });
+}
 
 function findManagedProcessTmuxSession(windowName: string): string | undefined {
   try {
@@ -59,31 +115,33 @@ function findManagedProcessTmuxSession(windowName: string): string | undefined {
 }
 
 afterAll(() => {
-  // Clean up test state dir
-  try {
-    nodeFs.rmSync(testStateDir, { recursive: true, force: true });
-  } catch {
-    // best effort
-  }
-
-  // Clean up any test tmux sessions
+  // Clean up only the tmux session owned by this test process.
   try {
     const sessions = execFileSync("tmux", ["list-sessions", "-F", "#{session_name}"], {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 5_000,
     }).trim();
-    for (const s of sessions.split("\n")) {
-      if (s.includes("tmux-test")) {
-        try {
-          execFileSync("tmux", ["kill-session", "-t", s], { stdio: "ignore", timeout: 5_000 });
-        } catch {
-          // already gone
-        }
+    for (const session of sessions.split("\n")) {
+      if (session === TEST_TMUX_SESSION) {
+        execFileSync("tmux", ["kill-session", "-t", `=${session}`], {
+          stdio: "ignore",
+          timeout: 5_000,
+        });
       }
     }
   } catch {
     // no sessions
+  }
+
+  // Safety net for test-owned pipe-pane writers that reference this exact state dir.
+  killTestStateDirProcesses();
+
+  // Clean up test state dir
+  try {
+    nodeFs.rmSync(testStateDir, { recursive: true, force: true });
+  } catch {
+    // best effort
   }
 });
 
@@ -155,6 +213,33 @@ function makeInput(command: string, options?: { env?: Record<string, string> }) 
     env: options?.env ?? {},
     cols: 120,
     rows: 40,
+  };
+}
+
+function makeSpawnedHandleCleanup() {
+  const handles = new Set<ExecutorHandle>();
+
+  return {
+    register(handle: ExecutorHandle): ExecutorHandle {
+      handles.add(handle);
+      return handle;
+    },
+    release(handle: ExecutorHandle): void {
+      handles.delete(handle);
+    },
+    forceKillAll(): Effect.Effect<void> {
+      return Effect.suspend(() =>
+        Effect.forEach(
+          [...handles].toReversed(),
+          (handle) =>
+            handle.forceKill().pipe(
+              Effect.catchCause(() => Effect.void),
+              Effect.ensuring(Effect.sync(() => handles.delete(handle))),
+            ),
+          { discard: true },
+        ),
+      );
+    },
   };
 }
 
@@ -248,10 +333,12 @@ describe.skipIf(!hasTmux)("TmuxExecutor", () => {
     describe("stop (user-initiated)", () => {
       it.effect(
         "sets userInitiated on exit after stop()",
-        () =>
-          Effect.gen(function* () {
+        () => {
+          const cleanup = makeSpawnedHandleCleanup();
+
+          return Effect.gen(function* () {
             const executor = yield* Executor;
-            const handle = yield* executor.spawn(makeInput("sleep 120"));
+            const handle = cleanup.register(yield* executor.spawn(makeInput("sleep 120")));
 
             // Give process time to start
             yield* Effect.promise(() => new Promise<void>((r) => setTimeout(r, 1000)));
@@ -268,7 +355,8 @@ describe.skipIf(!hasTmux)("TmuxExecutor", () => {
             expect(exit.userInitiated).toBe(true);
 
             exitSub.unsubscribe();
-          }),
+          }).pipe(Effect.ensuring(cleanup.forceKillAll()));
+        },
         { timeout: 15_000 },
       );
     });
@@ -276,11 +364,13 @@ describe.skipIf(!hasTmux)("TmuxExecutor", () => {
     describe("forceKill", () => {
       it.effect(
         "removes the window and FIFO",
-        () =>
-          Effect.gen(function* () {
+        () => {
+          const cleanup = makeSpawnedHandleCleanup();
+
+          return Effect.gen(function* () {
             const executor = yield* Executor;
             const input = makeInput("sleep 120");
-            const handle = yield* executor.spawn(input);
+            const handle = cleanup.register(yield* executor.spawn(input));
 
             yield* Effect.promise(() => new Promise<void>((r) => setTimeout(r, 1000)));
 
@@ -291,6 +381,7 @@ describe.skipIf(!hasTmux)("TmuxExecutor", () => {
             });
 
             yield* handle.forceKill();
+            cleanup.release(handle);
 
             const exit = yield* Deferred.await(exitDone);
             expect(exit.userInitiated).toBe(true);
@@ -305,7 +396,9 @@ describe.skipIf(!hasTmux)("TmuxExecutor", () => {
               fifoName,
             );
             expect(nodeFs.existsSync(fifoPath)).toBe(false);
-          }),
+            yield* waitForNoTestStateDirProcesses();
+          }).pipe(Effect.ensuring(cleanup.forceKillAll()));
+        },
         { timeout: 15_000 },
       );
     });
@@ -313,11 +406,13 @@ describe.skipIf(!hasTmux)("TmuxExecutor", () => {
     describe("reattach", () => {
       it.effect(
         "reattaches to a running tmux window after dropping handle",
-        () =>
-          Effect.gen(function* () {
+        () => {
+          const cleanup = makeSpawnedHandleCleanup();
+
+          return Effect.gen(function* () {
             const executor = yield* Executor;
             const input = makeInput("sh -c 'while true; do echo ping; sleep 1; done'");
-            const handle1 = yield* executor.spawn(input);
+            const handle1 = cleanup.register(yield* executor.spawn(input));
 
             // Wait for initial output
             const gotPing = yield* Deferred.make<boolean>();
@@ -343,6 +438,7 @@ describe.skipIf(!hasTmux)("TmuxExecutor", () => {
               cols: 120,
               rows: 40,
             });
+            cleanup.register(handle2);
 
             expect(handle2.nativeKey).toBe(nativeKey);
 
@@ -367,9 +463,12 @@ describe.skipIf(!hasTmux)("TmuxExecutor", () => {
 
             yield* handle2.stop();
             yield* Deferred.await(exitDone);
+            cleanup.release(handle1);
+            cleanup.release(handle2);
 
             sub2.unsubscribe();
-          }),
+          }).pipe(Effect.ensuring(cleanup.forceKillAll()));
+        },
         { timeout: 20_000 },
       );
     });
@@ -377,16 +476,18 @@ describe.skipIf(!hasTmux)("TmuxExecutor", () => {
     describe("shared session", () => {
       it.effect(
         "two managed processes share one tmux session with separate windows",
-        () =>
-          Effect.gen(function* () {
+        () => {
+          const cleanup = makeSpawnedHandleCleanup();
+
+          return Effect.gen(function* () {
             const executor = yield* Executor;
 
             // Both use the same TEST_PROJECT prefix → same session
             const inputA = makeInput("sleep 120");
             const inputB = makeInput("sleep 120");
 
-            const handleA = yield* executor.spawn(inputA);
-            const handleB = yield* executor.spawn(inputB);
+            const handleA = cleanup.register(yield* executor.spawn(inputA));
+            const handleB = cleanup.register(yield* executor.spawn(inputB));
 
             // Different window names
             expect(handleA.nativeKey).not.toBe(handleB.nativeKey);
@@ -400,7 +501,11 @@ describe.skipIf(!hasTmux)("TmuxExecutor", () => {
             // Clean up
             yield* handleA.forceKill();
             yield* handleB.forceKill();
-          }),
+            cleanup.release(handleA);
+            cleanup.release(handleB);
+            yield* waitForNoTestStateDirProcesses();
+          }).pipe(Effect.ensuring(cleanup.forceKillAll()));
+        },
         { timeout: 15_000 },
       );
     });

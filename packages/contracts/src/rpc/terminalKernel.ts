@@ -11,6 +11,7 @@ import {
   TmuxPaneAttachMetadataInput,
   TmuxPaneCloseInput,
   TmuxPaneCreateInput,
+  TmuxPaneFocusInput,
   TmuxPaneResizeInput,
   TmuxPaneStreamEvent,
   TmuxPaneStreamSubscribeInput,
@@ -18,6 +19,7 @@ import {
   TmuxPaneWriteResult,
   TmuxWindowCloseInput,
   TmuxWindowCreateInput,
+  TmuxWindowFocusInput,
   TmuxWorkspaceEnsureInput,
   TmuxWorkspaceGetSnapshotInput,
   TmuxWorkspaceListResult,
@@ -63,6 +65,12 @@ export const WsTmuxWindowCreateRpc = Rpc.make(WS_METHODS.tmuxWindowCreate, {
   error: TmuxKernelError,
 });
 
+export const WsTmuxWindowFocusRpc = Rpc.make(WS_METHODS.tmuxWindowFocus, {
+  payload: TmuxWindowFocusInput,
+  success: TmuxWorkspaceSnapshot,
+  error: TmuxKernelError,
+});
+
 export const WsTmuxWindowCloseRpc = Rpc.make(WS_METHODS.tmuxWindowClose, {
   payload: TmuxWindowCloseInput,
   success: TmuxWorkspaceSnapshot,
@@ -101,6 +109,12 @@ export const WsTmuxOperationalPaneStatusesRpc = Rpc.make(WS_METHODS.tmuxOperatio
 
 export const WsTmuxPaneCloseRpc = Rpc.make(WS_METHODS.tmuxPaneClose, {
   payload: TmuxPaneCloseInput,
+  success: TmuxWorkspaceSnapshot,
+  error: TmuxKernelError,
+});
+
+export const WsTmuxPaneFocusRpc = Rpc.make(WS_METHODS.tmuxPaneFocus, {
+  payload: TmuxPaneFocusInput,
   success: TmuxWorkspaceSnapshot,
   error: TmuxKernelError,
 });

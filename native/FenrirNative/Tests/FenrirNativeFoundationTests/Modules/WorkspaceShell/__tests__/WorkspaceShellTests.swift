@@ -37,6 +37,31 @@ struct WorkspaceShellTests {
         #expect(await index.recent == ["workspace-a"])
     }
 
+    @Test("OpenWorkspace focuses existing workspace instead of opening another window")
+    func openWorkspaceFocusesExistingWindow() async throws {
+        let open = summary(
+            "workspace-a",
+            name: "Alpha",
+            path: "/repo/a",
+            openState: WorkspaceIndex.WorkspaceOpenState(isOpenLocally: true, windowIDs: ["window-a"])
+        )
+        let index = IndexPort(workspaces: [open])
+        let windows = WindowPort()
+        let action = WorkspaceShell.OpenWorkspace(index: index, windows: windows, clock: FixedClock())
+
+        let result = try await action.run(.init(
+            requestID: "open-existing",
+            identity: WorkspaceIndex.WorkspaceIdentity(kind: .localPath, canonicalPath: "/repo/a"),
+            source: .clientControl
+        )).get()
+
+        #expect(result.status == "focused")
+        #expect(result.nativeWindowID == "window-a")
+        #expect(await windows.opened.isEmpty)
+        #expect(await windows.switched == ["workspace-a"])
+        #expect(await index.attached.isEmpty)
+    }
+
     @Test("OpenWorkspace maps invalid workspace to shell error")
     func openWorkspaceInvalidWorkspace() async {
         let action = WorkspaceShell.OpenWorkspace(index: IndexPort(workspaces: []), windows: WindowPort(), clock: FixedClock())
@@ -99,11 +124,33 @@ struct WorkspaceShellTests {
         #expect(invalid == .failure(WorkspaceShell.WorkspaceShellError.workspaceNotFound))
     }
 
+    @Test("Frequent sidebar switching focuses open workspaces without mutating attachments")
+    func frequentSidebarSwitching() async throws {
+        let alpha = summary("workspace-a", name: "Alpha", path: "/repo/a", openState: .init(isOpenLocally: true, windowIDs: ["window-a"]))
+        let beta = summary("workspace-b", name: "Beta", path: "/repo/b", openState: .init(isOpenLocally: true, windowIDs: ["window-b"]))
+        let index = IndexPort(workspaces: [alpha, beta])
+        let windows = WindowPort()
+        let action = WorkspaceShell.SwitchWorkspace(index: index, windows: windows, clock: FixedClock())
+
+        for identity in [
+            WorkspaceIndex.WorkspaceIdentity(kind: .localPath, canonicalPath: "/repo/a"),
+            WorkspaceIndex.WorkspaceIdentity(kind: .localPath, canonicalPath: "/repo/b"),
+            WorkspaceIndex.WorkspaceIdentity(kind: .localPath, canonicalPath: "/repo/a"),
+            WorkspaceIndex.WorkspaceIdentity(kind: .localPath, canonicalPath: "/repo/b")
+        ] {
+            _ = try await action.run(.init(requestID: RequestID(rawValue: "switch-\(identity.canonicalPath ?? "")"), identity: identity, source: .clientControl)).get()
+        }
+
+        #expect(await windows.switched == ["workspace-a", "workspace-b", "workspace-a", "workspace-b"])
+        #expect(await index.recent == ["workspace-a", "workspace-b", "workspace-a", "workspace-b"])
+        #expect(await index.attached.isEmpty)
+    }
+
     @Test("List, remove, and formatter produce stable CLI outputs")
     func listRemoveAndFormat() async throws {
         let index = IndexPort(workspaces: [summary("workspace-a", name: "Alpha", path: "/repo/a")])
         let list = WorkspaceShell.ListShellWorkspaces(index: index, clock: FixedClock())
-        let remove = WorkspaceShell.RemoveWorkspace(index: index, clock: FixedClock())
+        let remove = WorkspaceShell.RemoveWorkspace(index: index, windows: WindowPort(), clock: FixedClock())
         let formatter = WorkspaceShell.FormatCommandResult(clock: FixedClock())
 
         let listed = try await list.run(.init(requestID: "list", includeRemote: true, source: .clientControl)).get()
@@ -120,6 +167,24 @@ struct WorkspaceShellTests {
         #expect(await index.removed == ["workspace-a"])
         #expect(formattedError.exitCode == 1)
         #expect(formattedError.output == "error: WorkspaceShellWorkspaceNotFound")
+    }
+
+    @Test("RemoveWorkspace closes active workspace window before removing it")
+    func removeActiveWorkspaceClosesWindow() async throws {
+        let active = summary("workspace-a", name: "Alpha", path: "/repo/a", openState: .init(isOpenLocally: true, windowIDs: ["window-a"]))
+        let index = IndexPort(workspaces: [active])
+        let windows = WindowPort()
+        let remove = WorkspaceShell.RemoveWorkspace(index: index, windows: windows, clock: FixedClock())
+
+        let result = try await remove.run(.init(
+            requestID: "remove-active",
+            identity: WorkspaceIndex.WorkspaceIdentity(kind: .localPath, canonicalPath: "/repo/a"),
+            source: .clientControl
+        )).get()
+
+        #expect(result.status == "removed")
+        #expect(await windows.closed == ["workspace-a"])
+        #expect(await index.removed == ["workspace-a"])
     }
 }
 
@@ -182,19 +247,19 @@ private actor IndexPort: WorkspaceShell.WorkspaceIndexCommanding {
         return WorkspaceIndex.RegisterWorkspaceResult(requestID: requestID, summary: summary, timestamp: FixedClock().timestamp)
     }
 
-    func attachWorkspace(requestID: RequestID, workspaceID: WorkspaceID, windowID: FenrirWindowID) async throws -> WorkspaceIndex.AttachWorkspaceResult {
+    func attachWorkspace(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIndex.WorkspaceIdentity?, windowID: FenrirWindowID) async throws -> WorkspaceIndex.AttachWorkspaceResult {
         attached.append(workspaceID)
         let workspace = try resolved(workspaceID)
         return WorkspaceIndex.AttachWorkspaceResult(requestID: requestID, summary: workspace, timestamp: FixedClock().timestamp)
     }
 
-    func markRecent(requestID: RequestID, workspaceID: WorkspaceID) async throws -> WorkspaceIndex.MarkWorkspaceRecentResult {
+    func markRecent(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIndex.WorkspaceIdentity?) async throws -> WorkspaceIndex.MarkWorkspaceRecentResult {
         recent.append(workspaceID)
         let workspace = try resolved(workspaceID)
         return WorkspaceIndex.MarkWorkspaceRecentResult(requestID: requestID, summary: workspace, timestamp: FixedClock().timestamp)
     }
 
-    func removeWorkspace(requestID: RequestID, workspaceID: WorkspaceID) async throws -> WorkspaceIndex.RemoveWorkspaceResult {
+    func removeWorkspace(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIndex.WorkspaceIdentity?) async throws -> WorkspaceIndex.RemoveWorkspaceResult {
         removed.append(workspaceID)
         workspaces.removeAll { $0.workspaceID == workspaceID }
         return WorkspaceIndex.RemoveWorkspaceResult(requestID: requestID, workspaceID: workspaceID, timestamp: FixedClock().timestamp)
@@ -211,6 +276,7 @@ private actor IndexPort: WorkspaceShell.WorkspaceIndexCommanding {
 private actor WindowPort: WorkspaceShell.WorkspaceWindowCommanding {
     private(set) var opened: [WorkspaceID] = []
     private(set) var switched: [WorkspaceID] = []
+    private(set) var closed: [WorkspaceID] = []
 
     func openWorkspace(_ summary: WorkspaceIndex.WorkspaceSummary) async throws -> FenrirWindowID {
         opened.append(summary.workspaceID)
@@ -220,6 +286,10 @@ private actor WindowPort: WorkspaceShell.WorkspaceWindowCommanding {
     func switchWorkspace(_ summary: WorkspaceIndex.WorkspaceSummary) async throws -> FenrirWindowID {
         switched.append(summary.workspaceID)
         return summary.openState.windowIDs.first ?? FenrirWindowID(rawValue: "window-\(summary.workspaceID.rawValue)")
+    }
+
+    func closeWorkspace(_ summary: WorkspaceIndex.WorkspaceSummary) async throws {
+        closed.append(summary.workspaceID)
     }
 }
 

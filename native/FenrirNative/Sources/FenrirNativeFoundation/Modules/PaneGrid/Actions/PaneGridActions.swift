@@ -1,5 +1,6 @@
 import Foundation
 import FenrirNativeShared
+import NativeRuntime
 
 public extension PaneGrid {
     struct CreatePaneGrid: FenrirAction {
@@ -11,7 +12,11 @@ public extension PaneGrid {
         let clock: any PaneGridClock
         let events: (any PaneGridEventPublishing)?
 
-        init(store: any PaneGridStore, projector: any PaneLayoutProjecting = DefaultPaneLayoutProjector(), viewportHost: any PaneViewportHosting, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
+        public init(store: any PaneGridStore, viewportHost: any PaneViewportHosting, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
+            self.init(store: store, projector: DefaultPaneLayoutProjector(), viewportHost: viewportHost, clock: clock, events: events)
+        }
+
+        public init(store: any PaneGridStore, projector: any PaneLayoutProjecting, viewportHost: any PaneViewportHosting, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
             self.store = store
             self.projector = projector
             self.viewportHost = viewportHost
@@ -45,7 +50,7 @@ public extension PaneGrid {
         let clock: any PaneGridClock
         let events: (any PaneGridEventPublishing)?
 
-        init(store: any PaneGridStore, viewportHost: any PaneViewportHosting, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
+        public init(store: any PaneGridStore, viewportHost: any PaneViewportHosting, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
             self.store = store
             self.viewportHost = viewportHost
             self.clock = clock
@@ -81,7 +86,11 @@ public extension PaneGrid {
         let clock: any PaneGridClock
         let events: (any PaneGridEventPublishing)?
 
-        init(store: any PaneGridStore, projector: any PaneLayoutProjecting = DefaultPaneLayoutProjector(), viewportHost: any PaneViewportHosting, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
+        public init(store: any PaneGridStore, viewportHost: any PaneViewportHosting, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
+            self.init(store: store, projector: DefaultPaneLayoutProjector(), viewportHost: viewportHost, clock: clock, events: events)
+        }
+
+        public init(store: any PaneGridStore, projector: any PaneLayoutProjecting, viewportHost: any PaneViewportHosting, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
             self.store = store
             self.projector = projector
             self.viewportHost = viewportHost
@@ -127,7 +136,7 @@ public extension PaneGrid {
         let clock: any PaneGridClock
         let events: (any PaneGridEventPublishing)?
 
-        init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
+        public init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
             self.store = store
             self.kernel = kernel
             self.clock = clock
@@ -140,7 +149,7 @@ public extension PaneGrid {
                 guard state.window(input.windowID)?.containsPane(input.paneID) == true else {
                     return .failure(.paneNotFound)
                 }
-                try await kernel.focusPane(input)
+                try await kernel.focusPane(try state.focusCommand(input))
                 let next = try state.focusing(windowID: input.windowID, paneID: input.paneID)
                 try await store.saveGrid(next)
                 let timestamp = clock.now()
@@ -162,7 +171,7 @@ public extension PaneGrid {
         let clock: any PaneGridClock
         let events: (any PaneGridEventPublishing)?
 
-        init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
+        public init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
             self.store = store
             self.kernel = kernel
             self.clock = clock
@@ -176,7 +185,7 @@ public extension PaneGrid {
                     return .failure(.paneNotFound)
                 }
                 let focusInput = FocusPaneInput(requestID: input.requestID, workspaceID: input.workspaceID, windowID: input.windowID, paneID: target.to, source: input.source)
-                try await kernel.focusPane(focusInput)
+                try await kernel.focusPane(try state.focusCommand(focusInput))
                 let next = try state.focusing(windowID: input.windowID, paneID: target.to)
                 try await store.saveGrid(next)
                 let timestamp = clock.now()
@@ -198,7 +207,7 @@ public extension PaneGrid {
         let clock: any PaneGridClock
         let events: (any PaneGridEventPublishing)?
 
-        init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
+        public init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
             self.store = store
             self.kernel = kernel
             self.clock = clock
@@ -211,7 +220,7 @@ public extension PaneGrid {
                 guard state.window(input.windowID)?.containsPane(input.paneID) == true else {
                     return .failure(.paneNotFound)
                 }
-                let paneID = try await kernel.splitPane(input)
+                let paneID = try await kernel.splitPane(try state.splitCommand(input))
                 let timestamp = clock.now()
                 await events?.publish(PaneGrid.envelope(input.requestID, "PaneSplitRequested", timestamp, .paneSplitRequested(input.paneID, input.axis)))
                 return .success(SplitPaneResult(requestID: input.requestID, createdPaneID: paneID, timestamp: timestamp))
@@ -231,7 +240,7 @@ public extension PaneGrid {
         let clock: any PaneGridClock
         let events: (any PaneGridEventPublishing)?
 
-        init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
+        public init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
             self.store = store
             self.kernel = kernel
             self.clock = clock
@@ -244,7 +253,7 @@ public extension PaneGrid {
                 guard state.window(input.windowID)?.containsPane(input.paneID) == true else {
                     return .failure(.paneNotFound)
                 }
-                try await kernel.closePane(input)
+                try await kernel.closePane(try state.closeCommand(input))
                 let timestamp = clock.now()
                 await events?.publish(PaneGrid.envelope(input.requestID, "PaneCloseRequested", timestamp, .paneCloseRequested(input.paneID)))
                 return .success(ClosePaneResult(requestID: input.requestID, paneID: input.paneID, timestamp: timestamp))
@@ -264,7 +273,7 @@ public extension PaneGrid {
         let clock: any PaneGridClock
         let events: (any PaneGridEventPublishing)?
 
-        init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
+        public init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
             self.store = store
             self.kernel = kernel
             self.clock = clock
@@ -277,7 +286,7 @@ public extension PaneGrid {
                 guard state.window(input.fromWindowID)?.containsPane(input.paneID) == true, state.window(input.toWindowID) != nil else {
                     return .failure(.paneNotFound)
                 }
-                try await kernel.movePane(input)
+                try await kernel.movePane(try state.moveCommand(input))
                 let timestamp = clock.now()
                 await events?.publish(PaneGrid.envelope(input.requestID, "PaneMoveRequested", timestamp, .paneMoveRequested(input.paneID, input.toWindowID)))
                 return .success(MovePaneResult(requestID: input.requestID, paneID: input.paneID, targetWindowID: input.toWindowID, timestamp: timestamp))
@@ -297,7 +306,7 @@ public extension PaneGrid {
         let clock: any PaneGridClock
         let events: (any PaneGridEventPublishing)?
 
-        init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
+        public init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
             self.store = store
             self.kernel = kernel
             self.clock = clock
@@ -310,7 +319,7 @@ public extension PaneGrid {
                 guard input.allocation.delta != 0, state.window(input.windowID)?.containsPane(input.allocation.paneID) == true else {
                     return .failure(.resizeFailed)
                 }
-                try await kernel.resizePaneAllocation(input)
+                try await kernel.resizePaneAllocation(try state.resizeCommand(input))
                 let timestamp = clock.now()
                 await events?.publish(PaneGrid.envelope(input.requestID, "PaneResizeAllocationRequested", timestamp, .paneResizeAllocationRequested(input.allocation)))
                 return .success(ResizePaneAllocationResult(requestID: input.requestID, allocation: input.allocation, timestamp: timestamp))
@@ -330,7 +339,7 @@ public extension PaneGrid {
         let clock: any PaneGridClock
         let events: (any PaneGridEventPublishing)?
 
-        init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
+        public init(store: any PaneGridStore, kernel: any PaneKernelControlling, clock: any PaneGridClock, events: (any PaneGridEventPublishing)? = nil) {
             self.store = store
             self.kernel = kernel
             self.clock = clock
@@ -340,7 +349,7 @@ public extension PaneGrid {
         public func run(_ input: SelectTabWindowInput) async -> Result<SelectTabWindowResult, PaneGridError> {
             do {
                 let state = try await PaneGrid.loadMatchingState(store, workspaceID: input.workspaceID, windowID: input.windowID)
-                try await kernel.selectWindow(input)
+                try await kernel.selectWindow(try state.selectWindowCommand(input))
                 let next = state.selecting(windowID: input.windowID)
                 try await store.saveGrid(next)
                 let timestamp = clock.now()
@@ -404,7 +413,7 @@ extension PaneGrid {
                 if pane.viewportID.rawValue.isEmpty {
                     created.append(viewportID)
                 }
-                panes.append(PanePresentation(paneID: pane.paneID, viewportID: viewportID, title: pane.title, rect: pane.rect, isFocused: pane.isFocused))
+                panes.append(PanePresentation(paneID: pane.paneID, tmuxPaneID: pane.tmuxPaneID, streamID: pane.streamID, viewportID: viewportID, title: pane.title, rect: pane.rect, isFocused: pane.isFocused))
             }
             windows.append(WindowPresentation(
                 windowID: window.windowID,
@@ -424,6 +433,8 @@ extension PaneGrid {
             throw PaneGridError.layoutInvalid
         }
         var windowIDs = Set<FenrirWindowID>()
+        var paneIDs = Set<PaneID>()
+        var tmuxPaneIDs = Set<NativeRuntime.TmuxPaneID>()
         for window in snapshot.windows {
             guard windowIDs.insert(window.windowID).inserted, !window.tmuxWindowID.isEmpty else {
                 throw PaneGridError.layoutInvalid
@@ -432,9 +443,15 @@ extension PaneGrid {
             guard !openPanes.isEmpty else {
                 throw PaneGridError.layoutInvalid
             }
-            var paneIDs = Set<PaneID>()
             for pane in openPanes {
-                guard paneIDs.insert(pane.paneID).inserted, pane.rect.columns > 0, pane.rect.rows > 0 else {
+                guard paneIDs.insert(pane.paneID).inserted,
+                      tmuxPaneIDs.insert(pane.tmuxPaneID).inserted,
+                      !pane.tmuxPaneID.rawValue.isEmpty,
+                      pane.rect.x >= 0,
+                      pane.rect.y >= 0,
+                      pane.rect.columns > 0,
+                      pane.rect.rows > 0
+                else {
                     throw PaneGridError.layoutInvalid
                 }
             }
@@ -457,6 +474,8 @@ extension PaneGrid {
         let presentations = panes.map { pane in
             PanePresentation(
                 paneID: pane.paneID,
+                tmuxPaneID: pane.tmuxPaneID,
+                streamID: pane.streamID,
                 viewportID: viewportIDs[pane.paneID] ?? ViewportID(rawValue: ""),
                 title: pane.title,
                 rect: pane.rect,
@@ -478,9 +497,68 @@ extension PaneGrid {
         guard panes.count > 1 else {
             return .pane(panes[0])
         }
+        if let partition = PaneGrid.partition(panes) {
+            return .split(
+                axis: partition.axis,
+                children: partition.groups.map { PaneGrid.buildLayout($0) }
+            )
+        }
         let sameRow = Set(panes.map(\.rect.y)).count == 1
         let axis: SplitAxis = sameRow ? .horizontal : .vertical
         return .split(axis: axis, children: panes.map { .pane($0) })
+    }
+
+    private struct PanePartition {
+        let axis: SplitAxis
+        let groups: [[PanePresentation]]
+    }
+
+    private static func partition(_ panes: [PanePresentation]) -> PanePartition? {
+        partition(panes, axis: .horizontal) ?? partition(panes, axis: .vertical)
+    }
+
+    private static func partition(_ panes: [PanePresentation], axis: SplitAxis) -> PanePartition? {
+        let starts = panes.map { axis == .horizontal ? $0.rect.x : $0.rect.y }
+        let ends = panes.map { pane in
+            axis == .horizontal ? pane.rect.x + pane.rect.columns : pane.rect.y + pane.rect.rows
+        }
+        guard let minStart = starts.min(), let maxEnd = ends.max(), minStart < maxEnd else {
+            return nil
+        }
+        let candidateCuts = Set(starts + ends)
+            .filter { $0 > minStart && $0 < maxEnd }
+            .sorted()
+        let cuts = candidateCuts.filter { cut in
+            panes.allSatisfy { pane in
+                let start = axis == .horizontal ? pane.rect.x : pane.rect.y
+                let end = axis == .horizontal ? pane.rect.x + pane.rect.columns : pane.rect.y + pane.rect.rows
+                return end <= cut || start >= cut
+            }
+        }
+        guard !cuts.isEmpty else {
+            return nil
+        }
+        let boundaries = [minStart] + cuts + [maxEnd]
+        let groups = boundaries.dropLast().enumerated().compactMap { index, lower -> [PanePresentation]? in
+            let upper = boundaries[index + 1]
+            let group = panes
+                .filter { pane in
+                    let start = axis == .horizontal ? pane.rect.x : pane.rect.y
+                    return start >= lower && start < upper
+                }
+                .sorted(by: PaneGrid.paneVisualOrder)
+            return group.isEmpty ? nil : group
+        }
+        guard groups.count > 1, groups.flatMap({ $0 }).count == panes.count else {
+            return nil
+        }
+        return PanePartition(axis: axis, groups: groups)
+    }
+
+    private static func paneVisualOrder(_ lhs: PanePresentation, _ rhs: PanePresentation) -> Bool {
+        if lhs.rect.y != rhs.rect.y { return lhs.rect.y < rhs.rect.y }
+        if lhs.rect.x != rhs.rect.x { return lhs.rect.x < rhs.rect.x }
+        return lhs.paneID.rawValue < rhs.paneID.rawValue
     }
 }
 
@@ -503,7 +581,7 @@ extension PaneGrid.State {
         }
         return replacing(windowID: windowID) { window in
             let panes = window.panes.map {
-                PaneGrid.PanePresentation(paneID: $0.paneID, viewportID: $0.viewportID, title: $0.title, rect: $0.rect, isFocused: $0.paneID == paneID)
+                PaneGrid.PanePresentation(paneID: $0.paneID, tmuxPaneID: $0.tmuxPaneID, streamID: $0.streamID, viewportID: $0.viewportID, title: $0.title, rect: $0.rect, isFocused: $0.paneID == paneID)
             }
             return PaneGrid.WindowPresentation(
                 windowID: window.windowID,
@@ -528,6 +606,62 @@ extension PaneGrid.State {
             activeWindowID: activeWindowID,
             windows: windows.map { $0.windowID == windowID ? transform($0) : $0 },
             generation: generation
+        )
+    }
+
+    func focusCommand(_ input: PaneGrid.FocusPaneInput) throws -> PaneGrid.FocusPaneCommand {
+        PaneGrid.FocusPaneCommand(requestID: input.requestID, target: try target(windowID: input.windowID, paneID: input.paneID), source: input.source)
+    }
+
+    func splitCommand(_ input: PaneGrid.SplitPaneInput) throws -> PaneGrid.SplitPaneCommand {
+        PaneGrid.SplitPaneCommand(requestID: input.requestID, target: try target(windowID: input.windowID, paneID: input.paneID), axis: input.axis, source: input.source)
+    }
+
+    func closeCommand(_ input: PaneGrid.ClosePaneInput) throws -> PaneGrid.ClosePaneCommand {
+        PaneGrid.ClosePaneCommand(requestID: input.requestID, target: try target(windowID: input.windowID, paneID: input.paneID), source: input.source)
+    }
+
+    func moveCommand(_ input: PaneGrid.MovePaneInput) throws -> PaneGrid.MovePaneCommand {
+        guard let destination = window(input.toWindowID) else {
+            throw PaneGrid.PaneGridError.paneNotFound
+        }
+        return PaneGrid.MovePaneCommand(
+            requestID: input.requestID,
+            target: try target(windowID: input.fromWindowID, paneID: input.paneID),
+            destinationWindowID: destination.windowID,
+            destinationTmuxWindowID: destination.tmuxWindowID,
+            source: input.source
+        )
+    }
+
+    func resizeCommand(_ input: PaneGrid.ResizePaneAllocationInput) throws -> PaneGrid.ResizePaneAllocationCommand {
+        PaneGrid.ResizePaneAllocationCommand(
+            requestID: input.requestID,
+            target: try target(windowID: input.windowID, paneID: input.allocation.paneID),
+            delta: input.allocation.delta,
+            unit: input.allocation.unit,
+            direction: input.allocation.direction,
+            source: input.source
+        )
+    }
+
+    func selectWindowCommand(_ input: PaneGrid.SelectTabWindowInput) throws -> PaneGrid.SelectTabWindowCommand {
+        guard let window = window(input.windowID) else {
+            throw PaneGrid.PaneGridError.paneNotFound
+        }
+        return PaneGrid.SelectTabWindowCommand(requestID: input.requestID, workspaceID: input.workspaceID, windowID: window.windowID, tmuxWindowID: window.tmuxWindowID, source: input.source)
+    }
+
+    func target(windowID: FenrirWindowID, paneID: PaneID) throws -> PaneGrid.PaneKernelTarget {
+        guard let window = window(windowID), let pane = window.panes.first(where: { $0.paneID == paneID }) else {
+            throw PaneGrid.PaneGridError.paneNotFound
+        }
+        return PaneGrid.PaneKernelTarget(
+            workspaceID: workspaceID,
+            windowID: window.windowID,
+            tmuxWindowID: window.tmuxWindowID,
+            paneID: pane.paneID,
+            tmuxPaneID: pane.tmuxPaneID
         )
     }
 }

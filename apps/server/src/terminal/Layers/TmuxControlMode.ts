@@ -13,7 +13,7 @@ import {
   type TmuxControlModeCommandInput,
   type TmuxControlModeConnectInput,
 } from "../Services/TmuxControlMode";
-import { execTmuxSync } from "../tmuxRuntime";
+import { execTmux } from "../tmuxRuntime";
 
 export interface TmuxControlModeParseState {
   readonly bufferedLine: string;
@@ -159,7 +159,7 @@ export function decodeTmuxControlString(input: string): string {
 }
 
 export function quoteTmuxCommandArg(arg: string): string {
-  if (/^[A-Za-z0-9_@%:.,/+=-]+$/.test(arg)) {
+  if (!arg.startsWith("%") && /^[A-Za-z0-9_@%:.,/+=-]+$/.test(arg)) {
     return arg;
   }
   if (
@@ -666,8 +666,8 @@ export const TmuxControlModeAdapterLive = Layer.effect(
     return {
       connect: makeConnection,
       adminCommand: (args, options) =>
-        Effect.try({
-          try: () => execTmuxSync(args, options),
+        Effect.tryPromise({
+          try: () => execTmux(args, options),
           catch: (cause) => {
             const message = cause instanceof Error ? cause.message : "tmux admin command failed";
             return new TmuxControlModeError({

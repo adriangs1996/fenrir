@@ -16,7 +16,7 @@ public extension WorkspaceCoordinator {
         let clock: any WorkspaceCoordinatorClock
         let events: (any WorkspaceCoordinatorEventPublishing)?
 
-        init(
+        public init(
             index: any WorkspaceIndexCoordinating,
             serverSelector: any WorkspaceServerSelecting,
             windows: any WorkspaceWindowCoordinating,
@@ -38,9 +38,9 @@ public extension WorkspaceCoordinator {
                 let timestamp = clock.now()
                 await WorkspaceCoordinator.publish(input.requestID, "WorkspaceResolved", timestamp, .workspaceResolved(workspace.workspaceID), events)
 
-                if input.mode == .focusExisting, workspace.isOpenLocally {
+                if workspace.isOpenLocally {
                     let windowID = try await windows.focusWindow(workspace: workspace)
-                    try await index.markRecent(requestID: input.requestID, workspaceID: workspace.workspaceID)
+                    try await index.markRecent(requestID: input.requestID, workspaceID: workspace.workspaceID, targetIdentity: workspace.identity)
                     await WorkspaceCoordinator.publish(input.requestID, "WorkspaceFocused", timestamp, .workspaceFocused(workspace.workspaceID), events)
                     return .success(OpenWorkspaceResult(
                         requestID: input.requestID,
@@ -62,7 +62,7 @@ public extension WorkspaceCoordinator {
                 }
                 await WorkspaceCoordinator.publish(input.requestID, "WorkspaceRuntimeAttached", timestamp, .workspaceRuntimeAttached(workspace.workspaceID), events)
                 let windowID = try await windows.openWindow(workspace: workspace)
-                let attached = try await index.attachWorkspace(requestID: input.requestID, workspaceID: workspace.workspaceID, windowID: windowID)
+                let attached = try await index.attachWorkspace(requestID: input.requestID, workspaceID: workspace.workspaceID, targetIdentity: workspace.identity, windowID: windowID)
                 await WorkspaceCoordinator.publish(input.requestID, "WorkspaceWindowOpened", timestamp, .workspaceWindowOpened(workspace.workspaceID, windowID), events)
                 await WorkspaceCoordinator.publish(input.requestID, "WorkspaceOpened", timestamp, .workspaceOpened(workspace.workspaceID), events)
                 return .success(OpenWorkspaceResult(
@@ -88,7 +88,7 @@ public extension WorkspaceCoordinator {
         let clock: any WorkspaceCoordinatorClock
         let events: (any WorkspaceCoordinatorEventPublishing)?
 
-        init(index: any WorkspaceIndexCoordinating, windows: any WorkspaceWindowCoordinating, clock: any WorkspaceCoordinatorClock, events: (any WorkspaceCoordinatorEventPublishing)? = nil) {
+        public init(index: any WorkspaceIndexCoordinating, windows: any WorkspaceWindowCoordinating, clock: any WorkspaceCoordinatorClock, events: (any WorkspaceCoordinatorEventPublishing)? = nil) {
             self.index = index
             self.windows = windows
             self.clock = clock
@@ -102,7 +102,7 @@ public extension WorkspaceCoordinator {
                     return .failure(.notOpen)
                 }
                 let windowID = try await windows.focusWindow(workspace: workspace)
-                try await index.markRecent(requestID: input.requestID, workspaceID: workspace.workspaceID)
+                try await index.markRecent(requestID: input.requestID, workspaceID: workspace.workspaceID, targetIdentity: workspace.identity)
                 let timestamp = clock.now()
                 await WorkspaceCoordinator.publish(input.requestID, "WorkspaceSwitched", timestamp, .workspaceSwitched(workspace.workspaceID), events)
                 return .success(SwitchWorkspaceResult(requestID: input.requestID, experience: WorkspaceExperience(workspace: workspace, serverSelection: .local, windowID: windowID), timestamp: timestamp))
@@ -123,7 +123,7 @@ public extension WorkspaceCoordinator {
         let clock: any WorkspaceCoordinatorClock
         let events: (any WorkspaceCoordinatorEventPublishing)?
 
-        init(index: any WorkspaceIndexCoordinating, windows: any WorkspaceWindowCoordinating, runtime: any WorkspaceRuntimeCoordinating, clock: any WorkspaceCoordinatorClock, events: (any WorkspaceCoordinatorEventPublishing)? = nil) {
+        public init(index: any WorkspaceIndexCoordinating, windows: any WorkspaceWindowCoordinating, runtime: any WorkspaceRuntimeCoordinating, clock: any WorkspaceCoordinatorClock, events: (any WorkspaceCoordinatorEventPublishing)? = nil) {
             self.index = index
             self.windows = windows
             self.runtime = runtime
@@ -133,12 +133,14 @@ public extension WorkspaceCoordinator {
 
         public func run(_ input: CloseWorkspaceExperienceInput) async -> Result<CloseWorkspaceExperienceResult, WorkspaceCoordinatorError> {
             do {
-                try await windows.closeWindow(workspaceID: input.workspaceID)
-                try await runtime.detachWorkspaceRuntime(requestID: input.requestID, workspaceID: input.workspaceID)
-                _ = try await index.detachWorkspace(requestID: input.requestID, workspaceID: input.workspaceID)
+                let target = input.targetIdentity ?? WorkspaceIndex.WorkspaceIdentity(kind: .project, workspaceID: input.workspaceID)
+                let workspace = try await index.resolveWorkspace(requestID: input.requestID, identity: target)
+                try await windows.closeWindow(workspace: workspace)
+                try await runtime.detachWorkspaceRuntime(requestID: input.requestID, workspaceID: workspace.workspaceID, targetIdentity: workspace.identity)
+                _ = try await index.detachWorkspace(requestID: input.requestID, workspaceID: workspace.workspaceID, targetIdentity: workspace.identity)
                 let timestamp = clock.now()
-                await WorkspaceCoordinator.publish(input.requestID, "WorkspaceClosed", timestamp, .workspaceClosed(input.workspaceID), events)
-                return .success(CloseWorkspaceExperienceResult(requestID: input.requestID, workspaceID: input.workspaceID, timestamp: timestamp))
+                await WorkspaceCoordinator.publish(input.requestID, "WorkspaceClosed", timestamp, .workspaceClosed(workspace.workspaceID), events)
+                return .success(CloseWorkspaceExperienceResult(requestID: input.requestID, workspaceID: workspace.workspaceID, timestamp: timestamp))
             } catch {
                 return .failure(.closeFailed)
             }
@@ -156,7 +158,7 @@ public extension WorkspaceCoordinator {
         let clock: any WorkspaceCoordinatorClock
         let events: (any WorkspaceCoordinatorEventPublishing)?
 
-        init(
+        public init(
             index: any WorkspaceIndexCoordinating,
             serverSelector: any WorkspaceServerSelecting,
             runtime: any WorkspaceRuntimeCoordinating,
@@ -178,16 +180,18 @@ public extension WorkspaceCoordinator {
             do {
                 let workspace = try await index.resolveWorkspace(requestID: input.requestID, identity: input.identity)
                 let server = try await serverSelector.selectServer(input.serverSelection, workspace: workspace)
-                let runtimeState = try await runtime.reconnectWorkspaceRuntime(requestID: input.requestID, workspaceID: workspace.workspaceID, server: server)
-                guard let snapshot = WorkspaceCoordinator.layoutSnapshot(from: runtimeState, workspace: workspace) else {
+                let runtimeProjection = try await runtime.reconnectWorkspaceRuntime(requestID: input.requestID, workspaceID: workspace.workspaceID, server: server)
+                let runtimeState = runtimeProjection.workspace
+                guard let snapshot = WorkspaceCoordinator.layoutSnapshot(from: runtimeState, panes: runtimeProjection.panes, workspace: workspace) else {
                     return .failure(.restoreFailed)
                 }
                 let restore = try await WorkspaceCoordinator.restore(requestID: input.requestID, workspace: workspace, snapshot: snapshot, layoutRestorer: layoutRestorer, viewportRestorer: viewportRestorer)
                 let timestamp = clock.now()
                 await WorkspaceCoordinator.publish(input.requestID, "WorkspaceReconnected", timestamp, .workspaceReconnected(workspace.workspaceID), events)
+                let experience = WorkspaceExperience(workspace: workspace, serverSelection: input.serverSelection, runtime: runtimeState, layout: restore.layout, restoredPanes: restore.restoredPanes)
                 return .success(ReconnectWorkspaceExperienceResult(
                     requestID: input.requestID,
-                    experience: WorkspaceExperience(workspace: workspace, serverSelection: input.serverSelection, runtime: runtimeState, layout: restore.layout, restoredPanes: restore.restoredPanes),
+                    experience: experience,
                     timestamp: timestamp
                 ))
             } catch let error as WorkspaceCoordinatorError {
@@ -206,7 +210,7 @@ public extension WorkspaceCoordinator {
         let clock: any WorkspaceCoordinatorClock
         let events: (any WorkspaceCoordinatorEventPublishing)?
 
-        init(layoutRestorer: any WorkspaceLayoutRestoring, viewportRestorer: any WorkspaceViewportRestoring, clock: any WorkspaceCoordinatorClock, events: (any WorkspaceCoordinatorEventPublishing)? = nil) {
+        public init(layoutRestorer: any WorkspaceLayoutRestoring, viewportRestorer: any WorkspaceViewportRestoring, clock: any WorkspaceCoordinatorClock, events: (any WorkspaceCoordinatorEventPublishing)? = nil) {
             self.layoutRestorer = layoutRestorer
             self.viewportRestorer = viewportRestorer
             self.clock = clock
@@ -246,31 +250,57 @@ extension WorkspaceCoordinator {
         return (layout, restored)
     }
 
-    static func layoutSnapshot(from runtime: NativeRuntime.WorkspaceRuntimeState, workspace: WorkspaceIndex.WorkspaceSummary) -> PaneGrid.SessionSnapshot? {
-        guard let firstPaneID = runtime.attachedPaneIDs.first else {
+    static func layoutSnapshot(from runtime: NativeRuntime.WorkspaceRuntimeState, panes runtimePanes: [NativeRuntime.PaneRuntimeState], workspace: WorkspaceIndex.WorkspaceSummary) -> PaneGrid.SessionSnapshot? {
+        var paneStates: [PaneID: NativeRuntime.PaneRuntimeState] = [:]
+        for pane in runtimePanes {
+            guard paneStates[pane.paneID] == nil else {
+                return nil
+            }
+            paneStates[pane.paneID] = pane
+        }
+        guard let activeWindowID = runtime.activeWindowID ?? runtime.windows.first?.windowID,
+              let tmuxSessionID = runtime.tmuxSessionID,
+              !runtime.windows.isEmpty
+        else {
             return nil
         }
-        let panes = runtime.attachedPaneIDs.enumerated().map { index, paneID in
-            PaneGrid.PaneSnapshot(
-                paneID: paneID,
-                title: paneID.rawValue,
-                rect: PaneGrid.PaneRect(x: index * 80, y: 0, columns: 80, rows: 24)
+        let windows = runtime.windows.compactMap { window -> PaneGrid.WindowSnapshot? in
+            let panes = window.paneIDs.enumerated().compactMap { index, paneID -> PaneGrid.PaneSnapshot? in
+                guard let pane = paneStates[paneID],
+                      pane.status == .attached,
+                      let tmuxPaneID = pane.tmuxPaneID,
+                      let size = pane.size
+                else {
+                    return nil
+                }
+                return PaneGrid.PaneSnapshot(
+                    paneID: paneID,
+                    tmuxPaneID: tmuxPaneID,
+                    streamID: pane.stream.streamID,
+                    title: paneID.rawValue,
+                    rect: PaneGrid.PaneRect(x: index * size.columns, y: 0, columns: size.columns, rows: size.rows)
+                )
+            }
+            guard !panes.isEmpty else {
+                return nil
+            }
+            return PaneGrid.WindowSnapshot(
+                windowID: window.windowID,
+                tmuxWindowID: window.tmuxWindowID.rawValue,
+                index: window.index,
+                title: window.title,
+                activePaneID: window.activePaneID,
+                panes: panes
             )
+        }
+        guard windows.contains(where: { $0.windowID == activeWindowID }) else {
+            return nil
         }
         return PaneGrid.SessionSnapshot(
             workspaceID: workspace.workspaceID,
-            tmuxSessionID: runtime.workspaceID.rawValue,
-            activeWindowID: FenrirWindowID(rawValue: "window-\(workspace.workspaceID.rawValue)"),
-            windows: [
-                PaneGrid.WindowSnapshot(
-                    windowID: FenrirWindowID(rawValue: "window-\(workspace.workspaceID.rawValue)"),
-                    tmuxWindowID: "tmux-window-\(workspace.workspaceID.rawValue)",
-                    index: 0,
-                    title: workspace.displayName,
-                    activePaneID: firstPaneID,
-                    panes: panes
-                )
-            ]
+            tmuxSessionID: tmuxSessionID.rawValue,
+            activeWindowID: activeWindowID,
+            windows: windows
         )
     }
 }

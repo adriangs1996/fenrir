@@ -172,7 +172,10 @@ function makeRoutesLayer(calls: string[] = []) {
         panes: [],
       });
     },
-    focusPane: () => Effect.succeed(snapshot),
+    focusPane: () => {
+      calls.push("pane.focus");
+      return Effect.succeed(snapshot);
+    },
     resizePane: () => {
       calls.push("pane.resize");
       return Effect.succeed(pane);
@@ -313,6 +316,7 @@ it.effect("routes window and pane mutations plus pane write acknowledgements", (
       },
     });
     yield* routes[WS_METHODS.tmuxOperationalPaneStatuses]({ actor, workspaceId });
+    yield* routes[WS_METHODS.tmuxPaneFocus]({ actor, workspaceId, paneId });
     yield* routes[WS_METHODS.tmuxPaneResize]({ actor, workspaceId, paneId, cols: 120, rows: 40 });
     yield* routes[WS_METHODS.tmuxPaneClose]({ actor, workspaceId, paneId, mode: "detach" });
     const write = yield* routes[WS_METHODS.tmuxPaneWrite]({
@@ -332,6 +336,7 @@ it.effect("routes window and pane mutations plus pane write acknowledgements", (
       "neovim.reconnect",
       "pane.attachMetadata",
       "pane.statuses",
+      "pane.focus",
       "pane.resize",
       "pane.close",
       "pane.write:write-1",

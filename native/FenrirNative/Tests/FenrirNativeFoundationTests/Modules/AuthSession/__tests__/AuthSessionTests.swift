@@ -254,6 +254,218 @@ struct AuthSessionTests {
         #expect(await fetcher.lastBearerToken() == "stored-secret")
     }
 
+    @Test("LoadAuthSessionCredential reports missing keychain item without fabricating a session")
+    func loadCredentialReportsMissingItem() async throws {
+        let events = CapturingAuthEvents()
+        let action = AuthSession.LoadAuthSessionCredential(
+            secureStorage: TestAuthSecureStorage(),
+            sessionStore: TestAuthSessionStore(),
+            clock: FixedClock(),
+            events: events
+        )
+
+        let result = await action.run(AuthSession.LoadAuthSessionCredentialInput(
+            requestID: "load-credential",
+            endpointScope: scope(),
+            source: .test
+        ))
+
+        #expect(result == .failure(.bearerSessionMissing))
+        #expect(await events.events() == [
+            EventEnvelope(
+                eventID: "load-credential",
+                eventKind: "AuthSecureStorageFailed",
+                timestamp: FixedClock().timestamp,
+                event: .authSecureStorageFailed(scope(), .load, .bearerSessionMissing)
+            )
+        ])
+    }
+
+    @Test("LoadAuthSessionCredential rejects corrupt stored bearer material")
+    func loadCredentialRejectsCorruptItem() async throws {
+        let secureStorage = MismatchedReadAuthSecureStorage(
+            credential: AuthSession.StoredBearerCredential(
+                endpointScope: scope(),
+                reference: "test-keychain://auth-session/local/default",
+                bearerToken: ""
+            )
+        )
+        let sessionStore = TestAuthSessionStore()
+        try await sessionStore.saveSession(authSession().withCredentialReference("test-keychain://auth-session/local/default"))
+        let events = CapturingAuthEvents()
+        let action = AuthSession.LoadAuthSessionCredential(
+            secureStorage: secureStorage,
+            sessionStore: sessionStore,
+            clock: FixedClock(),
+            events: events
+        )
+
+        let result = await action.run(AuthSession.LoadAuthSessionCredentialInput(
+            requestID: "load-corrupt",
+            endpointScope: scope(),
+            source: .test
+        ))
+
+        #expect(result == .failure(.bearerSessionMissing))
+        #expect(await events.last()?.event == .authSecureStorageFailed(scope(), .load, .bearerSessionMissing))
+    }
+
+    @Test("LoadAuthSessionCredential reports permission denial from secure storage")
+    func loadCredentialReportsPermissionDenied() async throws {
+        let events = CapturingAuthEvents()
+        let action = AuthSession.LoadAuthSessionCredential(
+            secureStorage: FailingAuthSecureStorage(readError: .secureStorageReadFailed),
+            sessionStore: TestAuthSessionStore(),
+            clock: FixedClock(),
+            events: events
+        )
+
+        let result = await action.run(AuthSession.LoadAuthSessionCredentialInput(
+            requestID: "load-denied",
+            endpointScope: scope(),
+            source: .test
+        ))
+
+        #expect(result == .failure(.secureStorageReadFailed))
+        #expect(await events.last()?.event == .authSecureStorageFailed(scope(), .load, .secureStorageReadFailed))
+    }
+
+    @Test("Save Delete and RotateAuthSessionCredential isolate token material in secure storage")
+    func credentialLifecycleActionsUseSecureStorageOnly() async throws {
+        let secureStorage = TestAuthSecureStorage()
+        let sessionStore = TestAuthSessionStore()
+        let save = AuthSession.SaveAuthSessionCredential(
+            secureStorage: secureStorage,
+            sessionStore: sessionStore,
+            clock: FixedClock()
+        )
+        let rotate = AuthSession.RotateAuthSessionCredential(
+            secureStorage: secureStorage,
+            sessionStore: sessionStore,
+            clock: FixedClock()
+        )
+        let delete = AuthSession.DeleteAuthSessionCredential(
+            secureStorage: secureStorage,
+            sessionStore: sessionStore,
+            clock: FixedClock()
+        )
+
+        let saved = try await save.run(AuthSession.SaveAuthSessionCredentialInput(
+            requestID: "save-credential",
+            session: authSession(),
+            bearerToken: "first-secret",
+            source: .test
+        )).get()
+        let rotated = try await rotate.run(AuthSession.RotateAuthSessionCredentialInput(
+            requestID: "rotate-credential",
+            session: saved.session,
+            replacementBearerToken: "second-secret",
+            source: .test
+        )).get()
+
+        #expect(saved.credentialReference == rotated.credentialReference)
+        #expect(rotated.bearerSession.bearerToken == "second-secret")
+        #expect(try await secureStorage.readBearerCredential(scope: scope())?.bearerToken == "second-secret")
+        #expect(try await sessionStore.loadSession(scope: scope())?.credentialReference == rotated.credentialReference)
+
+        _ = try await delete.run(AuthSession.DeleteAuthSessionCredentialInput(
+            requestID: "delete-credential",
+            endpointScope: scope(),
+            source: .test
+        )).get()
+
+        #expect(try await secureStorage.readBearerCredential(scope: scope()) == nil)
+        #expect(try await sessionStore.loadSession(scope: scope()) == nil)
+    }
+
+    @Test("RotateAuthSessionCredential preserves existing reference for migration safe overwrites")
+    func rotateCredentialPreservesReference() async throws {
+        let secureStorage = AuthSession.InMemoryAuthSecureStorage()
+        let sessionStore = TestAuthSessionStore()
+        let save = AuthSession.SaveAuthSessionCredential(
+            secureStorage: secureStorage,
+            sessionStore: sessionStore,
+            clock: FixedClock()
+        )
+        let rotate = AuthSession.RotateAuthSessionCredential(
+            secureStorage: secureStorage,
+            sessionStore: sessionStore,
+            clock: FixedClock()
+        )
+
+        let saved = try await save.run(AuthSession.SaveAuthSessionCredentialInput(
+            requestID: "save",
+            session: authSession(),
+            bearerToken: "legacy-compatible-secret",
+            source: .test
+        )).get()
+        let rotated = try await rotate.run(AuthSession.RotateAuthSessionCredentialInput(
+            requestID: "rotate",
+            session: saved.session,
+            replacementBearerToken: "rotated-secret",
+            source: .test
+        )).get()
+
+        #expect(rotated.credentialReference == saved.credentialReference)
+        #expect(try await secureStorage.readBearerCredential(scope: scope())?.reference == saved.credentialReference)
+        #expect(try await secureStorage.readBearerCredential(scope: scope())?.bearerToken == "rotated-secret")
+    }
+
+    @Test("SaveAuthSessionCredential rolls back new keychain item when session snapshot save fails")
+    func saveCredentialRollsBackNewSecretOnSessionStoreFailure() async throws {
+        let secureStorage = TestAuthSecureStorage()
+        let sessionStore = FailingAuthSessionStore(saveError: .secureStorageWriteFailed)
+        let action = AuthSession.SaveAuthSessionCredential(
+            secureStorage: secureStorage,
+            sessionStore: sessionStore,
+            clock: FixedClock()
+        )
+
+        let result = await action.run(AuthSession.SaveAuthSessionCredentialInput(
+            requestID: "save-fail",
+            session: authSession(),
+            bearerToken: "orphan-secret",
+            source: .test
+        ))
+
+        #expect(result == .failure(.secureStorageWriteFailed))
+        #expect(try await secureStorage.readBearerCredential(scope: scope()) == nil)
+    }
+
+    @Test("RotateAuthSessionCredential restores prior keychain item when session snapshot save fails")
+    func rotateCredentialRestoresPriorSecretOnSessionStoreFailure() async throws {
+        let secureStorage = TestAuthSecureStorage()
+        let workingStore = TestAuthSessionStore()
+        let save = AuthSession.SaveAuthSessionCredential(
+            secureStorage: secureStorage,
+            sessionStore: workingStore,
+            clock: FixedClock()
+        )
+        let saved = try await save.run(AuthSession.SaveAuthSessionCredentialInput(
+            requestID: "save-prior",
+            session: authSession(),
+            bearerToken: "prior-secret",
+            source: .test
+        )).get()
+        let failingStore = FailingAuthSessionStore(saveError: .secureStorageWriteFailed)
+        let rotate = AuthSession.RotateAuthSessionCredential(
+            secureStorage: secureStorage,
+            sessionStore: failingStore,
+            clock: FixedClock()
+        )
+
+        let result = await rotate.run(AuthSession.RotateAuthSessionCredentialInput(
+            requestID: "rotate-fail",
+            session: saved.session,
+            replacementBearerToken: "replacement-secret",
+            source: .test
+        ))
+
+        #expect(result == .failure(.secureStorageWriteFailed))
+        #expect(try await secureStorage.readBearerCredential(scope: scope())?.reference == saved.credentialReference)
+        #expect(try await secureStorage.readBearerCredential(scope: scope())?.bearerToken == "prior-secret")
+    }
+
     @Test("LoadAuthSession rejects verified server session for a different endpoint scope")
     func loadRejectsEndpointScopeMismatch() async throws {
         let secureStorage = TestAuthSecureStorage()
@@ -641,6 +853,63 @@ private actor TestAuthSecureStorage: AuthSession.AuthSecureStorage {
     }
 }
 
+private struct FailingAuthSecureStorage: AuthSession.AuthSecureStorage {
+    let readError: AuthSession.AuthSessionError?
+    let writeError: AuthSession.AuthSessionError?
+    let deleteError: AuthSession.AuthSessionError?
+
+    init(
+        readError: AuthSession.AuthSessionError? = nil,
+        writeError: AuthSession.AuthSessionError? = nil,
+        deleteError: AuthSession.AuthSessionError? = nil
+    ) {
+        self.readError = readError
+        self.writeError = writeError
+        self.deleteError = deleteError
+    }
+
+    func readBearerCredential(
+        scope: AuthSession.EndpointScope
+    ) async throws -> AuthSession.StoredBearerCredential? {
+        if let readError {
+            throw readError
+        }
+        return nil
+    }
+
+    func writeBearerCredential(
+        scope: AuthSession.EndpointScope,
+        bearerToken: String
+    ) async throws -> String {
+        if let writeError {
+            throw writeError
+        }
+        return "test-keychain://auth-session/\(scope.endpointID)/default"
+    }
+
+    func deleteBearerCredential(scope: AuthSession.EndpointScope) async throws {
+        if let deleteError {
+            throw deleteError
+        }
+    }
+}
+
+private actor CapturingAuthEvents: AuthSession.AuthSessionEventPublishing {
+    private var captured: [EventEnvelope<AuthSession.Event>] = []
+
+    func publish(_ event: EventEnvelope<AuthSession.Event>) async {
+        captured.append(event)
+    }
+
+    func events() -> [EventEnvelope<AuthSession.Event>] {
+        captured
+    }
+
+    func last() -> EventEnvelope<AuthSession.Event>? {
+        captured.last
+    }
+}
+
 private struct MismatchedReadAuthSecureStorage: AuthSession.AuthSecureStorage {
     let credential: AuthSession.StoredBearerCredential
 
@@ -674,6 +943,20 @@ private actor TestAuthSessionStore: AuthSession.AuthSessionStore {
     func deleteSession(scope: AuthSession.EndpointScope) async throws {
         sessions.removeValue(forKey: scope)
     }
+}
+
+private struct FailingAuthSessionStore: AuthSession.AuthSessionStore {
+    let saveError: AuthSession.AuthSessionError
+
+    func loadSession(scope: AuthSession.EndpointScope) async throws -> AuthSession.NativeAuthSession? {
+        nil
+    }
+
+    func saveSession(_ session: AuthSession.NativeAuthSession) async throws {
+        throw saveError
+    }
+
+    func deleteSession(scope: AuthSession.EndpointScope) async throws {}
 }
 
 private struct TestAuthClientMetadataProvider: AuthSession.AuthClientMetadataProviding {

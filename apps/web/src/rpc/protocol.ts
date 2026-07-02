@@ -24,7 +24,12 @@ export interface WsProtocolLifecycleHandlers {
   readonly onOpen?: () => void;
   readonly onInboundMessage?: () => void;
   readonly onHeartbeatPong?: () => void;
-  readonly onError?: (message: string) => void;
+  /**
+   * `error` carries the original thrown value when the failure originated
+   * from the socket-URL provider (e.g. a typed auth HTTP error), so handlers
+   * can classify auth failures instead of parsing the message string.
+   */
+  readonly onError?: (message: string, error?: unknown) => void;
   readonly onClose?: (details: { readonly code: number; readonly reason: string }) => void;
 }
 
@@ -112,14 +117,14 @@ function composeLifecycleHandlers(
       defaults.onHeartbeatPong();
       handlers?.onHeartbeatPong?.();
     },
-    onError: (message) => {
+    onError: (message, error) => {
       if (!isActive()) {
         return;
       }
       if (reportGlobalStatus) {
         defaults.onError(message);
       }
-      handlers?.onError?.(message);
+      handlers?.onError?.(message, error);
     },
     onClose: (details) => {
       if (!isActive()) {
@@ -137,13 +142,19 @@ function resolveAsyncWsRpcSocketUrl(
   url: () => Promise<string>,
   lifecycle: Required<WsProtocolLifecycleHandlers>,
 ): Effect.Effect<string> {
-  const resolvedUrl = Promise.resolve().then(url).then(resolveWsRpcSocketUrl);
-
-  void resolvedUrl.catch((error: unknown) => {
-    lifecycle.onError(formatSocketErrorMessage(error));
-  });
-
-  return Effect.promise(() => resolvedUrl);
+  // Invoke the provider on EVERY socket open attempt. The resolved URL embeds
+  // a short-lived wsToken (5-minute TTL); memoizing it doomed every in-session
+  // retry once the token expired, turning a transient blip into minutes of
+  // guaranteed-failing reconnect attempts.
+  return Effect.promise(() =>
+    Promise.resolve()
+      .then(url)
+      .then(resolveWsRpcSocketUrl)
+      .catch((error: unknown) => {
+        lifecycle.onError(formatSocketErrorMessage(error), error);
+        throw error;
+      }),
+  );
 }
 
 export function createWsRpcProtocolLayer(

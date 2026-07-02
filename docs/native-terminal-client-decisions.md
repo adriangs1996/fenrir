@@ -25,8 +25,8 @@ Core product characteristics:
 - The terminal is the primary experience, not a secondary tool view.
 - `tmux` is the structural substrate for workspace, tab/window, and pane
   identity.
-- Agents, workflows, remote processes, browser-lab surfaces, Neovim, and git
-  review tools must feel like first-class citizens inside the terminal shell.
+- Agents, workflows, Neovim, terminal context capture, and future git/review
+  tools must feel like first-class citizens inside the terminal shell.
 - The UI must represent tmux concepts cleanly rather than hide them behind a
   generic document-style desktop app model.
 - The app should eventually be strong enough to replace the Electron terminal
@@ -76,7 +76,8 @@ window control rather than a primarily declarative UI toolkit.
   - The renderer must integrate cleanly with the tmux session kernel and native
     windowing stack.
 - Consequences:
-  - The native host will embed `libGhostty` directly.
+  - The native client will embed `libGhostty` behind a Fenrir-owned viewport
+    wrapper.
   - Terminal viewport behavior will be owned by the native client, while tmux
     remains the session/process kernel.
 
@@ -168,8 +169,6 @@ window control rather than a primarily declarative UI toolkit.
   - If a new concern does not fit the map cleanly, we should update the module
     map explicitly rather than add ad hoc structure.
 
-## Open Decisions
-
 ### D-005: Native UI shell
 
 - Status: accepted
@@ -198,65 +197,101 @@ window control rather than a primarily declarative UI toolkit.
     `NSViewController`, and `NSView` composition for the shell.
   - Any future SwiftUI usage must be additive and must not become the owner of
     pane layout or terminal focus behavior.
+  - SwiftUI may render contained auxiliary islands only when AppKit remains the
+    owner of shell focus, key routing, pane layout, and terminal embedding.
 
 ### D-006: Native host embedding boundary
 
-- Status: open
-- Decision to make: embed `libGhostty` directly everywhere vs isolate it behind
-  a thin internal host abstraction such as `FenrirTerminalView`.
-- Current recommendation:
-  - Create a thin internal wrapper so the rest of the app does not depend on
-    raw `libGhostty` embedding details.
+- Status: accepted
+- Decision: isolate `libGhostty` behind a thin internal `FenrirTerminalView`
+  boundary owned by `TerminalViewport`.
+- Final choice:
+  - Modules outside `TerminalViewport` must not import raw Ghostty types.
+  - Ghostty surface lifecycle, renderer input, IME, selection, clipboard,
+    resize, search, scrollback integration, and diagnostics stay behind the
+    wrapper.
+  - Tests should be able to use fake renderer ports without loading Ghostty.
+- Consequences:
+  - Features that need renderer behavior must first be modeled as Fenrir
+    viewport capabilities.
+  - The rest of the app remains insulated from C/Ghostty/AppKit implementation
+    details.
 
 ### D-007: Local server bootstrap model
 
-- Status: open
-- Decision to make:
-  - connect only to an existing local server,
-  - always spawn a local server,
-  - or support both.
-- Current recommendation:
-  - Support both, with automatic bootstrap when no local server is already
-    running.
+- Status: accepted
+- Decision: support both connecting to an existing local server and
+  auto-bootstrapping a local server when no healthy local server is available.
+- Final choice:
+  - The behavior should be similar in spirit to the existing Electron app: local
+    use should not require manually starting another process first.
+  - Local server bootstrap/supervision belongs to `NativeHost` or a narrow
+    native supervisor adapter, not to `ServerConnection`.
+  - Remote profiles do not spawn local servers.
+  - Servers not spawned by Fenrir Native are not killed or aggressively
+    restarted by Fenrir Native.
+- Consequences:
+  - Native packaging must include or manage a compatible local server component.
+  - Startup must include discovery, readiness probing, compatibility checks, and
+    visible degraded states.
 
 ### D-008: Local transport boundary
 
-- Status: open
-- Decision to make: local client/server transport over Unix domain socket vs
-  localhost TCP.
-- Current recommendation:
-  - Prefer Unix domain socket for local communication if it fits current server
-    constraints cleanly; otherwise use localhost TCP with explicit auth/session
-    binding.
+- Status: accepted
+- Decision: use a pragmatic split between local client control and Fenrir server
+  RPC.
+- Final choice:
+  - `fenrir` CLI to native app control uses a local Unix domain socket.
+  - Native app to local Fenrir server uses authenticated WebSocket/TCP
+    initially.
+  - Native app to remote Fenrir server uses authenticated WebSocket/TLS.
+  - Unix socket transport for the server can be added later if it fits cleanly,
+    but it does not block the native app.
+- Consequences:
+  - CLI control IPC is separate from Fenrir server RPC.
+  - Terminal bytes never travel through local client-control IPC.
+  - Localhost transport is never treated as implicit auth.
 
 ### D-009: Native client runtime implementation
 
-- Status: open
-- Decision to make: port the current TypeScript runtime behavior directly to
-  Swift vs first freeze a stricter protocol/runtime spec and implement Swift
-  against it.
-- Current recommendation:
-  - Freeze the behavioral spec first, then implement the native runtime in
-    Swift.
+- Status: accepted
+- Decision: freeze a versioned runtime protocol/spec before implementing the
+  live Swift `NativeRuntime`.
+- Final choice:
+  - Swift does not port the TypeScript runtime as the source of truth.
+  - Swift implements request/response, stream envelopes, cursor/replay,
+    gap/overflow, write acknowledgement, resize, attach/detach/reconnect,
+    capability, error, and version semantics from the shared spec.
+  - TypeScript and Swift clients should be comparable against the same
+    behavioral contract during migration.
+- Consequences:
+  - Initial wiring waits for a stricter protocol document.
+  - The server/client boundary becomes stable enough for native, web, Electron,
+    CLI, remote, workflows, and future clients.
 
 ### D-010: Window and pane ownership model
 
 - Status: accepted
 - Decision:
   - `1 native window = 1 workspace`
-  - `1 workspace = 1 tmux session`
+  - `1 workspace runtime session = 1 tmux session`
   - in-app tabs map to `tmux windows`
   - visible splits map to `tmux panes`
 - Final choice:
   - The main pane grid must represent real tmux panes, not a parallel
     client-only split model.
+  - The main tab strip must represent real tmux windows.
+  - Client-only panels, overlays, command palettes, settings, and inspectors do
+    not appear inside the pane grid.
   - Native macOS window tabs are not the primary product model; Fenrir owns the
     workspace and tab presentation inside the app shell.
+  - For the local product experience, a workspace has one primary native window.
+  - Multiple local windows attached to the same workspace are an advanced
+    explicit mode, not normal product flow.
   - The client must support these workspace operations:
     - open or create workspace
-    - attach existing workspace in a new window
-    - switch to another workspace by focusing its existing window or opening a
-      new window for it
+    - switch to another workspace by focusing its existing window or opening it
+      if not visible
     - close window without destroying the workspace session
     - explicitly terminate the workspace session
     - forget a workspace from local recents/favorites without deleting server
@@ -276,6 +311,8 @@ window control rather than a primarily declarative UI toolkit.
     avoiding dual ownership of tabs, panes, focus, resize, and restore.
   - Treating workspaces as window-scoped keeps the product mental model clean:
     one project/session context per main window.
+  - Tmux tabs and panes should solve workspace-internal layout. AppKit windows
+    should not become a second layout system above tmux.
   - Workspace switching is frequent enough that it cannot depend on a single UI
     affordance. Sidebar, commands, and keybindings should all exist.
 - Consequences:
@@ -284,54 +321,75 @@ window control rather than a primarily declarative UI toolkit.
     switcher surfaces.
   - The CLI and native client control surfaces should eventually align around
     the same workspace operations.
-  - Workspace metadata shown in the sidebar/switcher is intentionally left open
-    for a later decision.
+  - Workspace metadata shown in the sidebar/switcher follows the operational
+    sidebar model: active, pinned, recent, profile grouping, degraded state, and
+    attention signals.
 
 ### D-011: Resize authority
 
-- Status: open
-- Decision to make: who owns authoritative `cols/rows` under focus changes,
-  split drag, multiple attached clients, zoom, and restore.
-- Current recommendation:
-  - The active visible viewport should be the authority for pane size, with
-    explicit policy for passive observers and multi-attach cases.
+- Status: accepted
+- Decision: tmux runtime sessions are actor-scoped by default, and resize
+  authority is resolved only among attachments for the same actor/session.
+- Final choice:
+  - Workspace runtime identity includes server profile, tenant/org, actor/user,
+    and project/workspace.
+  - Two different users connected to the same Fenrir server do not share tmux
+    sessions, tabs, panes, or processes by default.
+  - Shared sessions are a future explicit feature with their own
+    `sharedSessionId`, permissions, resize policy, and write policy.
+  - Within one actor's runtime session, the focused visible viewport is the
+    resize authority.
+  - Background, minimized, hidden, and passive observers do not send competing
+    resize commands.
+  - Resize commands should carry viewport/layout epoch information so the server
+    can reject stale races.
+- Consequences:
+  - Multiuser ambiguity is removed from the default tmux model.
+  - Native, Electron/web, and remote clients for the same user still need
+    deterministic resize conflict handling.
 
 ### D-012: Scrollback ownership
 
-- Status: open
-- Decision to make how scrollback is divided across tmux, `libGhostty`, and
-  client-local state.
-- Current recommendation:
-  - Treat tmux plus the pane stream replay contract as the durable source for
-    reconnect/backfill semantics.
-  - Keep renderer-local scrollback strictly a viewport concern, not the durable
-    replay contract.
+- Status: accepted
+- Decision: durable replay belongs to tmux plus the server pane-stream contract;
+  Ghostty/local viewport scrollback is cache/UX only.
+- Final choice:
+  - `NativeRuntime` tracks `seq`, cursor, gap, overflow, and stream close state.
+  - Reconnect requests backfill from the last valid cursor when available.
+  - If no valid cursor exists, the client subscribes from `latest`.
+  - Renderer-local scrollback may be lost when a viewport is destroyed without
+    corrupting runtime state.
+  - Long-term durable terminal history, if needed later, must be a separate
+    server/product contract.
+- Consequences:
+  - The client must surface `gap` and `overflow` explicitly.
+  - Local settings must not store terminal scrollback.
 
 ### D-013: Neovim integration model
 
-- Status: open
-- Decision to make: terminal-only Neovim integration vs terminal-first plus
-  optional Fenrir/Neovim bridge.
-- Current recommendation:
-  - Neovim runs as a real tmux pane process first.
-  - Any deeper integration should be optional and layered on top later.
+- Status: accepted
+- Decision: Neovim runs as a real tmux pane process, but native Fenrir
+  integration is part of the base design.
+- Final choice:
+  - Fenrir creates, focuses, and reconnects Neovim panes through the tmux
+    runtime.
+  - Neovim launch is bootstrapped with workspace, server, tab, pane, actor, and
+    optional `nvim --listen` metadata.
+  - A bridge/plugin or `nvim --listen` integration should provide file, cursor,
+    selection, diagnostics, and controlled command context where available.
+  - If the bridge fails, the pane degrades to normal terminal Neovim without
+    breaking the session.
+- Consequences:
+  - Neovim is not a native embedded widget.
+  - The nominal product experience should still feel native: files can be
+    opened from palette/sidebar/agent/workflow surfaces into Neovim, and editor
+    context can be exposed to agents when available.
 
 ### D-014: CLI as native client control surface
 
-- Status: open
-- Decision to make: whether the `fenrir` CLI should be able to control what the
-  running native client opens and focuses, or whether it should stay limited to
-  server/admin actions.
-- Current recommendation:
-  - The `fenrir` CLI should be the control surface for both server operations
-    and native client operations.
-  - Commands such as `fenrir open <workspace>`, `fenrir attach <workspace>`,
-    `fenrir list workspaces`, and `fenrir focus <workspace>` should target the
-    running native client when one exists.
-  - If no native client is running, `fenrir open <workspace>` should launch the
-    client and open or attach the requested workspace.
-  - The CLI must not manipulate terminal bytes directly; it should use a local
-    client control channel plus the authenticated Fenrir server contracts.
+- Status: accepted
+- Decision: the `fenrir` CLI is the unified control surface for product-level
+  native app commands and server/admin commands, with strict routing rules.
 - Why this matters:
   - It defines whether Fenrir behaves like a real terminal application that can
     be driven from the shell, or like an isolated GUI with a separate admin
@@ -343,8 +401,9 @@ window control rather than a primarily declarative UI toolkit.
     control operations.
   - The `fenrir` CLI should first try to contact the running local client over
     a dedicated local control channel.
-  - If no client is reachable, the CLI should launch the native app and pass an
-    initial command payload for deferred execution on startup.
+  - If no client is reachable, the current implementation reports
+    `no-app-running`. Launching the native app and passing an initial deferred
+    command is future client-control work.
   - The local control channel should be separate from Fenrir server RPC and
     separate from tmux-kernel admin commands.
   - The IPC listener/adapter belongs to the outer application shell
@@ -352,16 +411,21 @@ window control rather than a primarily declarative UI toolkit.
     `ClientControl` module.
 - Proposed command surface:
   - `fenrir open <workspace>`: open the workspace, focusing an existing window
-    if it is already attached locally unless `--new-window` is requested
-  - `fenrir attach <workspace>`: attach the workspace in a new window even if it
-    is already open elsewhere
+    if it is already open locally
+  - `fenrir attach <workspace>`: attach to the workspace runtime when needed for
+    remote/reconnect/advanced flows; locally it should not create duplicate
+    windows by default
   - `fenrir focus <workspace>`: focus the existing local workspace window,
     failing if it is not open locally
   - `fenrir list workspaces`: list locally known workspaces and indicate whether
     they are open, attachable, or only known from recents/favorites
-  - `fenrir terminate <workspace>`: explicit destructive action routed through
-    the authenticated server/session-kernel layer, not through raw local client
-    state alone
+  - `fenrir remove <workspace>`: remove or close the host-visible workspace
+    entry without documenting it as tmux session termination
+  - Future destructive session termination must be routed through the
+    authenticated server/session-kernel layer, not through raw local client state
+    alone.
+  - `fenrir nvim <path>` and file-oriented commands may route to the native app
+    and then to the Neovim integration when available.
 - Proposed routing rules:
   - Product commands target the local native client first.
   - The native client then talks to the Fenrir server and tmux kernel as
@@ -375,19 +439,328 @@ window control rather than a primarily declarative UI toolkit.
   - Use it only for small product-control messages such as open, focus, attach,
     list, and activate window.
 
+### D-017: Product state architecture
+
+- Status: accepted
+- Decision: do not adopt TCA as the native client's primary architecture.
+- Final choice:
+  - Fenrir Native keeps the module architecture defined in this document:
+    `Actions`, `Services`, `Contracts`, `Layers`, `Models`, and `Views`.
+  - AppKit controllers/views call typed actions and services, not a global
+    reducer.
+  - Supacode is a reference for boundaries, command/event streams, sidebar
+    projections, and terminal managers, not for adopting TCA wholesale.
+- Consequences:
+  - The codebase avoids having two competing architectures.
+  - Reducer-style local view state may exist inside isolated UI components, but
+    not as the product architecture.
+
+### D-018: Workspace identity model
+
+- Status: accepted
+- Decision: separate `Project`, `Workspace`, and `Runtime Session`.
+- Final choice:
+  - `Project` is the durable repo/folder/product concept.
+  - `Workspace` is the visible, searchable, pinnable, listable product entry.
+  - `Runtime Session` is the concrete tmux session for
+    `server/profile + tenant/org + actor/user + project/workspace`.
+  - Tmux object names are implementation keys, not public APIs.
+- Consequences:
+  - Two users can open the same project and get separate runtime sessions by
+    default.
+  - `fenrir open .` resolves path to project/workspace, then to the runtime
+    session for the current actor/profile.
+
+### D-019: Operational panes and fake panes
+
+- Status: accepted
+- Decision: the main pane grid only contains entities backed by tmux/server
+  kernel panes.
+- Final choice:
+  - Main tab strip equals tmux windows.
+  - Main pane grid equals tmux panes.
+  - Client-only UI must live in sidebar, overlay, inspector, popover, settings,
+    or other auxiliary surfaces.
+  - If agents, workflows, Neovim, logs, or future tools appear in the grid, they
+    must be represented by real tmux panes plus explicit metadata.
+- Consequences:
+  - Fenrir does not create a parallel client-only layout system.
+  - Settings, command palette, agent composer, conversations, and diagnostics do
+    not become fake panes.
+
+### D-020: Workflow and agent identity
+
+- Status: accepted
+- Decision: workflow and agent identity live in server contracts; tmux panes are
+  optional operational surfaces linked by metadata.
+- Final choice:
+  - A workflow is not identified by a pane.
+  - A pane may show logs, process output, or interaction for a workflow/agent.
+  - Sidebar, palette, notifications, and overlays read workflow/agent state from
+    server contracts, not terminal scraping.
+  - Workflows can have zero, one, or multiple linked surfaces.
+- Consequences:
+  - Workflow state remains correct if a terminal viewport is recreated.
+  - Terminal bytes are not the workflow database.
+
+### D-021: Terminal context for agents
+
+- Status: accepted
+- Decision: terminal context capture is a first-class, explicit, bounded user
+  action.
+- Final choice:
+  - Initial sources are terminal selection, visible viewport, and last N lines.
+  - Keybindings trigger context capture and open an agent composer modal.
+  - The composer lets the user edit the prompt/context before sending.
+  - Context includes provenance metadata such as workspace, tab, pane, source
+    type, and sequence range where available.
+  - Shell integration and command/output block detection are not required for
+    the base design.
+  - No automatic redaction/preprocessing is required for the base design.
+- Consequences:
+  - Terminal context can be sent to agents without giving agents arbitrary pane
+    write access.
+  - Sent context is stored as part of conversation transcripts, not technical
+    logs or telemetry.
+
+### D-022: Agent write authority
+
+- Status: accepted
+- Decision: agents do not write directly into user panes for the base native
+  client.
+- Final choice:
+  - Agents may receive terminal context and respond with suggestions, patches,
+    commands, or workflow proposals.
+  - Agents do not call `tmux.pane.write` against interactive user panes.
+  - Future agent writes require explicit server-side capabilities and a separate
+    decision.
+- Consequences:
+  - The base security and UX model is simpler.
+  - User shells are not mutated by agents without a future explicit permission
+    model.
+
+### D-023: Workspace overlay surfaces
+
+- Status: accepted
+- Decision: introduce workspace-scoped native overlay surfaces for composer,
+  conversations, results, diagnostics, help, and similar UI.
+- Final choice:
+  - Overlays are not tmux panes and do not appear in the pane grid.
+  - Overlays are navigable with tmux-like ergonomics: predictable focus,
+    keybindings, close/escape returning to the origin pane, sidebar/palette
+    focus targets, and restore/pin behavior where appropriate.
+  - `WorkspaceOverlays` owns presentation and focus lifecycle.
+- Consequences:
+  - Native agent/chat/help surfaces can feel integrated without corrupting tmux
+    layout ownership.
+
+### D-024: Agent interaction module
+
+- Status: accepted
+- Decision: create an `AgentInteraction` module separate from workflows,
+  overlays, and notifications.
+- Final choice:
+  - `AgentInteraction` owns composer inputs, terminal context attachments,
+    conversation transcripts, response streams, provider/agent selection, result
+    actions, and promotion to workflow.
+  - `WorkspaceOverlays` presents/focuses the surface.
+  - `WorkflowControl` owns durable workflow runs.
+  - `Notifications` owns badges and alerts, not transcripts.
+
+### D-025: Workflow control module
+
+- Status: accepted
+- Decision: create a native `WorkflowControl` module for workflow visualization
+  and control.
+- Final choice:
+  - Fenrir server executes workflows.
+  - Native client lists, opens, visualizes, navigates, and controls workflow
+    runs through server contracts.
+  - Supported controls include answer awaiting input, cancel, retry,
+    pause/resume when the server supports them, and focus linked pane/overlay.
+  - Workflow logs are shown in a linked pane when a step has one, or in native
+    overlay surfaces for structured server logs.
+
+### D-026: Server-backed feature service ports
+
+- Status: accepted
+- Decision: server-backed feature modules define their own service ports and
+  live adapters over `ServerConnection`.
+- Final choice:
+  - Feature actions do not build raw RPC payloads directly.
+  - `ServerConnection` remains transport/session/health infrastructure, not a
+    business API.
+  - `AgentInteraction`, `WorkflowControl`, and future server-backed features use
+    module-specific service contracts.
+
+### D-027: Sidebar information architecture
+
+- Status: accepted
+- Decision: use a collapsible Supacode-inspired operational sidebar adapted to
+  Fenrir workspaces and activity.
+- Final choice:
+  - The sidebar has global workspace sections such as active, pinned, recent,
+    remote/profile grouping, degraded, and attention states.
+  - The selected workspace can show operational activity: workflows, agents,
+    conversations, important panes/processes, and notifications.
+  - The sidebar does not replicate the entire tmux layout.
+  - Sidebar projections should be cached and row-level to avoid high-frequency
+    event invalidation.
+
+### D-028: Tmux keymap integration
+
+- Status: accepted
+- Decision: import the effective tmux keymap from the runtime/server and map
+  known tmux bindings to Fenrir actions.
+- Final choice:
+  - Do not parse `.tmux.conf` manually.
+  - Import effective prefix, prefix2, root table, prefix table, and relevant
+    custom key tables.
+  - Implement a real prefix/key-table state machine, including repeat windows
+    where tmux exposes them.
+  - Map known commands such as select-window, next/previous-window,
+    select-pane, split-window, resize-pane, kill-pane/window, new-window,
+    rename-window, choose-tree, and display-menu to typed Fenrir actions where
+    supported.
+  - Unknown bindings produce discrete unsupported feedback; command-string
+    passthrough is only allowed through explicit server-side allowlists.
+  - Input not captured by Fenrir falls through to the terminal.
+- Consequences:
+  - User tmux navigation muscle memory becomes native UI navigation.
+  - Fenrir does not execute arbitrary tmux command strings from the UI router.
+
+### D-029: Command palette semantics
+
+- Status: accepted
+- Decision: `Cmd+P` opens a native universal palette, defaulting to workspace
+  switching.
+- Final choice:
+  - The palette is a native modal/overlay, not a tmux pane.
+  - Default search domain is workspaces.
+  - Prefixes change domain:
+    - no prefix: workspaces
+    - `@`: actions
+    - `$`: files
+    - `%`: tabs/panes
+    - `!`: workflows/agents requiring attention
+    - `?`: help/keybindings
+  - Results always dispatch typed actions, not free shell strings.
+  - File search is server/workspace-owned and opens through Neovim integration
+    where available.
+
+### D-030: Settings scope
+
+- Status: accepted
+- Decision: `Settings` is a local versioned configuration store, not a runtime
+  state store.
+- Includes:
+  - remote profile metadata without secrets
+  - local server bootstrap preference
+  - keybinding overrides
+  - sidebar, palette, appearance, notification, and feature flag preferences
+- Excludes:
+  - bearer/session secrets, which belong to `AuthSession`/Keychain
+  - live connection health, which belongs to `ServerConnection`
+  - live runtime state, which belongs to `NativeRuntime`
+  - terminal scrollback
+  - workflow execution state
+  - agent conversation authority, which belongs to `AgentInteraction` and server
+    transcript policy.
+
+### D-031: Diagnostics privacy
+
+- Status: accepted
+- Decision: diagnostics do not include terminal text by default.
+- Final choice:
+  - Diagnostics may include stream ids, seq ranges, gap/overflow events,
+    reconnect attempts, latencies, error tags, pane/workspace ids, and byte
+    counts.
+  - Diagnostics and crash reports do not include auth tokens or terminal
+    contents by default.
+  - Bug-report exports with terminal excerpts require explicit opt-in.
+
+### D-032: Remote profile auth UX
+
+- Status: accepted
+- Decision: remote profiles live in `Settings`, while secrets live in
+  `AuthSession`/Keychain.
+- Final choice:
+  - Profiles include name, server URL, non-secret metadata, default tenant/org
+    when needed, and trust/TLS metadata where needed.
+  - Sidebar may group workspaces by profile.
+  - CLI supports targeting profiles, for example with `--remote <profile>`.
+  - Expired or revoked profiles degrade visible workspaces and request reauth.
+
+### D-033: Browser-lab scope
+
+- Status: accepted
+- Decision: browser-lab is not part of the base Swift native roadmap.
+- Final choice:
+  - Browser-lab remains an existing Electron/web capability until it is
+    separately redesigned for native.
+  - No native browser-lab surface blocks the terminal emulator architecture.
+
+### D-034: Managed and remote process scope
+
+- Status: accepted
+- Decision: dedicated managed-process and remote-process native surfaces are
+  outside the base roadmap.
+- Final choice:
+  - If such processes already appear as tmux panes with metadata, the native app
+    can render them as normal panes.
+  - Dedicated native UI can be reintroduced later as separate server-backed
+    features.
+
+### D-035: Distribution and dependency management
+
+- Status: accepted
+- Decision: Fenrir Native should distribute or manage the local Fenrir server
+  and verify tmux as a managed dependency.
+- Final choice:
+  - Opening the installed app should work locally without manually starting the
+    server.
+  - The app may bundle the server or manage it as a helper/component, while
+    allowing explicit external overrides.
+  - The CLI is installed or exposed from the app.
+  - `libGhostty` resources are bundled.
+  - Neovim is discovered/configured, not bundled.
+  - The local server verifies tmux availability/version, uses compatible system
+    tmux when present, and offers a managed fallback or install guidance when
+    missing.
+  - Remote servers manage their own tmux dependency.
+
+### D-036: Git and review native scope
+
+- Status: accepted
+- Decision: a lazygit-native or hunks-native rewrite is not part of the base
+  Swift native terminal client.
+- Final choice:
+  - `lazygit`, `hunks`, and similar terminal tools can run as normal tmux pane
+    processes.
+  - Future native git/review surfaces require explicit server-backed contracts
+    and a separate module-boundary decision.
+  - Future native git/review surfaces must live in overlays/side surfaces or be
+    backed by real tmux/server-kernel panes with metadata.
+  - Git/review state must not be inferred from generic terminal scraping.
+- Consequences:
+  - Lack of a native lazygit/hunks rewrite does not block the base terminal
+    emulator.
+  - Agent terminal-context capture, workflows, Neovim integration, sidebar, and
+    palette can proceed without native git/review parity.
+
 ## Decision Order
 
-Recommended order for the next discussions:
+The major native-client architecture decisions in this document are currently
+accepted. New decisions should be added here before changing module boundaries
+or implementation ownership.
 
-1. D-005 `AppKit` only vs `AppKit + SwiftUI`
-2. D-010 window/tab/pane ownership model
-3. D-011 resize authority
-4. D-012 scrollback ownership
-5. D-007 local server bootstrap model
-6. D-008 local transport boundary
-7. D-009 native runtime implementation strategy
-8. D-006 `libGhostty` embedding wrapper boundary
-9. D-013 Neovim integration depth
+Deferred areas that need separate future decisions:
+
+1. Future native git/review depth beyond terminal-hosted tools.
+2. Future shared multiuser tmux sessions.
+3. Future browser-lab native equivalent.
+4. Future dedicated managed/remote process native surfaces.
+5. Future agent write capabilities into tmux panes.
 
 ## Decision Rules
 

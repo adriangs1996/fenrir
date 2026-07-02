@@ -8,6 +8,10 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { runProcess } from "../../processRunner.ts";
 import { SourceControl } from "../../sourceControl/Services/SourceControl.ts";
+import {
+  THREAD_ACTIVITY_READ_MODEL_LIMIT,
+  THREAD_ACTIVITY_READ_MODEL_PAYLOAD_BUDGET_BYTES,
+} from "../projector.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   makeProjectionSnapshotQuery,
@@ -906,6 +910,208 @@ projectionSnapshotLayer("ProjectionSnapshotQuery snapshots", (it) => {
           },
         },
       ]);
+    }),
+  );
+
+  it.effect("caps hydrated thread activities to the most recent read-model window", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* resetProjectionTables(sql);
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES
+          (
+            'thread-capped',
+            'project-1',
+            'Thread capped',
+            '{"provider":"codex","model":"gpt-5-codex"}',
+            NULL,
+            NULL,
+            NULL,
+            '2026-02-24T00:00:00.000Z',
+            '2026-02-24T00:00:01.000Z',
+            NULL
+          ),
+          (
+            'thread-small',
+            'project-1',
+            'Thread small',
+            '{"provider":"codex","model":"gpt-5-codex"}',
+            NULL,
+            NULL,
+            NULL,
+            '2026-02-24T00:00:00.000Z',
+            '2026-02-24T00:00:01.000Z',
+            NULL
+          )
+      `;
+
+      const totalActivities = THREAD_ACTIVITY_READ_MODEL_LIMIT + 25;
+      for (let index = 0; index < totalActivities; index++) {
+        const paddedIndex = String(index).padStart(6, "0");
+        yield* sql`
+          INSERT INTO projection_thread_activities (
+            activity_id,
+            thread_id,
+            turn_id,
+            tone,
+            kind,
+            summary,
+            payload_json,
+            sequence,
+            created_at
+          )
+          VALUES (
+            ${`activity-${paddedIndex}`},
+            'thread-capped',
+            NULL,
+            'info',
+            'runtime.note',
+            ${`note ${paddedIndex}`},
+            '{"stage":"start"}',
+            ${index + 1},
+            '2026-02-24T00:00:06.000Z'
+          )
+        `;
+      }
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id,
+          thread_id,
+          turn_id,
+          tone,
+          kind,
+          summary,
+          payload_json,
+          sequence,
+          created_at
+        )
+        VALUES (
+          'activity-small',
+          'thread-small',
+          NULL,
+          'info',
+          'runtime.note',
+          'small thread note',
+          '{"stage":"start"}',
+          1,
+          '2026-02-24T00:00:06.000Z'
+        )
+      `;
+
+      const snapshot = yield* snapshotQuery.getSnapshot();
+
+      const cappedThread = snapshot.threads.find(
+        (thread) => thread.id === ThreadId.make("thread-capped"),
+      );
+      assert.isDefined(cappedThread);
+      assert.equal(cappedThread?.activities.length, THREAD_ACTIVITY_READ_MODEL_LIMIT);
+      // The retained window is the most recent slice, in ascending order.
+      assert.equal(cappedThread?.activities[0]?.id, "activity-000025");
+      assert.equal(
+        cappedThread?.activities.at(-1)?.id,
+        `activity-${String(totalActivities - 1).padStart(6, "0")}`,
+      );
+
+      const smallThread = snapshot.threads.find(
+        (thread) => thread.id === ThreadId.make("thread-small"),
+      );
+      assert.equal(smallThread?.activities.length, 1);
+      assert.equal(smallThread?.activities[0]?.id, "activity-small");
+    }),
+  );
+
+  it.effect("bounds hydrated thread activities by payload byte budget, keeping the newest", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* resetProjectionTables(sql);
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'thread-fat',
+          'project-1',
+          'Thread fat',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          NULL,
+          NULL,
+          NULL,
+          '2026-02-24T00:00:00.000Z',
+          '2026-02-24T00:00:01.000Z',
+          NULL
+        )
+      `;
+
+      // Each payload is a bit over half the budget, so only the newest two
+      // fit; the newest row must survive even though it alone nearly fills
+      // the budget.
+      const fatPayload = JSON.stringify({
+        output: "x".repeat(Math.ceil(THREAD_ACTIVITY_READ_MODEL_PAYLOAD_BUDGET_BYTES * 0.45)),
+      });
+      for (let index = 0; index < 5; index++) {
+        yield* sql`
+          INSERT INTO projection_thread_activities (
+            activity_id,
+            thread_id,
+            turn_id,
+            tone,
+            kind,
+            summary,
+            payload_json,
+            sequence,
+            created_at
+          )
+          VALUES (
+            ${`fat-activity-${index}`},
+            'thread-fat',
+            NULL,
+            'info',
+            'tool.completed',
+            ${`fat note ${index}`},
+            ${fatPayload},
+            ${index + 1},
+            '2026-02-24T00:00:06.000Z'
+          )
+        `;
+      }
+
+      const snapshot = yield* snapshotQuery.getSnapshot();
+
+      const fatThread = snapshot.threads.find(
+        (thread) => thread.id === ThreadId.make("thread-fat"),
+      );
+      assert.isDefined(fatThread);
+      assert.deepEqual(
+        fatThread?.activities.map((activity) => activity.id),
+        ["fat-activity-3", "fat-activity-4"],
+      );
     }),
   );
 

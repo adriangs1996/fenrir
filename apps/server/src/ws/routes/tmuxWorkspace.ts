@@ -104,6 +104,12 @@ export const makeTmuxWorkspaceRoutes = (deps: { readonly currentSessionId: AuthS
         ),
       ),
 
+      [WS_METHODS.tmuxWindowFocus]: tmux.effect(WS_METHODS.tmuxWindowFocus, (input) =>
+        validateActorSession(input.actor, currentSessionId).pipe(
+          Effect.andThen(tmuxWorkspace.focusWindow(input)),
+        ),
+      ),
+
       [WS_METHODS.tmuxPaneCreate]: tmux.effect(WS_METHODS.tmuxPaneCreate, (input) =>
         validateActorSession(input.actor, currentSessionId).pipe(
           Effect.andThen(tmuxWorkspace.createPane(input)),
@@ -141,6 +147,12 @@ export const makeTmuxWorkspaceRoutes = (deps: { readonly currentSessionId: AuthS
       [WS_METHODS.tmuxPaneClose]: tmux.effect(WS_METHODS.tmuxPaneClose, (input) =>
         validateActorSession(input.actor, currentSessionId).pipe(
           Effect.andThen(tmuxWorkspace.closePane(input)),
+        ),
+      ),
+
+      [WS_METHODS.tmuxPaneFocus]: tmux.effect(WS_METHODS.tmuxPaneFocus, (input) =>
+        validateActorSession(input.actor, currentSessionId).pipe(
+          Effect.andThen(tmuxWorkspace.focusPane(input)),
         ),
       ),
 

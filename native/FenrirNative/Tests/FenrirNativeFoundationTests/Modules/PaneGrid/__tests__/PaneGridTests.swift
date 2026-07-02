@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import FenrirNativeShared
+import NativeRuntime
 @testable import PaneGrid
 
 @Suite("PaneGrid actions")
@@ -16,6 +17,11 @@ struct PaneGridTests {
         #expect(result.state.windows.count == 2)
         #expect(result.state.activeWindowID == "window-1")
         #expect(result.state.window("window-1")?.activePaneID == "pane-1")
+        #expect(result.state.window("window-1")?.panes.map(\.tmuxPaneID.rawValue) == ["%1", "%2"])
+        #expect(result.state.window("window-1")?.panes.map(\.rect) == [
+            PaneGrid.PaneRect(x: 0, y: 0, columns: 80, rows: 24),
+            PaneGrid.PaneRect(x: 80, y: 0, columns: 80, rows: 24)
+        ])
         #expect(await host.created.map(\.paneID) == ["pane-1", "pane-2", "pane-3"])
     }
 
@@ -33,7 +39,26 @@ struct PaneGridTests {
         #expect(result.fromPaneID == "pane-1")
         #expect(result.toPaneID == "pane-2")
         #expect(result.state.window("window-1")?.activePaneID == "pane-2")
-        #expect(await kernel.focuses.map(\.paneID) == ["pane-2"])
+        #expect(await kernel.focuses.map(\.target.tmuxPaneID.rawValue) == ["%2"])
+    }
+
+    @Test("CreatePaneGrid projects nested real tmux pane geometry")
+    func createProjectsNestedTmuxPaneGeometry() async throws {
+        let store = GridStore()
+        let host = ViewportHost()
+        let action = PaneGrid.CreatePaneGrid(store: store, viewportHost: host, clock: PaneGridFixedClock())
+
+        let result = try await action.run(PaneGrid.CreatePaneGridInput(requestID: "create-nested", snapshot: nestedSnapshot(), source: .test)).get()
+        let window = try #require(result.state.window("window-1"))
+
+        #expect(window.panes.map(\.tmuxPaneID.rawValue) == ["%1", "%2", "%3"])
+        #expect(window.root == .split(axis: .horizontal, children: [
+            .pane(presentation("pane-1", tmuxPaneID: "%1", title: "left", viewportID: "viewport-pane-1", focused: true, x: 0, y: 0, columns: 80, rows: 48)),
+            .split(axis: .vertical, children: [
+                .pane(presentation("pane-2", tmuxPaneID: "%2", title: "top-right", viewportID: "viewport-pane-2", focused: false, x: 80, y: 0)),
+                .pane(presentation("pane-3", tmuxPaneID: "%3", title: "bottom-right", viewportID: "viewport-pane-3", focused: false, x: 80, y: 24))
+            ])
+        ]))
     }
 
     @Test("SplitPane emits atomic kernel split request")
@@ -44,7 +69,7 @@ struct PaneGridTests {
         let result = try await action.run(PaneGrid.SplitPaneInput(requestID: "split", workspaceID: "workspace-1", windowID: "window-1", paneID: "pane-1", axis: .vertical, source: .test)).get()
 
         #expect(result.createdPaneID == "pane-new")
-        #expect(await kernel.splits.map(\.paneID) == ["pane-1"])
+        #expect(await kernel.splits.map(\.target.tmuxPaneID.rawValue) == ["%1"])
     }
 
     @Test("ClosePane and MovePane validate visible panes")
@@ -54,10 +79,14 @@ struct PaneGridTests {
         let move = PaneGrid.MovePane(store: store, kernel: kernel, clock: PaneGridFixedClock())
 
         let closed = try await close.run(PaneGrid.ClosePaneInput(requestID: "close", workspaceID: "workspace-1", windowID: "window-1", paneID: "pane-2", source: .test)).get()
+        let moved = try await move.run(PaneGrid.MovePaneInput(requestID: "move-pane-valid", workspaceID: "workspace-1", fromWindowID: "window-1", toWindowID: "window-2", paneID: "pane-1", source: .test)).get()
         let missingMove = await move.run(PaneGrid.MovePaneInput(requestID: "move-pane", workspaceID: "workspace-1", fromWindowID: "window-1", toWindowID: "window-2", paneID: "missing", source: .test))
 
         #expect(closed.paneID == "pane-2")
-        #expect(await kernel.closes.map(\.paneID) == ["pane-2"])
+        #expect(moved.targetWindowID == "window-2")
+        #expect(await kernel.closes.map(\.target.tmuxPaneID.rawValue) == ["%2"])
+        #expect(await kernel.moves.map(\.target.tmuxPaneID.rawValue) == ["%1"])
+        #expect(await kernel.moves.map(\.destinationTmuxWindowID) == ["tmux-window-2"])
         #expect(missingMove == .failure(PaneGrid.PaneGridError.paneNotFound))
     }
 
@@ -73,8 +102,9 @@ struct PaneGridTests {
 
         #expect(resized.allocation == allocation)
         #expect(selected.state.activeWindowID == "window-2")
-        #expect(await kernel.resizes.map(\.allocation) == [allocation])
-        #expect(await kernel.selections.map(\.windowID) == ["window-2"])
+        #expect(await kernel.resizes.map { PaneGrid.PaneResizeAllocation(paneID: $0.target.paneID, delta: $0.delta, unit: $0.unit, direction: $0.direction) } == [allocation])
+        #expect(await kernel.resizes.map(\.target.tmuxPaneID.rawValue) == ["%1"])
+        #expect(await kernel.selections.map(\.tmuxWindowID) == ["tmux-window-2"])
     }
 
     @Test("ReconcileRuntimeLayout disposes stale panes and preserves surviving viewport ids")
@@ -88,9 +118,25 @@ struct PaneGridTests {
         let result = try await reconcile.run(PaneGrid.ReconcileRuntimeLayoutInput(requestID: "reconcile", snapshot: snapshot(pane2Status: .closed), source: .test)).get()
 
         #expect(result.state.window("window-1")?.panes.map(\.paneID) == ["pane-1"])
+        #expect(result.state.window("window-1")?.panes.first?.tmuxPaneID.rawValue == "%1")
         #expect(result.createdViewportIDs.isEmpty)
         #expect(result.disposedViewportIDs == [ViewportID(rawValue: "viewport-pane-2")])
         #expect(await host.disposed == [ViewportID(rawValue: "viewport-pane-2")])
+    }
+
+    @Test("ReconcileRuntimeLayout rejects fake or duplicated tmux panes")
+    func reconcileRejectsInvalidTmuxPaneIdentity() async {
+        let store = GridStore()
+        let host = ViewportHost()
+        let action = PaneGrid.ReconcileRuntimeLayout(store: store, viewportHost: host, clock: PaneGridFixedClock())
+        let invalid = snapshot(pane1TmuxPaneID: "", pane2TmuxPaneID: "%2")
+        let duplicate = snapshot(pane1TmuxPaneID: "%same", pane2TmuxPaneID: "%same")
+
+        let missingResult = await action.run(PaneGrid.ReconcileRuntimeLayoutInput(requestID: "missing-tmux-pane", snapshot: invalid, source: .test))
+        let duplicateResult = await action.run(PaneGrid.ReconcileRuntimeLayoutInput(requestID: "duplicate-tmux-pane", snapshot: duplicate, source: .test))
+
+        #expect(missingResult == .failure(PaneGrid.PaneGridError.layoutInvalid))
+        #expect(duplicateResult == .failure(PaneGrid.PaneGridError.layoutInvalid))
     }
 
     @Test("ReconcileRuntimeLayout chooses a surviving pane when active pane is stale")
@@ -146,7 +192,9 @@ private func preparedStoreAndKernel() async throws -> (GridStore, KernelControll
 
 private func snapshot(
     pane1Status: PaneGrid.PaneLifecycleStatus = .open,
-    pane2Status: PaneGrid.PaneLifecycleStatus = .open
+    pane2Status: PaneGrid.PaneLifecycleStatus = .open,
+    pane1TmuxPaneID: String = "%1",
+    pane2TmuxPaneID: String = "%2"
 ) -> PaneGrid.SessionSnapshot {
     PaneGrid.SessionSnapshot(
         workspaceID: "workspace-1",
@@ -160,8 +208,8 @@ private func snapshot(
                 title: "one",
                 activePaneID: "pane-1",
                 panes: [
-                    PaneGrid.PaneSnapshot(paneID: "pane-1", title: "left", rect: PaneGrid.PaneRect(x: 0, y: 0, columns: 80, rows: 24), status: pane1Status),
-                    PaneGrid.PaneSnapshot(paneID: "pane-2", title: "right", rect: PaneGrid.PaneRect(x: 80, y: 0, columns: 80, rows: 24), status: pane2Status)
+                    PaneGrid.PaneSnapshot(paneID: "pane-1", tmuxPaneID: .init(rawValue: pane1TmuxPaneID), title: "left", rect: PaneGrid.PaneRect(x: 0, y: 0, columns: 80, rows: 24), status: pane1Status),
+                    PaneGrid.PaneSnapshot(paneID: "pane-2", tmuxPaneID: .init(rawValue: pane2TmuxPaneID), title: "right", rect: PaneGrid.PaneRect(x: 80, y: 0, columns: 80, rows: 24), status: pane2Status)
                 ]
             ),
             PaneGrid.WindowSnapshot(
@@ -171,10 +219,53 @@ private func snapshot(
                 title: "two",
                 activePaneID: "pane-3",
                 panes: [
-                    PaneGrid.PaneSnapshot(paneID: "pane-3", title: "solo", rect: PaneGrid.PaneRect(x: 0, y: 0, columns: 160, rows: 48))
+                    PaneGrid.PaneSnapshot(paneID: "pane-3", tmuxPaneID: "%3", title: "solo", rect: PaneGrid.PaneRect(x: 0, y: 0, columns: 160, rows: 48))
                 ]
             )
         ]
+    )
+}
+
+private func nestedSnapshot() -> PaneGrid.SessionSnapshot {
+    PaneGrid.SessionSnapshot(
+        workspaceID: "workspace-1",
+        tmuxSessionID: "tmux-session-1",
+        activeWindowID: "window-1",
+        windows: [
+            PaneGrid.WindowSnapshot(
+                windowID: "window-1",
+                tmuxWindowID: "tmux-window-1",
+                index: 0,
+                title: "nested",
+                activePaneID: "pane-1",
+                panes: [
+                    PaneGrid.PaneSnapshot(paneID: "pane-1", tmuxPaneID: "%1", title: "left", rect: PaneGrid.PaneRect(x: 0, y: 0, columns: 80, rows: 48)),
+                    PaneGrid.PaneSnapshot(paneID: "pane-2", tmuxPaneID: "%2", title: "top-right", rect: PaneGrid.PaneRect(x: 80, y: 0, columns: 80, rows: 24)),
+                    PaneGrid.PaneSnapshot(paneID: "pane-3", tmuxPaneID: "%3", title: "bottom-right", rect: PaneGrid.PaneRect(x: 80, y: 24, columns: 80, rows: 24))
+                ]
+            )
+        ]
+    )
+}
+
+private func presentation(
+    _ paneID: PaneID,
+    tmuxPaneID: String,
+    title: String?,
+    viewportID: ViewportID,
+    focused: Bool,
+    x: Int,
+    y: Int,
+    columns: Int = 80,
+    rows: Int = 24
+) -> PaneGrid.PanePresentation {
+    PaneGrid.PanePresentation(
+        paneID: paneID,
+        tmuxPaneID: NativeRuntime.TmuxPaneID(rawValue: tmuxPaneID),
+        viewportID: viewportID,
+        title: title,
+        rect: PaneGrid.PaneRect(x: x, y: y, columns: columns, rows: rows),
+        isFocused: focused
     )
 }
 
@@ -215,35 +306,35 @@ private actor ViewportHost: PaneGrid.PaneViewportHosting {
 }
 
 private actor KernelController: PaneGrid.PaneKernelControlling {
-    private(set) var focuses: [PaneGrid.FocusPaneInput] = []
-    private(set) var splits: [PaneGrid.SplitPaneInput] = []
-    private(set) var closes: [PaneGrid.ClosePaneInput] = []
-    private(set) var moves: [PaneGrid.MovePaneInput] = []
-    private(set) var resizes: [PaneGrid.ResizePaneAllocationInput] = []
-    private(set) var selections: [PaneGrid.SelectTabWindowInput] = []
+    private(set) var focuses: [PaneGrid.FocusPaneCommand] = []
+    private(set) var splits: [PaneGrid.SplitPaneCommand] = []
+    private(set) var closes: [PaneGrid.ClosePaneCommand] = []
+    private(set) var moves: [PaneGrid.MovePaneCommand] = []
+    private(set) var resizes: [PaneGrid.ResizePaneAllocationCommand] = []
+    private(set) var selections: [PaneGrid.SelectTabWindowCommand] = []
 
-    func focusPane(_ input: PaneGrid.FocusPaneInput) async throws {
-        focuses.append(input)
+    func focusPane(_ command: PaneGrid.FocusPaneCommand) async throws {
+        focuses.append(command)
     }
 
-    func splitPane(_ input: PaneGrid.SplitPaneInput) async throws -> PaneID {
-        splits.append(input)
+    func splitPane(_ command: PaneGrid.SplitPaneCommand) async throws -> PaneID {
+        splits.append(command)
         return "pane-new"
     }
 
-    func closePane(_ input: PaneGrid.ClosePaneInput) async throws {
-        closes.append(input)
+    func closePane(_ command: PaneGrid.ClosePaneCommand) async throws {
+        closes.append(command)
     }
 
-    func movePane(_ input: PaneGrid.MovePaneInput) async throws {
-        moves.append(input)
+    func movePane(_ command: PaneGrid.MovePaneCommand) async throws {
+        moves.append(command)
     }
 
-    func resizePaneAllocation(_ input: PaneGrid.ResizePaneAllocationInput) async throws {
-        resizes.append(input)
+    func resizePaneAllocation(_ command: PaneGrid.ResizePaneAllocationCommand) async throws {
+        resizes.append(command)
     }
 
-    func selectWindow(_ input: PaneGrid.SelectTabWindowInput) async throws {
-        selections.append(input)
+    func selectWindow(_ command: PaneGrid.SelectTabWindowCommand) async throws {
+        selections.append(command)
     }
 }

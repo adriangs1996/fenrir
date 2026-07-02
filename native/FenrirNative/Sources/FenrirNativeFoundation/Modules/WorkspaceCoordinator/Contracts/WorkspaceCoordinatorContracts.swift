@@ -118,11 +118,13 @@ public extension WorkspaceCoordinator {
     struct CloseWorkspaceExperienceInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let workspaceID: WorkspaceID
+        public let targetIdentity: WorkspaceIndex.WorkspaceIdentity?
         public let source: ActionSource
 
-        public init(requestID: RequestID, workspaceID: WorkspaceID, source: ActionSource) {
+        public init(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIndex.WorkspaceIdentity? = nil, source: ActionSource) {
             self.requestID = requestID
             self.workspaceID = workspaceID
+            self.targetIdentity = targetIdentity
             self.source = source
         }
     }
@@ -151,6 +153,12 @@ public extension WorkspaceCoordinator {
         public let requestID: RequestID
         public let experience: WorkspaceExperience
         public let timestamp: FenrirTimestamp
+
+        public init(requestID: RequestID, experience: WorkspaceExperience, timestamp: FenrirTimestamp) {
+            self.requestID = requestID
+            self.experience = experience
+            self.timestamp = timestamp
+        }
     }
 
     struct RestoreVisiblePanesInput: Codable, Equatable, Sendable {

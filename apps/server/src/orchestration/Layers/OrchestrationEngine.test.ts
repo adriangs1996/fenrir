@@ -91,6 +91,7 @@ describe("OrchestrationEngine", () => {
             detail: "historical replay should not be used during bootstrap",
           }),
         ),
+      pruneThroughSequence: () => Effect.succeed(0),
     };
 
     const projectionSnapshot = {
@@ -655,6 +656,7 @@ describe("OrchestrationEngine", () => {
       readAll() {
         return Stream.fromIterable(events);
       },
+      pruneThroughSequence: () => Effect.succeed(0),
     };
 
     const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
@@ -878,6 +880,7 @@ describe("OrchestrationEngine", () => {
       readAll() {
         return Stream.fromIterable(events);
       },
+      pruneThroughSequence: () => Effect.succeed(0),
     };
 
     let shouldFailProjection = true;

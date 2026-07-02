@@ -22,6 +22,9 @@ import {
   type RemoteHostSnapshot,
   TerminalNotRunningError,
   TrimmedNonEmptyString,
+  type TmuxWorkspaceSnapshot,
+  TmuxKernelError,
+  TmuxPaneStreamEvent,
   type OrchestrationCommand,
   type OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
@@ -62,7 +65,7 @@ import { vi } from "vitest";
 
 import type { ServerConfigShape } from "./config.ts";
 import { deriveServerPaths, ServerConfig } from "./config.ts";
-import { makeRoutesLayer } from "./server.ts";
+import { makeBunHttpServerOptions, makeRoutesLayer } from "./server.ts";
 import { resolveAttachmentRelativePath } from "./attachmentPaths.ts";
 import {
   CheckpointDiffQuery,
@@ -99,7 +102,10 @@ import { ServerSettingsService, type ServerSettingsShape } from "./serverSetting
 import { TerminalBackendLive } from "./terminal/Layers/Backend.ts";
 import { TerminalManager, type TerminalManagerShape } from "./terminal/Services/Manager.ts";
 import { TmuxSessionManager } from "./terminal/Services/TmuxSessionManager.ts";
-import { TmuxWorkspaceService } from "./terminal/Services/TmuxWorkspaceService.ts";
+import {
+  TmuxWorkspaceService,
+  type TmuxWorkspaceServiceShape,
+} from "./terminal/Services/TmuxWorkspaceService.ts";
 import {
   BrowserTraceCollector,
   type BrowserTraceCollectorShape,
@@ -448,6 +454,7 @@ const buildAppUnderTest = (options?: {
     sourceControlStackService?: Partial<SourceControlStackServiceShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
+    tmuxWorkspaceService?: Partial<TmuxWorkspaceServiceShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
@@ -908,6 +915,7 @@ const buildAppUnderTest = (options?: {
           subscribePaneStream: () => Effect.succeed(Stream.empty),
           subscribe: () => Effect.succeed(() => {}),
           sessionNameForProject: (projectId) => `fenrir-ws-${projectId}`,
+          ...options?.layers?.tmuxWorkspaceService,
         }),
       ),
       Layer.provide(
@@ -1023,6 +1031,9 @@ const buildAppUnderTest = (options?: {
           readEvents: () => Stream.empty,
           dispatch: () => Effect.succeed({ sequence: 0 }),
           streamDomainEvents: Stream.empty,
+          subscribeDomainEvents: Effect.sync(
+            () => options?.layers?.orchestrationEngine?.streamDomainEvents ?? Stream.empty,
+          ),
           injectExternalEvent: () => Effect.void,
           ...options?.layers?.orchestrationEngine,
         }),
@@ -1197,7 +1208,7 @@ const buildAppUnderTest = (options?: {
 
     yield* Layer.build(appLayer);
     return config;
-  });
+  }) as Effect.Effect<ServerConfigShape, unknown, never>;
 
 const parseSessionCookieFromWsUrl = (
   wsUrl: string,
@@ -1347,6 +1358,61 @@ const getAuthenticatedBearerSessionToken = (credential = defaultDesktopBootstrap
     return body.sessionToken;
   });
 
+const postNativeUnaryRpc = (input: { readonly bearerToken?: string; readonly body: unknown }) =>
+  Effect.gen(function* () {
+    const url = yield* getHttpServerUrl("/api/native/rpc");
+    return yield* Effect.promise(() =>
+      fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(input.bearerToken ? { authorization: `Bearer ${input.bearerToken}` } : {}),
+        },
+        body: JSON.stringify(input.body),
+      }),
+    );
+  });
+
+const postNativeStreamRpc = (input: { readonly bearerToken?: string; readonly body: unknown }) =>
+  Effect.gen(function* () {
+    const url = yield* getHttpServerUrl("/api/native/rpc/stream");
+    return yield* Effect.promise(() =>
+      fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(input.bearerToken ? { authorization: `Bearer ${input.bearerToken}` } : {}),
+        },
+        body: JSON.stringify(input.body),
+      }),
+    );
+  });
+
+const decodeTmuxPaneStreamEvent = Schema.decodeUnknownSync(TmuxPaneStreamEvent);
+
+const getBearerSessionId = (bearerToken: string) =>
+  Effect.gen(function* () {
+    const sessionUrl = yield* getHttpServerUrl("/api/auth/clients");
+    const response = yield* Effect.promise(() =>
+      fetch(sessionUrl, {
+        headers: {
+          authorization: `Bearer ${bearerToken}`,
+        },
+      }),
+    );
+    const body = (yield* Effect.promise(() => response.json())) as ReadonlyArray<{
+      readonly sessionId: string;
+      readonly current: boolean;
+    }>;
+    const current = body.find((entry) => entry.current);
+    if (!response.ok || !current?.sessionId) {
+      return yield* Effect.fail(
+        new Error("Expected bearer clients endpoint to return current sessionId."),
+      );
+    }
+    return current.sessionId;
+  });
+
 const extractSessionTokenFromSetCookie = (cookieHeader: string): string => {
   const [nameValue] = cookieHeader.split(";", 1);
   const token = nameValue?.split("=", 2)[1];
@@ -1379,6 +1445,18 @@ const getWsServerUrl = (
       yield* getAuthenticatedSessionCookieHeader(options?.credential),
     );
   });
+
+it("configures Bun HTTP server without request idle timeout", () => {
+  assert.deepEqual(makeBunHttpServerOptions({ port: 3773, host: "127.0.0.1" }), {
+    port: 3773,
+    idleTimeout: 0,
+    hostname: "127.0.0.1",
+  });
+  assert.deepEqual(makeBunHttpServerOptions({ port: 3773, host: undefined }), {
+    port: 3773,
+    idleTimeout: 0,
+  });
+});
 
 it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("serves static index content for GET / when staticDir is configured", () =>
@@ -1625,6 +1703,403 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(typeof wsTokenBody.token, "string");
       assert.isTrue(wsTokenBody.token.length > 0);
       assert.equal(typeof wsTokenBody.expiresAt, "string");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects unauthenticated native unary RPC requests", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const response = yield* postNativeUnaryRpc({
+        body: {
+          method: WS_METHODS.tmuxWorkspaceEnsure,
+          requestId: "native-rpc-no-auth",
+          payload: {},
+        },
+      });
+      const body = (yield* Effect.promise(() => response.json())) as { readonly error?: string };
+
+      assert.equal(response.status, 401);
+      assert.equal(body.error, "Authentication required.");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects native unary RPC requests with invalid envelope payloads", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const response = yield* postNativeUnaryRpc({
+        bearerToken,
+        body: {
+          method: WS_METHODS.tmuxWorkspaceEnsure,
+          requestId: "native-rpc-invalid-envelope",
+        },
+      });
+      const body = (yield* Effect.promise(() => response.json())) as { readonly error?: string };
+
+      assert.equal(response.status, 400);
+      assert.equal(body.error, "Invalid native RPC request.");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects native unary RPC requests with invalid method payloads", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const response = yield* postNativeUnaryRpc({
+        bearerToken,
+        body: {
+          method: WS_METHODS.tmuxWorkspaceEnsure,
+          requestId: "native-rpc-invalid-payload",
+          payload: {
+            actor: {
+              sessionId: 42,
+              subject: "native-test",
+            },
+            projectId: "project-native-rpc",
+            cwd: "/tmp/project-native-rpc",
+          },
+        },
+      });
+      const body = (yield* Effect.promise(() => response.json())) as { readonly error?: string };
+
+      assert.equal(response.status, 400);
+      assert.equal(body.error, "Invalid native RPC payload.");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects unknown native unary RPC methods", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const response = yield* postNativeUnaryRpc({
+        bearerToken,
+        body: {
+          method: "tmux.workspace.missing",
+          requestId: "native-rpc-unknown",
+          payload: {},
+        },
+      });
+      const body = (yield* Effect.promise(() => response.json())) as { readonly error?: string };
+
+      assert.equal(response.status, 404);
+      assert.equal(body.error, "Unknown native RPC method: tmux.workspace.missing");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects streaming methods on the native unary RPC endpoint", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const response = yield* postNativeUnaryRpc({
+        bearerToken,
+        body: {
+          method: WS_METHODS.subscribeServerConfig,
+          requestId: "native-rpc-stream",
+          payload: {},
+        },
+      });
+      const body = (yield* Effect.promise(() => response.json())) as { readonly error?: string };
+
+      assert.equal(response.status, 400);
+      assert.equal(
+        body.error,
+        "Native unary RPC does not support streaming method: subscribeServerConfig",
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects non-streaming methods on the native stream RPC endpoint", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const response = yield* postNativeStreamRpc({
+        bearerToken,
+        body: {
+          method: WS_METHODS.tmuxWorkspaceEnsure,
+          requestId: "native-rpc-stream-non-stream",
+          payload: {},
+        },
+      });
+      const body = (yield* Effect.promise(() => response.json())) as { readonly error?: string };
+
+      assert.equal(response.status, 404);
+      assert.equal(body.error, "Unsupported native stream RPC method: tmux.workspace.ensure");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes native stream RPC tmux.pane.subscribeStream through shared handlers", () =>
+    Effect.gen(function* () {
+      let receivedPaneId: string | undefined;
+      let receivedSessionId: string | undefined;
+
+      yield* buildAppUnderTest({
+        layers: {
+          tmuxWorkspaceService: {
+            subscribePaneStream: ((input) =>
+              Effect.sync(() => {
+                receivedPaneId = input.paneId;
+                receivedSessionId = input.actor.sessionId;
+                const event = decodeTmuxPaneStreamEvent({
+                  type: "chunk",
+                  descriptor: {
+                    streamId: "stream-native-rpc",
+                    paneId: input.paneId,
+                    encoding: "utf8",
+                    lowSeq: 1,
+                    highSeq: 1,
+                    droppedCount: 0,
+                    backfillAvailable: true,
+                    maxChunkBytes: 262144,
+                  },
+                  seq: 1,
+                  data: "hello native stream",
+                  emittedAt: "2026-01-01T00:00:00.000Z",
+                });
+                return Stream.make(event);
+              })) satisfies TmuxWorkspaceServiceShape["subscribePaneStream"],
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const sessionId = yield* getBearerSessionId(bearerToken);
+      const response = yield* postNativeStreamRpc({
+        bearerToken,
+        body: {
+          method: WS_METHODS.tmuxPaneSubscribeStream,
+          requestId: "native-rpc-pane-stream",
+          payload: {
+            actor: {
+              sessionId,
+              subject: "native-test",
+            },
+            workspaceId: "workspace-native-rpc",
+            paneId: "pane-native-rpc",
+            backfill: "latest",
+            slowClientPolicy: "fast-forward",
+            maxBufferedChunks: 10,
+          },
+        },
+      });
+      const text = yield* Effect.promise(() => response.text());
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type")?.includes("application/x-ndjson"), true);
+      const lines = text
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { data?: string });
+      assert.equal(lines.length, 1);
+      assert.equal(lines[0]?.data, "hello native stream");
+      assert.equal(receivedPaneId, "pane-native-rpc");
+      assert.equal(receivedSessionId, sessionId);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("provides native stream RPC layers while the response body is consumed", () =>
+    Effect.gen(function* () {
+      let streamPulled = false;
+
+      yield* buildAppUnderTest({
+        layers: {
+          tmuxWorkspaceService: {
+            subscribePaneStream: ((input) =>
+              Effect.sync(() => {
+                const event = decodeTmuxPaneStreamEvent({
+                  type: "chunk",
+                  descriptor: {
+                    streamId: "stream-native-rpc-layer",
+                    paneId: input.paneId,
+                    encoding: "utf8",
+                    lowSeq: 1,
+                    highSeq: 1,
+                    droppedCount: 0,
+                    backfillAvailable: true,
+                    maxChunkBytes: 262144,
+                  },
+                  seq: 1,
+                  data: "native stream layer stayed live",
+                  emittedAt: "2026-01-01T00:00:00.000Z",
+                });
+                return Stream.fromEffect(
+                  Effect.gen(function* () {
+                    yield* WsRpcGroup.accessHandler(WS_METHODS.tmuxWorkspaceList as never);
+                    streamPulled = true;
+                    return event;
+                  }),
+                ) as unknown as Stream.Stream<TmuxPaneStreamEvent, never>;
+              })) satisfies TmuxWorkspaceServiceShape["subscribePaneStream"],
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const sessionId = yield* getBearerSessionId(bearerToken);
+      const response = yield* postNativeStreamRpc({
+        bearerToken,
+        body: {
+          method: WS_METHODS.tmuxPaneSubscribeStream,
+          requestId: "native-rpc-pane-stream-layer",
+          payload: {
+            actor: {
+              sessionId,
+              subject: "native-test",
+            },
+            workspaceId: "workspace-native-rpc-layer",
+            paneId: "pane-native-rpc-layer",
+            backfill: "latest",
+            slowClientPolicy: "fast-forward",
+            maxBufferedChunks: 10,
+          },
+        },
+      });
+      const text = yield* Effect.promise(() => response.text());
+
+      assert.equal(response.status, 200);
+      const lines = text
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { data?: string });
+      assert.equal(lines[0]?.data, "native stream layer stayed live");
+      assert.isTrue(streamPulled);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes native unary RPC tmux.workspace.ensure through shared handlers", () =>
+    Effect.gen(function* () {
+      let receivedProjectId: string | undefined;
+      let receivedWorkspaceId: string | undefined;
+      let receivedSessionId: string | undefined;
+
+      yield* buildAppUnderTest({
+        layers: {
+          tmuxWorkspaceService: {
+            ensureWorkspace: ((input) =>
+              Effect.sync(() => {
+                receivedProjectId = input.projectId;
+                receivedWorkspaceId = input.workspaceId;
+                receivedSessionId = input.actor.sessionId;
+                const now = "2026-01-01T00:00:00.000Z";
+                const snapshot = {
+                  workspace: {
+                    workspaceId: input.workspaceId ?? "workspace-native-rpc",
+                    projectId: input.projectId,
+                    tmuxSessionName: "fenrir-native-rpc",
+                    cwd: input.cwd,
+                    status: "running" as const,
+                    activeWindowId: null,
+                    grants: [],
+                    createdAt: now,
+                    updatedAt: now,
+                  },
+                  windows: [],
+                  panes: [],
+                  revision: 1,
+                };
+                return snapshot as unknown as TmuxWorkspaceSnapshot;
+              })) satisfies TmuxWorkspaceServiceShape["ensureWorkspace"],
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const sessionId = yield* getBearerSessionId(bearerToken);
+      const response = yield* postNativeUnaryRpc({
+        bearerToken,
+        body: {
+          method: WS_METHODS.tmuxWorkspaceEnsure,
+          requestId: "native-rpc-ensure",
+          payload: {
+            actor: {
+              sessionId,
+              subject: "native-test",
+            },
+            workspaceId: "native-rpc-requested-workspace",
+            projectId: "project-native-rpc",
+            cwd: "/tmp/project-native-rpc",
+          },
+        },
+      });
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly ok?: boolean;
+        readonly payload?: {
+          readonly workspace?: {
+            readonly workspaceId?: string;
+            readonly projectId?: string;
+          };
+          readonly revision?: number;
+        };
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.ok, true);
+      assert.equal(body.payload?.workspace?.workspaceId, "native-rpc-requested-workspace");
+      assert.equal(body.payload?.workspace?.projectId, "project-native-rpc");
+      assert.equal(body.payload?.revision, 1);
+      assert.equal(receivedProjectId, "project-native-rpc");
+      assert.equal(receivedWorkspaceId, "native-rpc-requested-workspace");
+      assert.equal(receivedSessionId, sessionId);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("returns structured diagnostics for native unary RPC handler failures", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          tmuxWorkspaceService: {
+            ensureWorkspace: (() =>
+              Effect.fail(
+                new TmuxKernelError({
+                  code: "io-error",
+                  message: "simulated native RPC handler failure",
+                }),
+              )) satisfies TmuxWorkspaceServiceShape["ensureWorkspace"],
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const sessionId = yield* getBearerSessionId(bearerToken);
+      const response = yield* postNativeUnaryRpc({
+        bearerToken,
+        body: {
+          method: WS_METHODS.tmuxWorkspaceEnsure,
+          requestId: "native-rpc-handler-failure",
+          payload: {
+            actor: {
+              sessionId,
+              subject: "native-test",
+            },
+            workspaceId: "native-rpc-diagnostics-workspace",
+            projectId: "project-native-rpc-diagnostics",
+            cwd: "/tmp/project-native-rpc-diagnostics",
+          },
+        },
+      });
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly error?: string;
+        readonly diagnostics?: {
+          readonly method?: string;
+          readonly requestId?: string;
+          readonly cause?: {
+            readonly tag?: string;
+            readonly message?: string;
+          };
+        };
+      };
+
+      assert.equal(response.status, 500);
+      assert.equal(body.error, "Native RPC tmux.workspace.ensure failed.");
+      assert.equal(body.diagnostics?.method, WS_METHODS.tmuxWorkspaceEnsure);
+      assert.equal(body.diagnostics?.requestId, "native-rpc-handler-failure");
+      assert.equal(body.diagnostics?.cause?.tag, "TmuxKernelError");
+      assert.equal(body.diagnostics?.cause?.message, "simulated native RPC handler failure");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

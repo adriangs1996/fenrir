@@ -20,7 +20,16 @@ let package = Package(
                 "WorkspaceIndex",
                 "WorkspaceShell",
                 "WorkspaceCoordinator",
-                "ClientControl"
+                "ClientControl",
+                "Settings",
+                "Keybinding",
+                "Notifications",
+                "WorkspaceOverlays",
+                "AgentInteraction",
+                "WorkflowControl",
+                "Diagnostics",
+                "NativeDistribution",
+                "NeovimBridge"
             ]
         ),
         .executable(
@@ -29,6 +38,60 @@ let package = Package(
         )
     ],
     targets: [
+        .target(
+            name: "Settings",
+            dependencies: ["FenrirNativeShared"],
+            path: "Sources/FenrirNativeFoundation/Modules/Settings",
+            exclude: ["MODULE.md", "__tests__"]
+        ),
+        .target(
+            name: "Keybinding",
+            dependencies: ["FenrirNativeShared", "Settings"],
+            path: "Sources/FenrirNativeFoundation/Modules/Keybinding",
+            exclude: ["MODULE.md", "__tests__"]
+        ),
+        .target(
+            name: "Notifications",
+            dependencies: ["FenrirNativeShared", "Settings"],
+            path: "Sources/FenrirNativeFoundation/Modules/Notifications",
+            exclude: ["MODULE.md", "__tests__"]
+        ),
+        .target(
+            name: "WorkspaceOverlays",
+            dependencies: ["FenrirNativeShared", "Keybinding", "Notifications"],
+            path: "Sources/FenrirNativeFoundation/Modules/WorkspaceOverlays",
+            exclude: ["MODULE.md", "__tests__"]
+        ),
+        .target(
+            name: "AgentInteraction",
+            dependencies: ["FenrirNativeShared", "WorkspaceOverlays", "Notifications"],
+            path: "Sources/FenrirNativeFoundation/Modules/AgentInteraction",
+            exclude: ["MODULE.md", "__tests__"]
+        ),
+        .target(
+            name: "WorkflowControl",
+            dependencies: ["FenrirNativeShared", "WorkspaceOverlays", "Notifications", "NativeRuntime"],
+            path: "Sources/FenrirNativeFoundation/Modules/WorkflowControl",
+            exclude: ["MODULE.md", "__tests__"]
+        ),
+        .target(
+            name: "Diagnostics",
+            dependencies: ["FenrirNativeShared", "Settings", "WorkspaceOverlays"],
+            path: "Sources/FenrirNativeFoundation/Modules/Diagnostics",
+            exclude: ["MODULE.md", "__tests__"]
+        ),
+        .target(
+            name: "NativeDistribution",
+            dependencies: ["FenrirNativeShared"],
+            path: "Sources/FenrirNativeFoundation/Modules/NativeDistribution",
+            exclude: ["MODULE.md", "__tests__"]
+        ),
+        .target(
+            name: "NeovimBridge",
+            dependencies: ["FenrirNativeShared", "NativeRuntime", "WorkspaceOverlays"],
+            path: "Sources/FenrirNativeFoundation/Modules/NeovimBridge",
+            exclude: ["MODULE.md", "__tests__"]
+        ),
         .target(
             name: "FenrirNativeShared",
             path: "Sources/FenrirNativeFoundation/Shared"
@@ -56,25 +119,34 @@ let package = Package(
         ),
         .target(
             name: "TerminalViewport",
-            dependencies: ["FenrirNativeShared", "NativeRuntime"],
+            dependencies: ["FenrirNativeShared", "NativeRuntime", "Keybinding"],
             path: "Sources/FenrirNativeFoundation/Modules/TerminalViewport",
             exclude: ["MODULE.md", "__tests__"]
         ),
         .target(
             name: "PaneGrid",
-            dependencies: ["FenrirNativeShared"],
+            dependencies: ["FenrirNativeShared", "NativeRuntime", "Keybinding", "TerminalViewport"],
             path: "Sources/FenrirNativeFoundation/Modules/PaneGrid",
             exclude: ["MODULE.md", "__tests__"]
         ),
         .target(
             name: "WorkspaceIndex",
-            dependencies: ["FenrirNativeShared"],
+            dependencies: ["FenrirNativeShared", "Settings", "ServerConnection"],
             path: "Sources/FenrirNativeFoundation/Modules/WorkspaceIndex",
             exclude: ["MODULE.md", "__tests__"]
         ),
         .target(
             name: "WorkspaceShell",
-            dependencies: ["FenrirNativeShared", "WorkspaceIndex"],
+            dependencies: [
+                "FenrirNativeShared",
+                "PaneGrid",
+                "WorkspaceIndex",
+                "WorkspaceOverlays",
+                "WorkflowControl",
+                "AgentInteraction",
+                "Keybinding",
+                "Notifications"
+            ],
             path: "Sources/FenrirNativeFoundation/Modules/WorkspaceShell",
             exclude: ["MODULE.md", "__tests__"]
         ),
@@ -102,7 +174,16 @@ let package = Package(
                 "WorkspaceIndex",
                 "WorkspaceShell",
                 "WorkspaceCoordinator",
-                "ClientControl"
+                "ClientControl",
+                "Settings",
+                "Keybinding",
+                "Notifications",
+                "WorkspaceOverlays",
+                "AgentInteraction",
+                "WorkflowControl",
+                "Diagnostics",
+                "NativeDistribution",
+                "NeovimBridge"
             ],
             path: "Sources/FenrirNativeApp"
         ),
@@ -119,6 +200,15 @@ let package = Package(
                 "WorkspaceShell",
                 "WorkspaceCoordinator",
                 "ClientControl",
+                "Settings",
+                "Keybinding",
+                "Notifications",
+                "WorkspaceOverlays",
+                "AgentInteraction",
+                "WorkflowControl",
+                "Diagnostics",
+                "NativeDistribution",
+                "NeovimBridge",
                 "FenrirNativeApp"
             ],
             path: "Tests/FenrirNativeFoundationTests"

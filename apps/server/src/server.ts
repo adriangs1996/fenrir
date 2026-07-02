@@ -1,7 +1,7 @@
 import { Effect, Layer } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 
-import { ServerConfig } from "./config";
+import { ServerConfig, type ServerConfigShape } from "./config";
 import {
   attachmentsRouteLayer,
   otlpTracesProxyRouteLayer,
@@ -14,6 +14,7 @@ import {
   trafficLensStorageIngestRouteLayer,
 } from "./http";
 import { fixPath } from "./os-jank";
+import { nativeUnaryRpcRouteLayer } from "./nativeUnaryRpc";
 import { websocketRpcRouteLayer } from "./ws";
 import { OpenLive } from "./open";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite";
@@ -26,6 +27,8 @@ import {
   ProviderRuntimeServiceLive,
 } from "./provider/ProviderRuntimeModule";
 import { OrchestrationEngineLive } from "./orchestration/Layers/OrchestrationEngine";
+import { OrchestrationEventRetentionLive } from "./orchestration/Layers/EventRetention";
+import { ProjectionStateRepositoryLive } from "./persistence/Layers/ProjectionState";
 import { OrchestrationProjectionPipelineLive } from "./orchestration/Layers/ProjectionPipeline";
 import { OrchestrationEventStoreLive } from "./persistence/Layers/OrchestrationEventStore";
 import { OrchestrationCommandReceiptRepositoryLive } from "./persistence/Layers/OrchestrationCommandReceipts";
@@ -128,6 +131,12 @@ const PtyAdapterLive = Layer.unwrap(
   }),
 );
 
+export const makeBunHttpServerOptions = (config: Pick<ServerConfigShape, "host" | "port">) => ({
+  port: config.port,
+  idleTimeout: 0,
+  ...(config.host ? { hostname: config.host } : {}),
+});
+
 const HttpServerLive = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig;
@@ -135,10 +144,7 @@ const HttpServerLive = Layer.unwrap(
       const BunHttpServer = yield* Effect.promise(
         () => import("@effect/platform-bun/BunHttpServer"),
       );
-      return BunHttpServer.layer({
-        port: config.port,
-        ...(config.host ? { hostname: config.host } : {}),
-      });
+      return BunHttpServer.layer(makeBunHttpServerOptions(config));
     } else {
       const [NodeHttpServer, NodeHttp] = yield* Effect.all([
         Effect.promise(() => import("@effect/platform-node/NodeHttpServer")),
@@ -402,6 +408,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   BrowserLabControlHttpLive,
   RemoteHostMcpHttpLive,
   WorkflowMcpHttpLive,
+  nativeUnaryRpcRouteLayer,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,
 ).pipe(Layer.provide(trafficLensApiCorsLayer));
@@ -420,12 +427,29 @@ export const makeServerApplicationLayer = Layer.unwrap(
       }),
     );
 
+    const eventRetentionLayer = OrchestrationEventRetentionLive.pipe(
+      Layer.provide(Layer.mergeAll(OrchestrationEventStoreLive, ProjectionStateRepositoryLive)),
+    );
+
+    // Bind the HTTP port only after the runtime graph (migrations, projection
+    // bootstrap, read-model hydration) has finished building. Hydration runs
+    // synchronous SQLite work that blocks the event loop; a port bound before
+    // that accepts connections it cannot answer, so clients hang on pending
+    // requests instead of getting a clean connection-refused they retry.
+    const gatedHttpServerLive = Layer.unwrap(
+      Effect.gen(function* () {
+        yield* ServerRuntimeStartup;
+        return HttpServerLive;
+      }),
+    );
+
     const serverApplicationLayer = Layer.mergeAll(
       HttpRouter.serve(makeRoutesLayer, {
         disableLogger: !config.logWebSocketEvents,
       }),
       httpListeningLayer,
-    );
+      eventRetentionLayer,
+    ).pipe(Layer.provide(gatedHttpServerLive));
 
     return serverApplicationLayer.pipe(
       Layer.provide(RuntimeServicesLive),
@@ -436,7 +460,7 @@ export const makeServerApplicationLayer = Layer.unwrap(
   }),
 );
 
-export const makeServerLayer = makeServerApplicationLayer.pipe(Layer.provide(HttpServerLive));
+export const makeServerLayer = makeServerApplicationLayer;
 
 // Important: Only `ServerConfig` should be provided by the CLI layer!!! Don't let other requirements leak into the launch layer.
 export const runServer = Layer.launch(makeServerLayer) satisfies Effect.Effect<

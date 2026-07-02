@@ -107,6 +107,60 @@ function unlinkFifo(fifoPath: string): void {
 }
 
 /**
+ * Cancel any pipe-pane command attached to a pane.
+ */
+function stopPipePane(target: string): void {
+  try {
+    tmuxExec(["pipe-pane", "-t", target]);
+  } catch {
+    // window/pane already gone or no pipe attached — fine
+  }
+}
+
+function pipePaneWriterPids(fifoPath: string): number[] {
+  try {
+    const output = execFileSync("ps", ["-axo", "pid=,command="], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 5_000,
+    });
+    return output.split("\n").flatMap((line) => {
+      const match = line.match(/^\s*(\d+)\s+(.+)$/);
+      const pidText = match?.[1];
+      const command = match?.[2];
+      if (!pidText || !command || !command.includes(fifoPath)) return [];
+      const pid = Number(pidText);
+      return pid === process.pid || Number.isNaN(pid) ? [] : [pid];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function killPipePaneWritersForFifo(fifoPath: string): void {
+  for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+    for (const pid of pipePaneWriterPids(fifoPath)) {
+      try {
+        process.kill(pid, signal);
+      } catch {
+        // already gone
+      }
+    }
+  }
+}
+
+function cleanupWindowResources(target: string, fifoPath: string): void {
+  stopPipePane(target);
+  killPipePaneWritersForFifo(fifoPath);
+  try {
+    tmuxExec(["kill-window", "-t", target]);
+  } catch {
+    // already gone
+  }
+  unlinkFifo(fifoPath);
+}
+
+/**
  * Check if a tmux window exists within a session.
  */
 function windowExists(sessionName: string, windowName: string): boolean {
@@ -262,12 +316,7 @@ function buildHandle(input: TmuxHandleInput): ExecutorHandle {
     if (status.dead) {
       const code = status.exitCode;
       // Clean up the dead window
-      try {
-        tmuxExec(["kill-window", "-t", target]);
-      } catch {
-        // already gone
-      }
-      unlinkFifo(fifoPath);
+      cleanupWindowResources(target, fifoPath);
       fireExit(code, null);
     }
   }
@@ -343,12 +392,7 @@ function buildHandle(input: TmuxHandleInput): ExecutorHandle {
       Effect.try({
         try: () => {
           userInitiated = true;
-          try {
-            tmuxExec(["kill-window", "-t", target]);
-          } catch {
-            // already gone
-          }
-          unlinkFifo(fifoPath);
+          cleanupWindowResources(target, fifoPath);
         },
         catch: (cause) => new ExecutorError("io-error", "forceKill failed", cause),
       }),
@@ -400,58 +444,72 @@ export const TmuxExecutorLive = Layer.effect(
             const sessionName = makeTmuxSessionName(MANAGED_PROCESS_TMUX_SESSION_PREFIX, projectId);
             const windowName = `mp-${input.instanceId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
             const target = tmuxTarget(sessionName, windowName);
+            let fifoPath: string | null = null;
 
-            // 1. Ensure session exists with correct options
-            ensureSession(sessionName, input.cwd);
+            try {
+              // 1. Ensure session exists with correct options
+              ensureSession(sessionName, input.cwd);
 
-            // 2. Build command and pass environment through tmux directly.
-            const fullCommand = `exec ${input.command}`;
-            const envArgs = Object.entries(input.env).flatMap(([key, value]) => [
-              "-e",
-              `${key}=${value}`,
-            ]);
+              // 2. Build command and pass environment through tmux directly.
+              const fullCommand = `exec ${input.command}`;
+              const envArgs = Object.entries(input.env).flatMap(([key, value]) => [
+                "-e",
+                `${key}=${value}`,
+              ]);
 
-            // 3. Create window with a placeholder that blocks until we set up
-            //    pipe-pane. Uses 2147483647 instead of `infinity` for macOS
-            //    BSD-sleep compatibility.
-            tmuxExec([
-              "new-window",
-              "-d",
-              "-t",
-              sessionName,
-              "-n",
-              windowName,
-              "-c",
-              input.cwd,
-              "sleep 2147483647",
-            ]);
+              // 3. Create window with a placeholder that blocks until we set up
+              //    pipe-pane. Uses 2147483647 instead of `infinity` for macOS
+              //    BSD-sleep compatibility.
+              tmuxExec([
+                "new-window",
+                "-d",
+                "-t",
+                sessionName,
+                "-n",
+                windowName,
+                "-c",
+                input.cwd,
+                "sleep 2147483647",
+              ]);
 
-            // 4. Create FIFO and attach pipe-pane BEFORE the real command runs
-            const fifoPath = createFifo(stateDir, projectId, fifoName);
+              // 4. Create FIFO and attach pipe-pane BEFORE the real command runs
+              fifoPath = createFifo(stateDir, projectId, fifoName);
 
-            tmuxExec(["pipe-pane", "-o", "-t", target, `cat > ${shellEscape(fifoPath)}`]);
+              tmuxExec(["pipe-pane", "-o", "-t", target, `cat > ${shellEscape(fifoPath)}`]);
 
-            // 5. Replace placeholder with the real command via respawn-pane
-            tmuxExec([
-              "respawn-pane",
-              "-k",
-              "-t",
-              target,
-              "-c",
-              input.cwd,
-              ...envArgs,
-              fullCommand,
-            ]);
+              // 5. Replace placeholder with the real command via respawn-pane
+              tmuxExec([
+                "respawn-pane",
+                "-k",
+                "-t",
+                target,
+                "-c",
+                input.cwd,
+                ...envArgs,
+                fullCommand,
+              ]);
 
-            // 6. Build handle
-            return buildHandle({
-              sessionName,
-              windowName,
-              instanceId: input.instanceId,
-              fifoPath,
-              stateDir,
-              projectId,
-            });
+              // 6. Build handle
+              return buildHandle({
+                sessionName,
+                windowName,
+                instanceId: input.instanceId,
+                fifoPath,
+                stateDir,
+                projectId,
+              });
+            } catch (cause) {
+              if (fifoPath) {
+                cleanupWindowResources(target, fifoPath);
+              } else {
+                try {
+                  tmuxExec(["kill-window", "-t", target]);
+                } catch {
+                  // not created yet or already gone
+                }
+              }
+              throw cause;
+            }
           },
           catch: (cause) =>
             new ExecutorError(

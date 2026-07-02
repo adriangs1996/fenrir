@@ -2,23 +2,23 @@ import Foundation
 import FenrirNativeShared
 import AuthSession
 
-extension ServerConnection {
+public extension ServerConnection {
     struct AuthContext: Equatable, Sendable {
-        let authSessionID: AuthSession.SessionID
-        let actor: AuthSession.AuthenticatedActor
+        public let authSessionID: AuthSession.SessionID
+        public let actor: AuthSession.AuthenticatedActor
 
-        init(authSessionID: AuthSession.SessionID, actor: AuthSession.AuthenticatedActor) {
+        public init(authSessionID: AuthSession.SessionID, actor: AuthSession.AuthenticatedActor) {
             self.authSessionID = authSessionID
             self.actor = actor
         }
     }
 
     struct OpenedTransportSession: Equatable, Sendable {
-        let sessionID: SessionID
-        let capabilities: Capabilities
-        let transportStats: TransportStats
+        public let sessionID: SessionID
+        public let capabilities: Capabilities
+        public let transportStats: TransportStats
 
-        init(sessionID: SessionID, capabilities: Capabilities, transportStats: TransportStats = TransportStats()) {
+        public init(sessionID: SessionID, capabilities: Capabilities, transportStats: TransportStats = TransportStats()) {
             self.sessionID = sessionID
             self.capabilities = capabilities
             self.transportStats = transportStats
@@ -26,11 +26,11 @@ extension ServerConnection {
     }
 
     struct ReconnectCommit: Equatable, Sendable {
-        let session: Session
-        let transportStats: TransportStats
-        let streams: [StreamHandle]
+        public let session: Session
+        public let transportStats: TransportStats
+        public let streams: [StreamHandle]
 
-        init(session: Session, transportStats: TransportStats, streams: [StreamHandle]) {
+        public init(session: Session, transportStats: TransportStats, streams: [StreamHandle]) {
             self.session = session
             self.transportStats = transportStats
             self.streams = streams
@@ -41,8 +41,43 @@ extension ServerConnection {
         func now() -> FenrirTimestamp
     }
 
+    protocol ServerReconnectDelaying: Sendable {
+        func delayBeforeReconnectAttempt(milliseconds: Int) async
+    }
+
+    struct ImmediateReconnectDelayer: ServerReconnectDelaying {
+        public init() {}
+
+        public func delayBeforeReconnectAttempt(milliseconds: Int) async {}
+    }
+
     protocol ServerEndpointResolving: Sendable {
         func resolveEndpoint(_ input: ResolveServerEndpointInput) async throws -> Endpoint
+    }
+
+    protocol LocalServerDiscovering: Sendable {
+        func discoverLocalServer(_ spec: LocalServerSpec) async throws -> LocalServerDiscovery
+    }
+
+    protocol LocalServerSpawning: Sendable {
+        func spawnLocalServer(_ spec: LocalServerSpec, restartCount: Int) async throws -> LocalServerProcessSnapshot
+    }
+
+    protocol LocalServerReadinessChecking: Sendable {
+        func waitForLocalServerReadiness(
+            _ candidate: LocalServerReadinessCandidate,
+            timeoutMilliseconds: Int
+        ) async throws -> Endpoint
+    }
+
+    protocol LocalServerProcessManaging: Sendable {
+        func shutdownLocalServer(processID: LocalServerProcessID) async throws
+    }
+
+    protocol LocalServerSupervisorStateStore: Sendable {
+        func loadLocalServerSupervisorState() async throws -> LocalServerSupervisorState?
+        func saveLocalServerSupervisorState(_ state: LocalServerSupervisorState) async throws
+        func clearLocalServerSupervisorState() async throws
     }
 
     protocol ServerAuthSessionProviding: Sendable {

@@ -21,6 +21,7 @@ import {
   CONTEXT_MENU_CHANNEL,
   OPEN_EXTERNAL_CHANNEL,
   MENU_ACTION_CHANNEL,
+  POWER_RESUMED_CHANNEL,
   UPDATE_STATE_CHANNEL,
   UPDATE_GET_STATE_CHANNEL,
   UPDATE_CHECK_CHANNEL,
@@ -207,6 +208,16 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(MENU_ACTION_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(MENU_ACTION_CHANNEL, wrappedListener);
+    };
+  },
+  onPowerResumed: (listener) => {
+    const wrappedListener = () => {
+      listener();
+    };
+
+    ipcRenderer.on(POWER_RESUMED_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(POWER_RESUMED_CHANNEL, wrappedListener);
     };
   },
   getUpdateState: () => ipcRenderer.invoke(UPDATE_GET_STATE_CHANNEL),

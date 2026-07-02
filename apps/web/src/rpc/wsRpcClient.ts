@@ -172,6 +172,7 @@ export interface WsRpcClient {
       typeof WS_METHODS.tmuxOperationalPaneStatuses
     >;
     readonly closePane: RpcUnaryMethod<typeof WS_METHODS.tmuxPaneClose>;
+    readonly focusPane: RpcUnaryMethod<typeof WS_METHODS.tmuxPaneFocus>;
     readonly resizePane: RpcUnaryMethod<typeof WS_METHODS.tmuxPaneResize>;
     readonly writePane: RpcUnaryMethod<typeof WS_METHODS.tmuxPaneWrite>;
     readonly subscribePaneStream: RpcStreamMethodWithInput<
@@ -579,6 +580,7 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
       listOperationalPaneStatuses: (input) =>
         transport.request((client) => client[WS_METHODS.tmuxOperationalPaneStatuses](input)),
       closePane: (input) => transport.request((client) => client[WS_METHODS.tmuxPaneClose](input)),
+      focusPane: (input) => transport.request((client) => client[WS_METHODS.tmuxPaneFocus](input)),
       resizePane: (input) =>
         transport.request((client) => client[WS_METHODS.tmuxPaneResize](input)),
       writePane: (input) => transport.request((client) => client[WS_METHODS.tmuxPaneWrite](input)),

@@ -156,12 +156,51 @@ public extension WorkspaceIndex {
         }
     }
 
+    struct WorkspaceSidebarItem: Codable, Equatable, Sendable {
+        public let workspaceID: WorkspaceID
+        public let displayName: String
+        public let canonicalPath: String?
+        public let status: WorkspaceStatus
+        public let visibility: WorkspaceVisibility
+        public let isFavorite: Bool
+        public let isOpenLocally: Bool
+        public let notificationCount: Int
+        public let notificationLevel: WorkspaceNotificationLevel
+        public let lastFocusedAt: FenrirTimestamp?
+
+        public init(summary: WorkspaceSummary) {
+            self.workspaceID = summary.workspaceID
+            self.displayName = summary.displayName
+            self.canonicalPath = summary.canonicalPath
+            self.status = summary.status
+            self.visibility = summary.visibility
+            self.isFavorite = summary.isFavorite
+            self.isOpenLocally = summary.isOpenLocally
+            self.notificationCount = summary.notifications.unreadCount
+            self.notificationLevel = summary.notifications.level
+            self.lastFocusedAt = summary.lastFocusedAt
+        }
+    }
+
+    struct WorkspaceSidebarProjection: Codable, Equatable, Sendable {
+        public let items: [WorkspaceSidebarItem]
+        public let capturedAt: FenrirTimestamp
+        public let isDegraded: Bool
+
+        public init(items: [WorkspaceSidebarItem], capturedAt: FenrirTimestamp, isDegraded: Bool = false) {
+            self.items = items
+            self.capturedAt = capturedAt
+            self.isDegraded = isDegraded
+        }
+    }
+
     enum WorkspaceIndexError: String, Error, Codable, Equatable, Sendable {
         case readFailed = "WorkspaceIndexReadFailed"
         case writeFailed = "WorkspaceIndexWriteFailed"
         case decodeFailed = "WorkspaceIndexDecodeFailed"
         case workspaceNotFound = "WorkspaceIndexWorkspaceNotFound"
         case duplicateIdentity = "WorkspaceIndexDuplicateIdentity"
+        case ambiguousIdentity = "WorkspaceIndexAmbiguousIdentity"
         case invalidIdentity = "WorkspaceIndexInvalidIdentity"
         case serverUnavailable = "WorkspaceIndexServerUnavailable"
         case permissionDenied = "WorkspaceIndexPermissionDenied"
@@ -209,6 +248,40 @@ public extension WorkspaceIndex {
         }
     }
 
+    struct ProjectWorkspaceSidebarInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let includeServer: Bool
+        public let degradeToLocalOnServerFailure: Bool
+        public let includeHidden: Bool
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            includeServer: Bool,
+            degradeToLocalOnServerFailure: Bool = true,
+            includeHidden: Bool = false,
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.includeServer = includeServer
+            self.degradeToLocalOnServerFailure = degradeToLocalOnServerFailure
+            self.includeHidden = includeHidden
+            self.source = source
+        }
+    }
+
+    struct ProjectWorkspaceSidebarResult: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let projection: WorkspaceSidebarProjection
+        public let timestamp: FenrirTimestamp
+
+        public init(requestID: RequestID, projection: WorkspaceSidebarProjection, timestamp: FenrirTimestamp) {
+            self.requestID = requestID
+            self.projection = projection
+            self.timestamp = timestamp
+        }
+    }
+
     struct RegisterWorkspaceInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let summary: WorkspaceSummary
@@ -230,12 +303,14 @@ public extension WorkspaceIndex {
     struct AttachWorkspaceInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let workspaceID: WorkspaceID
+        public let targetIdentity: WorkspaceIdentity?
         public let windowID: FenrirWindowID
         public let source: ActionSource
 
-        public init(requestID: RequestID, workspaceID: WorkspaceID, windowID: FenrirWindowID, source: ActionSource) {
+        public init(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIdentity? = nil, windowID: FenrirWindowID, source: ActionSource) {
             self.requestID = requestID
             self.workspaceID = workspaceID
+            self.targetIdentity = targetIdentity
             self.windowID = windowID
             self.source = source
         }
@@ -250,12 +325,14 @@ public extension WorkspaceIndex {
     struct DetachWorkspaceInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let workspaceID: WorkspaceID
+        public let targetIdentity: WorkspaceIdentity?
         public let windowID: FenrirWindowID?
         public let source: ActionSource
 
-        public init(requestID: RequestID, workspaceID: WorkspaceID, windowID: FenrirWindowID? = nil, source: ActionSource) {
+        public init(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIdentity? = nil, windowID: FenrirWindowID? = nil, source: ActionSource) {
             self.requestID = requestID
             self.workspaceID = workspaceID
+            self.targetIdentity = targetIdentity
             self.windowID = windowID
             self.source = source
         }
@@ -270,11 +347,13 @@ public extension WorkspaceIndex {
     struct RemoveWorkspaceInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let workspaceID: WorkspaceID
+        public let targetIdentity: WorkspaceIdentity?
         public let source: ActionSource
 
-        public init(requestID: RequestID, workspaceID: WorkspaceID, source: ActionSource) {
+        public init(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIdentity? = nil, source: ActionSource) {
             self.requestID = requestID
             self.workspaceID = workspaceID
+            self.targetIdentity = targetIdentity
             self.source = source
         }
     }
@@ -288,11 +367,13 @@ public extension WorkspaceIndex {
     struct MarkWorkspaceRecentInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let workspaceID: WorkspaceID
+        public let targetIdentity: WorkspaceIdentity?
         public let source: ActionSource
 
-        public init(requestID: RequestID, workspaceID: WorkspaceID, source: ActionSource) {
+        public init(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIdentity? = nil, source: ActionSource) {
             self.requestID = requestID
             self.workspaceID = workspaceID
+            self.targetIdentity = targetIdentity
             self.source = source
         }
     }
@@ -306,12 +387,14 @@ public extension WorkspaceIndex {
     struct MarkWorkspaceFavoriteInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let workspaceID: WorkspaceID
+        public let targetIdentity: WorkspaceIdentity?
         public let isFavorite: Bool
         public let source: ActionSource
 
-        public init(requestID: RequestID, workspaceID: WorkspaceID, isFavorite: Bool, source: ActionSource) {
+        public init(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIdentity? = nil, isFavorite: Bool, source: ActionSource) {
             self.requestID = requestID
             self.workspaceID = workspaceID
+            self.targetIdentity = targetIdentity
             self.isFavorite = isFavorite
             self.source = source
         }
@@ -326,12 +409,14 @@ public extension WorkspaceIndex {
     struct UpdateWorkspaceVisibilityInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let workspaceID: WorkspaceID
+        public let targetIdentity: WorkspaceIdentity?
         public let visibility: WorkspaceVisibility
         public let source: ActionSource
 
-        public init(requestID: RequestID, workspaceID: WorkspaceID, visibility: WorkspaceVisibility, source: ActionSource) {
+        public init(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIdentity? = nil, visibility: WorkspaceVisibility, source: ActionSource) {
             self.requestID = requestID
             self.workspaceID = workspaceID
+            self.targetIdentity = targetIdentity
             self.visibility = visibility
             self.source = source
         }
@@ -346,12 +431,14 @@ public extension WorkspaceIndex {
     struct UpdateWorkspaceNotificationsInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let workspaceID: WorkspaceID
+        public let targetIdentity: WorkspaceIdentity?
         public let notifications: WorkspaceNotificationState
         public let source: ActionSource
 
-        public init(requestID: RequestID, workspaceID: WorkspaceID, notifications: WorkspaceNotificationState, source: ActionSource) {
+        public init(requestID: RequestID, workspaceID: WorkspaceID, targetIdentity: WorkspaceIdentity? = nil, notifications: WorkspaceNotificationState, source: ActionSource) {
             self.requestID = requestID
             self.workspaceID = workspaceID
+            self.targetIdentity = targetIdentity
             self.notifications = notifications
             self.source = source
         }

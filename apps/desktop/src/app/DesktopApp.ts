@@ -12,6 +12,7 @@ import {
   Menu,
   nativeImage,
   nativeTheme,
+  powerMonitor,
   protocol,
   safeStorage,
   shell,
@@ -20,6 +21,7 @@ import type { MenuItemConstructorOptions } from "electron";
 import type { DesktopServerExposureMode, DesktopServerExposureState } from "@fenrir/contracts";
 import {
   MENU_ACTION_CHANNEL,
+  POWER_RESUMED_CHANNEL,
   TRAFFIC_LENS_PAUSED_EVENT_CHANNEL,
   TRAFFIC_LENS_STORAGE_CHANGED_CHANNEL,
   TRAFFIC_LENS_STORAGE_EVENT_CHANNEL,
@@ -186,6 +188,9 @@ const backendLifecycle = new BackendLifecycle({
     browserLabControlClient.start();
   },
   onProcessGone: () => {
+    // Abort any in-flight readiness wait so the next spawn starts a fresh
+    // deadline instead of inheriting whatever remained of the dead child's.
+    cancelBackendReadinessWait();
     browserLabControlClient.stop();
   },
   onBeforeStop: () => {
@@ -1329,29 +1334,51 @@ async function bootstrap(): Promise<void> {
   backendLifecycle.start();
   writeDesktopLogHeader("bootstrap backend start requested");
 
-  if (!isDevelopment) {
-    await waitForBackendHttpReady(backendHttpUrl);
-    writeDesktopLogHeader("bootstrap backend ready");
-  }
-
-  mainWindow = createWindow();
+  // Create the window immediately instead of gating it on backend readiness:
+  // the renderer has its own WebSocket connection surface and shows a
+  // connecting state until the backend answers. Blocking here used to leave
+  // the user with no window for the entire backend boot — and quit the app
+  // outright when a slow (but healthy) boot exceeded the readiness deadline.
+  // `??=` because menu/activate handlers can create the window first.
+  mainWindow ??= createWindow();
   ensureTrafficLensManager();
   writeDesktopLogHeader("bootstrap main window created");
-  if (isDevelopment) {
-    void waitForBackendHttpReady(backendHttpUrl)
-      .then(() => {
-        writeDesktopLogHeader("bootstrap backend ready");
-      })
-      .catch((error) => {
-        if (isBackendReadinessAborted(error)) {
-          return;
-        }
-        writeDesktopLogHeader(
-          `bootstrap backend readiness warning message=${formatErrorMessage(error)}`,
-        );
-        console.warn("[desktop] backend readiness check timed out during dev bootstrap", error);
-      });
-  }
+
+  void waitForBackendHttpReady(backendHttpUrl)
+    .then(() => {
+      writeDesktopLogHeader("bootstrap backend ready");
+    })
+    .catch((error) => {
+      if (isBackendReadinessAborted(error)) {
+        return;
+      }
+      writeDesktopLogHeader(
+        `bootstrap backend readiness warning message=${formatErrorMessage(error)}`,
+      );
+      console.warn("[desktop] backend readiness check timed out during bootstrap", error);
+    });
+}
+
+// After sleep/lid-close the renderer's sockets are half-open: the OS never
+// delivered a close frame, so the web app believes it is still connected.
+// Broadcasting the resume lets the renderer force a fresh WebSocket session
+// immediately instead of waiting for heartbeat timeouts.
+function registerPowerMonitorHandlers(): void {
+  const broadcastPowerResumed = (source: string) => {
+    writeDesktopLogHeader(`power resumed source=${source}`);
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send(POWER_RESUMED_CHANNEL);
+      }
+    }
+  };
+
+  powerMonitor.on("resume", () => {
+    broadcastPowerResumed("resume");
+  });
+  powerMonitor.on("unlock-screen", () => {
+    broadcastPowerResumed("unlock-screen");
+  });
 }
 
 app.on("before-quit", () => {
@@ -1380,6 +1407,7 @@ app
     configureApplicationMenu();
     registerDesktopProtocol();
     desktopUpdater.configure();
+    registerPowerMonitorHandlers();
     void bootstrap().catch((error) => {
       if (isBackendReadinessAborted(error) && isQuitting) {
         return;

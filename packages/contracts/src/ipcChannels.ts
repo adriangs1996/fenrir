@@ -29,6 +29,9 @@ export const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 export const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 export const MENU_ACTION_CHANNEL = "desktop:menu-action";
 
+// ── Power management ─────────────────────────────────────────
+export const POWER_RESUMED_CHANNEL = "desktop:power-resumed";
+
 // ── Updater ──────────────────────────────────────────────────
 export const UPDATE_STATE_CHANNEL = "desktop:update-state";
 export const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";

@@ -49,7 +49,7 @@ public extension WorkspaceShell {
         let clock: any WorkspaceShellClock
         let events: (any WorkspaceShellEventPublishing)?
 
-        init(index: any WorkspaceIndexCommanding, windows: any WorkspaceWindowCommanding, clock: any WorkspaceShellClock, events: (any WorkspaceShellEventPublishing)? = nil) {
+        public init(index: any WorkspaceIndexCommanding, windows: any WorkspaceWindowCommanding, clock: any WorkspaceShellClock, events: (any WorkspaceShellEventPublishing)? = nil) {
             self.index = index
             self.windows = windows
             self.clock = clock
@@ -59,9 +59,16 @@ public extension WorkspaceShell {
         public func run(_ input: OpenWorkspaceInput) async -> Result<CommandResult, WorkspaceShellError> {
             do {
                 let resolved = try await index.resolveWorkspace(requestID: input.requestID, identity: input.identity)
+                if resolved.summary.isOpenLocally {
+                    let windowID = try await windows.switchWorkspace(resolved.summary)
+                    _ = try await index.markRecent(requestID: input.requestID, workspaceID: resolved.summary.workspaceID, targetIdentity: resolved.summary.identity)
+                    let timestamp = clock.now()
+                    await WorkspaceShell.publish(input.requestID, "WorkspaceSwitched", timestamp, .workspaceSwitched(resolved.summary.workspaceID), events)
+                    return .success(CommandResult(requestID: input.requestID, verb: .open, status: "focused", workspace: resolved.summary, nativeWindowID: windowID, timestamp: timestamp))
+                }
                 let windowID = try await windows.openWorkspace(resolved.summary)
-                _ = try await index.attachWorkspace(requestID: input.requestID, workspaceID: resolved.summary.workspaceID, windowID: windowID)
-                _ = try await index.markRecent(requestID: input.requestID, workspaceID: resolved.summary.workspaceID)
+                _ = try await index.attachWorkspace(requestID: input.requestID, workspaceID: resolved.summary.workspaceID, targetIdentity: resolved.summary.identity, windowID: windowID)
+                _ = try await index.markRecent(requestID: input.requestID, workspaceID: resolved.summary.workspaceID, targetIdentity: resolved.summary.identity)
                 let timestamp = clock.now()
                 await WorkspaceShell.publish(input.requestID, "WorkspaceOpened", timestamp, .workspaceOpened(resolved.summary.workspaceID), events)
                 return .success(CommandResult(requestID: input.requestID, verb: .open, status: "opened", workspace: resolved.summary, nativeWindowID: windowID, timestamp: timestamp))
@@ -81,7 +88,7 @@ public extension WorkspaceShell {
         let clock: any WorkspaceShellClock
         let events: (any WorkspaceShellEventPublishing)?
 
-        init(index: any WorkspaceIndexCommanding, windows: any WorkspaceWindowCommanding, clock: any WorkspaceShellClock, events: (any WorkspaceShellEventPublishing)? = nil) {
+        public init(index: any WorkspaceIndexCommanding, windows: any WorkspaceWindowCommanding, clock: any WorkspaceShellClock, events: (any WorkspaceShellEventPublishing)? = nil) {
             self.index = index
             self.windows = windows
             self.clock = clock
@@ -95,7 +102,7 @@ public extension WorkspaceShell {
                     return .failure(.workspaceNotFound)
                 }
                 let windowID = try await windows.switchWorkspace(resolved.summary)
-                _ = try await index.markRecent(requestID: input.requestID, workspaceID: resolved.summary.workspaceID)
+                _ = try await index.markRecent(requestID: input.requestID, workspaceID: resolved.summary.workspaceID, targetIdentity: resolved.summary.identity)
                 let timestamp = clock.now()
                 await WorkspaceShell.publish(input.requestID, "WorkspaceSwitched", timestamp, .workspaceSwitched(resolved.summary.workspaceID), events)
                 return .success(CommandResult(requestID: input.requestID, verb: .switch, status: "switched", workspace: resolved.summary, nativeWindowID: windowID, timestamp: timestamp))
@@ -116,7 +123,7 @@ public extension WorkspaceShell {
         let clock: any WorkspaceShellClock
         let events: (any WorkspaceShellEventPublishing)?
 
-        init(index: any WorkspaceIndexCommanding, remoteAttacher: any RemoteWorkspaceAttaching, windows: any WorkspaceWindowCommanding, clock: any WorkspaceShellClock, events: (any WorkspaceShellEventPublishing)? = nil) {
+        public init(index: any WorkspaceIndexCommanding, remoteAttacher: any RemoteWorkspaceAttaching, windows: any WorkspaceWindowCommanding, clock: any WorkspaceShellClock, events: (any WorkspaceShellEventPublishing)? = nil) {
             self.index = index
             self.remoteAttacher = remoteAttacher
             self.windows = windows
@@ -129,7 +136,7 @@ public extension WorkspaceShell {
                 let summary = try await remoteAttacher.attachRemoteWorkspace(endpointID: input.endpointID, identity: input.identity)
                 _ = try await index.registerWorkspace(requestID: input.requestID, summary: summary)
                 let windowID = try await windows.openWorkspace(summary)
-                _ = try await index.attachWorkspace(requestID: input.requestID, workspaceID: summary.workspaceID, windowID: windowID)
+                _ = try await index.attachWorkspace(requestID: input.requestID, workspaceID: summary.workspaceID, targetIdentity: summary.identity, windowID: windowID)
                 let timestamp = clock.now()
                 await WorkspaceShell.publish(input.requestID, "RemoteWorkspaceAttached", timestamp, .remoteWorkspaceAttached(summary.workspaceID), events)
                 return .success(CommandResult(requestID: input.requestID, verb: .attach, status: "attached", workspace: summary, nativeWindowID: windowID, timestamp: timestamp))
@@ -143,11 +150,13 @@ public extension WorkspaceShell {
         public typealias Failure = WorkspaceShellError
 
         let index: any WorkspaceIndexCommanding
+        let windows: any WorkspaceWindowCommanding
         let clock: any WorkspaceShellClock
         let events: (any WorkspaceShellEventPublishing)?
 
-        init(index: any WorkspaceIndexCommanding, clock: any WorkspaceShellClock, events: (any WorkspaceShellEventPublishing)? = nil) {
+        public init(index: any WorkspaceIndexCommanding, windows: any WorkspaceWindowCommanding, clock: any WorkspaceShellClock, events: (any WorkspaceShellEventPublishing)? = nil) {
             self.index = index
+            self.windows = windows
             self.clock = clock
             self.events = events
         }
@@ -155,7 +164,10 @@ public extension WorkspaceShell {
         public func run(_ input: RemoveWorkspaceInput) async -> Result<CommandResult, WorkspaceShellError> {
             do {
                 let resolved = try await index.resolveWorkspace(requestID: input.requestID, identity: input.identity)
-                _ = try await index.removeWorkspace(requestID: input.requestID, workspaceID: resolved.summary.workspaceID)
+                if resolved.summary.isOpenLocally {
+                    try await windows.closeWorkspace(resolved.summary)
+                }
+                _ = try await index.removeWorkspace(requestID: input.requestID, workspaceID: resolved.summary.workspaceID, targetIdentity: resolved.summary.identity)
                 let timestamp = clock.now()
                 await WorkspaceShell.publish(input.requestID, "WorkspaceRemoved", timestamp, .workspaceRemoved(resolved.summary.workspaceID), events)
                 return .success(CommandResult(requestID: input.requestID, verb: .remove, status: "removed", workspace: resolved.summary, timestamp: timestamp))
@@ -172,7 +184,7 @@ public extension WorkspaceShell {
         let clock: any WorkspaceShellClock
         let events: (any WorkspaceShellEventPublishing)?
 
-        init(index: any WorkspaceIndexCommanding, clock: any WorkspaceShellClock, events: (any WorkspaceShellEventPublishing)? = nil) {
+        public init(index: any WorkspaceIndexCommanding, clock: any WorkspaceShellClock, events: (any WorkspaceShellEventPublishing)? = nil) {
             self.index = index
             self.clock = clock
             self.events = events
@@ -196,7 +208,7 @@ public extension WorkspaceShell {
         let clock: any WorkspaceShellClock
         let events: (any WorkspaceShellEventPublishing)?
 
-        init(clock: any WorkspaceShellClock, events: (any WorkspaceShellEventPublishing)? = nil) {
+        public init(clock: any WorkspaceShellClock, events: (any WorkspaceShellEventPublishing)? = nil) {
             self.clock = clock
             self.events = events
         }
@@ -230,7 +242,7 @@ public extension WorkspaceShell {
 
         let toggling: any WorkspaceSidebarToggling
 
-        init(toggling: any WorkspaceSidebarToggling) {
+        public init(toggling: any WorkspaceSidebarToggling) {
             self.toggling = toggling
         }
 

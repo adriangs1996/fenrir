@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { WsConnectionStatus } from "../rpc/wsConnectionState";
-import { shouldAutoReconnect, shouldRestartStalledReconnect } from "./WebSocketConnectionSurface";
+import {
+  HEARTBEAT_WATCHDOG_GRACE_MS,
+  shouldAutoReconnect,
+  shouldRestartStalledReconnect,
+  shouldScheduleExhaustedRetry,
+  shouldWatchdogReconnect,
+} from "./WebSocketConnectionSurface";
 
 function makeStatus(overrides: Partial<WsConnectionStatus> = {}): WsConnectionStatus {
   return {
@@ -92,6 +98,79 @@ describe("WebSocketConnectionSurface.logic", () => {
           reconnectPhase: "attempting",
         }),
         "focus",
+      ),
+    ).toBe(false);
+  });
+
+  it("watchdog-reconnects a connected socket with a stale heartbeat after the grace period", () => {
+    const connectedAt = "2026-04-03T20:00:00.000Z";
+    const connectedStatus = makeStatus({
+      connectedAt,
+      hasConnected: true,
+      phase: "connected",
+    });
+    const pastGraceMs = new Date(connectedAt).getTime() + HEARTBEAT_WATCHDOG_GRACE_MS;
+
+    expect(
+      shouldWatchdogReconnect(connectedStatus, { nowMs: pastGraceMs, heartbeatFresh: false }),
+    ).toBe(true);
+    expect(
+      shouldWatchdogReconnect(connectedStatus, { nowMs: pastGraceMs, heartbeatFresh: true }),
+    ).toBe(false);
+    expect(
+      shouldWatchdogReconnect(connectedStatus, {
+        nowMs: pastGraceMs - 1_000,
+        heartbeatFresh: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldWatchdogReconnect(
+        { ...connectedStatus, phase: "disconnected" },
+        { nowMs: pastGraceMs, heartbeatFresh: false },
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps retrying on a slow cadence after the retry budget is exhausted", () => {
+    expect(
+      shouldScheduleExhaustedRetry(
+        makeStatus({
+          hasConnected: true,
+          online: true,
+          phase: "disconnected",
+          reconnectPhase: "exhausted",
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      shouldScheduleExhaustedRetry(
+        makeStatus({
+          hasConnected: false,
+          online: true,
+          phase: "disconnected",
+          reconnectPhase: "exhausted",
+        }),
+      ),
+    ).toBe(true);
+
+    expect(
+      shouldScheduleExhaustedRetry(
+        makeStatus({
+          online: false,
+          phase: "disconnected",
+          reconnectPhase: "exhausted",
+        }),
+      ),
+    ).toBe(false);
+
+    expect(
+      shouldScheduleExhaustedRetry(
+        makeStatus({
+          online: true,
+          phase: "disconnected",
+          reconnectPhase: "waiting",
+        }),
       ),
     ).toBe(false);
   });

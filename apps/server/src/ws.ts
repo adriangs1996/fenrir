@@ -26,11 +26,12 @@ import { makeVcsRoutes } from "./ws/routes/vcs";
 import { makeWorkflowRoutes } from "./ws/routes/workflows";
 import { makeWorkspaceRoutes } from "./ws/routes/workspace";
 import { makeRefreshGitStatus } from "./ws/shared";
+import { withIdleTimeoutUpgrade } from "./ws/socketIdleTimeout";
 
 // Build route handlers per authenticated WebSocket connection. The auth routes
 // use this session id to mark the current client without assuming a singleton
 // browser/Electron/native client.
-const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
+export const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
   WsRpcGroup.toLayer(
     Effect.gen(function* () {
       const refreshGitStatus = yield* makeRefreshGitStatus;
@@ -100,7 +101,13 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         );
         return yield* Effect.acquireUseRelease(
           sessions.markConnected(session.sessionId),
-          () => rpcWebSocketHttpEffect,
+          () =>
+            rpcWebSocketHttpEffect.pipe(
+              Effect.provideService(
+                HttpServerRequest.HttpServerRequest,
+                withIdleTimeoutUpgrade(request),
+              ),
+            ),
           () => sessions.markDisconnected(session.sessionId),
         );
       }).pipe(Effect.catchTag("AuthError", respondToAuthError)),

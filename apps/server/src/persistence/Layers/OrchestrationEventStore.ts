@@ -257,10 +257,35 @@ const makeEventStore = Effect.gen(function* () {
     return readPage(sequenceExclusive, normalizedLimit);
   };
 
+  const pruneThroughSequence: OrchestrationEventStoreShape["pruneThroughSequence"] = (input) => {
+    const normalizedLimit = Math.max(0, Math.floor(input.limit));
+    if (normalizedLimit === 0 || input.sequenceInclusive < 0) {
+      return Effect.succeed(0);
+    }
+    // `DELETE ... LIMIT` requires a non-default SQLite build flag, so batch
+    // through a subquery instead. Oldest events go first.
+    return sql`
+      DELETE FROM orchestration_events
+      WHERE sequence IN (
+        SELECT sequence
+        FROM orchestration_events
+        WHERE sequence <= ${input.sequenceInclusive}
+          AND occurred_at < ${input.olderThanIso}
+        ORDER BY sequence ASC
+        LIMIT ${normalizedLimit}
+      )
+      RETURNING sequence
+    `.pipe(
+      Effect.map((rows) => rows.length),
+      Effect.mapError(toPersistenceSqlError("OrchestrationEventStore.pruneThroughSequence:delete")),
+    );
+  };
+
   return {
     append,
     readFromSequence,
     readAll: () => readFromSequence(0, Number.MAX_SAFE_INTEGER),
+    pruneThroughSequence,
   } satisfies OrchestrationEventStoreShape;
 });
 

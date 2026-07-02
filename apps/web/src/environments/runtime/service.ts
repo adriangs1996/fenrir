@@ -664,8 +664,11 @@ function createSavedEnvironmentClient(
         onAttempt: () => {
           statusOwner.connecting();
         },
-        onError: (message: string) => {
-          statusOwner.failed(new Error(message));
+        onError: (message: string, error?: unknown) => {
+          // Preserve typed errors (e.g. RemoteEnvironmentAuthHttpError from
+          // the ws-token issuer) so setRuntimeError can classify 401/403 as
+          // requires-auth/blocked instead of retrying a revoked token forever.
+          statusOwner.failed(error ?? new Error(message));
         },
         onClose: (details: { readonly code: number; readonly reason: string }) => {
           statusOwner.disconnected(details.reason);
@@ -925,9 +928,17 @@ function subscribeBrowserResumeReconnects(): () => void {
 
   document.addEventListener("visibilitychange", handleVisibilityChange);
   window.addEventListener("pageshow", handlePageShow);
+  // Desktop-only: system sleep leaves sockets half-open without any browser
+  // event, so the Electron main process forwards powerMonitor resumes.
+  const unsubscribePowerResumed =
+    window.desktopBridge?.onPowerResumed?.(() => {
+      lastBrowserHiddenAt = null;
+      reconnectEnvironmentConnectionsAfterBrowserResume("power-resume");
+    }) ?? NOOP;
   return () => {
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     window.removeEventListener("pageshow", handlePageShow);
+    unsubscribePowerResumed();
   };
 }
 

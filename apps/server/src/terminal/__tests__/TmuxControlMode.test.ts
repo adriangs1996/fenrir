@@ -103,9 +103,13 @@ describe("tmux control-mode parser", () => {
   it("serializes commands with shell-safe tmux arguments", () => {
     expect(quoteTmuxCommandArg("plain-arg")).toBe("plain-arg");
     expect(quoteTmuxCommandArg("two words")).toBe("'two words'");
+    expect(quoteTmuxCommandArg("%23:on")).toBe("'%23:on'");
     expect(quoteTmuxCommandArg("line one\nline two")).toBe('"line one\\012line two"');
     expect(serializeTmuxControlCommand({ command: "new-window", args: ["-n", "dev server"] })).toBe(
       "new-window -n 'dev server'",
+    );
+    expect(serializeTmuxControlCommand({ command: "refresh-client", args: ["-A", "%23:on"] })).toBe(
+      "refresh-client -A '%23:on'",
     );
   });
 
@@ -271,7 +275,7 @@ describe("TmuxControlModeAdapterLive", () => {
         connection.command({ command: "send-keys", args: ["-t", "%missing", "Enter"] }),
       );
 
-      expect(adapter.processes[0]?.writes).toEqual(["send-keys -t %missing Enter\n"]);
+      expect(adapter.processes[0]?.writes).toEqual(["send-keys -t '%missing' Enter\n"]);
       expect(result._tag).toBe("Failure");
     }).pipe(Effect.provide(layer));
   });
@@ -594,7 +598,7 @@ describe("TmuxControlModeAdapterLive", () => {
         args: ["-t", "%1", "-l", "echo hello\n"],
       });
 
-      expect(adapter.processes[0]?.writes).toEqual(['send-keys -t %1 -l "echo hello\\012"\n']);
+      expect(adapter.processes[0]?.writes).toEqual(["send-keys -t '%1' -l \"echo hello\\012\"\n"]);
     }).pipe(Effect.provide(layer));
   });
 

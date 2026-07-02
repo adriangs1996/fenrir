@@ -1,20 +1,20 @@
 import Foundation
 import FenrirNativeShared
 
-extension AuthSession {
+public extension AuthSession {
     struct BearerSessionMaterial: Equatable, Sendable {
-        let session: NativeAuthSession
+        public let session: NativeAuthSession
         let bearerToken: String
 
-        init(session: NativeAuthSession, bearerToken: String) {
+        public init(session: NativeAuthSession, bearerToken: String) {
             self.session = session
             self.bearerToken = bearerToken
         }
     }
 
     struct StoredBearerCredential: Equatable, Sendable {
-        let endpointScope: EndpointScope
-        let reference: String
+        public let endpointScope: EndpointScope
+        public let reference: String
         let bearerToken: String
 
         init(endpointScope: EndpointScope, reference: String, bearerToken: String) {

@@ -36,6 +36,7 @@ import {
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
+const MAX_THREAD_PROPOSED_PLANS = 200;
 const MAX_THREAD_CHECKPOINTS = 500;
 
 function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error") {
@@ -144,6 +145,44 @@ function retainThreadProposedPlansAfterRevert(
     (proposedPlan) => proposedPlan.turnId === null || retainedTurnIds.has(proposedPlan.turnId),
   );
 }
+
+/**
+ * Maximum number of activities retained per thread in the in-memory read
+ * model. The full history stays in `projection_thread_activities` and is
+ * served per thread from the database; the read model only needs the recent
+ * window (plan-runner failure lookups, step logs). Without this cap the
+ * engine's boot hydration and long-lived append path grow with total history
+ * and can exhaust the V8 heap.
+ */
+export const THREAD_ACTIVITY_READ_MODEL_LIMIT = 500;
+
+/**
+ * Maximum cumulative `payload_json` bytes hydrated per thread into the
+ * in-memory read model, newest first (the newest activity is always kept).
+ * Tool-output payloads can reach megabytes each, so a row cap alone does not
+ * bound memory: 500 fat rows across hundreds of threads previously decoded
+ * into multiple gigabytes and killed the backend at boot.
+ */
+export const THREAD_ACTIVITY_READ_MODEL_PAYLOAD_BUDGET_BYTES = 256 * 1024;
+
+/**
+ * Boot-hydration caps for thread messages, mirroring the activity caps above.
+ * The row limit matches the append-path cap (`MAX_THREAD_MESSAGES`) so
+ * hydration never loads more than the read model would retain anyway; the
+ * byte budget bounds memory when individual message texts are huge
+ * (assistant outputs can reach megabytes). Newest messages win; the newest
+ * row per thread is always kept. Full history stays in
+ * `projection_thread_messages` and is served per thread from the database.
+ */
+export const THREAD_MESSAGE_READ_MODEL_LIMIT = MAX_THREAD_MESSAGES;
+export const THREAD_MESSAGE_READ_MODEL_PAYLOAD_BUDGET_BYTES = 1024 * 1024;
+
+/**
+ * Boot-hydration caps for proposed plans, mirroring the activity caps above.
+ * The row limit matches the append-path cap (`MAX_THREAD_PROPOSED_PLANS`).
+ */
+export const THREAD_PROPOSED_PLAN_READ_MODEL_LIMIT = MAX_THREAD_PROPOSED_PLANS;
+export const THREAD_PROPOSED_PLAN_READ_MODEL_PAYLOAD_BUDGET_BYTES = 256 * 1024;
 
 function compareThreadActivities(
   left: OrchestrationThread["activities"][number],
@@ -516,7 +555,7 @@ export function projectEvent(
             (left, right) =>
               left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
           )
-          .slice(-200);
+          .slice(-MAX_THREAD_PROPOSED_PLANS);
 
         return {
           ...nextBase,
@@ -616,7 +655,7 @@ export function projectEvent(
           const proposedPlans = retainThreadProposedPlansAfterRevert(
             thread.proposedPlans,
             retainedTurnIds,
-          ).slice(-200);
+          ).slice(-MAX_THREAD_PROPOSED_PLANS);
           const activities = retainThreadActivitiesAfterRevert(thread.activities, retainedTurnIds);
 
           const latestCheckpoint = checkpoints.at(-1) ?? null;
@@ -664,7 +703,7 @@ export function projectEvent(
             payload.activity,
           ]
             .toSorted(compareThreadActivities)
-            .slice(-500);
+            .slice(-THREAD_ACTIVITY_READ_MODEL_LIMIT);
 
           return {
             ...nextBase,

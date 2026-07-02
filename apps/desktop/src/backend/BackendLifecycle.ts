@@ -10,6 +10,10 @@ export type BackendLifecycleState = "stopped" | "starting" | "ready" | "error";
  */
 const MAX_BACKEND_RESTART_ATTEMPTS = 50;
 
+function appendNodeOption(existing: string | undefined, option: string): string {
+  return existing && existing.trim().length > 0 ? `${existing} ${option}` : option;
+}
+
 export interface BackendLifecycleDeps {
   readonly isQuitting: () => boolean;
   readonly resolveBackendEntry: () => string;
@@ -63,13 +67,18 @@ export class BackendLifecycle {
 
     this.state = "starting";
     const captureBackendLogs = this.deps.shouldCaptureBackendLogs();
+    const childEnv = this.deps.buildChildEnv();
     const child = ChildProcess.spawn(process.execPath, [backendEntry, "--bootstrap-fd", "3"], {
       cwd: this.deps.resolveBackendCwd(),
       // In Electron main, process.execPath points to the Electron binary.
       // Run the child in Node mode so this backend process does not become a GUI app instance.
       env: {
-        ...this.deps.buildChildEnv(),
+        ...childEnv,
         ELECTRON_RUN_AS_NODE: "1",
+        // The backend hydrates large orchestration state at boot; the default
+        // ~4GB V8 old-space limit has been hit on long-lived installs. Give it
+        // headroom — actual usage stays far below unless something regresses.
+        NODE_OPTIONS: appendNodeOption(childEnv.NODE_OPTIONS, "--max-old-space-size=8192"),
       },
       stdio: captureBackendLogs
         ? ["ignore", "pipe", "pipe", "pipe"]
@@ -98,14 +107,17 @@ export class BackendLifecycle {
     this.deps.captureBackendOutput(child);
 
     child.once("spawn", () => {
-      this.restartAttempt = 0;
       void this.deps
         .waitForReady()
         .then(() => {
           if (this.backendProcess === child) {
+            // Reset the crash-loop budget only once readiness confirms:
+            // "spawn" fires even for a backend that dies milliseconds later,
+            // which would keep the restart cap from ever triggering.
+            this.restartAttempt = 0;
             this.state = "ready";
+            this.deps.onReady();
           }
-          this.deps.onReady();
         })
         .catch(() => undefined);
     });

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 import FenrirNativeShared
@@ -30,11 +31,30 @@ struct ClientControlTests {
             "switch:switch-1",
             "open:attach-1:attach:profile-a",
             "switch:focus-1",
-            "remove:remove-1",
+            "remove:remove-1:none",
             "close:close-1",
             "list:list-1:false"
         ])
         #expect(listed.workspaces == [summary])
+    }
+
+    @Test("Remove forwards scoped workspace identity to the index")
+    func removeForwardsScopedIdentity() async throws {
+        let ports = ClientPorts()
+        let identity = WorkspaceIndex.WorkspaceIdentity(
+            kind: .remote,
+            workspaceID: "workspace-a",
+            serverID: "server-a",
+            profileID: "profile-a"
+        )
+
+        _ = try await ClientControl.RemoveWorkspace(removing: ports).run(.init(
+            requestID: "remove-remote-1",
+            workspaceID: "workspace-a",
+            targetIdentity: identity
+        )).get()
+
+        #expect(await ports.calls == ["remove:remove-remote-1:remote:server-a:profile-a"])
     }
 
     @Test("Coordinator and index failures map to typed ClientControl failures")
@@ -129,7 +149,388 @@ struct NativeHostControlTests {
         ))
 
         #expect(response.ok)
-        #expect(await dispatcher.calls == ["attach:attach-remote-1:remote:ws://127.0.0.1:9876"])
+        #expect(await dispatcher.calls == ["attach:attach-remote-1:remote:server-a:ws://127.0.0.1:9876"])
+    }
+
+    @Test("NativeHost remove preserves scoped remote identity")
+    func removePreservesScopedRemoteIdentity() async throws {
+        let dispatcher = NativeHostDispatcher()
+        let controller = NativeHostControlController(dispatcher: dispatcher)
+
+        let response = await controller.dispatch(NativeHostControlRequest(
+            requestID: "remove-remote-1",
+            command: .remove,
+            parameters: [
+                "workspaceID": "workspace-a",
+                "serverID": "server-a",
+                "profileID": "profile-a"
+            ]
+        ))
+
+        #expect(response.ok)
+        #expect(await dispatcher.calls == ["remove:remove-remote-1:workspace-a:remote:server-a:profile-a"])
+    }
+
+    @Test("NativeHost composes public ClientControl actions")
+    func composesPublicClientControlActions() async throws {
+        let ports = ClientPorts()
+        let actions = NativeHostClientControlActions(
+            opening: ports,
+            switching: ports,
+            listing: ports,
+            removing: ports,
+            controlling: ports
+        )
+        let controller = NativeHostControlController(dispatcher: actions)
+
+        let response = await controller.dispatch(NativeHostControlRequest(
+            requestID: "native-compose-open",
+            command: .open,
+            parameters: ["workspaceID": "workspace-a"]
+        ))
+
+        #expect(response.ok)
+        #expect(await ports.calls == ["open:native-compose-open:focusExisting:local"])
+    }
+
+    @Test("NativeHost routes explicit product commands without generic command blobs")
+    func routesExplicitProductCommands() async throws {
+        let dispatcher = NativeHostDispatcher()
+        let product = NativeHostProductDispatcher()
+        let controller = NativeHostControlController(dispatcher: dispatcher, productDispatcher: product)
+
+        let palette = await controller.dispatch(NativeHostControlRequest(
+            requestID: "palette-open-1",
+            command: .palette,
+            parameters: ["query": "diag"]
+        ))
+        let paletteRun = await controller.dispatch(NativeHostControlRequest(
+            requestID: "palette-run-1",
+            command: .palette,
+            parameters: ["operation": "run", "actionID": "action-diagnostics"]
+        ))
+        let workflow = await controller.dispatch(NativeHostControlRequest(
+            requestID: "workflow-timeline-1",
+            command: .workflow,
+            parameters: ["operation": "timeline", "runID": "run-a"]
+        ))
+        let diagnostics = await controller.dispatch(NativeHostControlRequest(
+            requestID: "diagnostics-open-1",
+            command: .diagnostics
+        ))
+
+        #expect(palette.resultKind == "PalettePresented")
+        #expect(palette.payload["query"] == "diag")
+        #expect(paletteRun.resultKind == "PaletteActionExecuted")
+        #expect(workflow.resultKind == "WorkflowPresented")
+        #expect(diagnostics.resultKind == "DiagnosticsPresented")
+        #expect(await product.calls == [
+            "palette:palette-open-1:diag",
+            "palette-run:palette-run-1:action-diagnostics",
+            "workflow:workflow-timeline-1:timeline:run-a",
+            "diagnostics:diagnostics-open-1"
+        ])
+    }
+
+    @Test("NativeHost CLI socket route roundtrips product commands")
+    func localCLISocketRouteRoundtripsProductCommands() async throws {
+        let product = NativeHostProductDispatcher()
+        let route = NativeHostLocalCLISocketRoute(controller: NativeHostControlController(
+            dispatcher: NativeHostDispatcher(),
+            productDispatcher: product
+        ))
+        let request = NativeHostCLIProtocol.WireRequest(
+            protocolVersion: NativeHostCLIProtocol.version,
+            requestID: "cli-diagnostics-1",
+            command: .diagnostics
+        )
+
+        let responseFrame = await route.handleFrame(try NativeHostCLIProtocol.encodeFrame(JSONEncoder().encode(request)))
+        let response = try JSONDecoder().decode(
+            NativeHostCLIProtocol.WireResponse.self,
+            from: NativeHostCLIProtocol.decodeFrame(responseFrame)
+        )
+
+        #expect(response.ok)
+        #expect(response.resultKind == "DiagnosticsPresented")
+        #expect(await product.calls == ["diagnostics:cli-diagnostics-1"])
+    }
+
+    @Test("NativeHost CLI socket route decodes requests and encodes responses")
+    func localCLISocketRouteIsThin() async throws {
+        let dispatcher = NativeHostDispatcher()
+        let route = NativeHostLocalCLISocketRoute(controller: NativeHostControlController(dispatcher: dispatcher))
+        let request = NativeHostControlRequest(
+            requestID: "cli-list-1",
+            command: .list,
+            parameters: ["includeServer": "false", "includeHidden": "true"]
+        )
+        let data = try JSONEncoder().encode(request)
+
+        let responseData = await route.handle(data)
+        let response = try JSONDecoder().decode(NativeHostControlResponse.self, from: responseData)
+
+        #expect(response.ok)
+        #expect(response.resultKind == "WorkspacesListed")
+        #expect(response.payload["workspaceCount"] == "1")
+        #expect(await dispatcher.calls == ["list:cli-list-1:false:true"])
+    }
+
+    @Test("NativeHost CLI socket protocol frames versioned requests and responses")
+    func localCLISocketProtocolFramesRequestsAndResponses() async throws {
+        let dispatcher = NativeHostDispatcher()
+        let route = NativeHostLocalCLISocketRoute(controller: NativeHostControlController(dispatcher: dispatcher))
+        let request = NativeHostCLIProtocol.WireRequest(
+            protocolVersion: NativeHostCLIProtocol.version,
+            requestID: "cli-frame-1",
+            command: .open,
+            parameters: ["workspaceID": "workspace-a"]
+        )
+        let frame = try NativeHostCLIProtocol.encodeFrame(JSONEncoder().encode(request))
+
+        let responseFrame = await route.handleFrame(frame)
+        let responsePayload = try NativeHostCLIProtocol.decodeFrame(responseFrame)
+        let response = try JSONDecoder().decode(NativeHostCLIProtocol.WireResponse.self, from: responsePayload)
+
+        #expect(response.protocolVersion == NativeHostCLIProtocol.version)
+        #expect(response.ok)
+        #expect(response.resultKind == "WorkspaceOpened")
+        #expect(response.payload["workspaceID"] == "workspace-a")
+        #expect(await dispatcher.calls == ["open:cli-frame-1:workspace-a"])
+    }
+
+    @Test("NativeHost CLI socket protocol returns stable errors for malformed requests")
+    func localCLISocketProtocolRejectsMalformedRequests() async throws {
+        let route = NativeHostLocalCLISocketRoute(controller: NativeHostControlController(dispatcher: NativeHostDispatcher()))
+        let malformedPayload = Data("{".utf8)
+        let malformedFrame = try NativeHostCLIProtocol.encodeFrame(malformedPayload)
+
+        let responseFrame = await route.handleFrame(malformedFrame)
+        let response = try JSONDecoder().decode(
+            NativeHostCLIProtocol.WireResponse.self,
+            from: NativeHostCLIProtocol.decodeFrame(responseFrame)
+        )
+
+        #expect(!response.ok)
+        #expect(response.error == NativeHostCLIProtocol.ProtocolError.malformedRequest.rawValue)
+    }
+
+    @Test("NativeHost CLI socket protocol rejects unsupported versions")
+    func localCLISocketProtocolRejectsUnsupportedVersions() async throws {
+        let route = NativeHostLocalCLISocketRoute(controller: NativeHostControlController(dispatcher: NativeHostDispatcher()))
+        let request = NativeHostCLIProtocol.WireRequest(
+            protocolVersion: NativeHostCLIProtocol.version + 1,
+            requestID: "cli-version-1",
+            command: .list
+        )
+        let frame = try NativeHostCLIProtocol.encodeFrame(JSONEncoder().encode(request))
+
+        let responseFrame = await route.handleFrame(frame)
+        let response = try JSONDecoder().decode(
+            NativeHostCLIProtocol.WireResponse.self,
+            from: NativeHostCLIProtocol.decodeFrame(responseFrame)
+        )
+
+        #expect(!response.ok)
+        #expect(response.requestID == "cli-version-1")
+        #expect(response.error == NativeHostCLIProtocol.ProtocolError.unsupportedVersion.rawValue)
+    }
+
+    @Test("NativeHost CLI socket protocol enforces bounded payloads")
+    func localCLISocketProtocolRejectsOversizedPayloads() throws {
+        let payload = Data(repeating: 1, count: NativeHostCLIProtocol.maxPayloadBytes + 1)
+
+        #expect(throws: NativeHostCLIProtocol.ProtocolError.payloadTooLarge) {
+            _ = try NativeHostCLIProtocol.encodeFrame(payload)
+        }
+    }
+
+    @Test("NativeHost CLI socket server binds owned endpoint and serves framed requests")
+    func localCLISocketServerBindsAndServesFrames() async throws {
+        let dispatcher = NativeHostDispatcher()
+        let route = NativeHostLocalCLISocketRoute(controller: NativeHostControlController(dispatcher: dispatcher))
+        let socketURL = try makeTemporarySocketURL()
+        let server = NativeHostLocalCLISocketServer(socketPath: socketURL.path, route: route)
+        try server.start()
+        defer {
+            server.stop()
+        }
+
+        var socketStat = stat()
+        #expect(lstat(socketURL.path, &socketStat) == 0)
+        #expect(socketStat.st_uid == getuid())
+        #expect((socketStat.st_mode & S_IFMT) == S_IFSOCK)
+        #expect((socketStat.st_mode & 0o777) == 0o600)
+
+        let request = NativeHostCLIProtocol.WireRequest(
+            protocolVersion: NativeHostCLIProtocol.version,
+            requestID: "cli-live-socket-1",
+            command: .list,
+            parameters: ["includeServer": "false"]
+        )
+        let responseFrame = try await sendNativeHostSocketRequest(
+            frame: NativeHostCLIProtocol.encodeFrame(JSONEncoder().encode(request)),
+            socketPath: socketURL.path
+        )
+        let response = try JSONDecoder().decode(
+            NativeHostCLIProtocol.WireResponse.self,
+            from: NativeHostCLIProtocol.decodeFrame(responseFrame)
+        )
+
+        #expect(response.ok)
+        #expect(response.resultKind == "WorkspacesListed")
+        #expect(response.payload["workspaceCount"] == "1")
+        #expect(await dispatcher.calls == ["list:cli-live-socket-1:false:false"])
+    }
+
+    @Test("NativeHost CLI socket server roundtrips product commands")
+    func localCLISocketServerRoundtripsProductCommands() async throws {
+        let product = NativeHostProductDispatcher()
+        let route = NativeHostLocalCLISocketRoute(controller: NativeHostControlController(
+            dispatcher: NativeHostDispatcher(),
+            productDispatcher: product
+        ))
+        let socketURL = try makeTemporarySocketURL()
+        let server = NativeHostLocalCLISocketServer(socketPath: socketURL.path, route: route)
+        try server.start()
+        defer {
+            server.stop()
+        }
+
+        let request = NativeHostCLIProtocol.WireRequest(
+            protocolVersion: NativeHostCLIProtocol.version,
+            requestID: "cli-live-diagnostics-1",
+            command: .diagnostics
+        )
+        let responseFrame = try await sendNativeHostSocketRequest(
+            frame: NativeHostCLIProtocol.encodeFrame(JSONEncoder().encode(request)),
+            socketPath: socketURL.path
+        )
+        let response = try JSONDecoder().decode(
+            NativeHostCLIProtocol.WireResponse.self,
+            from: NativeHostCLIProtocol.decodeFrame(responseFrame)
+        )
+
+        #expect(response.ok)
+        #expect(response.resultKind == "DiagnosticsPresented")
+        #expect(await product.calls == ["diagnostics:cli-live-diagnostics-1"])
+    }
+
+    @Test("NativeHost CLI socket server replaces same-user stale endpoint")
+    func localCLISocketServerReplacesSameUserStaleEndpoint() throws {
+        let socketURL = try makeTemporarySocketURL()
+        try Data("stale".utf8).write(to: socketURL)
+        let server = NativeHostLocalCLISocketServer(
+            socketPath: socketURL.path,
+            route: NativeHostLocalCLISocketRoute(controller: NativeHostControlController(dispatcher: NativeHostDispatcher()))
+        )
+        try server.start()
+        defer {
+            server.stop()
+        }
+
+        var socketStat = stat()
+        #expect(lstat(socketURL.path, &socketStat) == 0)
+        #expect((socketStat.st_mode & S_IFMT) == S_IFSOCK)
+    }
+
+    @Test("NativeHost CLI socket server does not chmod existing override parent directories")
+    func localCLISocketServerDoesNotChmodExistingParents() throws {
+        let directory = try makeShortTemporaryDirectory()
+        guard chmod(directory.path, 0o755) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let socketURL = directory.appendingPathComponent("override.sock")
+        let server = NativeHostLocalCLISocketServer(
+            socketPath: socketURL.path,
+            route: NativeHostLocalCLISocketRoute(controller: NativeHostControlController(dispatcher: NativeHostDispatcher()))
+        )
+
+        try server.start()
+        defer {
+            server.stop()
+        }
+
+        var directoryStat = stat()
+        #expect(lstat(directory.path, &directoryStat) == 0)
+        #expect((directoryStat.st_mode & 0o777) == 0o755)
+    }
+
+    @Test("NativeHost CLI socket server locks down newly created socket parent")
+    func localCLISocketServerLocksDownNewParent() throws {
+        let baseDirectory = try makeShortTemporaryDirectory()
+        let socketDirectory = baseDirectory.appendingPathComponent("managed", isDirectory: true)
+        let socketURL = socketDirectory.appendingPathComponent("native-control.sock")
+        let server = NativeHostLocalCLISocketServer(
+            socketPath: socketURL.path,
+            route: NativeHostLocalCLISocketRoute(controller: NativeHostControlController(dispatcher: NativeHostDispatcher()))
+        )
+
+        try server.start()
+        defer {
+            server.stop()
+        }
+
+        var directoryStat = stat()
+        #expect(lstat(socketDirectory.path, &directoryStat) == 0)
+        #expect((directoryStat.st_mode & 0o777) == 0o700)
+    }
+
+    @Test("NativeHost app events extract params before dispatch")
+    func appEventRouteExtractsParams() async throws {
+        let dispatcher = NativeHostDispatcher()
+        let route = NativeHostAppEventController(controller: NativeHostControlController(dispatcher: dispatcher))
+
+        let response = await route.dispatch(.openWorkspace(
+            requestID: "app-open-1",
+            projectID: "project-a"
+        ))
+
+        #expect(response.ok)
+        #expect(response.payload["workspaceID"] == "workspace-a")
+        #expect(await dispatcher.calls == ["open:app-open-1:workspace-a"])
+    }
+
+    @Test("NativeHost server events extract explicit remote params before dispatch")
+    func serverEventRouteExtractsParams() async throws {
+        let dispatcher = NativeHostDispatcher()
+        let route = NativeHostServerEventController(controller: NativeHostControlController(dispatcher: dispatcher))
+
+        let response = await route.dispatch(.reconnectWorkspace(
+            requestID: "server-reconnect-1",
+            workspaceID: "workspace-a",
+            serverID: "server-a",
+            serverURL: "ws://127.0.0.1:9876"
+        ))
+
+        #expect(response.ok)
+        #expect(await dispatcher.calls == ["control:server-reconnect-1:reconnect:remote:server-a:ws://127.0.0.1:9876"])
+    }
+
+    @Test("Native foundation modules do not import NativeHost")
+    func modulesDoNotImportNativeHost() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let modules = root.appending(path: "Sources/FenrirNativeFoundation/Modules")
+        let enumerator = FileManager.default.enumerator(at: modules, includingPropertiesForKeys: nil)
+        var offenders: [String] = []
+
+        while let file = enumerator?.nextObject() as? URL {
+            guard file.pathExtension == "swift" else {
+                continue
+            }
+            let source = try String(contentsOf: file)
+            if source.contains("import FenrirNativeApp") {
+                offenders.append(file.lastPathComponent)
+            }
+        }
+
+        #expect(offenders.isEmpty)
     }
 }
 
@@ -199,7 +600,7 @@ private actor ClientPorts:
         if let removeError {
             throw removeError
         }
-        calls.append("remove:\(input.requestID.rawValue)")
+        calls.append("remove:\(input.requestID.rawValue):\(identityDescription(input.targetIdentity))")
         return WorkspaceIndex.RemoveWorkspaceResult(
             requestID: input.requestID,
             workspaceID: input.workspaceID,
@@ -254,7 +655,7 @@ private actor NativeHostDispatcher: NativeHostClientControlDispatching {
     }
 
     func listWorkspaces(_ input: ClientControl.ListWorkspacesInput) async -> Result<ClientControl.ListWorkspacesResult, ClientControl.ClientControlError> {
-        calls.append("list:\(input.requestID.rawValue)")
+        calls.append("list:\(input.requestID.rawValue):\(input.includeServer):\(input.includeHidden)")
         return .success(ClientControl.ListWorkspacesResult(
             requestID: input.requestID,
             workspaces: [summary(for: WorkspaceIndex.WorkspaceIdentity(kind: .project, workspaceID: "workspace-a"))],
@@ -270,14 +671,14 @@ private actor NativeHostDispatcher: NativeHostClientControlDispatching {
         case .profile(let profileID):
             "profile:\(profileID.rawValue)"
         case .remote(let endpoint):
-            "remote:\(endpoint.transport.description)"
+            "remote:\(endpoint.endpointID):\(endpoint.transport.description)"
         }
         calls.append("attach:\(input.requestID.rawValue):\(selection)")
         return .success(ClientControl.AttachWorkspaceResult(requestID: input.requestID, workspace: workspace, windowID: "window-a", timestamp: FixedClock().now()))
     }
 
     func removeWorkspace(_ input: ClientControl.RemoveWorkspaceInput) async -> Result<ClientControl.RemoveWorkspaceResult, ClientControl.ClientControlError> {
-        calls.append("remove:\(input.requestID.rawValue):\(input.workspaceID.rawValue)")
+        calls.append("remove:\(input.requestID.rawValue):\(input.workspaceID.rawValue):\(identityDescription(input.targetIdentity))")
         return .success(ClientControl.RemoveWorkspaceResult(requestID: input.requestID, workspaceID: input.workspaceID, timestamp: FixedClock().now()))
     }
 
@@ -292,7 +693,15 @@ private actor NativeHostDispatcher: NativeHostClientControlDispatching {
 
     func controlWorkspace(_ input: ClientControl.ControlWorkspaceInput) async -> Result<ClientControl.ControlWorkspaceResult, ClientControl.ClientControlError> {
         let workspaceID = input.workspaceID ?? input.identity?.workspaceID ?? "workspace-a"
-        calls.append("control:\(input.requestID.rawValue):\(input.operation.rawValue)")
+        let selection = switch input.serverSelection {
+        case .local:
+            "local"
+        case .profile(let profileID):
+            "profile:\(profileID.rawValue)"
+        case .remote(let endpoint):
+            "remote:\(endpoint.endpointID):\(endpoint.transport.description)"
+        }
+        calls.append("control:\(input.requestID.rawValue):\(input.operation.rawValue):\(selection)")
         return .success(ClientControl.ControlWorkspaceResult(requestID: input.requestID, operation: input.operation, workspaceID: workspaceID, timestamp: FixedClock().now()))
     }
 
@@ -306,6 +715,60 @@ private actor NativeHostDispatcher: NativeHostClientControlDispatching {
     }
 }
 
+private actor NativeHostProductDispatcher: NativeHostProductCommandDispatching {
+    private(set) var calls: [String] = []
+
+    func presentPalette(_ input: NativeHostPaletteInput) async -> Result<NativeHostProductCommandResult, ClientControl.ClientControlError> {
+        calls.append("palette:\(input.requestID.rawValue):\(input.query ?? "none")")
+        return .success(NativeHostProductCommandResult(
+            requestID: input.requestID,
+            resultKind: "PalettePresented",
+            payload: ["query": input.query ?? ""]
+        ))
+    }
+
+    func executePaletteAction(_ input: NativeHostPaletteInput) async -> Result<NativeHostProductCommandResult, ClientControl.ClientControlError> {
+        calls.append("palette-run:\(input.requestID.rawValue):\(input.actionID ?? "none")")
+        return .success(NativeHostProductCommandResult(
+            requestID: input.requestID,
+            resultKind: "PaletteActionExecuted",
+            payload: ["actionID": input.actionID ?? ""]
+        ))
+    }
+
+    func presentWorkflow(_ input: NativeHostWorkflowInput) async -> Result<NativeHostProductCommandResult, ClientControl.ClientControlError> {
+        calls.append("workflow:\(input.requestID.rawValue):\(input.operation):\(input.runID ?? "none")")
+        return .success(NativeHostProductCommandResult(
+            requestID: input.requestID,
+            resultKind: "WorkflowPresented",
+            payload: ["operation": input.operation]
+        ))
+    }
+
+    func presentDiagnostics(_ input: NativeHostDiagnosticsInput) async -> Result<NativeHostProductCommandResult, ClientControl.ClientControlError> {
+        calls.append("diagnostics:\(input.requestID.rawValue)")
+        return .success(NativeHostProductCommandResult(
+            requestID: input.requestID,
+            resultKind: "DiagnosticsPresented"
+        ))
+    }
+}
+
+private func identityDescription(_ identity: WorkspaceIndex.WorkspaceIdentity?) -> String {
+    guard let identity else {
+        return "none"
+    }
+
+    switch identity.kind {
+    case .localPath:
+        return "localPath:\(identity.workspaceID?.rawValue ?? "none"):\(identity.canonicalPath ?? "none")"
+    case .project:
+        return "project:\(identity.workspaceID?.rawValue ?? "none"):\(identity.projectID ?? "none")"
+    case .remote:
+        return "remote:\(identity.serverID ?? "none"):\(identity.profileID?.rawValue ?? "none")"
+    }
+}
+
 private extension ServerConnection.EndpointTransport {
     var description: String {
         switch self {
@@ -314,5 +777,101 @@ private extension ServerConnection.EndpointTransport {
         case .unixDomainSocket(let path):
             return path
         }
+    }
+}
+
+private func makeTemporarySocketURL() throws -> URL {
+    let directory = try makeShortTemporaryDirectory()
+    return directory.appendingPathComponent("ctl.sock")
+}
+
+private func makeShortTemporaryDirectory() throws -> URL {
+    let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        .appendingPathComponent("fnr-\(UUID().uuidString.prefix(8))", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory
+}
+
+private func sendNativeHostSocketRequest(frame: Data, socketPath: String) async throws -> Data {
+    try await Task.detached(priority: .userInitiated) {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer {
+            close(fd)
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxPathLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard socketPath.utf8.count < maxPathLength else {
+            throw POSIXError(.ENAMETOOLONG)
+        }
+        socketPath.withCString { pathPointer in
+            withUnsafeMutablePointer(to: &address.sun_path) { sunPathPointer in
+                sunPathPointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { destination in
+                    _ = strncpy(destination, pathPointer, maxPathLength - 1)
+                }
+            }
+        }
+
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                connect(fd, socketAddress, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard connected == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .ECONNREFUSED)
+        }
+        guard writeAllForTest(frame, to: fd) else {
+            throw POSIXError(.EIO)
+        }
+        guard let responseHeader = readExactForTest(byteCount: 4, from: fd) else {
+            throw POSIXError(.EIO)
+        }
+        let responseLength = responseHeader.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        guard let responsePayload = readExactForTest(byteCount: Int(responseLength), from: fd) else {
+            throw POSIXError(.EIO)
+        }
+        var responseFrame = Data(responseHeader)
+        responseFrame.append(responsePayload)
+        return responseFrame
+    }.value
+}
+
+private func readExactForTest(byteCount: Int, from fd: Int32) -> Data? {
+    var data = Data(count: byteCount)
+    var offset = 0
+    let success = data.withUnsafeMutableBytes { buffer -> Bool in
+        guard let baseAddress = buffer.baseAddress else {
+            return byteCount == 0
+        }
+        while offset < byteCount {
+            let count = read(fd, baseAddress.advanced(by: offset), byteCount - offset)
+            if count <= 0 {
+                return false
+            }
+            offset += count
+        }
+        return true
+    }
+    return success ? data : nil
+}
+
+private func writeAllForTest(_ data: Data, to fd: Int32) -> Bool {
+    data.withUnsafeBytes { buffer -> Bool in
+        guard let baseAddress = buffer.baseAddress else {
+            return data.isEmpty
+        }
+        var offset = 0
+        while offset < data.count {
+            let count = write(fd, baseAddress.advanced(by: offset), data.count - offset)
+            if count <= 0 {
+                return false
+            }
+            offset += count
+        }
+        return true
     }
 }

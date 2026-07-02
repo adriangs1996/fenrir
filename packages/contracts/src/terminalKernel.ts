@@ -119,6 +119,9 @@ export const TmuxNeovimBootstrapMetadata = Schema.Struct({
   windowId: TmuxWindowId,
   cwd: TmuxPath,
   profileId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+  themeId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+  keybindingProfileId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+  bridgeSocketPath: TmuxPath,
   files: Schema.Array(TmuxPath).check(Schema.isMaxLength(128)),
   line: Schema.optional(PositiveInt),
   column: Schema.optional(PositiveInt),
@@ -343,6 +346,8 @@ export const TmuxPane = Schema.Struct({
   windowId: TmuxWindowId,
   tmuxPaneId: TmuxNativeId,
   cwd: TmuxPath,
+  x: Schema.optional(NonNegativeInt),
+  y: Schema.optional(NonNegativeInt),
   cols: TmuxPaneCols,
   rows: TmuxPaneRows,
   status: TmuxPaneStatus,
@@ -485,6 +490,7 @@ export type TmuxWorkspaceListInput = typeof TmuxWorkspaceListInput.Type;
 
 export const TmuxWorkspaceEnsureInput = Schema.Struct({
   actor: TmuxActor,
+  workspaceId: Schema.optional(TmuxWorkspaceId),
   projectId: ProjectId,
   cwd: TmuxPath,
   initialGrants: Schema.optional(Schema.Array(TmuxPermissionGrant).check(Schema.isMaxLength(128))),
@@ -639,6 +645,8 @@ export const TmuxNeovimPaneInput = Schema.Struct({
   line: Schema.optional(PositiveInt),
   column: Schema.optional(PositiveInt),
   profileId: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(128))),
+  themeId: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(128))),
+  keybindingProfileId: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(128))),
   split: Schema.optional(Schema.Literals(["same-window", "horizontal", "vertical"])),
   launchSource: Schema.optional(Schema.Literals(["user", "agent", "workflow", "restore"])),
 });
@@ -651,6 +659,20 @@ export const TmuxPaneCloseInput = Schema.Struct({
   mode: Schema.Literals(["detach", "terminate", "kill"]),
 });
 export type TmuxPaneCloseInput = typeof TmuxPaneCloseInput.Type;
+
+export const TmuxPaneFocusInput = Schema.Struct({
+  actor: TmuxActor,
+  workspaceId: TmuxWorkspaceId,
+  paneId: TmuxPaneId,
+});
+export type TmuxPaneFocusInput = typeof TmuxPaneFocusInput.Type;
+
+export const TmuxWindowFocusInput = Schema.Struct({
+  actor: TmuxActor,
+  workspaceId: TmuxWorkspaceId,
+  windowId: TmuxWindowId,
+});
+export type TmuxWindowFocusInput = typeof TmuxWindowFocusInput.Type;
 
 export const TmuxPaneResizeInput = Schema.Struct({
   actor: TmuxActor,
@@ -703,6 +725,7 @@ export class TmuxKernelError extends Schema.TaggedErrorClass<TmuxKernelError>()(
     "permission-denied",
     "tmux-unavailable",
     "control-mode-unavailable",
+    "nvim-unavailable",
     "invalid-state",
     "stream-overflow",
     "io-error",

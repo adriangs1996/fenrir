@@ -408,7 +408,16 @@ export function createEnvironmentConnection(
         input.client.orchestration.replayEvents({ fromSequenceExclusive }),
       );
       if (!disposed) {
-        const didSync = applyProjectionEvents(events);
+        // Server-side retention may have pruned events between our cursor and
+        // the oldest retained one; a gapped replay cannot be applied safely,
+        // so fall back to full snapshot recovery.
+        const oldestReplayedSequence = events.reduce<number | null>(
+          (oldest, event) => (oldest === null ? event.sequence : Math.min(oldest, event.sequence)),
+          null,
+        );
+        const hasSequenceGap =
+          oldestReplayedSequence !== null && oldestReplayedSequence > fromSequenceExclusive + 1;
+        const didSync = hasSequenceGap ? false : applyProjectionEvents(events);
         if (!didSync) {
           replayRetryTracker = null;
           recovery.failReplayRecovery();

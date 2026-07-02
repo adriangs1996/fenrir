@@ -255,6 +255,13 @@ public extension AuthSession {
         case protocolMismatch = "AuthProtocolMismatch"
     }
 
+    enum CredentialOperation: String, Codable, Equatable, Sendable {
+        case load
+        case save
+        case delete
+        case rotate
+    }
+
     struct BuildAuthenticatedActorInput: Equatable, Sendable {
         public let requestID: RequestID
         public let bearerSession: NativeBearerSession
@@ -298,7 +305,11 @@ public extension AuthSession {
         case webSocketTokenIssued(SessionID)
         case authSessionRevoked(SessionID)
         case authSessionCleared(EndpointScope)
-        case authSecureStorageFailed(EndpointScope)
+        case authSessionCredentialLoaded(SessionID)
+        case authSessionCredentialSaved(SessionID)
+        case authSessionCredentialDeleted(EndpointScope)
+        case authSessionCredentialRotated(SessionID)
+        case authSecureStorageFailed(EndpointScope, CredentialOperation, AuthSessionError)
     }
 
     struct DiscoverAuthPolicyInput: Codable, Equatable, Sendable {
@@ -429,6 +440,146 @@ public extension AuthSession {
             self.requestID = requestID
             self.bearerSession = bearerSession
             self.session = session
+            self.timestamp = timestamp
+        }
+    }
+
+    struct LoadAuthSessionCredentialInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let endpointScope: EndpointScope
+        public let source: ActionSource
+
+        public init(requestID: RequestID, endpointScope: EndpointScope, source: ActionSource) {
+            self.requestID = requestID
+            self.endpointScope = endpointScope
+            self.source = source
+        }
+    }
+
+    struct LoadAuthSessionCredentialResult: Equatable, Sendable {
+        public let requestID: RequestID
+        public let bearerSession: NativeBearerSession
+        public let session: NativeAuthSession
+        public let credentialReference: String
+        public let timestamp: FenrirTimestamp
+
+        public init(
+            requestID: RequestID,
+            bearerSession: NativeBearerSession,
+            session: NativeAuthSession,
+            credentialReference: String,
+            timestamp: FenrirTimestamp
+        ) {
+            self.requestID = requestID
+            self.bearerSession = bearerSession
+            self.session = session
+            self.credentialReference = credentialReference
+            self.timestamp = timestamp
+        }
+    }
+
+    struct SaveAuthSessionCredentialInput: Equatable, Sendable {
+        public let requestID: RequestID
+        public let session: NativeAuthSession
+        let bearerToken: String
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            session: NativeAuthSession,
+            bearerToken: String,
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.session = session
+            self.bearerToken = bearerToken
+            self.source = source
+        }
+    }
+
+    struct SaveAuthSessionCredentialResult: Equatable, Sendable {
+        public let requestID: RequestID
+        public let bearerSession: NativeBearerSession
+        public let session: NativeAuthSession
+        public let credentialReference: String
+        public let timestamp: FenrirTimestamp
+
+        public init(
+            requestID: RequestID,
+            bearerSession: NativeBearerSession,
+            session: NativeAuthSession,
+            credentialReference: String,
+            timestamp: FenrirTimestamp
+        ) {
+            self.requestID = requestID
+            self.bearerSession = bearerSession
+            self.session = session
+            self.credentialReference = credentialReference
+            self.timestamp = timestamp
+        }
+    }
+
+    struct DeleteAuthSessionCredentialInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let endpointScope: EndpointScope
+        public let source: ActionSource
+
+        public init(requestID: RequestID, endpointScope: EndpointScope, source: ActionSource) {
+            self.requestID = requestID
+            self.endpointScope = endpointScope
+            self.source = source
+        }
+    }
+
+    struct DeleteAuthSessionCredentialResult: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let endpointScope: EndpointScope
+        public let timestamp: FenrirTimestamp
+
+        public init(requestID: RequestID, endpointScope: EndpointScope, timestamp: FenrirTimestamp) {
+            self.requestID = requestID
+            self.endpointScope = endpointScope
+            self.timestamp = timestamp
+        }
+    }
+
+    struct RotateAuthSessionCredentialInput: Equatable, Sendable {
+        public let requestID: RequestID
+        public let session: NativeAuthSession
+        let replacementBearerToken: String
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            session: NativeAuthSession,
+            replacementBearerToken: String,
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.session = session
+            self.replacementBearerToken = replacementBearerToken
+            self.source = source
+        }
+    }
+
+    struct RotateAuthSessionCredentialResult: Equatable, Sendable {
+        public let requestID: RequestID
+        public let bearerSession: NativeBearerSession
+        public let session: NativeAuthSession
+        public let credentialReference: String
+        public let timestamp: FenrirTimestamp
+
+        public init(
+            requestID: RequestID,
+            bearerSession: NativeBearerSession,
+            session: NativeAuthSession,
+            credentialReference: String,
+            timestamp: FenrirTimestamp
+        ) {
+            self.requestID = requestID
+            self.bearerSession = bearerSession
+            self.session = session
+            self.credentialReference = credentialReference
             self.timestamp = timestamp
         }
     }

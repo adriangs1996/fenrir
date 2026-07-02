@@ -102,6 +102,8 @@ const shellPane = {
   windowId: "window-1",
   tmuxPaneId: "%1",
   cwd: "/workspace/project-1",
+  x: 0,
+  y: 0,
   cols: 120,
   rows: 40,
   status: "running" as const,
@@ -154,6 +156,9 @@ const neovimPane = {
       windowId: "window-1",
       cwd: "/workspace/project-1",
       profileId: "fenrir-dark",
+      themeId: "fenrir-dark",
+      keybindingProfileId: "native-compatible",
+      bridgeSocketPath: "/tmp/fenrir-nvim-bootstrap-1.sock",
       files: ["/workspace/project-1/README.md"],
       line: 12,
       column: 4,
@@ -222,6 +227,12 @@ it.effect("decodes Neovim as a real pane process with bootstrap metadata", () =>
     assert.strictEqual(parsed.metadata.neovim?.bootstrapId, "nvim-bootstrap-1");
     assert.strictEqual(parsed.metadata.neovim?.workspaceId, "workspace-1");
     assert.strictEqual(parsed.metadata.neovim?.profileId, "fenrir-dark");
+    assert.strictEqual(parsed.metadata.neovim?.themeId, "fenrir-dark");
+    assert.strictEqual(parsed.metadata.neovim?.keybindingProfileId, "native-compatible");
+    assert.strictEqual(
+      parsed.metadata.neovim?.bridgeSocketPath,
+      "/tmp/fenrir-nvim-bootstrap-1.sock",
+    );
     assert.deepStrictEqual(parsed.metadata.neovim?.files, ["/workspace/project-1/README.md"]);
   }),
 );
@@ -441,11 +452,15 @@ it.effect("decodes native Neovim pane bridge input with bootstrap context fields
       line: 12,
       column: 4,
       profileId: "fenrir-dark",
+      themeId: "fenrir-dark",
+      keybindingProfileId: "native-compatible",
       split: "vertical",
       launchSource: "restore",
     });
 
     assert.strictEqual(parsed.profileId, "fenrir-dark");
+    assert.strictEqual(parsed.themeId, "fenrir-dark");
+    assert.strictEqual(parsed.keybindingProfileId, "native-compatible");
     assert.strictEqual(parsed.launchSource, "restore");
     assert.deepStrictEqual(parsed.files, ["/workspace/project-1/README.md"]);
   }),

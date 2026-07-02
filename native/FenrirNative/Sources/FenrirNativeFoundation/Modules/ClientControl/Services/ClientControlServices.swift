@@ -3,7 +3,7 @@ import FenrirNativeShared
 import WorkspaceIndex
 import WorkspaceCoordinator
 
-extension ClientControl {
+public extension ClientControl {
     protocol WorkspaceOpening: Sendable {
         func openWorkspace(_ input: WorkspaceCoordinator.OpenWorkspaceInput) async throws -> WorkspaceCoordinator.OpenWorkspaceResult
     }

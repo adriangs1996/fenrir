@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   NEOVIM_BOOTSTRAP_ENV_KEYS,
+  createNeovimOpenFileInput,
   createNeovimPaneBootstrapInput,
   createPaneStreamSubscribeInput,
   findRunningNeovimPane,
@@ -51,6 +52,10 @@ const neovimPane = {
       "fenrir.process.kind": "neovim",
       "fenrir.neovim.bootstrapId": "nvim-bootstrap-1",
       "fenrir.neovim.profileId": "fenrir-dark",
+      "fenrir.neovim.themeId": "fenrir-dark",
+      "fenrir.neovim.keybindingProfileId": "native-compatible",
+      "fenrir.neovim.bridge": "nvim-listen-address",
+      "fenrir.neovim.bridgeSocketPath": "/tmp/fenrir-nvim-bootstrap-1.sock",
     },
     neovim: {
       bootstrapId: "nvim-bootstrap-1",
@@ -58,6 +63,9 @@ const neovimPane = {
       windowId,
       cwd: "/workspace/project",
       profileId: "fenrir-dark",
+      themeId: "fenrir-dark",
+      keybindingProfileId: "native-compatible",
+      bridgeSocketPath: "/tmp/fenrir-nvim-bootstrap-1.sock",
       files: ["/workspace/project/README.md"],
       line: 12,
       column: 4,
@@ -101,6 +109,38 @@ describe("tmux pane bootstrap helpers", () => {
       cwd: "/workspace/project",
       files: ["/workspace/project/README.md"],
       profileId: "default",
+      themeId: "fenrir-dark",
+      keybindingProfileId: "native-compatible",
+      split: "horizontal",
+      launchSource: "user",
+    });
+  });
+
+  it("creates open file requests with cursor and native metadata defaults", () => {
+    expect(
+      createNeovimOpenFileInput({
+        actor,
+        workspaceId,
+        windowId,
+        cwd: "/workspace/project",
+        file: "/workspace/project/src/App.tsx",
+        line: 40,
+        column: 8,
+        profileId: "fenrir-dark",
+        themeId: "fenrir-dark-high-contrast",
+        keybindingProfileId: "vim-tmux-navigator",
+      }),
+    ).toEqual({
+      actor,
+      workspaceId,
+      windowId,
+      cwd: "/workspace/project",
+      files: ["/workspace/project/src/App.tsx"],
+      line: 40,
+      column: 8,
+      profileId: "fenrir-dark",
+      themeId: "fenrir-dark-high-contrast",
+      keybindingProfileId: "vim-tmux-navigator",
       split: "horizontal",
       launchSource: "user",
     });

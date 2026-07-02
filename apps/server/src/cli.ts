@@ -62,6 +62,13 @@ import {
   TmuxWorkspaceService,
   type TmuxWorkspaceServiceShape,
 } from "./terminal/Services/TmuxWorkspaceService.ts";
+import {
+  NATIVE_HOST_CONTROL_PROTOCOL_VERSION,
+  NativeHostControlClientError,
+  sendNativeHostControlRequest,
+  type NativeHostControlCommand,
+  type NativeHostControlWireResponse,
+} from "./nativeHostControlClient.ts";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -911,6 +918,22 @@ const jsonFlag = Flag.boolean("json").pipe(
   Flag.withDefault(false),
 );
 
+const nativeControlSocketFlag = Flag.string("socket").pipe(
+  Flag.withDescription("Override the Fenrir Native local control socket path."),
+  Flag.optional,
+);
+
+const nativeControlTimeoutFlag = Flag.integer("timeout-ms").pipe(
+  Flag.withDescription("Native control request timeout in milliseconds."),
+  Flag.withDefault(1500),
+);
+
+const nativeControlFlags = {
+  socket: nativeControlSocketFlag,
+  timeoutMs: nativeControlTimeoutFlag,
+  json: jsonFlag,
+} as const;
+
 const tmuxKernelActorSessionIdFlag = Flag.string("actor-session-id").pipe(
   Flag.withSchema(AuthSessionId),
   Flag.withDescription("Explicit tmux-kernel actor session id used for permission checks."),
@@ -1257,6 +1280,322 @@ const tmuxKernelCommand = Command.make("tmux-kernel").pipe(
   ]),
 );
 
+interface NativeControlFlags {
+  readonly socket: Option.Option<string>;
+  readonly timeoutMs: number;
+  readonly json: boolean;
+}
+
+interface NativeControlRoute {
+  readonly command: NativeHostControlCommand;
+  readonly parameters: Readonly<Record<string, string>>;
+}
+
+export const nativeControlRoutes = {
+  open: (workspace: string): NativeControlRoute => ({
+    command: "open",
+    parameters: { workspaceID: workspace },
+  }),
+  switchWorkspace: (workspace: string): NativeControlRoute => ({
+    command: "switch",
+    parameters: { workspaceID: workspace },
+  }),
+  attach: (workspace: string): NativeControlRoute => ({
+    command: "attach",
+    parameters: { workspaceID: workspace },
+  }),
+  remove: (workspace: string): NativeControlRoute => ({
+    command: "remove",
+    parameters: { workspaceID: workspace },
+  }),
+  listWorkspaces: (): NativeControlRoute => ({
+    command: "list",
+    parameters: {},
+  }),
+  paletteOpen: (query?: string): NativeControlRoute => ({
+    command: "palette",
+    parameters: query === undefined || query.length === 0 ? {} : { query },
+  }),
+  paletteRun: (actionID: string): NativeControlRoute => ({
+    command: "palette",
+    parameters: { operation: "run", actionID },
+  }),
+  workflowOpen: (): NativeControlRoute => ({
+    command: "workflow",
+    parameters: { operation: "open" },
+  }),
+  workflowTimeline: (runID: string): NativeControlRoute => ({
+    command: "workflow",
+    parameters: { operation: "timeline", runID },
+  }),
+  diagnosticsOpen: (): NativeControlRoute => ({
+    command: "diagnostics",
+    parameters: {},
+  }),
+} as const;
+
+const runNativeControlRequest = (
+  flags: NativeControlFlags,
+  command: NativeHostControlCommand,
+  parameters: Readonly<Record<string, string>>,
+) =>
+  Effect.gen(function* () {
+    const requestID = `native-cli-${Date.now()}`;
+    const socketPath = Option.getOrUndefined(flags.socket);
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        sendNativeHostControlRequest(
+          {
+            protocolVersion: NATIVE_HOST_CONTROL_PROTOCOL_VERSION,
+            requestID,
+            command,
+            parameters,
+          },
+          socketPath === undefined
+            ? { timeoutMs: flags.timeoutMs }
+            : { socketPath, timeoutMs: flags.timeoutMs },
+        ),
+      catch: (error) =>
+        error instanceof NativeHostControlClientError
+          ? error
+          : new NativeHostControlClientError(
+              "connection-failed",
+              "Native control request failed.",
+              {
+                cause: error,
+              },
+            ),
+    });
+    yield* Console.log(formatNativeControlResponse(response, { json: flags.json }));
+  });
+
+const formatNativeControlResponse = (
+  response: NativeHostControlWireResponse,
+  options: { readonly json: boolean },
+): string => {
+  if (options.json) {
+    return JSON.stringify(response);
+  }
+  if (!response.ok) {
+    return `Native control failed: ${response.error ?? response.resultKind}`;
+  }
+  const payload = Object.entries(response.payload ?? {})
+    .map(([key, value]) => `${key}=${value}`)
+    .join(" ");
+  return payload.length > 0 ? `${response.resultKind} ${payload}` : response.resultKind;
+};
+
+const nativeControlWorkspaceArgument = Argument.string("workspace").pipe(
+  Argument.withDescription("Workspace id, project id, or path accepted by Fenrir Native."),
+);
+
+const nativePaletteActionArgument = Argument.string("action-id").pipe(
+  Argument.withDescription("Native command palette action id."),
+);
+
+const nativeWorkflowRunArgument = Argument.string("run-id").pipe(
+  Argument.withDescription("Workflow run id."),
+);
+
+const runNativeControlRoute = (flags: NativeControlFlags, route: NativeControlRoute) =>
+  runNativeControlRequest(flags, route.command, route.parameters);
+
+const nativeControlOpenCommand = Command.make("open", {
+  ...nativeControlFlags,
+  workspace: nativeControlWorkspaceArgument,
+}).pipe(
+  Command.withDescription("Ask the running Fenrir Native app to open or focus a workspace."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.open(flags.workspace)),
+  ),
+);
+
+const nativeControlFocusCommand = Command.make("focus", {
+  ...nativeControlFlags,
+  workspace: nativeControlWorkspaceArgument,
+}).pipe(
+  Command.withDescription("Ask the running Fenrir Native app to focus an open workspace."),
+  Command.withHandler((flags) =>
+    runNativeControlRequest(flags, "focus", { workspaceID: flags.workspace }),
+  ),
+);
+
+const nativeControlListCommand = Command.make("list", nativeControlFlags).pipe(
+  Command.withDescription("Ask the running Fenrir Native app to list locally known workspaces."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.listWorkspaces()),
+  ),
+);
+
+const nativeControlSwitchCommand = Command.make("switch", {
+  ...nativeControlFlags,
+  workspace: nativeControlWorkspaceArgument,
+}).pipe(
+  Command.withDescription("Ask the running Fenrir Native app to switch to an open workspace."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.switchWorkspace(flags.workspace)),
+  ),
+);
+
+const nativeControlAttachCommand = Command.make("attach", {
+  ...nativeControlFlags,
+  workspace: nativeControlWorkspaceArgument,
+}).pipe(
+  Command.withDescription("Ask the running Fenrir Native app to attach or open a workspace."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.attach(flags.workspace)),
+  ),
+);
+
+const nativeControlRemoveCommand = Command.make("remove", {
+  ...nativeControlFlags,
+  workspace: nativeControlWorkspaceArgument,
+}).pipe(
+  Command.withDescription("Ask the running Fenrir Native app to remove a workspace entry."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.remove(flags.workspace)),
+  ),
+);
+
+const nativeControlPaletteOpenCommand = Command.make("open", {
+  ...nativeControlFlags,
+  query: Argument.string("query").pipe(Argument.optional),
+}).pipe(
+  Command.withDescription("Open the native command palette."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(
+      flags,
+      nativeControlRoutes.paletteOpen(Option.getOrUndefined(flags.query)),
+    ),
+  ),
+);
+
+const nativeControlPaletteRunCommand = Command.make("run", {
+  ...nativeControlFlags,
+  actionID: nativePaletteActionArgument,
+}).pipe(
+  Command.withDescription("Execute a native command palette action by id."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.paletteRun(flags.actionID)),
+  ),
+);
+
+const nativeControlPaletteCommand = Command.make("palette").pipe(
+  Command.withDescription("Control the native command palette."),
+  Command.withSubcommands([nativeControlPaletteOpenCommand, nativeControlPaletteRunCommand]),
+);
+
+const nativeControlWorkflowOpenCommand = Command.make("open", nativeControlFlags).pipe(
+  Command.withDescription("Open the native workflow panel."),
+  Command.withHandler((flags) => runNativeControlRoute(flags, nativeControlRoutes.workflowOpen())),
+);
+
+const nativeControlWorkflowTimelineCommand = Command.make("timeline", {
+  ...nativeControlFlags,
+  runID: nativeWorkflowRunArgument,
+}).pipe(
+  Command.withDescription("Open the native workflow panel on a run timeline."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.workflowTimeline(flags.runID)),
+  ),
+);
+
+const nativeControlWorkflowCommand = Command.make("workflow").pipe(
+  Command.withDescription("Control native workflow surfaces."),
+  Command.withSubcommands([nativeControlWorkflowOpenCommand, nativeControlWorkflowTimelineCommand]),
+);
+
+const nativeControlDiagnosticsCommand = Command.make("diagnostics", nativeControlFlags).pipe(
+  Command.withDescription("Open native diagnostics."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.diagnosticsOpen()),
+  ),
+);
+
+const nativeControlCommand = Command.make("native-control").pipe(
+  Command.withDescription("Control the running Fenrir Native app over the local Unix socket."),
+  Command.withSubcommands([
+    nativeControlOpenCommand,
+    nativeControlFocusCommand,
+    nativeControlListCommand,
+    nativeControlSwitchCommand,
+    nativeControlAttachCommand,
+    nativeControlRemoveCommand,
+    nativeControlPaletteCommand,
+    nativeControlWorkflowCommand,
+    nativeControlDiagnosticsCommand,
+  ]),
+);
+
+const productOpenCommand = Command.make("open", {
+  ...nativeControlFlags,
+  workspace: nativeControlWorkspaceArgument,
+}).pipe(
+  Command.withDescription("Open or focus a workspace in the running Fenrir Native app."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.open(flags.workspace)),
+  ),
+);
+
+const productSwitchCommand = Command.make("switch", {
+  ...nativeControlFlags,
+  workspace: nativeControlWorkspaceArgument,
+}).pipe(
+  Command.withDescription("Switch to an open workspace in the running Fenrir Native app."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.switchWorkspace(flags.workspace)),
+  ),
+);
+
+const productAttachCommand = Command.make("attach", {
+  ...nativeControlFlags,
+  workspace: nativeControlWorkspaceArgument,
+}).pipe(
+  Command.withDescription("Attach or open a workspace in the running Fenrir Native app."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.attach(flags.workspace)),
+  ),
+);
+
+const productRemoveCommand = Command.make("remove", {
+  ...nativeControlFlags,
+  workspace: nativeControlWorkspaceArgument,
+}).pipe(
+  Command.withDescription("Remove a workspace entry through the running Fenrir Native app."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.remove(flags.workspace)),
+  ),
+);
+
+const productListWorkspacesCommand = Command.make("workspaces", nativeControlFlags).pipe(
+  Command.withDescription("List workspaces known to the running Fenrir Native app."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.listWorkspaces()),
+  ),
+);
+
+const productListCommand = Command.make("list").pipe(
+  Command.withDescription("List native product state."),
+  Command.withSubcommands([productListWorkspacesCommand]),
+);
+
+const productPaletteCommand = Command.make("palette").pipe(
+  Command.withDescription("Control the native command palette."),
+  Command.withSubcommands([nativeControlPaletteOpenCommand, nativeControlPaletteRunCommand]),
+);
+
+const productWorkflowCommand = Command.make("workflow").pipe(
+  Command.withDescription("Control native workflow surfaces."),
+  Command.withSubcommands([nativeControlWorkflowOpenCommand, nativeControlWorkflowTimelineCommand]),
+);
+
+const productDiagnosticsCommand = Command.make("diagnostics", nativeControlFlags).pipe(
+  Command.withDescription("Open native diagnostics."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.diagnosticsOpen()),
+  ),
+);
+
 const startCommand = Command.make("start", commandFlags).pipe(
   Command.withDescription("Run the Fenrir server."),
   Command.withHandler((flags) =>
@@ -1277,5 +1616,18 @@ export const cli = Command.make("t3", commandFlags).pipe(
       return yield* runServer.pipe(Effect.provideService(ServerConfig, config));
     }),
   ),
-  Command.withSubcommands([startCommand, authCommand, tmuxKernelCommand]),
+  Command.withSubcommands([
+    startCommand,
+    authCommand,
+    tmuxKernelCommand,
+    nativeControlCommand,
+    productOpenCommand,
+    productSwitchCommand,
+    productAttachCommand,
+    productRemoveCommand,
+    productListCommand,
+    productPaletteCommand,
+    productWorkflowCommand,
+    productDiagnosticsCommand,
+  ]),
 );

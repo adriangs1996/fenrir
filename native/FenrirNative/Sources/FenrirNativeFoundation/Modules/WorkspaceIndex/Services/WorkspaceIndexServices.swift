@@ -1,7 +1,7 @@
 import Foundation
 import FenrirNativeShared
 
-extension WorkspaceIndex {
+public extension WorkspaceIndex {
     protocol WorkspaceIndexClock: Sendable {
         func now() -> FenrirTimestamp
     }

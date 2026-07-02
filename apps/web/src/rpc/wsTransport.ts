@@ -34,6 +34,7 @@ interface RequestOptions {
 const DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS = Duration.millis(250);
 const DEFAULT_SUBSCRIPTION_MAX_RETRY_DELAY_MS = 10_000;
 const DEFAULT_REQUEST_TIMEOUT = Duration.millis(30_000);
+const SESSION_TEARDOWN_TIMEOUT_MS = 3_000;
 const NOOP: () => void = () => undefined;
 
 interface TransportSession {
@@ -219,7 +220,10 @@ export class WsTransport {
       this.lastInboundAt = null;
       const previousSession = this.session;
       this.session = this.createSession();
-      await this.closeSession(previousSession);
+      // The previous session usually wraps a dead socket, so its teardown can
+      // stall. Never let it block or fail the reconnect: tear it down in the
+      // background with a hard time limit.
+      void this.teardownSessionWithTimeout(previousSession);
     });
 
     this.reconnectChain = reconnectOperation.catch(() => undefined);
@@ -242,6 +246,14 @@ export class WsTransport {
     return session.runtime.runPromise(Scope.close(session.clientScope, Exit.void)).finally(() => {
       session.runtime.dispose();
     });
+  }
+
+  private async teardownSessionWithTimeout(session: TransportSession): Promise<void> {
+    const close = this.closeSession(session).catch(() => undefined);
+    await Promise.race([close, sleep(SESSION_TEARDOWN_TIMEOUT_MS)]);
+    // If the scope close stalled, disposing the runtime interrupts whatever
+    // fibers the dead session still has running.
+    await Promise.resolve(session.runtime.dispose()).catch(() => undefined);
   }
 
   private createSession(): TransportSession {

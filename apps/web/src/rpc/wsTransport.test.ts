@@ -213,9 +213,9 @@ describe("WsTransport", () => {
 
     try {
       await waitFor(() => {
-        expect(onError).toHaveBeenCalledWith("Remote auth request failed (401).");
+        expect(onError).toHaveBeenCalledWith("Remote auth request failed (401).", tokenError);
       });
-      expect(onError).toHaveBeenCalledWith("Remote auth request failed (401).");
+      expect(onError).toHaveBeenCalledWith("Remote auth request failed (401).", tokenError);
       expect(getWsConnectionStatus()).toMatchObject({
         attemptCount: 0,
         phase: "idle",
@@ -520,6 +520,53 @@ describe("WsTransport", () => {
     });
 
     await transport.dispose();
+  });
+
+  it("reconnects promptly even when the previous session teardown stalls", async () => {
+    const transport = createTransport("ws://localhost:3020");
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const firstSocket = getSocket();
+    firstSocket.open();
+
+    await waitFor(() => {
+      expect(getWsConnectionStatus()).toMatchObject({ phase: "connected" });
+    });
+
+    // Simulate a dead TCP peer: close() never yields a close event, so the
+    // old session's scope teardown stalls forever.
+    firstSocket.close = () => undefined;
+
+    await Promise.race([
+      transport.reconnect(),
+      new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error("reconnect blocked on dead session teardown"));
+        }, 1_000);
+      }),
+    ]);
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(2);
+    });
+    expect(getSocket()).not.toBe(firstSocket);
+
+    // A second reconnect must not queue behind the stalled teardown either.
+    await Promise.race([
+      transport.reconnect(),
+      new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error("second reconnect blocked on dead session teardown"));
+        }, 1_000);
+      }),
+    ]);
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(3);
+    });
   });
 
   it("ignores stale socket lifecycle events after a reconnect starts a new session", async () => {

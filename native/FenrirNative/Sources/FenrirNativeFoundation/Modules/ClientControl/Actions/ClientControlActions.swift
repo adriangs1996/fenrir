@@ -9,7 +9,7 @@ public extension ClientControl {
 
         let opening: any WorkspaceOpening
 
-        init(opening: any WorkspaceOpening) {
+        public init(opening: any WorkspaceOpening) {
             self.opening = opening
         }
 
@@ -41,7 +41,7 @@ public extension ClientControl {
 
         let switching: any WorkspaceSwitching
 
-        init(switching: any WorkspaceSwitching) {
+        public init(switching: any WorkspaceSwitching) {
             self.switching = switching
         }
 
@@ -69,7 +69,7 @@ public extension ClientControl {
 
         let listing: any WorkspaceListing
 
-        init(listing: any WorkspaceListing) {
+        public init(listing: any WorkspaceListing) {
             self.listing = listing
         }
 
@@ -99,7 +99,7 @@ public extension ClientControl {
 
         let opening: any WorkspaceOpening
 
-        init(opening: any WorkspaceOpening) {
+        public init(opening: any WorkspaceOpening) {
             self.opening = opening
         }
 
@@ -129,7 +129,7 @@ public extension ClientControl {
 
         let removing: any WorkspaceRemoving
 
-        init(removing: any WorkspaceRemoving) {
+        public init(removing: any WorkspaceRemoving) {
             self.removing = removing
         }
 
@@ -138,6 +138,7 @@ public extension ClientControl {
                 let result = try await removing.removeWorkspace(WorkspaceIndex.RemoveWorkspaceInput(
                     requestID: input.requestID,
                     workspaceID: input.workspaceID,
+                    targetIdentity: input.targetIdentity,
                     source: input.source
                 ))
                 return .success(RemoveWorkspaceResult(
@@ -156,7 +157,7 @@ public extension ClientControl {
 
         let switching: any WorkspaceSwitching
 
-        init(switching: any WorkspaceSwitching) {
+        public init(switching: any WorkspaceSwitching) {
             self.switching = switching
         }
 
@@ -184,7 +185,7 @@ public extension ClientControl {
 
         let controlling: any WorkspaceControlling
 
-        init(controlling: any WorkspaceControlling) {
+        public init(controlling: any WorkspaceControlling) {
             self.controlling = controlling
         }
 
@@ -198,6 +199,7 @@ public extension ClientControl {
                     let result = try await controlling.closeWorkspace(WorkspaceCoordinator.CloseWorkspaceExperienceInput(
                         requestID: input.requestID,
                         workspaceID: workspaceID,
+                        targetIdentity: input.identity,
                         source: input.source
                     ))
                     return .success(ControlWorkspaceResult(
@@ -256,7 +258,7 @@ public extension ClientControl {
             return .workspaceNotFound
         case .permissionDenied:
             return .permissionError
-        case .serverUnavailable, .readFailed, .writeFailed, .decodeFailed, .duplicateIdentity, .invalidIdentity:
+        case .serverUnavailable, .readFailed, .writeFailed, .decodeFailed, .duplicateIdentity, .ambiguousIdentity, .invalidIdentity:
             return .unavailable
         }
     }

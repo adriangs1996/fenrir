@@ -6,7 +6,7 @@ import {
 import type { EnvironmentId, ExecutionEnvironmentDescriptor } from "@fenrir/contracts";
 import { create } from "zustand";
 
-import { BootstrapHttpError, retryTransientBootstrap } from "./auth";
+import { BootstrapHttpError, bootstrapAttemptSignal, retryTransientBootstrap } from "./auth";
 
 import { readPrimaryEnvironmentTarget, resolvePrimaryEnvironmentHttpUrl } from "./target";
 
@@ -50,6 +50,9 @@ async function fetchPrimaryEnvironmentDescriptor(): Promise<ExecutionEnvironment
   return retryTransientBootstrap(async () => {
     const response = await fetch(
       resolvePrimaryEnvironmentHttpUrl(SERVER_ENVIRONMENT_DESCRIPTOR_PATH),
+      {
+        signal: bootstrapAttemptSignal(),
+      },
     );
     if (!response.ok) {
       throw new BootstrapHttpError(

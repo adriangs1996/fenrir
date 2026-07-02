@@ -17,6 +17,7 @@ import {
   stripPairingTokenFromUrl as stripPairingTokenUrl,
 } from "../../pairingUrl";
 
+import { RemoteEnvironmentAuthHttpError } from "../remote/api";
 import { resolvePrimaryEnvironmentHttpUrl } from "./target";
 
 export interface ServerPairingLinkRecord {
@@ -141,10 +142,10 @@ export function primaryAuthRequestInit(init?: RequestInit): RequestInit {
 export async function fetchSessionState(): Promise<AuthSessionState> {
   return retryTransientBootstrap(async () => {
     const bearerToken = readPrimaryBearerSessionToken();
-    const response = await fetch(
-      resolvePrimaryEnvironmentHttpUrl("/api/auth/session"),
-      primaryAuthRequestInit(),
-    );
+    const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/auth/session"), {
+      ...primaryAuthRequestInit(),
+      signal: bootstrapAttemptSignal(),
+    });
     if (!response.ok) {
       throw new BootstrapHttpError(
         `Failed to load server auth session state (${response.status}).`,
@@ -174,6 +175,7 @@ async function exchangeBootstrapCredential(credential: string): Promise<AuthBoot
         "content-type": "application/json",
       },
       method: "POST",
+      signal: bootstrapAttemptSignal(),
     });
 
     if (!response.ok) {
@@ -199,6 +201,7 @@ async function exchangeBootstrapCredentialForBearerSession(
         "content-type": "application/json",
       },
       method: "POST",
+      signal: bootstrapAttemptSignal(),
     });
 
     if (!response.ok) {
@@ -231,8 +234,20 @@ async function waitForAuthenticatedSessionAfterBootstrap(): Promise<AuthSessionS
 }
 
 const TRANSIENT_BOOTSTRAP_STATUS_CODES = new Set([502, 503, 504]);
-const BOOTSTRAP_RETRY_TIMEOUT_MS = 15_000;
+// The desktop backend can take tens of seconds to become reachable on large
+// installs (boot-time read-model hydration), and the window is now created
+// before the backend is ready — so the bootstrap must outlast that boot
+// rather than give up after a few seconds and strand the app on a blank
+// screen until a manual reload.
+const BOOTSTRAP_RETRY_TIMEOUT_MS = 120_000;
 const BOOTSTRAP_RETRY_STEP_MS = 500;
+// Per-attempt cap so a request accepted by a bound-but-unresponsive server
+// (event loop blocked mid-boot) aborts and retries instead of pending forever.
+const BOOTSTRAP_ATTEMPT_TIMEOUT_MS = 5_000;
+
+export function bootstrapAttemptSignal(): AbortSignal {
+  return AbortSignal.timeout(BOOTSTRAP_ATTEMPT_TIMEOUT_MS);
+}
 
 export class BootstrapHttpError extends Error {
   readonly status: number;
@@ -278,7 +293,9 @@ function isTransientBootstrapError(error: unknown): boolean {
     return true;
   }
 
-  return error instanceof DOMException && error.name === "AbortError";
+  return (
+    error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")
+  );
 }
 
 async function bootstrapServerAuth(): Promise<ServerAuthGateState> {
@@ -461,8 +478,9 @@ export async function resolvePrimaryWebSocketConnectionUrl(wsBaseUrl: string): P
   );
 
   if (!response.ok) {
-    throw new Error(
+    throw new RemoteEnvironmentAuthHttpError(
       await readErrorMessage(response, `Failed to issue websocket token (${response.status}).`),
+      response.status,
     );
   }
 

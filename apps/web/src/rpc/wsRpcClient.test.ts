@@ -203,6 +203,7 @@ describe("wsRpcClient", () => {
     const client = createWsRpcClient(transport as unknown as WsTransport);
 
     await client.tmuxKernel.reconnectWorkspace({ actor, workspaceId });
+    await client.tmuxKernel.focusPane({ actor, workspaceId, paneId });
     client.tmuxKernel.subscribePaneStream(
       {
         actor,
@@ -220,6 +221,10 @@ describe("wsRpcClient", () => {
       {
         method: WS_METHODS.tmuxWorkspaceReconnect,
         input: { actor, workspaceId },
+      },
+      {
+        method: WS_METHODS.tmuxPaneFocus,
+        input: { actor, workspaceId, paneId },
       },
       {
         method: WS_METHODS.tmuxPaneSubscribeStream,

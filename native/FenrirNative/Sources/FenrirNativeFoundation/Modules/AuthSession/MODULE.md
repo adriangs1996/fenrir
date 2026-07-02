@@ -11,5 +11,10 @@ created only by verified AuthSession exchange/load/refresh paths, then handed
 to `BuildAuthenticatedActor` or server-connection composition. Do not add a
 public initializer or Codable decoding path for bearer material.
 
+Bearer tokens and local/remote server credentials must never be persisted in
+Settings, logs, or Codable session snapshots. The live storage layer is
+`KeychainAuthSecureStorage`; tests and non-persistent previews can use
+`InMemoryAuthSecureStorage`.
+
 This module must not depend on `ServerConnection`, AppKit, renderer objects,
 tmux runtime state, or local IPC delivery.

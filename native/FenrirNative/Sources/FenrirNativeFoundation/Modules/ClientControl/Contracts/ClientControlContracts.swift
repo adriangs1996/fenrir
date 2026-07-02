@@ -119,15 +119,18 @@ public extension ClientControl {
     struct ListWorkspacesResult: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let workspaces: [WorkspaceIndex.WorkspaceSummary]
+        public let activeWorkspaceID: WorkspaceID?
         public let timestamp: FenrirTimestamp
 
         public init(
             requestID: RequestID,
             workspaces: [WorkspaceIndex.WorkspaceSummary],
+            activeWorkspaceID: WorkspaceID? = nil,
             timestamp: FenrirTimestamp
         ) {
             self.requestID = requestID
             self.workspaces = workspaces
+            self.activeWorkspaceID = activeWorkspaceID
             self.timestamp = timestamp
         }
     }
@@ -168,11 +171,18 @@ public extension ClientControl {
     struct RemoveWorkspaceInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let workspaceID: WorkspaceID
+        public let targetIdentity: WorkspaceIndex.WorkspaceIdentity?
         public let source: ActionSource
 
-        public init(requestID: RequestID, workspaceID: WorkspaceID, source: ActionSource = .clientControl) {
+        public init(
+            requestID: RequestID,
+            workspaceID: WorkspaceID,
+            targetIdentity: WorkspaceIndex.WorkspaceIdentity? = nil,
+            source: ActionSource = .clientControl
+        ) {
             self.requestID = requestID
             self.workspaceID = workspaceID
+            self.targetIdentity = targetIdentity
             self.source = source
         }
     }

@@ -11,6 +11,9 @@ export const NEOVIM_BOOTSTRAP_ENV_KEYS = [
   "FENRIR_WINDOW_ID",
   "FENRIR_NEOVIM_BOOTSTRAP_ID",
   "FENRIR_NEOVIM_PROFILE_ID",
+  "FENRIR_NEOVIM_THEME_ID",
+  "FENRIR_NEOVIM_KEYBINDING_PROFILE_ID",
+  "NVIM_LISTEN_ADDRESS",
 ] as const;
 
 export type NeovimPaneBootstrapRequest = Omit<
@@ -28,9 +31,25 @@ export function createNeovimPaneBootstrapInput(
   return {
     ...input,
     profileId: input.profileId ?? "default",
+    themeId: input.themeId ?? "fenrir-dark",
+    keybindingProfileId: input.keybindingProfileId ?? "native-compatible",
     split: input.split ?? "horizontal",
     launchSource: input.launchSource ?? "user",
   };
+}
+
+export function createNeovimOpenFileInput(
+  input: NeovimPaneBootstrapRequest & {
+    readonly file: NonNullable<TmuxNeovimPaneInput["files"]>[number];
+    readonly line?: TmuxNeovimPaneInput["line"];
+    readonly column?: TmuxNeovimPaneInput["column"];
+  },
+): TmuxNeovimPaneInput {
+  const { file, ...rest } = input;
+  return createNeovimPaneBootstrapInput({
+    ...rest,
+    files: [file],
+  });
 }
 
 function sameFiles(left: readonly string[] | undefined, right: readonly string[] | undefined) {
@@ -49,6 +68,8 @@ export function isMatchingNeovimPane(pane: TmuxPane, input: TmuxNeovimPaneInput)
     metadata.workspaceId === input.workspaceId &&
     metadata.windowId === input.windowId &&
     metadata.profileId === (input.profileId ?? "default") &&
+    metadata.themeId === (input.themeId ?? "fenrir-dark") &&
+    metadata.keybindingProfileId === (input.keybindingProfileId ?? "native-compatible") &&
     sameFiles(metadata.files, input.files) &&
     metadata.line === input.line &&
     metadata.column === input.column

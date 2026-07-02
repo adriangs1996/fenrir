@@ -9,7 +9,7 @@ public extension WorkspaceIndex {
         let serverListing: (any WorkspaceServerListing)?
         let clock: any WorkspaceIndexClock
 
-        init(store: any WorkspaceIndexStore, serverListing: (any WorkspaceServerListing)? = nil, clock: any WorkspaceIndexClock) {
+        public init(store: any WorkspaceIndexStore, serverListing: (any WorkspaceServerListing)? = nil, clock: any WorkspaceIndexClock) {
             self.store = store
             self.serverListing = serverListing
             self.clock = clock
@@ -38,6 +38,39 @@ public extension WorkspaceIndex {
         }
     }
 
+    struct ProjectWorkspaceSidebar: FenrirAction {
+        public typealias Failure = WorkspaceIndexError
+
+        let listWorkspaces: ListWorkspaces
+
+        public init(store: any WorkspaceIndexStore, serverListing: (any WorkspaceServerListing)? = nil, clock: any WorkspaceIndexClock) {
+            self.listWorkspaces = ListWorkspaces(store: store, serverListing: serverListing, clock: clock)
+        }
+
+        public func run(_ input: ProjectWorkspaceSidebarInput) async -> Result<ProjectWorkspaceSidebarResult, WorkspaceIndexError> {
+            let listed = await listWorkspaces.run(ListWorkspacesInput(
+                requestID: input.requestID,
+                includeServer: input.includeServer,
+                degradeToLocalOnServerFailure: input.degradeToLocalOnServerFailure,
+                includeHidden: input.includeHidden,
+                surface: .sidebar,
+                sort: .favoriteThenRecent,
+                source: input.source
+            ))
+            return listed.map { result in
+                ProjectWorkspaceSidebarResult(
+                    requestID: input.requestID,
+                    projection: WorkspaceSidebarProjection(
+                        items: result.snapshot.workspaces.map(WorkspaceSidebarItem.init),
+                        capturedAt: result.snapshot.capturedAt,
+                        isDegraded: result.isDegraded
+                    ),
+                    timestamp: result.timestamp
+                )
+            }
+        }
+    }
+
     struct RegisterWorkspace: FenrirAction {
         public typealias Failure = WorkspaceIndexError
 
@@ -45,7 +78,7 @@ public extension WorkspaceIndex {
         let clock: any WorkspaceIndexClock
         let events: (any WorkspaceIndexEventPublishing)?
 
-        init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
+        public init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
             self.store = store
             self.clock = clock
             self.events = events
@@ -55,7 +88,7 @@ public extension WorkspaceIndex {
             do {
                 var snapshot = try await store.loadIndex()
                 try WorkspaceIndex.validate(input.summary.identity)
-                guard !snapshot.workspaces.contains(where: { $0.workspaceID == input.summary.workspaceID || WorkspaceIndex.sameIdentity($0.identity, input.summary.identity) }) else {
+                guard !snapshot.workspaces.contains(where: { WorkspaceIndex.sameIdentity($0.identity, input.summary.identity) }) else {
                     return .failure(.duplicateIdentity)
                 }
                 let timestamp = clock.now()
@@ -79,15 +112,14 @@ public extension WorkspaceIndex {
         let clock: any WorkspaceIndexClock
         let events: (any WorkspaceIndexEventPublishing)?
 
-        init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
+        public init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
             self.store = store
             self.clock = clock
             self.events = events
         }
 
         public func run(_ input: AttachWorkspaceInput) async -> Result<AttachWorkspaceResult, WorkspaceIndexError> {
-            await WorkspaceIndex.mutate(store: store, clock: clock, requestID: input.requestID, events: events, eventKind: "WorkspaceAttached") { summary, timestamp in
-                guard summary.workspaceID == input.workspaceID else { return nil }
+            await WorkspaceIndex.mutate(store: store, clock: clock, requestID: input.requestID, workspaceID: input.workspaceID, targetIdentity: input.targetIdentity, events: events, eventKind: "WorkspaceAttached") { summary, timestamp in
                 var windows = summary.openState.windowIDs
                 if !windows.contains(input.windowID) {
                     windows.append(input.windowID)
@@ -110,15 +142,14 @@ public extension WorkspaceIndex {
         let clock: any WorkspaceIndexClock
         let events: (any WorkspaceIndexEventPublishing)?
 
-        init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
+        public init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
             self.store = store
             self.clock = clock
             self.events = events
         }
 
         public func run(_ input: DetachWorkspaceInput) async -> Result<DetachWorkspaceResult, WorkspaceIndexError> {
-            await WorkspaceIndex.mutate(store: store, clock: clock, requestID: input.requestID, events: events, eventKind: "WorkspaceDetached") { summary, _ in
-                guard summary.workspaceID == input.workspaceID else { return nil }
+            await WorkspaceIndex.mutate(store: store, clock: clock, requestID: input.requestID, workspaceID: input.workspaceID, targetIdentity: input.targetIdentity, events: events, eventKind: "WorkspaceDetached") { summary, _ in
                 let windows = input.windowID.map { detached in
                     summary.openState.windowIDs.filter { $0 != detached }
                 } ?? []
@@ -138,7 +169,7 @@ public extension WorkspaceIndex {
         let clock: any WorkspaceIndexClock
         let events: (any WorkspaceIndexEventPublishing)?
 
-        init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
+        public init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
             self.store = store
             self.clock = clock
             self.events = events
@@ -147,12 +178,11 @@ public extension WorkspaceIndex {
         public func run(_ input: RemoveWorkspaceInput) async -> Result<RemoveWorkspaceResult, WorkspaceIndexError> {
             do {
                 let snapshot = try await store.loadIndex()
-                guard snapshot.workspaces.contains(where: { $0.workspaceID == input.workspaceID }) else {
-                    return .failure(.workspaceNotFound)
-                }
+                let index = try WorkspaceIndex.targetIndex(in: snapshot.workspaces, workspaceID: input.workspaceID, targetIdentity: input.targetIdentity)
                 let timestamp = clock.now()
-                let next = snapshot.workspaces.filter { $0.workspaceID != input.workspaceID }
-                try await store.saveIndex(WorkspaceIndexSnapshot(workspaces: next, capturedAt: timestamp))
+                var workspaces = snapshot.workspaces
+                workspaces.remove(at: index)
+                try await store.saveIndex(WorkspaceIndexSnapshot(workspaces: workspaces, capturedAt: timestamp))
                 await WorkspaceIndex.publish(input.requestID, "WorkspaceRemoved", timestamp, .workspaceRemoved(input.workspaceID), events)
                 return .success(RemoveWorkspaceResult(requestID: input.requestID, workspaceID: input.workspaceID, timestamp: timestamp))
             } catch let error as WorkspaceIndexError {
@@ -170,15 +200,14 @@ public extension WorkspaceIndex {
         let clock: any WorkspaceIndexClock
         let events: (any WorkspaceIndexEventPublishing)?
 
-        init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
+        public init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
             self.store = store
             self.clock = clock
             self.events = events
         }
 
         public func run(_ input: MarkWorkspaceRecentInput) async -> Result<MarkWorkspaceRecentResult, WorkspaceIndexError> {
-            await WorkspaceIndex.mutate(store: store, clock: clock, requestID: input.requestID, events: events, eventKind: "WorkspaceRecentMarked") { summary, timestamp in
-                guard summary.workspaceID == input.workspaceID else { return nil }
+            await WorkspaceIndex.mutate(store: store, clock: clock, requestID: input.requestID, workspaceID: input.workspaceID, targetIdentity: input.targetIdentity, events: events, eventKind: "WorkspaceRecentMarked") { summary, timestamp in
                 return summary.updated(lastFocusedAt: timestamp)
             } event: { .workspaceRecentMarked(input.workspaceID) }
             .map { pair in MarkWorkspaceRecentResult(requestID: input.requestID, summary: pair.0, timestamp: pair.1) }
@@ -192,15 +221,14 @@ public extension WorkspaceIndex {
         let clock: any WorkspaceIndexClock
         let events: (any WorkspaceIndexEventPublishing)?
 
-        init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
+        public init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
             self.store = store
             self.clock = clock
             self.events = events
         }
 
         public func run(_ input: MarkWorkspaceFavoriteInput) async -> Result<MarkWorkspaceFavoriteResult, WorkspaceIndexError> {
-            await WorkspaceIndex.mutate(store: store, clock: clock, requestID: input.requestID, events: events, eventKind: "WorkspaceFavoriteChanged") { summary, _ in
-                guard summary.workspaceID == input.workspaceID else { return nil }
+            await WorkspaceIndex.mutate(store: store, clock: clock, requestID: input.requestID, workspaceID: input.workspaceID, targetIdentity: input.targetIdentity, events: events, eventKind: "WorkspaceFavoriteChanged") { summary, _ in
                 return summary.updated(isFavorite: input.isFavorite)
             } event: { .workspaceFavoriteChanged(input.workspaceID, input.isFavorite) }
             .map { pair in MarkWorkspaceFavoriteResult(requestID: input.requestID, summary: pair.0, timestamp: pair.1) }
@@ -214,15 +242,14 @@ public extension WorkspaceIndex {
         let clock: any WorkspaceIndexClock
         let events: (any WorkspaceIndexEventPublishing)?
 
-        init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
+        public init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
             self.store = store
             self.clock = clock
             self.events = events
         }
 
         public func run(_ input: UpdateWorkspaceVisibilityInput) async -> Result<UpdateWorkspaceVisibilityResult, WorkspaceIndexError> {
-            await WorkspaceIndex.mutate(store: store, clock: clock, requestID: input.requestID, events: events, eventKind: "WorkspaceVisibilityChanged") { summary, _ in
-                guard summary.workspaceID == input.workspaceID else { return nil }
+            await WorkspaceIndex.mutate(store: store, clock: clock, requestID: input.requestID, workspaceID: input.workspaceID, targetIdentity: input.targetIdentity, events: events, eventKind: "WorkspaceVisibilityChanged") { summary, _ in
                 return summary.updated(visibility: input.visibility)
             } event: { .workspaceVisibilityChanged(input.workspaceID, input.visibility) }
             .map { pair in UpdateWorkspaceVisibilityResult(requestID: input.requestID, summary: pair.0, timestamp: pair.1) }
@@ -236,7 +263,7 @@ public extension WorkspaceIndex {
         let clock: any WorkspaceIndexClock
         let events: (any WorkspaceIndexEventPublishing)?
 
-        init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
+        public init(store: any WorkspaceIndexStore, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
             self.store = store
             self.clock = clock
             self.events = events
@@ -246,8 +273,7 @@ public extension WorkspaceIndex {
             guard input.notifications.unreadCount >= 0 else {
                 return .failure(.decodeFailed)
             }
-            return await WorkspaceIndex.mutate(store: store, clock: clock, requestID: input.requestID, events: events, eventKind: "WorkspaceNotificationsChanged") { summary, _ in
-                guard summary.workspaceID == input.workspaceID else { return nil }
+            return await WorkspaceIndex.mutate(store: store, clock: clock, requestID: input.requestID, workspaceID: input.workspaceID, targetIdentity: input.targetIdentity, events: events, eventKind: "WorkspaceNotificationsChanged") { summary, _ in
                 return summary.updated(notifications: input.notifications)
             } event: { .workspaceNotificationsChanged(input.workspaceID, input.notifications) }
             .map { pair in UpdateWorkspaceNotificationsResult(requestID: input.requestID, summary: pair.0, timestamp: pair.1) }
@@ -262,7 +288,7 @@ public extension WorkspaceIndex {
         let clock: any WorkspaceIndexClock
         let events: (any WorkspaceIndexEventPublishing)?
 
-        init(store: any WorkspaceIndexStore, serverListing: (any WorkspaceServerListing)? = nil, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
+        public init(store: any WorkspaceIndexStore, serverListing: (any WorkspaceServerListing)? = nil, clock: any WorkspaceIndexClock, events: (any WorkspaceIndexEventPublishing)? = nil) {
             self.store = store
             self.serverListing = serverListing
             self.clock = clock
@@ -273,9 +299,14 @@ public extension WorkspaceIndex {
             do {
                 let local = try await store.loadIndex().workspaces
                 let server = try await WorkspaceIndex.serverWorkspaces(includeServer: input.includeServer, serverListing: serverListing).get()
-                guard let summary = WorkspaceIndex.merge(local: local, server: server).first(where: { WorkspaceIndex.matches($0, identity: input.identity) }) else {
+                let matches = WorkspaceIndex.merge(local: local, server: server).filter { WorkspaceIndex.matches($0, identity: input.identity) }
+                guard !matches.isEmpty else {
                     return .failure(.workspaceNotFound)
                 }
+                guard matches.count == 1 else {
+                    return .failure(.ambiguousIdentity)
+                }
+                let summary = matches[0]
                 let timestamp = clock.now()
                 await WorkspaceIndex.publish(input.requestID, "WorkspaceResolved", timestamp, .workspaceResolved(summary.workspaceID), events)
                 return .success(ResolveWorkspaceResult(requestID: input.requestID, summary: summary, timestamp: timestamp))
@@ -303,17 +334,15 @@ extension WorkspaceIndex {
     }
 
     static func merge(local: [WorkspaceSummary], server: [WorkspaceSummary]) -> [WorkspaceSummary] {
-        var summaries = Dictionary(uniqueKeysWithValues: local.map { ($0.workspaceID, $0) })
+        var summaries = local
         for remote in server {
-            if let existing = summaries[remote.workspaceID] {
-                summaries[remote.workspaceID] = remote.mergedWithLocal(existing)
-            } else if let localMatch = local.first(where: { sameIdentity($0.identity, remote.identity) }) {
-                summaries[localMatch.workspaceID] = remote.mergedWithLocal(localMatch)
+            if let existingIndex = summaries.firstIndex(where: { sameIdentity($0.identity, remote.identity) }) {
+                summaries[existingIndex] = remote.mergedWithLocal(summaries[existingIndex])
             } else {
-                summaries[remote.workspaceID] = remote
+                summaries.append(remote)
             }
         }
-        return Array(summaries.values)
+        return summaries
     }
 
     static func list(_ workspaces: [WorkspaceSummary], includeHidden: Bool, sort: WorkspaceSort) -> [WorkspaceSummary] {
@@ -355,25 +384,20 @@ extension WorkspaceIndex {
         store: any WorkspaceIndexStore,
         clock: any WorkspaceIndexClock,
         requestID: RequestID,
+        workspaceID: WorkspaceID,
+        targetIdentity: WorkspaceIdentity?,
         events: (any WorkspaceIndexEventPublishing)?,
         eventKind: String,
-        update: (WorkspaceSummary, FenrirTimestamp) -> WorkspaceSummary?,
+        update: (WorkspaceSummary, FenrirTimestamp) -> WorkspaceSummary,
         event: () -> Event
     ) async -> Result<(WorkspaceSummary, FenrirTimestamp), WorkspaceIndexError> {
         do {
             let snapshot = try await store.loadIndex()
             let timestamp = clock.now()
-            var updated: WorkspaceSummary?
-            let workspaces = snapshot.workspaces.map { summary in
-                guard let next = update(summary, timestamp) else {
-                    return summary
-                }
-                updated = next
-                return next
-            }
-            guard let updated else {
-                return .failure(.workspaceNotFound)
-            }
+            let index = try targetIndex(in: snapshot.workspaces, workspaceID: workspaceID, targetIdentity: targetIdentity)
+            var workspaces = snapshot.workspaces
+            let updated = update(workspaces[index], timestamp)
+            workspaces[index] = updated
             try await store.saveIndex(WorkspaceIndexSnapshot(workspaces: workspaces, capturedAt: timestamp))
             await publish(requestID, eventKind, timestamp, event(), events)
             return .success((updated, timestamp))
@@ -382,6 +406,22 @@ extension WorkspaceIndex {
         } catch {
             return .failure(.writeFailed)
         }
+    }
+
+    static func targetIndex(in workspaces: [WorkspaceSummary], workspaceID: WorkspaceID, targetIdentity: WorkspaceIdentity?) throws -> Int {
+        let matched = workspaces.indices.filter { index in
+            let summary = workspaces[index]
+            guard summary.workspaceID == workspaceID else { return false }
+            guard let targetIdentity else { return true }
+            return matches(summary, identity: targetIdentity)
+        }
+        guard !matched.isEmpty else {
+            throw WorkspaceIndexError.workspaceNotFound
+        }
+        guard matched.count == 1 else {
+            throw WorkspaceIndexError.ambiguousIdentity
+        }
+        return matched[0]
     }
 
     static func publish(_ requestID: RequestID, _ kind: String, _ timestamp: FenrirTimestamp, _ event: Event, _ events: (any WorkspaceIndexEventPublishing)?) async {
@@ -401,6 +441,7 @@ extension WorkspaceIndex {
     }
 
     static func sameIdentity(_ lhs: WorkspaceIdentity, _ rhs: WorkspaceIdentity) -> Bool {
+        if profilesConflict(lhs, rhs) { return false }
         if let left = lhs.workspaceID, let right = rhs.workspaceID, left == right { return true }
         if let left = lhs.canonicalPath, let right = rhs.canonicalPath, left == right { return true }
         if let left = lhs.projectID, let right = rhs.projectID, left == right { return true }
@@ -408,8 +449,16 @@ extension WorkspaceIndex {
         return false
     }
 
+    static func profilesConflict(_ lhs: WorkspaceIdentity, _ rhs: WorkspaceIdentity) -> Bool {
+        guard let left = lhs.profileID, let right = rhs.profileID else {
+            return false
+        }
+        return left != right
+    }
+
     static func matches(_ summary: WorkspaceSummary, identity: WorkspaceIdentity) -> Bool {
-        sameIdentity(summary.identity, identity)
+        if profilesConflict(summary.identity, identity) { return false }
+        return sameIdentity(summary.identity, identity)
             || summary.workspaceID == identity.workspaceID
             || identity.projectID.map { summary.projectID == $0 } == true
             || identity.canonicalPath.map { summary.canonicalPath == $0 } == true

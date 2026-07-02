@@ -103,7 +103,7 @@ public extension ServerConnection {
         }
     }
 
-    enum ConnectionStatus: String, Codable, Equatable, Sendable {
+    enum ConnectionStatus: String, Codable, Equatable, Hashable, Sendable {
         case disconnected
         case connecting
         case connected
@@ -120,6 +120,16 @@ public extension ServerConnection {
         case disconnected
     }
 
+    enum TransportCloseCode: String, Codable, Equatable, Sendable {
+        case normal
+        case goingAway
+        case protocolError
+        case authenticationExpired
+        case backpressure
+        case serverRestart
+        case abnormal
+    }
+
     enum RequestRetryPolicy: String, Codable, Equatable, Sendable {
         case failFast
         case retryOnceAfterReconnect
@@ -130,19 +140,194 @@ public extension ServerConnection {
         case afterReconnect
     }
 
+    enum LocalServerMode: Codable, Equatable, Sendable {
+        case localDefault(LocalServerSpec)
+        case existingLocal(LocalServerSpec)
+        case remote(Endpoint)
+    }
+
+    enum LocalServerOwnership: String, Codable, Equatable, Sendable {
+        case nativeManaged
+        case external
+        case remote
+    }
+
+    enum LocalServerSupervisorStatus: String, Codable, Equatable, Sendable {
+        case idle
+        case discovering
+        case spawning
+        case ready
+        case degraded
+        case stopped
+        case remote
+    }
+
+    enum LocalServerDiscoveryStatus: String, Codable, Equatable, Sendable {
+        case found
+        case missing
+        case unhealthy
+    }
+
+    struct LocalServerProcessID: FenrirID, ExpressibleByStringLiteral {
+        public let rawValue: String
+
+        public init(rawValue: String) {
+            self.rawValue = rawValue
+        }
+
+        public init(stringLiteral value: String) {
+            self.init(rawValue: value)
+        }
+    }
+
+    struct LocalServerSpec: Codable, Equatable, Sendable {
+        public let endpointID: String
+        public let displayName: String
+        public let httpBaseURL: String
+        public let webSocketURL: String
+        public let expectedServerIdentity: String?
+        public let readinessTimeoutMilliseconds: Int
+
+        public init(
+            endpointID: String = "local-main",
+            displayName: String = "Local Fenrir",
+            httpBaseURL: String,
+            webSocketURL: String,
+            expectedServerIdentity: String? = nil,
+            readinessTimeoutMilliseconds: Int = 10_000
+        ) {
+            self.endpointID = endpointID
+            self.displayName = displayName
+            self.httpBaseURL = httpBaseURL
+            self.webSocketURL = webSocketURL
+            self.expectedServerIdentity = expectedServerIdentity
+            self.readinessTimeoutMilliseconds = readinessTimeoutMilliseconds
+        }
+
+        public var endpoint: Endpoint {
+            Endpoint(
+                endpointID: endpointID,
+                kind: .local,
+                transport: .webSocketURL(webSocketURL),
+                httpBaseURL: httpBaseURL,
+                displayName: displayName,
+                expectedServerIdentity: expectedServerIdentity
+            )
+        }
+    }
+
+    struct LocalServerRestartPolicy: Codable, Equatable, Sendable {
+        public let maxCrashRestarts: Int
+
+        public init(maxCrashRestarts: Int = 1) {
+            self.maxCrashRestarts = max(0, maxCrashRestarts)
+        }
+    }
+
+    struct LocalServerDiscovery: Codable, Equatable, Sendable {
+        public let status: LocalServerDiscoveryStatus
+        public let endpoint: Endpoint?
+
+        public init(status: LocalServerDiscoveryStatus, endpoint: Endpoint? = nil) {
+            self.status = status
+            self.endpoint = endpoint
+        }
+    }
+
+    struct LocalServerProcessSnapshot: Codable, Equatable, Sendable {
+        public let processID: LocalServerProcessID
+        public let endpoint: Endpoint
+        public let startedAt: FenrirTimestamp
+        public let restartCount: Int
+
+        public init(
+            processID: LocalServerProcessID,
+            endpoint: Endpoint,
+            startedAt: FenrirTimestamp,
+            restartCount: Int = 0
+        ) {
+            self.processID = processID
+            self.endpoint = endpoint
+            self.startedAt = startedAt
+            self.restartCount = restartCount
+        }
+    }
+
+    enum LocalServerReadinessCandidate: Codable, Equatable, Sendable {
+        case existing(Endpoint)
+        case spawned(LocalServerProcessSnapshot)
+    }
+
+    struct LocalServerSupervisorState: Codable, Equatable, Sendable {
+        public let mode: LocalServerMode
+        public let status: LocalServerSupervisorStatus
+        public let ownership: LocalServerOwnership
+        public let endpoint: Endpoint?
+        public let process: LocalServerProcessSnapshot?
+        public let restartCount: Int
+        public let updatedAt: FenrirTimestamp
+
+        public init(
+            mode: LocalServerMode,
+            status: LocalServerSupervisorStatus,
+            ownership: LocalServerOwnership,
+            endpoint: Endpoint? = nil,
+            process: LocalServerProcessSnapshot? = nil,
+            restartCount: Int = 0,
+            updatedAt: FenrirTimestamp
+        ) {
+            self.mode = mode
+            self.status = status
+            self.ownership = ownership
+            self.endpoint = endpoint
+            self.process = process
+            self.restartCount = restartCount
+            self.updatedAt = updatedAt
+        }
+    }
+
     struct ReconnectPolicy: Codable, Equatable, Sendable {
         public let maxAttempts: Int
         public let resubscribeStreams: Bool
         public let refreshAuthBeforeReconnect: Bool
+        public let backoff: ReconnectBackoff
 
         public init(
             maxAttempts: Int = 1,
             resubscribeStreams: Bool = true,
-            refreshAuthBeforeReconnect: Bool = false
+            refreshAuthBeforeReconnect: Bool = false,
+            backoff: ReconnectBackoff = ReconnectBackoff()
         ) {
             self.maxAttempts = maxAttempts
             self.resubscribeStreams = resubscribeStreams
             self.refreshAuthBeforeReconnect = refreshAuthBeforeReconnect
+            self.backoff = backoff
+        }
+    }
+
+    struct ReconnectBackoff: Codable, Equatable, Sendable {
+        public let initialDelayMilliseconds: Int
+        public let maxDelayMilliseconds: Int
+        public let multiplier: Int
+
+        public init(
+            initialDelayMilliseconds: Int = 250,
+            maxDelayMilliseconds: Int = 5_000,
+            multiplier: Int = 2
+        ) {
+            self.initialDelayMilliseconds = initialDelayMilliseconds
+            self.maxDelayMilliseconds = maxDelayMilliseconds
+            self.multiplier = multiplier
+        }
+
+        public func delayMilliseconds(forAttempt attempt: Int) -> Int {
+            guard attempt > 1 else {
+                return 0
+            }
+
+            let exponent = max(0, attempt - 2)
+            let scaled = initialDelayMilliseconds * Int(pow(Double(max(1, multiplier)), Double(exponent)))
+            return min(maxDelayMilliseconds, scaled)
         }
     }
 
@@ -287,6 +472,7 @@ public extension ServerConnection {
         public let status: StreamStatus
         public let openedGeneration: UInt64
         public let resubscribePolicy: StreamResubscribePolicy
+        public let replayCursor: ReplayCursor?
 
         public init(
             streamID: StreamID,
@@ -294,7 +480,8 @@ public extension ServerConnection {
             payload: String,
             status: StreamStatus,
             openedGeneration: UInt64,
-            resubscribePolicy: StreamResubscribePolicy = .afterReconnect
+            resubscribePolicy: StreamResubscribePolicy = .afterReconnect,
+            replayCursor: ReplayCursor? = nil
         ) {
             self.streamID = streamID
             self.method = method
@@ -302,6 +489,7 @@ public extension ServerConnection {
             self.status = status
             self.openedGeneration = openedGeneration
             self.resubscribePolicy = resubscribePolicy
+            self.replayCursor = replayCursor
         }
 
         public func withStatus(_ status: StreamStatus, generation: UInt64? = nil) -> StreamHandle {
@@ -311,8 +499,33 @@ public extension ServerConnection {
                 payload: payload,
                 status: status,
                 openedGeneration: generation ?? openedGeneration,
-                resubscribePolicy: resubscribePolicy
+                resubscribePolicy: resubscribePolicy,
+                replayCursor: replayCursor
             )
+        }
+
+        public func withReplayCursor(_ replayCursor: ReplayCursor?) -> StreamHandle {
+            StreamHandle(
+                streamID: streamID,
+                method: method,
+                payload: payload,
+                status: status,
+                openedGeneration: openedGeneration,
+                resubscribePolicy: resubscribePolicy,
+                replayCursor: replayCursor
+            )
+        }
+    }
+
+    struct ReplayCursor: Codable, Equatable, Sendable, Comparable {
+        public let sequence: UInt64
+
+        public init(sequence: UInt64) {
+            self.sequence = sequence
+        }
+
+        public static func < (lhs: ReplayCursor, rhs: ReplayCursor) -> Bool {
+            lhs.sequence < rhs.sequence
         }
     }
 
@@ -333,6 +546,14 @@ public extension ServerConnection {
         case streamOpenFailed = "ServerStreamOpenFailed"
         case streamDisconnected = "ServerStreamDisconnected"
         case streamResubscribeFailed = "ServerStreamResubscribeFailed"
+        case staleMessage = "ServerStaleMessage"
+        case duplicateConnect = "ServerDuplicateConnect"
+        case invalidStateTransition = "ServerInvalidStateTransition"
+        case localServerUnavailable = "LocalServerUnavailable"
+        case localServerSpawnFailed = "LocalServerSpawnFailed"
+        case localServerReadinessFailed = "LocalServerReadinessFailed"
+        case localServerCrashed = "LocalServerCrashed"
+        case localServerShutdownFailed = "LocalServerShutdownFailed"
         case transportBackpressure = "ServerTransportBackpressure"
         case transportUnavailable = "ServerTransportUnavailable"
         case transportDisposed = "ServerTransportDisposed"
@@ -370,6 +591,44 @@ public extension ServerConnection {
             self.endpoint = endpoint
             self.timestamp = timestamp
         }
+    }
+
+    struct PrepareLocalServerConnectionInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let mode: LocalServerMode
+        public let restartPolicy: LocalServerRestartPolicy
+
+        public init(
+            requestID: RequestID,
+            mode: LocalServerMode,
+            restartPolicy: LocalServerRestartPolicy = LocalServerRestartPolicy()
+        ) {
+            self.requestID = requestID
+            self.mode = mode
+            self.restartPolicy = restartPolicy
+        }
+    }
+
+    struct PrepareLocalServerConnectionResult: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let endpoint: Endpoint
+        public let supervisorState: LocalServerSupervisorState
+        public let timestamp: FenrirTimestamp
+    }
+
+    struct ShutdownLocalServerInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+
+        public init(requestID: RequestID) {
+            self.requestID = requestID
+        }
+    }
+
+    struct ShutdownLocalServerResult: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let didShutdownProcess: Bool
+        public let supervisorState: LocalServerSupervisorState?
+        public let timestamp: FenrirTimestamp
     }
 
     struct OpenServerSessionInput: Codable, Equatable, Sendable {
@@ -438,6 +697,52 @@ public extension ServerConnection {
         public let requestID: RequestID
         public let session: Session
         public let resubscribedStreams: [StreamHandle]
+        public let timestamp: FenrirTimestamp
+    }
+
+    struct RecordServerHeartbeatInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let sessionID: SessionID
+        public let generation: UInt64
+
+        public init(requestID: RequestID, sessionID: SessionID, generation: UInt64) {
+            self.requestID = requestID
+            self.sessionID = sessionID
+            self.generation = generation
+        }
+    }
+
+    struct RecordServerHeartbeatResult: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let session: Session
+        public let timestamp: FenrirTimestamp
+    }
+
+    struct HandleServerTransportCloseInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let sessionID: SessionID
+        public let generation: UInt64
+        public let closeCode: TransportCloseCode
+        public let reason: String?
+
+        public init(
+            requestID: RequestID,
+            sessionID: SessionID,
+            generation: UInt64,
+            closeCode: TransportCloseCode,
+            reason: String? = nil
+        ) {
+            self.requestID = requestID
+            self.sessionID = sessionID
+            self.generation = generation
+            self.closeCode = closeCode
+            self.reason = reason
+        }
+    }
+
+    struct HandleServerTransportCloseResult: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let session: Session
         public let timestamp: FenrirTimestamp
     }
 
@@ -524,6 +829,44 @@ public extension ServerConnection {
         public let timestamp: FenrirTimestamp
     }
 
+    struct ServerStreamMessage: Codable, Equatable, Sendable {
+        public let streamID: StreamID
+        public let generation: UInt64
+        public let replayCursor: ReplayCursor?
+        public let payload: String
+
+        public init(
+            streamID: StreamID,
+            generation: UInt64,
+            replayCursor: ReplayCursor? = nil,
+            payload: String
+        ) {
+            self.streamID = streamID
+            self.generation = generation
+            self.replayCursor = replayCursor
+            self.payload = payload
+        }
+    }
+
+    struct RecordServerStreamMessageInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let sessionID: SessionID
+        public let message: ServerStreamMessage
+
+        public init(requestID: RequestID, sessionID: SessionID, message: ServerStreamMessage) {
+            self.requestID = requestID
+            self.sessionID = sessionID
+            self.message = message
+        }
+    }
+
+    struct RecordServerStreamMessageResult: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let accepted: Bool
+        public let stream: StreamHandle
+        public let timestamp: FenrirTimestamp
+    }
+
     struct GetServerConnectionHealthInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let sessionID: SessionID?
@@ -542,6 +885,13 @@ public extension ServerConnection {
 
     enum Event: Codable, Equatable, Sendable {
         case serverEndpointResolved(Endpoint)
+        case localServerDiscoveryStarted
+        case localServerAttached(Endpoint)
+        case localServerSpawned(LocalServerProcessID)
+        case localServerReady(Endpoint, LocalServerOwnership)
+        case localServerRestarted(LocalServerProcessID, Int)
+        case localServerStopped(LocalServerProcessID)
+        case remoteServerSelected(Endpoint)
         case serverSessionOpening(SessionID)
         case serverSessionOpened(SessionID)
         case serverSessionClosed(SessionID)
@@ -550,12 +900,24 @@ public extension ServerConnection {
         case serverSessionReconnectStarted(SessionID, UInt64)
         case serverSessionReconnected(SessionID, UInt64)
         case serverSessionReconnectFailed(SessionID, UInt64)
+        case serverHeartbeatReceived(SessionID, UInt64)
+        case serverTransportClosed(SessionID, UInt64, TransportCloseCode)
         case serverCapabilitiesNegotiated(SessionID)
         case serverRequestStarted(RequestID)
         case serverRequestCompleted(RequestID)
         case serverRequestFailed(RequestID)
         case serverStreamOpened(StreamID)
         case serverStreamResubscribed(StreamID, UInt64)
+        case serverStreamMessageReceived(StreamID, UInt64, ReplayCursor?)
+        case serverStreamStaleMessageDropped(StreamID, UInt64, ReplayCursor?)
         case serverStreamClosed(StreamID)
     }
+}
+
+public extension ServerConnection {
+    typealias Connect = OpenServerSession
+    typealias Disconnect = CloseServerSession
+    typealias Reconnect = ReconnectServerSession
+    typealias Send = SendServerRequest
+    typealias Subscribe = OpenServerStream
 }

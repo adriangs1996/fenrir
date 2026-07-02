@@ -1,7 +1,7 @@
 import Foundation
 import FenrirNativeShared
 
-extension TerminalViewport {
+public extension TerminalViewport {
     protocol TerminalViewportClock: Sendable {
         func now() -> FenrirTimestamp
     }
@@ -24,6 +24,16 @@ extension TerminalViewport {
 
     protocol TerminalRendererSizing: Sendable {
         func resizeRenderer(viewportID: ViewportID, size: Size) async throws
+    }
+
+    protocol TerminalRendererContextReading: Sendable {
+        func readSelection(viewportID: ViewportID) async throws -> CapturedTextBuffer
+        func readViewport(viewportID: ViewportID) async throws -> CapturedTextBuffer
+        func readLastLines(viewportID: ViewportID, maxLines: Int?) async throws -> CapturedTextBuffer
+    }
+
+    protocol TerminalContextRedacting: Sendable {
+        func redactTerminalContext(_ context: CapturedContext) async throws -> RedactedCapture
     }
 
     protocol TerminalRuntimeWriting: Sendable {

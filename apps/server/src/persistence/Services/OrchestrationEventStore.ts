@@ -51,6 +51,25 @@ export interface OrchestrationEventStoreShape {
    * @returns Stream containing all stored events.
    */
   readonly readAll: () => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
+
+  /**
+   * Delete a bounded batch of old events.
+   *
+   * Removes at most `limit` events whose `sequence` is at or below
+   * `sequenceInclusive` AND whose `occurred_at` is strictly before
+   * `olderThanIso`, oldest first.
+   *
+   * Callers own the safety policy: only pass sequences that every projection
+   * cursor has already applied, since pruned events can no longer be
+   * replayed.
+   *
+   * @returns Effect containing the number of deleted events.
+   */
+  readonly pruneThroughSequence: (input: {
+    readonly sequenceInclusive: number;
+    readonly olderThanIso: string;
+    readonly limit: number;
+  }) => Effect.Effect<number, OrchestrationEventStoreError>;
 }
 
 /**

@@ -441,36 +441,44 @@ export const makeOrchestrationRoutes = (deps: { readonly refreshGitStatus: Refre
       [ORCHESTRATION_WS_METHODS.subscribeShell]: orchestration.streamEffect(
         ORCHESTRATION_WS_METHODS.subscribeShell,
         (_input) =>
-          Effect.gen(function* () {
-            const snapshot = yield* projectionSnapshotQuery.getBootstrapSnapshot().pipe(
-              Effect.map(
-                ({ managedProcessInstances: _managedProcessInstances, ...shellSnapshot }) =>
-                  shellSnapshot,
-              ),
-              Effect.mapError(
-                (cause) =>
-                  new OrchestrationGetSnapshotError({
-                    message: "Failed to load orchestration shell snapshot",
-                    cause,
+          Effect.succeed(
+            Stream.unwrap(
+              Effect.gen(function* () {
+                // Subscribe before reading the snapshot so events published
+                // while the snapshot query runs are buffered instead of lost.
+                // Events reflected in both are delivered as idempotent upserts.
+                const live = yield* orchestrationEngine.subscribeDomainEvents;
+                const snapshot = yield* projectionSnapshotQuery.getBootstrapSnapshot().pipe(
+                  Effect.map(
+                    ({ managedProcessInstances: _managedProcessInstances, ...shellSnapshot }) =>
+                      shellSnapshot,
+                  ),
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestrationGetSnapshotError({
+                        message: "Failed to load orchestration shell snapshot",
+                        cause,
+                      }),
+                  ),
+                );
+
+                const liveStream = live.pipe(
+                  Stream.mapEffect(toShellStreamEvent),
+                  Stream.flatMap((shellEvent) =>
+                    Option.isSome(shellEvent) ? Stream.succeed(shellEvent.value) : Stream.empty,
+                  ),
+                );
+
+                return Stream.concat(
+                  Stream.succeed({
+                    kind: "snapshot" as const,
+                    snapshot,
                   }),
-              ),
-            );
-
-            const liveStream = orchestrationEngine.streamDomainEvents.pipe(
-              Stream.mapEffect(toShellStreamEvent),
-              Stream.flatMap((shellEvent) =>
-                Option.isSome(shellEvent) ? Stream.succeed(shellEvent.value) : Stream.empty,
-              ),
-            );
-
-            return Stream.concat(
-              Stream.succeed({
-                kind: "snapshot" as const,
-                snapshot,
+                  liveStream,
+                );
               }),
-              liveStream,
-            );
-          }),
+            ),
+          ),
       ),
       [ORCHESTRATION_WS_METHODS.subscribeManagedProcesses]: orchestration.streamEffect(
         ORCHESTRATION_WS_METHODS.subscribeManagedProcesses,
@@ -592,70 +600,80 @@ export const makeOrchestrationRoutes = (deps: { readonly refreshGitStatus: Refre
       [WS_METHODS.subscribeOrchestrationDomainEvents]: orchestration.streamEffect(
         WS_METHODS.subscribeOrchestrationDomainEvents,
         (_input) =>
-          Effect.gen(function* () {
-            const snapshot = yield* orchestrationEngine.getReadModel();
-            const fromSequenceExclusive = snapshot.snapshotSequence;
-            const replayEvents: Array<OrchestrationEvent> = yield* Stream.runCollect(
-              orchestrationEngine.readEvents(fromSequenceExclusive),
-            ).pipe(
-              Effect.map((events) => Array.from(events)),
-              Effect.flatMap(enrichOrchestrationEvents),
-              Effect.catch(() => Effect.succeed([] as Array<OrchestrationEvent>)),
-            );
-            const replayStream = Stream.fromIterable(replayEvents);
-            const liveStream = orchestrationEngine.streamDomainEvents.pipe(
-              Stream.mapEffect(enrichProjectEvent),
-            );
-            const source = Stream.merge(replayStream, liveStream);
-            type SequenceState = {
-              readonly nextSequence: number;
-              readonly pendingBySequence: Map<number, OrchestrationEvent>;
-            };
-            const state = yield* Ref.make<SequenceState>({
-              nextSequence: fromSequenceExclusive + 1,
-              pendingBySequence: new Map<number, OrchestrationEvent>(),
-            });
+          Effect.succeed(
+            Stream.unwrap(
+              Effect.gen(function* () {
+                // Subscribe before reading the model and replaying so no event
+                // can land in the gap between them — a gap would permanently
+                // stall the sequence gate below. Events captured by both the
+                // replay and the live buffer are deduped by that same gate.
+                const live = yield* orchestrationEngine.subscribeDomainEvents;
+                const snapshot = yield* orchestrationEngine.getReadModel();
+                const fromSequenceExclusive = snapshot.snapshotSequence;
+                const replayEvents: Array<OrchestrationEvent> = yield* Stream.runCollect(
+                  orchestrationEngine.readEvents(fromSequenceExclusive),
+                ).pipe(
+                  Effect.map((events) => Array.from(events)),
+                  Effect.flatMap(enrichOrchestrationEvents),
+                  Effect.catch(() => Effect.succeed([] as Array<OrchestrationEvent>)),
+                );
+                const replayStream = Stream.fromIterable(replayEvents);
+                const liveStream = live.pipe(Stream.mapEffect(enrichProjectEvent));
+                const source = Stream.merge(replayStream, liveStream);
+                type SequenceState = {
+                  readonly nextSequence: number;
+                  readonly pendingBySequence: Map<number, OrchestrationEvent>;
+                };
+                const state = yield* Ref.make<SequenceState>({
+                  nextSequence: fromSequenceExclusive + 1,
+                  pendingBySequence: new Map<number, OrchestrationEvent>(),
+                });
 
-            return source.pipe(
-              Stream.mapEffect((event) =>
-                Ref.modify(
-                  state,
-                  ({
-                    nextSequence,
-                    pendingBySequence,
-                  }): [Array<OrchestrationEvent>, SequenceState] => {
-                    if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
-                      return [[], { nextSequence, pendingBySequence }];
-                    }
+                return source.pipe(
+                  Stream.mapEffect((event) =>
+                    Ref.modify(
+                      state,
+                      ({
+                        nextSequence,
+                        pendingBySequence,
+                      }): [Array<OrchestrationEvent>, SequenceState] => {
+                        if (
+                          event.sequence < nextSequence ||
+                          pendingBySequence.has(event.sequence)
+                        ) {
+                          return [[], { nextSequence, pendingBySequence }];
+                        }
 
-                    const updatedPending = new Map(pendingBySequence);
-                    updatedPending.set(event.sequence, event);
+                        const updatedPending = new Map(pendingBySequence);
+                        updatedPending.set(event.sequence, event);
 
-                    const emit: Array<OrchestrationEvent> = [];
-                    let expected = nextSequence;
-                    for (;;) {
-                      const expectedEvent = updatedPending.get(expected);
-                      if (!expectedEvent) {
-                        break;
-                      }
-                      emit.push(expectedEvent);
-                      updatedPending.delete(expected);
-                      expected += 1;
-                    }
+                        const emit: Array<OrchestrationEvent> = [];
+                        let expected = nextSequence;
+                        for (;;) {
+                          const expectedEvent = updatedPending.get(expected);
+                          if (!expectedEvent) {
+                            break;
+                          }
+                          emit.push(expectedEvent);
+                          updatedPending.delete(expected);
+                          expected += 1;
+                        }
 
-                    return [
-                      emit,
-                      {
-                        nextSequence: expected,
-                        pendingBySequence: updatedPending,
+                        return [
+                          emit,
+                          {
+                            nextSequence: expected,
+                            pendingBySequence: updatedPending,
+                          },
+                        ];
                       },
-                    ];
-                  },
-                ),
-              ),
-              Stream.flatMap((events) => Stream.fromIterable(events)),
-            );
-          }),
+                    ),
+                  ),
+                  Stream.flatMap((events) => Stream.fromIterable(events)),
+                );
+              }),
+            ),
+          ),
       ),
     };
   });

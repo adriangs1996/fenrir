@@ -26,6 +26,7 @@ import { Effect, FileSystem, Layer, Path, Ref } from "effect";
 import { createHash } from "node:crypto";
 
 import { ServerConfig } from "../../config";
+import { isCommandAvailable as isSystemCommandAvailable } from "../../open";
 import { writeFileStringAtomically } from "../../atomicWrite";
 import { makeTmuxSessionName, sanitizeTmuxName } from "../tmuxRuntime";
 import {
@@ -42,6 +43,7 @@ import {
 
 const TMUX_WORKSPACE_SESSION_PREFIX = "fenrir-ws-";
 const TMUX_WORKSPACE_COMMAND_TIMEOUT_MS = 5_000;
+const TMUX_CONTROL_RECONCILE_DEBOUNCE_MS = 100;
 const TMUX_WORKSPACE_MARKER_OPTION = "@fenrir_workspace_id";
 const FIELD_SEPARATOR = "\u001f";
 const DEFAULT_COLS = 120;
@@ -51,6 +53,9 @@ const NEOVIM_BOOTSTRAP_ENV_KEYS = [
   "FENRIR_WINDOW_ID",
   "FENRIR_NEOVIM_BOOTSTRAP_ID",
   "FENRIR_NEOVIM_PROFILE_ID",
+  "FENRIR_NEOVIM_THEME_ID",
+  "FENRIR_NEOVIM_KEYBINDING_PROFILE_ID",
+  "NVIM_LISTEN_ADDRESS",
 ] as const;
 
 interface WorkspaceRuntime {
@@ -72,6 +77,8 @@ interface ReconciledPaneRow {
   windowActive: boolean;
   tmuxPaneId: string;
   cwd: string;
+  x: number;
+  y: number;
   cols: number;
   rows: number;
   paneActive: boolean;
@@ -119,6 +126,11 @@ function kernelError(input: {
   return new TmuxKernelError(input);
 }
 
+function errorMessage(cause: { readonly message?: string }, fallback: string): string {
+  const message = cause.message?.trim();
+  return message && message.length > 0 ? message : fallback;
+}
+
 function emptyStreamDescriptor(id: TmuxPaneId): TmuxPaneStreamDescriptor {
   return {
     streamId: streamId(id),
@@ -158,6 +170,8 @@ function neovimBootstrapId(input: TmuxNeovimPaneInput): string {
         workspaceId: input.workspaceId,
         windowId: input.windowId,
         profileId: input.profileId ?? "default",
+        themeId: input.themeId ?? "fenrir-dark",
+        keybindingProfileId: input.keybindingProfileId ?? "native-compatible",
         files: [...(input.files ?? [])],
       }),
     )
@@ -166,11 +180,18 @@ function neovimBootstrapId(input: TmuxNeovimPaneInput): string {
   return `nvim-${hash}`;
 }
 
+function neovimBridgeSocketPath(bootstrapId: string): TmuxPath {
+  return `/tmp/fenrir-${bootstrapId}.sock` as TmuxPath;
+}
+
 function neovimCommand(input: {
   readonly bootstrapId: string;
   readonly workspaceId: string;
   readonly windowId: string;
   readonly profileId: string;
+  readonly themeId: string;
+  readonly keybindingProfileId: string;
+  readonly bridgeSocketPath: string;
   readonly files: readonly string[];
   readonly line?: number;
   readonly column?: number;
@@ -180,6 +201,9 @@ function neovimCommand(input: {
     ["FENRIR_WINDOW_ID", input.windowId],
     ["FENRIR_NEOVIM_BOOTSTRAP_ID", input.bootstrapId],
     ["FENRIR_NEOVIM_PROFILE_ID", input.profileId],
+    ["FENRIR_NEOVIM_THEME_ID", input.themeId],
+    ["FENRIR_NEOVIM_KEYBINDING_PROFILE_ID", input.keybindingProfileId],
+    ["NVIM_LISTEN_ADDRESS", input.bridgeSocketPath],
   ];
   const cursor =
     input.line === undefined
@@ -201,6 +225,9 @@ function neovimMetadata(input: {
   readonly windowId: TmuxWindowId;
   readonly cwd: TmuxPath;
   readonly profileId: string;
+  readonly themeId: string;
+  readonly keybindingProfileId: string;
+  readonly bridgeSocketPath: TmuxPath;
   readonly files: readonly TmuxPath[];
   readonly line?: number;
   readonly column?: number;
@@ -224,6 +251,10 @@ function neovimMetadata(input: {
       "fenrir.process.kind": "neovim",
       "fenrir.neovim.bootstrapId": input.bootstrapId,
       "fenrir.neovim.profileId": input.profileId,
+      "fenrir.neovim.themeId": input.themeId,
+      "fenrir.neovim.keybindingProfileId": input.keybindingProfileId,
+      "fenrir.neovim.bridge": "nvim-listen-address",
+      "fenrir.neovim.bridgeSocketPath": input.bridgeSocketPath,
       "fenrir.neovim.launchSource": input.launchSource,
     },
     neovim: {
@@ -232,6 +263,9 @@ function neovimMetadata(input: {
       windowId: input.windowId,
       cwd: input.cwd,
       profileId: input.profileId,
+      themeId: input.themeId,
+      keybindingProfileId: input.keybindingProfileId,
+      bridgeSocketPath: input.bridgeSocketPath,
       files: [...input.files],
       ...(input.line === undefined ? {} : { line: input.line }),
       ...(input.column === undefined ? {} : { column: input.column }),
@@ -274,6 +308,8 @@ function isBridgeNeovimCreateInput(input: TmuxPaneCreateInput): input is BridgeN
     workspaceId: input.workspaceId,
     windowId: input.windowId,
     profileId: metadata.neovim.profileId,
+    themeId: metadata.neovim.themeId,
+    keybindingProfileId: metadata.neovim.keybindingProfileId,
     files: metadata.neovim.files,
   });
   const expectedCommand = neovimCommand({
@@ -281,6 +317,9 @@ function isBridgeNeovimCreateInput(input: TmuxPaneCreateInput): input is BridgeN
     workspaceId: input.workspaceId,
     windowId: input.windowId,
     profileId: metadata.neovim.profileId,
+    themeId: metadata.neovim.themeId,
+    keybindingProfileId: metadata.neovim.keybindingProfileId,
+    bridgeSocketPath: metadata.neovim.bridgeSocketPath,
     files: metadata.neovim.files,
     ...(metadata.neovim.line === undefined ? {} : { line: metadata.neovim.line }),
     ...(metadata.neovim.column === undefined ? {} : { column: metadata.neovim.column }),
@@ -322,6 +361,9 @@ function metadataForCreate(
         windowId: input.windowId,
         cwd: input.cwd,
         profileId: input.metadata.neovim.profileId,
+        themeId: input.metadata.neovim.themeId,
+        keybindingProfileId: input.metadata.neovim.keybindingProfileId,
+        bridgeSocketPath: input.metadata.neovim.bridgeSocketPath,
         files: input.metadata.neovim.files,
         ...(input.metadata.neovim.line === undefined ? {} : { line: input.metadata.neovim.line }),
         ...(input.metadata.neovim.column === undefined
@@ -392,6 +434,21 @@ function paneInputCommand(tmuxPaneId: string, data: string): TmuxControlModeComm
   return { command: "send-keys", args: ["-t", tmuxPaneId, "-l", data] };
 }
 
+function isNvimUnavailableMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes("nvim") && /not found|no such file|command not found/.test(normalized);
+}
+
+function isNvimUnavailableError(error: TmuxKernelError): boolean {
+  const causeMessage =
+    error.cause instanceof Error ? error.cause.message : error.cause ? String(error.cause) : "";
+  return isNvimUnavailableMessage(`${error.message} ${causeMessage}`);
+}
+
+export interface TmuxWorkspaceServiceLiveOptions {
+  readonly isCommandAvailable?: (command: string) => boolean;
+}
+
 function snapshot(runtime: WorkspaceRuntime): TmuxWorkspaceSnapshot {
   return {
     workspace: runtime.workspace,
@@ -409,6 +466,8 @@ function paneListFormat(): string {
     "#{window_active}",
     "#{pane_id}",
     "#{pane_current_path}",
+    "#{pane_left}",
+    "#{pane_top}",
     "#{pane_width}",
     "#{pane_height}",
     "#{pane_active}",
@@ -433,9 +492,11 @@ function parsePaneRows(output: string): ReconciledPaneRow[] {
         windowActive: parseBool(fields[3] ?? "0"),
         tmuxPaneId: fields[4] ?? "",
         cwd: fields[5] || "/tmp",
-        cols: Number.parseInt(fields[6] ?? String(DEFAULT_COLS), 10) || DEFAULT_COLS,
-        rows: Number.parseInt(fields[7] ?? String(DEFAULT_ROWS), 10) || DEFAULT_ROWS,
-        paneActive: parseBool(fields[8] ?? "0"),
+        x: Number.parseInt(fields[6] ?? "0", 10) || 0,
+        y: Number.parseInt(fields[7] ?? "0", 10) || 0,
+        cols: Number.parseInt(fields[8] ?? String(DEFAULT_COLS), 10) || DEFAULT_COLS,
+        rows: Number.parseInt(fields[9] ?? String(DEFAULT_ROWS), 10) || DEFAULT_ROWS,
+        paneActive: parseBool(fields[10] ?? "0"),
       };
     })
     .filter((row) => row.tmuxWindowId.length > 0 && row.tmuxPaneId.length > 0);
@@ -616,930 +677,1053 @@ function permissionDeniedResult(input: {
   };
 }
 
-export const TmuxWorkspaceServiceLive = Layer.effect(
-  TmuxWorkspaceService,
-  Effect.gen(function* () {
-    const controlMode = yield* TmuxControlModeAdapter;
-    const paneStreams = yield* TmuxPaneStreamService;
-    const serverConfig = yield* ServerConfig;
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const persistencePath = path.join(serverConfig.stateDir, "tmux-workspaces", "metadata.json");
+export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOptions = {}) {
+  const isCommandAvailable =
+    options.isCommandAvailable ?? ((command: string) => isSystemCommandAvailable(command));
 
-    const loadPersistedState = Effect.gen(function* () {
-      const exists = yield* fs.exists(persistencePath).pipe(Effect.orElseSucceed(() => false));
-      if (!exists) return new Map<TmuxWorkspaceId, WorkspaceRuntime>();
-      const raw = yield* fs.readFileString(persistencePath);
-      const parsed = JSON.parse(raw) as PersistedTmuxWorkspaceState;
-      const restored = new Map<TmuxWorkspaceId, WorkspaceRuntime>();
-      for (const entry of parsed.workspaces ?? []) {
-        const panes = new Map<TmuxPaneId, TmuxPane>();
-        for (const pane of entry.panes) {
-          const stream = yield* paneStreams.ensurePane(pane.stream);
-          panes.set(pane.paneId, { ...pane, stream });
-        }
-        restored.set(entry.workspace.workspaceId, {
-          workspace: { ...entry.workspace, status: "detached" },
-          windows: new Map(entry.windows.map((window) => [window.windowId, window] as const)),
-          panes,
-          tmuxWindowToWindowId: new Map(
-            entry.windows.map((window) => [window.tmuxWindowId, window.windowId] as const),
-          ),
-          tmuxPaneToPaneId: new Map(
-            entry.panes.map((pane) => [pane.tmuxPaneId, pane.paneId] as const),
-          ),
-          revision: entry.revision,
-          connection: null,
-          unsubscribeControl: null,
-          paneInputSeq: new Map(),
-        });
-      }
-      return restored;
-    }).pipe(
-      Effect.catchCause(() =>
-        Effect.logWarning("TmuxWorkspaceService: failed to load persisted metadata", {
-          path: persistencePath,
-        }).pipe(Effect.as(new Map<TmuxWorkspaceId, WorkspaceRuntime>())),
-      ),
-    );
+  return Layer.effect(
+    TmuxWorkspaceService,
+    Effect.gen(function* () {
+      const controlMode = yield* TmuxControlModeAdapter;
+      const paneStreams = yield* TmuxPaneStreamService;
+      const services = yield* Effect.context<never>();
+      const runDetached = Effect.runForkWith(services);
+      const serverConfig = yield* ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const persistencePath = path.join(serverConfig.stateDir, "tmux-workspaces", "metadata.json");
 
-    const initialRuntimes = yield* loadPersistedState;
-    const initialProjectToWorkspace = new Map<TmuxWorkspace["projectId"], TmuxWorkspaceId>(
-      [...initialRuntimes.values()].map(
-        (runtime) => [runtime.workspace.projectId, runtime.workspace.workspaceId] as const,
-      ),
-    );
-    const runtimesRef = yield* Ref.make(initialRuntimes);
-    const projectToWorkspaceRef = yield* Ref.make(initialProjectToWorkspace);
-    const listeners = new Map<
-      TmuxWorkspaceId,
-      Set<(event: TmuxKernelEvent) => Effect.Effect<void>>
-    >();
-    const publish = (event: TmuxKernelEvent): Effect.Effect<void> =>
-      Effect.forEach(
-        [...(listeners.get(event.workspaceId) ?? [])],
-        (listener) => listener(event).pipe(Effect.catchCause(() => Effect.void)),
-        { discard: true },
-      );
-
-    const bump = (runtime: WorkspaceRuntime): number => {
-      runtime.revision += 1;
-      runtime.workspace = { ...runtime.workspace, updatedAt: nowIso() };
-      return runtime.revision;
-    };
-
-    const persistRuntimes = (
-      runtimes: Map<TmuxWorkspaceId, WorkspaceRuntime>,
-    ): Effect.Effect<void, TmuxKernelError> => {
-      const persisted: PersistedTmuxWorkspaceState = {
-        workspaces: [...runtimes.values()].map((runtime) => ({
-          workspace: runtime.workspace,
-          windows: [...runtime.windows.values()],
-          panes: [...runtime.panes.values()],
-          revision: runtime.revision,
-        })),
-      };
-      return writeFileStringAtomically({
-        filePath: persistencePath,
-        contents: `${JSON.stringify(persisted, null, 2)}\n`,
-      }).pipe(
-        Effect.provideService(FileSystem.FileSystem, fs),
-        Effect.provideService(Path.Path, path),
-        Effect.mapError((cause) =>
-          kernelError({
-            code: "io-error",
-            message: "failed to persist tmux workspace metadata",
-            cause,
-          }),
-        ),
-      );
-    };
-
-    const persistState = Ref.get(runtimesRef).pipe(Effect.flatMap(persistRuntimes));
-
-    const publishSnapshot = (runtime: WorkspaceRuntime): Effect.Effect<void> =>
-      publish({
-        type: "workspace.snapshot",
-        workspaceId: runtime.workspace.workspaceId,
-        revision: runtime.revision,
-        occurredAt: nowIso(),
-        snapshot: snapshot(runtime),
-      });
-
-    const getRuntime = (id: TmuxWorkspaceId): Effect.Effect<WorkspaceRuntime, TmuxKernelError> =>
-      Ref.get(runtimesRef).pipe(
-        Effect.flatMap((runtimes) => {
-          const runtime = runtimes.get(id);
-          if (!runtime) {
-            return Effect.fail(
-              kernelError({
-                code: "not-found",
-                message: `tmux workspace ${id} was not found`,
-                workspaceId: id,
-              }),
-            );
+      const loadPersistedState = Effect.gen(function* () {
+        const exists = yield* fs.exists(persistencePath).pipe(Effect.orElseSucceed(() => false));
+        if (!exists) return new Map<TmuxWorkspaceId, WorkspaceRuntime>();
+        const raw = yield* fs.readFileString(persistencePath);
+        const parsed = JSON.parse(raw) as PersistedTmuxWorkspaceState;
+        const restored = new Map<TmuxWorkspaceId, WorkspaceRuntime>();
+        for (const entry of parsed.workspaces ?? []) {
+          const panes = new Map<TmuxPaneId, TmuxPane>();
+          for (const pane of entry.panes) {
+            const stream = yield* paneStreams.ensurePane(pane.stream);
+            panes.set(pane.paneId, { ...pane, stream });
           }
-          return Effect.succeed(runtime);
-        }),
-      );
-
-    const runAdmin = (
-      runtime: WorkspaceRuntime,
-      args: readonly string[],
-    ): Effect.Effect<string, TmuxKernelError> =>
-      controlMode.adminCommand(args, { timeoutMs: TMUX_WORKSPACE_COMMAND_TIMEOUT_MS }).pipe(
-        Effect.mapError((cause) =>
-          kernelError({
-            code: "io-error",
-            message: cause.message,
-            workspaceId: runtime.workspace.workspaceId,
-            cause,
-          }),
-        ),
-      );
-
-    const emitChangedWorkspace = (runtime: WorkspaceRuntime): Effect.Effect<void> =>
-      publish({
-        type: "workspace.changed",
-        workspaceId: runtime.workspace.workspaceId,
-        revision: runtime.revision,
-        occurredAt: nowIso(),
-        workspace: runtime.workspace,
-      });
-
-    const ensureSessionMarker = (runtime: WorkspaceRuntime): Effect.Effect<void, TmuxKernelError> =>
-      Effect.gen(function* () {
-        const marker = (yield* runAdmin(runtime, [
-          "display-message",
-          "-p",
-          "-t",
-          runtime.workspace.tmuxSessionName,
-          `#{${TMUX_WORKSPACE_MARKER_OPTION}}`,
-        ])).trim();
-        if (
-          marker !== runtime.workspace.workspaceId &&
-          (runtime.tmuxWindowToWindowId.size > 0 || runtime.tmuxPaneToPaneId.size > 0)
-        ) {
-          resetNativeBindings(runtime);
-        }
-        if (marker !== runtime.workspace.workspaceId) {
-          yield* runAdmin(runtime, [
-            "set-option",
-            "-t",
-            runtime.workspace.tmuxSessionName,
-            TMUX_WORKSPACE_MARKER_OPTION,
-            runtime.workspace.workspaceId,
-          ]);
-        }
-      });
-
-    const reconcile = (
-      runtime: WorkspaceRuntime,
-    ): Effect.Effect<TmuxWorkspaceSnapshot, TmuxKernelError> =>
-      Effect.gen(function* () {
-        yield* ensureSessionMarker(runtime);
-        const output = yield* runAdmin(runtime, [
-          "list-panes",
-          "-a",
-          "-t",
-          runtime.workspace.tmuxSessionName,
-          "-F",
-          paneListFormat(),
-        ]);
-        const rows = parsePaneRows(output);
-        const now = nowIso();
-        const seenWindows = new Set<TmuxWindowId>();
-        const seenPanes = new Set<TmuxPaneId>();
-        let activeWindowId: TmuxWindowId | null = null;
-
-        for (const row of rows) {
-          let id = runtime.tmuxWindowToWindowId.get(row.tmuxWindowId);
-          const mappedWindow = id ? runtime.windows.get(id) : undefined;
-          if (id && mappedWindow?.status === "closed") {
-            seenWindows.add(id);
-            continue;
-          }
-          if (!id) {
-            id = windowId();
-            runtime.tmuxWindowToWindowId.set(row.tmuxWindowId, id);
-          }
-          seenWindows.add(id);
-          if (row.windowActive) activeWindowId = id;
-          const existingWindow = runtime.windows.get(id);
-          runtime.windows.set(id, {
-            windowId: id,
-            workspaceId: runtime.workspace.workspaceId,
-            tmuxWindowId: row.tmuxWindowId,
-            tmuxWindowIndex: row.tmuxWindowIndex,
-            name: row.windowName,
-            cwd: row.cwd,
-            status: row.windowActive ? "active" : "inactive",
-            activePaneId: existingWindow?.activePaneId ?? null,
-            createdAt: existingWindow?.createdAt ?? now,
-            updatedAt: now,
-          });
-
-          let pane = runtime.tmuxPaneToPaneId.get(row.tmuxPaneId);
-          const mappedPane = pane ? runtime.panes.get(pane) : undefined;
-          if (pane && mappedPane?.status === "closed") {
-            seenPanes.add(pane);
-            continue;
-          }
-          if (!pane) {
-            pane = paneId();
-            runtime.tmuxPaneToPaneId.set(row.tmuxPaneId, pane);
-          }
-          seenPanes.add(pane);
-          const existingPane = runtime.panes.get(pane);
-          const stream = yield* paneStreams.ensurePane(
-            existingPane?.stream ?? emptyStreamDescriptor(pane),
-          );
-          runtime.panes.set(pane, {
-            paneId: pane,
-            workspaceId: runtime.workspace.workspaceId,
-            windowId: id,
-            tmuxPaneId: row.tmuxPaneId,
-            cwd: row.cwd,
-            cols: row.cols,
-            rows: row.rows,
-            status: "running",
-            metadata: existingPane?.metadata ?? defaultShellMetadata("shell", row.windowName),
-            stream,
-            createdAt: existingPane?.createdAt ?? now,
-            updatedAt: now,
-          });
-          if (row.paneActive) {
-            const currentWindow = runtime.windows.get(id);
-            if (currentWindow) runtime.windows.set(id, { ...currentWindow, activePaneId: pane });
-          }
-        }
-
-        for (const [id, win] of runtime.windows) {
-          if (!seenWindows.has(id) && win.status !== "closed") {
-            runtime.windows.set(id, { ...win, status: "closed", updatedAt: now });
-          }
-        }
-        for (const [id, pane] of runtime.panes) {
-          if (!seenPanes.has(id) && pane.status !== "closed") {
-            runtime.panes.set(id, { ...pane, status: "closed", updatedAt: now });
-            yield* paneStreams.closePane(id, "pane-closed");
-          }
-        }
-
-        runtime.workspace = {
-          ...runtime.workspace,
-          status: "running",
-          activeWindowId,
-          updatedAt: now,
-        };
-        normalizeActiveReferences(runtime, now);
-        bump(runtime);
-        yield* persistState;
-        yield* publishSnapshot(runtime);
-        return snapshot(runtime);
-      });
-
-    const handleControlEvent = (
-      runtime: WorkspaceRuntime,
-      event: TmuxControlModeEvent,
-    ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        if (event.type === "client-error" || event.type === "client-exited") {
-          runtime.workspace = {
-            ...runtime.workspace,
-            status: event.type === "client-error" ? "error" : "exited",
-            updatedAt: nowIso(),
-          };
-          bump(runtime);
-          yield* persistState.pipe(Effect.exit);
-          yield* emitChangedWorkspace(runtime);
-          return;
-        }
-        if (event.type === "pane-output" || event.type === "pane-extended-output") {
-          const id = runtime.tmuxPaneToPaneId.get(event.paneId);
-          if (!id) return;
-          const pane = runtime.panes.get(id);
-          if (!pane) return;
-          const appendResult = yield* paneStreams.append(id, event.data).pipe(Effect.exit);
-          if (appendResult._tag === "Failure") return;
-          const overflow = appendResult.value.overflow;
-          const updatedPane = {
-            ...pane,
-            stream: appendResult.value.descriptor,
-            updatedAt: nowIso(),
-          };
-          runtime.panes.set(id, updatedPane);
-          if (overflow) {
-            bump(runtime);
-            yield* persistState.pipe(Effect.exit);
-            yield* publish({
-              type: "pane.stream-overflow",
-              workspaceId: runtime.workspace.workspaceId,
-              revision: runtime.revision,
-              occurredAt: nowIso(),
-              paneId: id,
-              stream: updatedPane.stream,
-              reason: overflow.reason,
-            });
-          }
-          return;
-        }
-        if (
-          event.type === "window-add" ||
-          event.type === "window-close" ||
-          event.type === "window-renamed" ||
-          event.type === "layout-change" ||
-          event.type === "pane-mode-changed" ||
-          event.type === "session-changed"
-        ) {
-          yield* Effect.exit(reconcile(runtime));
-        }
-      });
-
-    const connectRuntime = (
-      runtime: WorkspaceRuntime,
-    ): Effect.Effect<TmuxControlModeConnection, TmuxKernelError> =>
-      Effect.gen(function* () {
-        const current = runtime.connection;
-        if (current && (yield* current.status) === "running") return current;
-        if (runtime.unsubscribeControl) {
-          runtime.unsubscribeControl();
-          runtime.unsubscribeControl = null;
-        }
-        const connection = yield* controlMode
-          .connect({
-            sessionName: runtime.workspace.tmuxSessionName,
-            cwd: runtime.workspace.cwd,
-            createIfMissing: true,
-          })
-          .pipe(
-            Effect.mapError((cause) =>
-              kernelError({
-                code: "control-mode-unavailable",
-                message: cause.message,
-                workspaceId: runtime.workspace.workspaceId,
-                cause,
-              }),
+          restored.set(entry.workspace.workspaceId, {
+            workspace: { ...entry.workspace, status: "detached" },
+            windows: new Map(entry.windows.map((window) => [window.windowId, window] as const)),
+            panes,
+            tmuxWindowToWindowId: new Map(
+              entry.windows.map((window) => [window.tmuxWindowId, window.windowId] as const),
             ),
-          );
-        const unsubscribe = yield* connection.subscribe((event) =>
-          handleControlEvent(runtime, event),
-        );
-        runtime.connection = connection;
-        runtime.unsubscribeControl = unsubscribe;
-        runtime.workspace = { ...runtime.workspace, status: "running", updatedAt: nowIso() };
-        return connection;
-      });
-
-    const getWindow = (
-      runtime: WorkspaceRuntime,
-      id: TmuxWindowId,
-    ): Effect.Effect<TmuxWindow, TmuxKernelError> => {
-      const window = runtime.windows.get(id);
-      if (!window || window.status === "closed") {
-        return Effect.fail(
-          kernelError({
-            code: "not-found",
-            message: `tmux window ${id} was not found`,
-            workspaceId: runtime.workspace.workspaceId,
-            windowId: id,
-          }),
-        );
-      }
-      return Effect.succeed(window);
-    };
-
-    const getPane = (
-      runtime: WorkspaceRuntime,
-      id: TmuxPaneId,
-    ): Effect.Effect<TmuxPane, TmuxKernelError> => {
-      const pane = runtime.panes.get(id);
-      if (!pane || pane.status === "closed") {
-        return Effect.fail(
-          kernelError({
-            code: "not-found",
-            message: `tmux pane ${id} was not found`,
-            workspaceId: runtime.workspace.workspaceId,
-            paneId: id,
-          }),
-        );
-      }
-      return Effect.succeed(pane);
-    };
-
-    const service: TmuxWorkspaceServiceShape = {
-      sessionNameForProject: (projectId) =>
-        makeTmuxSessionName(TMUX_WORKSPACE_SESSION_PREFIX, sanitizeTmuxName(projectId)),
-
-      listWorkspaces: (input) =>
-        Ref.get(runtimesRef).pipe(
-          Effect.map((runtimes) => {
-            const visibleRuntimes = [...runtimes.values()].filter(
-              (runtime) =>
-                (!input.projectId || runtime.workspace.projectId === input.projectId) &&
-                hasPermission(runtime, input.actor, "workspace:read"),
-            );
-            const workspaces = visibleRuntimes.map((runtime) => runtime.workspace);
-            const revision = Math.max(0, ...visibleRuntimes.map((runtime) => runtime.revision));
-            return { workspaces, revision };
-          }),
-        ),
-
-      ensureWorkspace: (input) =>
-        Effect.gen(function* () {
-          const projectToWorkspace = yield* Ref.get(projectToWorkspaceRef);
-          const runtimes = yield* Ref.get(runtimesRef);
-          const existingId = projectToWorkspace.get(input.projectId);
-          const existing = existingId ? runtimes.get(existingId) : undefined;
-          if (existing) {
-            yield* requirePermissions(existing, input.actor, [
-              "workspace:read",
-              "workspace:control",
-            ]);
-            yield* connectRuntime(existing);
-            return yield* reconcile(existing);
-          }
-          if (
-            !input.initialGrants?.some(
-              (grant) =>
-                actorMatches(grant.actor, input.actor) &&
-                grant.permissions.includes("workspace:read") &&
-                grant.permissions.includes("workspace:control"),
-            )
-          ) {
-            return yield* kernelError({
-              code: "permission-denied",
-              message:
-                "workspace:read and workspace:control must be granted explicitly when creating a tmux workspace",
-            });
-          }
-
-          const now = nowIso();
-          const id = workspaceId();
-          const runtime: WorkspaceRuntime = {
-            workspace: {
-              workspaceId: id,
-              projectId: input.projectId,
-              tmuxSessionName: service.sessionNameForProject(input.projectId),
-              cwd: input.cwd,
-              status: "starting",
-              activeWindowId: null,
-              grants: input.initialGrants ?? [],
-              createdAt: now,
-              updatedAt: now,
-            },
-            windows: new Map(),
-            panes: new Map(),
-            tmuxWindowToWindowId: new Map(),
-            tmuxPaneToPaneId: new Map(),
-            revision: 0,
+            tmuxPaneToPaneId: new Map(
+              entry.panes.map((pane) => [pane.tmuxPaneId, pane.paneId] as const),
+            ),
+            revision: entry.revision,
             connection: null,
             unsubscribeControl: null,
             paneInputSeq: new Map(),
-          };
-          runtimes.set(id, runtime);
-          projectToWorkspace.set(input.projectId, id);
-          yield* Ref.set(runtimesRef, runtimes);
-          yield* Ref.set(projectToWorkspaceRef, projectToWorkspace);
-          yield* connectRuntime(runtime);
-          return yield* reconcile(runtime);
-        }),
+          });
+        }
+        return restored;
+      }).pipe(
+        Effect.catchCause(() =>
+          Effect.logWarning("TmuxWorkspaceService: failed to load persisted metadata", {
+            path: persistencePath,
+          }).pipe(Effect.as(new Map<TmuxWorkspaceId, WorkspaceRuntime>())),
+        ),
+      );
 
-      reconnectWorkspace: (input) =>
+      const initialRuntimes = yield* loadPersistedState;
+      const initialProjectToWorkspace = new Map<TmuxWorkspace["projectId"], TmuxWorkspaceId>(
+        [...initialRuntimes.values()].map(
+          (runtime) => [runtime.workspace.projectId, runtime.workspace.workspaceId] as const,
+        ),
+      );
+      const runtimesRef = yield* Ref.make(initialRuntimes);
+      const projectToWorkspaceRef = yield* Ref.make(initialProjectToWorkspace);
+      const listeners = new Map<
+        TmuxWorkspaceId,
+        Set<(event: TmuxKernelEvent) => Effect.Effect<void>>
+      >();
+      const publish = (event: TmuxKernelEvent): Effect.Effect<void> =>
+        Effect.forEach(
+          [...(listeners.get(event.workspaceId) ?? [])],
+          (listener) => listener(event).pipe(Effect.catchCause(() => Effect.void)),
+          { discard: true },
+        );
+
+      const bump = (runtime: WorkspaceRuntime): number => {
+        runtime.revision += 1;
+        runtime.workspace = { ...runtime.workspace, updatedAt: nowIso() };
+        return runtime.revision;
+      };
+
+      const persistRuntimes = (
+        runtimes: Map<TmuxWorkspaceId, WorkspaceRuntime>,
+      ): Effect.Effect<void, TmuxKernelError> => {
+        const persisted: PersistedTmuxWorkspaceState = {
+          workspaces: [...runtimes.values()].map((runtime) => ({
+            workspace: runtime.workspace,
+            windows: [...runtime.windows.values()],
+            panes: [...runtime.panes.values()],
+            revision: runtime.revision,
+          })),
+        };
+        return writeFileStringAtomically({
+          filePath: persistencePath,
+          contents: `${JSON.stringify(persisted, null, 2)}\n`,
+        }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+          Effect.mapError((cause) =>
+            kernelError({
+              code: "io-error",
+              message: "failed to persist tmux workspace metadata",
+              cause,
+            }),
+          ),
+        );
+      };
+
+      const persistState = Ref.get(runtimesRef).pipe(Effect.flatMap(persistRuntimes));
+
+      const publishSnapshot = (runtime: WorkspaceRuntime): Effect.Effect<void> =>
+        publish({
+          type: "workspace.snapshot",
+          workspaceId: runtime.workspace.workspaceId,
+          revision: runtime.revision,
+          occurredAt: nowIso(),
+          snapshot: snapshot(runtime),
+        });
+
+      const getRuntime = (id: TmuxWorkspaceId): Effect.Effect<WorkspaceRuntime, TmuxKernelError> =>
+        Ref.get(runtimesRef).pipe(
+          Effect.flatMap((runtimes) => {
+            const runtime = runtimes.get(id);
+            if (!runtime) {
+              return Effect.fail(
+                kernelError({
+                  code: "not-found",
+                  message: `tmux workspace ${id} was not found`,
+                  workspaceId: id,
+                }),
+              );
+            }
+            return Effect.succeed(runtime);
+          }),
+        );
+
+      const runAdmin = (
+        runtime: WorkspaceRuntime,
+        args: readonly string[],
+      ): Effect.Effect<string, TmuxKernelError> =>
+        controlMode.adminCommand(args, { timeoutMs: TMUX_WORKSPACE_COMMAND_TIMEOUT_MS }).pipe(
+          Effect.mapError((cause) =>
+            kernelError({
+              code: cause.message.toLowerCase().includes("tmux") ? "tmux-unavailable" : "io-error",
+              message: errorMessage(cause, "tmux admin command failed"),
+              workspaceId: runtime.workspace.workspaceId,
+              cause,
+            }),
+          ),
+        );
+
+      const enablePaneOutput = (
+        runtime: WorkspaceRuntime,
+        tmuxPaneId: string,
+      ): Effect.Effect<void, TmuxKernelError> =>
         Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermissions(runtime, input.actor, ["workspace:read", "workspace:control"]);
-          if (runtime.connection) {
-            yield* Effect.exit(runtime.connection.restart);
+          const connection = runtime.connection;
+          if (!connection || (yield* connection.status) !== "running") {
+            return yield* kernelError({
+              code: "control-mode-unavailable",
+              message: `tmux control-mode client is not running for ${runtime.workspace.tmuxSessionName}`,
+              workspaceId: runtime.workspace.workspaceId,
+            });
           }
-          yield* connectRuntime(runtime);
-          return yield* reconcile(runtime);
-        }),
+          yield* connection
+            .command({ command: "refresh-client", args: ["-A", `${tmuxPaneId}:on`] })
+            .pipe(
+              Effect.mapError((cause) =>
+                kernelError({
+                  code: "control-mode-unavailable",
+                  message: errorMessage(cause, "tmux control-mode command failed"),
+                  workspaceId: runtime.workspace.workspaceId,
+                  cause,
+                }),
+              ),
+            );
+        });
 
-      getSnapshot: (input) =>
-        Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermission(runtime, input.actor, "workspace:read");
-          return snapshot(runtime);
-        }),
+      const emitChangedWorkspace = (runtime: WorkspaceRuntime): Effect.Effect<void> =>
+        publish({
+          type: "workspace.changed",
+          workspaceId: runtime.workspace.workspaceId,
+          revision: runtime.revision,
+          occurredAt: nowIso(),
+          workspace: runtime.workspace,
+        });
 
-      createWindow: (input) =>
+      const ensureSessionMarker = (
+        runtime: WorkspaceRuntime,
+      ): Effect.Effect<void, TmuxKernelError> =>
         Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermission(runtime, input.actor, "window:control");
-          yield* connectRuntime(runtime);
-          const args = [
-            "new-window",
-            "-P",
-            "-F",
-            paneListFormat(),
+          const marker = (yield* runAdmin(runtime, [
+            "display-message",
+            "-p",
             "-t",
             runtime.workspace.tmuxSessionName,
-          ];
-          if (input.name) args.push("-n", input.name);
-          if (input.cwd) args.push("-c", input.cwd);
-          yield* runAdmin(runtime, args);
-          return yield* reconcile(runtime);
-        }),
-
-      renameWindow: (input) =>
-        Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermission(runtime, input.actor, "window:control");
-          const window = yield* getWindow(runtime, input.windowId);
-          yield* runAdmin(runtime, ["rename-window", "-t", window.tmuxWindowId, input.name]);
-          yield* reconcile(runtime);
-          return (runtime.windows.get(input.windowId) ?? window) as TmuxWindow;
-        }),
-
-      focusWindow: (input) =>
-        Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermission(runtime, input.actor, "window:control");
-          const window = yield* getWindow(runtime, input.windowId);
-          yield* runAdmin(runtime, ["select-window", "-t", window.tmuxWindowId]);
-          return yield* reconcile(runtime);
-        }),
-
-      closeWindow: (input) =>
-        Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermission(
-            runtime,
-            input.actor,
-            input.mode === "destroy" ? "session:destroy" : "window:control",
-          );
-          const window = yield* getWindow(runtime, input.windowId);
-          if (input.mode === "destroy") {
-            yield* runAdmin(runtime, ["kill-window", "-t", window.tmuxWindowId]);
-          } else {
-            const now = nowIso();
-            const panesToClose = [...runtime.panes.values()].filter(
-              (pane) => pane.windowId === input.windowId && pane.status !== "closed",
-            );
-            runtime.windows.set(input.windowId, {
-              ...window,
-              status: "closed",
-              updatedAt: now,
-            });
-            closeWindowPanes(runtime, input.windowId, now);
-            yield* Effect.forEach(
-              panesToClose,
-              (pane) => paneStreams.closePane(pane.paneId, "pane-closed"),
-              { discard: true },
-            );
-            normalizeActiveReferences(runtime, now);
-            bump(runtime);
-            yield* persistState;
-            yield* publishSnapshot(runtime);
-            return snapshot(runtime);
+            `#{${TMUX_WORKSPACE_MARKER_OPTION}}`,
+          ])).trim();
+          if (
+            marker !== runtime.workspace.workspaceId &&
+            (runtime.tmuxWindowToWindowId.size > 0 || runtime.tmuxPaneToPaneId.size > 0)
+          ) {
+            resetNativeBindings(runtime);
           }
-          return yield* reconcile(runtime);
-        }),
-
-      createPane: (input) =>
-        Effect.gen(function* () {
-          if (input.kind === "neovim" && !isBridgeNeovimCreateInput(input)) {
-            if (!input.command && !input.metadata) {
-              return yield* service.createNeovimPane({
-                actor: input.actor,
-                workspaceId: input.workspaceId,
-                windowId: input.windowId,
-                ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-                split: input.split,
-              });
-            }
-            return yield* kernelError({
-              code: "invalid-state",
-              message:
-                "Neovim panes must be created through the tmux Neovim bridge with bootstrap command and metadata",
-              workspaceId: input.workspaceId,
-              windowId: input.windowId,
-            });
+          if (marker !== runtime.workspace.workspaceId) {
+            yield* runAdmin(runtime, [
+              "set-option",
+              "-t",
+              runtime.workspace.tmuxSessionName,
+              TMUX_WORKSPACE_MARKER_OPTION,
+              runtime.workspace.workspaceId,
+            ]);
           }
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermissions(runtime, input.actor, requiredPaneCreatePermissions(input));
-          const window = yield* getWindow(runtime, input.windowId);
-          const metadata = yield* metadataForCreate(input);
-          const splitArgs =
-            input.split === "horizontal" ? ["-h"] : input.split === "vertical" ? ["-v"] : [];
-          const args = [
-            "split-window",
-            ...splitArgs,
-            "-P",
+        });
+
+      const reconcile = (
+        runtime: WorkspaceRuntime,
+      ): Effect.Effect<TmuxWorkspaceSnapshot, TmuxKernelError> =>
+        Effect.gen(function* () {
+          yield* ensureSessionMarker(runtime);
+          const output = yield* runAdmin(runtime, [
+            "list-panes",
+            "-t",
+            runtime.workspace.tmuxSessionName,
             "-F",
             paneListFormat(),
-            "-t",
-            window.tmuxWindowId,
-          ];
-          if (input.cwd) args.push("-c", input.cwd);
-          const command = paneCommand(input);
-          if (command) args.push(command);
-          const beforePanes = new Set(runtime.panes.keys());
-          yield* runAdmin(runtime, args);
-          yield* reconcile(runtime);
-          for (const [id, pane] of runtime.panes) {
-            if (!beforePanes.has(id) && pane.status !== "closed") {
-              runtime.panes.set(id, { ...pane, metadata, updatedAt: nowIso() });
+          ]);
+          const rows = parsePaneRows(output);
+          const now = nowIso();
+          const seenWindows = new Set<TmuxWindowId>();
+          const seenPanes = new Set<TmuxPaneId>();
+          let activeWindowId: TmuxWindowId | null = null;
+
+          for (const row of rows) {
+            let id = runtime.tmuxWindowToWindowId.get(row.tmuxWindowId);
+            const mappedWindow = id ? runtime.windows.get(id) : undefined;
+            if (id && mappedWindow?.status === "closed") {
+              seenWindows.add(id);
+              continue;
+            }
+            if (!id) {
+              id = windowId();
+              runtime.tmuxWindowToWindowId.set(row.tmuxWindowId, id);
+            }
+            seenWindows.add(id);
+            if (row.windowActive) activeWindowId = id;
+            const existingWindow = runtime.windows.get(id);
+            runtime.windows.set(id, {
+              windowId: id,
+              workspaceId: runtime.workspace.workspaceId,
+              tmuxWindowId: row.tmuxWindowId,
+              tmuxWindowIndex: row.tmuxWindowIndex,
+              name: row.windowName,
+              cwd: row.cwd,
+              status: row.windowActive ? "active" : "inactive",
+              activePaneId: existingWindow?.activePaneId ?? null,
+              createdAt: existingWindow?.createdAt ?? now,
+              updatedAt: now,
+            });
+
+            let pane = runtime.tmuxPaneToPaneId.get(row.tmuxPaneId);
+            const mappedPane = pane ? runtime.panes.get(pane) : undefined;
+            if (pane && mappedPane?.status === "closed") {
+              seenPanes.add(pane);
+              continue;
+            }
+            if (!pane) {
+              pane = paneId();
+              runtime.tmuxPaneToPaneId.set(row.tmuxPaneId, pane);
+            }
+            seenPanes.add(pane);
+            const existingPane = runtime.panes.get(pane);
+            const stream = yield* paneStreams.ensurePane(
+              existingPane?.stream ?? emptyStreamDescriptor(pane),
+            );
+            runtime.panes.set(pane, {
+              paneId: pane,
+              workspaceId: runtime.workspace.workspaceId,
+              windowId: id,
+              tmuxPaneId: row.tmuxPaneId,
+              cwd: row.cwd,
+              x: row.x,
+              y: row.y,
+              cols: row.cols,
+              rows: row.rows,
+              status: "running",
+              metadata: existingPane?.metadata ?? defaultShellMetadata("shell", row.windowName),
+              stream,
+              createdAt: existingPane?.createdAt ?? now,
+              updatedAt: now,
+            });
+            yield* enablePaneOutput(runtime, row.tmuxPaneId);
+            if (row.paneActive) {
+              const currentWindow = runtime.windows.get(id);
+              if (currentWindow) runtime.windows.set(id, { ...currentWindow, activePaneId: pane });
             }
           }
-          bump(runtime);
-          yield* persistState;
-          yield* publishSnapshot(runtime);
-          return snapshot(runtime);
-        }),
 
-      attachPaneMetadata: (input) =>
-        Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermission(runtime, input.actor, "pane:control", input.paneId);
-          const pane = yield* getPane(runtime, input.paneId);
-          const updated = {
-            ...pane,
-            metadata: input.metadata,
-            updatedAt: nowIso(),
-          };
-          runtime.panes.set(input.paneId, updated);
-          bump(runtime);
-          yield* persistState;
-          yield* publish({
-            type: "pane.changed",
-            workspaceId: runtime.workspace.workspaceId,
-            revision: runtime.revision,
-            occurredAt: nowIso(),
-            pane: updated,
-          });
-          return updated;
-        }),
-
-      listOperationalPaneStatuses: (input) =>
-        Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermission(runtime, input.actor, "workspace:read");
-          const panes = [...runtime.panes.values()].flatMap((pane) => {
-            const status = operationalPaneStatus(pane);
-            return status ? [status] : [];
-          });
-          return {
-            workspaceId: input.workspaceId,
-            panes,
-            revision: runtime.revision,
-          } satisfies TmuxOperationalPaneStatusResult;
-        }),
-
-      createNeovimPane: (input) =>
-        Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermissions(runtime, input.actor, [
-            "pane:control",
-            "process:spawn",
-            "neovim:launch",
-          ]);
-          yield* connectRuntime(runtime);
-          yield* reconcile(runtime);
-          const window = yield* getWindow(runtime, input.windowId);
-          const cwd = input.cwd ?? window.cwd;
-          const files = [...(input.files ?? [])];
-          const profileId = input.profileId ?? "default";
-          const bootstrapId = neovimBootstrapId({
-            ...input,
-            files,
-            profileId,
-          });
-          const command = neovimCommand({
-            bootstrapId,
-            workspaceId: input.workspaceId,
-            windowId: input.windowId,
-            profileId,
-            files,
-            ...(input.line === undefined ? {} : { line: input.line }),
-            ...(input.column === undefined ? {} : { column: input.column }),
-          });
-          return yield* service.createPane({
-            actor: input.actor,
-            workspaceId: input.workspaceId,
-            windowId: input.windowId,
-            cwd,
-            command,
-            kind: "neovim",
-            split: input.split ?? "horizontal",
-            metadata: neovimMetadata({
-              bootstrapId,
-              workspaceId: input.workspaceId,
-              windowId: input.windowId,
-              cwd,
-              profileId,
-              files,
-              ...(input.line === undefined ? {} : { line: input.line }),
-              ...(input.column === undefined ? {} : { column: input.column }),
-              launchSource: input.launchSource ?? "user",
-              command,
-            }),
-          });
-        }),
-
-      reconnectNeovimPane: (input) =>
-        Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermissions(runtime, input.actor, [
-            "pane:control",
-            "process:spawn",
-            "neovim:launch",
-          ]);
-          yield* connectRuntime(runtime);
-          yield* reconcile(runtime);
-          const window = yield* getWindow(runtime, input.windowId);
-          const files = [...(input.files ?? [])];
-          const bootstrapId = neovimBootstrapId({
-            ...input,
-            files,
-            profileId: input.profileId ?? "default",
-          });
-          const existing = [...runtime.panes.values()].find(
-            (pane) =>
-              pane.windowId === window.windowId &&
-              pane.status === "running" &&
-              pane.metadata.kind === "neovim" &&
-              pane.metadata.neovim.bootstrapId === bootstrapId,
-          );
-          if (existing) {
-            return yield* service.focusPane({
-              actor: input.actor,
-              workspaceId: input.workspaceId,
-              paneId: existing.paneId,
-            });
+          for (const [id, win] of runtime.windows) {
+            if (!seenWindows.has(id) && win.status !== "closed") {
+              runtime.windows.set(id, { ...win, status: "closed", updatedAt: now });
+            }
           }
-          return yield* service.createNeovimPane({
-            ...input,
-            files,
-            launchSource: input.launchSource ?? "restore",
-          });
-        }),
-
-      focusPane: (input) =>
-        Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermission(runtime, input.actor, "pane:control", input.paneId);
-          const pane = yield* getPane(runtime, input.paneId);
-          yield* runAdmin(runtime, ["select-pane", "-t", pane.tmuxPaneId]);
-          return yield* reconcile(runtime);
-        }),
-
-      resizePane: (input) =>
-        Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermission(runtime, input.actor, "pane:control", input.paneId);
-          const pane = yield* getPane(runtime, input.paneId);
-          yield* runAdmin(runtime, [
-            "resize-pane",
-            "-t",
-            pane.tmuxPaneId,
-            "-x",
-            String(input.cols),
-            "-y",
-            String(input.rows),
-          ]);
-          const updated = {
-            ...pane,
-            cols: input.cols,
-            rows: input.rows,
-            updatedAt: nowIso(),
-          };
-          runtime.panes.set(input.paneId, updated);
-          bump(runtime);
-          yield* persistState;
-          yield* publish({
-            type: "pane.changed",
-            workspaceId: runtime.workspace.workspaceId,
-            revision: runtime.revision,
-            occurredAt: nowIso(),
-            pane: updated,
-          });
-          return updated;
-        }),
-
-      closePane: (input) =>
-        Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          yield* requirePermission(runtime, input.actor, "pane:control", input.paneId);
-          const pane = yield* getPane(runtime, input.paneId);
-          if (input.mode !== "detach") {
-            yield* runAdmin(runtime, ["kill-pane", "-t", pane.tmuxPaneId]);
+          for (const [id, pane] of runtime.panes) {
+            if (!seenPanes.has(id) && pane.status !== "closed") {
+              runtime.panes.set(id, { ...pane, status: "closed", updatedAt: now });
+              yield* paneStreams.closePane(id, "pane-closed");
+            }
           }
-          const now = nowIso();
-          runtime.panes.set(input.paneId, { ...pane, status: "closed", updatedAt: now });
-          yield* paneStreams.closePane(input.paneId, "pane-closed");
+
+          runtime.workspace = {
+            ...runtime.workspace,
+            status: "running",
+            activeWindowId,
+            updatedAt: now,
+          };
           normalizeActiveReferences(runtime, now);
           bump(runtime);
           yield* persistState;
           yield* publishSnapshot(runtime);
-          if (input.mode === "detach") return snapshot(runtime);
-          return yield* reconcile(runtime);
-        }),
+          return snapshot(runtime);
+        });
 
-      writePane: (input) =>
-        Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          if (!hasPermission(runtime, input.actor, "pane:write")) {
-            return permissionDeniedResult({
-              workspaceId: input.workspaceId,
-              paneId: input.paneId,
-              requestId: input.requestId,
-              permission: "pane:write",
-            });
+      // tmux emits control events in bursts (window-add + layout-change +
+      // session-changed for a single user action); each reconcile shells out to
+      // tmux, so coalesce per workspace instead of reconciling per event.
+      const pendingControlReconciles = new Map<TmuxWorkspaceId, { rerun: boolean }>();
+
+      const scheduleControlReconcile = (runtime: WorkspaceRuntime): Effect.Effect<void> =>
+        Effect.sync(() => {
+          const id = runtime.workspace.workspaceId;
+          const pending = pendingControlReconciles.get(id);
+          if (pending) {
+            pending.rerun = true;
+            return;
           }
-          const pane = yield* getPane(runtime, input.paneId);
-          const connection = runtime.connection;
+          const state = { rerun: false };
+          pendingControlReconciles.set(id, state);
+          const drain: Effect.Effect<void> = Effect.gen(function* () {
+            yield* Effect.sleep(`${TMUX_CONTROL_RECONCILE_DEBOUNCE_MS} millis`);
+            state.rerun = false;
+            yield* Effect.exit(reconcile(runtime));
+            if (state.rerun) {
+              return yield* drain;
+            }
+            pendingControlReconciles.delete(id);
+          });
+          runDetached(drain);
+        });
+
+      const handleControlEvent = (
+        runtime: WorkspaceRuntime,
+        event: TmuxControlModeEvent,
+      ): Effect.Effect<void> =>
+        Effect.gen(function* () {
+          if (event.type === "client-error" || event.type === "client-exited") {
+            runtime.workspace = {
+              ...runtime.workspace,
+              status: event.type === "client-error" ? "error" : "exited",
+              updatedAt: nowIso(),
+            };
+            bump(runtime);
+            yield* persistState.pipe(Effect.exit);
+            yield* emitChangedWorkspace(runtime);
+            return;
+          }
+          if (event.type === "pane-output" || event.type === "pane-extended-output") {
+            const id = runtime.tmuxPaneToPaneId.get(event.paneId);
+            if (!id) return;
+            const pane = runtime.panes.get(id);
+            if (!pane) return;
+            const appendResult = yield* paneStreams.append(id, event.data).pipe(Effect.exit);
+            if (appendResult._tag === "Failure") return;
+            const overflow = appendResult.value.overflow;
+            const updatedPane = {
+              ...pane,
+              stream: appendResult.value.descriptor,
+              updatedAt: nowIso(),
+            };
+            runtime.panes.set(id, updatedPane);
+            if (overflow) {
+              bump(runtime);
+              yield* persistState.pipe(Effect.exit);
+              yield* publish({
+                type: "pane.stream-overflow",
+                workspaceId: runtime.workspace.workspaceId,
+                revision: runtime.revision,
+                occurredAt: nowIso(),
+                paneId: id,
+                stream: updatedPane.stream,
+                reason: overflow.reason,
+              });
+            }
+            return;
+          }
           if (
-            !connection ||
-            pane.status !== "running" ||
-            (yield* connection.status) !== "running"
+            event.type === "window-add" ||
+            event.type === "window-close" ||
+            event.type === "window-renamed" ||
+            event.type === "layout-change" ||
+            event.type === "pane-mode-changed" ||
+            event.type === "session-changed"
           ) {
-            return {
-              type: "rejected",
-              workspaceId: input.workspaceId,
-              paneId: input.paneId,
-              requestId: input.requestId,
-              code: "not-running",
-              message: `tmux pane ${input.paneId} is not running`,
-              rejectedAt: nowIso(),
-            } satisfies TmuxPaneWriteResult;
+            yield* scheduleControlReconcile(runtime);
           }
-          const nextSeq = (runtime.paneInputSeq.get(input.paneId) ?? 0) + 1;
-          const writeExit = yield* Effect.exit(
-            connection.command(paneInputCommand(pane.tmuxPaneId, input.data)),
-          );
-          if (writeExit._tag === "Failure") {
-            return {
-              type: "rejected",
-              workspaceId: input.workspaceId,
-              paneId: input.paneId,
-              requestId: input.requestId,
-              code: "invalid-state",
-              message: "tmux pane input was rejected",
-              rejectedAt: nowIso(),
-            } satisfies TmuxPaneWriteResult;
-          }
-          runtime.paneInputSeq.set(input.paneId, nextSeq);
-          return {
-            type: "accepted",
-            workspaceId: input.workspaceId,
-            paneId: input.paneId,
-            requestId: input.requestId,
-            inputSeq: nextSeq,
-            acceptedAt: nowIso(),
-          } satisfies TmuxPaneWriteResult;
-        }),
+        });
 
-      subscribePaneStream: (input) =>
+      const connectRuntime = (
+        runtime: WorkspaceRuntime,
+      ): Effect.Effect<TmuxControlModeConnection, TmuxKernelError> =>
         Effect.gen(function* () {
-          const runtime = yield* getRuntime(input.workspaceId);
-          if (!hasPermission(runtime, input.actor, "pane:read")) {
-            return yield* kernelError({
-              code: "permission-denied",
-              message: `pane:read is not granted for tmux pane ${input.paneId}`,
-              workspaceId: input.workspaceId,
-              paneId: input.paneId,
-            });
+          const current = runtime.connection;
+          if (current && (yield* current.status) === "running") return current;
+          if (runtime.unsubscribeControl) {
+            runtime.unsubscribeControl();
+            runtime.unsubscribeControl = null;
           }
-          yield* getPane(runtime, input.paneId);
-          return yield* paneStreams.subscribe(input);
-        }),
-
-      subscribe: (input, listener) =>
-        getRuntime(input.workspaceId).pipe(
-          Effect.tap((runtime) => requirePermission(runtime, input.actor, "workspace:read")),
-          Effect.flatMap((runtime) =>
-            Effect.sync(() => {
-              const workspaceId = input.workspaceId;
-              let workspaceListeners = listeners.get(workspaceId);
-              if (!workspaceListeners) {
-                workspaceListeners = new Set();
-                listeners.set(workspaceId, workspaceListeners);
-              }
-              workspaceListeners.add(listener);
-              return {
-                runtime,
-                unsubscribe: () => {
-                  workspaceListeners.delete(listener);
-                },
-              };
-            }).pipe(
-              Effect.tap(({ runtime }) =>
-                listener({
-                  type: "workspace.snapshot",
+          const connection = yield* controlMode
+            .connect({
+              sessionName: runtime.workspace.tmuxSessionName,
+              cwd: runtime.workspace.cwd,
+              createIfMissing: true,
+            })
+            .pipe(
+              Effect.mapError((cause) =>
+                kernelError({
+                  code: "control-mode-unavailable",
+                  message: errorMessage(cause, "tmux control-mode connection failed"),
                   workspaceId: runtime.workspace.workspaceId,
-                  revision: runtime.revision,
-                  occurredAt: nowIso(),
-                  snapshot: snapshot(runtime),
+                  cause,
                 }),
               ),
-              Effect.map(({ unsubscribe }) => unsubscribe),
+            );
+          const unsubscribe = yield* connection.subscribe((event) =>
+            handleControlEvent(runtime, event),
+          );
+          runtime.connection = connection;
+          runtime.unsubscribeControl = unsubscribe;
+          runtime.workspace = { ...runtime.workspace, status: "running", updatedAt: nowIso() };
+          return connection;
+        });
+
+      const getWindow = (
+        runtime: WorkspaceRuntime,
+        id: TmuxWindowId,
+      ): Effect.Effect<TmuxWindow, TmuxKernelError> => {
+        const window = runtime.windows.get(id);
+        if (!window || window.status === "closed") {
+          return Effect.fail(
+            kernelError({
+              code: "not-found",
+              message: `tmux window ${id} was not found`,
+              workspaceId: runtime.workspace.workspaceId,
+              windowId: id,
+            }),
+          );
+        }
+        return Effect.succeed(window);
+      };
+
+      const getPane = (
+        runtime: WorkspaceRuntime,
+        id: TmuxPaneId,
+      ): Effect.Effect<TmuxPane, TmuxKernelError> => {
+        const pane = runtime.panes.get(id);
+        if (!pane || pane.status === "closed") {
+          return Effect.fail(
+            kernelError({
+              code: "not-found",
+              message: `tmux pane ${id} was not found`,
+              workspaceId: runtime.workspace.workspaceId,
+              paneId: id,
+            }),
+          );
+        }
+        return Effect.succeed(pane);
+      };
+
+      const service: TmuxWorkspaceServiceShape = {
+        sessionNameForProject: (projectId) =>
+          makeTmuxSessionName(TMUX_WORKSPACE_SESSION_PREFIX, sanitizeTmuxName(projectId)),
+
+        listWorkspaces: (input) =>
+          Ref.get(runtimesRef).pipe(
+            Effect.map((runtimes) => {
+              const visibleRuntimes = [...runtimes.values()].filter(
+                (runtime) =>
+                  (!input.projectId || runtime.workspace.projectId === input.projectId) &&
+                  hasPermission(runtime, input.actor, "workspace:read"),
+              );
+              const workspaces = visibleRuntimes.map((runtime) => runtime.workspace);
+              const revision = Math.max(0, ...visibleRuntimes.map((runtime) => runtime.revision));
+              return { workspaces, revision };
+            }),
+          ),
+
+        ensureWorkspace: (input) =>
+          Effect.gen(function* () {
+            const projectToWorkspace = yield* Ref.get(projectToWorkspaceRef);
+            const runtimes = yield* Ref.get(runtimesRef);
+            const existingId = projectToWorkspace.get(input.projectId);
+            const existing = existingId ? runtimes.get(existingId) : undefined;
+            if (existing) {
+              yield* requirePermissions(existing, input.actor, [
+                "workspace:read",
+                "workspace:control",
+              ]);
+              yield* connectRuntime(existing);
+              return yield* reconcile(existing);
+            }
+            if (input.workspaceId) {
+              const requestedRuntime = runtimes.get(input.workspaceId);
+              if (requestedRuntime) {
+                if (requestedRuntime.workspace.projectId !== input.projectId) {
+                  return yield* kernelError({
+                    code: "invalid-state",
+                    message: "requested tmux workspace id is already assigned to another project",
+                    workspaceId: input.workspaceId,
+                  });
+                }
+                yield* requirePermissions(requestedRuntime, input.actor, [
+                  "workspace:read",
+                  "workspace:control",
+                ]);
+                projectToWorkspace.set(input.projectId, input.workspaceId);
+                yield* Ref.set(projectToWorkspaceRef, projectToWorkspace);
+                yield* connectRuntime(requestedRuntime);
+                return yield* reconcile(requestedRuntime);
+              }
+            }
+            if (
+              !input.initialGrants?.some(
+                (grant) =>
+                  actorMatches(grant.actor, input.actor) &&
+                  grant.permissions.includes("workspace:read") &&
+                  grant.permissions.includes("workspace:control"),
+              )
+            ) {
+              return yield* kernelError({
+                code: "permission-denied",
+                message:
+                  "workspace:read and workspace:control must be granted explicitly when creating a tmux workspace",
+              });
+            }
+
+            const now = nowIso();
+            const id = input.workspaceId ?? workspaceId();
+            const runtime: WorkspaceRuntime = {
+              workspace: {
+                workspaceId: id,
+                projectId: input.projectId,
+                tmuxSessionName: service.sessionNameForProject(input.projectId),
+                cwd: input.cwd,
+                status: "starting",
+                activeWindowId: null,
+                grants: input.initialGrants ?? [],
+                createdAt: now,
+                updatedAt: now,
+              },
+              windows: new Map(),
+              panes: new Map(),
+              tmuxWindowToWindowId: new Map(),
+              tmuxPaneToPaneId: new Map(),
+              revision: 0,
+              connection: null,
+              unsubscribeControl: null,
+              paneInputSeq: new Map(),
+            };
+            runtimes.set(id, runtime);
+            projectToWorkspace.set(input.projectId, id);
+            yield* Ref.set(runtimesRef, runtimes);
+            yield* Ref.set(projectToWorkspaceRef, projectToWorkspace);
+            yield* connectRuntime(runtime);
+            return yield* reconcile(runtime);
+          }),
+
+        reconnectWorkspace: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermissions(runtime, input.actor, [
+              "workspace:read",
+              "workspace:control",
+            ]);
+            if (runtime.connection) {
+              yield* Effect.exit(runtime.connection.restart);
+            }
+            yield* connectRuntime(runtime);
+            return yield* reconcile(runtime);
+          }),
+
+        getSnapshot: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(runtime, input.actor, "workspace:read");
+            return snapshot(runtime);
+          }),
+
+        createWindow: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(runtime, input.actor, "window:control");
+            yield* connectRuntime(runtime);
+            const args = [
+              "new-window",
+              "-P",
+              "-F",
+              paneListFormat(),
+              "-t",
+              runtime.workspace.tmuxSessionName,
+            ];
+            if (input.name) args.push("-n", input.name);
+            if (input.cwd) args.push("-c", input.cwd);
+            yield* runAdmin(runtime, args);
+            return yield* reconcile(runtime);
+          }),
+
+        renameWindow: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(runtime, input.actor, "window:control");
+            const window = yield* getWindow(runtime, input.windowId);
+            yield* runAdmin(runtime, ["rename-window", "-t", window.tmuxWindowId, input.name]);
+            yield* reconcile(runtime);
+            return (runtime.windows.get(input.windowId) ?? window) as TmuxWindow;
+          }),
+
+        focusWindow: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(runtime, input.actor, "window:control");
+            const window = yield* getWindow(runtime, input.windowId);
+            yield* runAdmin(runtime, ["select-window", "-t", window.tmuxWindowId]);
+            return yield* reconcile(runtime);
+          }),
+
+        closeWindow: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(
+              runtime,
+              input.actor,
+              input.mode === "destroy" ? "session:destroy" : "window:control",
+            );
+            const window = yield* getWindow(runtime, input.windowId);
+            if (input.mode === "destroy") {
+              yield* runAdmin(runtime, ["kill-window", "-t", window.tmuxWindowId]);
+            } else {
+              const now = nowIso();
+              const panesToClose = [...runtime.panes.values()].filter(
+                (pane) => pane.windowId === input.windowId && pane.status !== "closed",
+              );
+              runtime.windows.set(input.windowId, {
+                ...window,
+                status: "closed",
+                updatedAt: now,
+              });
+              closeWindowPanes(runtime, input.windowId, now);
+              yield* Effect.forEach(
+                panesToClose,
+                (pane) => paneStreams.closePane(pane.paneId, "pane-closed"),
+                { discard: true },
+              );
+              normalizeActiveReferences(runtime, now);
+              bump(runtime);
+              yield* persistState;
+              yield* publishSnapshot(runtime);
+              return snapshot(runtime);
+            }
+            return yield* reconcile(runtime);
+          }),
+
+        createPane: (input) =>
+          Effect.gen(function* () {
+            if (input.kind === "neovim" && !isBridgeNeovimCreateInput(input)) {
+              if (!input.command && !input.metadata) {
+                return yield* service.createNeovimPane({
+                  actor: input.actor,
+                  workspaceId: input.workspaceId,
+                  windowId: input.windowId,
+                  ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+                  split: input.split,
+                });
+              }
+              return yield* kernelError({
+                code: "invalid-state",
+                message:
+                  "Neovim panes must be created through the tmux Neovim bridge with bootstrap command and metadata",
+                workspaceId: input.workspaceId,
+                windowId: input.windowId,
+              });
+            }
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermissions(runtime, input.actor, requiredPaneCreatePermissions(input));
+            const window = yield* getWindow(runtime, input.windowId);
+            const metadata = yield* metadataForCreate(input);
+            const splitArgs =
+              input.split === "horizontal" ? ["-h"] : input.split === "vertical" ? ["-v"] : [];
+            const args = [
+              "split-window",
+              ...splitArgs,
+              "-P",
+              "-F",
+              paneListFormat(),
+              "-t",
+              window.tmuxWindowId,
+            ];
+            if (input.cwd) args.push("-c", input.cwd);
+            const command = paneCommand(input);
+            if (command) args.push(command);
+            const beforePanes = new Set(runtime.panes.keys());
+            yield* runAdmin(runtime, args).pipe(
+              Effect.mapError((error) =>
+                input.kind === "neovim" && isNvimUnavailableError(error)
+                  ? kernelError({
+                      code: "nvim-unavailable",
+                      message: error.message,
+                      workspaceId: input.workspaceId,
+                      windowId: input.windowId,
+                      cause: error,
+                    })
+                  : error,
+              ),
+            );
+            yield* reconcile(runtime);
+            for (const [id, pane] of runtime.panes) {
+              if (!beforePanes.has(id) && pane.status !== "closed") {
+                runtime.panes.set(id, { ...pane, metadata, updatedAt: nowIso() });
+              }
+            }
+            bump(runtime);
+            yield* persistState;
+            yield* publishSnapshot(runtime);
+            return snapshot(runtime);
+          }),
+
+        attachPaneMetadata: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(runtime, input.actor, "pane:control", input.paneId);
+            const pane = yield* getPane(runtime, input.paneId);
+            const updated = {
+              ...pane,
+              metadata: input.metadata,
+              updatedAt: nowIso(),
+            };
+            runtime.panes.set(input.paneId, updated);
+            bump(runtime);
+            yield* persistState;
+            yield* publish({
+              type: "pane.changed",
+              workspaceId: runtime.workspace.workspaceId,
+              revision: runtime.revision,
+              occurredAt: nowIso(),
+              pane: updated,
+            });
+            return updated;
+          }),
+
+        listOperationalPaneStatuses: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(runtime, input.actor, "workspace:read");
+            const panes = [...runtime.panes.values()].flatMap((pane) => {
+              const status = operationalPaneStatus(pane);
+              return status ? [status] : [];
+            });
+            return {
+              workspaceId: input.workspaceId,
+              panes,
+              revision: runtime.revision,
+            } satisfies TmuxOperationalPaneStatusResult;
+          }),
+
+        createNeovimPane: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermissions(runtime, input.actor, [
+              "pane:control",
+              "process:spawn",
+              "neovim:launch",
+            ]);
+            if (!isCommandAvailable("nvim")) {
+              return yield* kernelError({
+                code: "nvim-unavailable",
+                message: "nvim was not found on the server PATH",
+                workspaceId: input.workspaceId,
+                windowId: input.windowId,
+              });
+            }
+            yield* connectRuntime(runtime);
+            yield* reconcile(runtime);
+            const window = yield* getWindow(runtime, input.windowId);
+            const cwd = input.cwd ?? window.cwd;
+            const files = [...(input.files ?? [])];
+            const profileId = input.profileId ?? "default";
+            const themeId = input.themeId ?? "fenrir-dark";
+            const keybindingProfileId = input.keybindingProfileId ?? "native-compatible";
+            const bootstrapId = neovimBootstrapId({
+              ...input,
+              files,
+              profileId,
+              themeId,
+              keybindingProfileId,
+            });
+            const bridgeSocketPath = neovimBridgeSocketPath(bootstrapId);
+            const command = neovimCommand({
+              bootstrapId,
+              workspaceId: input.workspaceId,
+              windowId: input.windowId,
+              profileId,
+              themeId,
+              keybindingProfileId,
+              bridgeSocketPath,
+              files,
+              ...(input.line === undefined ? {} : { line: input.line }),
+              ...(input.column === undefined ? {} : { column: input.column }),
+            });
+            return yield* service.createPane({
+              actor: input.actor,
+              workspaceId: input.workspaceId,
+              windowId: input.windowId,
+              cwd,
+              command,
+              kind: "neovim",
+              split: input.split ?? "horizontal",
+              metadata: neovimMetadata({
+                bootstrapId,
+                workspaceId: input.workspaceId,
+                windowId: input.windowId,
+                cwd,
+                profileId,
+                themeId,
+                keybindingProfileId,
+                bridgeSocketPath,
+                files,
+                ...(input.line === undefined ? {} : { line: input.line }),
+                ...(input.column === undefined ? {} : { column: input.column }),
+                launchSource: input.launchSource ?? "user",
+                command,
+              }),
+            });
+          }),
+
+        reconnectNeovimPane: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermissions(runtime, input.actor, [
+              "pane:control",
+              "process:spawn",
+              "neovim:launch",
+            ]);
+            yield* connectRuntime(runtime);
+            yield* reconcile(runtime);
+            const window = yield* getWindow(runtime, input.windowId);
+            const files = [...(input.files ?? [])];
+            const bootstrapId = neovimBootstrapId({
+              ...input,
+              files,
+              profileId: input.profileId ?? "default",
+              themeId: input.themeId ?? "fenrir-dark",
+              keybindingProfileId: input.keybindingProfileId ?? "native-compatible",
+            });
+            const existing = [...runtime.panes.values()].find(
+              (pane) =>
+                pane.windowId === window.windowId &&
+                pane.status === "running" &&
+                pane.metadata.kind === "neovim" &&
+                pane.metadata.neovim.bootstrapId === bootstrapId,
+            );
+            if (existing) {
+              return yield* service.focusPane({
+                actor: input.actor,
+                workspaceId: input.workspaceId,
+                paneId: existing.paneId,
+              });
+            }
+            return yield* service.createNeovimPane({
+              ...input,
+              files,
+              launchSource: input.launchSource ?? "restore",
+            });
+          }),
+
+        focusPane: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(runtime, input.actor, "pane:control", input.paneId);
+            const pane = yield* getPane(runtime, input.paneId);
+            yield* runAdmin(runtime, ["select-pane", "-t", pane.tmuxPaneId]);
+            return yield* reconcile(runtime);
+          }),
+
+        resizePane: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(runtime, input.actor, "pane:control", input.paneId);
+            const pane = yield* getPane(runtime, input.paneId);
+            yield* runAdmin(runtime, [
+              "resize-pane",
+              "-t",
+              pane.tmuxPaneId,
+              "-x",
+              String(input.cols),
+              "-y",
+              String(input.rows),
+            ]);
+            const updated = {
+              ...pane,
+              cols: input.cols,
+              rows: input.rows,
+              updatedAt: nowIso(),
+            };
+            runtime.panes.set(input.paneId, updated);
+            bump(runtime);
+            yield* persistState;
+            yield* publish({
+              type: "pane.changed",
+              workspaceId: runtime.workspace.workspaceId,
+              revision: runtime.revision,
+              occurredAt: nowIso(),
+              pane: updated,
+            });
+            return updated;
+          }),
+
+        closePane: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(runtime, input.actor, "pane:control", input.paneId);
+            const pane = yield* getPane(runtime, input.paneId);
+            if (input.mode !== "detach") {
+              yield* runAdmin(runtime, ["kill-pane", "-t", pane.tmuxPaneId]);
+            }
+            const now = nowIso();
+            runtime.panes.set(input.paneId, { ...pane, status: "closed", updatedAt: now });
+            yield* paneStreams.closePane(input.paneId, "pane-closed");
+            normalizeActiveReferences(runtime, now);
+            bump(runtime);
+            yield* persistState;
+            yield* publishSnapshot(runtime);
+            if (input.mode === "detach") return snapshot(runtime);
+            return yield* reconcile(runtime);
+          }),
+
+        writePane: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            if (!hasPermission(runtime, input.actor, "pane:write")) {
+              return permissionDeniedResult({
+                workspaceId: input.workspaceId,
+                paneId: input.paneId,
+                requestId: input.requestId,
+                permission: "pane:write",
+              });
+            }
+            const pane = yield* getPane(runtime, input.paneId);
+            const connection = runtime.connection;
+            if (
+              !connection ||
+              pane.status !== "running" ||
+              (yield* connection.status) !== "running"
+            ) {
+              return {
+                type: "rejected",
+                workspaceId: input.workspaceId,
+                paneId: input.paneId,
+                requestId: input.requestId,
+                code: "not-running",
+                message: `tmux pane ${input.paneId} is not running`,
+                rejectedAt: nowIso(),
+              } satisfies TmuxPaneWriteResult;
+            }
+            const nextSeq = (runtime.paneInputSeq.get(input.paneId) ?? 0) + 1;
+            const writeExit = yield* Effect.exit(
+              connection.command(paneInputCommand(pane.tmuxPaneId, input.data)),
+            );
+            if (writeExit._tag === "Failure") {
+              return {
+                type: "rejected",
+                workspaceId: input.workspaceId,
+                paneId: input.paneId,
+                requestId: input.requestId,
+                code: "invalid-state",
+                message: "tmux pane input was rejected",
+                rejectedAt: nowIso(),
+              } satisfies TmuxPaneWriteResult;
+            }
+            runtime.paneInputSeq.set(input.paneId, nextSeq);
+            return {
+              type: "accepted",
+              workspaceId: input.workspaceId,
+              paneId: input.paneId,
+              requestId: input.requestId,
+              inputSeq: nextSeq,
+              acceptedAt: nowIso(),
+            } satisfies TmuxPaneWriteResult;
+          }),
+
+        subscribePaneStream: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            if (!hasPermission(runtime, input.actor, "pane:read")) {
+              return yield* kernelError({
+                code: "permission-denied",
+                message: `pane:read is not granted for tmux pane ${input.paneId}`,
+                workspaceId: input.workspaceId,
+                paneId: input.paneId,
+              });
+            }
+            yield* getPane(runtime, input.paneId);
+            return yield* paneStreams.subscribe(input);
+          }),
+
+        subscribe: (input, listener) =>
+          getRuntime(input.workspaceId).pipe(
+            Effect.tap((runtime) => requirePermission(runtime, input.actor, "workspace:read")),
+            Effect.flatMap((runtime) =>
+              Effect.sync(() => {
+                const workspaceId = input.workspaceId;
+                let workspaceListeners = listeners.get(workspaceId);
+                if (!workspaceListeners) {
+                  workspaceListeners = new Set();
+                  listeners.set(workspaceId, workspaceListeners);
+                }
+                workspaceListeners.add(listener);
+                return {
+                  runtime,
+                  unsubscribe: () => {
+                    workspaceListeners.delete(listener);
+                  },
+                };
+              }).pipe(
+                Effect.tap(({ runtime }) =>
+                  listener({
+                    type: "workspace.snapshot",
+                    workspaceId: runtime.workspace.workspaceId,
+                    revision: runtime.revision,
+                    occurredAt: nowIso(),
+                    snapshot: snapshot(runtime),
+                  }),
+                ),
+                Effect.map(({ unsubscribe }) => unsubscribe),
+              ),
             ),
           ),
-        ),
-    };
+      };
 
-    return service;
-  }),
-);
+      return service;
+    }),
+  );
+}
+
+export const TmuxWorkspaceServiceLive = makeTmuxWorkspaceServiceLive();

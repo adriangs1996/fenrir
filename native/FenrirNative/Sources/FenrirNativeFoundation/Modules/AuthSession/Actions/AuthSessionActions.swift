@@ -211,6 +211,226 @@ public extension AuthSession {
         }
     }
 
+    struct LoadAuthSessionCredential: FenrirAction {
+        public typealias Failure = AuthSessionError
+
+        let secureStorage: any AuthSecureStorage
+        let sessionStore: any AuthSessionStore
+        let clock: any AuthSessionClock
+        let events: (any AuthSessionEventPublishing)?
+
+        public init(
+            secureStorage: any AuthSecureStorage,
+            sessionStore: any AuthSessionStore,
+            clock: any AuthSessionClock,
+            events: (any AuthSessionEventPublishing)? = nil
+        ) {
+            self.secureStorage = secureStorage
+            self.sessionStore = sessionStore
+            self.clock = clock
+            self.events = events
+        }
+
+        public func run(_ input: LoadAuthSessionCredentialInput) async -> Result<LoadAuthSessionCredentialResult, AuthSessionError> {
+            let loaded = await AuthSession.loadBearerOnly(
+                scope: input.endpointScope,
+                secureStorage: secureStorage,
+                sessionStore: sessionStore
+            )
+
+            switch loaded {
+            case .failure(let error):
+                await AuthSession.publishSecureStorageFailure(
+                    requestID: input.requestID,
+                    scope: input.endpointScope,
+                    operation: .load,
+                    error: error,
+                    clock: clock,
+                    events: events
+                )
+                return .failure(error)
+            case .success(let bearer):
+                let timestamp = clock.now()
+                let reference = bearer.session.credentialReference ?? ""
+                await events?.publish(AuthSession.envelope(
+                    input.requestID,
+                    "AuthSessionCredentialLoaded",
+                    timestamp,
+                    .authSessionCredentialLoaded(bearer.session.sessionID)
+                ))
+                return .success(LoadAuthSessionCredentialResult(
+                    requestID: input.requestID,
+                    bearerSession: bearer,
+                    session: bearer.session,
+                    credentialReference: reference,
+                    timestamp: timestamp
+                ))
+            }
+        }
+    }
+
+    struct SaveAuthSessionCredential: FenrirAction {
+        public typealias Failure = AuthSessionError
+
+        let secureStorage: any AuthSecureStorage
+        let sessionStore: any AuthSessionStore
+        let clock: any AuthSessionClock
+        let events: (any AuthSessionEventPublishing)?
+
+        public init(
+            secureStorage: any AuthSecureStorage,
+            sessionStore: any AuthSessionStore,
+            clock: any AuthSessionClock,
+            events: (any AuthSessionEventPublishing)? = nil
+        ) {
+            self.secureStorage = secureStorage
+            self.sessionStore = sessionStore
+            self.clock = clock
+            self.events = events
+        }
+
+        public func run(_ input: SaveAuthSessionCredentialInput) async -> Result<SaveAuthSessionCredentialResult, AuthSessionError> {
+            let material = BearerSessionMaterial(session: input.session, bearerToken: input.bearerToken)
+            switch await AuthSession.persist(material, scope: input.session.endpointScope, secureStorage: secureStorage, sessionStore: sessionStore) {
+            case .failure(let error):
+                await AuthSession.publishSecureStorageFailure(
+                    requestID: input.requestID,
+                    scope: input.session.endpointScope,
+                    operation: .save,
+                    error: error,
+                    clock: clock,
+                    events: events
+                )
+                return .failure(error)
+            case .success(let bearer):
+                let timestamp = clock.now()
+                let reference = bearer.session.credentialReference ?? ""
+                await events?.publish(AuthSession.envelope(
+                    input.requestID,
+                    "AuthSessionCredentialSaved",
+                    timestamp,
+                    .authSessionCredentialSaved(bearer.session.sessionID)
+                ))
+                return .success(SaveAuthSessionCredentialResult(
+                    requestID: input.requestID,
+                    bearerSession: bearer,
+                    session: bearer.session,
+                    credentialReference: reference,
+                    timestamp: timestamp
+                ))
+            }
+        }
+    }
+
+    struct DeleteAuthSessionCredential: FenrirAction {
+        public typealias Failure = AuthSessionError
+
+        let secureStorage: any AuthSecureStorage
+        let sessionStore: any AuthSessionStore
+        let clock: any AuthSessionClock
+        let events: (any AuthSessionEventPublishing)?
+
+        public init(
+            secureStorage: any AuthSecureStorage,
+            sessionStore: any AuthSessionStore,
+            clock: any AuthSessionClock,
+            events: (any AuthSessionEventPublishing)? = nil
+        ) {
+            self.secureStorage = secureStorage
+            self.sessionStore = sessionStore
+            self.clock = clock
+            self.events = events
+        }
+
+        public func run(_ input: DeleteAuthSessionCredentialInput) async -> Result<DeleteAuthSessionCredentialResult, AuthSessionError> {
+            switch await AuthSession.clearLocalSession(scope: input.endpointScope, secureStorage: secureStorage, sessionStore: sessionStore) {
+            case .failure(let error):
+                await AuthSession.publishSecureStorageFailure(
+                    requestID: input.requestID,
+                    scope: input.endpointScope,
+                    operation: .delete,
+                    error: error,
+                    clock: clock,
+                    events: events
+                )
+                return .failure(error)
+            case .success:
+                let timestamp = clock.now()
+                await events?.publish(AuthSession.envelope(
+                    input.requestID,
+                    "AuthSessionCredentialDeleted",
+                    timestamp,
+                    .authSessionCredentialDeleted(input.endpointScope)
+                ))
+                return .success(DeleteAuthSessionCredentialResult(
+                    requestID: input.requestID,
+                    endpointScope: input.endpointScope,
+                    timestamp: timestamp
+                ))
+            }
+        }
+    }
+
+    struct RotateAuthSessionCredential: FenrirAction {
+        public typealias Failure = AuthSessionError
+
+        let secureStorage: any AuthSecureStorage
+        let sessionStore: any AuthSessionStore
+        let clock: any AuthSessionClock
+        let events: (any AuthSessionEventPublishing)?
+
+        public init(
+            secureStorage: any AuthSecureStorage,
+            sessionStore: any AuthSessionStore,
+            clock: any AuthSessionClock,
+            events: (any AuthSessionEventPublishing)? = nil
+        ) {
+            self.secureStorage = secureStorage
+            self.sessionStore = sessionStore
+            self.clock = clock
+            self.events = events
+        }
+
+        public func run(_ input: RotateAuthSessionCredentialInput) async -> Result<RotateAuthSessionCredentialResult, AuthSessionError> {
+            if AuthSession.isExpired(input.session, at: clock.now()) {
+                return .failure(.bearerSessionExpired)
+            }
+
+            let material = BearerSessionMaterial(
+                session: input.session,
+                bearerToken: input.replacementBearerToken
+            )
+            switch await AuthSession.persist(material, scope: input.session.endpointScope, secureStorage: secureStorage, sessionStore: sessionStore) {
+            case .failure(let error):
+                await AuthSession.publishSecureStorageFailure(
+                    requestID: input.requestID,
+                    scope: input.session.endpointScope,
+                    operation: .rotate,
+                    error: error,
+                    clock: clock,
+                    events: events
+                )
+                return .failure(error)
+            case .success(let bearer):
+                let timestamp = clock.now()
+                let reference = bearer.session.credentialReference ?? ""
+                await events?.publish(AuthSession.envelope(
+                    input.requestID,
+                    "AuthSessionCredentialRotated",
+                    timestamp,
+                    .authSessionCredentialRotated(bearer.session.sessionID)
+                ))
+                return .success(RotateAuthSessionCredentialResult(
+                    requestID: input.requestID,
+                    bearerSession: bearer,
+                    session: bearer.session,
+                    credentialReference: reference,
+                    timestamp: timestamp
+                ))
+            }
+        }
+    }
+
     struct RefreshAuthSession: FenrirAction {
         public typealias Failure = AuthSessionError
 
@@ -541,6 +761,22 @@ private extension AuthSession {
         EventEnvelope(eventID: requestID, eventKind: eventKind, timestamp: timestamp, event: event)
     }
 
+    static func publishSecureStorageFailure(
+        requestID: RequestID,
+        scope: EndpointScope,
+        operation: CredentialOperation,
+        error: AuthSessionError,
+        clock: any AuthSessionClock,
+        events: (any AuthSessionEventPublishing)?
+    ) async {
+        await events?.publish(envelope(
+            requestID,
+            "AuthSecureStorageFailed",
+            clock.now(),
+            .authSecureStorageFailed(scope, operation, error)
+        ))
+    }
+
     static func isExpired(_ session: NativeAuthSession, at timestamp: FenrirTimestamp) -> Bool {
         guard let expiresAt = session.expiresAt else {
             return false
@@ -562,6 +798,15 @@ private extension AuthSession {
             return .failure(.protocolMismatch)
         }
 
+        let previousCredential: StoredBearerCredential?
+        do {
+            previousCredential = try await secureStorage.readBearerCredential(scope: scope)
+        } catch let error as AuthSessionError {
+            return .failure(error)
+        } catch {
+            return .failure(.secureStorageReadFailed)
+        }
+
         let reference: String
         do {
             reference = try await secureStorage.writeBearerCredential(scope: scope, bearerToken: material.bearerToken)
@@ -575,12 +820,54 @@ private extension AuthSession {
         do {
             try await sessionStore.saveSession(session)
         } catch let error as AuthSessionError {
+            if let rollbackError = await rollbackCredentialWrite(
+                previousCredential,
+                scope: scope,
+                secureStorage: secureStorage
+            ) {
+                return .failure(rollbackError)
+            }
             return .failure(error)
         } catch {
+            if let rollbackError = await rollbackCredentialWrite(
+                previousCredential,
+                scope: scope,
+                secureStorage: secureStorage
+            ) {
+                return .failure(rollbackError)
+            }
             return .failure(.secureStorageWriteFailed)
         }
 
         return NativeBearerSession.verified(session: session, bearerToken: material.bearerToken)
+    }
+
+    static func rollbackCredentialWrite(
+        _ previousCredential: StoredBearerCredential?,
+        scope: EndpointScope,
+        secureStorage: any AuthSecureStorage
+    ) async -> AuthSessionError? {
+        if let previousCredential {
+            do {
+                _ = try await secureStorage.writeBearerCredential(
+                    scope: scope,
+                    bearerToken: previousCredential.bearerToken
+                )
+            } catch let error as AuthSessionError {
+                return error
+            } catch {
+                return .secureStorageWriteFailed
+            }
+        } else {
+            do {
+                try await secureStorage.deleteBearerCredential(scope: scope)
+            } catch let error as AuthSessionError {
+                return error
+            } catch {
+                return .secureStorageDeleteFailed
+            }
+        }
+        return nil
     }
 
     static func loadBearerOnly(

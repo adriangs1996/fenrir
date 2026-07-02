@@ -2,6 +2,7 @@ import {
   AuthSessionId,
   ProjectId,
   ThreadId,
+  TmuxWorkspaceId,
   type TmuxKernelEvent,
   type TmuxNeovimPaneMetadata,
 } from "@fenrir/contracts";
@@ -13,7 +14,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { ServerConfig } from "../../config";
-import { TmuxWorkspaceServiceLive } from "../Layers/TmuxWorkspaceService";
+import { makeTmuxWorkspaceServiceLive } from "../Layers/TmuxWorkspaceService";
 import { TmuxPaneStreamServiceLive } from "../Layers/TmuxPaneStreamService";
 import {
   TmuxControlModeAdapter,
@@ -138,6 +139,8 @@ const OTHER_GRANT = {
 interface FakePane {
   id: string;
   cwd: string;
+  x: number;
+  y: number;
   cols: number;
   rows: number;
   active: boolean;
@@ -169,6 +172,10 @@ class FakeControlModeConnection implements TmuxControlModeConnection {
   constructor(
     readonly sessionName: string,
     readonly pidNumber: number,
+    private readonly onCommand: (
+      connection: FakeControlModeConnection,
+      input: TmuxControlModeCommandInput,
+    ) => Effect.Effect<void> = () => Effect.void,
   ) {}
 
   get pid() {
@@ -192,7 +199,7 @@ class FakeControlModeConnection implements TmuxControlModeConnection {
         }),
       );
     }
-    return Effect.void;
+    return this.onCommand(this, input);
   }
 
   get restart() {
@@ -226,12 +233,28 @@ class FakeControlModeConnection implements TmuxControlModeConnection {
 class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
   readonly connections: FakeControlModeConnection[] = [];
   readonly adminCalls: string[][] = [];
+  readonly adminFailures: Error[] = [];
+  readonly adminFailuresByCommand = new Map<string, Error>();
+  readonly connectFailures: Error[] = [];
+  nvimAvailable = true;
   private nextPid = 3000;
   private nextWindow = 1;
   private nextPane = 1;
+  private readonly outputEnabledPanes = new Set<string>();
   private readonly sessions = new Map<string, FakeSession>();
 
   connect(input: { readonly sessionName: string; readonly cwd: string }) {
+    const failure = this.connectFailures.shift();
+    if (failure) {
+      return Effect.fail(
+        new TmuxControlModeError({
+          code: "command-failed",
+          message: failure.message,
+          sessionName: input.sessionName,
+          cause: failure,
+        }),
+      );
+    }
     let session = this.sessions.get(input.sessionName);
     if (!session) {
       session = {
@@ -242,13 +265,38 @@ class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
       };
       this.sessions.set(input.sessionName, session);
     }
-    const connection = new FakeControlModeConnection(input.sessionName, this.nextPid++);
+    const connection = new FakeControlModeConnection(
+      input.sessionName,
+      this.nextPid++,
+      (conn, command) => this.handleConnectionCommand(conn, command),
+    );
     this.connections.push(connection);
     return Effect.succeed(connection);
   }
 
   adminCommand(args: readonly string[]) {
     this.adminCalls.push([...args]);
+    const commandFailure = this.adminFailuresByCommand.get(args[0] ?? "");
+    if (commandFailure) {
+      this.adminFailuresByCommand.delete(args[0] ?? "");
+      return Effect.fail(
+        new TmuxControlModeError({
+          code: "command-failed",
+          message: commandFailure.message,
+          cause: commandFailure,
+        }),
+      );
+    }
+    const failure = this.adminFailures.shift();
+    if (failure) {
+      return Effect.fail(
+        new TmuxControlModeError({
+          code: "command-failed",
+          message: failure.message,
+          cause: failure,
+        }),
+      );
+    }
     return Effect.sync(() => this.runAdmin(args));
   }
 
@@ -260,6 +308,33 @@ class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
       cwd,
       windows: [this.makeWindow("shell", cwd, true)],
       options: new Map(),
+    });
+  }
+
+  isCommandAvailable(command: string): boolean {
+    return command === "nvim" ? this.nvimAvailable : true;
+  }
+
+  private handleConnectionCommand(
+    connection: FakeControlModeConnection,
+    input: TmuxControlModeCommandInput,
+  ): Effect.Effect<void> {
+    const outputEnabledPanes = this.outputEnabledPanes;
+    return Effect.gen(function* () {
+      if (input.command === "refresh-client") {
+        const paneState = input.args?.[input.args.indexOf("-A") + 1] ?? "";
+        const [paneId, state] = paneState.split(":", 2);
+        if (paneId && state === "on") outputEnabledPanes.add(paneId);
+        if (paneId && state === "off") outputEnabledPanes.delete(paneId);
+        return;
+      }
+      if (input.command === "send-keys") {
+        const paneId = input.args?.[input.args.indexOf("-t") + 1] ?? "";
+        const data = input.args?.[input.args.indexOf("-l") + 1] ?? "";
+        if (paneId && outputEnabledPanes.has(paneId)) {
+          yield* connection.emit({ type: "pane-output", paneId, data });
+        }
+      }
     });
   }
 
@@ -277,6 +352,8 @@ class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
     return {
       id: `%${this.nextPane++}`,
       cwd,
+      x: 0,
+      y: 0,
       cols: 120,
       rows: 40,
       active,
@@ -322,6 +399,8 @@ class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
             window.active ? "1" : "0",
             pane.id,
             pane.cwd,
+            String(pane.x),
+            String(pane.y),
             String(pane.cols),
             String(pane.rows),
             pane.active ? "1" : "0",
@@ -345,6 +424,12 @@ class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
       return "";
     }
     if (command === "list-panes") {
+      if (args.includes("-a")) {
+        return [...this.sessions.values()]
+          .map((session) => this.format(session))
+          .filter((output) => output.length > 0)
+          .join("\n");
+      }
       return this.format(this.sessionByTarget(args[args.indexOf("-t") + 1] ?? ""));
     }
     if (command === "new-window") {
@@ -409,7 +494,9 @@ function makeLayer(
   );
   return {
     adapter,
-    layer: TmuxWorkspaceServiceLive.pipe(
+    layer: makeTmuxWorkspaceServiceLive({
+      isCommandAvailable: (command) => adapter.isCommandAvailable(command),
+    }).pipe(
       Layer.provide(
         Layer.mergeAll(
           NodeServices.layer,
@@ -441,6 +528,128 @@ describe("TmuxWorkspaceServiceLive", () => {
       expect(snapshot.panes).toHaveLength(1);
       expect(adapter.connections).toHaveLength(1);
       expect(adapter.adminCalls.some((args) => args[0] === "list-panes")).toBe(true);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("uses the requested workspace id when ensuring a new workspace", () => {
+    const { layer } = makeLayer();
+
+    return Effect.gen(function* () {
+      const service = yield* TmuxWorkspaceService;
+      const snapshot = yield* service.ensureWorkspace({
+        actor: AUTH_ACTOR,
+        workspaceId: TmuxWorkspaceId.make("native-workspace-1"),
+        projectId: ProjectId.make("project-1"),
+        cwd: "/tmp/project",
+        initialGrants: [AUTH_GRANT],
+      });
+
+      expect(snapshot.workspace.workspaceId).toBe("native-workspace-1");
+      expect(snapshot.windows.every((window) => window.workspaceId === "native-workspace-1")).toBe(
+        true,
+      );
+      expect(snapshot.panes.every((pane) => pane.workspaceId === "native-workspace-1")).toBe(true);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("reconciles pane snapshots from only the target workspace tmux session", () => {
+    const { adapter, layer } = makeLayer();
+
+    return Effect.gen(function* () {
+      const service = yield* TmuxWorkspaceService;
+      const first = yield* service.ensureWorkspace({
+        actor: AUTH_ACTOR,
+        workspaceId: TmuxWorkspaceId.make("native-debug-old"),
+        projectId: ProjectId.make("project-old"),
+        cwd: "/tmp/project-old",
+        initialGrants: [AUTH_GRANT],
+      });
+      const firstTmuxPaneIds = new Set(first.panes.map((pane) => pane.tmuxPaneId));
+
+      const second = yield* service.ensureWorkspace({
+        actor: AUTH_ACTOR,
+        workspaceId: TmuxWorkspaceId.make("native-debug-new"),
+        projectId: ProjectId.make("project-new"),
+        cwd: "/tmp/project-new",
+        initialGrants: [AUTH_GRANT],
+      });
+      const paneListCalls = adapter.adminCalls.filter((args) => args[0] === "list-panes");
+
+      expect(second.workspace.tmuxSessionName).toBe("fenrir-ws-project-new");
+      expect(second.panes).toHaveLength(1);
+      expect(second.panes.some((pane) => firstTmuxPaneIds.has(pane.tmuxPaneId))).toBe(false);
+      expect(
+        paneListCalls.every(
+          (args) =>
+            !args.includes("-a") &&
+            args.includes("-t") &&
+            args[args.indexOf("-t") + 1]?.startsWith("fenrir-ws-"),
+        ),
+      ).toBe(true);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("rejects duplicate requested workspace ids across projects", () => {
+    const { layer } = makeLayer();
+
+    return Effect.gen(function* () {
+      const service = yield* TmuxWorkspaceService;
+      const requestedId = TmuxWorkspaceId.make("native-workspace-collision");
+      const initial = yield* service.ensureWorkspace({
+        actor: AUTH_ACTOR,
+        workspaceId: requestedId,
+        projectId: ProjectId.make("project-1"),
+        cwd: "/tmp/project",
+        initialGrants: [AUTH_GRANT],
+      });
+
+      const duplicate = yield* Effect.exit(
+        service.ensureWorkspace({
+          actor: AUTH_ACTOR,
+          workspaceId: requestedId,
+          projectId: ProjectId.make("project-2"),
+          cwd: "/tmp/project-2",
+          initialGrants: [AUTH_GRANT],
+        }),
+      );
+      const projectSnapshot = yield* service.ensureWorkspace({
+        actor: AUTH_ACTOR,
+        projectId: ProjectId.make("project-1"),
+        cwd: "/tmp/project",
+        initialGrants: [AUTH_GRANT],
+      });
+
+      expect(duplicate._tag).toBe("Failure");
+      if (duplicate._tag === "Failure") {
+        expect(String(duplicate.cause)).toContain(
+          "requested tmux workspace id is already assigned to another project",
+        );
+      }
+      expect(projectSnapshot.workspace.workspaceId).toBe(initial.workspace.workspaceId);
+      expect(projectSnapshot.workspace.projectId).toBe("project-1");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("reports empty control-mode connect errors without schema defects", () => {
+    const { adapter, layer } = makeLayer();
+    adapter.connectFailures.push(new Error(""));
+
+    return Effect.gen(function* () {
+      const service = yield* TmuxWorkspaceService;
+      const exit = yield* Effect.exit(
+        service.ensureWorkspace({
+          actor: AUTH_ACTOR,
+          workspaceId: TmuxWorkspaceId.make("native-workspace-empty-error"),
+          projectId: ProjectId.make("project-empty-error"),
+          cwd: "/tmp/project",
+          initialGrants: [AUTH_GRANT],
+        }),
+      );
+
+      expect(exit._tag).toBe("Failure");
+      if (exit._tag === "Failure") {
+        expect(String(exit.cause)).toContain("tmux control-mode connection failed");
+      }
     }).pipe(Effect.provide(layer));
   });
 
@@ -742,6 +951,8 @@ describe("TmuxWorkspaceServiceLive", () => {
           line: 12,
           column: 4,
           profileId: "fenrir-dark",
+          themeId: "fenrir-dark-high-contrast",
+          keybindingProfileId: "vim-tmux-navigator",
           split: "vertical",
           launchSource: "user",
         });
@@ -757,6 +968,9 @@ describe("TmuxWorkspaceServiceLive", () => {
         expect(command).toContain(`FENRIR_WORKSPACE_ID='${initial.workspace.workspaceId}'`);
         expect(command).toContain(`FENRIR_WINDOW_ID='${window.windowId}'`);
         expect(command).toContain("FENRIR_NEOVIM_PROFILE_ID='fenrir-dark'");
+        expect(command).toContain("FENRIR_NEOVIM_THEME_ID='fenrir-dark-high-contrast'");
+        expect(command).toContain("FENRIR_NEOVIM_KEYBINDING_PROFILE_ID='vim-tmux-navigator'");
+        expect(command).toContain("NVIM_LISTEN_ADDRESS='/tmp/fenrir-nvim-");
         expect(command).toContain("nvim");
         expect(command).toContain("'+call cursor(12,4)'");
         expect(command).toContain("'/tmp/project/README.md'");
@@ -770,11 +984,17 @@ describe("TmuxWorkspaceServiceLive", () => {
               "FENRIR_WINDOW_ID",
               "FENRIR_NEOVIM_BOOTSTRAP_ID",
               "FENRIR_NEOVIM_PROFILE_ID",
+              "FENRIR_NEOVIM_THEME_ID",
+              "FENRIR_NEOVIM_KEYBINDING_PROFILE_ID",
+              "NVIM_LISTEN_ADDRESS",
             ],
           },
           labels: {
             "fenrir.process.kind": "neovim",
             "fenrir.neovim.profileId": "fenrir-dark",
+            "fenrir.neovim.themeId": "fenrir-dark-high-contrast",
+            "fenrir.neovim.keybindingProfileId": "vim-tmux-navigator",
+            "fenrir.neovim.bridge": "nvim-listen-address",
             "fenrir.neovim.launchSource": "user",
           },
           neovim: {
@@ -782,6 +1002,8 @@ describe("TmuxWorkspaceServiceLive", () => {
             windowId: window.windowId,
             cwd: "/tmp/project",
             profileId: "fenrir-dark",
+            themeId: "fenrir-dark-high-contrast",
+            keybindingProfileId: "vim-tmux-navigator",
             files: ["/tmp/project/README.md"],
             line: 12,
             column: 4,
@@ -789,6 +1011,9 @@ describe("TmuxWorkspaceServiceLive", () => {
           },
         });
         expect(pane.metadata.neovim.bootstrapId).toMatch(/^nvim-[a-f0-9]{40}$/);
+        expect(pane.metadata.neovim.bridgeSocketPath).toBe(
+          `/tmp/fenrir-${pane.metadata.neovim.bootstrapId}.sock`,
+        );
         expect(pane.metadata.neovim.bootstrapId.length).toBeLessThanOrEqual(128);
       }).pipe(Effect.provide(layer));
     },
@@ -866,6 +1091,59 @@ describe("TmuxWorkspaceServiceLive", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("reports missing nvim without registering a fake Neovim pane", () => {
+    const { adapter, layer } = makeLayer();
+
+    return Effect.gen(function* () {
+      const service = yield* TmuxWorkspaceService;
+      const initial = yield* service.ensureWorkspace({
+        actor: AUTH_ACTOR,
+        projectId: ProjectId.make("project-1"),
+        cwd: "/tmp/project",
+        initialGrants: [AUTH_GRANT],
+      });
+      adapter.nvimAvailable = false;
+
+      const error = yield* Effect.flip(
+        service.createNeovimPane({
+          actor: AUTH_ACTOR,
+          workspaceId: initial.workspace.workspaceId,
+          windowId: initial.windows[0]!.windowId,
+          files: ["/tmp/project/README.md"],
+        }),
+      );
+      const snapshot = yield* service.getSnapshot({
+        actor: AUTH_ACTOR,
+        workspaceId: initial.workspace.workspaceId,
+      });
+
+      expect(error.code).toBe("nvim-unavailable");
+      expect(snapshot.panes.filter((pane) => pane.metadata.kind === "neovim")).toHaveLength(0);
+      expect(adapter.adminCalls.some((args) => args[0] === "split-window")).toBe(false);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("reports missing tmux before workspace bootstrap creates runtime panes", () => {
+    const adapter = new FakeControlModeAdapter();
+    adapter.connectFailures.push(new Error("tmux: command not found"));
+    const { layer } = makeLayer(adapter);
+
+    return Effect.gen(function* () {
+      const service = yield* TmuxWorkspaceService;
+      const error = yield* Effect.flip(
+        service.ensureWorkspace({
+          actor: AUTH_ACTOR,
+          projectId: ProjectId.make("project-1"),
+          cwd: "/tmp/project",
+          initialGrants: [AUTH_GRANT],
+        }),
+      );
+
+      expect(error.code).toBe("control-mode-unavailable");
+      expect(adapter.connections).toHaveLength(0);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("rejects forged Neovim bridge metadata before tmux side effects", () => {
     const { adapter, layer } = makeLayer();
 
@@ -884,6 +1162,9 @@ describe("TmuxWorkspaceServiceLive", () => {
         `FENRIR_WINDOW_ID='${window.windowId}'`,
         "FENRIR_NEOVIM_BOOTSTRAP_ID='nvim-forged'",
         "FENRIR_NEOVIM_PROFILE_ID='default'",
+        "FENRIR_NEOVIM_THEME_ID='fenrir-dark'",
+        "FENRIR_NEOVIM_KEYBINDING_PROFILE_ID='native-compatible'",
+        "NVIM_LISTEN_ADDRESS='/tmp/fenrir-nvim-forged.sock'",
         "sh",
         "-lc",
         "'echo not-nvim'",
@@ -899,6 +1180,9 @@ describe("TmuxWorkspaceServiceLive", () => {
             "FENRIR_WINDOW_ID",
             "FENRIR_NEOVIM_BOOTSTRAP_ID",
             "FENRIR_NEOVIM_PROFILE_ID",
+            "FENRIR_NEOVIM_THEME_ID",
+            "FENRIR_NEOVIM_KEYBINDING_PROFILE_ID",
+            "NVIM_LISTEN_ADDRESS",
           ],
           pid: null,
           startedAt: null,
@@ -910,6 +1194,10 @@ describe("TmuxWorkspaceServiceLive", () => {
           "fenrir.process.kind": "neovim",
           "fenrir.neovim.bootstrapId": "nvim-forged",
           "fenrir.neovim.profileId": "default",
+          "fenrir.neovim.themeId": "fenrir-dark",
+          "fenrir.neovim.keybindingProfileId": "native-compatible",
+          "fenrir.neovim.bridge": "nvim-listen-address",
+          "fenrir.neovim.bridgeSocketPath": "/tmp/fenrir-nvim-forged.sock",
           "fenrir.neovim.launchSource": "user",
         },
         neovim: {
@@ -918,6 +1206,9 @@ describe("TmuxWorkspaceServiceLive", () => {
           windowId: window.windowId,
           cwd: "/tmp/project",
           profileId: "default",
+          themeId: "fenrir-dark",
+          keybindingProfileId: "native-compatible",
+          bridgeSocketPath: "/tmp/fenrir-nvim-forged.sock",
           files: [],
           launchSource: "user",
           bootstrapEnvKeys: [
@@ -925,6 +1216,9 @@ describe("TmuxWorkspaceServiceLive", () => {
             "FENRIR_WINDOW_ID",
             "FENRIR_NEOVIM_BOOTSTRAP_ID",
             "FENRIR_NEOVIM_PROFILE_ID",
+            "FENRIR_NEOVIM_THEME_ID",
+            "FENRIR_NEOVIM_KEYBINDING_PROFILE_ID",
+            "NVIM_LISTEN_ADDRESS",
           ],
         },
         agent: null,
@@ -1184,7 +1478,9 @@ describe("TmuxWorkspaceServiceLive", () => {
         expect(resized.cols).toBe(140);
         expect(resized.rows).toBe(44);
         expect(write).toMatchObject({ type: "accepted", inputSeq: 1 });
-        expect(adapter.connections[0]?.commands).toEqual([
+        expect(
+          adapter.connections[0]?.commands.filter((command) => command.command === "send-keys"),
+        ).toEqual([
           {
             command: "send-keys",
             args: ["-t", created.tmuxPaneId, "-l", "echo hello\n"],
@@ -1483,11 +1779,14 @@ describe("TmuxWorkspaceServiceLive", () => {
 
         expect(rejected).toMatchObject({ type: "rejected", code: "invalid-state" });
         expect(accepted).toMatchObject({ type: "accepted", inputSeq: 1 });
-        expect(adapter.connections[0]?.commands[0]).toMatchObject({
+        const writes = adapter.connections[0]?.commands.filter(
+          (command) => command.command === "send-keys",
+        );
+        expect(writes?.[0]).toMatchObject({
           command: "send-keys",
           args: ["-t", pane.tmuxPaneId, "-l", "echo rejected\n"],
         });
-        expect(adapter.connections[0]?.commands[1]).toMatchObject({
+        expect(writes?.[1]).toMatchObject({
           command: "send-keys",
           args: ["-t", pane.tmuxPaneId, "-l", "echo accepted\n"],
         });
@@ -1517,7 +1816,9 @@ describe("TmuxWorkspaceServiceLive", () => {
       });
 
       expect(write).toMatchObject({ type: "rejected", code: "permission-denied" });
-      expect(adapter.connections[0]?.commands).toEqual([]);
+      expect(
+        adapter.connections[0]?.commands.some((command) => command.command === "send-keys"),
+      ).toBe(false);
     }).pipe(Effect.provide(layer));
   });
 
@@ -1754,6 +2055,48 @@ describe("TmuxWorkspaceServiceLive", () => {
       });
       expect(events.map((event) => event.type)).toEqual(["backfill-started", "chunk"]);
       expect(events[1]).toMatchObject({ type: "chunk", seq: 1, data: "secret bytes" });
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("enables control-mode pane output so pane writes reach stream subscribers", () => {
+    const { adapter, layer } = makeLayer();
+
+    return Effect.gen(function* () {
+      const service = yield* TmuxWorkspaceService;
+      const snapshot = yield* service.ensureWorkspace({
+        actor: AUTH_ACTOR,
+        projectId: ProjectId.make("project-1"),
+        cwd: "/tmp/project",
+        initialGrants: [AUTH_GRANT],
+      });
+      const pane = snapshot.panes[0]!;
+
+      expect(adapter.connections[0]?.commands).toContainEqual({
+        command: "refresh-client",
+        args: ["-A", `${pane.tmuxPaneId}:on`],
+      });
+
+      const write = yield* service.writePane({
+        workspaceId: snapshot.workspace.workspaceId,
+        paneId: pane.paneId,
+        actor: AUTH_ACTOR,
+        requestId: "req-stream-write",
+        data: "echo streamed\n",
+      });
+      const stream = yield* service.subscribePaneStream({
+        workspaceId: snapshot.workspace.workspaceId,
+        paneId: pane.paneId,
+        actor: AUTH_ACTOR,
+        afterSeq: 0,
+        backfill: "from-seq",
+        slowClientPolicy: "fast-forward",
+        maxBufferedChunks: 10,
+      });
+      const events = Array.from(yield* stream.pipe(Stream.take(2), Stream.runCollect));
+
+      expect(write).toMatchObject({ type: "accepted", inputSeq: 1 });
+      expect(events.map((event) => event.type)).toEqual(["backfill-started", "chunk"]);
+      expect(events[1]).toMatchObject({ type: "chunk", seq: 1, data: "echo streamed\n" });
     }).pipe(Effect.provide(layer));
   });
 

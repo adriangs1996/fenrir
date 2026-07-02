@@ -34,6 +34,11 @@ Related references:
   module's internals.
 - High-volume terminal bytes never travel through generic client-control or
   workspace-index paths.
+- The main tab strip represents tmux windows and the main pane grid represents
+  tmux panes. Client-only UI must not appear as fake panes.
+- Server-backed feature modules define their own service ports and implement
+  live adapters over `ServerConnection`; feature actions do not build raw
+  transport payloads directly.
 
 ## Standard Module Shape
 
@@ -118,7 +123,8 @@ core use-case logic.
     each action.
 - Public surface:
   - typed command contracts
-  - specific actions for `open`, `attach`, `focus`, `list`, and `terminate`
+  - specific actions for `open`, `attach`, `focus`, `list`, `switch`, `control`,
+    and `remove`
 - Allowed dependencies:
   - `WorkspaceCoordinator`
   - `WorkspaceIndex`
@@ -136,15 +142,14 @@ Detailed design reference:
 
 - Responsibility:
   - Orchestrate workspace-level product actions.
-  - Decide whether to open, focus, attach, terminate, or forget a workspace.
+  - Decide whether to open, switch, close, or reconnect a workspace experience.
   - Coordinate between local client state, windows, and server-backed runtime
     setup.
 - Public surface:
   - `openWorkspace`
-  - `attachWorkspace`
-  - `focusWorkspace`
-  - `terminateWorkspace`
-  - `forgetWorkspace`
+  - `switchWorkspace`
+  - `closeWorkspaceExperience`
+  - `reconnectWorkspaceExperience`
 - Allowed dependencies:
   - `WorkspaceIndex`
   - `ServerConnection`
@@ -185,22 +190,113 @@ Detailed design reference:
 - Responsibility:
   - Own one workspace window and its high-level shell UI.
   - Coordinate sidebar, tab strip, switcher invocation, and pane-grid hosting.
+  - Act as the shell-level bridge between workspace keybindings, overlays,
+    sidebar activity, and pane-grid focus.
 - Public surface:
   - specific shell actions for creating, closing, focusing, sidebar toggling,
     switcher presentation, tab selection, and pane selection
 - Allowed dependencies:
   - `PaneGrid`
   - `WorkspaceIndex`
+  - `WorkspaceOverlays`
+  - `WorkflowControl`
+  - `AgentInteraction`
   - `Keybinding`
   - `Notifications`
 - Must not know:
   - auth token storage
   - raw IPC server details
   - pane stream buffering internals
+  - raw Ghostty types
 
 Detailed design reference:
 
 - `docs/native-terminal-client-workspace-shell-module.md`
+
+### `WorkspaceOverlays`
+
+- Responsibility:
+  - Own workspace-scoped native overlay surfaces such as agent composer,
+    conversations, diagnostics, help, and keybinding help.
+  - Present, focus, close, restore, and optionally pin overlay surfaces.
+  - Manage focus return targets so closing an overlay returns to the originating
+    pane or shell surface.
+  - Expose overlay focus targets to sidebar, palette, and activity surfaces.
+- Public surface:
+  - specific actions for presenting, focusing, closing, restoring, pinning, and
+    listing overlay surfaces
+  - focus-target contracts for shell/sidebar/palette integration
+- Allowed dependencies:
+  - `Keybinding`
+  - `Notifications`
+- Must not know:
+  - terminal bytes
+  - raw Ghostty types
+  - tmux pane stream internals
+  - raw server transport
+  - AppKit window registry internals
+
+`WorkspaceOverlays` provides tmux-like keyboard ergonomics for native surfaces
+without making those surfaces part of the tmux pane grid.
+
+### `AgentInteraction`
+
+- Responsibility:
+  - Own agent composer, terminal-context attachments, conversation transcripts,
+    provider/agent selection, response streams, result actions, and promotion to
+    workflows.
+  - Package terminal context captured from `TerminalViewport` into bounded,
+    structured agent prompts.
+  - Keep conversations workspace-scoped rather than making chat the primary app
+    navigation model.
+- Public surface:
+  - specific actions for opening a composer, attaching context, sending a
+    prompt, streaming a response, continuing a conversation, listing active
+    conversations, and promoting a conversation to workflow
+  - terminal-context attachment contracts
+  - conversation summary contracts for sidebar/palette/notifications
+- Allowed dependencies:
+  - `WorkspaceOverlays`
+  - `Notifications`
+  - feature-specific agent/conversation service ports whose live adapters use
+    `ServerConnection`
+- Must not know:
+  - raw Ghostty types
+  - terminal renderer internals
+  - raw server transport payloads
+  - workflow execution internals
+  - tmux command strings
+
+Agents do not write directly into user panes in the base native client.
+
+### `WorkflowControl`
+
+- Responsibility:
+  - Own native workflow visualization and control for server-backed Fenrir
+    workflows.
+  - List workflow runs, open run detail, inspect steps/log metadata, answer
+    awaiting input, cancel/retry/pause/resume when the server supports it, and
+    focus linked pane or overlay surfaces.
+  - Project workflow attention state to sidebar, palette, and notifications.
+- Public surface:
+  - specific actions for listing runs, opening run detail, controlling runs,
+    answering input, focusing linked surfaces, and projecting workflow summaries
+  - workflow summary/detail contracts for sidebar, overlays, and notifications
+- Allowed dependencies:
+  - `WorkspaceOverlays`
+  - `Notifications`
+  - feature-specific workflow service ports whose live adapters use
+    `ServerConnection`
+  - `NativeRuntime` only through public focus/open linked pane actions when a
+    workflow has a tmux pane surface
+- Must not know:
+  - raw Ghostty types
+  - terminal byte stream internals
+  - workflow execution engine internals
+  - provider-specific agent internals
+
+The Fenrir server executes workflows. `WorkflowControl` is only client-side
+visualization, navigation, and control.
 
 ### `PaneGrid`
 
@@ -217,6 +313,11 @@ Detailed design reference:
   - workspace recents/favorites
   - auth/session issuance
   - local CLI control channel
+  - agent conversation transcripts
+  - workflow execution state
+
+The pane grid must not contain fake/client-only panes. If a surface appears in
+the grid, it must be backed by a real tmux pane or server-kernel pane metadata.
 
 Detailed design reference:
 
@@ -231,6 +332,8 @@ Detailed design reference:
 - Public surface:
   - specific actions for viewport creation, disposal, focus, output
     application, input, resize, copy, paste, and selection clearing
+  - specific actions for capturing bounded terminal context from selection,
+    visible viewport, or last N rendered lines
 - Allowed dependencies:
   - `NativeRuntime`
   - `Keybinding`
@@ -238,6 +341,8 @@ Detailed design reference:
   - workspace list semantics
   - window creation/focus policy
   - credential persistence
+  - agent provider details
+  - workflow execution state
 
 Detailed design reference:
 
@@ -316,17 +421,24 @@ Detailed design reference:
 ### `Keybinding`
 
 - Responsibility:
-  - Own keymap registration, dispatch, tmux-friendly defaults, and user
-    override resolution.
+  - Own keymap registration, dispatch, tmux keymap import, tmux prefix/key-table
+    state, and user override resolution.
+  - Import effective tmux keymaps from the runtime/server rather than parsing
+    `.tmux.conf` manually.
+  - Map known tmux bindings to typed Fenrir actions and report unsupported
+    unknown bindings without executing arbitrary tmux command strings.
 - Public surface:
   - keybinding registry
   - command dispatch mapping
   - resolved keymap queries
+  - imported tmux key table contracts
+  - prefix/key-table state-machine actions
 - Allowed dependencies:
   - `Settings`
+  - `NativeRuntime` service contracts for effective tmux keymap import
 - Must not know:
   - terminal bytes
-  - server transport
+  - raw server transport
   - workspace persistence internals
 
 ### `Notifications`
@@ -346,6 +458,7 @@ Detailed design reference:
 
 - Responsibility:
   - Own local persisted user preferences and client configuration.
+  - Store versioned local configuration only, not runtime state.
 - Public surface:
   - typed settings store
   - read/update/reset actions
@@ -355,6 +468,92 @@ Detailed design reference:
   - server runtime state
   - terminal renderer implementation
   - AppKit window registry
+  - bearer/session secrets
+  - terminal scrollback
+  - workflow execution state
+  - agent transcript authority
+
+Settings may store remote profile metadata, local server bootstrap preferences,
+keybinding overrides, sidebar preferences, palette preferences, appearance,
+notification preferences, and feature flags. Secrets belong to `AuthSession`.
+
+### `Diagnostics`
+
+- Responsibility:
+  - Own native diagnostics and observability policy for the Swift terminal
+    client.
+  - Record metadata-only operational events for auth, server connection, tmux
+    runtime, workflow, keybinding, terminal viewport, and native shell failures.
+  - Build safe support-bundle projections.
+- Public surface:
+  - diagnostic event contracts
+  - redaction policy contracts
+  - support-bundle report DTOs
+  - specific actions for recording events and building support reports
+  - palette provider contracts for opening diagnostics surfaces
+- Allowed dependencies:
+  - `Settings`
+  - `WorkspaceOverlays` for palette/overlay integration only
+- Must not know:
+  - raw terminal text by default
+  - auth tokens
+  - raw Ghostty types
+  - workflow execution internals
+
+Diagnostics may include stream ids, sequence ranges, gap/overflow events,
+latency, error tags, pane/workspace ids, and byte counts. Terminal excerpts
+require explicit opt-in and redaction policy.
+
+### `NativeDistribution`
+
+- Responsibility:
+  - Own native startup-readiness and distribution checks for external tools,
+    bundled server assets, and run modes.
+  - Distinguish local default, existing local server, and explicit remote
+    attach behavior.
+- Public surface:
+  - `AssessStartupReadiness`
+  - startup mode and dependency contracts
+  - `TmuxDependencyChecking` and `ServerAssetLocating` service ports
+  - live service factories for PATH tmux and app-resource server discovery
+- Allowed dependencies:
+  - local process/tool discovery adapters
+  - app bundle resource discovery adapters
+- Must not know:
+  - AppKit window internals
+  - server auth secrets
+  - pane stream state
+  - terminal renderer internals
+
+Local default mode verifies local tmux and locates a bundled or configured
+Fenrir server asset. Existing-local mode verifies local tmux but does not
+require a bundled server asset. Remote attach mode does not require local tmux
+or a local server binary because the remote server owns the tmux kernel.
+
+### `NeovimBridge`
+
+- Responsibility:
+  - Own native client actions for Neovim panes that run as real tmux
+    processes.
+  - Coordinate runtime pane focus, optional Neovim bridge calls, active buffer
+    discovery, and palette file-open routing.
+- Public surface:
+  - `OpenFileInNeovim`
+  - `FocusNeovimPane`
+  - `DetectActiveNeovimState`
+  - palette file provider and action executor helpers
+- Allowed dependencies:
+  - `NativeRuntime` public contracts and service ports
+  - `WorkspaceOverlays` palette contracts for optional palette integration
+- Must not know:
+  - raw tmux command strings
+  - raw Ghostty types
+  - AppKit window internals
+  - agent or workflow execution internals
+
+Neovim is not embedded and is not bundled. If the bridge or `nvim --listen`
+integration is unavailable, Neovim remains a normal terminal process inside a
+tmux pane.
 
 ## Initial Dependency Graph
 
@@ -367,6 +566,10 @@ Settings ─────┐
               └─> ServerConnection
 
 AuthSession ─────> ServerConnection ─────> NativeRuntime ─────> TerminalViewport ─────> PaneGrid ─────> WorkspaceShell
+                                      │              │
+                                      │              └────> Keybinding
+                                      │
+                                      └────> feature service adapters
 
 WorkspaceIndex ───────────────┐
                               ├─> WorkspaceCoordinator
@@ -376,7 +579,24 @@ WorkspaceShell contracts ─────┘
 
 WorkspaceCoordinator <──── ClientControl
 
-NativeHost/application shell ── composes ──> ClientControl, WorkspaceCoordinator, WorkspaceShell, AuthSession, Settings, Notifications
+TerminalViewport ─────> AgentInteraction ─────> WorkspaceOverlays
+WorkflowControl ───────────────────────────────> WorkspaceOverlays
+
+WorkspaceShell ─────> PaneGrid, WorkspaceOverlays, AgentInteraction,
+                      WorkflowControl, WorkspaceIndex, Keybinding,
+                      Notifications
+
+NativeHost/application shell ── composes ──> ClientControl,
+                                             WorkspaceCoordinator,
+                                             WorkspaceShell, AuthSession,
+                                             Settings, Notifications,
+                                             AgentInteraction, WorkflowControl,
+                                             Diagnostics, NativeDistribution,
+                                             NeovimBridge
+
+Diagnostics ─────> Settings, WorkspaceOverlays
+NativeDistribution ─────> local tool/resource discovery adapters
+NeovimBridge ─────> NativeRuntime, WorkspaceOverlays
 ```
 
 `NativeHost` is the composition root, not a dumping ground for business logic.
@@ -402,6 +622,13 @@ Examples:
 - Pane input:
   - AppKit event -> `TerminalViewport` action -> `NativeRuntime` service ->
     `ServerConnection`
+- Send terminal context to agent:
+  - keybinding -> `WorkspaceShell` action -> `TerminalViewport` context capture
+    action -> `AgentInteraction` composer action -> `WorkspaceOverlays`
+    presentation action
+- Workflow attention item:
+  - sidebar or palette result -> `WorkflowControl` action -> linked
+    `WorkspaceOverlays` or `NativeRuntime` focus action
 
 The application shell may start these flows, but it should not be where the
 feature logic lives.
@@ -418,17 +645,25 @@ Per-module expectations:
 
 Expected end-to-end coverage stays small. The first e2e paths should be:
 
-- `fenrir open <workspace>` launches or focuses the native client correctly
+- `fenrir open <workspace>` opens or focuses a workspace through the running
+  native client's local control socket
 - opening a workspace attaches the correct tmux-backed session and renders panes
 - switching workspace updates the shell without corrupting pane focus
 - pane stream reconnect resumes correctly after server reconnect
 - destructive workspace termination is explicit and routed through the server
+- terminal context composer opens from selection, viewport, or last N lines
+- workflow awaiting input opens the correct overlay or linked pane
 
 ## Scope Notes
 
-- Operational pane presentation for agents, workflows, browser-lab, and remote
-  processes can initially live in `WorkspaceShell` and `PaneGrid`.
-- If that surface becomes large, extract a dedicated module later rather than
-  leaking product-specific logic into `TerminalViewport` or `NativeRuntime`.
-- The concrete `libGhostty` embedding wrapper remains subject to `D-006`. Until
-  that decision is closed, keep that detail internal to `TerminalViewport`.
+- Agent conversations belong to `AgentInteraction`, not `WorkflowControl`,
+  `Notifications`, `PaneGrid`, or `TerminalViewport`.
+- Workflow visualization/control belongs to `WorkflowControl`; workflow
+  execution remains server-owned.
+- Native overlays belong to `WorkspaceOverlays` and stay outside the tmux pane
+  grid.
+- Browser-lab and dedicated managed/remote process native surfaces are outside
+  the base native roadmap. If they are reintroduced later, update this module
+  map before implementation.
+- The concrete `libGhostty` embedding wrapper is internal to
+  `TerminalViewport`.
