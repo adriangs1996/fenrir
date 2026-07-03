@@ -4,6 +4,8 @@ import NativeDistribution
 import ServerConnection
 import Settings
 import Testing
+import WorkspaceCoordinator
+import WorkspaceIndex
 @testable import FenrirNativeApp
 
 @Suite("NativeHost application bootstrap coordinator")
@@ -94,6 +96,32 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
 
         #expect(snapshot.phase == .running(.preparedLocalDefault))
         #expect(capturedThemeID == .kanagawaDragon)
+    }
+
+    @Test("Native runtime projects the initial local workspace through the visible tmux projector")
+    @MainActor
+    func nativeRuntimeProjectsInitialWorkspaceThroughProjector() async {
+        let projector = RecordingVisibleWorkspaceProjector()
+        let context = NativeAppServerConnectionContext.localDefault(bootstrapCredential: "desktop-bootstrap-token")
+        let runtime = NativeApplicationRuntime.live(
+            serverConnection: context,
+            shouldShutdownPreparedLocalServer: true,
+            themeTokens: .resolve(.fenrirDark),
+            visibleWorkspaceProjector: projector
+        )
+
+        runtime.openInitialWorkspace()
+        let requests = await projector.waitForRequests(count: 1)
+        if let workspaceID = requests.first?.workspaceID {
+            _ = runtime.workspaceWindows.removeWorkspace(workspaceID: workspaceID)
+        }
+
+        #expect(requests.count == 1)
+        #expect(requests.first?.requestID == "native-initial-workspace-project")
+        #expect(requests.first?.workspaceID.rawValue.hasPrefix("local-workspace-") == true)
+        #expect(requests.first?.identityWorkspaceID == requests.first?.workspaceID)
+        #expect(requests.first?.canonicalPath == NativeLocalServerSupervisor.defaultWorkspaceRootURL().path)
+        #expect(requests.first?.hasServer == false)
     }
 
     @Test("NativeHost preparation failure is observable and falls back deterministically")
@@ -325,6 +353,54 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
     }
 }
 
+private actor RecordingVisibleWorkspaceProjector: NativeVisibleWorkspaceProjecting {
+    struct ProjectionRequest: Equatable, Sendable {
+        let requestID: RequestID
+        let workspaceID: WorkspaceID
+        let identityWorkspaceID: WorkspaceID?
+        let canonicalPath: String?
+        let hasServer: Bool
+    }
+
+    private var requests: [ProjectionRequest] = []
+
+    func projectWorkspace(
+        requestID: RequestID,
+        workspaceID: WorkspaceID,
+        identity: WorkspaceIndex.WorkspaceIdentity?,
+        server: ServerConnection.Endpoint?
+    ) async -> Result<WorkspaceIndex.WorkspaceSummary, WorkspaceCoordinator.WorkspaceCoordinatorError> {
+        requests.append(ProjectionRequest(
+            requestID: requestID,
+            workspaceID: workspaceID,
+            identityWorkspaceID: identity?.workspaceID,
+            canonicalPath: identity?.canonicalPath,
+            hasServer: server != nil
+        ))
+        return .success(WorkspaceIndex.WorkspaceSummary(
+            workspaceID: workspaceID,
+            displayName: workspaceID.rawValue,
+            canonicalPath: identity?.canonicalPath,
+            identity: identity,
+            isOpenLocally: true,
+            openState: WorkspaceIndex.WorkspaceOpenState(
+                isOpenLocally: true,
+                windowIDs: [FenrirWindowID(rawValue: "native-window-\(workspaceID.rawValue)")]
+            ),
+            status: .open
+        ))
+    }
+
+    func waitForRequests(count: Int) async -> [ProjectionRequest] {
+        for _ in 0..<100 {
+            if requests.count >= count {
+                return requests
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return requests
+    }
+}
 
 private func nativeHostReadyDistributionReport(
     canStart: Bool = true,

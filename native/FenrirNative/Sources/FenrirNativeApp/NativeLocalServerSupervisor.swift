@@ -119,7 +119,12 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
         currentDirectoryURL: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
         fileManager: FileManager = .default
     ) -> NativeLocalServerLaunchConfiguration {
-        let workspaceRoot = workspaceRootURL(environment: environment, fallback: currentDirectoryURL)
+        let workspaceRoot = defaultWorkspaceRootURL(
+            environment: environment,
+            currentDirectoryURL: currentDirectoryURL,
+            bundle: bundle,
+            fileManager: fileManager
+        )
         if let explicitAssetURL = explicitServerAssetURL(environment: environment, relativeTo: currentDirectoryURL) {
             return serverExecutableLaunchConfiguration(
                 executableURL: explicitAssetURL,
@@ -139,6 +144,7 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
         if let developmentConfiguration = developmentLaunchConfiguration(
             environment: environment,
             currentDirectoryURL: currentDirectoryURL,
+            bundle: bundle,
             fileManager: fileManager
         ) {
             return developmentConfiguration
@@ -149,14 +155,31 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
         )
     }
 
+    static func defaultWorkspaceRootURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        currentDirectoryURL: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        bundle: Bundle? = .main,
+        fileManager: FileManager = .default
+    ) -> URL {
+        let fallback = repositoryRootURL(
+            environment: environment,
+            currentDirectoryURL: currentDirectoryURL,
+            bundle: bundle,
+            fileManager: fileManager
+        ) ?? currentDirectoryURL
+        return workspaceRootURL(environment: environment, fallback: fallback)
+    }
+
     static func canLaunchDevelopmentServer(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         currentDirectoryURL: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        bundle: Bundle = .main,
         fileManager: FileManager = .default
     ) -> Bool {
         developmentLaunchConfiguration(
             environment: environment,
             currentDirectoryURL: currentDirectoryURL,
+            bundle: bundle,
             fileManager: fileManager
         ) != nil
     }
@@ -164,11 +187,13 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
     static func developmentLaunchConfiguration(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         currentDirectoryURL: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        bundle: Bundle? = .main,
         fileManager: FileManager = .default
     ) -> NativeLocalServerLaunchConfiguration? {
         guard let repositoryRootURL = repositoryRootURL(
             environment: environment,
             currentDirectoryURL: currentDirectoryURL,
+            bundle: bundle,
             fileManager: fileManager
         ) else {
             return nil
@@ -370,6 +395,7 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
     private static func repositoryRootURL(
         environment: [String: String],
         currentDirectoryURL: URL,
+        bundle: Bundle?,
         fileManager: FileManager
     ) -> URL? {
         if let configured = [
@@ -383,7 +409,12 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
             return isRepositoryRoot(url, fileManager: fileManager) ? url : nil
         }
 
-        return nearestRepositoryRoot(startingAt: currentDirectoryURL, fileManager: fileManager)
+        for candidate in repositoryRootSearchURLs(currentDirectoryURL: currentDirectoryURL, bundle: bundle) {
+            if let root = nearestRepositoryRoot(startingAt: candidate, fileManager: fileManager) {
+                return root
+            }
+        }
+        return nil
     }
 
     private static func workspaceRootURL(
@@ -428,6 +459,30 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
         fileManager.fileExists(atPath: url.appendingPathComponent("package.json").path)
             && fileManager.fileExists(atPath: url.appendingPathComponent("apps/server/package.json").path)
             && fileManager.fileExists(atPath: url.appendingPathComponent(developmentServerEntryRelativePath).path)
+    }
+
+    private static func repositoryRootSearchURLs(
+        currentDirectoryURL: URL,
+        bundle: Bundle?
+    ) -> [URL] {
+        var seen = Set<String>()
+        var urls: [URL] = []
+        func append(_ url: URL?) {
+            guard let url else {
+                return
+            }
+            let standardized = url.standardizedFileURL
+            guard seen.insert(standardized.path).inserted else {
+                return
+            }
+            urls.append(standardized)
+        }
+
+        append(currentDirectoryURL)
+        append(bundle?.bundleURL)
+        append(bundle?.resourceURL)
+        append(bundle?.executableURL)
+        return urls
     }
 
     private static func absoluteURL(path rawPath: String, relativeTo baseURL: URL) -> URL {

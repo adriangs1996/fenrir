@@ -651,7 +651,7 @@ final class NativeApplicationBootstrapCoordinator {
             )
         },
         openInitialWorkspace: @escaping RuntimeHook = { runtime in
-            runtime.workspaceWindows.openInitialWorkspace()
+            runtime.openInitialWorkspace()
         },
         startClientControlSocket: @escaping RuntimeHook = { runtime in
             runtime.startClientControlSocket()
@@ -827,6 +827,8 @@ final class NativeApplicationRuntime {
     let workspaceWindows: NativeWorkspaceWindowRegistry
     let serverEventIntegration: NativeServerEventIntegrationGraph
     let shouldShutdownPreparedLocalServer: Bool
+    private let visibleWorkspaceProjector: any NativeVisibleWorkspaceProjecting
+    private let initialWorkspaceID: WorkspaceID
     private var clientControlSocketServer: NativeHostLocalCLISocketServer?
     private var serverEventController: NativeHostServerEventController?
 
@@ -834,18 +836,23 @@ final class NativeApplicationRuntime {
         serverConnection: NativeAppServerConnectionContext,
         workspaceWindows: NativeWorkspaceWindowRegistry,
         serverEventIntegration: NativeServerEventIntegrationGraph,
-        shouldShutdownPreparedLocalServer: Bool
+        shouldShutdownPreparedLocalServer: Bool,
+        visibleWorkspaceProjector: any NativeVisibleWorkspaceProjecting,
+        initialWorkspaceID: WorkspaceID
     ) {
         self.serverConnection = serverConnection
         self.workspaceWindows = workspaceWindows
         self.serverEventIntegration = serverEventIntegration
         self.shouldShutdownPreparedLocalServer = shouldShutdownPreparedLocalServer
+        self.visibleWorkspaceProjector = visibleWorkspaceProjector
+        self.initialWorkspaceID = initialWorkspaceID
     }
 
     static func live(
         serverConnection: NativeAppServerConnectionContext,
         shouldShutdownPreparedLocalServer: Bool,
-        themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID)
+        themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID),
+        visibleWorkspaceProjector overrideVisibleWorkspaceProjector: (any NativeVisibleWorkspaceProjecting)? = nil
     ) -> NativeApplicationRuntime {
         let terminalViewportStore = NativeAppTerminalViewportStore()
         let agentPresenceStore = AgentIntegration.InMemoryAgentPresenceStore()
@@ -892,35 +899,74 @@ final class NativeApplicationRuntime {
             themeTokens: themeTokens
         )
         workspaceWindowRegistry.value = workspaceWindows
+        let visibleWorkspaceProjector = overrideVisibleWorkspaceProjector ?? makeVisibleWorkspaceProjector(
+            serverConnection: serverConnection,
+            workspaceWindows: workspaceWindows
+        )
         return NativeApplicationRuntime(
             serverConnection: serverConnection,
             workspaceWindows: workspaceWindows,
             serverEventIntegration: serverConnection.serverEventIntegrationGraph(workspaceWindows: workspaceWindows),
-            shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer
+            shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer,
+            visibleWorkspaceProjector: visibleWorkspaceProjector,
+            initialWorkspaceID: initialLocalWorkspaceID()
         )
+    }
+
+    static func initialLocalWorkspaceID() -> WorkspaceID {
+        WorkspaceID(rawValue: "local-workspace-\(UUID().uuidString.lowercased())")
+    }
+
+    private static func makeVisibleWorkspaceProjector(
+        serverConnection: NativeAppServerConnectionContext,
+        workspaceWindows: NativeWorkspaceWindowRegistry
+    ) -> any NativeVisibleWorkspaceProjecting {
+        NativeServerTmuxVisibleWorkspaceProjector(
+            workspaceWindows: workspaceWindows,
+            actor: NativeRuntime.RuntimeActorIdentity(
+                profileID: "local",
+                authSessionID: serverConnection.sessionID.rawValue,
+                subject: "native-app"
+            ),
+            runtime: NativeRuntime.ServerTmuxRuntimeAdapter(transport: NativeServerConnectionRuntimeRPCTransport(
+                sessionID: serverConnection.sessionID,
+                sendServerRequest: serverConnection.sendServerRequest,
+                streamServerRequest: serverConnection.streamServerRequest
+            )),
+            reconcileLayout: PaneGrid.ReconcileRuntimeLayout(
+                store: NativeAppPaneGridStore(),
+                viewportHost: NativeAppPaneViewportHost(),
+                clock: NativeAppServerConnectionClock()
+            )
+        )
+    }
+
+    func openInitialWorkspace() {
+        let workspaceID = initialWorkspaceID
+        let workspaceRootPath = NativeLocalServerSupervisor.defaultWorkspaceRootURL().path
+        workspaceWindows.openInitialWorkspace(workspaceID: workspaceID, canonicalPath: workspaceRootPath)
+        let identity = WorkspaceIndex.WorkspaceIdentity(
+            kind: .localPath,
+            workspaceID: workspaceID,
+            canonicalPath: workspaceRootPath
+        )
+        Task { [visibleWorkspaceProjector] in
+            let projected = await visibleWorkspaceProjector.projectWorkspace(
+                requestID: RequestID(rawValue: "native-initial-workspace-project"),
+                workspaceID: workspaceID,
+                identity: identity,
+                server: nil
+            )
+            if case .failure(let error) = projected {
+                NSLog("Fenrir Native initial workspace projection failed: \(String(describing: error))")
+            }
+        }
     }
 
     func startClientControlSocket() {
         let dispatcher = NativeHostVisibleStateDispatcher(
             workspaceWindows: workspaceWindows,
-            workspaceProjector: NativeServerTmuxVisibleWorkspaceProjector(
-                workspaceWindows: workspaceWindows,
-                actor: NativeRuntime.RuntimeActorIdentity(
-                    profileID: "local",
-                    authSessionID: serverConnection.sessionID.rawValue,
-                    subject: "native-app"
-                ),
-                runtime: NativeRuntime.ServerTmuxRuntimeAdapter(transport: NativeServerConnectionRuntimeRPCTransport(
-                    sessionID: serverConnection.sessionID,
-                    sendServerRequest: serverConnection.sendServerRequest,
-                    streamServerRequest: serverConnection.streamServerRequest
-                )),
-                reconcileLayout: PaneGrid.ReconcileRuntimeLayout(
-                    store: NativeAppPaneGridStore(),
-                    viewportHost: NativeAppPaneViewportHost(),
-                    clock: NativeAppServerConnectionClock()
-                )
-            )
+            workspaceProjector: visibleWorkspaceProjector
         )
         let controller = NativeHostControlController(
             dispatcher: dispatcher,
@@ -992,12 +1038,14 @@ final class NativeWorkspaceWindowRegistry {
         self.themeTokens = themeTokens
     }
 
-    func openInitialWorkspace() {
-        let workspaceID = WorkspaceID(rawValue: "local-workspace")
+    func openInitialWorkspace(
+        workspaceID: WorkspaceID = WorkspaceID(rawValue: "local-workspace"),
+        canonicalPath: String = NativeLocalServerSupervisor.defaultWorkspaceRootURL().path
+    ) {
         let summary = WorkspaceIndex.WorkspaceSummary(
             workspaceID: workspaceID,
             displayName: "Local Workspace",
-            canonicalPath: FileManager.default.currentDirectoryPath,
+            canonicalPath: canonicalPath,
             isOpenLocally: true,
             openState: WorkspaceIndex.WorkspaceOpenState(isOpenLocally: true, windowIDs: [FenrirWindowID(rawValue: "native-window-\(workspaceID.rawValue)")]),
             status: .open
@@ -1133,7 +1181,7 @@ final class NativeWorkspaceWindowRegistry {
             )
         }
 
-        let workingDirectory = FileManager.default.currentDirectoryPath
+        let workingDirectory = summary.canonicalPath ?? FileManager.default.currentDirectoryPath
         let shellState = NativeWorkspaceShellState(
             workspaceID: workspaceID,
             nativeWindowID: windowID,
@@ -1262,12 +1310,16 @@ final class NativeWorkspaceWindowRegistry {
         let windowID = FenrirWindowID(rawValue: "native-window-\(workspaceID.rawValue)")
         return WorkspaceIndex.WorkspaceSummary(
             workspaceID: workspaceID,
-            displayName: workspaceID.rawValue == "local-workspace" ? "Local Workspace" : workspaceID.rawValue,
+            displayName: isLocalWorkspaceID(workspaceID) ? "Local Workspace" : workspaceID.rawValue,
             identity: identity,
             isOpenLocally: true,
             openState: WorkspaceIndex.WorkspaceOpenState(isOpenLocally: true, windowIDs: [windowID]),
             status: .open
         )
+    }
+
+    private static func isLocalWorkspaceID(_ workspaceID: WorkspaceID) -> Bool {
+        workspaceID.rawValue == "local-workspace" || workspaceID.rawValue.hasPrefix("local-workspace-")
     }
 
     static func bootstrapPaneGridState(workspaceID: WorkspaceID, nativeWindowID: FenrirWindowID) -> PaneGrid.State {

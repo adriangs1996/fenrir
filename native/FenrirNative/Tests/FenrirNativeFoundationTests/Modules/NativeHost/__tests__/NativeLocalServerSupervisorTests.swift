@@ -170,6 +170,69 @@ struct NativeLocalServerSupervisorTests {
         #expect(configuration.workingDirectoryURL?.path == rootURL.appendingPathComponent("apps/server").path)
     }
 
+    @Test("Packaged debug bundle locates the monorepo server from the app bundle path")
+    func packagedDebugBundleLaunchConfigurationStartsMonorepoServer() throws {
+        let fileManager = FileManager.default
+        let rootURL = fileManager.temporaryDirectory
+            .appendingPathComponent("fenrir-native-debug-bundle-\(UUID().uuidString)")
+        let serverSourceURL = rootURL.appendingPathComponent("apps/server/src", isDirectory: true)
+        let bundleURL = rootURL.appendingPathComponent("native/FenrirNative/.build/package/Fenrir Native.app", isDirectory: true)
+        let resourcesURL = bundleURL.appendingPathComponent("Contents/Resources", isDirectory: true)
+        try fileManager.createDirectory(at: serverSourceURL, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
+        try "{}".write(to: rootURL.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        try "{}".write(to: rootURL.appendingPathComponent("apps/server/package.json"), atomically: true, encoding: .utf8)
+        try "".write(to: rootURL.appendingPathComponent("apps/server/src/bin.ts"), atomically: true, encoding: .utf8)
+        try """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+          <key>CFBundleExecutable</key>
+          <string>FenrirNativeApp</string>
+          <key>CFBundleIdentifier</key>
+          <string>dev.fenrir.native.tests</string>
+          <key>CFBundlePackageType</key>
+          <string>APPL</string>
+        </dict>
+        </plist>
+        """.write(to: bundleURL.appendingPathComponent("Contents/Info.plist"), atomically: true, encoding: .utf8)
+        defer {
+            try? fileManager.removeItem(at: rootURL)
+        }
+        let bundle = try #require(Bundle(url: bundleURL))
+
+        let configuration = NativeLocalServerSupervisor.localDefaultLaunchConfiguration(
+            bundle: bundle,
+            environment: ["FENRIR_NATIVE_BOOTSTRAP_TOKEN": "debug-bundle-bootstrap-token"],
+            currentDirectoryURL: URL(fileURLWithPath: "/"),
+            fileManager: fileManager
+        )
+
+        #expect(configuration.executableURL.path == "/usr/bin/env")
+        #expect(configuration.arguments == [
+            "bun",
+            "run",
+            "src/bin.ts",
+            "--mode",
+            "desktop",
+            "--host",
+            NativeLocalServerSupervisor.defaultHost,
+            "--port",
+            String(NativeLocalServerSupervisor.defaultPort),
+            "--no-browser",
+            "--auto-bootstrap-project-from-cwd",
+            rootURL.path
+        ])
+        #expect(configuration.environment["FENRIR_DESKTOP_BOOTSTRAP_TOKEN"] == "debug-bundle-bootstrap-token")
+        #expect(configuration.workingDirectoryURL?.path == rootURL.appendingPathComponent("apps/server").path)
+        #expect(NativeLocalServerSupervisor.defaultWorkspaceRootURL(
+            currentDirectoryURL: URL(fileURLWithPath: "/"),
+            bundle: bundle,
+            fileManager: fileManager
+        ).path == rootURL.path)
+    }
+
     @Test("Spawn failure maps to stable local server spawn error")
     func spawnFailureMapsToStableError() async throws {
         let launcher = RecordingProcessLauncher(launchResults: [.failure(ExampleLaunchError())])
