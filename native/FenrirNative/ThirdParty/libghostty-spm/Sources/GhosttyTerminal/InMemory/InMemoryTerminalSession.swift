@@ -9,8 +9,11 @@ import Foundation
 import GhosttyKit
 
 public final class InMemoryTerminalSession: @unchecked Sendable {
+    private static let maximumPendingOutputBytes = 2 * 1024 * 1024
+
     private let lock = NSLock()
     private var surface: ghostty_surface_t?
+    private var pendingOutput = Data()
     private var lastResize: InMemoryTerminalViewport?
     private let writeHandler: @Sendable (Data) -> Void
     private let resizeHandler: @Sendable (InMemoryTerminalViewport) -> Void
@@ -27,12 +30,25 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
 
     func setSurface(_ surface: ghostty_surface_t?) {
         lock.lock()
-        defer { lock.unlock() }
         self.surface = surface
+        let bufferedOutput = pendingOutput
+        if surface != nil {
+            pendingOutput.removeAll(keepingCapacity: true)
+        }
         TerminalDebugLog.log(
             .lifecycle,
             "in-memory session surface=\(surface == nil ? "nil" : "set")"
         )
+        guard let surface, !bufferedOutput.isEmpty else {
+            lock.unlock()
+            return
+        }
+        TerminalDebugLog.log(
+            .output,
+            "terminal <- host replay \(TerminalDebugLog.describe(bufferedOutput))"
+        )
+        write(bufferedOutput, to: surface)
+        lock.unlock()
     }
 
     func clearSurface(ifMatches expectedSurface: ghostty_surface_t?) {
@@ -125,26 +141,42 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
     /// Feed data into the terminal from the host backend.
     public func receive(_ data: Data) {
         lock.lock()
-        defer { lock.unlock() }
         guard let surface else {
+            pendingOutput.append(data)
+            trimPendingOutput()
+            let pendingCount = pendingOutput.count
+            lock.unlock()
             TerminalDebugLog.log(
                 .output,
-                "terminal <- host dropped \(TerminalDebugLog.describe(data))"
+                "terminal <- host buffered \(TerminalDebugLog.describe(data)) pending=\(pendingCount)"
             )
             return
         }
+        lock.unlock()
 
         TerminalDebugLog.log(
             .output,
             "terminal <- host \(TerminalDebugLog.describe(data))"
         )
 
+        write(data, to: surface)
+        lock.unlock()
+    }
+
+    private func write(_ data: Data, to surface: ghostty_surface_t) {
         data.withUnsafeBytes { buffer in
             guard let ptr = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
                 return
             }
             ghostty_surface_write_buffer(surface, ptr, UInt(buffer.count))
         }
+    }
+
+    private func trimPendingOutput() {
+        guard pendingOutput.count > Self.maximumPendingOutputBytes else {
+            return
+        }
+        pendingOutput = pendingOutput.suffix(Self.maximumPendingOutputBytes)
     }
 
     /// Feed a UTF-8 string into the terminal from the host backend.

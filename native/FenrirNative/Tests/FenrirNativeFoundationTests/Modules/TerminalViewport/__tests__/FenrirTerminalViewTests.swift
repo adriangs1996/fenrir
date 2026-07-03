@@ -137,6 +137,28 @@ struct FenrirTerminalViewTests {
         ]) == paths.map(\.path))
     }
 
+    @Test("Ghostty backend replays output received before AppKit surface attachment")
+    func ghosttyBackendReplaysEarlyOutputAfterMount() async throws {
+        let marker = "fenrir-ghostty-early-output-\(UUID().uuidString)"
+        let backend = FenrirGhosttyTerminalBackend(onUserInput: { _ in })
+        backend.applyOutput(Data("\(marker)\r\n".utf8))
+
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 500))
+        backend.mount(in: host)
+        backend.attach(streamID: "early-output-stream")
+        host.layoutSubtreeIfNeeded()
+
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if backend.captureViewport().text.contains(marker) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        #expect(backend.captureViewport().text.contains(marker))
+    }
+
     @Test("Public TerminalViewport surface does not expose Ghostty implementation names")
     func publicSurfaceDoesNotExposeGhostty() throws {
         let root = URL(fileURLWithPath: #filePath)
