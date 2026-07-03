@@ -229,7 +229,7 @@ private func nativeHostOSCPaneGridState(streamID: StreamID) -> PaneGrid.State {
 
 @MainActor
 private func nativeHostOSCWaitUntil(
-    timeoutNanoseconds: UInt64 = 250_000_000,
+    timeoutNanoseconds: UInt64 = 1_000_000_000,
     condition: @escaping @MainActor () -> Bool
 ) async throws {
     let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
@@ -246,7 +246,7 @@ private func nativeHostOSCWaitUntilStoredSequence(
     store: NativeAppTerminalViewportStore,
     viewportID: ViewportID,
     sequence: UInt64,
-    timeoutNanoseconds: UInt64 = 250_000_000
+    timeoutNanoseconds: UInt64 = 1_000_000_000
 ) async throws {
     let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
     while true {

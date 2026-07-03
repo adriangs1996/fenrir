@@ -122,6 +122,45 @@ struct NativeShellThemeTokens {
     }
 }
 
+struct NativeSettingsClock: Settings.SettingsClock {
+    func now() -> FenrirTimestamp { FenrirTimestamp(Date()) }
+}
+
+enum NativeShellThemeSettings {
+    static func resolveThemeTokens(
+        persistence: (any Settings.LocalSettingsPersistence)? = nil,
+        makePersistence: @Sendable () throws -> any Settings.LocalSettingsPersistence = {
+            try Settings.applicationSupportSettingsPersistence()
+        },
+        clock: any Settings.SettingsClock = NativeSettingsClock()
+    ) async -> NativeShellThemeTokens {
+        do {
+            let resolvedPersistence: any Settings.LocalSettingsPersistence
+            if let persistence {
+                resolvedPersistence = persistence
+            } else {
+                resolvedPersistence = try makePersistence()
+            }
+            let result = await Settings.ReadSettings(
+                clock: clock,
+                persistence: resolvedPersistence
+            )
+            .run(Settings.ReadSettingsInput(
+                requestID: "native-shell-theme-settings-read",
+                source: .nativeHost
+            ))
+            switch result {
+            case .success(let settings):
+                return .resolve(settings.configuration.appearance.themeID)
+            case .failure:
+                return .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID)
+            }
+        } catch {
+            return .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID)
+        }
+    }
+}
+
 @MainActor
 final class FenrirNativeApplication: NSObject, NSApplicationDelegate {
     private let bootstrapCoordinator: NativeApplicationBootstrapCoordinator
@@ -175,9 +214,14 @@ enum NativeCrashReporter {
 
 struct NativeAgentPresenceOSCForwarder: TerminalViewport.TerminalReservedOSCForwarding {
     let ingestAgentPresenceSignal: AgentIntegration.IngestAgentPresenceSignal
+    let onPresenceStored: (@Sendable (WorkspaceID) async -> Void)?
 
-    init(ingestAgentPresenceSignal: AgentIntegration.IngestAgentPresenceSignal) {
+    init(
+        ingestAgentPresenceSignal: AgentIntegration.IngestAgentPresenceSignal,
+        onPresenceStored: (@Sendable (WorkspaceID) async -> Void)? = nil
+    ) {
         self.ingestAgentPresenceSignal = ingestAgentPresenceSignal
+        self.onPresenceStored = onPresenceStored
     }
 
     func forwardReservedOSC(_ signal: TerminalViewport.ReservedOSCSignal) async throws {
@@ -193,11 +237,14 @@ struct NativeAgentPresenceOSCForwarder: TerminalViewport.TerminalReservedOSCForw
             payload: signal.payload,
             provenance: provenance
         )
-        _ = await ingestAgentPresenceSignal.run(AgentIntegration.IngestAgentPresenceSignalInput(
+        let result = await ingestAgentPresenceSignal.run(AgentIntegration.IngestAgentPresenceSignalInput(
             requestID: RequestID(rawValue: "agent-presence-osc-\(signal.provenance.viewportID.rawValue)-\(signal.provenance.sequence)"),
             signal: agentSignal,
             source: .terminalViewport
         ))
+        if case .success(let output) = result, output.stored {
+            await onPresenceStored?(signal.provenance.workspaceID)
+        }
     }
 }
 
@@ -545,7 +592,8 @@ final class NativeApplicationBootstrapCoordinator {
     typealias PrepareLocalDefault = @Sendable () async -> Result<NativeAppServerConnectionContext, ServerConnection.ServerConnectionError>
     typealias AssessDistributionReadiness = @Sendable () async -> Result<NativeDistribution.StartupReadinessReport, NativeDistribution.DistributionReadinessError>
     typealias FallbackLocalDefault = @MainActor () -> NativeAppServerConnectionContext
-    typealias ComposeRuntime = @MainActor (NativeAppServerConnectionContext, Bool) -> NativeApplicationRuntime
+    typealias ComposeRuntime = @MainActor (NativeAppServerConnectionContext, Bool, NativeShellThemeTokens) -> NativeApplicationRuntime
+    typealias ResolveThemeTokens = @Sendable () async -> NativeShellThemeTokens
     typealias RuntimeHook = @MainActor (NativeApplicationRuntime) -> Void
     typealias ActivateApplication = @MainActor () -> Void
     typealias ShutdownPreparedLocalServer = @Sendable (NativeAppServerConnectionContext) async -> Result<ServerConnection.ShutdownLocalServerResult, ServerConnection.ServerConnectionError>
@@ -555,6 +603,7 @@ final class NativeApplicationBootstrapCoordinator {
     private let assessDistributionReadiness: AssessDistributionReadiness
     private let fallbackLocalDefault: FallbackLocalDefault
     private let composeRuntime: ComposeRuntime
+    private let resolveThemeTokens: ResolveThemeTokens
     private let openInitialWorkspace: RuntimeHook
     private let startClientControlSocket: RuntimeHook
     private let activateApplication: ActivateApplication
@@ -591,10 +640,14 @@ final class NativeApplicationBootstrapCoordinator {
         fallbackLocalDefault: @escaping FallbackLocalDefault = {
             NativeAppServerConnectionContext.localDefault()
         },
-        composeRuntime: @escaping ComposeRuntime = { context, isPreparedLocalDefault in
+        resolveThemeTokens: @escaping ResolveThemeTokens = {
+            await NativeShellThemeSettings.resolveThemeTokens()
+        },
+        composeRuntime: @escaping ComposeRuntime = { context, isPreparedLocalDefault, themeTokens in
             NativeApplicationRuntime.live(
                 serverConnection: context,
-                shouldShutdownPreparedLocalServer: isPreparedLocalDefault
+                shouldShutdownPreparedLocalServer: isPreparedLocalDefault,
+                themeTokens: themeTokens
             )
         },
         openInitialWorkspace: @escaping RuntimeHook = { runtime in
@@ -617,6 +670,7 @@ final class NativeApplicationBootstrapCoordinator {
         self.assessDistributionReadiness = assessDistributionReadiness
         self.fallbackLocalDefault = fallbackLocalDefault
         self.composeRuntime = composeRuntime
+        self.resolveThemeTokens = resolveThemeTokens
         self.openInitialWorkspace = openInitialWorkspace
         self.startClientControlSocket = startClientControlSocket
         self.activateApplication = activateApplication
@@ -661,7 +715,8 @@ final class NativeApplicationBootstrapCoordinator {
             mode = .degradedLocalDefault(preparationError: error)
         }
 
-        let runtime = composeRuntime(context, shouldShutdownPreparedLocalServer)
+        let themeTokens = await resolveThemeTokens()
+        let runtime = composeRuntime(context, shouldShutdownPreparedLocalServer, themeTokens)
         self.runtime = runtime
         openInitialWorkspace(runtime)
         startClientControlSocket(runtime)
@@ -769,17 +824,40 @@ final class NativeApplicationRuntime {
 
     static func live(
         serverConnection: NativeAppServerConnectionContext,
-        shouldShutdownPreparedLocalServer: Bool
+        shouldShutdownPreparedLocalServer: Bool,
+        themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID)
     ) -> NativeApplicationRuntime {
         let terminalViewportStore = NativeAppTerminalViewportStore()
         let agentPresenceStore = AgentIntegration.InMemoryAgentPresenceStore()
+        let agentPresenceClock = NativeAgentIntegrationClock()
+        let workspaceWindowRegistry = NativeWorkspaceWindowRegistryReference()
         let terminalStreamIngestor = NativeTerminalStreamIngestor(
             store: terminalViewportStore,
             reservedOSCForwarder: NativeAgentPresenceOSCForwarder(
                 ingestAgentPresenceSignal: AgentIntegration.IngestAgentPresenceSignal(
                     store: agentPresenceStore,
-                    clock: NativeAgentIntegrationClock()
-                )
+                    clock: agentPresenceClock
+                ),
+                onPresenceStored: { workspaceID in
+                    let result = await AgentIntegration.ListAgentPresence(
+                        store: agentPresenceStore,
+                        clock: agentPresenceClock
+                    )
+                    .run(AgentIntegration.ListAgentPresenceInput(
+                        requestID: RequestID(rawValue: "native-agent-presence-refresh-\(workspaceID.rawValue)"),
+                        workspaceID: workspaceID,
+                        source: .terminalViewport
+                    ))
+                    guard case .success(let presence) = result else {
+                        return
+                    }
+                    await MainActor.run {
+                        workspaceWindowRegistry.value?.updateAgentPresence(
+                            workspaceID: workspaceID,
+                            records: presence.records
+                        )
+                    }
+                }
             )
         )
         let workspaceWindows = NativeWorkspaceWindowRegistry(
@@ -790,8 +868,10 @@ final class NativeApplicationRuntime {
             neovimBridgeControllerFactory: serverConnection.neovimBridgeControllerFactory,
             workflowServerClientFactory: serverConnection.workflowServerClientFactory,
             workflowEventStreamFactory: serverConnection.workflowEventStreamFactory,
-            workflowNotificationStore: serverConnection.notificationStore
+            workflowNotificationStore: serverConnection.notificationStore,
+            themeTokens: themeTokens
         )
+        workspaceWindowRegistry.value = workspaceWindows
         return NativeApplicationRuntime(
             serverConnection: serverConnection,
             workspaceWindows: workspaceWindows,
@@ -852,6 +932,10 @@ final class NativeApplicationRuntime {
     }
 }
 
+private final class NativeWorkspaceWindowRegistryReference: @unchecked Sendable {
+    @MainActor weak var value: NativeWorkspaceWindowRegistry?
+}
+
 @MainActor
 final class NativeWorkspaceWindowRegistry {
     private var controllers: [WorkspaceID: NativeWorkspaceWindowController] = [:]
@@ -864,6 +948,7 @@ final class NativeWorkspaceWindowRegistry {
     private let workflowServerClientFactory: any NativeWorkflowServerClientMaking
     private let workflowEventStreamFactory: any NativeWorkflowEventStreamMaking
     private let workflowNotificationStore: any Notifications.NotificationStore
+    private let themeTokens: NativeShellThemeTokens
 
     init(
         paneGridRuntimeFactory: any NativePaneGridRuntimeMaking = NativePaneGridUnavailableRuntimeFactory(),
@@ -873,7 +958,8 @@ final class NativeWorkspaceWindowRegistry {
         neovimBridgeControllerFactory: any NativeNeovimBridgeControllerMaking = NativeNeovimUnavailableControllerFactory(),
         workflowServerClientFactory: any NativeWorkflowServerClientMaking = NativeWorkflowUnavailableServerClientFactory(),
         workflowEventStreamFactory: any NativeWorkflowEventStreamMaking = NativeWorkflowUnavailableEventStreamFactory(),
-        workflowNotificationStore: any Notifications.NotificationStore = Notifications.inMemoryNotificationStore()
+        workflowNotificationStore: any Notifications.NotificationStore = Notifications.inMemoryNotificationStore(),
+        themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID)
     ) {
         self.paneGridRuntimeFactory = paneGridRuntimeFactory
         self.paneStreamSubscriber = paneStreamSubscriber
@@ -883,6 +969,7 @@ final class NativeWorkspaceWindowRegistry {
         self.workflowServerClientFactory = workflowServerClientFactory
         self.workflowEventStreamFactory = workflowEventStreamFactory
         self.workflowNotificationStore = workflowNotificationStore
+        self.themeTokens = themeTokens
     }
 
     func openInitialWorkspace() {
@@ -960,6 +1047,10 @@ final class NativeWorkspaceWindowRegistry {
 
     func applyReconnectedNotifications(workspaceID: WorkspaceID, notifications: WorkspaceIndex.WorkspaceNotificationState) {
         controllers[workspaceID]?.applyReconnectedNotifications(notifications)
+    }
+
+    func updateAgentPresence(workspaceID: WorkspaceID, records: [AgentIntegration.AgentPresenceRecord]) {
+        controllers[workspaceID]?.applyAgentPresence(records)
     }
 
     func visibleNotificationState(workspaceID: WorkspaceID) -> WorkspaceIndex.WorkspaceNotificationState? {
@@ -1041,6 +1132,7 @@ final class NativeWorkspaceWindowRegistry {
             paneGridRuntime: paneGridRuntimeFactory.makeRuntime(for: shellState),
             paneStreamSubscriber: paneStreamSubscriber,
             terminalStreamIngestor: terminalStreamIngestor,
+            themeTokens: themeTokens,
             agentPromptSubmitter: agentPromptSubmitterFactory.makeSubmitter(for: shellState),
             neovimBridgeController: neovimBridgeControllerFactory.makeController(for: shellState),
             workflowServerClient: workflowServerClientFactory.makeClient(for: shellState),
@@ -1574,6 +1666,10 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
         shellViewController.applyReconnectedNotifications(notifications)
     }
 
+    func applyAgentPresence(_ records: [AgentIntegration.AgentPresenceRecord]) {
+        shellViewController.applyAgentPresence(records)
+    }
+
     func visibleNotificationState() -> WorkspaceIndex.WorkspaceNotificationState? {
         shellViewController.visibleNotificationState()
     }
@@ -1789,6 +1885,10 @@ final class NativeWorkspaceRootViewController: NSViewController {
         }
         shellController.updateWorkspaceNotifications(notifications)
         rootView.apply(shellController.state)
+    }
+
+    func applyAgentPresence(_ records: [AgentIntegration.AgentPresenceRecord]) {
+        rootView.updateAgentPresence(records)
     }
 
     func visibleNotificationState() -> WorkspaceIndex.WorkspaceNotificationState? {
@@ -2468,6 +2568,7 @@ final class NativeWorkspaceRootView: NSView {
     private var workflowRuns: [WorkflowControl.WorkflowRunSnapshot] = []
     private var workflowTimeline: WorkflowControl.WorkflowRunTimeline?
     private var workflowError: WorkflowControl.WorkflowControlError?
+    private var agentPresenceRecords: [AgentIntegration.AgentPresenceRecord] = []
     private var diagnosticsViewModel = Diagnostics.DiagnosticsOverlayViewModel(report: Diagnostics.DiagnosticsReport(
         generatedAt: FenrirTimestamp(Date(timeIntervalSince1970: 0)),
         policy: .defaults,
@@ -2587,6 +2688,13 @@ final class NativeWorkspaceRootView: NSView {
         }
     }
 
+    func updateAgentPresence(_ records: [AgentIntegration.AgentPresenceRecord]) {
+        agentPresenceRecords = records
+        if let lastAppliedState {
+            applyChrome(lastAppliedState)
+        }
+    }
+
     func apply(_ state: NativeWorkspaceShellState) {
         lastAppliedState = state
         sidebarContainer.isHidden = !state.isSidebarVisible
@@ -2618,6 +2726,7 @@ final class NativeWorkspaceRootView: NSView {
         titlebar.apply(
             windows: state.paneGridState.windows,
             activeWindowID: state.paneGridState.activeWindowID,
+            agentPresenceRecords: agentPresenceRecords,
             health: NativeShellHealthSummary(
                 serverText: isConnected ? state.workspaceID.rawValue : (state.reconnectBanner?.message ?? "reconnecting…"),
                 isServerHealthy: isConnected,
@@ -2628,7 +2737,9 @@ final class NativeWorkspaceRootView: NSView {
         sidebarList.apply(model: NativeSidebarViewModel(
             items: state.sidebarItems,
             activeWorkspaceID: state.workspaceID,
+            paneGridState: state.paneGridState,
             agentStatuses: agentIntegrationState?.statuses ?? [],
+            agentPresenceRecords: agentPresenceRecords,
             workflowRuns: workflowRuns,
             serverStatusText: isConnected ? "local server" : "server reconnecting…",
             isServerHealthy: isConnected

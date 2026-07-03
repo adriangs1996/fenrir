@@ -2,6 +2,7 @@ import Foundation
 import FenrirNativeShared
 import NativeDistribution
 import ServerConnection
+import Settings
 import Testing
 @testable import FenrirNativeApp
 
@@ -20,11 +21,13 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
                 }
                 return .success(context)
             },
-            composeRuntime: { context, shouldShutdownPreparedLocalServer in
+            resolveThemeTokens: { .resolve(.fenrirDark) },
+            composeRuntime: { context, shouldShutdownPreparedLocalServer, themeTokens in
                 events.append("compose:\(shouldShutdownPreparedLocalServer)")
                 return NativeApplicationRuntime.live(
                     serverConnection: context,
-                    shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer
+                    shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer,
+                    themeTokens: themeTokens
                 )
             },
             openInitialWorkspace: { _ in events.append("open-workspace") },
@@ -46,6 +49,35 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
         #expect(snapshot.preparationError == nil)
     }
 
+    @Test("NativeHost startup passes resolved theme tokens to runtime composition")
+    @MainActor
+    func nativeHostStartupPassesResolvedThemeTokensToRuntimeComposition() async {
+        var capturedThemeID: Settings.ThemeID?
+        let context = NativeAppServerConnectionContext.localDefault(bootstrapCredential: "desktop-bootstrap-token")
+        let coordinator = NativeApplicationBootstrapCoordinator(
+            assessDistributionReadiness: { .success(nativeHostReadyDistributionReport()) },
+            prepareLocalDefault: { .success(context) },
+            resolveThemeTokens: { .resolve(.kanagawaDragon) },
+            composeRuntime: { context, shouldShutdownPreparedLocalServer, themeTokens in
+                capturedThemeID = themeTokens.themeID
+                return NativeApplicationRuntime.live(
+                    serverConnection: context,
+                    shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer,
+                    themeTokens: themeTokens
+                )
+            },
+            openInitialWorkspace: { _ in },
+            startClientControlSocket: { _ in },
+            activateApplication: {},
+            logMessage: { _ in }
+        )
+
+        let snapshot = await coordinator.start()
+
+        #expect(snapshot.phase == .running(.preparedLocalDefault))
+        #expect(capturedThemeID == .kanagawaDragon)
+    }
+
     @Test("NativeHost preparation failure is observable and falls back deterministically")
     @MainActor
     func nativeHostPreparationFailureFallsBackDeterministically() async {
@@ -64,11 +96,13 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
                 events.append("fallback")
                 return fallbackContext
             },
-            composeRuntime: { context, shouldShutdownPreparedLocalServer in
+            resolveThemeTokens: { .resolve(.fenrirDark) },
+            composeRuntime: { context, shouldShutdownPreparedLocalServer, themeTokens in
                 events.append("compose:\(shouldShutdownPreparedLocalServer)")
                 return NativeApplicationRuntime.live(
                     serverConnection: context,
-                    shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer
+                    shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer,
+                    themeTokens: themeTokens
                 )
             },
             openInitialWorkspace: { _ in events.append("open-workspace") },
@@ -119,11 +153,13 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
                 await MainActor.run { events.append("prepare") }
                 return .success(context)
             },
-            composeRuntime: { context, shouldShutdownPreparedLocalServer in
+            resolveThemeTokens: { .resolve(.fenrirDark) },
+            composeRuntime: { context, shouldShutdownPreparedLocalServer, themeTokens in
                 events.append("compose:\(shouldShutdownPreparedLocalServer)")
                 return NativeApplicationRuntime.live(
                     serverConnection: context,
-                    shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer
+                    shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer,
+                    themeTokens: themeTokens
                 )
             },
             openInitialWorkspace: { _ in events.append("open-workspace") },
@@ -162,11 +198,13 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
                 }
                 return .success(context)
             },
-            composeRuntime: { context, shouldShutdownPreparedLocalServer in
+            resolveThemeTokens: { .resolve(.fenrirDark) },
+            composeRuntime: { context, shouldShutdownPreparedLocalServer, themeTokens in
                 events.append("compose:\(shouldShutdownPreparedLocalServer)")
                 return NativeApplicationRuntime.live(
                     serverConnection: context,
-                    shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer
+                    shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer,
+                    themeTokens: themeTokens
                 )
             },
             openInitialWorkspace: { _ in events.append("open-workspace") },
@@ -220,11 +258,13 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
                 }
                 return .success(context)
             },
-            composeRuntime: { context, shouldShutdownPreparedLocalServer in
+            resolveThemeTokens: { .resolve(.fenrirDark) },
+            composeRuntime: { context, shouldShutdownPreparedLocalServer, themeTokens in
                 events.append("compose:\(shouldShutdownPreparedLocalServer)")
                 return NativeApplicationRuntime.live(
                     serverConnection: context,
-                    shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer
+                    shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer,
+                    themeTokens: themeTokens
                 )
             },
             openInitialWorkspace: { _ in events.append("open-workspace") },

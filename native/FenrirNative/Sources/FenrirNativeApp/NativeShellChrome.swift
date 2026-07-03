@@ -56,6 +56,7 @@ final class NativeShellTitlebarView: NSView {
     func apply(
         windows: [PaneGrid.WindowPresentation],
         activeWindowID: FenrirWindowID,
+        agentPresenceRecords: [AgentIntegration.AgentPresenceRecord] = [],
         health: NativeShellHealthSummary
     ) {
         tabStack.arrangedSubviews.forEach {
@@ -66,7 +67,11 @@ final class NativeShellTitlebarView: NSView {
             $0.index == $1.index ? $0.windowID.rawValue < $1.windowID.rawValue : $0.index < $1.index
         }
         for window in ordered {
-            tabStack.addArrangedSubview(tabView(for: window, isActive: window.windowID == activeWindowID))
+            tabStack.addArrangedSubview(tabView(
+                for: window,
+                isActive: window.windowID == activeWindowID,
+                presence: tabPresence(for: window, records: agentPresenceRecords)
+            ))
         }
         serverLabel.attributedStringValue = Self.dotPrefixed(
             text: health.serverText,
@@ -148,9 +153,20 @@ final class NativeShellTitlebarView: NSView {
         ])
     }
 
-    private func tabView(for window: PaneGrid.WindowPresentation, isActive: Bool) -> NSView {
+    private func tabView(
+        for window: PaneGrid.WindowPresentation,
+        isActive: Bool,
+        presence: NativeShellTabPresence?
+    ) -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
+
+        let presenceDot = presence.map { presence -> NativeSidebarDotView in
+            let dot = NativeSidebarDotView(color: presence.color, diameter: 6, haloed: presence.haloed)
+            dot.identifier = NSUserInterfaceItemIdentifier("tab-presence-\(window.windowID.rawValue)")
+            dot.setAccessibilityLabel(presence.accessibilityLabel)
+            return dot
+        }
 
         let button = NSButton(title: "", target: self, action: #selector(selectTab(_:)))
         button.identifier = NSUserInterfaceItemIdentifier(window.windowID.rawValue)
@@ -164,6 +180,9 @@ final class NativeShellTitlebarView: NSView {
         )
         button.lineBreakMode = .byTruncatingTail
         button.translatesAutoresizingMaskIntoConstraints = false
+        if let presenceDot {
+            container.addSubview(presenceDot)
+        }
         container.addSubview(button)
 
         let underline = NSView()
@@ -172,8 +191,7 @@ final class NativeShellTitlebarView: NSView {
         underline.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(underline)
 
-        NSLayoutConstraint.activate([
-            button.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
+        var constraints = [
             button.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
             button.centerYAnchor.constraint(equalTo: container.centerYAnchor, constant: -1),
             button.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
@@ -183,8 +201,95 @@ final class NativeShellTitlebarView: NSView {
             underline.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -6),
             underline.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             underline.heightAnchor.constraint(equalToConstant: 1)
-        ])
+        ]
+        if let presenceDot, let presence {
+            constraints += [
+                presenceDot.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: presence.haloed ? 7 : 10),
+                presenceDot.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+                button.leadingAnchor.constraint(equalTo: presenceDot.trailingAnchor, constant: 6)
+            ]
+        } else {
+            constraints.append(button.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10))
+        }
+        NSLayoutConstraint.activate(constraints)
         return container
+    }
+
+    private func tabPresence(
+        for window: PaneGrid.WindowPresentation,
+        records: [AgentIntegration.AgentPresenceRecord]
+    ) -> NativeShellTabPresence? {
+        let paneIDs = Set(window.panes.map(\.paneID))
+        let visible = records.filter { record in
+            guard Self.isVisiblePresence(record.state) else {
+                return false
+            }
+            if let tabID = record.provenance.tabID {
+                return tabID == window.windowID
+            }
+            return paneIDs.contains(record.provenance.paneID)
+        }
+        guard let selected = visible.max(by: { lhs, rhs in
+            Self.presencePriority(lhs.state) < Self.presencePriority(rhs.state)
+        }) else {
+            return nil
+        }
+
+        return NativeShellTabPresence(
+            color: presenceColor(for: selected.state),
+            haloed: Self.isAttentionPresence(selected.state),
+            accessibilityLabel: "\(selected.agentID.rawValue) \(selected.state.rawValue)"
+        )
+    }
+
+    private static func isVisiblePresence(_ state: AgentIntegration.AgentPresenceState) -> Bool {
+        switch state {
+        case .sessionStarted, .busy, .awaitingInput, .awaitingApproval, .failed:
+            return true
+        case .turnCompleted, .sessionEnded:
+            return false
+        }
+    }
+
+    private static func isAttentionPresence(_ state: AgentIntegration.AgentPresenceState) -> Bool {
+        switch state {
+        case .awaitingInput, .awaitingApproval, .failed:
+            return true
+        case .sessionStarted, .busy, .turnCompleted, .sessionEnded:
+            return false
+        }
+    }
+
+    private static func presencePriority(_ state: AgentIntegration.AgentPresenceState) -> Int {
+        switch state {
+        case .failed:
+            return 5
+        case .awaitingApproval:
+            return 4
+        case .awaitingInput:
+            return 3
+        case .busy:
+            return 2
+        case .sessionStarted:
+            return 1
+        case .turnCompleted, .sessionEnded:
+            return 0
+        }
+    }
+
+    private func presenceColor(for state: AgentIntegration.AgentPresenceState) -> NSColor {
+        switch state {
+        case .failed:
+            return themeTokens.failureBadge
+        case .awaitingInput, .awaitingApproval:
+            return themeTokens.attentionBadge
+        case .busy:
+            return themeTokens.accent
+        case .sessionStarted:
+            return themeTokens.workflowBadge
+        case .turnCompleted, .sessionEnded:
+            return themeTokens.hairline
+        }
     }
 
     @objc private func toggleSidebar() {
@@ -277,10 +382,18 @@ final class NativeShellStatusBarView: NSView {
     }
 }
 
+private struct NativeShellTabPresence {
+    let color: NSColor
+    let haloed: Bool
+    let accessibilityLabel: String
+}
+
 struct NativeSidebarViewModel {
     var items: [WorkspaceIndex.WorkspaceSidebarItem]
     var activeWorkspaceID: WorkspaceID?
+    var paneGridState: PaneGrid.State?
     var agentStatuses: [AgentIntegration.AgentIntegrationStatus]
+    var agentPresenceRecords: [AgentIntegration.AgentPresenceRecord]
     var workflowRuns: [WorkflowControl.WorkflowRunSnapshot]
     var serverStatusText: String
     var isServerHealthy: Bool
@@ -289,7 +402,9 @@ struct NativeSidebarViewModel {
     init(
         items: [WorkspaceIndex.WorkspaceSidebarItem],
         activeWorkspaceID: WorkspaceID? = nil,
+        paneGridState: PaneGrid.State? = nil,
         agentStatuses: [AgentIntegration.AgentIntegrationStatus] = [],
+        agentPresenceRecords: [AgentIntegration.AgentPresenceRecord] = [],
         workflowRuns: [WorkflowControl.WorkflowRunSnapshot] = [],
         serverStatusText: String = "local server",
         isServerHealthy: Bool = true,
@@ -297,7 +412,9 @@ struct NativeSidebarViewModel {
     ) {
         self.items = items
         self.activeWorkspaceID = activeWorkspaceID
+        self.paneGridState = paneGridState
         self.agentStatuses = agentStatuses
+        self.agentPresenceRecords = agentPresenceRecords
         self.workflowRuns = workflowRuns
         self.serverStatusText = serverStatusText
         self.isServerHealthy = isServerHealthy
@@ -433,10 +550,42 @@ final class NativeWorkspaceSidebarView: NSView {
         }
     }
 
-    /// Kid rows come only from real detection data (D-039): detected agent
-    /// CLIs and their integration state. Sections without live data are
-    /// omitted entirely — no fake entries.
     private func renderActiveWorkspaceKids(model: NativeSidebarViewModel) {
+        renderActiveApps(model: model)
+        renderDevServers(model: model)
+        renderAgents(model: model)
+    }
+
+    private func renderActiveApps(model: NativeSidebarViewModel) {
+        let rows = activeAppRows(model: model)
+        guard !rows.isEmpty else {
+            return
+        }
+
+        addKidSection("apps")
+        for row in rows {
+            addRow(NativeSidebarKidRow(
+                dotColor: row.dotColor,
+                title: row.title,
+                titleColor: themeTokens.primaryText,
+                meta: row.meta,
+                themeTokens: themeTokens
+            ))
+        }
+    }
+
+    private func renderDevServers(model: NativeSidebarViewModel) {
+        addKidSection("dev servers")
+        addRow(NativeSidebarKidRow(
+            dotColor: model.isServerHealthy ? themeTokens.okBadge : themeTokens.failureBadge,
+            title: model.serverStatusText,
+            titleColor: themeTokens.primaryText,
+            meta: model.isServerHealthy ? "connected" : "reconnecting",
+            themeTokens: themeTokens
+        ))
+    }
+
+    private func renderAgents(model: NativeSidebarViewModel) {
         let detected = model.agentStatuses.filter { status in
             status.state != .notInstalled || status.detectedExecutablePath != nil
         }
@@ -455,6 +604,41 @@ final class NativeWorkspaceSidebarView: NSView {
                 onClick: { [weak self] in self?.onOpenAgentIntegrations?() }
             ))
         }
+    }
+
+    private func activeAppRows(model: NativeSidebarViewModel) -> [NativeSidebarChildPresentation] {
+        guard let paneGridState = model.paneGridState else {
+            return []
+        }
+        let activeWindow = paneGridState.windows.first { $0.windowID == paneGridState.activeWindowID }
+        let panes = activeWindow?.panes ?? paneGridState.windows.flatMap(\.panes)
+        let presenceByPane = model.agentPresenceRecords.reduce(into: [PaneID: AgentIntegration.AgentPresenceRecord]()) { partial, record in
+            guard Self.isVisiblePresence(record.state) else {
+                return
+            }
+            let existing = partial[record.provenance.paneID]
+            if existing.map({ Self.presencePriority($0.state) < Self.presencePriority(record.state) }) ?? true {
+                partial[record.provenance.paneID] = record
+            }
+        }
+
+        return panes.map { pane in
+            let title = normalizedAppTitle(pane.title) ?? pane.paneID.rawValue
+            let presence = presenceByPane[pane.paneID]
+            return NativeSidebarChildPresentation(
+                dotColor: presence.map { presenceColor(for: $0.state) } ?? (pane.isFocused ? themeTokens.accent : themeTokens.hairline),
+                title: title,
+                meta: presence.map { "\($0.agentID.rawValue) \($0.state.rawValue)" } ?? pane.tmuxPaneID.rawValue
+            )
+        }
+    }
+
+    private func normalizedAppTitle(_ title: String?) -> String? {
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed.lowercased()
     }
 
     private func renderRecentSection(rows: [WorkspaceIndex.WorkspaceSidebarItem], referenceDate: Date) {
@@ -508,6 +692,49 @@ final class NativeWorkspaceSidebarView: NSView {
             return (themeTokens.failureBadge, "config conflict")
         case .unsupported:
             return (themeTokens.hairline, "unsupported")
+        }
+    }
+
+    private func presenceColor(for state: AgentIntegration.AgentPresenceState) -> NSColor {
+        switch state {
+        case .failed:
+            return themeTokens.failureBadge
+        case .awaitingInput, .awaitingApproval:
+            return themeTokens.attentionBadge
+        case .busy:
+            return themeTokens.accent
+        case .sessionStarted:
+            return themeTokens.workflowBadge
+        case .turnCompleted:
+            return themeTokens.okBadge
+        case .sessionEnded:
+            return themeTokens.hairline
+        }
+    }
+
+    private static func isVisiblePresence(_ state: AgentIntegration.AgentPresenceState) -> Bool {
+        switch state {
+        case .sessionStarted, .busy, .awaitingInput, .awaitingApproval, .failed:
+            return true
+        case .turnCompleted, .sessionEnded:
+            return false
+        }
+    }
+
+    private static func presencePriority(_ state: AgentIntegration.AgentPresenceState) -> Int {
+        switch state {
+        case .failed:
+            return 5
+        case .awaitingApproval:
+            return 4
+        case .awaitingInput:
+            return 3
+        case .busy:
+            return 2
+        case .sessionStarted:
+            return 1
+        case .turnCompleted, .sessionEnded:
+            return 0
         }
     }
 
@@ -642,6 +869,12 @@ final class NativeWorkspaceSidebarView: NSView {
             footerStack.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
     }
+}
+
+private struct NativeSidebarChildPresentation {
+    let dotColor: NSColor
+    let title: String
+    let meta: String?
 }
 
 @MainActor

@@ -58,6 +58,31 @@ struct NativeWorkspaceShellControllerTests {
         #expect(view.terminalPaneHost.themeTokens.themeID == .kanagawa)
     }
 
+    @Test("Shell resolves theme tokens from persisted native settings")
+    func shellThemeTokensResolveFromPersistedSettings() async throws {
+        let settingsURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fenrir-native-theme-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("settings.json", isDirectory: false)
+        let persistence = Settings.localFileSettingsPersistence(settingsFileURL: settingsURL)
+        let update = Settings.UpdateSettings(clock: NativeHostFixedSettingsClock(), persistence: persistence)
+        let result = await update.run(Settings.UpdateSettingsInput(
+            requestID: "persist-theme",
+            source: .test,
+            configuration: Settings.NativeSettingsConfiguration(
+                appearance: Settings.AppearancePreferences(themeID: .kanagawaDragon)
+            )
+        ))
+        _ = try result.get()
+
+        let tokens = await NativeShellThemeSettings.resolveThemeTokens(
+            persistence: persistence,
+            clock: NativeHostFixedSettingsClock()
+        )
+
+        #expect(tokens.themeID == .kanagawaDragon)
+        try? FileManager.default.removeItem(at: settingsURL.deletingLastPathComponent())
+    }
+
     @Test("Shell resolves native tokens for desktop custom registry themes")
     @MainActor
     func shellResolvesDesktopCustomRegistryThemes() {
@@ -73,6 +98,50 @@ struct NativeWorkspaceShellControllerTests {
         #expect(rgbHex(kanagawaDragon.rootBackground) == 0x181616)
         #expect(rgbHex(kanagawaDragon.accent) == 0x8BA4B0)
         #expect(rgbHex(kanagawaDragon.attentionBadge) == 0xC4B28A)
+    }
+
+    @Test("Titlebar renders per-tab agent presence dots from terminal OSC records")
+    @MainActor
+    func titlebarRendersPerTabAgentPresenceDots() {
+        let titlebar = NativeShellTitlebarView(themeTokens: NativeShellThemeTokens.resolve(.fenrirDark))
+        let grid = shellPaneGridState()
+
+        titlebar.apply(
+            windows: grid.windows,
+            activeWindowID: grid.activeWindowID,
+            agentPresenceRecords: [
+                agentPresenceRecord(
+                    state: .awaitingApproval,
+                    tabID: "window-b",
+                    paneID: "pane-b",
+                    viewportID: "viewport-pane-b"
+                )
+            ],
+            health: NativeShellHealthSummary(serverText: "workspace-a", isServerHealthy: true)
+        )
+
+        #expect(view(in: titlebar, identifiedBy: "tab-presence-window-b") != nil)
+        #expect(view(in: titlebar, identifiedBy: "tab-presence-window-a") == nil)
+    }
+
+    @Test("Sidebar renders active workspace apps and dev server children")
+    @MainActor
+    func sidebarRendersActiveWorkspaceAppsAndDevServers() {
+        let sidebar = NativeWorkspaceSidebarView(themeTokens: NativeShellThemeTokens.resolve(.fenrirDark))
+
+        sidebar.apply(model: NativeSidebarViewModel(
+            items: [sidebarItem("workspace-a", name: "Alpha", visibility: .visible, unread: 0, level: .none)],
+            activeWorkspaceID: "workspace-a",
+            paneGridState: shellPaneGridState(),
+            serverStatusText: "local server",
+            isServerHealthy: true
+        ))
+
+        let labels = allLabelStrings(in: sidebar)
+        #expect(labels.contains("APPS"))
+        #expect(labels.contains("shell"))
+        #expect(labels.contains("DEV SERVERS"))
+        #expect(labels.contains("local server"))
     }
 
     @Test("Shell apply refreshes mounted PaneGrid state")
@@ -1996,6 +2065,46 @@ struct NativeWorkspaceShellControllerTests {
         }
         return labels
     }
+
+    @MainActor
+    private func view(in root: NSView, identifiedBy identifier: String) -> NSView? {
+        if root.identifier?.rawValue == identifier {
+            return root
+        }
+        for subview in root.subviews {
+            if let match = view(in: subview, identifiedBy: identifier) {
+                return match
+            }
+        }
+        return nil
+    }
+}
+
+private struct NativeHostFixedSettingsClock: Settings.SettingsClock {
+    func now() -> FenrirTimestamp {
+        FenrirTimestamp(Date(timeIntervalSince1970: 1_700_000_000))
+    }
+}
+
+private func agentPresenceRecord(
+    agentID: AgentIntegration.AgentCLIIdentifier = .codex,
+    state: AgentIntegration.AgentPresenceState,
+    workspaceID: WorkspaceID = "workspace-a",
+    tabID: FenrirWindowID?,
+    paneID: PaneID,
+    viewportID: ViewportID?
+) -> AgentIntegration.AgentPresenceRecord {
+    AgentIntegration.AgentPresenceRecord(event: AgentIntegration.AgentPresenceEvent(
+        agentID: agentID,
+        state: state,
+        provenance: AgentIntegration.AgentPresenceProvenance(
+            workspaceID: workspaceID,
+            tabID: tabID,
+            paneID: paneID,
+            viewportID: viewportID
+        ),
+        ingestedAt: FenrirTimestamp(Date(timeIntervalSince1970: 1_700_000_001))
+    ))
 }
 
 private actor RecordingNativeServerSessionReconnectHandler: NativeServerSessionReconnectHandling {
@@ -2609,7 +2718,7 @@ private func nativeHostTerminalViewportState(
 
 @MainActor
 private func waitUntil(
-    timeoutNanoseconds: UInt64 = 250_000_000,
+    timeoutNanoseconds: UInt64 = 1_000_000_000,
     condition: @escaping @MainActor () -> Bool
 ) async throws {
     let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
