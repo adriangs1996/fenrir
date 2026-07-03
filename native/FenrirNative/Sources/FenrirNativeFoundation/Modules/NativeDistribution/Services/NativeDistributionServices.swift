@@ -14,6 +14,10 @@ public extension NativeDistribution {
         func locateServerAsset() async throws -> ServerAssetProbeResult
     }
 
+    protocol TerminalRendererArtifactLocating: Sendable {
+        func locateTerminalRendererArtifact() async throws -> TerminalRendererArtifactProbeResult
+    }
+
     static func pathTmuxDependencyChecker() -> any TmuxDependencyChecking {
         PathTmuxDependencyChecker()
     }
@@ -27,6 +31,22 @@ public extension NativeDistribution {
             bundle: bundle,
             resourceName: resourceName,
             resourceExtension: resourceExtension
+        )
+    }
+
+    static func appResourceTerminalRendererArtifactLocator(
+        bundle: Bundle = .main,
+        artifactResourceName: String = "FenrirTerminalRenderer",
+        artifactResourceExtension: String? = nil,
+        resourcesResourceName: String = "FenrirTerminalResources",
+        resourcesResourceExtension: String? = nil
+    ) -> any TerminalRendererArtifactLocating {
+        AppResourceTerminalRendererArtifactLocator(
+            bundle: bundle,
+            artifactResourceName: artifactResourceName,
+            artifactResourceExtension: artifactResourceExtension,
+            resourcesResourceName: resourcesResourceName,
+            resourcesResourceExtension: resourcesResourceExtension
         )
     }
 }

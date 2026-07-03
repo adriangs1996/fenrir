@@ -60,17 +60,33 @@ extension WorkflowControl {
         orderedTimeline(events).last.map { $0.sequence + 1 }
     }
 
-    static func projection(run: WorkflowRunSnapshot, events: [WorkflowTimelineEvent]) -> WorkflowRunProjection {
+    static func projection(
+        run: WorkflowRunSnapshot,
+        events: [WorkflowTimelineEvent],
+        capabilities: WorkflowControlCapabilities = .currentServerDefault
+    ) -> WorkflowRunProjection {
         let timeline = orderedTimeline(events)
         let status = projectedStatus(initialStatus: run.status, events: timeline) ?? run.status
         return WorkflowRunProjection(
             run: run,
             status: status,
             timeline: timeline,
-            canPause: status == .running || status == .queued,
-            canStop: !status.isTerminal,
-            canRerun: status.isTerminal
+            canPause: capabilities.canPauseRuns && (status == .running || status == .queued),
+            canStop: capabilities.canStopRuns && !status.isTerminal,
+            canRerun: capabilities.canRerunRuns && status.isTerminal
         )
+    }
+
+    static func streamItem(_ item: WorkflowEventStreamItem, matches filter: WorkflowEventStreamFilter) -> Bool {
+        if !filter.runIDs.isEmpty {
+            guard let runID = item.runID, filter.runIDs.contains(runID) else {
+                return false
+            }
+        }
+        if let projectID = filter.projectID, let itemProjectID = item.projectID, itemProjectID != projectID {
+            return false
+        }
+        return item.run != nil || item.event != nil
     }
 
     static func visibleRuns(

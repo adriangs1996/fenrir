@@ -12,8 +12,8 @@ Public API:
 - `UpdateSettings`
 - `ObserveSettings`
 - local configuration contracts for app mode, server connection defaults,
-  workspace UI preferences, keybinding import preferences, and diagnostics
-  policy
+  workspace UI preferences, appearance/theme preferences, keybinding import
+  preferences, and diagnostics policy
 - `LocalSettingsPersistence` port for local settings data only
 
 Secrets:

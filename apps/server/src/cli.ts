@@ -1289,12 +1289,14 @@ interface NativeControlFlags {
 interface NativeControlRoute {
   readonly command: NativeHostControlCommand;
   readonly parameters: Readonly<Record<string, string>>;
+  readonly launchIfMissing?: boolean;
 }
 
 export const nativeControlRoutes = {
   open: (workspace: string): NativeControlRoute => ({
     command: "open",
     parameters: { workspaceID: workspace },
+    launchIfMissing: true,
   }),
   switchWorkspace: (workspace: string): NativeControlRoute => ({
     command: "switch",
@@ -1303,6 +1305,7 @@ export const nativeControlRoutes = {
   attach: (workspace: string): NativeControlRoute => ({
     command: "attach",
     parameters: { workspaceID: workspace },
+    launchIfMissing: true,
   }),
   remove: (workspace: string): NativeControlRoute => ({
     command: "remove",
@@ -1332,16 +1335,36 @@ export const nativeControlRoutes = {
     command: "diagnostics",
     parameters: {},
   }),
+  agentIntegrationStatus: (agent?: string): NativeControlRoute => ({
+    command: "diagnostics",
+    parameters:
+      agent === undefined || agent.length === 0
+        ? { operation: "agent-integration-status" }
+        : { operation: "agent-integration-status", agentID: agent },
+  }),
+  agentIntegrationRepair: (agent: string): NativeControlRoute => ({
+    command: "diagnostics",
+    parameters: { operation: "agent-integration-repair", agentID: agent },
+  }),
+  agentIntegrationRemove: (agent: string): NativeControlRoute => ({
+    command: "diagnostics",
+    parameters: { operation: "agent-integration-remove", agentID: agent },
+  }),
 } as const;
 
 const runNativeControlRequest = (
   flags: NativeControlFlags,
   command: NativeHostControlCommand,
   parameters: Readonly<Record<string, string>>,
+  options: { readonly launchIfMissing?: boolean } = {},
 ) =>
   Effect.gen(function* () {
     const requestID = `native-cli-${Date.now()}`;
     const socketPath = Option.getOrUndefined(flags.socket);
+    const clientOptions =
+      socketPath === undefined
+        ? { timeoutMs: flags.timeoutMs }
+        : { socketPath, timeoutMs: flags.timeoutMs };
     const response = yield* Effect.tryPromise({
       try: () =>
         sendNativeHostControlRequest(
@@ -1351,9 +1374,9 @@ const runNativeControlRequest = (
             command,
             parameters,
           },
-          socketPath === undefined
-            ? { timeoutMs: flags.timeoutMs }
-            : { socketPath, timeoutMs: flags.timeoutMs },
+          options.launchIfMissing === true
+            ? { ...clientOptions, launchIfMissing: true }
+            : clientOptions,
         ),
       catch: (error) =>
         error instanceof NativeHostControlClientError
@@ -1397,14 +1420,27 @@ const nativeWorkflowRunArgument = Argument.string("run-id").pipe(
   Argument.withDescription("Workflow run id."),
 );
 
+const nativeAgentIntegrationArgument = Argument.string("agent").pipe(
+  Argument.withDescription("Agent provider id: claude-code, codex, cursor, or opencode."),
+);
+
+const nativeAgentIntegrationOptionalArgument = nativeAgentIntegrationArgument.pipe(
+  Argument.optional,
+);
+
 const runNativeControlRoute = (flags: NativeControlFlags, route: NativeControlRoute) =>
-  runNativeControlRequest(flags, route.command, route.parameters);
+  runNativeControlRequest(
+    flags,
+    route.command,
+    route.parameters,
+    route.launchIfMissing === true ? { launchIfMissing: true } : {},
+  );
 
 const nativeControlOpenCommand = Command.make("open", {
   ...nativeControlFlags,
   workspace: nativeControlWorkspaceArgument,
 }).pipe(
-  Command.withDescription("Ask the running Fenrir Native app to open or focus a workspace."),
+  Command.withDescription("Open or focus a workspace, launching Fenrir Native when needed."),
   Command.withHandler((flags) =>
     runNativeControlRoute(flags, nativeControlRoutes.open(flags.workspace)),
   ),
@@ -1441,7 +1477,7 @@ const nativeControlAttachCommand = Command.make("attach", {
   ...nativeControlFlags,
   workspace: nativeControlWorkspaceArgument,
 }).pipe(
-  Command.withDescription("Ask the running Fenrir Native app to attach or open a workspace."),
+  Command.withDescription("Attach or open a workspace, launching Fenrir Native when needed."),
   Command.withHandler((flags) =>
     runNativeControlRoute(flags, nativeControlRoutes.attach(flags.workspace)),
   ),
@@ -1512,6 +1548,48 @@ const nativeControlDiagnosticsCommand = Command.make("diagnostics", nativeContro
   ),
 );
 
+const nativeControlAgentIntegrationStatusCommand = Command.make("status", {
+  ...nativeControlFlags,
+  agent: nativeAgentIntegrationOptionalArgument,
+}).pipe(
+  Command.withDescription("Show native provider integration status."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(
+      flags,
+      nativeControlRoutes.agentIntegrationStatus(Option.getOrUndefined(flags.agent)),
+    ),
+  ),
+);
+
+const nativeControlAgentIntegrationRepairCommand = Command.make("repair", {
+  ...nativeControlFlags,
+  agent: nativeAgentIntegrationArgument,
+}).pipe(
+  Command.withDescription("Repair native provider integration files."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.agentIntegrationRepair(flags.agent)),
+  ),
+);
+
+const nativeControlAgentIntegrationRemoveCommand = Command.make("remove", {
+  ...nativeControlFlags,
+  agent: nativeAgentIntegrationArgument,
+}).pipe(
+  Command.withDescription("Remove Fenrir-owned native provider integration files."),
+  Command.withHandler((flags) =>
+    runNativeControlRoute(flags, nativeControlRoutes.agentIntegrationRemove(flags.agent)),
+  ),
+);
+
+const nativeControlAgentIntegrationCommand = Command.make("agent-integration").pipe(
+  Command.withDescription("Inspect and repair native agent provider integrations."),
+  Command.withSubcommands([
+    nativeControlAgentIntegrationStatusCommand,
+    nativeControlAgentIntegrationRepairCommand,
+    nativeControlAgentIntegrationRemoveCommand,
+  ]),
+);
+
 const nativeControlCommand = Command.make("native-control").pipe(
   Command.withDescription("Control the running Fenrir Native app over the local Unix socket."),
   Command.withSubcommands([
@@ -1524,6 +1602,7 @@ const nativeControlCommand = Command.make("native-control").pipe(
     nativeControlPaletteCommand,
     nativeControlWorkflowCommand,
     nativeControlDiagnosticsCommand,
+    nativeControlAgentIntegrationCommand,
   ]),
 );
 
@@ -1596,6 +1675,15 @@ const productDiagnosticsCommand = Command.make("diagnostics", nativeControlFlags
   ),
 );
 
+const productAgentIntegrationCommand = Command.make("agent-integration").pipe(
+  Command.withDescription("Inspect and repair native agent provider integrations."),
+  Command.withSubcommands([
+    nativeControlAgentIntegrationStatusCommand,
+    nativeControlAgentIntegrationRepairCommand,
+    nativeControlAgentIntegrationRemoveCommand,
+  ]),
+);
+
 const startCommand = Command.make("start", commandFlags).pipe(
   Command.withDescription("Run the Fenrir server."),
   Command.withHandler((flags) =>
@@ -1629,5 +1717,6 @@ export const cli = Command.make("t3", commandFlags).pipe(
     productPaletteCommand,
     productWorkflowCommand,
     productDiagnosticsCommand,
+    productAgentIntegrationCommand,
   ]),
 );

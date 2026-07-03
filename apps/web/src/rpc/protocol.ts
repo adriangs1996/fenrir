@@ -14,6 +14,7 @@ import {
   recordWsConnectionClosed,
   recordWsConnectionErrored,
   recordWsConnectionOpened,
+  WS_RECONNECT_MAX_DELAY_MS,
   WS_RECONNECT_MAX_RETRIES,
 } from "./wsConnectionState";
 
@@ -167,6 +168,14 @@ export function createWsRpcProtocolLayer(
       ? resolveAsyncWsRpcSocketUrl(url, lifecycle)
       : resolveWsRpcSocketUrl(url);
 
+  // Consecutive failed attempts since the last successful open. This drives
+  // the retry backoff instead of the schedule's own lifetime counter: the
+  // schedule never resets across reconnects, so a budget-bounded schedule
+  // silently kills the protocol after enough disconnects spread over a long
+  // session, and a lifetime-indexed delay would punish a fresh outage with
+  // the maximum backoff.
+  let retryStreak = 0;
+
   const trackingWebSocketConstructorLayer = Layer.succeed(
     Socket.WebSocketConstructor,
     (socketUrl, protocols) => {
@@ -176,6 +185,7 @@ export function createWsRpcProtocolLayer(
       socket.addEventListener(
         "open",
         () => {
+          retryStreak = 0;
           lifecycle.onOpen();
         },
         { once: true },
@@ -215,8 +225,18 @@ export function createWsRpcProtocolLayer(
   const socketLayer = Socket.layerWebSocket(resolvedUrl).pipe(
     Layer.provide(trackingWebSocketConstructorLayer),
   );
-  const retryPolicy = Schedule.addDelay(Schedule.recurs(WS_RECONNECT_MAX_RETRIES), (retryCount) =>
-    Effect.succeed(Duration.millis(getWsReconnectDelayMsForRetry(retryCount) ?? 0)),
+  // Never stop retrying at the protocol level: a bounded retry budget dies
+  // silently (the protocol fiber ends while the transport session lives on)
+  // and leaves recovery to UI-level watchdogs. The backoff ladder is indexed
+  // by the current failure streak and capped at the max delay.
+  const retryPolicy = Schedule.addDelay(Schedule.forever, () =>
+    Effect.sync(() => {
+      const delayMs =
+        getWsReconnectDelayMsForRetry(Math.min(retryStreak, WS_RECONNECT_MAX_RETRIES - 1)) ??
+        WS_RECONNECT_MAX_DELAY_MS;
+      retryStreak += 1;
+      return Duration.millis(delayMs);
+    }),
   );
   const protocolLayer = Layer.effect(
     RpcClient.Protocol,

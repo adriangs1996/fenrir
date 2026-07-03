@@ -1,5 +1,6 @@
 import Foundation
 import FenrirNativeShared
+import NativeDistribution
 import ServerConnection
 import Testing
 @testable import FenrirNativeApp
@@ -12,6 +13,7 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
         var events: [String] = []
         let context = NativeAppServerConnectionContext.localDefault(bootstrapCredential: "desktop-bootstrap-token")
         let coordinator = NativeApplicationBootstrapCoordinator(
+            assessDistributionReadiness: { .success(nativeHostReadyDistributionReport()) },
             prepareLocalDefault: {
                 await MainActor.run {
                     events.append("prepare")
@@ -51,6 +53,7 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
         var logs: [String] = []
         let fallbackContext = NativeAppServerConnectionContext.localDefault(bootstrapCredential: "desktop-bootstrap-token")
         let coordinator = NativeApplicationBootstrapCoordinator(
+            assessDistributionReadiness: { .success(nativeHostReadyDistributionReport()) },
             prepareLocalDefault: {
                 await MainActor.run {
                     events.append("prepare")
@@ -92,6 +95,59 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
         #expect(logs.contains { $0.contains(ServerConnection.ServerConnectionError.localServerReadinessFailed.rawValue) })
     }
 
+    @Test("NativeHost startup records distribution readiness diagnostics before preparing")
+    @MainActor
+    func nativeHostStartupRecordsDistributionReadinessDiagnostics() async {
+        var events: [String] = []
+        var logs: [String] = []
+        let context = NativeAppServerConnectionContext.localDefault(bootstrapCredential: "desktop-bootstrap-token")
+        let report = nativeHostReadyDistributionReport(
+            canStart: false,
+            diagnostics: [NativeDistribution.StartupDiagnostic(
+                severity: .error,
+                title: "tmux is required",
+                message: "tmux was not found on PATH.",
+                recoverySuggestion: "Install tmux 3.2 or newer."
+            )]
+        )
+        let coordinator = NativeApplicationBootstrapCoordinator(
+            assessDistributionReadiness: {
+                await MainActor.run { events.append("readiness") }
+                return .success(report)
+            },
+            prepareLocalDefault: {
+                await MainActor.run { events.append("prepare") }
+                return .success(context)
+            },
+            composeRuntime: { context, shouldShutdownPreparedLocalServer in
+                events.append("compose:\(shouldShutdownPreparedLocalServer)")
+                return NativeApplicationRuntime.live(
+                    serverConnection: context,
+                    shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer
+                )
+            },
+            openInitialWorkspace: { _ in events.append("open-workspace") },
+            startClientControlSocket: { _ in events.append("start-socket") },
+            activateApplication: { events.append("activate") },
+            logMessage: { message in logs.append(message) }
+        )
+
+        let snapshot = await coordinator.start()
+
+        #expect(events == [
+            "readiness",
+            "prepare",
+            "compose:true",
+            "open-workspace",
+            "start-socket",
+            "activate"
+        ])
+        #expect(snapshot.phase == .running(.degradedDistributionReadiness))
+        #expect(snapshot.preparationError == nil)
+        #expect(snapshot.distributionReadinessReport == report)
+        #expect(logs.contains { $0.contains("tmux is required") && $0.contains("Install tmux") })
+    }
+
     @Test("NativeHost termination invokes shutdown for prepared native-managed runtime")
     @MainActor
     func nativeHostTerminationInvokesPreparedShutdown() async {
@@ -99,6 +155,7 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
         var logs: [String] = []
         let context = NativeAppServerConnectionContext.localDefault(bootstrapCredential: "desktop-bootstrap-token")
         let coordinator = NativeApplicationBootstrapCoordinator(
+            assessDistributionReadiness: { .success(nativeHostReadyDistributionReport()) },
             prepareLocalDefault: {
                 await MainActor.run {
                     events.append("prepare")
@@ -152,6 +209,7 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
         let gate = SuspendedNativeHostPrepareGate()
         let context = NativeAppServerConnectionContext.localDefault(bootstrapCredential: "desktop-bootstrap-token")
         let coordinator = NativeApplicationBootstrapCoordinator(
+            assessDistributionReadiness: { .success(nativeHostReadyDistributionReport()) },
             prepareLocalDefault: {
                 await MainActor.run {
                     events.append("prepare-start")
@@ -207,6 +265,20 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
             shutdownError: .localServerShutdownFailed
         ))
     }
+}
+
+
+private func nativeHostReadyDistributionReport(
+    canStart: Bool = true,
+    diagnostics: [NativeDistribution.StartupDiagnostic] = []
+) -> NativeDistribution.StartupReadinessReport {
+    NativeDistribution.StartupReadinessReport(
+        mode: .localDefault,
+        canStart: canStart,
+        checks: [],
+        diagnostics: diagnostics,
+        generatedAt: FenrirTimestamp(Date(timeIntervalSince1970: 1_700_000_002))
+    )
 }
 
 private actor SuspendedNativeHostPrepareGate {

@@ -14,14 +14,29 @@ type Loader = {
 };
 const defaultSqliteClientLoaders = {
   bun: () => import("@effect/sql-sqlite-bun/SqliteClient"),
-  node: () => import("../NodeSqliteClient.ts"),
+  node: () => import("../NodeSqliteWorkerClient.ts"),
+  nodeSync: () => import("../NodeSqliteClient.ts"),
 } satisfies Record<string, () => Promise<Loader>>;
+
+const resolveSqliteRuntime = (
+  config: RuntimeSqliteLayerConfig,
+): keyof typeof defaultSqliteClientLoaders => {
+  if (process.versions.bun !== undefined) {
+    return "bun";
+  }
+  // The worker-hosted driver keeps the main event loop responsive while
+  // synchronous SQLite work runs. `:memory:` databases stay in-process: they
+  // are test-only and a worker would add spawn latency per test layer.
+  if (config.filename === ":memory:" || process.env.FENRIR_SQLITE_DRIVER === "sync") {
+    return "nodeSync";
+  }
+  return "node";
+};
 
 const makeRuntimeSqliteLayer = Effect.fn("makeRuntimeSqliteLayer")(function* (
   config: RuntimeSqliteLayerConfig,
 ) {
-  const runtime = process.versions.bun !== undefined ? "bun" : "node";
-  const loader = defaultSqliteClientLoaders[runtime];
+  const loader = defaultSqliteClientLoaders[resolveSqliteRuntime(config)];
   const clientModule = yield* Effect.promise<Loader>(loader);
   return clientModule.layer(config);
 }, Layer.unwrap);

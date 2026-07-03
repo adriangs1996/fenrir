@@ -11,6 +11,7 @@ extension Settings {
         let appMode: AppMode?
         let serverConnection: StoredServerConnectionDefaults?
         let workspaceUI: StoredWorkspaceUIPreferences?
+        let appearance: StoredAppearancePreferences?
         let keybindingImport: StoredKeybindingImportPreferences?
         let diagnostics: StoredDiagnosticsPolicy?
 
@@ -19,6 +20,7 @@ extension Settings {
             appMode: AppMode? = nil,
             serverConnection: StoredServerConnectionDefaults? = nil,
             workspaceUI: StoredWorkspaceUIPreferences? = nil,
+            appearance: StoredAppearancePreferences? = nil,
             keybindingImport: StoredKeybindingImportPreferences? = nil,
             diagnostics: StoredDiagnosticsPolicy? = nil
         ) {
@@ -26,6 +28,7 @@ extension Settings {
             self.appMode = appMode
             self.serverConnection = serverConnection
             self.workspaceUI = workspaceUI
+            self.appearance = appearance
             self.keybindingImport = keybindingImport
             self.diagnostics = diagnostics
         }
@@ -36,6 +39,7 @@ extension Settings {
                 appMode: configuration.appMode,
                 serverConnection: StoredServerConnectionDefaults(configuration: configuration.serverConnection),
                 workspaceUI: StoredWorkspaceUIPreferences(configuration: configuration.workspaceUI),
+                appearance: StoredAppearancePreferences(configuration: configuration.appearance),
                 keybindingImport: StoredKeybindingImportPreferences(configuration: configuration.keybindingImport),
                 diagnostics: StoredDiagnosticsPolicy(configuration: configuration.diagnostics)
             )
@@ -47,6 +51,7 @@ extension Settings {
                 appMode: appMode ?? NativeSettingsConfiguration.defaults.appMode,
                 serverConnection: serverConnection?.defaultedConfiguration ?? NativeSettingsConfiguration.defaults.serverConnection,
                 workspaceUI: workspaceUI?.defaultedConfiguration ?? NativeSettingsConfiguration.defaults.workspaceUI,
+                appearance: appearance?.defaultedConfiguration ?? NativeSettingsConfiguration.defaults.appearance,
                 keybindingImport: keybindingImport?.defaultedConfiguration ?? NativeSettingsConfiguration.defaults.keybindingImport,
                 diagnostics: diagnostics?.defaultedConfiguration ?? NativeSettingsConfiguration.defaults.diagnostics
             )
@@ -160,6 +165,23 @@ extension Settings {
                 tabPlacement: tabPlacement ?? defaults.tabPlacement,
                 confirmDestructiveWorkspaceActions: confirmDestructiveWorkspaceActions ?? defaults.confirmDestructiveWorkspaceActions
             )
+        }
+    }
+
+    struct StoredAppearancePreferences: Codable, Equatable, Sendable {
+        let themeID: ThemeID?
+
+        init(themeID: ThemeID? = nil) {
+            self.themeID = themeID
+        }
+
+        init(configuration: AppearancePreferences) {
+            self.init(themeID: configuration.themeID)
+        }
+
+        var defaultedConfiguration: AppearancePreferences {
+            let defaults = NativeSettingsConfiguration.defaults.appearance
+            return AppearancePreferences(themeID: themeID ?? defaults.themeID)
         }
     }
 
@@ -315,6 +337,7 @@ extension Settings.NativeSettingsConfiguration {
             appMode: appMode,
             serverConnection: serverConnection,
             workspaceUI: workspaceUI,
+            appearance: appearance,
             keybindingImport: keybindingImport,
             diagnostics: diagnostics
         )

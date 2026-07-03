@@ -204,6 +204,34 @@ public extension WorkflowControl {
         }
     }
 
+    struct ObserveWorkflowEventStream {
+        public let eventStream: any WorkflowEventStreaming
+
+        public init(eventStream: any WorkflowEventStreaming) {
+            self.eventStream = eventStream
+        }
+
+        public func run(_ input: ObserveWorkflowEventStreamInput) async -> AsyncThrowingStream<WorkflowEventStreamItem, Error> {
+            let upstream = await eventStream.observeWorkflowEvents(filter: input.filter)
+            return AsyncThrowingStream { continuation in
+                let task = Task {
+                    do {
+                        for try await item in upstream {
+                            guard WorkflowControl.streamItem(item, matches: input.filter) else {
+                                continue
+                            }
+                            continuation.yield(item)
+                        }
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
+        }
+    }
+
     struct ProjectWorkflowRunState: FenrirAction {
         public typealias Failure = WorkflowControlError
 

@@ -105,6 +105,7 @@ struct NativeHostDiagnosticsInput: Equatable, Sendable {
     let operation: String
     let workspaceID: WorkspaceID?
     let runID: WorkflowControl.WorkflowRunID?
+    let agentID: String?
     let contextSource: Keybinding.AgentComposerContextSource?
     let expectedMarker: String?
     let selectionText: String?
@@ -114,6 +115,7 @@ struct NativeHostDiagnosticsInput: Equatable, Sendable {
         operation: String = "open",
         workspaceID: WorkspaceID? = nil,
         runID: WorkflowControl.WorkflowRunID? = nil,
+        agentID: String? = nil,
         contextSource: Keybinding.AgentComposerContextSource? = nil,
         expectedMarker: String? = nil,
         selectionText: String? = nil
@@ -122,6 +124,7 @@ struct NativeHostDiagnosticsInput: Equatable, Sendable {
         self.operation = operation
         self.workspaceID = workspaceID
         self.runID = runID
+        self.agentID = agentID
         self.contextSource = contextSource
         self.expectedMarker = expectedMarker
         self.selectionText = selectionText
@@ -362,6 +365,7 @@ struct NativeHostControlController: Sendable {
                 operation: request.parameters["operation"] ?? "open",
                 workspaceID: request.parameters["workspaceID"].map(WorkspaceID.init(rawValue:)),
                 runID: request.parameters["runID"].map(WorkflowControl.WorkflowRunID.init(rawValue:)),
+                agentID: request.parameters["agentID"],
                 contextSource: NativeHostControlController.agentComposerContextSource(from: request.parameters),
                 expectedMarker: request.parameters["expectedMarker"],
                 selectionText: request.parameters["selectionText"]

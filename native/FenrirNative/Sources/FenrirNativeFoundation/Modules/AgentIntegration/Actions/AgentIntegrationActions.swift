@@ -114,6 +114,34 @@ public extension AgentIntegration {
         }
     }
 
+    struct ResolveAgentProviderInstallTargets: FenrirAction {
+        public typealias Failure = AgentIntegrationError
+
+        let resolver: any AgentProviderInstallTargetResolving
+        let clock: any AgentIntegrationClock
+
+        public init(resolver: any AgentProviderInstallTargetResolving, clock: any AgentIntegrationClock) {
+            self.resolver = resolver
+            self.clock = clock
+        }
+
+        public func run(_ input: ResolveAgentProviderInstallTargetsInput) async -> Result<ResolveAgentProviderInstallTargetsResult, AgentIntegrationError> {
+            do {
+                let targets: [AgentProviderInstallTarget]
+                if let agentID = input.agentID {
+                    targets = [try await resolver.resolveAgentProviderInstallTarget(for: agentID)]
+                } else {
+                    targets = try await resolver.resolveAgentProviderInstallTargets()
+                }
+                return .success(ResolveAgentProviderInstallTargetsResult(requestID: input.requestID, targets: targets, timestamp: clock.now()))
+            } catch let error as AgentIntegrationError {
+                return .failure(error)
+            } catch {
+                return .failure(.unavailable)
+            }
+        }
+    }
+
     struct IngestAgentPresenceSignal: FenrirAction {
         public typealias Failure = AgentIntegrationError
 

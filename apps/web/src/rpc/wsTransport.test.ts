@@ -569,6 +569,57 @@ describe("WsTransport", () => {
     });
   });
 
+  it("rebuilds the session when the protocol layer transparently replaces the socket", async () => {
+    const transport = createTransport("ws://localhost:3020");
+    const listener = vi.fn();
+
+    transport.subscribe((client) => client[WS_METHODS.subscribeServerLifecycle]({}), listener, {
+      retryDelay: 25,
+    });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+    const firstSocket = getSocket();
+    firstSocket.open();
+
+    await waitFor(() => {
+      expect(firstSocket.sent).toHaveLength(1);
+    });
+
+    // The socket dies without the transport being told to reconnect: the
+    // protocol layer retries internally and creates a replacement socket
+    // within the same transport session. The server has lost all
+    // subscription state for this client at this point.
+    firstSocket.close(1013, "server stalled");
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(2);
+    });
+    const secondSocket = getSocket();
+    secondSocket.open();
+
+    // Opening a replacement socket mid-session must escalate to a full
+    // session rebuild so every subscription is re-issued.
+    await waitFor(() => {
+      expect(sockets).toHaveLength(3);
+    }, 3_000);
+    const thirdSocket = getSocket();
+    thirdSocket.open();
+
+    await waitFor(() => {
+      const resubscribeRequest = thirdSocket.sent
+        .map((message) => JSON.parse(message) as { _tag?: string; tag?: string })
+        .find(
+          (message) =>
+            message._tag === "Request" && message.tag === WS_METHODS.subscribeServerLifecycle,
+        );
+      expect(resubscribeRequest).toBeDefined();
+    }, 3_000);
+
+    await transport.dispose();
+  });
+
   it("ignores stale socket lifecycle events after a reconnect starts a new session", async () => {
     const onClose = vi.fn();
     const transport = createTransport("ws://localhost:3020", { onClose });

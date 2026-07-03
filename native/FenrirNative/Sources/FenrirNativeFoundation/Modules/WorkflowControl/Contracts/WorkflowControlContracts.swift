@@ -71,6 +71,44 @@ public extension WorkflowControl {
         case api
     }
 
+    struct WorkflowControlCapabilities: Codable, Equatable, Sendable {
+        public let canPauseRuns: Bool
+        public let canStopRuns: Bool
+        public let canRerunRuns: Bool
+        public let canRespondToInputRequests: Bool
+        public let canObserveEventStream: Bool
+
+        public init(
+            canPauseRuns: Bool = false,
+            canStopRuns: Bool = true,
+            canRerunRuns: Bool = true,
+            canRespondToInputRequests: Bool = true,
+            canObserveEventStream: Bool = false
+        ) {
+            self.canPauseRuns = canPauseRuns
+            self.canStopRuns = canStopRuns
+            self.canRerunRuns = canRerunRuns
+            self.canRespondToInputRequests = canRespondToInputRequests
+            self.canObserveEventStream = canObserveEventStream
+        }
+
+        public static let currentServerDefault = WorkflowControlCapabilities(
+            canPauseRuns: false,
+            canStopRuns: true,
+            canRerunRuns: true,
+            canRespondToInputRequests: true,
+            canObserveEventStream: true
+        )
+
+        public static let unavailable = WorkflowControlCapabilities(
+            canPauseRuns: false,
+            canStopRuns: false,
+            canRerunRuns: false,
+            canRespondToInputRequests: false,
+            canObserveEventStream: false
+        )
+    }
+
     enum WorkflowInputRequestStatus: String, Codable, Equatable, Sendable {
         case pending
         case resolved
@@ -434,6 +472,53 @@ public extension WorkflowControl {
             case payload
             case sequence
             case createdAt
+        }
+    }
+
+    struct WorkflowEventStreamFilter: Codable, Equatable, Sendable {
+        public let projectID: String?
+        public let runIDs: [WorkflowRunID]
+
+        public init(projectID: String? = nil, runIDs: [WorkflowRunID] = []) {
+            self.projectID = projectID
+            self.runIDs = runIDs
+        }
+    }
+
+    struct WorkflowEventStreamItem: Codable, Equatable, Sendable {
+        public enum Kind: String, Codable, Equatable, Sendable {
+            case runChanged = "workflow.run.changed"
+            case eventAppended = "workflow.event.appended"
+        }
+
+        public let kind: Kind
+        public let run: WorkflowRunSnapshot?
+        public let event: WorkflowTimelineEvent?
+
+        public init(kind: Kind, run: WorkflowRunSnapshot? = nil, event: WorkflowTimelineEvent? = nil) {
+            self.kind = kind
+            self.run = run
+            self.event = event
+        }
+
+        public var runID: WorkflowRunID? {
+            run?.runID ?? event?.runID
+        }
+
+        public var projectID: String? {
+            run?.projectID
+        }
+    }
+
+    struct ObserveWorkflowEventStreamInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let filter: WorkflowEventStreamFilter
+        public let source: ActionSource
+
+        public init(requestID: RequestID, filter: WorkflowEventStreamFilter = .init(), source: ActionSource) {
+            self.requestID = requestID
+            self.filter = filter
+            self.source = source
         }
     }
 

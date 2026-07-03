@@ -47,6 +47,160 @@ struct AgentIntegrationTests {
         #expect(result.statuses.map(\.state) == [.installed, .outdated, .notInstalled, .installed])
     }
 
+    @Test("path detector reports supported agent CLIs without mutating user config")
+    func pathDetectorReportsSupportedAgentCLIs() async throws {
+        let detector = AgentIntegration.PathAgentIntegrationDetector(
+            pathEnvironment: "/agents/bin:/usr/bin",
+            expectedVersion: "2.0.0",
+            isExecutableFile: { path in
+                path == "/agents/bin/codex" || path == "/agents/bin/claude"
+            }
+        )
+
+        let statuses = try await detector.detectAgentIntegrations()
+        let codex = try #require(statuses.first { $0.agent.id == .codex })
+        let claude = try #require(statuses.first { $0.agent.id == .claudeCode })
+        let cursor = try #require(statuses.first { $0.agent.id == .cursor })
+
+        #expect(statuses.map { $0.agent.id } == [.claudeCode, .codex, .cursor, .openCode])
+        #expect(codex.detectedExecutablePath == "/agents/bin/codex")
+        #expect(claude.detectedExecutablePath == "/agents/bin/claude")
+        #expect(cursor.detectedExecutablePath == nil)
+        #expect(codex.state == .notInstalled)
+        #expect(codex.expectedVersion == "2.0.0")
+        #expect(codex.ownership == nil)
+    }
+
+    @Test("path detector rejects custom and future adapters until explicit installers exist")
+    func pathDetectorRejectsUnsupportedAdapters() async {
+        let detector = AgentIntegration.PathAgentIntegrationDetector(pathEnvironment: "/agents/bin")
+
+        await #expect(throws: AgentIntegration.AgentIntegrationError.unsupportedAgent(.custom)) {
+            _ = try await detector.integrationStatus(for: .custom)
+        }
+        await #expect(throws: AgentIntegration.AgentIntegrationError.unsupportedAgent(.future)) {
+            _ = try await detector.integrationStatus(for: .future)
+        }
+    }
+
+    @Test("first-run prompt is false when not installed agents have no detected executable")
+    func panelStateDoesNotPromptForAbsentAgents() {
+        let panelState = AgentIntegration.AgentIntegrationPanelState(
+            statuses: [
+                status(.claudeCode, state: .notInstalled, installedVersion: nil, detectedExecutablePath: nil),
+                status(.codex, state: .notInstalled, installedVersion: nil, detectedExecutablePath: nil)
+            ],
+            timestamp: fixedClock.now()
+        )
+
+        #expect(panelState.degradedStatuses.isEmpty)
+        #expect(!panelState.shouldPresentFirstRunPrompt)
+        #expect(panelState.summaryText == "2 agents checked, all integrations current")
+        #expect(panelState.rowTexts == ["Claude Code: not installed", "Codex: not installed"])
+    }
+
+    @Test("first-run prompt is true for detected not installed, outdated, and conflicted agents")
+    func panelStatePromptsForDegradedAgents() {
+        let panelState = AgentIntegration.AgentIntegrationPanelState(
+            statuses: [
+                status(.claudeCode, state: .notInstalled, installedVersion: nil, detectedExecutablePath: "/agents/bin/claude"),
+                status(.codex, state: .outdated, installedVersion: "0.9.0"),
+                status(.cursor, state: .conflicted),
+                status(.custom, state: .unsupported, detectedExecutablePath: nil)
+            ],
+            lastProvisioningResult: AgentIntegration.AgentProvisioningResult(
+                requestID: "repair-codex",
+                agentID: .codex,
+                change: .updated,
+                status: status(.codex, state: .installed),
+                timestamp: fixedClock.now()
+            ),
+            lastErrorMessage: "conflict",
+            timestamp: fixedClock.now()
+        )
+
+        #expect(panelState.degradedStatuses.map(\.agent.id) == [.claudeCode, .codex, .cursor, .custom])
+        #expect(panelState.shouldPresentFirstRunPrompt)
+        #expect(panelState.summaryText == "4 agents checked, 4 need attention")
+        #expect(panelState.rowTexts == [
+            "Claude Code: detected at /agents/bin/claude, integration not installed",
+            "Codex: outdated 0.9.0 -> 1.0.0",
+            "Cursor: conflicted",
+            "Custom Agent: unsupported"
+        ])
+        #expect(panelState.lastProvisioningResult?.change == .updated)
+        #expect(panelState.lastErrorMessage == "conflict")
+    }
+
+    @Test("view commands preserve request source and kind shape")
+    func viewCommandShape() {
+        let refresh = AgentIntegration.AgentIntegrationViewCommand(requestID: "refresh", source: .test, kind: .refresh)
+        let repair = AgentIntegration.AgentIntegrationViewCommand(requestID: "repair", source: .test, kind: .repair(agentID: .codex))
+        let remove = AgentIntegration.AgentIntegrationViewCommand(requestID: "remove", source: .test, kind: .remove(agentID: .claudeCode))
+
+        #expect(refresh == AgentIntegration.AgentIntegrationViewCommand(requestID: "refresh", source: .test, kind: .refresh))
+        #expect(refresh.requestID == "refresh")
+        #expect(refresh.source == .test)
+        #expect(refresh.kind == .refresh)
+        #expect(repair.kind == .repair(agentID: .codex))
+        #expect(remove.kind == .remove(agentID: .claudeCode))
+    }
+
+    @MainActor
+    @Test("panel view emits refresh repair remove commands from workspace shell")
+    func panelViewCommandSequence() {
+        let view = AgentIntegration.AgentIntegrationPanelView(state: AgentIntegration.AgentIntegrationPanelState(
+            statuses: [
+                status(.codex, state: .outdated, installedVersion: "0.9.0"),
+                status(.claudeCode, state: .conflicted)
+            ],
+            timestamp: fixedClock.now()
+        ))
+        var commands: [AgentIntegration.AgentIntegrationViewCommand] = []
+        view.onCommand = { commands.append($0) }
+
+        view.refresh(requestID: "refresh")
+        view.repair(agentID: .codex, requestID: "repair")
+        view.remove(agentID: .claudeCode, requestID: "remove")
+
+        #expect(commands == [
+            AgentIntegration.AgentIntegrationViewCommand(requestID: "refresh", source: .workspaceShell, kind: .refresh),
+            AgentIntegration.AgentIntegrationViewCommand(requestID: "repair", source: .workspaceShell, kind: .repair(agentID: .codex)),
+            AgentIntegration.AgentIntegrationViewCommand(requestID: "remove", source: .workspaceShell, kind: .remove(agentID: .claudeCode))
+        ])
+    }
+
+    @MainActor
+    @Test("panel view apply updates visible summary and rows")
+    func panelViewApplyUpdatesVisibleText() {
+        let initialState = AgentIntegration.AgentIntegrationPanelState(
+            statuses: [
+                status(.codex, state: .installed)
+            ],
+            timestamp: fixedClock.now()
+        )
+        let updatedState = AgentIntegration.AgentIntegrationPanelState(
+            statuses: [
+                status(.claudeCode, state: .notInstalled, installedVersion: nil, detectedExecutablePath: "/agents/bin/claude"),
+                status(.codex, state: .installed)
+            ],
+            timestamp: fixedClock.now()
+        )
+        let view = AgentIntegration.AgentIntegrationPanelView(state: initialState)
+
+        #expect(view.visibleSummaryText == "1 agents checked, all integrations current")
+        #expect(view.visibleRowTexts == ["Codex: installed 1.0.0"])
+
+        view.apply(updatedState)
+
+        #expect(view.state == updatedState)
+        #expect(view.visibleSummaryText == "2 agents checked, 1 need attention")
+        #expect(view.visibleRowTexts == [
+            "Claude Code: detected at /agents/bin/claude, integration not installed",
+            "Codex: installed 1.0.0"
+        ])
+    }
+
     @Test("install update remove actions call installer ports and preserve typed result semantics")
     func provisioningActionsCallInstallerPorts() async throws {
         let installer = FakeInstaller()
@@ -150,7 +304,9 @@ struct AgentIntegrationTests {
             "AgentMCPProvisioning",
             "AgentPresenceStoring",
             "AgentIntegrationEventSinking",
-            "AgentIntegrationPreferences"
+            "AgentIntegrationPreferences",
+            "AgentIntegrationViewCommand",
+            "AgentIntegrationPanelState"
         ]
 
         #expect(!publicServicePortNames.contains { $0.localizedCaseInsensitiveContains("PaneWrite") })
@@ -182,16 +338,18 @@ private let managedEditor = AgentIntegration.ManagedConfigBlockEditor(ownership:
 private func status(
     _ id: AgentIntegration.AgentCLIIdentifier,
     state: AgentIntegration.IntegrationState,
-    installedVersion: AgentIntegration.IntegrationVersion? = "1.0.0"
+    installedVersion: AgentIntegration.IntegrationVersion? = "1.0.0",
+    detectedExecutablePath: String? = nil
 ) -> AgentIntegration.AgentIntegrationStatus {
     let descriptor = AgentIntegration.supportedAgentDescriptors.first { $0.id == id }!
+    let defaultDetectedExecutablePath = state == .notInstalled ? nil : "/usr/local/bin/\(descriptor.executableNames.first ?? id.rawValue)"
     return AgentIntegration.AgentIntegrationStatus(
         agent: descriptor,
         state: state,
         installedVersion: installedVersion,
         expectedVersion: "1.0.0",
         ownership: .init(version: "1.0.0", blockID: "\(id.rawValue)-hooks"),
-        detectedExecutablePath: state == .notInstalled ? nil : "/usr/local/bin/\(descriptor.executableNames.first ?? id.rawValue)"
+        detectedExecutablePath: detectedExecutablePath ?? defaultDetectedExecutablePath
     )
 }
 

@@ -33,6 +33,206 @@ struct TerminalViewportTests {
         #expect(outOfOrder == .failure(TerminalViewport.TerminalViewportError.streamOrderViolation))
     }
 
+    @Test("IngestTerminalOutput strips and forwards reserved OSC terminated by BEL")
+    func ingestTerminalOutputStripsAndForwardsReservedOSCBEL() async throws {
+        let store = TerminalStore()
+        let renderer = RendererWriter()
+        let forwarder = ReservedOSCForwarder()
+        try await store.saveViewport(state(tabID: "tab-1", streamID: "stream-1"))
+        let action = TerminalViewport.IngestTerminalOutput(
+            store: store,
+            rendererWriter: renderer,
+            reservedOSCForwarder: forwarder,
+            clock: FixedClock()
+        )
+
+        _ = try await action.run(outputInput(sequence: 1, bytes: reservedOSC(payload: "busy", terminator: .bel, prefix: "before", suffix: "after"))).get()
+
+        #expect(await renderer.ingested == [Data("before".utf8), Data("after".utf8)])
+        let signals = await forwarder.signals
+        #expect(signals.map(\.oscIdentifier) == [TerminalViewport.fenrirReservedOSCIdentifier])
+        #expect(signals.map(\.payload) == ["busy"])
+        #expect(signals.first?.provenance.workspaceID == "workspace-1")
+        #expect(signals.first?.provenance.tabID == "tab-1")
+        #expect(signals.first?.provenance.paneID == "pane-1")
+        #expect(signals.first?.provenance.viewportID == "viewport-1")
+        #expect(signals.first?.provenance.streamID == "stream-1")
+        #expect(signals.first?.provenance.sequence == 1)
+    }
+
+    @Test("IngestTerminalOutput applies reserved OSC operations in stream order")
+    func ingestTerminalOutputAppliesReservedOSCOperationsInStreamOrder() async throws {
+        let store = TerminalStore()
+        let recorder = TerminalOperationRecorder()
+        let renderer = RendererWriter(recorder: recorder)
+        let forwarder = ReservedOSCForwarder(recorder: recorder)
+        try await store.saveViewport(state(streamID: "stream-1"))
+        let action = TerminalViewport.IngestTerminalOutput(
+            store: store,
+            rendererWriter: renderer,
+            reservedOSCForwarder: forwarder,
+            clock: FixedClock()
+        )
+
+        _ = try await action.run(outputInput(sequence: 1, bytes: reservedOSC(payload: "busy", terminator: .bel, prefix: "before", suffix: "after"))).get()
+
+        #expect(await recorder.operations == [
+            .renderer(Data("before".utf8)),
+            .signal("busy"),
+            .renderer(Data("after".utf8))
+        ])
+    }
+
+    @Test("IngestTerminalOutput strips and forwards reserved OSC terminated by ST")
+    func ingestTerminalOutputStripsAndForwardsReservedOSCST() async throws {
+        let store = TerminalStore()
+        let renderer = RendererWriter()
+        let forwarder = ReservedOSCForwarder()
+        try await store.saveViewport(state(streamID: "stream-1"))
+        let action = TerminalViewport.IngestTerminalOutput(
+            store: store,
+            rendererWriter: renderer,
+            reservedOSCForwarder: forwarder,
+            clock: FixedClock()
+        )
+
+        _ = try await action.run(outputInput(sequence: 1, bytes: reservedOSC(payload: #"{"state":"done"}"#, terminator: .st, prefix: "left", suffix: "right"))).get()
+
+        #expect(await renderer.ingested == [Data("left".utf8), Data("right".utf8)])
+        #expect(await forwarder.signals.map(\.payload) == [#"{"state":"done"}"#])
+    }
+
+    @Test("IngestTerminalOutput preserves non-reserved OSC bytes for renderer")
+    func ingestTerminalOutputPreservesNormalOSC() async throws {
+        let store = TerminalStore()
+        let renderer = RendererWriter()
+        let forwarder = ReservedOSCForwarder()
+        try await store.saveViewport(state(streamID: "stream-1"))
+        let action = TerminalViewport.IngestTerminalOutput(
+            store: store,
+            rendererWriter: renderer,
+            reservedOSCForwarder: forwarder,
+            clock: FixedClock()
+        )
+        let bytes = Data("x\u{1B}]999;normal\u{7}y".utf8)
+
+        _ = try await action.run(outputInput(sequence: 1, bytes: bytes)).get()
+
+        #expect(await renderer.ingested == [bytes])
+        #expect(await forwarder.signals.isEmpty)
+    }
+
+    @Test("IngestTerminalOutputBatch buffers split reserved OSC and forwards exactly once")
+    func ingestTerminalOutputBatchBuffersSplitReservedOSC() async throws {
+        let store = TerminalStore()
+        let renderer = RendererWriter()
+        let forwarder = ReservedOSCForwarder()
+        try await store.saveViewport(state(streamID: "stream-1"))
+        let action = TerminalViewport.IngestTerminalOutputBatch(
+            store: store,
+            rendererWriter: renderer,
+            reservedOSCForwarder: forwarder,
+            clock: FixedClock()
+        )
+        let prefix = Data("A\u{1B}]8737;part".utf8)
+        let suffix = Data("ial\u{7}B".utf8)
+
+        let result = try await action.run(TerminalViewport.IngestTerminalOutputBatchInput(
+            requestID: "batch",
+            viewportID: "viewport-1",
+            paneID: "pane-1",
+            streamID: "stream-1",
+            chunks: [
+                TerminalViewport.TerminalOutputChunk(sequence: 1, bytes: prefix),
+                TerminalViewport.TerminalOutputChunk(sequence: 2, bytes: suffix)
+            ],
+            policy: .init(maxChunksPerBatch: 4, maxBytesPerBatch: 128, maxBytesPerRendererWrite: 128),
+            source: .test
+        )).get()
+
+        #expect(result.appliedSequence == 2)
+        #expect(await renderer.ingested == [Data("A".utf8), Data("B".utf8)])
+        #expect(await forwarder.signals.map(\.payload) == ["partial"])
+    }
+
+    @Test("IngestTerminalOutput ignores advisory reserved OSC forwarder failure and commits sequence")
+    func ingestTerminalOutputIgnoresReservedOSCForwarderFailureAndCommitsSequence() async throws {
+        let store = TerminalStore()
+        let renderer = RendererWriter()
+        let forwarder = ReservedOSCForwarder(throwAfterForwardCount: 1)
+        try await store.saveViewport(state(streamID: "stream-1"))
+        let action = TerminalViewport.IngestTerminalOutput(
+            store: store,
+            rendererWriter: renderer,
+            reservedOSCForwarder: forwarder,
+            clock: FixedClock()
+        )
+        let input = outputInput(sequence: 1, bytes: reservedOSC(payload: "presence", terminator: .bel, prefix: "before", suffix: "after"))
+
+        let result = try await action.run(input).get()
+        let retry = await action.run(input)
+
+        #expect(result.appliedSequence == 1)
+        #expect(result.state.lastAppliedSequence == 1)
+        #expect((try await store.loadViewport(viewportID: "viewport-1"))?.lastAppliedSequence == 1)
+        #expect(await renderer.ingested == [Data("before".utf8), Data("after".utf8)])
+        #expect(await forwarder.signals.map(\.payload) == ["presence"])
+        #expect(retry == .failure(TerminalViewport.TerminalViewportError.streamOrderViolation))
+        #expect(await renderer.ingested == [Data("before".utf8), Data("after".utf8)])
+        #expect(await forwarder.signals.map(\.payload) == ["presence"])
+    }
+
+    @Test("Reserved OSC event summary omits raw payload text")
+    func reservedOSCEventSummaryOmitsPayload() async throws {
+        let store = TerminalStore()
+        let renderer = RendererWriter()
+        let forwarder = ReservedOSCForwarder()
+        let events = TerminalEventCollector()
+        try await store.saveViewport(state(streamID: "stream-1"))
+        let action = TerminalViewport.IngestTerminalOutput(
+            store: store,
+            rendererWriter: renderer,
+            reservedOSCForwarder: forwarder,
+            clock: FixedClock(),
+            events: events
+        )
+
+        _ = try await action.run(outputInput(sequence: 1, bytes: reservedOSC(payload: "secret-payload", terminator: .bel))).get()
+
+        let published = await events.published
+        #expect(published.map(\.eventKind) == ["ReservedOSCForwarded", "TerminalOutputIngested"])
+        #expect(!String(describing: published).contains("secret-payload"))
+        guard case let .reservedOSCForwarded(summary) = published.first?.event else {
+            Issue.record("Expected reservedOSCForwarded event")
+            return
+        }
+        #expect(summary.oscIdentifier == TerminalViewport.fenrirReservedOSCIdentifier)
+        #expect(summary.payloadByteCount == "secret-payload".utf8.count)
+        #expect(summary.provenance.sequence == 1)
+    }
+
+    @Test("IngestTerminalOutput fails boundedly when pending reserved OSC exceeds limit")
+    func ingestTerminalOutputRejectsOverlongPendingReservedOSC() async throws {
+        let store = TerminalStore()
+        let renderer = RendererWriter()
+        let forwarder = ReservedOSCForwarder()
+        try await store.saveViewport(state(streamID: "stream-1"))
+        let action = TerminalViewport.IngestTerminalOutput(
+            store: store,
+            rendererWriter: renderer,
+            reservedOSCForwarder: forwarder,
+            clock: FixedClock()
+        )
+        let payload = String(repeating: "x", count: TerminalViewport.maxPendingReservedOSCSequenceBytes + 1)
+        let bytes = Data("\u{1B}]\(TerminalViewport.fenrirReservedOSCIdentifier);\(payload)".utf8)
+
+        let result = await action.run(outputInput(sequence: 1, bytes: bytes))
+
+        #expect(result == .failure(TerminalViewport.TerminalViewportError.outputBackpressure))
+        #expect(await renderer.ingested.isEmpty)
+        #expect(await forwarder.signals.isEmpty)
+    }
+
     @Test("IngestTerminalOutputBatch coalesces contiguous high-volume chunks before renderer writes")
     func ingestTerminalOutputBatchCoalescesHighVolumeChunks() async throws {
         let store = TerminalStore()
@@ -378,6 +578,22 @@ private func outputInput(sequence: UInt64, bytes: Data) -> TerminalViewport.Inge
     )
 }
 
+private enum OSCTerminator {
+    case bel
+    case st
+}
+
+private func reservedOSC(payload: String, terminator: OSCTerminator, prefix: String = "", suffix: String = "") -> Data {
+    let terminatorBytes: String
+    switch terminator {
+    case .bel:
+        terminatorBytes = "\u{7}"
+    case .st:
+        terminatorBytes = "\u{1B}\\"
+    }
+    return Data("\(prefix)\u{1B}]\(TerminalViewport.fenrirReservedOSCIdentifier);\(payload)\(terminatorBytes)\(suffix)".utf8)
+}
+
 private func resizeInput(size: TerminalViewport.Size) -> TerminalViewport.ResizeTerminalViewportInput {
     TerminalViewport.ResizeTerminalViewportInput(
         requestID: "resize",
@@ -452,11 +668,49 @@ private actor RendererHost: TerminalViewport.TerminalRendererHosting {
     }
 }
 
+private enum RecordedTerminalOperation: Equatable {
+    case renderer(Data)
+    case signal(String)
+}
+
+private actor TerminalOperationRecorder {
+    private(set) var operations: [RecordedTerminalOperation] = []
+
+    func record(_ operation: RecordedTerminalOperation) {
+        operations.append(operation)
+    }
+}
+
 private actor RendererWriter: TerminalViewport.TerminalRendererWriting {
     private(set) var ingested: [Data] = []
+    private let recorder: TerminalOperationRecorder?
+
+    init(recorder: TerminalOperationRecorder? = nil) {
+        self.recorder = recorder
+    }
 
     func ingestOutput(viewportID: ViewportID, bytes: Data) async throws {
         ingested.append(bytes)
+        await recorder?.record(.renderer(bytes))
+    }
+}
+
+private actor ReservedOSCForwarder: TerminalViewport.TerminalReservedOSCForwarding {
+    private(set) var signals: [TerminalViewport.ReservedOSCSignal] = []
+    private let recorder: TerminalOperationRecorder?
+    private let throwAfterForwardCount: Int?
+
+    init(recorder: TerminalOperationRecorder? = nil, throwAfterForwardCount: Int? = nil) {
+        self.recorder = recorder
+        self.throwAfterForwardCount = throwAfterForwardCount
+    }
+
+    func forwardReservedOSC(_ signal: TerminalViewport.ReservedOSCSignal) async throws {
+        signals.append(signal)
+        await recorder?.record(.signal(signal.payload))
+        if let throwAfterForwardCount, signals.count >= throwAfterForwardCount {
+            throw TestError.failed
+        }
     }
 }
 

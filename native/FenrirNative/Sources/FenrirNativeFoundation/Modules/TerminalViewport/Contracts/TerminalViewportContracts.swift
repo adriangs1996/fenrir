@@ -57,6 +57,9 @@ public extension TerminalViewport {
         case alternate
     }
 
+    static let fenrirReservedOSCIdentifier = 8737
+    static let maxPendingReservedOSCSequenceBytes = 65_536
+
     struct Size: Codable, Equatable, Sendable {
         public let columns: Int
         public let rows: Int
@@ -92,6 +95,7 @@ public extension TerminalViewport {
         public let rendererStatus: RendererStatus
         public let streamStatus: StreamStatus
         public let size: Size?
+        public let pendingReservedOSCSequence: Data
 
         public init(
             viewportID: ViewportID,
@@ -103,7 +107,8 @@ public extension TerminalViewport {
             isFocused: Bool = false,
             rendererStatus: RendererStatus,
             streamStatus: StreamStatus = .detached,
-            size: Size? = nil
+            size: Size? = nil,
+            pendingReservedOSCSequence: Data = Data()
         ) {
             self.viewportID = viewportID
             self.workspaceID = workspaceID
@@ -115,6 +120,7 @@ public extension TerminalViewport {
             self.rendererStatus = rendererStatus
             self.streamStatus = streamStatus
             self.size = size
+            self.pendingReservedOSCSequence = pendingReservedOSCSequence
         }
     }
 
@@ -297,6 +303,55 @@ public extension TerminalViewport {
         public init(sequence: UInt64, bytes: Data) {
             self.sequence = sequence
             self.bytes = bytes
+        }
+    }
+
+    struct ReservedOSCProvenance: Codable, Equatable, Sendable {
+        public let workspaceID: WorkspaceID
+        public let tabID: FenrirWindowID?
+        public let paneID: PaneID
+        public let viewportID: ViewportID
+        public let streamID: StreamID
+        public let sequence: UInt64
+
+        public init(
+            workspaceID: WorkspaceID,
+            tabID: FenrirWindowID? = nil,
+            paneID: PaneID,
+            viewportID: ViewportID,
+            streamID: StreamID,
+            sequence: UInt64
+        ) {
+            self.workspaceID = workspaceID
+            self.tabID = tabID
+            self.paneID = paneID
+            self.viewportID = viewportID
+            self.streamID = streamID
+            self.sequence = sequence
+        }
+    }
+
+    struct ReservedOSCSignal: Codable, Equatable, Sendable {
+        public let oscIdentifier: Int
+        public let payload: String
+        public let provenance: ReservedOSCProvenance
+
+        public init(oscIdentifier: Int, payload: String, provenance: ReservedOSCProvenance) {
+            self.oscIdentifier = oscIdentifier
+            self.payload = payload
+            self.provenance = provenance
+        }
+    }
+
+    struct ReservedOSCSignalSummary: Codable, Equatable, Sendable {
+        public let oscIdentifier: Int
+        public let payloadByteCount: Int
+        public let provenance: ReservedOSCProvenance
+
+        public init(signal: ReservedOSCSignal) {
+            self.oscIdentifier = signal.oscIdentifier
+            self.payloadByteCount = signal.payload.utf8.count
+            self.provenance = signal.provenance
         }
     }
 
@@ -602,5 +657,6 @@ public extension TerminalViewport {
         case terminalViewportFocused(ViewportID, Bool)
         case terminalViewportSnapshotted(ViewportID)
         case terminalContextCaptured(CapturedContextSummary)
+        case reservedOSCForwarded(ReservedOSCSignalSummary)
     }
 }

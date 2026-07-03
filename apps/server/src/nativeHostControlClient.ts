@@ -1,3 +1,4 @@
+import { spawn, type SpawnOptions } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -43,7 +44,8 @@ export type NativeHostControlClientErrorCode =
   | "payload-too-large"
   | "malformed-response"
   | "timeout"
-  | "connection-failed";
+  | "connection-failed"
+  | "launch-failed";
 
 export class NativeHostControlClientError extends Error {
   readonly code: NativeHostControlClientErrorCode;
@@ -55,11 +57,23 @@ export class NativeHostControlClientError extends Error {
   }
 }
 
+export interface NativeHostControlLaunchInput {
+  readonly socketPath: string;
+  readonly env: NodeJS.ProcessEnv;
+}
+
+export interface NativeHostControlLaunching {
+  launchNativeHost(input: NativeHostControlLaunchInput): Promise<void>;
+}
+
 interface NativeHostControlClientOptions {
   readonly socketPath?: string;
   readonly timeoutMs?: number;
   readonly ownerUid?: number;
   readonly env?: NodeJS.ProcessEnv;
+  readonly launchIfMissing?: boolean;
+  readonly launchTimeoutMs?: number;
+  readonly launcher?: NativeHostControlLaunching;
 }
 
 export const resolveNativeHostControlSocketPath = (
@@ -137,17 +151,12 @@ export const sendNativeHostControlRequest = async (
   request: NativeHostControlWireRequest,
   options: NativeHostControlClientOptions = {},
 ): Promise<NativeHostControlWireResponse> => {
+  const env = options.env ?? process.env;
   const ownerUid = options.ownerUid ?? process.getuid?.() ?? os.userInfo().uid;
-  const socketPath =
-    options.socketPath ?? resolveNativeHostControlSocketPath(options.env, ownerUid);
+  const socketPath = options.socketPath ?? resolveNativeHostControlSocketPath(env, ownerUid);
   const timeoutMs = options.timeoutMs ?? NATIVE_HOST_CONTROL_DEFAULT_TIMEOUT_MS;
-  const stats = await statNativeSocket(socketPath, ownerUid);
-  if (!stats.isSocket()) {
-    throw new NativeHostControlClientError(
-      "stale-socket",
-      `Native control endpoint exists but is not a socket: ${socketPath}`,
-    );
-  }
+
+  await ensureNativeSocketReady(socketPath, ownerUid, env, timeoutMs, options);
 
   const frame = encodeNativeHostControlFrame(request);
   const responseFrame = await roundTrip(socketPath, frame, timeoutMs);
@@ -182,6 +191,154 @@ const statNativeSocket = async (socketPath: string, ownerUid: number) => {
     );
   }
 };
+
+export const defaultNativeHostControlLauncher: NativeHostControlLaunching = {
+  async launchNativeHost({ env }) {
+    const launchCommand = env.FENRIR_NATIVE_APP_LAUNCH_COMMAND?.trim();
+    if (launchCommand) {
+      await spawnDetached(launchCommand, [], { env, shell: true });
+      return;
+    }
+
+    const appPath = env.FENRIR_NATIVE_APP_PATH?.trim();
+    if (appPath) {
+      if (process.platform === "darwin" && appPath.endsWith(".app")) {
+        await spawnDetached("open", ["-gj", appPath], { env });
+      } else {
+        await spawnDetached(appPath, [], { env });
+      }
+      return;
+    }
+
+    if (process.platform === "darwin") {
+      await spawnDetached("open", ["-gj", "-a", env.FENRIR_NATIVE_APP_NAME ?? "Fenrir Native"], {
+        env,
+      });
+      return;
+    }
+
+    throw new NativeHostControlClientError(
+      "launch-failed",
+      "Fenrir Native auto-launch is not configured. Set FENRIR_NATIVE_APP_LAUNCH_COMMAND or FENRIR_NATIVE_APP_PATH.",
+    );
+  },
+};
+
+const ensureNativeSocketReady = async (
+  socketPath: string,
+  ownerUid: number,
+  env: NodeJS.ProcessEnv,
+  requestTimeoutMs: number,
+  options: NativeHostControlClientOptions,
+) => {
+  try {
+    const stats = await statNativeSocket(socketPath, ownerUid);
+    if (!stats.isSocket()) {
+      throw new NativeHostControlClientError(
+        "stale-socket",
+        "Native control endpoint exists but is not a socket: " + socketPath,
+      );
+    }
+    return;
+  } catch (error) {
+    if (
+      !(
+        error instanceof NativeHostControlClientError &&
+        error.code === "no-app-running" &&
+        options.launchIfMissing === true
+      )
+    ) {
+      throw error;
+    }
+  }
+
+  const launcher = options.launcher ?? defaultNativeHostControlLauncher;
+  await launcher.launchNativeHost({ socketPath, env });
+
+  const launchTimeoutMs = options.launchTimeoutMs ?? Math.max(requestTimeoutMs, 3_000);
+  await waitForNativeSocket(socketPath, ownerUid, launchTimeoutMs);
+};
+
+const waitForNativeSocket = async (
+  socketPath: string,
+  ownerUid: number,
+  timeoutMs: number,
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: NativeHostControlClientError | undefined;
+
+  while (Date.now() <= deadline) {
+    try {
+      const stats = await statNativeSocket(socketPath, ownerUid);
+      if (!stats.isSocket()) {
+        throw new NativeHostControlClientError(
+          "stale-socket",
+          "Native control endpoint exists but is not a socket: " + socketPath,
+        );
+      }
+      return;
+    } catch (error) {
+      if (error instanceof NativeHostControlClientError && error.code === "no-app-running") {
+        lastError = error;
+      } else {
+        throw error;
+      }
+    }
+
+    await sleep(Math.min(50, Math.max(1, deadline - Date.now())));
+  }
+
+  throw new NativeHostControlClientError(
+    "timeout",
+    "Timed out waiting for Fenrir Native to create " + socketPath + ".",
+    lastError === undefined ? undefined : { cause: lastError },
+  );
+};
+
+const spawnDetached = (
+  command: string,
+  args: ReadonlyArray<string>,
+  options: SpawnOptions,
+): Promise<void> =>
+  new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (error?: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    };
+
+    const child = spawn(command, [...args], {
+      ...options,
+      detached: true,
+      stdio: "ignore",
+    });
+
+    child.once("error", (cause) => {
+      settle(
+        new NativeHostControlClientError(
+          "launch-failed",
+          "Failed to launch Fenrir Native with command: " + command,
+          { cause },
+        ),
+      );
+    });
+    child.once("spawn", () => {
+      child.unref();
+      settle();
+    });
+  });
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 const roundTrip = (socketPath: string, frame: Buffer, timeoutMs: number): Promise<Buffer> =>
   new Promise((resolve, reject) => {

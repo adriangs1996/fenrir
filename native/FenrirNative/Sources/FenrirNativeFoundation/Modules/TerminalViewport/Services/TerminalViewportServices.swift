@@ -44,6 +44,10 @@ public extension TerminalViewport {
         func resizeTerminalPane(_ input: ResizeTerminalViewportInput) async throws -> RuntimeResizeAcknowledgement
     }
 
+    protocol TerminalReservedOSCForwarding: Sendable {
+        func forwardReservedOSC(_ signal: ReservedOSCSignal) async throws
+    }
+
     protocol TerminalViewportEventPublishing: Sendable {
         func publish(_ event: EventEnvelope<Event>) async
     }

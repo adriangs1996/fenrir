@@ -40,13 +40,14 @@ public extension Keybinding {
 
             var unsupported: [UnsupportedTmuxBinding] = []
             if input.preferences.importTmuxKeybindings {
-                for binding in input.keymap.bindings where binding.table == "prefix" {
+                for binding in input.keymap.bindings {
                     switch tmuxAction(for: binding.command) {
                     case let .some(action):
                         builder.insert(ActionBinding(
-                            trigger: .tmuxPrefix(.init(prefix: input.keymap.prefix, key: binding.key)),
+                            trigger: tmuxTrigger(for: binding, keymap: input.keymap),
                             action: action,
-                            source: .tmuxImport
+                            source: .tmuxImport,
+                            sourceTable: binding.table
                         ))
                     case .none:
                         if input.preferences.unsupportedPolicy == .collectDiagnostics {
@@ -64,7 +65,9 @@ public extension Keybinding {
                 importedMap: ImportedKeybindingMap(
                     bindings: builder.bindings,
                     conflicts: builder.conflicts,
-                    unsupportedBindings: unsupported
+                    unsupportedBindings: unsupported,
+                    prefix: input.keymap.prefix,
+                    prefix2: input.keymap.prefix2
                 ),
                 timestamp: clock.now()
             ))
@@ -81,10 +84,49 @@ public extension Keybinding {
         }
 
         public func run(_ input: ResolveKeybindingInput) async -> Result<ResolveKeybindingResult, KeybindingError> {
-            if let binding = input.importedMap.binding(for: input.trigger) {
+            let resolutionTrigger = Self.resolutionTrigger(for: input)
+
+            if case .root = input.state,
+               case let .terminal(key) = input.trigger,
+               key == input.importedMap.prefix {
+                return .success(ResolveKeybindingResult(
+                    requestID: input.requestID,
+                    resolution: .enterTmuxKeyTable(.prefix),
+                    emitsShellBytes: false,
+                    timestamp: clock.now()
+                ))
+            }
+
+            if case .root = input.state,
+               case let .terminal(key) = input.trigger,
+               let prefix2 = input.importedMap.prefix2,
+               key == prefix2 {
+                return .success(ResolveKeybindingResult(
+                    requestID: input.requestID,
+                    resolution: .enterTmuxKeyTable(.prefix2),
+                    emitsShellBytes: false,
+                    timestamp: clock.now()
+                ))
+            }
+
+            if let binding = input.importedMap.binding(for: resolutionTrigger) {
                 return .success(ResolveKeybindingResult(
                     requestID: input.requestID,
                     resolution: .fenrirAction(binding.action),
+                    emitsShellBytes: false,
+                    timestamp: clock.now()
+                ))
+            }
+
+            if case let .table(table) = input.state,
+               case let .terminal(key) = input.trigger {
+                return .success(ResolveKeybindingResult(
+                    requestID: input.requestID,
+                    resolution: .unsupported(.init(
+                        table: table,
+                        key: key,
+                        reason: "No imported Fenrir action for tmux table \(table.rawValue)"
+                    )),
                     emitsShellBytes: false,
                     timestamp: clock.now()
                 ))
@@ -97,10 +139,33 @@ public extension Keybinding {
                 timestamp: clock.now()
             ))
         }
+
+        private static func resolutionTrigger(for input: ResolveKeybindingInput) -> KeybindingTrigger {
+            switch (input.state, input.trigger) {
+            case (.root, let trigger):
+                if case let .terminal(key) = trigger {
+                    return .tmuxTable(.init(table: .root, key: key))
+                }
+                if case let .tmuxPrefix(binding) = trigger, binding.prefix == input.importedMap.prefix {
+                    return .tmuxTable(.init(table: .prefix, key: binding.key))
+                }
+                return trigger
+            case let (.table(table), .terminal(key)):
+                return .tmuxTable(.init(table: table, key: key))
+            case let (.table(table), .tmuxPrefix(binding)):
+                return .tmuxTable(.init(table: table, key: binding.key))
+            case (_, let trigger):
+                return trigger
+            }
+        }
     }
 }
 
 private extension Keybinding {
+    static func tmuxTrigger(for binding: TmuxKeyBinding, keymap _: EffectiveTmuxKeymap) -> KeybindingTrigger {
+        return .tmuxTable(.init(table: binding.table, key: binding.key))
+    }
+
     static var nativeDefaultBindings: [ActionBinding] {
         [
             ActionBinding(
@@ -159,6 +224,9 @@ private extension Keybinding {
             }
             return nil
         case "switch-client":
+            if let table = target(after: "-T", in: tokens) {
+                return .activateTmuxKeyTable(.init(table))
+            }
             if tokens.contains("-n") { return .switchSession(.next) }
             if tokens.contains("-p") { return .switchSession(.previous) }
             if tokens.contains("-l") { return .switchSession(.last) }

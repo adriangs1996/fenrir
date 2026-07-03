@@ -2,9 +2,10 @@ import Foundation
 
 public extension AgentIntegration {
     static let layerNotes = """
-    AgentIntegration live layers are intentionally adapter-owned.
-    This foundation slice ships in-memory/test stores and pure config editing
-    primitives only; live agent config directory writes must stay behind the
-    installer and MCP provisioner ports.
+    AgentIntegration live layers are adapter-owned and port-backed.
+    PathAgentIntegrationDetector only reads PATH. ManagedAgentIntegrationProvisioner
+    performs explicit hook, skill, and MCP config provisioning through a config
+    file store with managed markers, backups, and conflict detection. No layer
+    exposes a pane-write capability.
     """
 }

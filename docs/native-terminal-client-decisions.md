@@ -524,12 +524,11 @@ window control rather than a primarily declarative UI toolkit.
     the base design.
   - No automatic redaction/preprocessing is required for the base design.
 - Consequences:
-  - Terminal context can be sent to agents without giving agents arbitrary pane
-    write access.
-  - Composer output is delivered into a pane-hosted agent CLI session per
-    D-040. The receiving agent CLI owns the conversation transcript; the native
-    client does not maintain a parallel transcript store, and sent context is
-    never treated as technical logs or telemetry.
+  - Terminal context can be sent to server-orchestrated agent/workflow commands
+    without giving agents arbitrary pane write access.
+  - Composer output is submitted through the authenticated server orchestration
+    path per D-040. The native client does not maintain a parallel transcript
+    store, and sent context is never treated as technical logs or telemetry.
 
 ### D-022: Agent write authority
 
@@ -540,11 +539,11 @@ window control rather than a primarily declarative UI toolkit.
   - Agents may receive terminal context and respond with suggestions, patches,
     commands, or workflow proposals.
   - Agents do not call `tmux.pane.write` against interactive user panes.
-  - Dispatching a user-authored prompt into an agent-owned pane (D-040) is user
-    input delivered on the user's behalf, not agent write authority, and is not
-    restricted by this decision.
-  - Future autonomous agent writes require explicit server-side capabilities and
-    a separate decision.
+  - Submitting a user-authored prompt through the server orchestration path
+    (D-040) is not pane write authority and must not mutate terminal pane
+    contents in the base native client.
+  - Future client-synthesized pane input or autonomous agent writes require
+    explicit server-side capabilities and a separate decision.
 - Consequences:
   - The base security and UX model is simpler.
   - User shells are not mutated by agents without a future explicit permission
@@ -572,7 +571,8 @@ window control rather than a primarily declarative UI toolkit.
   overlays, and notifications.
 - Final choice:
   - `AgentInteraction` owns composer inputs, terminal context attachments,
-    prompt dispatch to pane-hosted agent CLIs, and promotion to workflow.
+    server-orchestrated prompt submission, and promotion to workflow where
+    supported.
   - Conversation transcripts, response rendering, model/provider pickers,
     approval prompts, and plan review are owned by the agent CLI running in its
     pane. The native client does not reproduce them; earlier references to
@@ -744,6 +744,7 @@ window control rather than a primarily declarative UI toolkit.
     tmux when present, and offers a managed fallback or install guidance when
     missing.
   - Remote servers manage their own tmux dependency.
+  - Implementation note: `native/FenrirNative/package-app.sh` is the accepted SwiftPM app-bundle path for local bundle assembly. It copies optional server and terminal-renderer resources into the app bundle and supports codesigning when release credentials are available.
 
 ### D-036: Git and review native scope
 
@@ -785,8 +786,8 @@ window control rather than a primarily declarative UI toolkit.
   - Agent CLIs are launched, focused, and managed as real tmux pane processes
     with pane metadata, exactly like Neovim under D-013.
   - The native client integrates agents from the outside: provisioned hooks and
-    skills (D-039), presence signals (D-038), prompt dispatch (D-040), and
-    Fenrir MCP tooling.
+    skills (D-039), presence signals (D-038), server-orchestrated composer
+    submission (D-040), and Fenrir MCP tooling.
   - Server-mediated provider sessions (Codex app-server, ACP, Agent SDK) remain
     a server capability used by the Electron/web clients and workflows; the base
     native client does not depend on them for its agent experience.
@@ -794,8 +795,9 @@ window control rather than a primarily declarative UI toolkit.
     in its pane; the native client's job is to detect those states (D-038) and
     get the user to the right pane fast.
 - Consequences:
-  - `AgentInteraction` shrinks to composer, context capture, prompt dispatch,
-    and promotion to workflow (amended D-024).
+  - `AgentInteraction` shrinks to composer, context capture,
+    server-orchestrated prompt submission, and promotion to workflow (amended
+    D-024).
   - No native transcript store, response stream renderer, provider/model
     picker, or approval panel is part of the base native client.
   - Sidebar, palette, and notifications treat "agent in a pane" as a
@@ -849,6 +851,10 @@ window control rather than a primarily declarative UI toolkit.
 
 ### D-039: Agent integration provisioning
 
+Implementation note: provider-real target mapping now lives in `ProviderAgentInstallTargetResolver`. It records the real Claude Code, Codex, Cursor, and OpenCode config surfaces and explicitly marks shared JSON/TOML/plugin files as provider-renderer work so the generic managed-block provisioner cannot corrupt structured config.
+
+Implementation note: the native foundation now includes two live provisioning paths. `ManagedAgentIntegrationProvisioner` keeps the legacy Fenrir-owned text-block/JSON core for safe internal config surfaces, while `ProviderStructuredAgentIntegrationProvisioner` writes the real provider surfaces for Claude Code, Codex, Cursor, and OpenCode: structured JSON hooks, owned skills/plugins, JSON MCP, and Codex TOML MCP. The provider path is idempotent, backup-backed, cleanly removable, and conflict-refusing. NativeHost now exposes explicit status, repair, and remove operations through the diagnostics product command, and `fenrir agent-integration status|repair|remove` reaches those operations over the local native control socket. First-run, palette, and settings UI repair/install surfaces remain separate integration work.
+
 - Status: accepted
 - Decision: Fenrir installs and manages per-agent hooks, skills, and MCP
   configuration behind a common integration contract, with explicit ownership
@@ -894,40 +900,45 @@ window control rather than a primarily declarative UI toolkit.
   - Supporting a new agent CLI is mechanical: one adapter, one skill/hook
     content pack, zero changes to presence, composer, or sidebar code.
 
-### D-040: Prompt dispatch into agent panes
+### D-040: Prompt dispatch policy
 
-- Status: accepted
-- Decision: invoking an agent with a prompt means delivering user-authored text
-  into an agent CLI pane: either spawning a new agent pane launched with the
-  prompt, or writing into an existing agent pane's input.
+- Status: accepted, amended
+- Decision: the base native client captures terminal context and opens a native
+  composer, but it does not write prompts into user or agent tmux panes yet.
+  Submitting a composer dispatches a server-owned orchestration command through
+  authenticated Fenrir server contracts, matching the pragmatic behavior used
+  by the existing desktop app.
 - Why:
-  - Under D-037 there is no server conversation to submit prompts to from the
-    base native client. The agent's stdin/TUI is the interface.
-  - This keeps the composer flow from D-021 (capture context, edit prompt,
-    send) while retargeting delivery from server provider sessions to panes.
+  - The latest product decision is to avoid pane writes for now. Pane-hosted
+    agent CLIs remain first-class terminal processes, but Fenrir Native should
+    not synthesize stdin into those panes until the exact targeting, ack, and
+    recovery semantics are explicitly reaccepted.
+  - This keeps the context loop useful immediately: capture selection,
+    viewport, or last N lines; edit the prompt; submit through the server;
+    keep terminal panes untouched by the act of opening or submitting the
+    composer.
+  - Server-owned orchestration keeps workflow and agent command execution under
+    the same authenticated server boundary already used by Electron/Desktop.
 - Final choice:
-  - Dispatch targets are explicit: the user picks an existing agent pane or a
-    new agent pane (agent choice honoring D-039 detection); Fenrir may default
-    to the workspace's most recent agent pane but never dispatches to an
-    ambiguous target.
-  - New-pane dispatch launches the agent CLI through the tmux runtime with the
-    prompt as launch input where the CLI supports it.
-  - Existing-pane dispatch writes through the authenticated runtime pane-write
-    path using bracketed paste, as a single atomic write; Fenrir does not
-    auto-submit if the target agent's input model makes submission ambiguous.
-  - Dispatch is idempotent under reconnect: a prompt is delivered exactly once
-    or fails visibly; write acknowledgements from the runtime protocol are the
-    confirmation signal.
-  - Focus follows dispatch by default: sending a prompt focuses the target
-    pane, honoring D-023 focus-return semantics for the composer overlay.
-  - This is user input on the user's behalf (see amended D-022); autonomous
-    agent-initiated writes remain out of scope.
+  - Context capture sources are selection, visible viewport, and last N lines.
+  - Opening the composer never mutates pane contents.
+  - Submitting the composer sends an authenticated server orchestration command
+    and records a prompt acceptance result; it does not call the tmux pane-write
+    runtime path.
+  - Agent-initiated writes and client-synthesized pane input remain out of scope
+    for the base native client.
+  - Pane-targeted prompt dispatch may be reconsidered later as a separate
+    decision and implementation pass; it must provide explicit target selection,
+    exactly-once delivery, focus behavior, bracketed-paste/write-ack semantics,
+    tests, and a rollback story before replacing the server-orchestrated path.
 - Consequences:
-  - `AgentInteraction`'s submission port targets pane dispatch through runtime
-    contracts instead of a server prompt API.
-  - The composer keybinding loop (capture → edit → send → agent works → hook
-    presence signals completion → notification focuses pane) is the core
-    agentic UX of the native client.
+  - `AgentInteraction`'s submission port remains a product-level prompt
+    submission boundary, not a pane-write boundary.
+  - `AgentIntegration` presence is advisory metadata only and must not
+    authorize or trigger writes.
+  - The composer keybinding loop for the base client is: capture → edit → submit
+    to server orchestration → reflect resulting workflow/agent state through
+    workflow, notification, and presence surfaces when available.
 
 ### D-041: Shell visual contract
 
@@ -997,8 +1008,8 @@ Deferred areas that need separate future decisions:
 2. Future shared multiuser tmux sessions.
 3. Future browser-lab native equivalent.
 4. Future dedicated managed/remote process native surfaces.
-5. Future autonomous agent write capabilities into tmux panes (user-initiated
-   prompt dispatch is covered by D-040).
+5. Future client-synthesized or autonomous agent write capabilities into tmux
+   panes; D-040 keeps base composer submission on the server orchestration path.
 6. Future server-side presence ingestion features beyond the supplemental
    channel reserved in D-038.
 

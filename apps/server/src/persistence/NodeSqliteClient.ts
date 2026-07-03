@@ -219,7 +219,7 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
   });
 });
 
-const make = (
+export const make = (
   options: SqliteClientConfig,
 ): Effect.Effect<Client.SqlClient, never, Scope.Scope | Reactivity.Reactivity> =>
   makeWithDatabase(

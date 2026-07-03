@@ -27,15 +27,18 @@ public extension NativeDistribution {
         public let clock: any NativeDistributionClock
         public let tmuxChecker: any TmuxDependencyChecking
         public let serverAssetLocator: any ServerAssetLocating
+        public let terminalRendererLocator: any TerminalRendererArtifactLocating
 
         public init(
             clock: any NativeDistributionClock,
             tmuxChecker: any TmuxDependencyChecking,
-            serverAssetLocator: any ServerAssetLocating
+            serverAssetLocator: any ServerAssetLocating,
+            terminalRendererLocator: any TerminalRendererArtifactLocating = NativeDistribution.appResourceTerminalRendererArtifactLocator()
         ) {
             self.clock = clock
             self.tmuxChecker = tmuxChecker
             self.serverAssetLocator = serverAssetLocator
+            self.terminalRendererLocator = terminalRendererLocator
         }
 
         public func run(_ input: AssessStartupReadinessInput) async -> Result<AssessStartupReadinessResult, DistributionReadinessError> {
@@ -46,7 +49,8 @@ public extension NativeDistribution {
                     mode: input.mode,
                     minimumTmuxVersion: input.minimumTmuxVersion,
                     tmuxChecker: tmuxChecker,
-                    serverAssetLocator: serverAssetLocator
+                    serverAssetLocator: serverAssetLocator,
+                    terminalRendererLocator: terminalRendererLocator
                 )
                 let diagnostics = checks.compactMap(NativeDistribution.diagnostic(for:))
                 let canStart = !diagnostics.contains { $0.severity == .error }
@@ -74,7 +78,8 @@ public extension NativeDistribution {
         mode: StartupMode,
         minimumTmuxVersion: String,
         tmuxChecker: any TmuxDependencyChecking,
-        serverAssetLocator: any ServerAssetLocating
+        serverAssetLocator: any ServerAssetLocating,
+        terminalRendererLocator: any TerminalRendererArtifactLocating
     ) async throws -> [DependencyCheck] {
         var checks: [DependencyCheck] = []
 
@@ -99,6 +104,8 @@ public extension NativeDistribution {
                     : "Remote attach mode does not use a bundled local server asset."
             ))
         }
+
+        checks.append(try await terminalRendererArtifactCheck(locator: terminalRendererLocator))
 
         checks.append(DependencyCheck(
             kind: .neovim,
@@ -182,6 +189,33 @@ public extension NativeDistribution {
         )
     }
 
+    static func terminalRendererArtifactCheck(locator: any TerminalRendererArtifactLocating) async throws -> DependencyCheck {
+        let probe: TerminalRendererArtifactProbeResult
+        do {
+            probe = try await locator.locateTerminalRendererArtifact()
+        } catch {
+            throw DistributionReadinessError.dependencyProbeFailed(String(describing: error))
+        }
+
+        guard let path = probe.artifactPath, !path.isEmpty, probe.isLoadable else {
+            return DependencyCheck(
+                kind: .terminalRendererArtifact,
+                status: .missing,
+                path: probe.artifactPath,
+                version: probe.version,
+                message: "Native terminal renderer artifact was not found; bootstrap text rendering will be used."
+            )
+        }
+
+        return DependencyCheck(
+            kind: .terminalRendererArtifact,
+            status: .available,
+            path: path,
+            version: probe.version,
+            message: "Native terminal renderer artifact is available."
+        )
+    }
+
     static func diagnostic(for check: DependencyCheck) -> StartupDiagnostic? {
         switch (check.kind, check.status) {
         case (.tmux, .missing):
@@ -204,6 +238,13 @@ public extension NativeDistribution {
                 title: "Local Fenrir server asset is unavailable",
                 message: check.message,
                 recoverySuggestion: "Reinstall the native app bundle or use existing local server or remote attach mode."
+            )
+        case (.terminalRendererArtifact, .missing):
+            return StartupDiagnostic(
+                severity: .warning,
+                title: "Native terminal renderer artifact is unavailable",
+                message: check.message,
+                recoverySuggestion: "Build or bundle the native terminal renderer artifact; the app can still start with bootstrap text rendering."
             )
         case (.neovim, .externalNotBundled):
             return StartupDiagnostic(

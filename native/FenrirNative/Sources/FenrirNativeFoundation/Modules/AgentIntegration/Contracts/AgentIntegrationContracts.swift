@@ -117,6 +117,89 @@ public extension AgentIntegration {
         }
     }
 
+    struct AgentIntegrationViewCommand: Codable, Equatable, Sendable {
+        public enum Kind: Codable, Equatable, Sendable {
+            case refresh
+            case repair(agentID: AgentCLIIdentifier)
+            case remove(agentID: AgentCLIIdentifier)
+        }
+
+        public let requestID: RequestID
+        public let source: ActionSource
+        public let kind: Kind
+
+        public init(requestID: RequestID = .generated(), source: ActionSource, kind: Kind) {
+            self.requestID = requestID
+            self.source = source
+            self.kind = kind
+        }
+    }
+
+    struct AgentIntegrationPanelState: Codable, Equatable, Sendable {
+        public let statuses: [AgentIntegrationStatus]
+        public let lastProvisioningResult: AgentProvisioningResult?
+        public let lastErrorMessage: String?
+        public let timestamp: FenrirTimestamp
+
+        public init(
+            statuses: [AgentIntegrationStatus],
+            lastProvisioningResult: AgentProvisioningResult? = nil,
+            lastErrorMessage: String? = nil,
+            timestamp: FenrirTimestamp
+        ) {
+            self.statuses = statuses
+            self.lastProvisioningResult = lastProvisioningResult
+            self.lastErrorMessage = lastErrorMessage
+            self.timestamp = timestamp
+        }
+
+        public var degradedStatuses: [AgentIntegrationStatus] {
+            statuses.filter { status in
+                switch status.state {
+                case .installed:
+                    return false
+                case .notInstalled:
+                    return status.detectedExecutablePath != nil
+                case .outdated, .conflicted, .unsupported:
+                    return true
+                }
+            }
+        }
+
+        public var shouldPresentFirstRunPrompt: Bool {
+            !degradedStatuses.isEmpty
+        }
+
+        public var summaryText: String {
+            let degradedCount = degradedStatuses.count
+            if degradedCount == 0 {
+                return "\(statuses.count) agents checked, all integrations current"
+            }
+            return "\(statuses.count) agents checked, \(degradedCount) need attention"
+        }
+
+        public var rowTexts: [String] {
+            statuses.map { status in
+                let agentName = status.agent.displayName
+                switch status.state {
+                case .installed:
+                    return "\(agentName): installed \(status.installedVersion?.rawValue ?? status.expectedVersion.rawValue)"
+                case .notInstalled:
+                    if let detectedExecutablePath = status.detectedExecutablePath {
+                        return "\(agentName): detected at \(detectedExecutablePath), integration not installed"
+                    }
+                    return "\(agentName): not installed"
+                case .outdated:
+                    return "\(agentName): outdated \(status.installedVersion?.rawValue ?? "unknown") -> \(status.expectedVersion.rawValue)"
+                case .conflicted:
+                    return "\(agentName): conflicted"
+                case .unsupported:
+                    return "\(agentName): unsupported"
+                }
+            }
+        }
+    }
+
     enum ProvisioningChange: String, Codable, Equatable, Sendable {
         case unchanged
         case installed

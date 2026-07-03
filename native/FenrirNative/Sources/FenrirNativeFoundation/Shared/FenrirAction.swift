@@ -15,8 +15,41 @@ public struct FenrirTimestamp: Codable, Equatable, Sendable, Comparable {
         self.date = date
     }
 
+    public init(from decoder: Decoder) throws {
+        let singleValue = try decoder.singleValueContainer()
+        if let string = try? singleValue.decode(String.self),
+           let parsed = FenrirTimestamp.parseISO8601(string) {
+            date = parsed
+            return
+        }
+
+        let keyed = try decoder.container(keyedBy: FenrirTimestampCodingKeys.self)
+        date = try keyed.decode(Date.self, forKey: .date)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: FenrirTimestampCodingKeys.self)
+        try container.encode(date, forKey: .date)
+    }
+
     public static func < (lhs: FenrirTimestamp, rhs: FenrirTimestamp) -> Bool {
         lhs.date < rhs.date
+    }
+
+    private static func parseISO8601(_ value: String) -> Date? {
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = fractionalFormatter.date(from: value) {
+            return parsed
+        }
+
+        let internetDateFormatter = ISO8601DateFormatter()
+        internetDateFormatter.formatOptions = [.withInternetDateTime]
+        return internetDateFormatter.date(from: value)
+    }
+
+    private enum FenrirTimestampCodingKeys: String, CodingKey {
+        case date
     }
 }
 

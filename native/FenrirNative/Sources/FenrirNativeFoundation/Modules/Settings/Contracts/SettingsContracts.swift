@@ -2,7 +2,7 @@ import Foundation
 import FenrirNativeShared
 
 public extension Settings {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     enum SettingsError: Error, Codable, Equatable, Sendable {
         case unavailable
@@ -50,6 +50,16 @@ public extension Settings {
         case developer
     }
 
+    enum ThemeID: String, Codable, Equatable, Sendable {
+        case fenrirDark = "fenrir-dark"
+        case pierreDark = "pierre-dark"
+        case catppuccinMocha = "catppuccin-mocha"
+        case rosePine = "rose-pine"
+        case kanagawa
+        case tokyoNightMoon = "tokyonight-moon"
+        case nord
+    }
+
     enum ServerStartupMode: String, Codable, Equatable, Sendable {
         case autoStartLocal
         case connectToLocal
@@ -82,6 +92,7 @@ public extension Settings {
         case appMode
         case serverConnectionDefaults
         case workspaceUIPreferences
+        case appearancePreferences
         case keybindingImportPreferences
         case diagnosticsPolicy
     }
@@ -109,6 +120,7 @@ public extension Settings {
                 .appMode,
                 .serverConnectionDefaults,
                 .workspaceUIPreferences,
+                .appearancePreferences,
                 .keybindingImportPreferences,
                 .diagnosticsPolicy
             ],
@@ -194,6 +206,14 @@ public extension Settings {
         }
     }
 
+    struct AppearancePreferences: Codable, Equatable, Sendable {
+        public let themeID: ThemeID
+
+        public init(themeID: ThemeID = .fenrirDark) {
+            self.themeID = themeID
+        }
+    }
+
     struct KeybindingImportPreferences: Codable, Equatable, Sendable {
         public let importTmuxKeybindings: Bool
         public let conflictPolicy: KeybindingConflictPolicy
@@ -231,6 +251,7 @@ public extension Settings {
         public let appMode: AppMode
         public let serverConnection: ServerConnectionDefaults
         public let workspaceUI: WorkspaceUIPreferences
+        public let appearance: AppearancePreferences
         public let keybindingImport: KeybindingImportPreferences
         public let diagnostics: DiagnosticsPolicy
 
@@ -239,6 +260,7 @@ public extension Settings {
             appMode: AppMode = .standard,
             serverConnection: ServerConnectionDefaults = ServerConnectionDefaults(),
             workspaceUI: WorkspaceUIPreferences = WorkspaceUIPreferences(),
+            appearance: AppearancePreferences = AppearancePreferences(),
             keybindingImport: KeybindingImportPreferences = KeybindingImportPreferences(),
             diagnostics: DiagnosticsPolicy = DiagnosticsPolicy()
         ) {
@@ -246,6 +268,7 @@ public extension Settings {
             self.appMode = appMode
             self.serverConnection = serverConnection
             self.workspaceUI = workspaceUI
+            self.appearance = appearance
             self.keybindingImport = keybindingImport
             self.diagnostics = diagnostics
         }

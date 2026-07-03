@@ -428,7 +428,31 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Request: Schema.Void,
     Result: ProjectionThreadActivityDbRowSchema,
     execute: () =>
+      // Two-phase read: ranking runs over the covering index
+      // (thread_id, sequence, created_at, activity_id) without touching
+      // `payload_json`, and only rows inside the recency window are joined
+      // back for their payload. The single-pass window variant read every
+      // payload in the table just to discard most of them, so hydration cost
+      // grew with total table size instead of the kept window (observed at
+      // 18s on a 1.4GB activities table).
+      //
+      // The running byte budget over ranks 1..N only depends on rows ranked
+      // ahead of each row, so computing it over the rank-filtered subset is
+      // identical to computing it over the whole table.
       sql`
+        WITH ranked AS (
+          SELECT
+            activity_id,
+            ROW_NUMBER() OVER (
+              PARTITION BY thread_id
+              ORDER BY
+                CASE WHEN sequence IS NULL THEN 1 ELSE 0 END ASC,
+                sequence DESC,
+                created_at DESC,
+                activity_id DESC
+            ) AS "recencyRank"
+          FROM projection_thread_activities
+        )
         SELECT
           "activityId",
           "threadId",
@@ -441,33 +465,29 @@ export const makeProjectionSnapshotQuery = Effect.gen(function* () {
           "createdAt"
         FROM (
           SELECT
-            activity_id AS "activityId",
-            thread_id AS "threadId",
-            turn_id AS "turnId",
-            tone,
-            kind,
-            summary,
-            payload_json AS payload,
-            sequence,
-            created_at AS "createdAt",
-            ROW_NUMBER() OVER (
-              PARTITION BY thread_id
+            activities.activity_id AS "activityId",
+            activities.thread_id AS "threadId",
+            activities.turn_id AS "turnId",
+            activities.tone,
+            activities.kind,
+            activities.summary,
+            activities.payload_json AS payload,
+            activities.sequence,
+            activities.created_at AS "createdAt",
+            ranked."recencyRank",
+            SUM(LENGTH(activities.payload_json)) OVER (
+              PARTITION BY activities.thread_id
               ORDER BY
-                CASE WHEN sequence IS NULL THEN 1 ELSE 0 END ASC,
-                sequence DESC,
-                created_at DESC,
-                activity_id DESC
-            ) AS "recencyRank",
-            SUM(LENGTH(payload_json)) OVER (
-              PARTITION BY thread_id
-              ORDER BY
-                CASE WHEN sequence IS NULL THEN 1 ELSE 0 END ASC,
-                sequence DESC,
-                created_at DESC,
-                activity_id DESC
+                CASE WHEN activities.sequence IS NULL THEN 1 ELSE 0 END ASC,
+                activities.sequence DESC,
+                activities.created_at DESC,
+                activities.activity_id DESC
               ROWS UNBOUNDED PRECEDING
             ) AS "recencyPayloadBytes"
-          FROM projection_thread_activities
+          FROM ranked
+          JOIN projection_thread_activities AS activities
+            ON activities.activity_id = ranked.activity_id
+          WHERE ranked."recencyRank" <= ${THREAD_ACTIVITY_READ_MODEL_LIMIT}
         )
         WHERE
           "recencyRank" <= ${THREAD_ACTIVITY_READ_MODEL_LIMIT}

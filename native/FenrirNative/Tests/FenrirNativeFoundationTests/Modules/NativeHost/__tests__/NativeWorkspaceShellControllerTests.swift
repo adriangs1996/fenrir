@@ -1,4 +1,5 @@
 import AppKit
+import AgentIntegration
 import AgentInteraction
 import AuthSession
 import ClientControl
@@ -9,6 +10,7 @@ import NativeRuntime
 import Notifications
 import PaneGrid
 import ServerConnection
+import Settings
 import TerminalViewport
 import Testing
 import WorkspaceCoordinator
@@ -17,7 +19,7 @@ import WorkspaceOverlays
 import WorkflowControl
 @testable import FenrirNativeApp
 
-@Suite("Native workspace AppKit shell", .serialized)
+@Suite("NativeHost workspace AppKit shell", .serialized)
 struct NativeWorkspaceShellControllerTests {
     @Test("First shell composition is terminal workspace chrome, not a landing page")
     @MainActor
@@ -37,6 +39,23 @@ struct NativeWorkspaceShellControllerTests {
         #expect(!allLabelStrings(in: view).contains("Fenrir NativeHost"))
         #expect(!allLabelStrings(in: view).contains("tmux workspace"))
         #expect(!allLabelStrings(in: view).contains("$ fenrir native terminal ready"))
+    }
+
+
+    @Test("Shell theme tokens propagate to chrome, sidebar, overlays, and pane host")
+    @MainActor
+    func shellThemeTokensPropagateToVisibleSurfaces() {
+        let tokens = NativeShellThemeTokens.resolve(.kanagawa)
+        let view = NativeWorkspaceRootView(
+            state: state(),
+            paneGridActions: FakePaneGridActions(),
+            themeTokens: tokens
+        )
+
+        #expect(view.themeTokens.themeID == .kanagawa)
+        #expect(view.sidebarList.themeTokens.themeID == .kanagawa)
+        #expect(view.overlayHost.themeTokens.themeID == .kanagawa)
+        #expect(view.terminalPaneHost.themeTokens.themeID == .kanagawa)
     }
 
     @Test("Shell apply refreshes mounted PaneGrid state")
@@ -363,6 +382,173 @@ struct NativeWorkspaceShellControllerTests {
         #expect(resizedPane?.rect.rows == 42)
     }
 
+    @Test("NativeHost agent presence OSC forwarder stores valid terminal viewport presence")
+    func nativeHostAgentPresenceOSCForwarderStoresValidPresence() async throws {
+        let store = AgentIntegration.InMemoryAgentPresenceStore()
+        let forwarder = NativeAgentPresenceOSCForwarder(
+            ingestAgentPresenceSignal: AgentIntegration.IngestAgentPresenceSignal(
+                store: store,
+                clock: AgentIntegration.FixedAgentIntegrationClock(timestamp: FenrirTimestamp(Date(timeIntervalSince1970: 1_700_000_000)))
+            )
+        )
+        let signal = TerminalViewport.ReservedOSCSignal(
+            oscIdentifier: AgentIntegration.AgentPresenceSignal.oscIdentifier,
+            payload: #"{"namespace":"com.fenrir.agent.presence.v1","agentID":"codex","state":"awaitingInput","workspaceID":"workspace-a","paneID":"pane-a","sequence":12,"timestamp":"2023-11-14T22:13:20Z"}"#,
+            provenance: TerminalViewport.ReservedOSCProvenance(
+                workspaceID: "workspace-a",
+                tabID: "window-a",
+                paneID: "pane-a",
+                viewportID: "viewport-a",
+                streamID: "stream-a",
+                sequence: 12
+            )
+        )
+
+        try await forwarder.forwardReservedOSC(signal)
+        let records = try await AgentIntegration.ListAgentPresence(
+            store: store,
+            clock: AgentIntegration.FixedAgentIntegrationClock(timestamp: FenrirTimestamp(Date(timeIntervalSince1970: 1_700_000_001)))
+        )
+        .run(.init(requestID: "list-presence", workspaceID: "workspace-a", source: .test))
+        .get()
+
+        #expect(records.records.count == 1)
+        guard let record = records.records.first else {
+            Issue.record("Expected exactly one presence record")
+            return
+        }
+        #expect(record.state == .awaitingInput)
+        #expect(record.provenance.workspaceID == "workspace-a")
+        #expect(record.provenance.tabID == "window-a")
+        #expect(record.provenance.paneID == "pane-a")
+        #expect(record.provenance.viewportID == "viewport-a")
+        #expect(record.provenance.kind == .terminalViewportForwardedOSC)
+    }
+
+    @Test("NativeHost terminal viewport store saves loads overwrites and deletes state")
+    func nativeHostTerminalViewportStoreSavesLoadsOverwritesAndDeletesState() async throws {
+        let store = NativeAppTerminalViewportStore()
+        let viewportID = ViewportID(rawValue: "viewport-store-a")
+        let initialState = nativeHostTerminalViewportState(
+            viewportID: viewportID,
+            streamID: "stream-a",
+            lastAppliedSequence: 1
+        )
+        let overwrittenState = nativeHostTerminalViewportState(
+            viewportID: viewportID,
+            streamID: "stream-b",
+            lastAppliedSequence: 2
+        )
+
+        #expect(try await store.loadViewport(viewportID: viewportID) == nil)
+
+        try await store.saveViewport(initialState)
+        #expect(try await store.loadViewport(viewportID: viewportID) == initialState)
+
+        try await store.saveViewport(overwrittenState)
+        #expect(try await store.loadViewport(viewportID: viewportID) == overwrittenState)
+
+        try await store.deleteViewport(viewportID: viewportID)
+        #expect(try await store.loadViewport(viewportID: viewportID) == nil)
+    }
+
+    @Test("NativeHost terminal view renderer writer appends bytes in order")
+    @MainActor
+    func nativeHostTerminalViewRendererWriterAppendsBytesInOrder() async throws {
+        let backend = NativeHostRecordingTerminalBackend()
+        let terminalView = FenrirTerminalView(backend: backend)
+        let writer = NativeTerminalViewRendererWriter(terminalView: terminalView)
+
+        try await writer.ingestOutput(viewportID: "viewport-renderer-a", bytes: Data("one".utf8))
+        try await writer.ingestOutput(viewportID: "viewport-renderer-a", bytes: Data("-two".utf8))
+        try await writer.ingestOutput(viewportID: "viewport-renderer-a", bytes: Data("-three".utf8))
+
+        #expect(backend.renderedText == "one-two-three")
+        #expect(backend.outputs == [
+            Data("one".utf8),
+            Data("-two".utf8),
+            Data("-three".utf8)
+        ])
+    }
+
+    @Test("NativeHost terminal stream ingestor renders normal output and commits sequence")
+    @MainActor
+    func nativeHostTerminalStreamIngestorRendersNormalOutputAndCommitsSequence() async throws {
+        let store = NativeAppTerminalViewportStore()
+        let ingestor = NativeTerminalStreamIngestor(store: store)
+        let backend = NativeHostRecordingTerminalBackend()
+        let terminalView = FenrirTerminalView(backend: backend)
+        let pane = PaneGrid.PanePresentation(
+            paneID: "pane-ingest-a",
+            tmuxPaneID: NativeRuntime.TmuxPaneID(rawValue: "%99"),
+            streamID: "stream-ingest-a",
+            viewportID: "viewport-ingest-a",
+            title: "ingest",
+            rect: PaneGrid.PaneRect(x: 0, y: 0, columns: 120, rows: 36),
+            isFocused: true
+        )
+
+        let result = await ingestor.ingestOutput(
+            workspaceID: "workspace-a",
+            windowID: "window-a",
+            pane: pane,
+            streamID: "stream-ingest-a",
+            sequence: 1,
+            bytes: Data("hello".utf8),
+            terminalView: terminalView
+        )
+
+        guard case .success = result else {
+            Issue.record("Expected stream ingestor to succeed")
+            return
+        }
+        #expect(backend.renderedText == "hello")
+        let savedState = try await store.loadViewport(viewportID: "viewport-ingest-a")
+        #expect(savedState?.lastAppliedSequence == 1)
+        #expect(savedState?.streamID == "stream-ingest-a")
+        #expect(savedState?.streamStatus == .attached)
+    }
+
+    @Test("NativeHost agent presence OSC forwarder drops malformed advisory payloads")
+    func nativeHostAgentPresenceOSCForwarderDropsMalformedPayload() async throws {
+        let store = AgentIntegration.InMemoryAgentPresenceStore()
+        let clock = AgentIntegration.FixedAgentIntegrationClock(timestamp: FenrirTimestamp(Date(timeIntervalSince1970: 1_700_000_000)))
+        let forwarder = NativeAgentPresenceOSCForwarder(
+            ingestAgentPresenceSignal: AgentIntegration.IngestAgentPresenceSignal(store: store, clock: clock)
+        )
+
+        try await forwarder.forwardReservedOSC(TerminalViewport.ReservedOSCSignal(
+            oscIdentifier: AgentIntegration.AgentPresenceSignal.oscIdentifier,
+            payload: #"{"namespace":"com.fenrir.agent.presence.v1","agentID":"codex","state":"busy","workspaceID":"other","paneID":"pane-a"}"#,
+            provenance: TerminalViewport.ReservedOSCProvenance(
+                workspaceID: "workspace-a",
+                tabID: "window-a",
+                paneID: "pane-a",
+                viewportID: "viewport-a",
+                streamID: "stream-a",
+                sequence: 13
+            )
+        ))
+        let records = try await AgentIntegration.ListAgentPresence(store: store, clock: clock)
+            .run(.init(requestID: "list-presence", source: .test))
+            .get()
+
+        #expect(records.records.isEmpty)
+    }
+
+    @Test("NativeHost TerminalViewport module does not import AgentIntegration")
+    func nativeHostTerminalViewportModuleDoesNotImportAgentIntegration() throws {
+        let sources = try swiftSourceFiles(
+            under: packageRoot().appendingPathComponent("Sources/FenrirNativeFoundation/Modules/TerminalViewport")
+        )
+
+        #expect(!sources.isEmpty)
+        for source in sources {
+            let text = try String(contentsOf: source, encoding: .utf8)
+            #expect(!text.contains("import AgentIntegration"), "\(source.path) must not import AgentIntegration")
+        }
+    }
+
     @Test("Palette open file dispatches through native Neovim bridge")
     @MainActor
     func paletteOpenFileDispatchesThroughNativeNeovimBridge() async throws {
@@ -495,6 +681,31 @@ struct NativeWorkspaceShellControllerTests {
         #expect(await transport.methods.contains("terminal.write") == false)
     }
 
+    @Test("Launched app server context streams live workflow events")
+    func launchedAppServerContextStreamsLiveWorkflowEvents() async throws {
+        let transport = WorkflowEventStreamNativeAppServerRPCTransport()
+        let eventStream = NativeAppServerConnectionContext
+            .localDefault(transport: transport, bootstrapCredential: "desktop-bootstrap-token")
+            .workflowEventStreamFactory
+            .makeEventStream(for: state(workspaceID: "project-1"))
+        let output = await WorkflowControl.ObserveWorkflowEventStream(eventStream: eventStream).run(.init(
+            requestID: "workflow-events",
+            filter: .init(runIDs: ["run-a"]),
+            source: .test
+        ))
+        var received: [WorkflowControl.WorkflowEventStreamItem] = []
+
+        for try await item in output {
+            received.append(item)
+        }
+
+        #expect(received.map { $0.kind } == [.runChanged, .eventAppended])
+        #expect(received.map { $0.runID?.rawValue } == ["run-a", "run-a"])
+        #expect(received.compactMap(\.event?.sequence) == [7])
+        #expect(await transport.methods == ["subscribeWorkflowEvents"])
+        #expect(await transport.bootstrapCredentials == ["desktop-bootstrap-token"])
+    }
+
     @Test("Real server workflow integration lists and observes a run when explicitly enabled")
     func realServerWorkflowIntegrationListsAndObservesRunWhenEnabled() async throws {
         let environment = ProcessInfo.processInfo.environment
@@ -518,7 +729,7 @@ struct NativeWorkspaceShellControllerTests {
     @Test("Native app RPC transport reuses bearer session for repeated composer submits")
     func nativeAppRPCTransportReusesBearerSessionForRepeatedComposerSubmits() async throws {
         let network = RecordingNativeAppServerRPCNetwork()
-        let transport = NativeAppURLSessionServerRPCTransport(network: network)
+        let transport = ServerConnection.NativeURLSessionServerRPCTransport(network: network)
         let endpoint = ServerConnection.LocalServerSpec(
             httpBaseURL: "http://127.0.0.1:31337",
             webSocketURL: "ws://127.0.0.1:31337/ws"
@@ -551,7 +762,7 @@ struct NativeWorkspaceShellControllerTests {
     @Test("Native app RPC transport shares first bootstrap across concurrent composer submits")
     func nativeAppRPCTransportSharesFirstBootstrapAcrossConcurrentComposerSubmits() async throws {
         let network = RecordingNativeAppServerRPCNetwork(exchangeDelayNanoseconds: 25_000_000)
-        let transport = NativeAppURLSessionServerRPCTransport(network: network)
+        let transport = ServerConnection.NativeURLSessionServerRPCTransport(network: network)
         let endpoint = ServerConnection.LocalServerSpec(
             httpBaseURL: "http://127.0.0.1:31337",
             webSocketURL: "ws://127.0.0.1:31337/ws"
@@ -600,7 +811,7 @@ struct NativeWorkspaceShellControllerTests {
                 NativeRPCURLProtocolResponse(statusCode: 200, body: Data(#"{"ok":true,"payload":{"workspaceId":"workspace-a","snapshot":true}}"#.utf8))
             ]
         ])
-        let transport = NativeAppURLSessionServerRPCTransport(network: NativeAppURLSessionServerRPCNetwork(urlSession: nativeRPCRecordingURLSession()))
+        let transport = ServerConnection.NativeURLSessionServerRPCTransport(network: ServerConnection.NativeURLSessionServerRPCNetwork(urlSession: nativeRPCRecordingURLSession()))
         let endpoint = ServerConnection.LocalServerSpec(
             httpBaseURL: "http://127.0.0.1:31337",
             webSocketURL: "ws://127.0.0.1:31337/ws"
@@ -670,7 +881,7 @@ struct NativeWorkspaceShellControllerTests {
                 )
             ]
         ])
-        let network = NativeAppURLSessionServerRPCNetwork(urlSession: nativeRPCRecordingURLSession())
+        let network = ServerConnection.NativeURLSessionServerRPCNetwork(urlSession: nativeRPCRecordingURLSession())
 
         do {
             _ = try await network.sendUnaryNativeRPC(
@@ -979,6 +1190,42 @@ struct NativeWorkspaceShellControllerTests {
         #expect(root.handleShellKeyboardShortcut(.diagnostics))
         #expect(root.overlayHost.isCapturingKeyboard)
         #expect(root.overlayHost.visibleOverlayTitles() == ["Diagnostics"])
+    }
+
+    @Test("Root controller applies live workflow stream items while workflow overlay is open")
+    @MainActor
+    func rootControllerAppliesLiveWorkflowStreamItemsWhileWorkflowOverlayIsOpen() async throws {
+        let stream = WorkflowEventStreamFake(items: [
+            WorkflowControl.WorkflowEventStreamItem(kind: .runChanged, run: nativeIntegrationWorkflowRun(runID: "run-a", updatedAtSeconds: 1)),
+            WorkflowControl.WorkflowEventStreamItem(kind: .eventAppended, event: workflowTimelineEvent(
+                eventID: "event-a",
+                kind: .notificationEmitted,
+                title: "Workflow needs attention",
+                sequence: 7
+            ))
+        ])
+        let controller = NativeWorkspaceRootViewController(
+            controller: NativeWorkspaceShellController(state: state(workspaceID: "workspace-a", focusedSurface: .terminal("pane-a"))),
+            paneGridRuntime: RecordingPaneGridRuntimeController(),
+            agentPromptSubmitter: RecordingAgentPromptSubmitter(),
+            workflowEventStream: stream
+        )
+        controller.loadView()
+
+        controller.presentWorkflowPanelFromClientControl(operation: "list")
+        try await waitUntil {
+            let state = (controller.view as! NativeWorkspaceRootView).visibleWorkflowState()
+            return state.runs.map { $0.runID.rawValue }.contains("run-a") &&
+                state.timeline?.events.map { $0.eventID.rawValue } == ["event-a"] &&
+                controller.visibleNotificationState()?.unreadCount == 1
+        }
+
+        let root = controller.view as! NativeWorkspaceRootView
+        #expect(root.overlayHost.visibleOverlayTitles() == ["Workflows"])
+        #expect(root.visibleWorkflowState().timeline?.nextSequence == 8)
+        #expect(await stream.filters == [WorkflowControl.WorkflowEventStreamFilter(projectID: "workspace-a")])
+        #expect(controller.visibleNotificationState()?.unreadCount == 1)
+        #expect(controller.visibleNotificationState()?.level == .badge)
     }
 
     @Test("Diagnostics overlay renders Diagnostics report rows instead of static optimistic rows")
@@ -1603,6 +1850,48 @@ struct NativeWorkspaceShellControllerTests {
         #expect(registry.visibleNotificationState(workspaceID: "workspace-a")?.level == .attention)
     }
 
+    @Test("Production server event graph resubscribes active stream handles on reconnect")
+    @MainActor
+    func productionServerEventGraphResubscribesActiveStreamHandlesOnReconnect() async throws {
+        let transport = SnapshotNativeAppServerRPCTransport()
+        let context = NativeAppServerConnectionContext.localDefault(
+            transport: transport,
+            bootstrapCredential: "bootstrap-token"
+        )
+        try await context.store.saveStream(ServerConnection.StreamHandle(
+            streamID: "pane-stream",
+            method: "tmux.pane.subscribeStream",
+            payload: #"{"paneId":"pane-a"}"#,
+            status: .open,
+            openedGeneration: 0
+        ), sessionID: context.sessionID)
+
+        let registry = NativeWorkspaceWindowRegistry(agentPromptSubmitterFactory: RecordingAgentPromptSubmitterFactory())
+        let graph = context.serverEventIntegrationGraph(workspaceWindows: registry)
+        let controller = NativeHostServerEventController(
+            controller: NativeHostControlController(dispatcher: RecordingNativeHostClientControlDispatcher()),
+            integration: graph,
+            defaultSessionID: context.sessionID,
+            projectionApplier: NativeVisibleReconnectProjectionApplier(workspaceWindows: registry)
+        )
+
+        let response = await controller.dispatch(.reconnectWorkspace(
+            requestID: "server-restart-stream-resubscribe",
+            workspaceID: "workspace-a",
+            serverID: "local",
+            serverURL: "ws://127.0.0.1:31337/ws",
+            sessionID: context.sessionID,
+            generation: 0
+        ))
+        let streams = try await context.store.loadStreams(sessionID: context.sessionID)
+
+        #expect(response.ok)
+        #expect(await transport.methods == ["server.getConfig", "tmux.workspace.getSnapshot", "workflows.listProjectWorkflows", "workflows.getRun", "workflows.getTimeline"])
+        #expect(streams.map { $0.streamID } == ["pane-stream"])
+        #expect(streams.first?.status == .open)
+        #expect(streams.first?.openedGeneration == 1)
+    }
+
     @Test("Server event graph action wrappers can be constructed for live smoke wiring")
     func serverEventGraphActionWrappersCanBeConstructedForLiveSmokeWiring() async throws {
         guard ProcessInfo.processInfo.environment["FENRIR_NATIVE_SERVER_EVENT_SMOKE"] == "1" else {
@@ -1675,6 +1964,25 @@ private actor RecordingNativeServerSessionReconnectHandler: NativeServerSessionR
     func reconnectSession(_ input: ServerConnection.ReconnectServerSessionInput) async -> Result<ServerConnection.Session, ServerConnection.ServerConnectionError> {
         reconnectCalls += 1
         return .success(session.withStatus(.connected, generation: UInt64(reconnectCalls)))
+    }
+}
+
+private actor WorkflowEventStreamFake: WorkflowControl.WorkflowEventStreaming {
+    private let items: [WorkflowControl.WorkflowEventStreamItem]
+    private(set) var filters: [WorkflowControl.WorkflowEventStreamFilter] = []
+
+    init(items: [WorkflowControl.WorkflowEventStreamItem]) {
+        self.items = items
+    }
+
+    func observeWorkflowEvents(filter: WorkflowControl.WorkflowEventStreamFilter) async -> AsyncThrowingStream<WorkflowControl.WorkflowEventStreamItem, Error> {
+        filters.append(filter)
+        return AsyncThrowingStream { continuation in
+            for item in items {
+                continuation.yield(item)
+            }
+            continuation.finish()
+        }
     }
 }
 
@@ -2229,6 +2537,25 @@ private func shellPaneGridState(
     )
 }
 
+private func nativeHostTerminalViewportState(
+    viewportID: ViewportID,
+    streamID: StreamID? = nil,
+    lastAppliedSequence: UInt64? = nil
+) -> TerminalViewport.State {
+    TerminalViewport.State(
+        viewportID: viewportID,
+        workspaceID: "workspace-a",
+        tabID: "window-a",
+        paneID: "pane-a",
+        streamID: streamID,
+        lastAppliedSequence: lastAppliedSequence,
+        isFocused: true,
+        rendererStatus: .ready,
+        streamStatus: streamID == nil ? .detached : .attached,
+        size: TerminalViewport.Size(columns: 120, rows: 36, pixelWidth: 960, pixelHeight: 720)
+    )
+}
+
 @MainActor
 private func waitUntil(
     timeoutNanoseconds: UInt64 = 250_000_000,
@@ -2241,6 +2568,57 @@ private func waitUntil(
             return
         }
         try await Task.sleep(nanoseconds: 5_000_000)
+    }
+}
+
+@MainActor
+private final class NativeHostRecordingTerminalBackend: FenrirTerminalBackend {
+    let descriptor = TerminalViewport.RendererDescriptor(rendererID: "native-host-recording-terminal", status: .ready)
+    private(set) var outputs: [Data] = []
+    private(set) var renderedText = ""
+
+    func mount(in hostView: NSView) {
+        _ = hostView
+    }
+
+    func unmount() {}
+
+    func attach(streamID: StreamID) {
+        _ = streamID
+    }
+
+    func detach(streamID: StreamID) {
+        _ = streamID
+    }
+
+    func applyOutput(_ bytes: Data) {
+        outputs.append(bytes)
+        renderedText += String(decoding: bytes, as: UTF8.self)
+    }
+
+    func sendUserInput(_ bytes: Data) {
+        _ = bytes
+    }
+
+    func resize(_ size: TerminalViewport.Size) {
+        _ = size
+    }
+
+    func setFocused(_ focused: Bool) {
+        _ = focused
+    }
+
+    func captureSelection() -> TerminalViewport.CapturedTextBuffer {
+        TerminalViewport.CapturedTextBuffer(text: "")
+    }
+
+    func captureViewport() -> TerminalViewport.CapturedTextBuffer {
+        TerminalViewport.CapturedTextBuffer(text: renderedText)
+    }
+
+    func captureLastLines(maxLines: Int?) -> TerminalViewport.CapturedTextBuffer {
+        _ = maxLines
+        return TerminalViewport.CapturedTextBuffer(text: renderedText)
     }
 }
 
@@ -2724,7 +3102,49 @@ private func serverSession(
     )
 }
 
-private actor RecordingNativeAppServerRPCTransport: NativeAppServerRPCTransporting {
+private actor WorkflowEventStreamNativeAppServerRPCTransport: ServerConnection.NativeServerRPCTransporting {
+    private(set) var methods: [String] = []
+    private(set) var bootstrapCredentials: [String] = []
+
+    func sendAuthenticatedRPC(
+        httpBaseURL: URL,
+        webSocketURL: URL,
+        bootstrapCredential: String,
+        session: ServerConnection.Session,
+        requestID: RequestID,
+        request: ServerConnection.RequestEnvelope
+    ) async throws -> ServerConnection.ResponseEnvelope {
+        ServerConnection.ResponseEnvelope(method: request.method, payload: #"{}"#, generation: session.reconnectGeneration)
+    }
+
+    func streamAuthenticatedRPC(
+        httpBaseURL: URL,
+        webSocketURL: URL,
+        bootstrapCredential: String,
+        session: ServerConnection.Session,
+        requestID: RequestID,
+        request: ServerConnection.RequestEnvelope
+    ) async -> AsyncThrowingStream<Data, Error> {
+        methods.append(request.method)
+        bootstrapCredentials.append(bootstrapCredential)
+        return AsyncThrowingStream { continuation in
+            for payload in Self.payloads {
+                continuation.yield(Data(payload.utf8))
+            }
+            continuation.finish()
+        }
+    }
+
+    private static let payloads: [String] = [
+        #"{"type":"workflow.run.changed","run":{"runId":"run-a","workflowId":"workflow-a","projectId":"project-1","originThreadId":"thread-a","trigger":"manual","name":"Run A","args":{},"runtimeContext":null,"status":"running","summary":null,"startedAt":"2026-01-01T00:00:00Z","completedAt":null,"lastUpdatedAt":"2026-01-01T00:00:01Z","steps":[],"agents":[],"tasks":[],"inputRequests":[]}}"#,
+        #"{"type":"workflow.event.appended","event":{"eventId":"event-a","workflowId":"workflow-a","runId":"run-a","stepId":null,"agentId":null,"taskId":null,"kind":"workflow.step.started","title":"Step started","body":null,"payload":{},"sequence":7,"createdAt":"2026-01-01T00:00:02Z"}}"#,
+        #"{"type":"workflow.changed","workflow":{"workflowId":"workflow-a"}}"#,
+        #"{"type":"workflow.event.appended","event":{"eventId":"event-no-run","workflowId":"workflow-a","runId":null,"stepId":null,"agentId":null,"taskId":null,"kind":"workflow.draft.created","title":"Draft","body":null,"payload":{},"sequence":8,"createdAt":"2026-01-01T00:00:03Z"}}"#,
+        #"{"type":"workflow.run.changed","run":{"runId":"run-b","workflowId":"workflow-b","projectId":"project-1","originThreadId":"thread-a","trigger":"manual","name":"Run B","args":{},"runtimeContext":null,"status":"running","summary":null,"startedAt":"2026-01-01T00:00:00Z","completedAt":null,"lastUpdatedAt":"2026-01-01T00:00:01Z","steps":[],"agents":[],"tasks":[],"inputRequests":[]}}"#
+    ]
+}
+
+private actor RecordingNativeAppServerRPCTransport: ServerConnection.NativeServerRPCTransporting {
     private(set) var bootstrapCredentials: [String] = []
     private(set) var httpBaseURLs: [String] = []
     private(set) var webSocketURLs: [String] = []
@@ -2774,7 +3194,7 @@ private actor RecordingNativeAppServerRPCTransport: NativeAppServerRPCTransporti
     }
 }
 
-private actor FailingNativeAppServerRPCTransport: NativeAppServerRPCTransporting {
+private actor FailingNativeAppServerRPCTransport: ServerConnection.NativeServerRPCTransporting {
     private(set) var methods: [String] = []
 
     func sendAuthenticatedRPC(
@@ -2803,7 +3223,7 @@ private actor FailingNativeAppServerRPCTransport: NativeAppServerRPCTransporting
     }
 }
 
-private actor RejectingNativeAppServerRPCTransport: NativeAppServerRPCTransporting {
+private actor RejectingNativeAppServerRPCTransport: ServerConnection.NativeServerRPCTransporting {
     private(set) var methods: [String] = []
 
     func sendAuthenticatedRPC(
@@ -2832,7 +3252,7 @@ private actor RejectingNativeAppServerRPCTransport: NativeAppServerRPCTransporti
     }
 }
 
-private actor SnapshotNativeAppServerRPCTransport: NativeAppServerRPCTransporting {
+private actor SnapshotNativeAppServerRPCTransport: ServerConnection.NativeServerRPCTransporting {
     private(set) var methods: [String] = []
 
     func sendAuthenticatedRPC(
@@ -2884,7 +3304,7 @@ private actor SnapshotNativeAppServerRPCTransport: NativeAppServerRPCTransportin
     }
 }
 
-private actor RecordingNativeAppServerRPCNetwork: NativeAppServerRPCNetworking {
+private actor RecordingNativeAppServerRPCNetwork: ServerConnection.NativeServerRPCNetworking {
     private(set) var bootstrapCredentials: [String] = []
     private(set) var bearerTokens: [String] = []
     private(set) var httpBaseURLs: [String] = []
@@ -2895,12 +3315,12 @@ private actor RecordingNativeAppServerRPCNetwork: NativeAppServerRPCNetworking {
         self.exchangeDelayNanoseconds = exchangeDelayNanoseconds
     }
 
-    func exchangeBearerSession(httpBaseURL: URL, credential: String) async throws -> NativeAppBearerSession {
+    func exchangeBearerSession(httpBaseURL: URL, credential: String) async throws -> ServerConnection.NativeBearerSession {
         bootstrapCredentials.append(credential)
         if exchangeDelayNanoseconds > 0 {
             try await Task.sleep(nanoseconds: exchangeDelayNanoseconds)
         }
-        return NativeAppBearerSession(token: "bearer-session-token", authSessionID: "auth-session-native-test")
+        return ServerConnection.NativeBearerSession(token: "bearer-session-token", authSessionID: "auth-session-native-test")
     }
 
     func sendUnaryNativeRPC(
@@ -2948,6 +3368,36 @@ private actor RecordingPaneGridKernel: PaneGrid.PaneKernelControlling {
 
     func selectWindow(_ command: PaneGrid.SelectTabWindowCommand) async throws {
         calls.append("select:\(command.windowID.rawValue):\(command.tmuxWindowID)")
+    }
+}
+
+private func packageRoot() -> URL {
+    var fileURL = URL(fileURLWithPath: #filePath)
+    while fileURL.lastPathComponent != "FenrirNative" {
+        let next = fileURL.deletingLastPathComponent()
+        if next.path == fileURL.path {
+            return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        }
+        fileURL = next
+    }
+    return fileURL
+}
+
+private func swiftSourceFiles(under directory: URL) throws -> [URL] {
+    guard let enumerator = FileManager.default.enumerator(
+        at: directory,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+    ) else {
+        return []
+    }
+
+    return try enumerator.compactMap { item in
+        guard let url = item as? URL, url.pathExtension == "swift" else {
+            return nil
+        }
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+        return values.isRegularFile == true ? url : nil
     }
 }
 

@@ -16,6 +16,7 @@ public extension NativeDistribution {
     enum DependencyKind: String, Codable, Equatable, Sendable {
         case tmux
         case fenrirServerAsset
+        case terminalRendererArtifact
         case neovim
     }
 
@@ -61,6 +62,25 @@ public extension NativeDistribution {
         public init(assetPath: String?, isExecutable: Bool, version: String? = nil) {
             self.assetPath = assetPath
             self.isExecutable = isExecutable
+            self.version = version
+        }
+    }
+
+    struct TerminalRendererArtifactProbeResult: Codable, Equatable, Sendable {
+        public let artifactPath: String?
+        public let resourcesPath: String?
+        public let isLoadable: Bool
+        public let version: String?
+
+        public init(
+            artifactPath: String?,
+            resourcesPath: String? = nil,
+            isLoadable: Bool,
+            version: String? = nil
+        ) {
+            self.artifactPath = artifactPath
+            self.resourcesPath = resourcesPath
+            self.isLoadable = isLoadable
             self.version = version
         }
     }

@@ -20,7 +20,9 @@ import { ProjectionStateRepository } from "../../persistence/Services/Projection
  * Rebuilding a projector from sequence 0 stops being possible once events are
  * pruned — new projectors must bootstrap from existing projections instead.
  */
-export const EVENT_RETENTION_MIN_AGE_DAYS = 30;
+// Replay recovery only ever needs recent history (clients reconnect within
+// minutes); 30 days accumulated 1GB+ of events on a heavily used install.
+export const EVENT_RETENTION_MIN_AGE_DAYS = 7;
 export const EVENT_RETENTION_SEQUENCE_MARGIN = 10_000;
 export const EVENT_RETENTION_BATCH_SIZE = 5_000;
 

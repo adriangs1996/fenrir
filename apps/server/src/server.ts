@@ -28,6 +28,8 @@ import {
 } from "./provider/ProviderRuntimeModule";
 import { OrchestrationEngineLive } from "./orchestration/Layers/OrchestrationEngine";
 import { OrchestrationEventRetentionLive } from "./orchestration/Layers/EventRetention";
+import { ThreadProjectionRetentionLive } from "./orchestration/Layers/ThreadProjectionRetention";
+import { ProjectionRetentionLive } from "./persistence/Layers/ProjectionRetention";
 import { ProjectionStateRepositoryLive } from "./persistence/Layers/ProjectionState";
 import { OrchestrationProjectionPipelineLive } from "./orchestration/Layers/ProjectionPipeline";
 import { OrchestrationEventStoreLive } from "./persistence/Layers/OrchestrationEventStore";
@@ -431,6 +433,10 @@ export const makeServerApplicationLayer = Layer.unwrap(
       Layer.provide(Layer.mergeAll(OrchestrationEventStoreLive, ProjectionStateRepositoryLive)),
     );
 
+    const threadProjectionRetentionLayer = ThreadProjectionRetentionLive.pipe(
+      Layer.provide(ProjectionRetentionLive),
+    );
+
     // Bind the HTTP port only after the runtime graph (migrations, projection
     // bootstrap, read-model hydration) has finished building. Hydration runs
     // synchronous SQLite work that blocks the event loop; a port bound before
@@ -449,6 +455,7 @@ export const makeServerApplicationLayer = Layer.unwrap(
       }),
       httpListeningLayer,
       eventRetentionLayer,
+      threadProjectionRetentionLayer,
     ).pipe(Layer.provide(gatedHttpServerLive));
 
     return serverApplicationLayer.pipe(

@@ -22,5 +22,13 @@ Public actions:
 - `PrepareLocalServerConnection`
 - `ShutdownLocalServer`
 
-Transport implementations stay behind service ports. Live `URLSession` details
-and live process handles must not leak through contracts or actions.
+Transport implementations stay behind service ports. The native HTTP compatibility
+adapter (`NativeURLSessionServerRPCTransport`, `NativeURLSessionServerRPCNetwork`, and
+`NativeServerRequestSender`) lives in `Layers` so `NativeHost` remains only the
+composition root. Live process handles must not leak through contracts or actions.
+
+## Live Transport Notes
+
+- NativeServerRequestSender can use either the HTTP compatibility transport or NativeWebSocketServerRPCTransport behind NativeServerRPCTransporting.
+- NativeWebSocketServerRPCTransport speaks Effect JSON-RPC over /ws?wsToken=... after bootstrap credential exchange and websocket token issuance.
+- Stream events are exposed as encoded JSON event bytes so NativeRuntime can consume them without depending on Effect internals.

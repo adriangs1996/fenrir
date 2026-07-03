@@ -79,9 +79,64 @@ public extension Keybinding {
         }
     }
 
+    enum TmuxKeyTable: Codable, Equatable, Hashable, Sendable {
+        case root
+        case prefix
+        case prefix2
+        case custom(String)
+
+        public init(_ rawValue: String) {
+            switch rawValue {
+            case "root":
+                self = .root
+            case "prefix":
+                self = .prefix
+            case "prefix2":
+                self = .prefix2
+            default:
+                self = .custom(rawValue)
+            }
+        }
+
+        public var rawValue: String {
+            switch self {
+            case .root:
+                return "root"
+            case .prefix:
+                return "prefix"
+            case .prefix2:
+                return "prefix2"
+            case let .custom(name):
+                return name
+            }
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            self.init(try container.decode(String.self))
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode(rawValue)
+        }
+    }
+
+    struct TmuxTableBinding: Codable, Equatable, Hashable, Sendable {
+        public let table: TmuxKeyTable
+        public let key: KeyStroke
+
+        public init(table: TmuxKeyTable, key: KeyStroke) {
+            self.table = table
+            self.key = key
+        }
+    }
+
     enum KeybindingTrigger: Codable, Equatable, Hashable, Sendable {
         case native(KeyStroke)
+        case terminal(KeyStroke)
         case tmuxPrefix(TmuxPrefixBinding)
+        case tmuxTable(TmuxTableBinding)
     }
 
     enum PaneNavigationDirection: String, Codable, Equatable, Sendable {
@@ -137,26 +192,33 @@ public extension Keybinding {
         case newWindow
         case closeWindow
         case sendTmuxPrefix
+        case activateTmuxKeyTable(TmuxKeyTable)
     }
 
     struct TmuxKeyBinding: Codable, Equatable, Sendable {
-        public let table: String
+        public let table: TmuxKeyTable
         public let key: KeyStroke
         public let command: String
 
-        public init(table: String = "prefix", key: KeyStroke, command: String) {
+        public init(table: TmuxKeyTable = .prefix, key: KeyStroke, command: String) {
             self.table = table
             self.key = key
             self.command = command
+        }
+
+        public init(table: String, key: KeyStroke, command: String) {
+            self.init(table: TmuxKeyTable(table), key: key, command: command)
         }
     }
 
     struct EffectiveTmuxKeymap: Codable, Equatable, Sendable {
         public let prefix: KeyStroke
+        public let prefix2: KeyStroke?
         public let bindings: [TmuxKeyBinding]
 
-        public init(prefix: KeyStroke = .control("b"), bindings: [TmuxKeyBinding]) {
+        public init(prefix: KeyStroke = .control("b"), prefix2: KeyStroke? = nil, bindings: [TmuxKeyBinding]) {
             self.prefix = prefix
+            self.prefix2 = prefix2
             self.bindings = bindings
         }
     }
@@ -184,11 +246,18 @@ public extension Keybinding {
         public let trigger: KeybindingTrigger
         public let action: FenrirKeyAction
         public let source: KeybindingSource
+        public let sourceTable: TmuxKeyTable?
 
-        public init(trigger: KeybindingTrigger, action: FenrirKeyAction, source: KeybindingSource) {
+        public init(
+            trigger: KeybindingTrigger,
+            action: FenrirKeyAction,
+            source: KeybindingSource,
+            sourceTable: TmuxKeyTable? = nil
+        ) {
             self.trigger = trigger
             self.action = action
             self.source = source
+            self.sourceTable = sourceTable
         }
     }
 
@@ -248,17 +317,23 @@ public extension Keybinding {
         public let conflicts: [KeybindingConflict]
         public let unsupportedBindings: [UnsupportedTmuxBinding]
         public let palettePrefixes: [PalettePrefix]
+        public let prefix: KeyStroke
+        public let prefix2: KeyStroke?
 
         public init(
             bindings: [ActionBinding],
             conflicts: [KeybindingConflict],
             unsupportedBindings: [UnsupportedTmuxBinding],
-            palettePrefixes: [PalettePrefix] = PalettePrefix.allCases
+            palettePrefixes: [PalettePrefix] = PalettePrefix.allCases,
+            prefix: KeyStroke = .control("b"),
+            prefix2: KeyStroke? = nil
         ) {
             self.bindings = bindings
             self.conflicts = conflicts
             self.unsupportedBindings = unsupportedBindings
             self.palettePrefixes = palettePrefixes
+            self.prefix = prefix
+            self.prefix2 = prefix2
         }
 
         public func binding(for trigger: KeybindingTrigger) -> ActionBinding? {
@@ -283,22 +358,44 @@ public extension Keybinding {
         public let source: ActionSource
         public let trigger: KeybindingTrigger
         public let importedMap: ImportedKeybindingMap
+        public let state: KeyTableState
 
         public init(
             requestID: RequestID,
             source: ActionSource,
             trigger: KeybindingTrigger,
-            importedMap: ImportedKeybindingMap
+            importedMap: ImportedKeybindingMap,
+            state: KeyTableState = .root
         ) {
             self.requestID = requestID
             self.source = source
             self.trigger = trigger
             self.importedMap = importedMap
+            self.state = state
+        }
+    }
+
+    enum KeyTableState: Codable, Equatable, Sendable {
+        case root
+        case table(TmuxKeyTable)
+    }
+
+    struct UnsupportedKeybindingResolution: Codable, Equatable, Sendable {
+        public let table: TmuxKeyTable?
+        public let key: KeyStroke
+        public let reason: String
+
+        public init(table: TmuxKeyTable?, key: KeyStroke, reason: String) {
+            self.table = table
+            self.key = key
+            self.reason = reason
         }
     }
 
     enum KeybindingResolution: Codable, Equatable, Sendable {
         case fenrirAction(FenrirKeyAction)
+        case enterTmuxKeyTable(TmuxKeyTable)
+        case unsupported(UnsupportedKeybindingResolution)
         case passThroughToShell
     }
 

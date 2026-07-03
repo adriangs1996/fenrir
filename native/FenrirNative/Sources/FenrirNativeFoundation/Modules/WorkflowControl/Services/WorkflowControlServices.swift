@@ -6,6 +6,10 @@ public extension WorkflowControl {
         func now() -> FenrirTimestamp
     }
 
+    protocol WorkflowEventStreaming: Sendable {
+        func observeWorkflowEvents(filter: WorkflowEventStreamFilter) async -> AsyncThrowingStream<WorkflowEventStreamItem, Error>
+    }
+
     protocol WorkflowServerClient: Sendable {
         func listWorkflowRuns(filter: WorkflowRunListFilter) async throws -> [WorkflowRunSnapshot]
         func getWorkflowRun(runID: WorkflowRunID) async throws -> WorkflowRunSnapshot

@@ -140,12 +140,20 @@ public extension TerminalViewport {
 
         let store: any TerminalViewportStore
         let rendererWriter: any TerminalRendererWriting
+        let reservedOSCForwarder: (any TerminalReservedOSCForwarding)?
         let clock: any TerminalViewportClock
         let events: (any TerminalViewportEventPublishing)?
 
-        init(store: any TerminalViewportStore, rendererWriter: any TerminalRendererWriting, clock: any TerminalViewportClock, events: (any TerminalViewportEventPublishing)? = nil) {
+        public init(
+            store: any TerminalViewportStore,
+            rendererWriter: any TerminalRendererWriting,
+            reservedOSCForwarder: (any TerminalReservedOSCForwarding)? = nil,
+            clock: any TerminalViewportClock,
+            events: (any TerminalViewportEventPublishing)? = nil
+        ) {
             self.store = store
             self.rendererWriter = rendererWriter
+            self.reservedOSCForwarder = reservedOSCForwarder
             self.clock = clock
             self.events = events
         }
@@ -154,8 +162,24 @@ public extension TerminalViewport {
             do {
                 let state = try await TerminalViewport.loadMatchingState(store, viewportID: input.viewportID, paneID: input.paneID, streamID: input.streamID)
                 try TerminalViewport.validateNextSequence(input.sequence, after: state.lastAppliedSequence)
-                try await rendererWriter.ingestOutput(viewportID: input.viewportID, bytes: input.bytes)
-                let next = state.updated(lastAppliedSequence: .some(input.sequence))
+                let scanned = try TerminalViewport.stripReservedOSC(
+                    from: input.bytes,
+                    pending: state.pendingReservedOSCSequence,
+                    state: state,
+                    streamID: input.streamID,
+                    sequence: input.sequence
+                )
+                _ = try await TerminalViewport.apply(
+                    scanned.operations,
+                    viewportID: input.viewportID,
+                    maxBytesPerRendererWrite: TerminalOutputBackpressurePolicy.defaults.maxBytesPerRendererWrite,
+                    requestID: input.requestID,
+                    rendererWriter: rendererWriter,
+                    clock: clock,
+                    reservedOSCForwarder: reservedOSCForwarder,
+                    events: events
+                )
+                let next = state.updated(lastAppliedSequence: .some(input.sequence), pendingReservedOSCSequence: scanned.pending)
                 try await store.saveViewport(next)
                 let timestamp = clock.now()
                 await events?.publish(TerminalViewport.envelope(input.requestID, "TerminalOutputIngested", timestamp, .terminalOutputIngested(input.viewportID, input.sequence)))
@@ -173,12 +197,20 @@ public extension TerminalViewport {
 
         let store: any TerminalViewportStore
         let rendererWriter: any TerminalRendererWriting
+        let reservedOSCForwarder: (any TerminalReservedOSCForwarding)?
         let clock: any TerminalViewportClock
         let events: (any TerminalViewportEventPublishing)?
 
-        init(store: any TerminalViewportStore, rendererWriter: any TerminalRendererWriting, clock: any TerminalViewportClock, events: (any TerminalViewportEventPublishing)? = nil) {
+        init(
+            store: any TerminalViewportStore,
+            rendererWriter: any TerminalRendererWriting,
+            reservedOSCForwarder: (any TerminalReservedOSCForwarding)? = nil,
+            clock: any TerminalViewportClock,
+            events: (any TerminalViewportEventPublishing)? = nil
+        ) {
             self.store = store
             self.rendererWriter = rendererWriter
+            self.reservedOSCForwarder = reservedOSCForwarder
             self.clock = clock
             self.events = events
         }
@@ -187,17 +219,26 @@ public extension TerminalViewport {
             do {
                 let state = try await TerminalViewport.loadMatchingState(store, viewportID: input.viewportID, paneID: input.paneID, streamID: input.streamID)
                 try TerminalViewport.validate(input.chunks, after: state.lastAppliedSequence, policy: input.policy)
-                let writes = TerminalViewport.coalescedRendererWrites(
+                let scanned = try TerminalViewport.stripReservedOSC(
                     from: input.chunks,
-                    maxBytesPerWrite: input.policy.maxBytesPerRendererWrite
+                    pending: state.pendingReservedOSCSequence,
+                    state: state,
+                    streamID: input.streamID
                 )
-                for bytes in writes {
-                    try await rendererWriter.ingestOutput(viewportID: input.viewportID, bytes: bytes)
-                }
+                let rendererWriteCount = try await TerminalViewport.apply(
+                    scanned.operations,
+                    viewportID: input.viewportID,
+                    maxBytesPerRendererWrite: input.policy.maxBytesPerRendererWrite,
+                    requestID: input.requestID,
+                    rendererWriter: rendererWriter,
+                    clock: clock,
+                    reservedOSCForwarder: reservedOSCForwarder,
+                    events: events
+                )
                 guard let lastSequence = input.chunks.last?.sequence else {
                     throw TerminalViewportError.streamOrderViolation
                 }
-                let next = state.updated(lastAppliedSequence: .some(lastSequence))
+                let next = state.updated(lastAppliedSequence: .some(lastSequence), pendingReservedOSCSequence: scanned.pending)
                 try await store.saveViewport(next)
                 let timestamp = clock.now()
                 await events?.publish(TerminalViewport.envelope(input.requestID, "TerminalOutputIngested", timestamp, .terminalOutputIngested(input.viewportID, lastSequence)))
@@ -206,7 +247,7 @@ public extension TerminalViewport {
                     state: next,
                     appliedSequence: lastSequence,
                     chunkCount: input.chunks.count,
-                    rendererWriteCount: writes.count,
+                    rendererWriteCount: rendererWriteCount,
                     timestamp: timestamp
                 ))
             } catch let error as TerminalViewportError {
@@ -620,6 +661,80 @@ extension TerminalViewport {
         return writes
     }
 
+    static func stripReservedOSC(
+        from bytes: Data,
+        pending: Data,
+        state: State,
+        streamID: StreamID,
+        sequence: UInt64
+    ) throws -> (operations: [ReservedOSCOperation], pending: Data) {
+        let scanned = try ReservedOSCScanner(
+            state: state,
+            streamID: streamID
+        ).scan(chunks: [TerminalOutputChunk(sequence: sequence, bytes: bytes)], pending: pending)
+        return (scanned.operations, scanned.pending)
+    }
+
+    static func stripReservedOSC(
+        from chunks: [TerminalOutputChunk],
+        pending: Data,
+        state: State,
+        streamID: StreamID
+    ) throws -> (operations: [ReservedOSCOperation], pending: Data) {
+        try ReservedOSCScanner(state: state, streamID: streamID).scan(chunks: chunks, pending: pending)
+    }
+
+    static func apply(
+        _ operations: [ReservedOSCOperation],
+        viewportID: ViewportID,
+        maxBytesPerRendererWrite: Int,
+        requestID: RequestID,
+        rendererWriter: any TerminalRendererWriting,
+        clock: any TerminalViewportClock,
+        reservedOSCForwarder: (any TerminalReservedOSCForwarding)?,
+        events: (any TerminalViewportEventPublishing)?
+    ) async throws -> Int {
+        let limit = max(1, maxBytesPerRendererWrite)
+        var pendingRendererBytes = Data()
+        var rendererWriteCount = 0
+
+        func flushRendererBytes() async throws {
+            var cursor = pendingRendererBytes.startIndex
+            while cursor < pendingRendererBytes.endIndex {
+                let end = pendingRendererBytes.index(
+                    cursor,
+                    offsetBy: min(limit, pendingRendererBytes.distance(from: cursor, to: pendingRendererBytes.endIndex))
+                )
+                try await rendererWriter.ingestOutput(viewportID: viewportID, bytes: pendingRendererBytes.subdata(in: cursor..<end))
+                rendererWriteCount += 1
+                cursor = end
+            }
+            pendingRendererBytes = Data()
+        }
+
+        for operation in operations {
+            switch operation {
+            case let .rendererBytes(bytes):
+                pendingRendererBytes.append(bytes)
+                if pendingRendererBytes.count >= limit {
+                    try await flushRendererBytes()
+                }
+            case let .reservedSignal(signal):
+                try await flushRendererBytes()
+                do {
+                    try await reservedOSCForwarder?.forwardReservedOSC(signal)
+                    let timestamp = clock.now()
+                    await events?.publish(envelope(requestID, "ReservedOSCForwarded", timestamp, .reservedOSCForwarded(ReservedOSCSignalSummary(signal: signal))))
+                } catch {
+                    continue
+                }
+            }
+        }
+
+        try await flushRendererBytes()
+        return rendererWriteCount
+    }
+
     static func validate(_ acknowledgement: RuntimeWriteAcknowledgement, input: SendTerminalInputInput) throws {
         guard acknowledgement.requestID == input.requestID, acknowledgement.paneID == input.paneID else {
             throw TerminalViewportError.inputRejected
@@ -655,7 +770,8 @@ private extension TerminalViewport.State {
         lastAppliedSequence: UInt64?? = nil,
         isFocused: Bool? = nil,
         streamStatus: TerminalViewport.StreamStatus? = nil,
-        size: TerminalViewport.Size? = nil
+        size: TerminalViewport.Size? = nil,
+        pendingReservedOSCSequence: Data? = nil
     ) -> TerminalViewport.State {
         TerminalViewport.State(
             viewportID: viewportID,
@@ -667,9 +783,146 @@ private extension TerminalViewport.State {
             isFocused: isFocused ?? self.isFocused,
             rendererStatus: rendererStatus,
             streamStatus: streamStatus ?? self.streamStatus,
-            size: size ?? self.size
+            size: size ?? self.size,
+            pendingReservedOSCSequence: pendingReservedOSCSequence ?? self.pendingReservedOSCSequence
         )
     }
+}
+
+extension TerminalViewport {
+    enum ReservedOSCOperation: Equatable, Sendable {
+        case rendererBytes(Data)
+        case reservedSignal(ReservedOSCSignal)
+    }
+}
+
+private struct ReservedOSCScanner {
+    private let state: TerminalViewport.State
+    private let streamID: StreamID
+
+    init(state: TerminalViewport.State, streamID: StreamID) {
+        self.state = state
+        self.streamID = streamID
+    }
+
+    func scan(
+        chunks: [TerminalViewport.TerminalOutputChunk],
+        pending: Data
+    ) throws -> (operations: [TerminalViewport.ReservedOSCOperation], pending: Data) {
+        var pendingBytes = [UInt8](pending)
+        var operations: [TerminalViewport.ReservedOSCOperation] = []
+
+        for chunk in chunks {
+            let scanned = try scanChunk([UInt8](chunk.bytes), pending: pendingBytes, sequence: chunk.sequence)
+            pendingBytes = scanned.pending
+            operations.append(contentsOf: scanned.operations)
+        }
+
+        return (operations, Data(pendingBytes))
+    }
+
+    private func scanChunk(
+        _ bytes: [UInt8],
+        pending: [UInt8],
+        sequence: UInt64
+    ) throws -> (operations: [TerminalViewport.ReservedOSCOperation], pending: [UInt8]) {
+        let source = pending + bytes
+        var operations: [TerminalViewport.ReservedOSCOperation] = []
+        var rendererBytes: [UInt8] = []
+        var index = 0
+
+        func flushRendererBytes() {
+            guard !rendererBytes.isEmpty else {
+                return
+            }
+            operations.append(.rendererBytes(Data(rendererBytes)))
+            rendererBytes = []
+        }
+
+        while index < source.count {
+            if isReservedPrefix(in: source, at: index) {
+                flushRendererBytes()
+                guard let terminator = findTerminator(in: source, startingAt: index + Self.reservedPrefix.count) else {
+                    let pendingSequence = Array(source[index...])
+                    guard pendingSequence.count <= TerminalViewport.maxPendingReservedOSCSequenceBytes else {
+                        throw TerminalViewport.TerminalViewportError.outputBackpressure
+                    }
+                    return (operations, pendingSequence)
+                }
+
+                let payloadBytes = Array(source[(index + Self.reservedPrefix.count)..<terminator.payloadEnd])
+                operations.append(.reservedSignal(signal(payloadBytes: payloadBytes, sequence: sequence)))
+                index = terminator.sequenceEnd
+                continue
+            }
+
+            if isPotentialReservedPrefixAtEnd(in: source, at: index) {
+                flushRendererBytes()
+                return (operations, Array(source[index...]))
+            }
+
+            rendererBytes.append(source[index])
+            index += 1
+        }
+
+        flushRendererBytes()
+        return (operations, [])
+    }
+
+    private func signal(payloadBytes: [UInt8], sequence: UInt64) -> TerminalViewport.ReservedOSCSignal {
+        TerminalViewport.ReservedOSCSignal(
+            oscIdentifier: TerminalViewport.fenrirReservedOSCIdentifier,
+            payload: String(decoding: payloadBytes, as: UTF8.self),
+            provenance: TerminalViewport.ReservedOSCProvenance(
+                workspaceID: state.workspaceID,
+                tabID: state.tabID,
+                paneID: state.paneID,
+                viewportID: state.viewportID,
+                streamID: streamID,
+                sequence: sequence
+            )
+        )
+    }
+
+    private func isReservedPrefix(in bytes: [UInt8], at index: Int) -> Bool {
+        guard bytes.count - index >= Self.reservedPrefix.count else {
+            return false
+        }
+        for offset in 0..<Self.reservedPrefix.count where bytes[index + offset] != Self.reservedPrefix[offset] {
+            return false
+        }
+        return true
+    }
+
+    private func isPotentialReservedPrefixAtEnd(in bytes: [UInt8], at index: Int) -> Bool {
+        let remainingCount = bytes.count - index
+        guard remainingCount < Self.reservedPrefix.count else {
+            return false
+        }
+        for offset in 0..<remainingCount where bytes[index + offset] != Self.reservedPrefix[offset] {
+            return false
+        }
+        return true
+    }
+
+    private func findTerminator(in bytes: [UInt8], startingAt start: Int) -> (payloadEnd: Int, sequenceEnd: Int)? {
+        var index = start
+        while index < bytes.count {
+            if bytes[index] == Self.bel {
+                return (payloadEnd: index, sequenceEnd: index + 1)
+            }
+            if bytes[index] == Self.escape, index + 1 < bytes.count, bytes[index + 1] == Self.backslash {
+                return (payloadEnd: index, sequenceEnd: index + 2)
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private static let escape: UInt8 = 0x1B
+    private static let bel: UInt8 = 0x07
+    private static let backslash: UInt8 = 0x5C
+    private static let reservedPrefix: [UInt8] = [escape, 0x5D] + Array(String(TerminalViewport.fenrirReservedOSCIdentifier).utf8) + [0x3B]
 }
 
 private extension String {

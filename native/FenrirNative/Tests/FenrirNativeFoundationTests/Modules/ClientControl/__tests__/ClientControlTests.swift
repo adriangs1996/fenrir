@@ -218,17 +218,24 @@ struct NativeHostControlTests {
             requestID: "diagnostics-open-1",
             command: .diagnostics
         ))
+        let agentStatus = await controller.dispatch(NativeHostControlRequest(
+            requestID: "agent-status-1",
+            command: .diagnostics,
+            parameters: ["operation": "agent-integration-status", "agentID": "codex"]
+        ))
 
         #expect(palette.resultKind == "PalettePresented")
         #expect(palette.payload["query"] == "diag")
         #expect(paletteRun.resultKind == "PaletteActionExecuted")
         #expect(workflow.resultKind == "WorkflowPresented")
         #expect(diagnostics.resultKind == "DiagnosticsPresented")
+        #expect(agentStatus.resultKind == "DiagnosticsPresented")
         #expect(await product.calls == [
             "palette:palette-open-1:diag",
             "palette-run:palette-run-1:action-diagnostics",
             "workflow:workflow-timeline-1:timeline:run-a",
-            "diagnostics:diagnostics-open-1"
+            "diagnostics:diagnostics-open-1:open:none",
+            "diagnostics:agent-status-1:agent-integration-status:codex"
         ])
     }
 
@@ -253,7 +260,7 @@ struct NativeHostControlTests {
 
         #expect(response.ok)
         #expect(response.resultKind == "DiagnosticsPresented")
-        #expect(await product.calls == ["diagnostics:cli-diagnostics-1"])
+        #expect(await product.calls == ["diagnostics:cli-diagnostics-1:open:none"])
     }
 
     @Test("NativeHost CLI socket route decodes requests and encodes responses")
@@ -413,7 +420,7 @@ struct NativeHostControlTests {
 
         #expect(response.ok)
         #expect(response.resultKind == "DiagnosticsPresented")
-        #expect(await product.calls == ["diagnostics:cli-live-diagnostics-1"])
+        #expect(await product.calls == ["diagnostics:cli-live-diagnostics-1:open:none"])
     }
 
     @Test("NativeHost CLI socket server replaces same-user stale endpoint")
@@ -746,7 +753,7 @@ private actor NativeHostProductDispatcher: NativeHostProductCommandDispatching {
     }
 
     func presentDiagnostics(_ input: NativeHostDiagnosticsInput) async -> Result<NativeHostProductCommandResult, ClientControl.ClientControlError> {
-        calls.append("diagnostics:\(input.requestID.rawValue)")
+        calls.append("diagnostics:\(input.requestID.rawValue):\(input.operation):\(input.agentID ?? "none")")
         return .success(NativeHostProductCommandResult(
             requestID: input.requestID,
             resultKind: "DiagnosticsPresented"

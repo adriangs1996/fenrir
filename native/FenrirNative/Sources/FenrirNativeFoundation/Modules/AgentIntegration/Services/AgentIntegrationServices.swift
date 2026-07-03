@@ -11,6 +11,11 @@ public extension AgentIntegration {
         func integrationStatus(for agentID: AgentCLIIdentifier) async throws -> AgentIntegrationStatus
     }
 
+    protocol AgentProviderInstallTargetResolving: Sendable {
+        func resolveAgentProviderInstallTargets() async throws -> [AgentProviderInstallTarget]
+        func resolveAgentProviderInstallTarget(for agentID: AgentCLIIdentifier) async throws -> AgentProviderInstallTarget
+    }
+
     protocol AgentIntegrationInstalling: Sendable {
         func installAgentIntegration(_ request: AgentProvisioningRequest) async throws -> AgentProvisioningResult
         func updateAgentIntegration(_ request: AgentProvisioningRequest) async throws -> AgentProvisioningResult
@@ -32,6 +37,31 @@ public extension AgentIntegration {
 
     protocol AgentIntegrationPreferences: Sendable {
         func preferredTargetVersion(for agentID: AgentCLIIdentifier) async -> IntegrationVersion
+    }
+
+    static func providerAgentInstallTargetResolver(homeDirectoryPath: String = "~") -> any AgentProviderInstallTargetResolving {
+        ProviderAgentInstallTargetResolver(homeDirectoryPath: homeDirectoryPath)
+    }
+
+    static func providerStructuredAgentIntegrationProvisioner(
+        configStore: any AgentIntegrationConfigFileStoring,
+        clock: any AgentIntegrationClock,
+        homeDirectoryPath: String = "~",
+        integrationVersion: IntegrationVersion = "1.0.0"
+    ) -> ProviderStructuredAgentIntegrationProvisioner {
+        ProviderStructuredAgentIntegrationProvisioner(
+            targetResolver: ProviderAgentInstallTargetResolver(homeDirectoryPath: homeDirectoryPath),
+            configStore: configStore,
+            clock: clock,
+            integrationVersion: integrationVersion
+        )
+    }
+
+    static func pathAgentIntegrationDetector(
+        pathEnvironment: String = ProcessInfo.processInfo.environment["PATH"] ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        expectedVersion: IntegrationVersion = "1.0.0"
+    ) -> any AgentIntegrationDetecting {
+        PathAgentIntegrationDetector(pathEnvironment: pathEnvironment, expectedVersion: expectedVersion)
     }
 
     enum Event: Codable, Equatable, Sendable {

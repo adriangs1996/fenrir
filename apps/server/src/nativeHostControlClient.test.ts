@@ -34,6 +34,71 @@ describe("native host control socket client", () => {
     );
   });
 
+  it("launches the native host and retries when launch is requested", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fenrir-native-cli-launch-"));
+    const socketPath = path.join(directory, "native-control.sock");
+    let launchCount = 0;
+    let received: NativeHostControlWireRequest | undefined;
+    const response: NativeHostControlWireResponse = {
+      protocolVersion: NATIVE_HOST_CONTROL_PROTOCOL_VERSION,
+      requestID: request.requestID,
+      command: request.command,
+      ok: true,
+      resultKind: "WorkspacesListed",
+      payload: { workspaceCount: "1" },
+    };
+
+    const actual = await sendNativeHostControlRequest(request, {
+      socketPath,
+      timeoutMs: 100,
+      launchIfMissing: true,
+      launchTimeoutMs: 500,
+      launcher: {
+        async launchNativeHost(input) {
+          assert.equal(input.socketPath, socketPath);
+          launchCount += 1;
+          await withServer(
+            (socket) => {
+              socket.once("data", (data) => {
+                const length = data.readUInt32BE(0);
+                received = JSON.parse(
+                  data.subarray(4, 4 + length).toString("utf8"),
+                ) as NativeHostControlWireRequest;
+                socket.end(encodeNativeHostControlFrame(response));
+              });
+            },
+            { keepOpen: true, socketPath },
+          );
+        },
+      },
+    });
+
+    assert.equal(launchCount, 1);
+    assert.deepEqual(received, request);
+    assert.deepEqual(actual, response);
+  });
+
+  it("surfaces native host launch failures", async () => {
+    const socketPath = path.join(
+      await fs.mkdtemp(path.join(os.tmpdir(), "fenrir-native-cli-launch-failed-")),
+      "native-control.sock",
+    );
+
+    await expectClientError(
+      sendNativeHostControlRequest(request, {
+        socketPath,
+        timeoutMs: 50,
+        launchIfMissing: true,
+        launcher: {
+          async launchNativeHost() {
+            throw new NativeHostControlClientError("launch-failed", "simulated launch failure");
+          },
+        },
+      }),
+      "launch-failed",
+    );
+  });
+
   it("rejects socket paths owned by a different uid", async () => {
     const socketPath = await withServer(async () => undefined, { keepOpen: true });
     const ownerUid = (process.getuid?.() ?? os.userInfo().uid) + 1;
@@ -123,10 +188,14 @@ const expectClientError = async (
 
 const withServer = async (
   handler: (socket: net.Socket) => void,
-  options: { readonly keepOpen?: boolean } = {},
+  options: { readonly keepOpen?: boolean; readonly socketPath?: string } = {},
 ): Promise<string> => {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "fenrir-native-cli-"));
-  const socketPath = path.join(directory, "native-control.sock");
+  const socketPath =
+    options.socketPath ??
+    path.join(
+      await fs.mkdtemp(path.join(os.tmpdir(), "fenrir-native-cli-")),
+      "native-control.sock",
+    );
   const server = net.createServer(handler);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

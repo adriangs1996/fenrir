@@ -261,6 +261,7 @@ export class WsTransport {
     this.nextSessionId = sessionId;
     this.activeSessionId = sessionId;
     const lifecycleHandlers = this.lifecycleHandlers;
+    let sessionOpenCount = 0;
     const runtime = ManagedRuntime.make(
       Layer.mergeAll(
         createWsRpcProtocolLayer(this.url, {
@@ -269,6 +270,20 @@ export class WsTransport {
             !this.disposed &&
             this.activeSessionId === sessionId &&
             (lifecycleHandlers?.isActive?.() ?? true),
+          onOpen: () => {
+            sessionOpenCount += 1;
+            lifecycleHandlers?.onOpen?.();
+            if (sessionOpenCount > 1) {
+              // The protocol layer transparently replaced the socket after a
+              // transient failure (e.g. a ping timeout against a stalled
+              // server). The server keeps subscription state per connection
+              // and the RPC layer never re-sends in-flight requests, so every
+              // subscription issued on the previous socket is now dead while
+              // its client stream stays silently suspended. Rebuild the
+              // session so all subscriptions and snapshot recovery re-run.
+              void this.reconnect().catch(() => undefined);
+            }
+          },
           onInboundMessage: () => {
             this.lastInboundAt = performance.now();
             lifecycleHandlers?.onInboundMessage?.();

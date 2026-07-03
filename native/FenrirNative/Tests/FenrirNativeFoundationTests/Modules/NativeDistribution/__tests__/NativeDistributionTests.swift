@@ -65,6 +65,38 @@ struct NativeDistributionTests {
         #expect(result.report.diagnostics.contains { $0.title == "Local Fenrir server asset is unavailable" })
     }
 
+    @Test("Renderer artifact absence is warning-only and keeps startup possible")
+    func rendererArtifactAbsenceIsWarningOnly() async throws {
+        let action = readinessAction(
+            tmux: .init(executablePath: "/opt/homebrew/bin/tmux", version: "3.4"),
+            serverAsset: .init(assetPath: "/app/fenrir-server", isExecutable: true),
+            terminalRenderer: .init(artifactPath: nil, isLoadable: false)
+        )
+
+        let result = try await action.run(.init(requestID: "readiness", mode: .localDefault, source: .test)).get()
+
+        #expect(result.report.canStart)
+        #expect(result.report.checks.first { $0.kind == .terminalRendererArtifact }?.status == .missing)
+        #expect(result.report.diagnostics.contains { $0.title == "Native terminal renderer artifact is unavailable" && $0.severity == .warning })
+    }
+
+    @Test("Renderer artifact availability is reported by readiness")
+    func rendererArtifactAvailabilityIsReported() async throws {
+        let action = readinessAction(
+            tmux: .init(executablePath: "/opt/homebrew/bin/tmux", version: "3.4"),
+            serverAsset: .init(assetPath: "/app/fenrir-server", isExecutable: true),
+            terminalRenderer: .init(artifactPath: "/app/FenrirTerminalRenderer", resourcesPath: "/app/FenrirTerminalResources", isLoadable: true, version: "1")
+        )
+
+        let result = try await action.run(.init(requestID: "readiness", mode: .localDefault, source: .test)).get()
+
+        let renderer = result.report.checks.first { $0.kind == .terminalRendererArtifact }
+        #expect(result.report.canStart)
+        #expect(renderer?.status == .available)
+        #expect(renderer?.path == "/app/FenrirTerminalRenderer")
+        #expect(renderer?.version == "1")
+    }
+
     @Test("Existing local server mode does not require bundled server asset")
     func existingLocalServerDoesNotRequireBundledServerAsset() async throws {
         let action = readinessAction(
@@ -100,12 +132,14 @@ struct NativeDistributionTests {
 
     private func readinessAction(
         tmux: NativeDistribution.ToolProbeResult,
-        serverAsset: NativeDistribution.ServerAssetProbeResult
+        serverAsset: NativeDistribution.ServerAssetProbeResult,
+        terminalRenderer: NativeDistribution.TerminalRendererArtifactProbeResult = .init(artifactPath: nil, isLoadable: false)
     ) -> NativeDistribution.AssessStartupReadiness {
         NativeDistribution.AssessStartupReadiness(
             clock: FixedClock(),
             tmuxChecker: RecordingTmuxChecker(result: tmux),
-            serverAssetLocator: RecordingServerAssetLocator(result: serverAsset)
+            serverAssetLocator: RecordingServerAssetLocator(result: serverAsset),
+            terminalRendererLocator: RecordingTerminalRendererArtifactLocator(result: terminalRenderer)
         )
     }
 }
@@ -119,6 +153,20 @@ private actor RecordingTmuxChecker: NativeDistribution.TmuxDependencyChecking {
     }
 
     func probeTmux() async throws -> NativeDistribution.ToolProbeResult {
+        probeCount += 1
+        return result
+    }
+}
+
+private actor RecordingTerminalRendererArtifactLocator: NativeDistribution.TerminalRendererArtifactLocating {
+    private let result: NativeDistribution.TerminalRendererArtifactProbeResult
+    private(set) var probeCount = 0
+
+    init(result: NativeDistribution.TerminalRendererArtifactProbeResult) {
+        self.result = result
+    }
+
+    func locateTerminalRendererArtifact() async throws -> NativeDistribution.TerminalRendererArtifactProbeResult {
         probeCount += 1
         return result
     }

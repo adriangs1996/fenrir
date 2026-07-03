@@ -5,6 +5,59 @@ import TerminalViewport
 public extension PaneGrid {
     typealias TerminalViewFactory = @MainActor (PanePresentation) -> FenrirTerminalView
 
+    /// Design tokens for the pane grid chrome. The shell owns theme resolution
+    /// (D-041): every color rendered by the grid must come through this style
+    /// so no surface hardcodes a color.
+    struct PaneGridStyle: Sendable {
+        public let background: NSColor
+        public let paneBackground: NSColor
+        public let paneHeaderBackground: NSColor
+        public let paneBorder: NSColor
+        public let focusedPaneBorder: NSColor
+        public let headerPrimaryText: NSColor
+        public let headerSecondaryText: NSColor
+        public let tabText: NSColor
+        public let activeTabText: NSColor
+        public let activeTabUnderline: NSColor
+
+        public init(
+            background: NSColor,
+            paneBackground: NSColor,
+            paneHeaderBackground: NSColor,
+            paneBorder: NSColor,
+            focusedPaneBorder: NSColor,
+            headerPrimaryText: NSColor,
+            headerSecondaryText: NSColor,
+            tabText: NSColor,
+            activeTabText: NSColor,
+            activeTabUnderline: NSColor
+        ) {
+            self.background = background
+            self.paneBackground = paneBackground
+            self.paneHeaderBackground = paneHeaderBackground
+            self.paneBorder = paneBorder
+            self.focusedPaneBorder = focusedPaneBorder
+            self.headerPrimaryText = headerPrimaryText
+            self.headerSecondaryText = headerSecondaryText
+            self.tabText = tabText
+            self.activeTabText = activeTabText
+            self.activeTabUnderline = activeTabUnderline
+        }
+
+        public static let system = PaneGridStyle(
+            background: .black,
+            paneBackground: .black,
+            paneHeaderBackground: .controlBackgroundColor,
+            paneBorder: .separatorColor,
+            focusedPaneBorder: .keyboardFocusIndicatorColor,
+            headerPrimaryText: .labelColor,
+            headerSecondaryText: .secondaryLabelColor,
+            tabText: .secondaryLabelColor,
+            activeTabText: .labelColor,
+            activeTabUnderline: .controlAccentColor
+        )
+    }
+
     @MainActor
     final class AppKitPaneGridView: NSView {
         public private(set) var state: State
@@ -14,14 +67,24 @@ public extension PaneGrid {
         public var onResizePaneToSize: ((PaneKernelTarget, TerminalViewport.Size) -> Void)?
 
         private let terminalFactory: TerminalViewFactory
+        private let style: PaneGridStyle
+        private let showsWindowTabBar: Bool
         private var terminalViewsByViewportID: [ViewportID: FenrirTerminalView] = [:]
         private var paneViewsByPaneID: [PaneID: PaneView] = [:]
         private let rootStack = NSStackView()
         private let tabBar = NSStackView()
         private let contentHost = NSView()
 
-        public init(state: State, terminalFactory: @escaping TerminalViewFactory, frame frameRect: NSRect = .zero) {
+        public init(
+            state: State,
+            style: PaneGridStyle = .system,
+            showsWindowTabBar: Bool = true,
+            terminalFactory: @escaping TerminalViewFactory,
+            frame frameRect: NSRect = .zero
+        ) {
             self.state = state
+            self.style = style
+            self.showsWindowTabBar = showsWindowTabBar
             self.terminalFactory = terminalFactory
             super.init(frame: frameRect)
             buildChrome()
@@ -134,7 +197,7 @@ public extension PaneGrid {
 
         private func buildChrome() {
             wantsLayer = true
-            layer?.backgroundColor = NSColor.black.cgColor
+            layer?.backgroundColor = style.background.cgColor
 
             rootStack.orientation = .vertical
             rootStack.alignment = .leading
@@ -149,19 +212,23 @@ public extension PaneGrid {
             tabBar.spacing = 4
             tabBar.edgeInsets = NSEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
             tabBar.translatesAutoresizingMaskIntoConstraints = false
+            tabBar.isHidden = !showsWindowTabBar
             contentHost.translatesAutoresizingMaskIntoConstraints = false
 
             rootStack.addArrangedSubview(tabBar)
             rootStack.addArrangedSubview(contentHost)
 
-            NSLayoutConstraint.activate([
+            var constraints = [
                 rootStack.leadingAnchor.constraint(equalTo: leadingAnchor),
                 rootStack.trailingAnchor.constraint(equalTo: trailingAnchor),
                 rootStack.topAnchor.constraint(equalTo: topAnchor),
                 rootStack.bottomAnchor.constraint(equalTo: bottomAnchor),
-                tabBar.heightAnchor.constraint(equalToConstant: 38),
                 contentHost.widthAnchor.constraint(equalTo: rootStack.widthAnchor)
-            ])
+            ]
+            if showsWindowTabBar {
+                constraints.append(tabBar.heightAnchor.constraint(equalToConstant: 38))
+            }
+            NSLayoutConstraint.activate(constraints)
         }
 
         private func rebuild() {
@@ -173,8 +240,10 @@ public extension PaneGrid {
             contentHost.subviews.forEach { $0.removeFromSuperview() }
             paneViewsByPaneID.removeAll()
 
-            for window in state.windows.sorted(by: { $0.index == $1.index ? $0.windowID.rawValue < $1.windowID.rawValue : $0.index < $1.index }) {
-                tabBar.addArrangedSubview(tabButton(for: window))
+            if showsWindowTabBar {
+                for window in state.windows.sorted(by: { $0.index == $1.index ? $0.windowID.rawValue < $1.windowID.rawValue : $0.index < $1.index }) {
+                    tabBar.addArrangedSubview(tabButton(for: window))
+                }
             }
 
             guard let activeWindow else {
@@ -194,9 +263,19 @@ public extension PaneGrid {
 
         private func tabButton(for window: WindowPresentation) -> NSButton {
             let title = "\(window.index + 1) \(window.title)"
+            let isActive = window.windowID == state.activeWindowID
             let button = NSButton(title: title, target: self, action: #selector(selectTabFromButton(_:)))
             button.identifier = NSUserInterfaceItemIdentifier(window.windowID.rawValue)
-            button.bezelStyle = window.windowID == state.activeWindowID ? .rounded : .texturedRounded
+            button.isBordered = false
+            button.attributedTitle = NSAttributedString(
+                string: title,
+                attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular),
+                    .foregroundColor: isActive ? style.activeTabText : style.tabText,
+                    .underlineStyle: isActive ? NSUnderlineStyle.single.rawValue : 0,
+                    .underlineColor: style.activeTabUnderline
+                ]
+            )
             button.lineBreakMode = .byTruncatingTail
             button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             button.widthAnchor.constraint(greaterThanOrEqualToConstant: 72).isActive = true
@@ -218,7 +297,8 @@ public extension PaneGrid {
             case let .split(axis, children):
                 let split = ProportionalPaneSplitView(
                     axis: axis,
-                    fractions: PaneGrid.splitFractions(for: children, axis: axis)
+                    fractions: PaneGrid.splitFractions(for: children, axis: axis),
+                    dividerFill: style.background
                 )
                 split.isVertical = axis == .horizontal
                 split.dividerStyle = .thin
@@ -236,7 +316,7 @@ public extension PaneGrid {
 
         private func paneView(for pane: PanePresentation) -> PaneView {
             let terminal = terminalView(for: pane)
-            let view = PaneView(pane: pane, terminalView: terminal)
+            let view = PaneView(pane: pane, terminalView: terminal, style: style)
             view.onFocusRequested = { [weak self] paneID in
                 _ = self?.focusPane(paneID)
             }
@@ -300,13 +380,16 @@ private final class PaneView: NSView {
     var onResizeMeasured: ((PaneID, TerminalViewport.Size) -> Void)?
 
     private let paneID: PaneID
+    private let style: PaneGrid.PaneGridStyle
     private let title = NSTextField(labelWithString: "")
+    private let paneLocation = NSTextField(labelWithString: "")
     private var lastTerminalSize: TerminalViewport.Size?
 
-    init(pane: PaneGrid.PanePresentation, terminalView: FenrirTerminalView) {
+    init(pane: PaneGrid.PanePresentation, terminalView: FenrirTerminalView, style: PaneGrid.PaneGridStyle = .system) {
         self.paneID = pane.paneID
         self.viewportID = pane.viewportID
         self.terminalView = terminalView
+        self.style = style
         super.init(frame: .zero)
         build(pane)
     }
@@ -329,10 +412,10 @@ private final class PaneView: NSView {
     }
 
     func setPaneFocused(_ focused: Bool) {
-        layer?.borderWidth = focused ? 2 : 1
+        layer?.borderWidth = 1
         layer?.borderColor = focused
-            ? NSColor.keyboardFocusIndicatorColor.cgColor
-            : NSColor.separatorColor.cgColor
+            ? style.focusedPaneBorder.cgColor
+            : style.paneBorder.cgColor
     }
 
     private func resizeTerminalForCurrentBounds() {
@@ -357,35 +440,58 @@ private final class PaneView: NSView {
 
     private func build(_ pane: PaneGrid.PanePresentation) {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.backgroundColor = style.paneBackground.cgColor
+        layer?.cornerRadius = 6
+        layer?.masksToBounds = true
         setPaneFocused(pane.isFocused)
 
         let header = NSView()
         header.wantsLayer = true
-        header.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        header.layer?.backgroundColor = style.paneHeaderBackground.cgColor
         header.translatesAutoresizingMaskIntoConstraints = false
 
+        let headerDivider = NSView()
+        headerDivider.wantsLayer = true
+        headerDivider.layer?.backgroundColor = style.paneBorder.cgColor
+        headerDivider.translatesAutoresizingMaskIntoConstraints = false
+
         title.stringValue = pane.title ?? pane.tmuxPaneID.rawValue
-        title.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+        title.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .medium)
         title.lineBreakMode = .byTruncatingMiddle
-        title.textColor = .secondaryLabelColor
+        title.textColor = style.headerPrimaryText
         title.translatesAutoresizingMaskIntoConstraints = false
+
+        paneLocation.stringValue = pane.tmuxPaneID.rawValue
+        paneLocation.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+        paneLocation.lineBreakMode = .byTruncatingTail
+        paneLocation.textColor = style.headerSecondaryText
+        paneLocation.translatesAutoresizingMaskIntoConstraints = false
 
         terminalView.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(header)
         header.addSubview(title)
+        header.addSubview(paneLocation)
+        header.addSubview(headerDivider)
         addSubview(terminalView)
 
         NSLayoutConstraint.activate([
             header.leadingAnchor.constraint(equalTo: leadingAnchor),
             header.trailingAnchor.constraint(equalTo: trailingAnchor),
             header.topAnchor.constraint(equalTo: topAnchor),
-            header.heightAnchor.constraint(equalToConstant: 22),
+            header.heightAnchor.constraint(equalToConstant: 24),
 
-            title.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 8),
-            title.trailingAnchor.constraint(lessThanOrEqualTo: header.trailingAnchor, constant: -8),
+            title.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 10),
+            title.trailingAnchor.constraint(lessThanOrEqualTo: paneLocation.leadingAnchor, constant: -10),
             title.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+
+            paneLocation.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -10),
+            paneLocation.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+
+            headerDivider.leadingAnchor.constraint(equalTo: header.leadingAnchor),
+            headerDivider.trailingAnchor.constraint(equalTo: header.trailingAnchor),
+            headerDivider.bottomAnchor.constraint(equalTo: header.bottomAnchor),
+            headerDivider.heightAnchor.constraint(equalToConstant: 1),
 
             terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
             terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -401,12 +507,22 @@ private final class PaneView: NSView {
 @MainActor
 private final class ProportionalPaneSplitView: NSSplitView {
     let fractions: [Double]
+    private let dividerFill: NSColor
     private var fractionConstraints: [NSLayoutConstraint] = []
 
-    init(axis: PaneGrid.SplitAxis, fractions: [Double]) {
+    init(axis: PaneGrid.SplitAxis, fractions: [Double], dividerFill: NSColor = .black) {
         self.fractions = fractions
+        self.dividerFill = dividerFill
         super.init(frame: .zero)
         isVertical = axis == .horizontal
+    }
+
+    override var dividerColor: NSColor {
+        dividerFill
+    }
+
+    override var dividerThickness: CGFloat {
+        6
     }
 
     @available(*, unavailable)

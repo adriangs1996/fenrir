@@ -377,6 +377,7 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
     assert.deepEqual(nativeControlRoutes.open("workspace-a"), {
       command: "open",
       parameters: { workspaceID: "workspace-a" },
+      launchIfMissing: true,
     });
     assert.deepEqual(nativeControlRoutes.switchWorkspace("workspace-a"), {
       command: "switch",
@@ -385,6 +386,7 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
     assert.deepEqual(nativeControlRoutes.attach("workspace-a"), {
       command: "attach",
       parameters: { workspaceID: "workspace-a" },
+      launchIfMissing: true,
     });
     assert.deepEqual(nativeControlRoutes.remove("workspace-a"), {
       command: "remove",
@@ -413,6 +415,22 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
     assert.deepEqual(nativeControlRoutes.diagnosticsOpen(), {
       command: "diagnostics",
       parameters: {},
+    });
+    assert.deepEqual(nativeControlRoutes.agentIntegrationStatus(), {
+      command: "diagnostics",
+      parameters: { operation: "agent-integration-status" },
+    });
+    assert.deepEqual(nativeControlRoutes.agentIntegrationStatus("codex"), {
+      command: "diagnostics",
+      parameters: { operation: "agent-integration-status", agentID: "codex" },
+    });
+    assert.deepEqual(nativeControlRoutes.agentIntegrationRepair("codex"), {
+      command: "diagnostics",
+      parameters: { operation: "agent-integration-repair", agentID: "codex" },
+    });
+    assert.deepEqual(nativeControlRoutes.agentIntegrationRemove("codex"), {
+      command: "diagnostics",
+      parameters: { operation: "agent-integration-remove", agentID: "codex" },
     });
   });
 
@@ -448,6 +466,18 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
         captureStdout(runCliWithRuntime(["workflow", "timeline", ...nativeFlags, "run-a"])),
       );
       await Effect.runPromise(captureStdout(runCliWithRuntime(["diagnostics", ...nativeFlags])));
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["agent-integration", "status", ...nativeFlags])),
+      );
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["agent-integration", "status", ...nativeFlags, "codex"])),
+      );
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["agent-integration", "repair", ...nativeFlags, "codex"])),
+      );
+      await Effect.runPromise(
+        captureStdout(runCliWithRuntime(["agent-integration", "remove", ...nativeFlags, "codex"])),
+      );
 
       assert.deepEqual(
         server.requests.map(({ command, parameters }) => ({ command, parameters })),
@@ -465,6 +495,19 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
           { command: "workflow", parameters: { operation: "open" } },
           { command: "workflow", parameters: { operation: "timeline", runID: "run-a" } },
           { command: "diagnostics", parameters: {} },
+          { command: "diagnostics", parameters: { operation: "agent-integration-status" } },
+          {
+            command: "diagnostics",
+            parameters: { operation: "agent-integration-status", agentID: "codex" },
+          },
+          {
+            command: "diagnostics",
+            parameters: { operation: "agent-integration-repair", agentID: "codex" },
+          },
+          {
+            command: "diagnostics",
+            parameters: { operation: "agent-integration-remove", agentID: "codex" },
+          },
         ],
       );
     } finally {

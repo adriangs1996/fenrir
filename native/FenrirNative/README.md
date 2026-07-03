@@ -62,9 +62,13 @@ Primary workspace commands:
 - destructive workspace/session actions route through authenticated server
   contracts
 
-If the native app is not running, current CLI control reports `no-app-running`.
-Launching the app and replaying a deferred command is a future client-control
-capability.
+If the native app is not running, `fenrir open <workspace>` and
+`fenrir attach <workspace>` launch Fenrir Native and retry the same socket
+request. Packaged builds use macOS `open -a`; development and non-packaged
+runs can set `FENRIR_NATIVE_APP_LAUNCH_COMMAND` or
+`FENRIR_NATIVE_APP_PATH`. State-only commands such as `list`, `focus`,
+`switch`, and `remove` still fail with `no-app-running` when no local app
+instance is available.
 
 Product commands can also present native surfaces such as the palette,
 diagnostics, and workflow detail. Server/admin commands remain server/admin
@@ -181,8 +185,8 @@ cd apps/server
 FENRIR_NATIVE_CLI_E2E=1 bun run test -- cli.test.ts
 ```
 
-The default server test suite still covers no-app-running and stale-socket CLI
-failures without launching the native app.
+The default server test suite still covers no-app-running, stale-socket, and
+launch-retry CLI behavior without launching the real native app.
 
 ## Layout
 
@@ -231,6 +235,21 @@ Consumers should use the public module namespace and contracts. Concrete
 
 Product modules expose specific actions and explicit contracts. Do not add a
 generic handle-command action when a typed action should exist.
+
+## Package The Native App
+
+Use the package script when a real `.app` bundle is needed for local smoke
+testing or release-pipeline input:
+
+```sh
+cd native/FenrirNative
+bash package-app.sh
+```
+
+The script builds `FenrirNativeApp`, writes `Fenrir Native.app`, validates the
+bundle plist, optionally copies `fenrir-server`, `FenrirTerminalRenderer`, and
+`FenrirTerminalResources`, and signs the bundle when `CODESIGN_IDENTITY` is set.
+Unsigned bundles are valid for development but are not a release artifact.
 
 ## Distribution Readiness
 

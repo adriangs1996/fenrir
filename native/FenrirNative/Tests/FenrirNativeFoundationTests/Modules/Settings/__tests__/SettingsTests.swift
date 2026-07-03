@@ -105,6 +105,7 @@ struct SettingsTests {
         #expect(result.configuration.appMode == .developer)
         #expect(result.configuration.serverConnection == Settings.NativeSettingsConfiguration.defaults.serverConnection)
         #expect(result.configuration.workspaceUI == Settings.NativeSettingsConfiguration.defaults.workspaceUI)
+        #expect(result.configuration.appearance == Settings.NativeSettingsConfiguration.defaults.appearance)
     }
 
     @Test("Defaulting migrates older local documents without service dependencies")
@@ -122,6 +123,7 @@ struct SettingsTests {
         #expect(configuration.appMode == .developer)
         #expect(configuration.serverConnection == Settings.NativeSettingsConfiguration.defaults.serverConnection)
         #expect(configuration.workspaceUI == Settings.NativeSettingsConfiguration.defaults.workspaceUI)
+        #expect(configuration.appearance == Settings.NativeSettingsConfiguration.defaults.appearance)
     }
 
     @Test("Defaulting migrates partial nested local settings documents")
@@ -137,6 +139,9 @@ struct SettingsTests {
           },
           "workspaceUI": {
             "showSidebarByDefault": false
+          },
+          "appearance": {
+            "themeID": "kanagawa"
           },
           "keybindingImport": {
             "conflictPolicy": "preferTmux"
@@ -157,6 +162,7 @@ struct SettingsTests {
         #expect(configuration.serverConnection.reconnectBackoffMilliseconds == 500)
         #expect(!configuration.workspaceUI.showSidebarByDefault)
         #expect(configuration.workspaceUI.restoreLastWorkspaceOnLaunch)
+        #expect(configuration.appearance.themeID == .kanagawa)
         #expect(configuration.keybindingImport.importTmuxKeybindings)
         #expect(configuration.keybindingImport.conflictPolicy == .preferTmux)
         #expect(configuration.diagnostics.detailLevel == .verboseLocal)
@@ -293,7 +299,8 @@ struct SettingsTests {
                 remoteProfiles: [
                     .init(id: "remote", displayName: "Remote", endpointURL: "https://fenrir.example")
                 ]
-            )
+            ),
+            appearance: .init(themeID: .tokyoNightMoon)
         )
         let firstData = try Settings.encodeConfiguration(configuration)
         let secondData = try Settings.encodeConfiguration(configuration)
@@ -306,6 +313,7 @@ struct SettingsTests {
         #expect(persisted == firstData)
         #expect(persistedText.contains("\"appMode\":\"developer\""))
         #expect(persistedText.contains("\"endpointURL\":\"https://fenrir.example\""))
+        #expect(persistedText.contains("\"themeID\":\"tokyonight-moon\""))
         #expect(!persistedText.contains("bearerToken"))
         #expect(!persistedText.contains("pairingSecret"))
         #expect(!persistedText.contains("apiKey"))
@@ -357,6 +365,7 @@ struct SettingsTests {
             .appMode,
             .serverConnectionDefaults,
             .workspaceUIPreferences,
+            .appearancePreferences,
             .keybindingImportPreferences,
             .diagnosticsPolicy
         ])

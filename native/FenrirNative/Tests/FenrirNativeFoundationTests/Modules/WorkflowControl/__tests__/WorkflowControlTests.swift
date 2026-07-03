@@ -122,6 +122,36 @@ struct WorkflowControlTests {
         #expect(result.timeline.events.map(\.sequence) == [1, 2])
     }
 
+    @Test("WorkflowRunSnapshot decodes server ISO timestamp strings")
+    func workflowRunSnapshotDecodesServerISOTimestampStrings() throws {
+        let payload = Data("""
+        {
+          "runId": "run-iso",
+          "workflowId": "workflow-iso",
+          "projectId": "project-1",
+          "originThreadId": "thread-1",
+          "trigger": "manual",
+          "name": "ISO workflow",
+          "args": {},
+          "runtimeContext": null,
+          "status": "running",
+          "summary": null,
+          "startedAt": "2026-01-01T00:00:00Z",
+          "completedAt": null,
+          "lastUpdatedAt": "2026-01-01T00:00:01.250Z",
+          "steps": [],
+          "agents": [],
+          "tasks": [],
+          "inputRequests": []
+        }
+        """.utf8)
+
+        let run = try JSONDecoder().decode(WorkflowControl.WorkflowRunSnapshot.self, from: payload)
+
+        #expect(run.startedAt.date.timeIntervalSince1970 == 1_767_225_600)
+        #expect(run.lastUpdatedAt.date.timeIntervalSince1970 == 1_767_225_601.25)
+    }
+
     @Test("ListWorkflowRuns filters terminal runs and orders by server update time")
     func listWorkflowRunsFiltersAndOrders() async throws {
         let server = WorkflowServerFake(runs: [
@@ -178,6 +208,71 @@ struct WorkflowControlTests {
         #expect(result.run.status == .running)
         #expect(result.run.inputRequests.first?.status == .resolved)
         #expect(await server.responses == ["run-1:input-1"])
+    }
+
+    @Test("ProjectWorkflowRunState respects server command capabilities")
+    func projectWorkflowRunStateRespectsServerCapabilities() async throws {
+        let server = WorkflowServerFake(runs: [workflowRun(status: .running)])
+        let action = WorkflowControl.ProjectWorkflowRunState(clock: FixedClock(), serverClient: server)
+
+        let result = try await action.run(.init(requestID: "project-capabilities", runID: "run-1", source: .test)).get()
+
+        #expect(!result.projection.canPause)
+        #expect(result.projection.canStop)
+        #expect(!result.projection.canRerun)
+    }
+
+    @Test("ObserveWorkflowEventStream filters live workflow stream items")
+    func observeWorkflowEventStreamFiltersItems() async throws {
+        let stream = WorkflowEventStreamFake(items: [
+            WorkflowControl.WorkflowEventStreamItem(kind: .runChanged, run: workflowRun(runID: "run-1", status: .running)),
+            WorkflowControl.WorkflowEventStreamItem(kind: .runChanged, run: workflowRun(runID: "run-b", status: .running)),
+            WorkflowControl.WorkflowEventStreamItem(kind: .eventAppended, event: workflowEvent(eventID: "event-a", kind: .stepStarted, sequence: 1)),
+            WorkflowControl.WorkflowEventStreamItem(kind: .eventAppended, event: WorkflowControl.WorkflowTimelineEvent(
+                eventID: "event-b",
+                workflowID: "workflow-1",
+                runID: "run-b",
+                kind: .stepStarted,
+                title: WorkflowControl.WorkflowEventKind.stepStarted.rawValue,
+                sequence: 2,
+                createdAt: FenrirTimestamp(Date(timeIntervalSince1970: 2))
+            ))
+        ])
+        let action = WorkflowControl.ObserveWorkflowEventStream(eventStream: stream)
+        let output = await action.run(.init(
+            requestID: "stream",
+            filter: WorkflowControl.WorkflowEventStreamFilter(runIDs: ["run-1"]),
+            source: .test
+        ))
+        var received: [WorkflowControl.WorkflowEventStreamItem] = []
+
+        for try await item in output {
+            received.append(item)
+        }
+
+        #expect(received.map { $0.runID?.rawValue } == ["run-1", "run-1"])
+        #expect(await stream.filters == [WorkflowControl.WorkflowEventStreamFilter(runIDs: ["run-1"])])
+    }
+
+    @Test("ObserveWorkflowEventStream allows event-only items through project filters")
+    func observeWorkflowEventStreamAllowsEventOnlyItemsThroughProjectFilters() async throws {
+        let stream = WorkflowEventStreamFake(items: [
+            WorkflowControl.WorkflowEventStreamItem(kind: .eventAppended, event: workflowEvent(eventID: "event-projectless", kind: .stepStarted, sequence: 1)),
+            WorkflowControl.WorkflowEventStreamItem(kind: .runChanged, run: workflowRun(runID: "run-other", status: .running))
+        ])
+        let action = WorkflowControl.ObserveWorkflowEventStream(eventStream: stream)
+        let output = await action.run(.init(
+            requestID: "stream-project",
+            filter: WorkflowControl.WorkflowEventStreamFilter(projectID: "project-1"),
+            source: .test
+        ))
+        var received: [WorkflowControl.WorkflowEventStreamItem] = []
+
+        for try await item in output {
+            received.append(item)
+        }
+
+        #expect(received.map { $0.runID?.rawValue } == ["run-1", "run-other"])
     }
 
     @Test("WorkflowControlView renders runs, agents, tasks, inputs, and timeline replay")
@@ -303,6 +398,25 @@ struct WorkflowControlTests {
             #expect(!contents.contains("HandleCommand"))
             #expect(!contents.contains("handleCommand"))
             #expect(!contents.contains("AnyWorkflowCommand"))
+        }
+    }
+}
+
+private actor WorkflowEventStreamFake: WorkflowControl.WorkflowEventStreaming {
+    private let items: [WorkflowControl.WorkflowEventStreamItem]
+    private(set) var filters: [WorkflowControl.WorkflowEventStreamFilter] = []
+
+    init(items: [WorkflowControl.WorkflowEventStreamItem]) {
+        self.items = items
+    }
+
+    func observeWorkflowEvents(filter: WorkflowControl.WorkflowEventStreamFilter) async -> AsyncThrowingStream<WorkflowControl.WorkflowEventStreamItem, Error> {
+        filters.append(filter)
+        return AsyncThrowingStream { continuation in
+            for item in items {
+                continuation.yield(item)
+            }
+            continuation.finish()
         }
     }
 }

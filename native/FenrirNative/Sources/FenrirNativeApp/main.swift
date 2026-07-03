@@ -1,15 +1,18 @@
 import AppKit
+import AgentIntegration
 import AgentInteraction
 import AuthSession
 import ClientControl
 import Diagnostics
 import FenrirNativeShared
 import Keybinding
+import NativeDistribution
 import NativeRuntime
 import NeovimBridge
 import Notifications
 import PaneGrid
 import ServerConnection
+import Settings
 import TerminalViewport
 import WorkspaceCoordinator
 import WorkspaceIndex
@@ -21,6 +24,98 @@ let nativeApplicationDelegate = FenrirNativeApplication()
 app.delegate = nativeApplicationDelegate
 app.setActivationPolicy(.regular)
 app.run()
+
+struct NativeShellThemeTokens {
+    let themeID: Settings.ThemeID
+    let rootBackground: NSColor
+    let sidebarBackground: NSColor
+    let toolbarBackground: NSColor
+    let terminalBackground: NSColor
+    let overlayScrim: NSColor
+    let overlayBackground: NSColor
+    let overlayBorder: NSColor
+    let hairline: NSColor
+    let primaryText: NSColor
+    let secondaryText: NSColor
+    let tertiaryText: NSColor
+    let accent: NSColor
+    let selectedRowBackground: NSColor
+    let selectedRowText: NSColor
+    let attentionBadge: NSColor
+    let okBadge: NSColor
+    let failureBadge: NSColor
+    let workflowBadge: NSColor
+    let transparent: NSColor
+
+    var panelBackground: NSColor { toolbarBackground }
+
+    static func resolve(_ themeID: Settings.ThemeID) -> NativeShellThemeTokens {
+        switch themeID {
+        case .fenrirDark:
+            return NativeShellThemeTokens(themeID: themeID, root: 0x0A0F16, sidebar: 0x0B111A, toolbar: 0x0D141E, terminal: 0x070B10, overlay: 0x0D141E, border: 0x1A2432, primary: 0xC3CDD9, secondary: 0x8B99A9, tertiary: 0x566677, accent: 0x3FB8AF, attention: 0xF0B429, ok: 0x4CC38A, failure: 0xE5534B, workflow: 0x9D7BD8)
+        case .pierreDark:
+            return NativeShellThemeTokens(themeID: themeID, root: 0x101112, sidebar: 0x131312, toolbar: 0x161615, terminal: 0x0B0B0B, overlay: 0x161615, border: 0x2A2925, primary: 0xF0EDE4, secondary: 0xB8B1A3, tertiary: 0x7C766B, accent: 0xD5B778, attention: 0xE0B15E, ok: 0x86B380, failure: 0xF07178, workflow: 0x82AAFF)
+        case .catppuccinMocha:
+            return NativeShellThemeTokens(themeID: themeID, root: 0x11111B, sidebar: 0x181825, toolbar: 0x1E1E2E, terminal: 0x0B0B14, overlay: 0x1E1E2E, border: 0x313244, primary: 0xCDD6F4, secondary: 0xA6ADC8, tertiary: 0x6C7086, accent: 0xCBA6F7, attention: 0xF9E2AF, ok: 0xA6E3A1, failure: 0xF38BA8, workflow: 0xB4BEFE)
+        case .rosePine:
+            return NativeShellThemeTokens(themeID: themeID, root: 0x191724, sidebar: 0x1B192A, toolbar: 0x1F1D2E, terminal: 0x12101B, overlay: 0x1F1D2E, border: 0x403D52, primary: 0xE0DEF4, secondary: 0x908CAA, tertiary: 0x6E6A86, accent: 0x9CCFD8, attention: 0xF6C177, ok: 0x95B1AC, failure: 0xEB6F92, workflow: 0xC4A7E7)
+        case .kanagawa:
+            return NativeShellThemeTokens(themeID: themeID, root: 0x16161D, sidebar: 0x1A1A22, toolbar: 0x1F1F28, terminal: 0x101016, overlay: 0x1F1F28, border: 0x2F2F3D, primary: 0xDCD7BA, secondary: 0xC8C093, tertiary: 0x727169, accent: 0x7E9CD8, attention: 0xE6C384, ok: 0x98BB6C, failure: 0xC34043, workflow: 0x957FB8)
+        case .tokyoNightMoon:
+            return NativeShellThemeTokens(themeID: themeID, root: 0x1E2030, sidebar: 0x1B1D2D, toolbar: 0x222436, terminal: 0x16182A, overlay: 0x222436, border: 0x2F334D, primary: 0xC8D3F5, secondary: 0xA9B1D6, tertiary: 0x636DA6, accent: 0x82AAFF, attention: 0xFFC777, ok: 0xC3E88D, failure: 0xFF757F, workflow: 0xC099FF)
+        case .nord:
+            return NativeShellThemeTokens(themeID: themeID, root: 0x242933, sidebar: 0x272C37, toolbar: 0x2E3440, terminal: 0x1D222C, overlay: 0x2E3440, border: 0x3B4252, primary: 0xD8DEE9, secondary: 0xAEB8C9, tertiary: 0x616E88, accent: 0x88C0D0, attention: 0xEBCB8B, ok: 0xA3BE8C, failure: 0xBF616A, workflow: 0xB48EAD)
+        }
+    }
+
+    private init(
+        themeID: Settings.ThemeID,
+        root: UInt32,
+        sidebar: UInt32,
+        toolbar: UInt32,
+        terminal: UInt32,
+        overlay: UInt32,
+        border: UInt32,
+        primary: UInt32,
+        secondary: UInt32,
+        tertiary: UInt32,
+        accent: UInt32,
+        attention: UInt32,
+        ok: UInt32,
+        failure: UInt32,
+        workflow: UInt32
+    ) {
+        self.themeID = themeID
+        rootBackground = Self.color(root)
+        sidebarBackground = Self.color(sidebar)
+        toolbarBackground = Self.color(toolbar)
+        terminalBackground = Self.color(terminal)
+        overlayScrim = Self.color(0x000000, alpha: 0.55)
+        overlayBackground = Self.color(overlay)
+        overlayBorder = Self.color(border)
+        hairline = Self.color(border)
+        primaryText = Self.color(primary)
+        secondaryText = Self.color(secondary)
+        tertiaryText = Self.color(tertiary)
+        self.accent = Self.color(accent)
+        selectedRowBackground = Self.color(accent, alpha: 0.14)
+        selectedRowText = Self.color(primary)
+        attentionBadge = Self.color(attention)
+        okBadge = Self.color(ok)
+        failureBadge = Self.color(failure)
+        workflowBadge = Self.color(workflow)
+        transparent = Self.color(0x000000, alpha: 0)
+    }
+
+    private static func color(_ rgb: UInt32, alpha: CGFloat = 1) -> NSColor {
+        NSColor(
+            calibratedRed: CGFloat((rgb >> 16) & 0xFF) / 255,
+            green: CGFloat((rgb >> 8) & 0xFF) / 255,
+            blue: CGFloat(rgb & 0xFF) / 255,
+            alpha: alpha
+        )
+    }
+}
 
 @MainActor
 final class FenrirNativeApplication: NSObject, NSApplicationDelegate {
@@ -58,6 +153,299 @@ final class FenrirNativeApplication: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+}
+
+struct NativeAgentPresenceOSCForwarder: TerminalViewport.TerminalReservedOSCForwarding {
+    let ingestAgentPresenceSignal: AgentIntegration.IngestAgentPresenceSignal
+
+    init(ingestAgentPresenceSignal: AgentIntegration.IngestAgentPresenceSignal) {
+        self.ingestAgentPresenceSignal = ingestAgentPresenceSignal
+    }
+
+    func forwardReservedOSC(_ signal: TerminalViewport.ReservedOSCSignal) async throws {
+        let provenance = AgentIntegration.AgentPresenceProvenance(
+            workspaceID: signal.provenance.workspaceID,
+            tabID: signal.provenance.tabID,
+            paneID: signal.provenance.paneID,
+            viewportID: signal.provenance.viewportID,
+            kind: .terminalViewportForwardedOSC
+        )
+        let agentSignal = AgentIntegration.AgentPresenceSignal(
+            oscIdentifier: signal.oscIdentifier,
+            payload: signal.payload,
+            provenance: provenance
+        )
+        _ = await ingestAgentPresenceSignal.run(AgentIntegration.IngestAgentPresenceSignalInput(
+            requestID: RequestID(rawValue: "agent-presence-osc-\(signal.provenance.viewportID.rawValue)-\(signal.provenance.sequence)"),
+            signal: agentSignal,
+            source: .terminalViewport
+        ))
+    }
+}
+
+actor NativeAppTerminalViewportStore: TerminalViewport.TerminalViewportStore {
+    private var states: [ViewportID: TerminalViewport.State] = [:]
+
+    func loadViewport(viewportID: ViewportID) async throws -> TerminalViewport.State? {
+        states[viewportID]
+    }
+
+    func saveViewport(_ state: TerminalViewport.State) async throws {
+        states[state.viewportID] = state
+    }
+
+    func deleteViewport(viewportID: ViewportID) async throws {
+        states[viewportID] = nil
+    }
+}
+
+struct NativeTerminalViewportClock: TerminalViewport.TerminalViewportClock {
+    func now() -> FenrirTimestamp { FenrirTimestamp(Date()) }
+}
+
+struct NativeAgentIntegrationClock: AgentIntegration.AgentIntegrationClock {
+    func now() -> FenrirTimestamp { FenrirTimestamp(Date()) }
+}
+
+protocol NativeAgentIntegrationCommandHandling: Sendable {
+    func handle(_ input: NativeHostDiagnosticsInput) async -> Result<NativeHostProductCommandResult, ClientControl.ClientControlError>
+}
+
+struct NativeAgentIntegrationCommandController: NativeAgentIntegrationCommandHandling, Sendable {
+    private let detector: any AgentIntegration.AgentIntegrationDetecting
+    private let installer: any AgentIntegration.AgentIntegrationInstalling
+    private let clock: any AgentIntegration.AgentIntegrationClock
+
+    init(
+        detector: any AgentIntegration.AgentIntegrationDetecting = AgentIntegration.pathAgentIntegrationDetector(),
+        installer: (any AgentIntegration.AgentIntegrationInstalling)? = nil,
+        clock: any AgentIntegration.AgentIntegrationClock = NativeAgentIntegrationClock()
+    ) {
+        self.detector = detector
+        self.clock = clock
+        self.installer = installer ?? AgentIntegration.providerStructuredAgentIntegrationProvisioner(
+            configStore: AgentIntegration.LocalAgentIntegrationConfigFileStore(),
+            clock: clock
+        )
+    }
+
+    func handle(_ input: NativeHostDiagnosticsInput) async -> Result<NativeHostProductCommandResult, ClientControl.ClientControlError> {
+        switch input.operation {
+        case "agent-integration-status":
+            return await status(input)
+        case "agent-integration-repair":
+            return await provision(input, resultKind: "AgentIntegrationRepaired") { request in
+                await AgentIntegration.InstallAgentIntegration(installer: installer).run(request)
+            }
+        case "agent-integration-remove":
+            return await remove(input)
+        default:
+            return .failure(.decodeError)
+        }
+    }
+
+    private func status(_ input: NativeHostDiagnosticsInput) async -> Result<NativeHostProductCommandResult, ClientControl.ClientControlError> {
+        if let rawAgentID = input.agentID {
+            guard let agentID = parseAgentID(rawAgentID) else { return .failure(.decodeError) }
+            let action = AgentIntegration.GetAgentIntegrationStatus(detector: detector, clock: clock)
+            switch await action.run(AgentIntegration.GetAgentIntegrationStatusInput(
+                requestID: input.requestID,
+                agentID: agentID,
+                source: .nativeHost
+            )) {
+            case .success(let result):
+                return .success(NativeHostProductCommandResult(
+                    requestID: input.requestID,
+                    resultKind: "AgentIntegrationStatus",
+                    payload: payload(for: result.status)
+                ))
+            case .failure(let error):
+                return .failure(clientControlError(for: error))
+            }
+        }
+
+        let action = AgentIntegration.DetectAgentIntegrations(detector: detector, clock: clock)
+        switch await action.run(AgentIntegration.DetectAgentIntegrationsInput(
+            requestID: input.requestID,
+            source: .nativeHost
+        )) {
+        case .success(let result):
+            return .success(NativeHostProductCommandResult(
+                requestID: input.requestID,
+                resultKind: "AgentIntegrationStatuses",
+                payload: payload(for: result.statuses)
+            ))
+        case .failure(let error):
+            return .failure(clientControlError(for: error))
+        }
+    }
+
+    private func remove(_ input: NativeHostDiagnosticsInput) async -> Result<NativeHostProductCommandResult, ClientControl.ClientControlError> {
+        await provision(input, resultKind: "AgentIntegrationRemoved") { request in
+            await AgentIntegration.RemoveAgentIntegration(installer: installer).run(request)
+        }
+    }
+
+    private func provision(
+        _ input: NativeHostDiagnosticsInput,
+        resultKind: String,
+        operation: (AgentIntegration.AgentProvisioningRequest) async -> Result<AgentIntegration.AgentProvisioningResult, AgentIntegration.AgentIntegrationError>
+    ) async -> Result<NativeHostProductCommandResult, ClientControl.ClientControlError> {
+        guard let rawAgentID = input.agentID,
+              let agentID = parseAgentID(rawAgentID)
+        else {
+            return .failure(.decodeError)
+        }
+        let request = AgentIntegration.AgentProvisioningRequest(
+            requestID: input.requestID,
+            agentID: agentID,
+            workspaceID: input.workspaceID,
+            targetVersion: "1.0.0",
+            source: .nativeHost
+        )
+        switch await operation(request) {
+        case .success(let result):
+            return .success(NativeHostProductCommandResult(
+                requestID: input.requestID,
+                resultKind: resultKind,
+                payload: payload(for: result)
+            ))
+        case .failure(let error):
+            return .failure(clientControlError(for: error))
+        }
+    }
+
+    private func parseAgentID(_ raw: String) -> AgentIntegration.AgentCLIIdentifier? {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: "_", with: "-")
+        switch normalized {
+        case "claude", "claude-code", "claudecode":
+            return .claudeCode
+        case "codex":
+            return .codex
+        case "cursor":
+            return .cursor
+        case "opencode", "open-code":
+            return .openCode
+        default:
+            return nil
+        }
+    }
+
+    private func payload(for result: AgentIntegration.AgentProvisioningResult) -> [String: String] {
+        var payload = payload(for: result.status)
+        payload["change"] = result.change.rawValue
+        return payload
+    }
+
+    private func payload(for status: AgentIntegration.AgentIntegrationStatus) -> [String: String] {
+        [
+            "agentID": status.agent.id.rawValue,
+            "displayName": status.agent.displayName,
+            "state": status.state.rawValue,
+            "expectedVersion": status.expectedVersion.rawValue,
+            "installedVersion": status.installedVersion?.rawValue ?? "",
+            "detectedExecutablePath": status.detectedExecutablePath ?? "",
+            "cliDetected": String(status.detectedExecutablePath != nil)
+        ]
+    }
+
+    private func payload(for statuses: [AgentIntegration.AgentIntegrationStatus]) -> [String: String] {
+        [
+            "agentIDs": statuses.map(\.agent.id.rawValue).joined(separator: ","),
+            "states": statuses.map { "\($0.agent.id.rawValue)=\($0.state.rawValue)" }.joined(separator: ","),
+            "cliDetected": statuses.map { "\($0.agent.id.rawValue)=\($0.detectedExecutablePath != nil)" }.joined(separator: ",")
+        ]
+    }
+
+    private func clientControlError(for error: AgentIntegration.AgentIntegrationError) -> ClientControl.ClientControlError {
+        switch error {
+        case .unavailable:
+            return .unavailable
+        case .unsupportedAgent, .malformedPresence:
+            return .decodeError
+        case .staleIntegration, .configConflict:
+            return .confirmationRequired
+        }
+    }
+}
+
+struct NativeDistributionStartupClock: NativeDistribution.NativeDistributionClock {
+    func now() -> FenrirTimestamp { FenrirTimestamp(Date()) }
+}
+
+@MainActor
+final class NativeTerminalStreamIngestor {
+    private let store: NativeAppTerminalViewportStore
+    private let clock: any TerminalViewport.TerminalViewportClock
+    private let reservedOSCForwarder: (any TerminalViewport.TerminalReservedOSCForwarding)?
+
+    init(
+        store: NativeAppTerminalViewportStore,
+        clock: any TerminalViewport.TerminalViewportClock = NativeTerminalViewportClock(),
+        reservedOSCForwarder: (any TerminalViewport.TerminalReservedOSCForwarding)? = nil
+    ) {
+        self.store = store
+        self.clock = clock
+        self.reservedOSCForwarder = reservedOSCForwarder
+    }
+
+    func ingestOutput(
+        workspaceID: WorkspaceID,
+        windowID: FenrirWindowID,
+        pane: PaneGrid.PanePresentation,
+        streamID: StreamID,
+        sequence: UInt64,
+        bytes: Data,
+        terminalView: FenrirTerminalView
+    ) async -> Result<TerminalViewport.IngestTerminalOutputResult, TerminalViewport.TerminalViewportError> {
+        do {
+            try await ensureAttachedState(workspaceID: workspaceID, windowID: windowID, pane: pane, streamID: streamID)
+            let action = TerminalViewport.IngestTerminalOutput(
+                store: store,
+                rendererWriter: NativeTerminalViewRendererWriter(terminalView: terminalView),
+                reservedOSCForwarder: reservedOSCForwarder,
+                clock: clock
+            )
+            return await action.run(TerminalViewport.IngestTerminalOutputInput(
+                requestID: RequestID(rawValue: "native-terminal-output-\(pane.viewportID.rawValue)-\(sequence)"),
+                viewportID: pane.viewportID,
+                paneID: pane.paneID,
+                streamID: streamID,
+                sequence: sequence,
+                bytes: bytes,
+                source: .nativeHost
+            ))
+        } catch let error as TerminalViewport.TerminalViewportError {
+            return .failure(error)
+        } catch {
+            return .failure(.outputApplyFailed)
+        }
+    }
+
+    private func ensureAttachedState(workspaceID: WorkspaceID, windowID: FenrirWindowID, pane: PaneGrid.PanePresentation, streamID: StreamID) async throws {
+        if let existing = try await store.loadViewport(viewportID: pane.viewportID),
+           existing.workspaceID == workspaceID,
+           existing.tabID == windowID,
+           existing.paneID == pane.paneID,
+           existing.streamID == streamID,
+           existing.streamStatus == .attached,
+           existing.rendererStatus == .ready {
+            return
+        }
+        try await store.saveViewport(TerminalViewport.State(
+            viewportID: pane.viewportID,
+            workspaceID: workspaceID,
+            tabID: windowID,
+            paneID: pane.paneID,
+            streamID: streamID,
+            lastAppliedSequence: nil,
+            isFocused: pane.isFocused,
+            rendererStatus: .ready,
+            streamStatus: .attached,
+            size: nil,
+            pendingReservedOSCSequence: Data()
+        ))
     }
 }
 
@@ -111,6 +499,7 @@ final class NativeApplicationTerminationBridge {
 
 enum NativeApplicationStartupMode: Equatable, Sendable {
     case preparedLocalDefault
+    case degradedDistributionReadiness
     case degradedLocalDefault(preparationError: ServerConnection.ServerConnectionError)
 }
 
@@ -124,8 +513,9 @@ enum NativeApplicationStartupPhase: Equatable, Sendable {
 struct NativeApplicationStartupSnapshot: Equatable, Sendable {
     let phase: NativeApplicationStartupPhase
     let preparationError: ServerConnection.ServerConnectionError?
+    let distributionReadinessReport: NativeDistribution.StartupReadinessReport?
 
-    static let idle = NativeApplicationStartupSnapshot(phase: .idle, preparationError: nil)
+    static let idle = NativeApplicationStartupSnapshot(phase: .idle, preparationError: nil, distributionReadinessReport: nil)
 }
 
 struct NativeApplicationShutdownSnapshot: Equatable, Sendable {
@@ -136,6 +526,7 @@ struct NativeApplicationShutdownSnapshot: Equatable, Sendable {
 @MainActor
 final class NativeApplicationBootstrapCoordinator {
     typealias PrepareLocalDefault = @Sendable () async -> Result<NativeAppServerConnectionContext, ServerConnection.ServerConnectionError>
+    typealias AssessDistributionReadiness = @Sendable () async -> Result<NativeDistribution.StartupReadinessReport, NativeDistribution.DistributionReadinessError>
     typealias FallbackLocalDefault = @MainActor () -> NativeAppServerConnectionContext
     typealias ComposeRuntime = @MainActor (NativeAppServerConnectionContext, Bool) -> NativeApplicationRuntime
     typealias RuntimeHook = @MainActor (NativeApplicationRuntime) -> Void
@@ -144,6 +535,7 @@ final class NativeApplicationBootstrapCoordinator {
     typealias LogMessage = @MainActor (String) -> Void
 
     private let prepareLocalDefault: PrepareLocalDefault
+    private let assessDistributionReadiness: AssessDistributionReadiness
     private let fallbackLocalDefault: FallbackLocalDefault
     private let composeRuntime: ComposeRuntime
     private let openInitialWorkspace: RuntimeHook
@@ -158,6 +550,19 @@ final class NativeApplicationBootstrapCoordinator {
     private(set) var terminationRequested = false
 
     init(
+        assessDistributionReadiness: @escaping AssessDistributionReadiness = {
+            let action = NativeDistribution.AssessStartupReadiness(
+                clock: NativeDistributionStartupClock(),
+                tmuxChecker: NativeDistribution.pathTmuxDependencyChecker(),
+                serverAssetLocator: NativeDistribution.appResourceServerAssetLocator()
+            )
+            switch await action.run(NativeDistribution.AssessStartupReadinessInput(requestID: "native-startup-readiness", mode: .localDefault, source: .nativeHost)) {
+            case .success(let result):
+                return .success(result.report)
+            case .failure(let error):
+                return .failure(error)
+            }
+        },
         prepareLocalDefault: @escaping PrepareLocalDefault = {
             await NativeAppServerConnectionContext.preparedLocalDefault()
         },
@@ -187,6 +592,7 @@ final class NativeApplicationBootstrapCoordinator {
         }
     ) {
         self.prepareLocalDefault = prepareLocalDefault
+        self.assessDistributionReadiness = assessDistributionReadiness
         self.fallbackLocalDefault = fallbackLocalDefault
         self.composeRuntime = composeRuntime
         self.openInitialWorkspace = openInitialWorkspace
@@ -203,7 +609,8 @@ final class NativeApplicationBootstrapCoordinator {
     }
 
     func start() async -> NativeApplicationStartupSnapshot {
-        startupSnapshot = NativeApplicationStartupSnapshot(phase: .preparing, preparationError: nil)
+        startupSnapshot = NativeApplicationStartupSnapshot(phase: .preparing, preparationError: nil, distributionReadinessReport: nil)
+        let distributionReadinessReport = await resolveDistributionReadinessReport()
 
         let context: NativeAppServerConnectionContext
         let shouldShutdownPreparedLocalServer: Bool
@@ -212,16 +619,16 @@ final class NativeApplicationBootstrapCoordinator {
         case .success(let preparedContext):
             if terminationRequested {
                 shutdownSnapshot = await shutdownPreparedContext(preparedContext)
-                let snapshot = NativeApplicationStartupSnapshot(phase: .terminated, preparationError: nil)
+                let snapshot = NativeApplicationStartupSnapshot(phase: .terminated, preparationError: nil, distributionReadinessReport: distributionReadinessReport)
                 startupSnapshot = snapshot
                 return snapshot
             }
             context = preparedContext
             shouldShutdownPreparedLocalServer = true
-            mode = .preparedLocalDefault
+            mode = distributionReadinessReport?.canStart == false ? .degradedDistributionReadiness : .preparedLocalDefault
         case .failure(let error):
             if terminationRequested {
-                let snapshot = NativeApplicationStartupSnapshot(phase: .terminated, preparationError: error)
+                let snapshot = NativeApplicationStartupSnapshot(phase: .terminated, preparationError: error, distributionReadinessReport: distributionReadinessReport)
                 startupSnapshot = snapshot
                 shutdownSnapshot = NativeApplicationShutdownSnapshot(didRequestPreparedLocalServerShutdown: false, shutdownError: nil)
                 return snapshot
@@ -240,10 +647,27 @@ final class NativeApplicationBootstrapCoordinator {
 
         let snapshot = NativeApplicationStartupSnapshot(
             phase: .running(mode),
-            preparationError: mode.preparationError
+            preparationError: mode.preparationError,
+            distributionReadinessReport: distributionReadinessReport
         )
         startupSnapshot = snapshot
         return snapshot
+    }
+
+    private func resolveDistributionReadinessReport() async -> NativeDistribution.StartupReadinessReport? {
+        switch await assessDistributionReadiness() {
+        case .success(let report):
+            for diagnostic in report.diagnostics {
+                logMessage("Fenrir Native startup diagnostic [\(diagnostic.severity.rawValue)] \(diagnostic.title): \(diagnostic.message) Recovery: \(diagnostic.recoverySuggestion)")
+            }
+            if !report.canStart {
+                logMessage("Fenrir Native startup readiness reported blocking diagnostics; continuing with degraded native shell state.")
+            }
+            return report
+        case .failure(let error):
+            logMessage("Fenrir Native startup readiness probe failed: \(String(describing: error))")
+            return nil
+        }
     }
 
     func terminate(waitingFor startupTask: Task<NativeApplicationStartupSnapshot, Never>? = nil) async -> NativeApplicationShutdownSnapshot {
@@ -259,13 +683,13 @@ final class NativeApplicationBootstrapCoordinator {
 
         let snapshot = await shutdownPreparedRuntime()
         shutdownSnapshot = snapshot
-        startupSnapshot = NativeApplicationStartupSnapshot(phase: .terminated, preparationError: startupSnapshot.preparationError)
+        startupSnapshot = NativeApplicationStartupSnapshot(phase: .terminated, preparationError: startupSnapshot.preparationError, distributionReadinessReport: startupSnapshot.distributionReadinessReport)
         return snapshot
     }
 
     private func shutdownPreparedRuntime() async -> NativeApplicationShutdownSnapshot {
         guard let runtime else {
-            startupSnapshot = NativeApplicationStartupSnapshot(phase: .terminated, preparationError: startupSnapshot.preparationError)
+            startupSnapshot = NativeApplicationStartupSnapshot(phase: .terminated, preparationError: startupSnapshot.preparationError, distributionReadinessReport: startupSnapshot.distributionReadinessReport)
             return NativeApplicationShutdownSnapshot(didRequestPreparedLocalServerShutdown: false, shutdownError: nil)
         }
 
@@ -292,7 +716,7 @@ final class NativeApplicationBootstrapCoordinator {
 private extension NativeApplicationStartupMode {
     var preparationError: ServerConnection.ServerConnectionError? {
         switch self {
-        case .preparedLocalDefault:
+        case .preparedLocalDefault, .degradedDistributionReadiness:
             nil
         case .degradedLocalDefault(let preparationError):
             preparationError
@@ -325,12 +749,25 @@ final class NativeApplicationRuntime {
         serverConnection: NativeAppServerConnectionContext,
         shouldShutdownPreparedLocalServer: Bool
     ) -> NativeApplicationRuntime {
+        let terminalViewportStore = NativeAppTerminalViewportStore()
+        let agentPresenceStore = AgentIntegration.InMemoryAgentPresenceStore()
+        let terminalStreamIngestor = NativeTerminalStreamIngestor(
+            store: terminalViewportStore,
+            reservedOSCForwarder: NativeAgentPresenceOSCForwarder(
+                ingestAgentPresenceSignal: AgentIntegration.IngestAgentPresenceSignal(
+                    store: agentPresenceStore,
+                    clock: NativeAgentIntegrationClock()
+                )
+            )
+        )
         let workspaceWindows = NativeWorkspaceWindowRegistry(
             paneGridRuntimeFactory: serverConnection.paneGridRuntimeFactory,
             paneStreamSubscriber: serverConnection.paneStreamSubscriber,
+            terminalStreamIngestor: terminalStreamIngestor,
             agentPromptSubmitterFactory: serverConnection.agentPromptSubmitterFactory,
             neovimBridgeControllerFactory: serverConnection.neovimBridgeControllerFactory,
             workflowServerClientFactory: serverConnection.workflowServerClientFactory,
+            workflowEventStreamFactory: serverConnection.workflowEventStreamFactory,
             workflowNotificationStore: serverConnection.notificationStore
         )
         return NativeApplicationRuntime(
@@ -399,24 +836,30 @@ final class NativeWorkspaceWindowRegistry {
     private var activeWorkspaceID: WorkspaceID?
     private let paneGridRuntimeFactory: any NativePaneGridRuntimeMaking
     private let paneStreamSubscriber: NativePaneStreamSubscriber?
+    private let terminalStreamIngestor: NativeTerminalStreamIngestor?
     private let agentPromptSubmitterFactory: any NativeAgentPromptSubmitterMaking
     private let neovimBridgeControllerFactory: any NativeNeovimBridgeControllerMaking
     private let workflowServerClientFactory: any NativeWorkflowServerClientMaking
+    private let workflowEventStreamFactory: any NativeWorkflowEventStreamMaking
     private let workflowNotificationStore: any Notifications.NotificationStore
 
     init(
         paneGridRuntimeFactory: any NativePaneGridRuntimeMaking = NativePaneGridUnavailableRuntimeFactory(),
         paneStreamSubscriber: NativePaneStreamSubscriber? = nil,
+        terminalStreamIngestor: NativeTerminalStreamIngestor? = nil,
         agentPromptSubmitterFactory: any NativeAgentPromptSubmitterMaking,
         neovimBridgeControllerFactory: any NativeNeovimBridgeControllerMaking = NativeNeovimUnavailableControllerFactory(),
         workflowServerClientFactory: any NativeWorkflowServerClientMaking = NativeWorkflowUnavailableServerClientFactory(),
+        workflowEventStreamFactory: any NativeWorkflowEventStreamMaking = NativeWorkflowUnavailableEventStreamFactory(),
         workflowNotificationStore: any Notifications.NotificationStore = Notifications.inMemoryNotificationStore()
     ) {
         self.paneGridRuntimeFactory = paneGridRuntimeFactory
         self.paneStreamSubscriber = paneStreamSubscriber
+        self.terminalStreamIngestor = terminalStreamIngestor
         self.agentPromptSubmitterFactory = agentPromptSubmitterFactory
         self.neovimBridgeControllerFactory = neovimBridgeControllerFactory
         self.workflowServerClientFactory = workflowServerClientFactory
+        self.workflowEventStreamFactory = workflowEventStreamFactory
         self.workflowNotificationStore = workflowNotificationStore
     }
 
@@ -575,9 +1018,11 @@ final class NativeWorkspaceWindowRegistry {
             state: shellState,
             paneGridRuntime: paneGridRuntimeFactory.makeRuntime(for: shellState),
             paneStreamSubscriber: paneStreamSubscriber,
+            terminalStreamIngestor: terminalStreamIngestor,
             agentPromptSubmitter: agentPromptSubmitterFactory.makeSubmitter(for: shellState),
             neovimBridgeController: neovimBridgeControllerFactory.makeController(for: shellState),
             workflowServerClient: workflowServerClientFactory.makeClient(for: shellState),
+            workflowEventStream: workflowEventStreamFactory.makeEventStream(for: shellState),
             workflowNotificationStore: workflowNotificationStore,
             switchWorkspace: { [weak self] workspaceID in
                 self?.focusWorkspace(workspaceID)
@@ -729,13 +1174,16 @@ struct NativeWorkspaceOpenResult: Sendable {
 final class NativeHostVisibleStateDispatcher: NativeHostClientControlDispatching, NativeHostProductCommandDispatching, @unchecked Sendable {
     private weak var workspaceWindows: NativeWorkspaceWindowRegistry?
     private let workspaceProjector: (any NativeVisibleWorkspaceProjecting)?
+    private let agentIntegrationCommands: any NativeAgentIntegrationCommandHandling
 
     init(
         workspaceWindows: NativeWorkspaceWindowRegistry,
-        workspaceProjector: (any NativeVisibleWorkspaceProjecting)? = nil
+        workspaceProjector: (any NativeVisibleWorkspaceProjecting)? = nil,
+        agentIntegrationCommands: any NativeAgentIntegrationCommandHandling = NativeAgentIntegrationCommandController()
     ) {
         self.workspaceWindows = workspaceWindows
         self.workspaceProjector = workspaceProjector
+        self.agentIntegrationCommands = agentIntegrationCommands
     }
 
     func openWorkspace(_ input: ClientControl.OpenWorkspaceInput) async -> Result<ClientControl.OpenWorkspaceResult, ClientControl.ClientControlError> {
@@ -916,6 +1364,9 @@ final class NativeHostVisibleStateDispatcher: NativeHostClientControlDispatching
     }
 
     func presentDiagnostics(_ input: NativeHostDiagnosticsInput) async -> Result<NativeHostProductCommandResult, ClientControl.ClientControlError> {
+        if input.operation.hasPrefix("agent-integration-") {
+            return await agentIntegrationCommands.handle(input)
+        }
         if input.operation == "keybinding-palette-smoke" {
             guard let workspaceWindows,
                   let payload = await workspaceWindows.runKeybindingPaletteSmoke(workspaceID: input.workspaceID)
@@ -1028,9 +1479,12 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
         state: NativeWorkspaceShellState,
         paneGridRuntime: any NativePaneGridRuntimeControlling,
         paneStreamSubscriber: NativePaneStreamSubscriber? = nil,
+        terminalStreamIngestor: NativeTerminalStreamIngestor? = nil,
+        themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID),
         agentPromptSubmitter: any AgentInteraction.AgentPromptSubmitting,
         neovimBridgeController: NativeNeovimBridgeActionController,
         workflowServerClient: any WorkflowControl.WorkflowServerClient,
+        workflowEventStream: any WorkflowControl.WorkflowEventStreaming = NativeWorkflowUnavailableEventStream(),
         workflowNotificationStore: any Notifications.NotificationStore = Notifications.inMemoryNotificationStore(),
         switchWorkspace: @MainActor @escaping (WorkspaceID) -> Void = { _ in }
     ) {
@@ -1039,19 +1493,25 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
             controller: NativeWorkspaceShellController(state: state),
             paneGridRuntime: paneGridRuntime,
             paneStreamSubscriber: paneStreamSubscriber,
+            terminalStreamIngestor: terminalStreamIngestor,
+            themeTokens: themeTokens,
             agentPromptSubmitter: agentPromptSubmitter,
             neovimBridgeController: neovimBridgeController,
             workflowServerClient: workflowServerClient,
+            workflowEventStream: workflowEventStream,
             workflowNotificationStore: workflowNotificationStore,
             switchWorkspace: switchWorkspace
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1180, height: 780),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "Fenrir - \(state.workspaceID.rawValue)"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = themeTokens.rootBackground
         window.minSize = NSSize(width: 760, height: 520)
         window.center()
         window.contentViewController = shellViewController
@@ -1130,16 +1590,23 @@ final class NativeWorkspaceRootViewController: NSViewController {
     private var shellController: NativeWorkspaceShellController
     private let paneGridActions: any NativePaneGridActionDispatching
     private let paneStreamSubscriber: NativePaneStreamSubscriber?
+    private let terminalStreamIngestor: NativeTerminalStreamIngestor?
+    private let themeTokens: NativeShellThemeTokens
     private let agentComposerActions: NativeAgentComposerActionController
     private let neovimBridgeActions: NativeNeovimBridgeActionController
     private let workflowActions: NativeWorkflowActionController
+    private let workflowEventStream: any WorkflowControl.WorkflowEventStreaming
     private let workflowNotifications: NativeWorkflowNotificationController
     private let diagnosticsActions: NativeDiagnosticsActionController
+    private let agentIntegrationActions: any NativeAgentIntegrationActionDispatching
     private let switchWorkspace: @MainActor (WorkspaceID) -> Void
     private var agentComposerTask: Task<Void, Never>?
     private var neovimTask: Task<Void, Never>?
     private var workflowTask: Task<Void, Never>?
+    private var workflowEventStreamTask: Task<Void, Never>?
     private var diagnosticsTask: Task<Void, Never>?
+    private var agentIntegrationTask: Task<Void, Never>?
+    private var didRunFirstRunAgentIntegrationRefresh = false
     private var rootView: NativeWorkspaceRootView {
         view as! NativeWorkspaceRootView
     }
@@ -1148,11 +1615,15 @@ final class NativeWorkspaceRootViewController: NSViewController {
         controller: NativeWorkspaceShellController,
         paneGridRuntime: any NativePaneGridRuntimeControlling,
         paneStreamSubscriber: NativePaneStreamSubscriber? = nil,
+        terminalStreamIngestor: NativeTerminalStreamIngestor? = nil,
+        themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID),
         agentPromptSubmitter: any AgentInteraction.AgentPromptSubmitting,
         neovimBridgeController: NativeNeovimBridgeActionController = NativeNeovimBridgeActionController.unavailable(),
         workflowServerClient: any WorkflowControl.WorkflowServerClient = NativeWorkflowUnavailableServerClient(),
+        workflowEventStream: any WorkflowControl.WorkflowEventStreaming = NativeWorkflowUnavailableEventStream(),
         workflowNotificationStore: any Notifications.NotificationStore = Notifications.inMemoryNotificationStore(),
         diagnosticsActions: NativeDiagnosticsActionController? = nil,
+        agentIntegrationActions: any NativeAgentIntegrationActionDispatching = NativeAgentIntegrationActionController(),
         switchWorkspace: @MainActor @escaping (WorkspaceID) -> Void = { _ in }
     ) {
         shellController = controller
@@ -1162,17 +1633,21 @@ final class NativeWorkspaceRootViewController: NSViewController {
             runtime: paneGridRuntime
         )
         self.paneStreamSubscriber = paneStreamSubscriber
+        self.terminalStreamIngestor = terminalStreamIngestor
+        self.themeTokens = themeTokens
         agentComposerActions = NativeAgentComposerActionController(submitter: agentPromptSubmitter)
         neovimBridgeActions = neovimBridgeController
         workflowActions = NativeWorkflowActionController(
             workspaceID: controller.state.workspaceID,
             serverClient: workflowServerClient
         )
+        self.workflowEventStream = workflowEventStream
         workflowNotifications = NativeWorkflowNotificationController(
             workspaceID: controller.state.workspaceID,
             store: workflowNotificationStore
         )
         self.diagnosticsActions = diagnosticsActions ?? NativeDiagnosticsActionController()
+        self.agentIntegrationActions = agentIntegrationActions
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -1182,7 +1657,13 @@ final class NativeWorkspaceRootViewController: NSViewController {
     }
 
     override func loadView() {
-        view = NativeWorkspaceRootView(state: shellController.state, paneGridActions: paneGridActions, paneStreamSubscriber: paneStreamSubscriber)
+        view = NativeWorkspaceRootView(
+            state: shellController.state,
+            paneGridActions: paneGridActions,
+            paneStreamSubscriber: paneStreamSubscriber,
+            terminalStreamIngestor: terminalStreamIngestor,
+            themeTokens: themeTokens
+        )
         rootView.onToggleSidebar = { [weak self] in
             self?.toggleSidebar()
         }
@@ -1222,11 +1703,28 @@ final class NativeWorkspaceRootViewController: NSViewController {
         rootView.onWorkflowCommand = { [weak self] command in
             self?.dispatchWorkflowCommand(command)
         }
+        rootView.onAgentIntegrationCommand = { [weak self] command in
+            self?.dispatchAgentIntegrationCommand(command)
+        }
+        rootView.onSwitchWorkspace = { [weak self] workspaceID in
+            guard let self, workspaceID != self.shellController.state.workspaceID else {
+                return
+            }
+            self.switchWorkspace(workspaceID)
+        }
+        rootView.onOpenAgentIntegrations = { [weak self] in
+            self?.presentAgentIntegrationsOverlay()
+        }
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
         restoreDeterministicFocus()
+        runFirstRunAgentIntegrationRefreshIfNeeded()
+    }
+
+    deinit {
+        workflowEventStreamTask?.cancel()
     }
 
     func restoreDeterministicFocus() {
@@ -1299,6 +1797,14 @@ final class NativeWorkspaceRootViewController: NSViewController {
 
     func waitForDiagnosticsActions() async {
         await diagnosticsTask?.value
+    }
+
+    func waitForAgentIntegrationActions() async {
+        await agentIntegrationTask?.value
+    }
+
+    func visibleAgentIntegrationState() -> AgentIntegration.AgentIntegrationPanelState? {
+        rootView.visibleAgentIntegrationState()
     }
 
     func runKeybindingPaletteSmoke() async -> [String: String] {
@@ -1455,6 +1961,11 @@ final class NativeWorkspaceRootViewController: NSViewController {
             rootView.apply(shellController.state)
             return
         }
+        if actionID == "action-agent-integrations" {
+            presentAgentIntegrationsOverlay()
+            rootView.apply(shellController.state)
+            return
+        }
         if actionID == "workflow-panel" {
             presentWorkflowPanel()
             rootView.apply(shellController.state)
@@ -1467,6 +1978,7 @@ final class NativeWorkspaceRootViewController: NSViewController {
         shellController.presentOverlay(NativeWorkflowOverlay.overlayID)
         rootView.apply(shellController.state)
         restoreDeterministicFocus()
+        startWorkflowEventStreamIfNeeded()
         switch operation {
         case "timeline":
             if let runID {
@@ -1493,6 +2005,12 @@ final class NativeWorkspaceRootViewController: NSViewController {
         refreshDiagnosticsOverlay()
         shellController.presentOverlay("diagnostics")
         restoreDeterministicFocus()
+    }
+
+    private func presentAgentIntegrationsOverlay() {
+        shellController.presentOverlay(NativeAgentIntegrationOverlay.overlayID)
+        restoreDeterministicFocus()
+        dispatchAgentIntegrationCommand(.init(source: .workspaceShell, kind: .refresh))
     }
 
     private func presentAgentComposer(_ contextSource: Keybinding.AgentComposerContextSource) {
@@ -1560,7 +2078,87 @@ final class NativeWorkspaceRootViewController: NSViewController {
     private func presentWorkflowPanel() {
         shellController.presentOverlay(NativeWorkflowOverlay.overlayID)
         restoreDeterministicFocus()
+        startWorkflowEventStreamIfNeeded()
         dispatchWorkflowCommand(WorkflowControl.WorkflowViewCommand(kind: .refreshRuns))
+    }
+
+    private func startWorkflowEventStreamIfNeeded() {
+        guard workflowEventStreamTask == nil else {
+            return
+        }
+        let workspaceID = shellController.state.workspaceID
+        let action = WorkflowControl.ObserveWorkflowEventStream(eventStream: workflowEventStream)
+        workflowEventStreamTask = Task { [weak self] in
+            let stream = await action.run(.init(
+                requestID: RequestID(rawValue: "native-workflow-events-\(workspaceID.rawValue)"),
+                filter: WorkflowControl.WorkflowEventStreamFilter(projectID: workspaceID.rawValue),
+                source: .workspaceShell
+            ))
+            do {
+                for try await item in stream {
+                    await self?.applyWorkflowEventStreamItem(item)
+                }
+            } catch is CancellationError {
+            } catch {
+                await self?.recordWorkflowEventStreamError(error)
+            }
+        }
+    }
+
+    private func applyWorkflowEventStreamItem(_ item: WorkflowControl.WorkflowEventStreamItem) async {
+        switch item.kind {
+        case .runChanged:
+            guard let run = item.run else { return }
+            rootView.updateWorkflowRun(run)
+        case .eventAppended:
+            guard let event = item.event else { return }
+            let state = rootView.visibleWorkflowState()
+            guard state.timeline?.runID == event.runID || state.runs.contains(where: { $0.runID == event.runID }) else {
+                return
+            }
+            rootView.updateWorkflowTimeline(mergedWorkflowTimeline(appending: event))
+            if let notifications = await workflowNotifications.projectNotifications(from: [event]) {
+                shellController.updateWorkspaceNotifications(notifications)
+                rootView.apply(shellController.state)
+            }
+        }
+    }
+
+    private func mergedWorkflowTimeline(appending event: WorkflowControl.WorkflowTimelineEvent) -> WorkflowControl.WorkflowRunTimeline {
+        let state = rootView.visibleWorkflowState()
+        var events = state.timeline?.runID == event.runID ? state.timeline?.events ?? [] : []
+        events.removeAll { $0.eventID == event.eventID }
+        events.append(event)
+        events.sort { lhs, rhs in
+            if lhs.sequence == rhs.sequence {
+                return lhs.createdAt < rhs.createdAt
+            }
+            return lhs.sequence < rhs.sequence
+        }
+        return WorkflowControl.WorkflowRunTimeline(
+            runID: event.runID,
+            events: events,
+            projectedStatus: state.runs.first(where: { $0.runID == event.runID })?.status,
+            nextSequence: events.last.map { $0.sequence + 1 },
+            replayedFromSequence: max(0, event.sequence - 1),
+            replayIncludesHistoricalEvents: false
+        )
+    }
+
+    private func recordWorkflowEventStreamError(_ error: Error) async {
+        await diagnosticsActions.record(
+            category: .workflow,
+            severity: .error,
+            workspaceID: shellController.state.workspaceID,
+            title: "Workflow event stream failed",
+            message: String(describing: error),
+            metadata: ["surface": "workflow-panel"]
+        )
+        if let workflowError = error as? WorkflowControl.WorkflowControlError {
+            rootView.updateWorkflowError(workflowError)
+        } else {
+            rootView.updateWorkflowError(.serverFailure(String(describing: error)))
+        }
     }
 
     private func dispatchWorkflowCommand(_ command: WorkflowControl.WorkflowViewCommand) {
@@ -1588,6 +2186,52 @@ final class NativeWorkspaceRootViewController: NSViewController {
                 )
                 rootView.updateWorkflowError(error)
             }
+            restoreDeterministicFocus()
+        }
+    }
+
+    private func dispatchAgentIntegrationCommand(_ command: AgentIntegration.AgentIntegrationViewCommand) {
+        agentIntegrationTask = Task { @MainActor in
+            let state = await agentIntegrationActions.dispatch(command, workspaceID: shellController.state.workspaceID)
+            rootView.updateAgentIntegration(state)
+            if let message = state.lastErrorMessage {
+                await diagnosticsActions.record(
+                    category: .nativeShell,
+                    severity: .error,
+                    workspaceID: shellController.state.workspaceID,
+                    title: "Agent Integrations command failed",
+                    message: message,
+                    metadata: ["command": String(describing: command.kind)]
+                )
+            }
+            restoreDeterministicFocus()
+        }
+    }
+
+    private func runFirstRunAgentIntegrationRefreshIfNeeded() {
+        guard !didRunFirstRunAgentIntegrationRefresh else {
+            return
+        }
+        didRunFirstRunAgentIntegrationRefresh = true
+        agentIntegrationTask = Task { @MainActor in
+            let command = AgentIntegration.AgentIntegrationViewCommand(source: .workspaceShell, kind: .refresh)
+            let state = await agentIntegrationActions.dispatch(command, workspaceID: shellController.state.workspaceID)
+            rootView.updateAgentIntegration(state)
+            guard state.shouldPresentFirstRunPrompt else {
+                restoreDeterministicFocus()
+                return
+            }
+            await diagnosticsActions.record(
+                category: .nativeShell,
+                severity: .warning,
+                workspaceID: shellController.state.workspaceID,
+                title: "Agent Integrations first-run prompt shown",
+                message: state.summaryText,
+                metadata: [
+                    "degradedAgentIDs": state.degradedStatuses.map(\.agent.id.rawValue).joined(separator: ",")
+                ]
+            )
+            shellController.presentOverlay(NativeAgentIntegrationOverlay.overlayID)
             restoreDeterministicFocus()
         }
     }
@@ -1641,6 +2285,9 @@ final class NativeWorkspaceRootViewController: NSViewController {
             shellController.dismissCommandPalette()
             shellController.presentOverlay(NativeWorkflowOverlay.overlayID)
             dispatchWorkflowCommand(WorkflowControl.WorkflowViewCommand(kind: .refreshRuns))
+        case .runAction("action-agent-integrations"):
+            shellController.dismissCommandPalette()
+            presentAgentIntegrationsOverlay()
         case .openHelp(let topic):
             shellController.dismissCommandPalette()
             shellController.presentOverlay(WorkspaceOverlays.OverlayID(rawValue: "help-\(topic)"))
@@ -1709,6 +2356,8 @@ final class NativeWorkspaceRootViewController: NSViewController {
 enum NativeWorkspaceShellKeyboardShortcut: Equatable, Sendable {
     case commandPalette
     case diagnostics
+    case toggleSidebar
+    case workspaceHotkey(Int)
     case agentComposer(Keybinding.AgentComposerContextSource)
 }
 
@@ -1722,6 +2371,8 @@ private extension NativeWorkspaceShellKeyboardShortcut {
         switch key {
         case "p" where modifiers == [.command]:
             self = .commandPalette
+        case "b" where modifiers == [.command]:
+            self = .toggleSidebar
         case "d" where modifiers == [.command, .shift]:
             self = .diagnostics
         case "a" where modifiers == [.command, .shift]:
@@ -1730,6 +2381,11 @@ private extension NativeWorkspaceShellKeyboardShortcut {
             self = .agentComposer(.viewport)
         case "a" where modifiers == [.control, .option]:
             self = .agentComposer(.lastLines(80))
+        case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+            guard modifiers == [.command], let slot = Int(key) else {
+                return nil
+            }
+            self = .workspaceHotkey(slot)
         default:
             return nil
         }
@@ -1756,8 +2412,9 @@ private enum NativeWorkspaceShellKeyboardEventFactory {
 @MainActor
 final class NativeWorkspaceRootView: NSView {
     let terminalPaneHost: NativeTerminalPaneHostView
-    let sidebarList = NativeWorkspaceSidebarView()
-    let overlayHost = NativeOverlayHostView()
+    let sidebarList: NativeWorkspaceSidebarView
+    let overlayHost: NativeOverlayHostView
+    let themeTokens: NativeShellThemeTokens
 
     var onToggleSidebar: (() -> Void)?
     var onFocusTerminal: (() -> Void)?
@@ -1772,14 +2429,19 @@ final class NativeWorkspaceRootView: NSView {
     var onSubmitAgentComposer: ((AgentInteraction.SubmitComposerDraftCommand) -> Void)?
     var onCancelAgentComposer: ((AgentInteraction.CancelAgentComposerInput) -> Void)?
     var onWorkflowCommand: ((WorkflowControl.WorkflowViewCommand) -> Void)?
+    var onAgentIntegrationCommand: ((AgentIntegration.AgentIntegrationViewCommand) -> Void)?
+    var onSwitchWorkspace: ((WorkspaceID) -> Void)?
+    var onOpenAgentIntegrations: (() -> Void)?
 
+    private let titlebar: NativeShellTitlebarView
+    private let statusBar: NativeShellStatusBarView
+    private let bodyRow = NSView()
     private let sidebarContainer = NSView()
     private let mainContainer = NSView()
     private let reconnectBanner = NSTextField(labelWithString: "")
-    private let toolbar = NSView()
-    private let toggleSidebarButton = NSButton(title: "", target: nil, action: nil)
-    private let workspaceTitle = NSTextField(labelWithString: "")
     private var sidebarWidthConstraint: NSLayoutConstraint?
+    private var bannerHeightConstraint: NSLayoutConstraint?
+    private var lastAppliedState: NativeWorkspaceShellState?
     private var agentComposer: AgentInteraction.ComposerState?
     private var workflowRuns: [WorkflowControl.WorkflowRunSnapshot] = []
     private var workflowTimeline: WorkflowControl.WorkflowRunTimeline?
@@ -1791,16 +2453,26 @@ final class NativeWorkspaceRootView: NSView {
         categoryCounts: [:],
         redactionNotice: "Sensitive metadata and terminal content are redacted."
     ))
+    private var agentIntegrationState: AgentIntegration.AgentIntegrationPanelState?
 
     init(
         state: NativeWorkspaceShellState,
         paneGridActions: (any NativePaneGridActionDispatching)? = nil,
-        paneStreamSubscriber: NativePaneStreamSubscriber? = nil
+        paneStreamSubscriber: NativePaneStreamSubscriber? = nil,
+        terminalStreamIngestor: NativeTerminalStreamIngestor? = nil,
+        themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID)
     ) {
+        self.themeTokens = themeTokens
+        titlebar = NativeShellTitlebarView(themeTokens: themeTokens)
+        statusBar = NativeShellStatusBarView(themeTokens: themeTokens)
+        sidebarList = NativeWorkspaceSidebarView(themeTokens: themeTokens)
+        overlayHost = NativeOverlayHostView(themeTokens: themeTokens)
         terminalPaneHost = NativeTerminalPaneHostView(
             paneGridState: state.paneGridState,
             paneGridActions: paneGridActions,
-            paneStreamSubscriber: paneStreamSubscriber
+            paneStreamSubscriber: paneStreamSubscriber,
+            terminalStreamIngestor: terminalStreamIngestor,
+            themeTokens: themeTokens
         )
         super.init(frame: .zero)
         buildViewTree()
@@ -1828,6 +2500,17 @@ final class NativeWorkspaceRootView: NSView {
             onPresentCommandPalette?()
         case .diagnostics:
             onPresentDiagnosticsOverlay?()
+        case .toggleSidebar:
+            onToggleSidebar?()
+        case .workspaceHotkey(let slot):
+            guard let items = lastAppliedState?.sidebarItems else {
+                return false
+            }
+            let ordered = NativeSidebarViewModel.hotkeyOrderedWorkspaces(items: items)
+            guard ordered.indices.contains(slot - 1) else {
+                return false
+            }
+            onSwitchWorkspace?(ordered[slot - 1].workspaceID)
         case .agentComposer(let contextSource):
             onPresentAgentComposer?(contextSource)
         }
@@ -1843,6 +2526,9 @@ final class NativeWorkspaceRootView: NSView {
         workflowRuns = runs
         workflowError = nil
         overlayHost.updateWorkflow(runs: runs, timeline: workflowTimeline, error: nil)
+        if let lastAppliedState {
+            applyChrome(lastAppliedState)
+        }
     }
 
     func updateWorkflowTimeline(_ timeline: WorkflowControl.WorkflowRunTimeline) {
@@ -1871,14 +2557,23 @@ final class NativeWorkspaceRootView: NSView {
         overlayHost.updateDiagnostics(viewModel)
     }
 
+    func updateAgentIntegration(_ state: AgentIntegration.AgentIntegrationPanelState) {
+        agentIntegrationState = state
+        overlayHost.updateAgentIntegration(state)
+        if let lastAppliedState {
+            applyChrome(lastAppliedState)
+        }
+    }
+
     func apply(_ state: NativeWorkspaceShellState) {
-        workspaceTitle.stringValue = state.workspaceID.rawValue
-        sidebarList.apply(items: state.sidebarItems)
+        lastAppliedState = state
         sidebarContainer.isHidden = !state.isSidebarVisible
-        sidebarWidthConstraint?.constant = state.isSidebarVisible ? 248 : 0
+        sidebarWidthConstraint?.constant = state.isSidebarVisible ? NativeShellChromeMetrics.sidebarWidth : 0
         reconnectBanner.isHidden = state.reconnectBanner == nil
         reconnectBanner.stringValue = state.reconnectBanner?.message ?? ""
+        bannerHeightConstraint?.constant = state.reconnectBanner == nil ? 0 : 28
         terminalPaneHost.applyPaneGrid(state.paneGridState)
+        applyChrome(state)
         overlayHost.apply(
             focusedSurface: state.focusedSurface,
             activeOverlayIDs: state.activeOverlayIDs,
@@ -1887,7 +2582,44 @@ final class NativeWorkspaceRootView: NSView {
             workflowRuns: workflowRuns,
             workflowTimeline: workflowTimeline,
             workflowError: workflowError,
-            diagnosticsViewModel: diagnosticsViewModel
+            diagnosticsViewModel: diagnosticsViewModel,
+            agentIntegrationState: agentIntegrationState
+        )
+    }
+
+    private func applyChrome(_ state: NativeWorkspaceShellState) {
+        let currentItem = state.sidebarItems.first { $0.workspaceID == state.workspaceID }
+        let attentionCount = currentItem?.notificationLevel == .attention ? (currentItem?.notificationCount ?? 0) : 0
+        let attentionText = attentionCount > 0 ? "\(attentionCount) need input" : nil
+        let isConnected = state.reconnectBanner == nil
+
+        titlebar.apply(
+            windows: state.paneGridState.windows,
+            activeWindowID: state.paneGridState.activeWindowID,
+            health: NativeShellHealthSummary(
+                serverText: isConnected ? state.workspaceID.rawValue : (state.reconnectBanner?.message ?? "reconnecting…"),
+                isServerHealthy: isConnected,
+                attentionText: attentionText
+            )
+        )
+
+        sidebarList.apply(model: NativeSidebarViewModel(
+            items: state.sidebarItems,
+            activeWorkspaceID: state.workspaceID,
+            agentStatuses: agentIntegrationState?.statuses ?? [],
+            workflowRuns: workflowRuns,
+            serverStatusText: isConnected ? "local server" : "server reconnecting…",
+            isServerHealthy: isConnected
+        ))
+
+        let paneCount = state.paneGridState.windows
+            .first { $0.windowID == state.paneGridState.activeWindowID }?
+            .panes.count ?? 0
+        statusBar.apply(
+            connectionText: isConnected ? "connected" : (state.reconnectBanner?.message ?? "reconnecting…"),
+            isHealthy: isConnected,
+            tmuxSummary: "tmux \(state.workspaceID.rawValue) · \(paneCount) pane\(paneCount == 1 ? "" : "s")",
+            attentionText: attentionText
         )
     }
 
@@ -1911,25 +2643,52 @@ final class NativeWorkspaceRootView: NSView {
         (workflowRuns, workflowTimeline, workflowError)
     }
 
+    func visibleAgentIntegrationState() -> AgentIntegration.AgentIntegrationPanelState? {
+        agentIntegrationState
+    }
+
     private func buildViewTree() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        layer?.backgroundColor = themeTokens.rootBackground.cgColor
 
-        [sidebarContainer, mainContainer].forEach {
+        [titlebar, bodyRow, overlayHost].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
+        [sidebarContainer, mainContainer].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            bodyRow.addSubview($0)
+        }
 
-        sidebarWidthConstraint = sidebarContainer.widthAnchor.constraint(equalToConstant: 248)
+        titlebar.onToggleSidebar = { [weak self] in self?.onToggleSidebar?() }
+        titlebar.onSelectWindow = { [weak self] windowID in
+            _ = self?.terminalPaneHost.paneGridView.selectWindow(windowID)
+        }
+
+        sidebarWidthConstraint = sidebarContainer.widthAnchor.constraint(equalToConstant: NativeShellChromeMetrics.sidebarWidth)
         NSLayoutConstraint.activate([
-            sidebarContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
-            sidebarContainer.topAnchor.constraint(equalTo: topAnchor),
-            sidebarContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+            titlebar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            titlebar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            titlebar.topAnchor.constraint(equalTo: topAnchor),
+
+            bodyRow.leadingAnchor.constraint(equalTo: leadingAnchor),
+            bodyRow.trailingAnchor.constraint(equalTo: trailingAnchor),
+            bodyRow.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
+            bodyRow.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            sidebarContainer.leadingAnchor.constraint(equalTo: bodyRow.leadingAnchor),
+            sidebarContainer.topAnchor.constraint(equalTo: bodyRow.topAnchor),
+            sidebarContainer.bottomAnchor.constraint(equalTo: bodyRow.bottomAnchor),
             sidebarWidthConstraint!,
             mainContainer.leadingAnchor.constraint(equalTo: sidebarContainer.trailingAnchor),
-            mainContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
-            mainContainer.topAnchor.constraint(equalTo: topAnchor),
-            mainContainer.bottomAnchor.constraint(equalTo: bottomAnchor)
+            mainContainer.trailingAnchor.constraint(equalTo: bodyRow.trailingAnchor),
+            mainContainer.topAnchor.constraint(equalTo: bodyRow.topAnchor),
+            mainContainer.bottomAnchor.constraint(equalTo: bodyRow.bottomAnchor),
+
+            overlayHost.leadingAnchor.constraint(equalTo: leadingAnchor),
+            overlayHost.trailingAnchor.constraint(equalTo: trailingAnchor),
+            overlayHost.topAnchor.constraint(equalTo: topAnchor),
+            overlayHost.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
         buildSidebar()
@@ -1938,42 +2697,43 @@ final class NativeWorkspaceRootView: NSView {
 
     private func buildSidebar() {
         sidebarContainer.wantsLayer = true
-        sidebarContainer.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        sidebarList.translatesAutoresizingMaskIntoConstraints = false
-        sidebarContainer.addSubview(sidebarList)
+        sidebarContainer.layer?.backgroundColor = themeTokens.sidebarBackground.cgColor
+
+        let rightHairline = NSView()
+        rightHairline.wantsLayer = true
+        rightHairline.layer?.backgroundColor = themeTokens.hairline.cgColor
+
+        [sidebarList, rightHairline].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            sidebarContainer.addSubview($0)
+        }
         NSLayoutConstraint.activate([
             sidebarList.leadingAnchor.constraint(equalTo: sidebarContainer.leadingAnchor),
             sidebarList.trailingAnchor.constraint(equalTo: sidebarContainer.trailingAnchor),
             sidebarList.topAnchor.constraint(equalTo: sidebarContainer.topAnchor),
-            sidebarList.bottomAnchor.constraint(equalTo: sidebarContainer.bottomAnchor)
+            sidebarList.bottomAnchor.constraint(equalTo: sidebarContainer.bottomAnchor),
+
+            rightHairline.trailingAnchor.constraint(equalTo: sidebarContainer.trailingAnchor),
+            rightHairline.topAnchor.constraint(equalTo: sidebarContainer.topAnchor),
+            rightHairline.bottomAnchor.constraint(equalTo: sidebarContainer.bottomAnchor),
+            rightHairline.widthAnchor.constraint(equalToConstant: 1)
         ])
         sidebarList.onFocusRequested = { [weak self] in self?.onFocusSidebar?() }
+        sidebarList.onSelectWorkspace = { [weak self] workspaceID in self?.onSwitchWorkspace?(workspaceID) }
+        sidebarList.onOpenAgentIntegrations = { [weak self] in self?.onOpenAgentIntegrations?() }
     }
 
     private func buildMainArea() {
-        [toolbar, reconnectBanner, terminalPaneHost, overlayHost].forEach {
+        [reconnectBanner, terminalPaneHost, statusBar].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             mainContainer.addSubview($0)
         }
 
-        toolbar.wantsLayer = true
-        toolbar.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-        toggleSidebarButton.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Toggle sidebar")
-        toggleSidebarButton.bezelStyle = .texturedRounded
-        toggleSidebarButton.target = self
-        toggleSidebarButton.action = #selector(toggleSidebar)
-        toggleSidebarButton.translatesAutoresizingMaskIntoConstraints = false
-
-        workspaceTitle.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        workspaceTitle.translatesAutoresizingMaskIntoConstraints = false
-        toolbar.addSubview(toggleSidebarButton)
-        toolbar.addSubview(workspaceTitle)
-
-        reconnectBanner.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        reconnectBanner.textColor = .controlAccentColor
+        reconnectBanner.font = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .medium)
+        reconnectBanner.textColor = themeTokens.attentionBadge
         reconnectBanner.alignment = .center
         reconnectBanner.wantsLayer = true
-        reconnectBanner.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        reconnectBanner.layer?.backgroundColor = themeTokens.panelBackground.cgColor
         reconnectBanner.isHidden = true
 
         overlayHost.isHidden = false
@@ -1983,42 +2743,25 @@ final class NativeWorkspaceRootView: NSView {
         overlayHost.onSubmitAgentComposer = { [weak self] command in self?.onSubmitAgentComposer?(command) }
         overlayHost.onCancelAgentComposer = { [weak self] input in self?.onCancelAgentComposer?(input) }
         overlayHost.onWorkflowCommand = { [weak self] command in self?.onWorkflowCommand?(command) }
+        overlayHost.onAgentIntegrationCommand = { [weak self] command in self?.onAgentIntegrationCommand?(command) }
         terminalPaneHost.onFocusRequested = { [weak self] in self?.onFocusTerminal?() }
 
+        bannerHeightConstraint = reconnectBanner.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
-            toolbar.leadingAnchor.constraint(equalTo: mainContainer.leadingAnchor),
-            toolbar.trailingAnchor.constraint(equalTo: mainContainer.trailingAnchor),
-            toolbar.topAnchor.constraint(equalTo: mainContainer.topAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: 42),
-
-            toggleSidebarButton.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor, constant: 10),
-            toggleSidebarButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            toggleSidebarButton.widthAnchor.constraint(equalToConstant: 30),
-            toggleSidebarButton.heightAnchor.constraint(equalToConstant: 26),
-
-            workspaceTitle.leadingAnchor.constraint(equalTo: toggleSidebarButton.trailingAnchor, constant: 10),
-            workspaceTitle.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            workspaceTitle.trailingAnchor.constraint(lessThanOrEqualTo: toolbar.trailingAnchor, constant: -12),
-
             reconnectBanner.leadingAnchor.constraint(equalTo: mainContainer.leadingAnchor),
             reconnectBanner.trailingAnchor.constraint(equalTo: mainContainer.trailingAnchor),
-            reconnectBanner.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
-            reconnectBanner.heightAnchor.constraint(equalToConstant: 28),
+            reconnectBanner.topAnchor.constraint(equalTo: mainContainer.topAnchor),
+            bannerHeightConstraint!,
 
             terminalPaneHost.leadingAnchor.constraint(equalTo: mainContainer.leadingAnchor),
             terminalPaneHost.trailingAnchor.constraint(equalTo: mainContainer.trailingAnchor),
             terminalPaneHost.topAnchor.constraint(equalTo: reconnectBanner.bottomAnchor),
-            terminalPaneHost.bottomAnchor.constraint(equalTo: mainContainer.bottomAnchor),
+            terminalPaneHost.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
 
-            overlayHost.leadingAnchor.constraint(equalTo: terminalPaneHost.leadingAnchor),
-            overlayHost.trailingAnchor.constraint(equalTo: terminalPaneHost.trailingAnchor),
-            overlayHost.topAnchor.constraint(equalTo: terminalPaneHost.topAnchor),
-            overlayHost.bottomAnchor.constraint(equalTo: terminalPaneHost.bottomAnchor)
+            statusBar.leadingAnchor.constraint(equalTo: mainContainer.leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: mainContainer.trailingAnchor),
+            statusBar.bottomAnchor.constraint(equalTo: mainContainer.bottomAnchor)
         ])
-    }
-
-    @objc private func toggleSidebar() {
-        onToggleSidebar?()
     }
 
     private func paletteItems(for state: NativeWorkspaceShellState) -> [WorkspaceOverlays.PaletteItem] {
@@ -2053,6 +2796,15 @@ final class NativeWorkspaceRootView: NSView {
                 keywords: ["workspace", "navigator"],
                 action: .runAction("toggle-sidebar"),
                 baseScore: 60
+            ),
+            WorkspaceOverlays.PaletteItem(
+                id: "action-agent-integrations",
+                domain: .actions,
+                title: "Agent Integrations",
+                subtitle: "Repair or remove detected agent CLI integrations",
+                keywords: ["agent", "integration", "repair", "settings"],
+                action: .runAction("action-agent-integrations"),
+                baseScore: 78
             ),
             WorkspaceOverlays.PaletteItem(
                 id: "workflow-panel",
@@ -2090,9 +2842,11 @@ private struct NativeVisiblePaneStreamSubscription: Equatable {
 @MainActor
 final class NativeTerminalPaneHostView: NSView {
     let paneGridView: PaneGrid.AppKitPaneGridView
+    let themeTokens: NativeShellThemeTokens
     private let paneGridActions: any NativePaneGridActionDispatching
     private let paneGridActionQueue = NativePaneGridActionQueue()
     private let paneStreamSubscriber: NativePaneStreamSubscriber?
+    private let terminalStreamIngestor: NativeTerminalStreamIngestor?
     private var streamTasksByViewportID: [ViewportID: Task<Void, Never>] = [:]
     private var streamSubscriptionsByViewportID: [ViewportID: NativeVisiblePaneStreamSubscription] = [:]
     private var lastObservedSequenceByPaneID: [PaneID: UInt64] = [:]
@@ -2108,15 +2862,34 @@ final class NativeTerminalPaneHostView: NSView {
         paneGridState: PaneGrid.State,
         paneGridActions: (any NativePaneGridActionDispatching)? = nil,
         paneStreamSubscriber: NativePaneStreamSubscriber? = nil,
+        terminalStreamIngestor: NativeTerminalStreamIngestor? = nil,
+        themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID),
         frame frameRect: NSRect = .zero
     ) {
+        self.themeTokens = themeTokens
         self.paneStreamSubscriber = paneStreamSubscriber
+        self.terminalStreamIngestor = terminalStreamIngestor
         self.paneGridActions = paneGridActions ?? NativePaneGridActionController(
             initialState: paneGridState,
             runtime: NativePaneGridUnavailableRuntimeController()
         )
-        paneGridView = PaneGrid.AppKitPaneGridView(state: paneGridState) { pane in
-            let terminal = FenrirTerminalView(backend: NativeBootstrapTerminalBackend(workspaceID: paneGridState.workspaceID))
+        paneGridView = PaneGrid.AppKitPaneGridView(
+            state: paneGridState,
+            style: PaneGrid.PaneGridStyle(
+                background: themeTokens.rootBackground,
+                paneBackground: themeTokens.terminalBackground,
+                paneHeaderBackground: themeTokens.panelBackground,
+                paneBorder: themeTokens.hairline,
+                focusedPaneBorder: themeTokens.accent.withAlphaComponent(0.55),
+                headerPrimaryText: themeTokens.primaryText,
+                headerSecondaryText: themeTokens.tertiaryText,
+                tabText: themeTokens.tertiaryText,
+                activeTabText: themeTokens.primaryText,
+                activeTabUnderline: themeTokens.accent
+            ),
+            showsWindowTabBar: false
+        ) { pane in
+            let terminal = FenrirTerminalView(backend: NativeBootstrapTerminalBackend(workspaceID: paneGridState.workspaceID, themeTokens: themeTokens))
             return terminal
         }
         super.init(frame: frameRect)
@@ -2154,7 +2927,7 @@ final class NativeTerminalPaneHostView: NSView {
 
     private func build() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.backgroundColor = themeTokens.terminalBackground.cgColor
 
         paneGridView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(paneGridView)
@@ -2201,7 +2974,7 @@ final class NativeTerminalPaneHostView: NSView {
                 do {
                     let stream = await paneStreamSubscriber(workspaceID, pane, backfill)
                     for try await envelope in stream {
-                        self?.apply(envelope, to: terminal)
+                        await self?.apply(envelope, pane: pane, to: terminal)
                     }
                 } catch is CancellationError {
                 } catch {
@@ -2211,13 +2984,33 @@ final class NativeTerminalPaneHostView: NSView {
         }
     }
 
-    private func apply(_ envelope: NativeRuntime.PaneStreamEnvelope, to terminal: FenrirTerminalView) {
+    private func apply(_ envelope: NativeRuntime.PaneStreamEnvelope, pane: PaneGrid.PanePresentation, to terminal: FenrirTerminalView) async {
         switch envelope.kind {
         case .output:
+            var didAcceptOutput = false
             if let bytes = envelope.bytes {
-                terminal.applyRuntimeOutput(bytes)
+                if let sequence = envelope.sequence, let terminalStreamIngestor {
+                    let result = await terminalStreamIngestor.ingestOutput(
+                        workspaceID: paneGridView.state.workspaceID,
+                        windowID: paneGridView.state.activeWindowID,
+                        pane: pane,
+                        streamID: envelope.streamID,
+                        sequence: sequence,
+                        bytes: bytes,
+                        terminalView: terminal
+                    )
+                    switch result {
+                    case .success:
+                        didAcceptOutput = true
+                    case .failure(let error):
+                        NSLog("Fenrir Native terminal viewport ingest failed pane=\(pane.paneID.rawValue) sequence=\(sequence): \(String(describing: error))")
+                    }
+                } else {
+                    terminal.applyRuntimeOutput(bytes)
+                    didAcceptOutput = true
+                }
             }
-            if let sequence = envelope.sequence {
+            if didAcceptOutput, let sequence = envelope.sequence {
                 lastObservedSequenceByPaneID[envelope.paneID] = sequence
             }
         case .gap, .overflow:
@@ -2336,6 +3129,10 @@ private enum NativeAgentComposerOverlay {
 
 private enum NativeWorkflowOverlay {
     static let overlayID = WorkspaceOverlays.OverlayID(rawValue: "workflow-panel")
+}
+
+private enum NativeAgentIntegrationOverlay {
+    static let overlayID = WorkspaceOverlays.OverlayID(rawValue: "agent-integrations")
 }
 
 protocol NativeNeovimBridgeControllerMaking: Sendable {
@@ -2538,6 +3335,105 @@ enum NativeWorkflowViewUpdate: Sendable {
     case timeline(WorkflowControl.WorkflowRunTimeline)
     case run(WorkflowControl.WorkflowRunSnapshot)
     case error(WorkflowControl.WorkflowControlError)
+}
+
+protocol NativeAgentIntegrationActionDispatching: Sendable {
+    func dispatch(
+        _ command: AgentIntegration.AgentIntegrationViewCommand,
+        workspaceID: WorkspaceID
+    ) async -> AgentIntegration.AgentIntegrationPanelState
+}
+
+struct NativeAgentIntegrationActionController: NativeAgentIntegrationActionDispatching, Sendable {
+    private let detector: any AgentIntegration.AgentIntegrationDetecting
+    private let installer: any AgentIntegration.AgentIntegrationInstalling
+    private let clock: any AgentIntegration.AgentIntegrationClock
+
+    init(
+        detector: any AgentIntegration.AgentIntegrationDetecting = AgentIntegration.pathAgentIntegrationDetector(),
+        installer: (any AgentIntegration.AgentIntegrationInstalling)? = nil,
+        clock: any AgentIntegration.AgentIntegrationClock = NativeAgentIntegrationClock()
+    ) {
+        self.detector = detector
+        self.clock = clock
+        self.installer = installer ?? AgentIntegration.providerStructuredAgentIntegrationProvisioner(
+            configStore: AgentIntegration.LocalAgentIntegrationConfigFileStore(),
+            clock: clock
+        )
+    }
+
+    func dispatch(
+        _ command: AgentIntegration.AgentIntegrationViewCommand,
+        workspaceID: WorkspaceID
+    ) async -> AgentIntegration.AgentIntegrationPanelState {
+        switch command.kind {
+        case .refresh:
+            return await refresh(requestID: command.requestID, lastProvisioningResult: nil)
+        case .repair(let agentID):
+            return await provision(
+                command,
+                workspaceID: workspaceID,
+                agentID: agentID,
+                action: AgentIntegration.InstallAgentIntegration(installer: installer).run
+            )
+        case .remove(let agentID):
+            return await provision(
+                command,
+                workspaceID: workspaceID,
+                agentID: agentID,
+                action: AgentIntegration.RemoveAgentIntegration(installer: installer).run
+            )
+        }
+    }
+
+    private func refresh(
+        requestID: RequestID,
+        lastProvisioningResult: AgentIntegration.AgentProvisioningResult?,
+        lastErrorMessage: String? = nil
+    ) async -> AgentIntegration.AgentIntegrationPanelState {
+        let action = AgentIntegration.DetectAgentIntegrations(detector: detector, clock: clock)
+        switch await action.run(.init(requestID: requestID, source: .workspaceShell)) {
+        case .success(let result):
+            return AgentIntegration.AgentIntegrationPanelState(
+                statuses: result.statuses,
+                lastProvisioningResult: lastProvisioningResult,
+                lastErrorMessage: lastErrorMessage,
+                timestamp: result.timestamp
+            )
+        case .failure(let error):
+            return AgentIntegration.AgentIntegrationPanelState(
+                statuses: [],
+                lastProvisioningResult: lastProvisioningResult,
+                lastErrorMessage: String(describing: error),
+                timestamp: clock.now()
+            )
+        }
+    }
+
+    private func provision(
+        _ command: AgentIntegration.AgentIntegrationViewCommand,
+        workspaceID: WorkspaceID,
+        agentID: AgentIntegration.AgentCLIIdentifier,
+        action: (AgentIntegration.AgentProvisioningRequest) async -> Result<AgentIntegration.AgentProvisioningResult, AgentIntegration.AgentIntegrationError>
+    ) async -> AgentIntegration.AgentIntegrationPanelState {
+        let request = AgentIntegration.AgentProvisioningRequest(
+            requestID: command.requestID,
+            agentID: agentID,
+            workspaceID: workspaceID,
+            targetVersion: "1.0.0",
+            source: command.source
+        )
+        switch await action(request) {
+        case .success(let result):
+            return await refresh(requestID: command.requestID, lastProvisioningResult: result)
+        case .failure(let error):
+            return await refresh(
+                requestID: command.requestID,
+                lastProvisioningResult: nil,
+                lastErrorMessage: String(describing: error)
+            )
+        }
+    }
 }
 
 @MainActor
@@ -2824,6 +3720,135 @@ struct NativeWorkflowUnavailableServerClient: WorkflowControl.WorkflowServerClie
     }
 }
 
+protocol NativeWorkflowEventStreamMaking: Sendable {
+    func makeEventStream(for state: NativeWorkspaceShellState) -> any WorkflowControl.WorkflowEventStreaming
+}
+
+struct NativeWorkflowUnavailableEventStreamFactory: NativeWorkflowEventStreamMaking {
+    func makeEventStream(for state: NativeWorkspaceShellState) -> any WorkflowControl.WorkflowEventStreaming {
+        NativeWorkflowUnavailableEventStream()
+    }
+}
+
+struct NativeWorkflowUnavailableEventStream: WorkflowControl.WorkflowEventStreaming {
+    func observeWorkflowEvents(filter: WorkflowControl.WorkflowEventStreamFilter) async -> AsyncThrowingStream<WorkflowControl.WorkflowEventStreamItem, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish(throwing: WorkflowControl.WorkflowControlError.unavailable)
+        }
+    }
+}
+
+struct NativeWorkflowServerConnectionEventStreamFactory: NativeWorkflowEventStreamMaking {
+    private let streamServerRequest: @Sendable (NativeRuntime.ServerRPCRequest) -> AsyncThrowingStream<Data, Error>
+
+    init(streamServerRequest: @escaping @Sendable (NativeRuntime.ServerRPCRequest) -> AsyncThrowingStream<Data, Error>) {
+        self.streamServerRequest = streamServerRequest
+    }
+
+    func makeEventStream(for state: NativeWorkspaceShellState) -> any WorkflowControl.WorkflowEventStreaming {
+        NativeWorkflowServerConnectionEventStream(streamServerRequest: streamServerRequest)
+    }
+}
+
+struct NativeWorkflowServerConnectionEventStream: WorkflowControl.WorkflowEventStreaming {
+    private let streamServerRequest: @Sendable (NativeRuntime.ServerRPCRequest) -> AsyncThrowingStream<Data, Error>
+
+    init(streamServerRequest: @escaping @Sendable (NativeRuntime.ServerRPCRequest) -> AsyncThrowingStream<Data, Error>) {
+        self.streamServerRequest = streamServerRequest
+    }
+
+    func observeWorkflowEvents(filter: WorkflowControl.WorkflowEventStreamFilter) async -> AsyncThrowingStream<WorkflowControl.WorkflowEventStreamItem, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                let request = NativeRuntime.ServerRPCRequest(
+                    requestID: RequestID(rawValue: "native-workflow-events-\(UUID().uuidString)"),
+                    method: "subscribeWorkflowEvents",
+                    payload: Data("{}".utf8)
+                )
+                let upstream = streamServerRequest(request)
+                do {
+                    for try await data in upstream {
+                        guard let item = try NativeWorkflowEventStreamDecoder.decode(data) else {
+                            continue
+                        }
+                        continuation.yield(item)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+private enum NativeWorkflowEventStreamDecoder {
+    static func decode(_ data: Data) throws -> WorkflowControl.WorkflowEventStreamItem? {
+        try JSONDecoder().decode(NativeWorkflowEventStreamPayload.self, from: data).item
+    }
+}
+
+private struct NativeWorkflowEventStreamPayload: Decodable {
+    let type: String
+    let run: WorkflowControl.WorkflowRunSnapshot?
+    let event: NativeWorkflowNullableRunEvent?
+
+    var item: WorkflowControl.WorkflowEventStreamItem? {
+        switch type {
+        case "workflow.run.changed":
+            guard let run else { return nil }
+            return WorkflowControl.WorkflowEventStreamItem(kind: .runChanged, run: run)
+        case "workflow.event.appended":
+            guard let event = event?.timelineEvent() else { return nil }
+            return WorkflowControl.WorkflowEventStreamItem(kind: .eventAppended, event: event)
+        default:
+            return nil
+        }
+    }
+}
+
+private struct NativeWorkflowNullableRunEvent: Decodable {
+    let eventID: WorkflowControl.WorkflowEventID
+    let workflowID: WorkflowControl.WorkflowID
+    let runID: WorkflowControl.WorkflowRunID?
+    let rawKind: String
+    let title: String
+    let body: String?
+    let payload: WorkflowControl.WorkflowJSONValue
+    let sequence: Int
+    let createdAt: FenrirTimestamp
+
+    enum CodingKeys: String, CodingKey {
+        case eventID = "eventId"
+        case workflowID = "workflowId"
+        case runID = "runId"
+        case rawKind = "kind"
+        case title
+        case body
+        case payload
+        case sequence
+        case createdAt
+    }
+
+    func timelineEvent() -> WorkflowControl.WorkflowTimelineEvent? {
+        guard let runID, let kind = WorkflowControl.WorkflowEventKind(rawValue: rawKind) else {
+            return nil
+        }
+        return WorkflowControl.WorkflowTimelineEvent(
+            eventID: eventID,
+            workflowID: workflowID,
+            runID: runID,
+            kind: kind,
+            title: title,
+            body: body,
+            payload: payload,
+            sequence: sequence,
+            createdAt: createdAt
+        )
+    }
+}
+
 struct NativeAgentComposerTarget: Equatable, Sendable {
     let workspaceID: WorkspaceID
     let windowID: FenrirWindowID
@@ -3087,7 +4112,7 @@ struct NativeAppServerConnectionContext: Sendable {
     let streamServerRequest: @Sendable (NativeRuntime.ServerRPCRequest) -> AsyncThrowingStream<Data, Error>
     let serverEventSource: NativeAppServerEventSource
     let notificationStore: any Notifications.NotificationStore
-    private let rpcTransport: any NativeAppServerRPCTransporting
+    private let rpcTransport: any ServerConnection.NativeServerRPCTransporting
     private let bootstrapCredential: String?
     private let localServerProcessManager: (any ServerConnection.LocalServerProcessManaging)?
 
@@ -3147,8 +4172,12 @@ struct NativeAppServerConnectionContext: Sendable {
         )
     }
 
+    var workflowEventStreamFactory: any NativeWorkflowEventStreamMaking {
+        NativeWorkflowServerConnectionEventStreamFactory(streamServerRequest: streamServerRequest)
+    }
+
     static func localDefault(
-        transport: any NativeAppServerRPCTransporting = NativeAppURLSessionServerRPCTransport(),
+        transport: any ServerConnection.NativeServerRPCTransporting = ServerConnection.NativeWebSocketServerRPCTransport(),
         bootstrapCredential: String? = NativeAppServerConnectionContext.localBootstrapCredential()
     ) -> NativeAppServerConnectionContext {
         let sessionID = ServerConnection.SessionID(rawValue: "native-app-local")
@@ -3164,13 +4193,13 @@ struct NativeAppServerConnectionContext: Sendable {
     static func preparedLocalDefault(
         spec: ServerConnection.LocalServerSpec = NativeAppServerConnectionContext.localDefaultSpec(),
         supervisor: NativeLocalServerSupervisor = NativeLocalServerSupervisor.localDefault(),
-        transport: any NativeAppServerRPCTransporting = NativeAppURLSessionServerRPCTransport(),
+        transport: any ServerConnection.NativeServerRPCTransporting = ServerConnection.NativeWebSocketServerRPCTransport(),
         bootstrapCredential: String? = NativeAppServerConnectionContext.localBootstrapCredential(),
         restartPolicy: ServerConnection.LocalServerRestartPolicy = ServerConnection.LocalServerRestartPolicy(),
         requestID: RequestID = "native-local-default-prepare"
     ) async -> Result<NativeAppServerConnectionContext, ServerConnection.ServerConnectionError> {
         let sessionID = ServerConnection.SessionID(rawValue: "native-app-local")
-        let store = NativeAppServerConnectionStore()
+        let store = ServerConnection.InMemoryServerConnectionStore()
         let prepareResult = await ServerConnection.PrepareLocalServerConnection(
             discovery: supervisor,
             spawner: supervisor,
@@ -3204,24 +4233,31 @@ struct NativeAppServerConnectionContext: Sendable {
         endpoint: ServerConnection.Endpoint,
         supervisorState: ServerConnection.LocalServerSupervisorState?,
         localServerProcessManager: (any ServerConnection.LocalServerProcessManaging)? = nil,
-        transport: any NativeAppServerRPCTransporting,
+        transport: any ServerConnection.NativeServerRPCTransporting,
         bootstrapCredential: String?
     ) -> NativeAppServerConnectionContext {
         let session = NativeAppServerConnectionContext.connectedSession(
             sessionID: sessionID,
             endpoint: endpoint
         )
-        let store = NativeAppServerConnectionStore(session: session, supervisorState: supervisorState)
+        let store = ServerConnection.InMemoryServerConnectionStore(session: session, supervisorState: supervisorState)
         let serverEventSource = NativeAppServerEventSource(sessionID: sessionID)
         let notificationStore = Notifications.inMemoryNotificationStore()
         return NativeAppServerConnectionContext(
             sessionID: sessionID,
             store: store,
             sendServerRequest: ServerConnection.SendServerRequest(
-                sender: NativeAppServerRequestSender(
+                sender: ServerConnection.NativeServerRequestSender(
                     transport: transport,
                     bootstrapCredential: bootstrapCredential,
-                    serverEventSource: serverEventSource
+                    onTransportFailure: { session, requestID, request, error in
+                        await serverEventSource.recordTransportFailure(
+                            session: session,
+                            requestID: requestID,
+                            request: request,
+                            error: error
+                        )
+                    }
                 ),
                 store: store,
                 clock: NativeAppServerConnectionClock()
@@ -3262,7 +4298,7 @@ struct NativeAppServerConnectionContext: Sendable {
 
     private static func makeStreamServerRequest(
         store: any ServerConnection.ServerConnectionStore,
-        transport: any NativeAppServerRPCTransporting,
+        transport: any ServerConnection.NativeServerRPCTransporting,
         bootstrapCredential: String?
     ) -> @Sendable (NativeRuntime.ServerRPCRequest) -> AsyncThrowingStream<Data, Error> {
         { request in
@@ -3339,7 +4375,7 @@ struct NativeAppServerConnectionContext: Sendable {
                         transport: rpcTransport,
                         bootstrapCredential: bootstrapCredential
                     ),
-                    streams: NativeAppUnsupportedStreamOpening(),
+                    streams: NativeAppServerStreamOpening(bootstrapCredential: bootstrapCredential),
                     store: store,
                     clock: clock
                 )
@@ -3487,7 +4523,7 @@ private struct NativeAppServerAuthProvider: ServerConnection.ServerAuthSessionPr
 
 private struct NativeAppReconnectTransportOpening: ServerConnection.ServerTransportOpening {
     let sessionID: ServerConnection.SessionID
-    let transport: any NativeAppServerRPCTransporting
+    let transport: any ServerConnection.NativeServerRPCTransporting
     let bootstrapCredential: String?
 
     func openTransportSession(
@@ -3547,12 +4583,28 @@ private struct NativeAppReconnectTransportOpening: ServerConnection.ServerTransp
     func closeTransportSession(sessionID: ServerConnection.SessionID, generation: UInt64) async throws {}
 }
 
-private struct NativeAppUnsupportedStreamOpening: ServerConnection.ServerStreamOpening {
+private struct NativeAppServerStreamOpening: ServerConnection.ServerStreamOpening {
+    let bootstrapCredential: String?
+
     func openServerStream(
         session: ServerConnection.Session,
         stream: ServerConnection.StreamHandle
     ) async throws -> ServerConnection.StreamHandle {
-        throw ServerConnection.ServerConnectionError.endpointUnsupported
+        guard session.capabilities.supportsPaneStreams else {
+            throw ServerConnection.ServerConnectionError.capabilityMismatch
+        }
+        guard session.endpoint.httpBaseURL.flatMap(URL.init(string:)) != nil else {
+            throw ServerConnection.ServerConnectionError.endpointUnavailable
+        }
+        guard case .webSocketURL(let rawWebSocketURL) = session.endpoint.transport,
+              URL(string: rawWebSocketURL) != nil
+        else {
+            throw ServerConnection.ServerConnectionError.endpointUnsupported
+        }
+        guard let bootstrapCredential, !bootstrapCredential.isEmpty else {
+            throw ServerConnection.ServerConnectionError.bootstrapRequired
+        }
+        return stream
     }
 
     func closeServerStream(session: ServerConnection.Session, streamID: ServerConnection.StreamID) async throws {}
@@ -3972,26 +5024,6 @@ private struct NativeAppServerConnectionClock: ServerConnection.ServerConnection
     }
 }
 
-protocol NativeAppServerRPCTransporting: Sendable {
-    func sendAuthenticatedRPC(
-        httpBaseURL: URL,
-        webSocketURL: URL,
-        bootstrapCredential: String,
-        session: ServerConnection.Session,
-        requestID: RequestID,
-        request: ServerConnection.RequestEnvelope
-    ) async throws -> ServerConnection.ResponseEnvelope
-
-    func streamAuthenticatedRPC(
-        httpBaseURL: URL,
-        webSocketURL: URL,
-        bootstrapCredential: String,
-        session: ServerConnection.Session,
-        requestID: RequestID,
-        request: ServerConnection.RequestEnvelope
-    ) async -> AsyncThrowingStream<Data, Error>
-}
-
 actor NativeAppServerEventSource {
     private let sessionID: ServerConnection.SessionID
     private var controller: NativeHostServerEventController?
@@ -4088,568 +5120,6 @@ actor NativeAppServerEventSource {
             }
         }
         return nil
-    }
-}
-
-private struct NativeAppServerRequestSender: ServerConnection.ServerRequestSending {
-    private let transport: any NativeAppServerRPCTransporting
-    private let bootstrapCredential: String?
-    private let serverEventSource: NativeAppServerEventSource?
-
-    init(
-        transport: any NativeAppServerRPCTransporting,
-        bootstrapCredential: String?,
-        serverEventSource: NativeAppServerEventSource? = nil
-    ) {
-        self.transport = transport
-        self.bootstrapCredential = bootstrapCredential
-        self.serverEventSource = serverEventSource
-    }
-
-    func sendServerRequest(
-        session: ServerConnection.Session,
-        requestID: RequestID,
-        request: ServerConnection.RequestEnvelope
-    ) async throws -> ServerConnection.ResponseEnvelope {
-        guard let httpBaseURL = session.endpoint.httpBaseURL.flatMap(URL.init(string:)) else {
-            throw ServerConnection.ServerConnectionError.endpointUnavailable
-        }
-        guard case .webSocketURL(let rawWebSocketURL) = session.endpoint.transport,
-              let webSocketURL = URL(string: rawWebSocketURL)
-        else {
-            throw ServerConnection.ServerConnectionError.endpointUnsupported
-        }
-        guard let bootstrapCredential, !bootstrapCredential.isEmpty else {
-            throw ServerConnection.ServerConnectionError.bootstrapRequired
-        }
-
-        do {
-            return try await transport.sendAuthenticatedRPC(
-                httpBaseURL: httpBaseURL,
-                webSocketURL: webSocketURL,
-                bootstrapCredential: bootstrapCredential,
-                session: session,
-                requestID: requestID,
-                request: request
-            )
-        } catch {
-            await serverEventSource?.recordTransportFailure(
-                session: session,
-                requestID: requestID,
-                request: request,
-                error: error
-            )
-            throw error
-        }
-    }
-}
-
-struct NativeAppBearerSession: Equatable, Sendable {
-    let token: String
-    let authSessionID: String?
-}
-
-protocol NativeAppServerRPCNetworking: Sendable {
-    func exchangeBearerSession(httpBaseURL: URL, credential: String) async throws -> NativeAppBearerSession
-    func sendUnaryNativeRPC(
-        httpBaseURL: URL,
-        bearerToken: String,
-        requestID: RequestID,
-        request: ServerConnection.RequestEnvelope
-    ) async throws -> String
-    func streamNativeRPC(
-        httpBaseURL: URL,
-        bearerToken: String,
-        requestID: RequestID,
-        request: ServerConnection.RequestEnvelope
-    ) async -> AsyncThrowingStream<Data, Error>
-}
-
-actor NativeAppURLSessionServerRPCTransport: NativeAppServerRPCTransporting {
-    private struct CachedBearerSession: Sendable {
-        let httpBaseURL: String
-        let bootstrapCredential: String
-        let bearerSession: NativeAppBearerSession
-    }
-
-    private let network: any NativeAppServerRPCNetworking
-    private var cachedBearerSession: CachedBearerSession?
-    private var pendingBearerSession: (httpBaseURL: String, bootstrapCredential: String, task: Task<NativeAppBearerSession, Error>)?
-
-    init(network: any NativeAppServerRPCNetworking = NativeAppURLSessionServerRPCNetwork()) {
-        self.network = network
-    }
-
-    func sendAuthenticatedRPC(
-        httpBaseURL: URL,
-        webSocketURL: URL,
-        bootstrapCredential: String,
-        session: ServerConnection.Session,
-        requestID: RequestID,
-        request: ServerConnection.RequestEnvelope
-    ) async throws -> ServerConnection.ResponseEnvelope {
-        let bearer = try await reusableBearerSession(
-            httpBaseURL: httpBaseURL,
-            bootstrapCredential: bootstrapCredential
-        )
-        _ = webSocketURL
-        let authenticatedRequest = NativeAppServerRPCWire.request(
-            request,
-            rewritingActorSessionID: bearer.authSessionID
-        )
-        let responsePayload = try await network.sendUnaryNativeRPC(
-            httpBaseURL: httpBaseURL,
-            bearerToken: bearer.token,
-            requestID: requestID,
-            request: authenticatedRequest
-        )
-        return ServerConnection.ResponseEnvelope(
-            method: request.method,
-            payload: responsePayload,
-            generation: session.reconnectGeneration
-        )
-    }
-
-    func streamAuthenticatedRPC(
-        httpBaseURL: URL,
-        webSocketURL: URL,
-        bootstrapCredential: String,
-        session: ServerConnection.Session,
-        requestID: RequestID,
-        request: ServerConnection.RequestEnvelope
-    ) async -> AsyncThrowingStream<Data, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    let bearer = try await reusableBearerSession(
-                        httpBaseURL: httpBaseURL,
-                        bootstrapCredential: bootstrapCredential
-                    )
-                    _ = webSocketURL
-                    let authenticatedRequest = NativeAppServerRPCWire.request(
-                        request,
-                        rewritingActorSessionID: bearer.authSessionID
-                    )
-                    let responseStream = await network.streamNativeRPC(
-                        httpBaseURL: httpBaseURL,
-                        bearerToken: bearer.token,
-                        requestID: requestID,
-                        request: authenticatedRequest
-                    )
-                    for try await data in responseStream {
-                        continuation.yield(data)
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
-
-    private func reusableBearerSession(httpBaseURL: URL, bootstrapCredential: String) async throws -> NativeAppBearerSession {
-        let httpBaseURLString = httpBaseURL.absoluteString
-        if let cachedBearerSession,
-           cachedBearerSession.httpBaseURL == httpBaseURLString,
-           cachedBearerSession.bootstrapCredential == bootstrapCredential
-        {
-            return cachedBearerSession.bearerSession
-        }
-
-        if let pendingBearerSession,
-           pendingBearerSession.httpBaseURL == httpBaseURLString,
-           pendingBearerSession.bootstrapCredential == bootstrapCredential
-        {
-            return try await pendingBearerSession.task.value
-        }
-
-        let network = network
-        let task = Task {
-            try await network.exchangeBearerSession(httpBaseURL: httpBaseURL, credential: bootstrapCredential)
-        }
-        pendingBearerSession = (
-            httpBaseURL: httpBaseURLString,
-            bootstrapCredential: bootstrapCredential,
-            task: task
-        )
-
-        let bearerSession: NativeAppBearerSession
-        do {
-            bearerSession = try await task.value
-        } catch {
-            if pendingBearerSession?.httpBaseURL == httpBaseURLString,
-               pendingBearerSession?.bootstrapCredential == bootstrapCredential
-            {
-                pendingBearerSession = nil
-            }
-            throw error
-        }
-
-        cachedBearerSession = CachedBearerSession(
-            httpBaseURL: httpBaseURLString,
-            bootstrapCredential: bootstrapCredential,
-            bearerSession: bearerSession
-        )
-        if pendingBearerSession?.httpBaseURL == httpBaseURLString,
-           pendingBearerSession?.bootstrapCredential == bootstrapCredential
-        {
-            pendingBearerSession = nil
-        }
-        return bearerSession
-    }
-}
-
-struct NativeAppURLSessionServerRPCNetwork: NativeAppServerRPCNetworking {
-    private struct BearerBootstrapResponse: Decodable {
-        let sessionToken: String
-    }
-
-    private let urlSession: URLSession
-
-    init(urlSession: URLSession = .shared) {
-        self.urlSession = urlSession
-    }
-
-    func exchangeBearerSession(httpBaseURL: URL, credential: String) async throws -> NativeAppBearerSession {
-        var request = URLRequest(url: httpBaseURL.appendingPathComponent("api/auth/bootstrap/bearer"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["credential": credential], options: [])
-        let response = try await decodeJSONResponse(BearerBootstrapResponse.self, request: request, authFailure: .authRejected)
-        return NativeAppBearerSession(
-            token: response.sessionToken,
-            authSessionID: NativeAppServerRPCWire.authSessionID(fromBearerToken: response.sessionToken)
-        )
-    }
-
-    private func decodeJSONResponse<T: Decodable>(
-        _ type: T.Type,
-        request: URLRequest,
-        authFailure: ServerConnection.ServerConnectionError
-    ) async throws -> T {
-        let (data, response) = try await urlSession.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ServerConnection.ServerConnectionError.transportUnavailable
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            let body = String(decoding: data.prefix(1000), as: UTF8.self)
-            NSLog("Fenrir Native server HTTP request failed: status=\(httpResponse.statusCode) url=\(request.url?.absoluteString ?? "") body=\(body)")
-            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
-                throw authFailure
-            }
-            throw ServerConnection.ServerConnectionError.requestRejected
-        }
-        return try JSONDecoder().decode(type, from: data)
-    }
-
-    func sendUnaryNativeRPC(
-        httpBaseURL: URL,
-        bearerToken: String,
-        requestID: RequestID,
-        request: ServerConnection.RequestEnvelope
-    ) async throws -> String {
-        let requestPayload = try NativeAppServerRPCWire.unaryHTTPRequestBody(
-            requestID: requestID,
-            request: request
-        )
-        var httpRequest = URLRequest(url: httpBaseURL.appendingPathComponent("api/native/rpc"))
-        httpRequest.httpMethod = "POST"
-        httpRequest.timeoutInterval = TimeInterval(max(request.timeoutMilliseconds, 1)) / 1000
-        httpRequest.setValue("application/json", forHTTPHeaderField: "content-type")
-        httpRequest.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "authorization")
-        httpRequest.httpBody = requestPayload
-
-        let (data, response) = try await urlSession.data(for: httpRequest)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ServerConnection.ServerConnectionError.transportUnavailable
-        }
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            let body = String(decoding: data.prefix(1000), as: UTF8.self)
-            NSLog("Fenrir Native server RPC HTTP request failed: status=\(httpResponse.statusCode) url=\(httpRequest.url?.absoluteString ?? "") body=\(body)")
-            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
-                throw ServerConnection.ServerConnectionError.authRejected
-            }
-            throw ServerConnection.ServerConnectionError.requestRejected
-        }
-        return try NativeAppServerRPCWire.parseUnaryHTTPResponse(data)
-    }
-
-    func streamNativeRPC(
-        httpBaseURL: URL,
-        bearerToken: String,
-        requestID: RequestID,
-        request: ServerConnection.RequestEnvelope
-    ) async -> AsyncThrowingStream<Data, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    let requestPayload = try NativeAppServerRPCWire.unaryHTTPRequestBody(
-                        requestID: requestID,
-                        request: request
-                    )
-                    var httpRequest = URLRequest(url: httpBaseURL.appendingPathComponent("api/native/rpc/stream"))
-                    httpRequest.httpMethod = "POST"
-                    httpRequest.timeoutInterval = 0
-                    httpRequest.setValue("application/json", forHTTPHeaderField: "content-type")
-                    httpRequest.setValue("application/x-ndjson", forHTTPHeaderField: "accept")
-                    httpRequest.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "authorization")
-                    httpRequest.httpBody = requestPayload
-
-                    let (bytes, response) = try await urlSession.bytes(for: httpRequest)
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        throw ServerConnection.ServerConnectionError.transportUnavailable
-                    }
-                    guard (200..<300).contains(httpResponse.statusCode) else {
-                        let body = String(decoding: try await bytes.reduce(into: Data()) { data, byte in
-                            if data.count < 1000 {
-                                data.append(byte)
-                            }
-                        }, as: UTF8.self)
-                        NSLog("Fenrir Native server RPC stream HTTP request failed: status=\(httpResponse.statusCode) url=\(httpRequest.url?.absoluteString ?? "") body=\(body)")
-                        throw httpResponse.statusCode == 401 || httpResponse.statusCode == 403
-                            ? ServerConnection.ServerConnectionError.authRejected
-                            : ServerConnection.ServerConnectionError.requestRejected
-                    }
-                    for try await line in bytes.lines {
-                        if Task.isCancelled {
-                            NSLog("Fenrir Native server RPC stream cancelled while reading lines")
-                            break
-                        }
-                        guard !line.isEmpty else {
-                            continue
-                        }
-                        NSLog("Fenrir Native server RPC stream line bytes=\(line.utf8.count)")
-                        continuation.yield(Data(line.utf8))
-                    }
-                    NSLog("Fenrir Native server RPC stream finished reading lines")
-                    continuation.finish()
-                } catch {
-                    NSLog("Fenrir Native server RPC stream failed: \(String(describing: error))")
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
-}
-
-private enum NativeAppServerRPCWire {
-    private struct BearerClaims: Decodable {
-        let sid: String?
-    }
-
-    static func authSessionID(fromBearerToken token: String) -> String? {
-        let parts = token.split(separator: ".")
-        let payloadPart: Substring?
-        if parts.count == 2 {
-            payloadPart = parts.first
-        } else {
-            payloadPart = parts.dropFirst().first
-        }
-        guard let payload = payloadPart,
-              let data = base64URLDecodedData(String(payload)),
-              let claims = try? JSONDecoder().decode(BearerClaims.self, from: data),
-              let sid = claims.sid,
-              !sid.isEmpty
-        else {
-            return nil
-        }
-        return sid
-    }
-
-    static func request(
-        _ request: ServerConnection.RequestEnvelope,
-        rewritingActorSessionID authSessionID: String?
-    ) -> ServerConnection.RequestEnvelope {
-        guard let authSessionID,
-              let payloadData = request.payload.data(using: .utf8),
-              let payload = try? JSONSerialization.jsonObject(with: payloadData, options: [])
-        else {
-            return request
-        }
-        let rewritten = rewriteActorSessionIDs(in: payload, authSessionID: authSessionID)
-        guard JSONSerialization.isValidJSONObject(rewritten),
-              let data = try? JSONSerialization.data(withJSONObject: rewritten, options: [])
-        else {
-            return request
-        }
-        return ServerConnection.RequestEnvelope(
-            method: request.method,
-            payload: String(decoding: data, as: UTF8.self),
-            timeoutMilliseconds: request.timeoutMilliseconds,
-            retryPolicy: request.retryPolicy
-        )
-    }
-
-    static func unaryHTTPRequestBody(requestID: RequestID, request: ServerConnection.RequestEnvelope) throws -> Data {
-        let payloadData = Data(request.payload.utf8)
-        let payload = try JSONSerialization.jsonObject(with: payloadData, options: [])
-        let body: [String: Any] = [
-            "method": request.method,
-            "requestId": requestID.rawValue,
-            "payload": payload,
-        ]
-        return try JSONSerialization.data(withJSONObject: body, options: [])
-    }
-
-    private static func base64URLDecodedData(_ value: String) -> Data? {
-        var base64 = value
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let padding = (4 - base64.count % 4) % 4
-        if padding > 0 {
-            base64.append(String(repeating: "=", count: padding))
-        }
-        return Data(base64Encoded: base64)
-    }
-
-    private static func rewriteActorSessionIDs(in value: Any, authSessionID: String) -> Any {
-        if var dictionary = value as? [String: Any] {
-            if dictionary["subject"] is String, dictionary["sessionId"] is String {
-                dictionary["sessionId"] = authSessionID
-            }
-            for (key, child) in dictionary {
-                dictionary[key] = rewriteActorSessionIDs(in: child, authSessionID: authSessionID)
-            }
-            return dictionary
-        }
-        if let array = value as? [Any] {
-            return array.map { rewriteActorSessionIDs(in: $0, authSessionID: authSessionID) }
-        }
-        return value
-    }
-
-    static func parseUnaryHTTPResponse(_ data: Data) throws -> String {
-        guard let root = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-            throw ServerConnection.ServerConnectionError.protocolMismatch
-        }
-        guard root["ok"] as? Bool == true else {
-            let body = String(decoding: data.prefix(2000), as: UTF8.self)
-            NSLog("Fenrir Native server RPC failed: \(body)")
-            throw serverConnectionError(from: root["error"]) ?? ServerConnection.ServerConnectionError.requestRejected
-        }
-        let value = root["payload"] ?? [:]
-        guard JSONSerialization.isValidJSONObject(value) else {
-            throw ServerConnection.ServerConnectionError.protocolMismatch
-        }
-        let payload = try JSONSerialization.data(withJSONObject: value, options: [])
-        return String(decoding: payload, as: UTF8.self)
-    }
-
-    private static func serverConnectionError(from value: Any?) -> ServerConnection.ServerConnectionError? {
-        if let string = value as? String {
-            return ServerConnection.ServerConnectionError(rawValue: string)
-        }
-        guard let dictionary = value as? [String: Any] else {
-            return nil
-        }
-        for key in ["code", "name", "tag", "_tag", "error"] {
-            if let string = dictionary[key] as? String,
-               let error = ServerConnection.ServerConnectionError(rawValue: string)
-            {
-                return error
-            }
-        }
-        return nil
-    }
-}
-
-private actor NativeAppServerConnectionStore: ServerConnection.ServerConnectionStore,
-    ServerConnection.LocalServerSupervisorStateStore
-{
-    private var session: ServerConnection.Session?
-    private var activeRequests = 0
-    private var streams: [ServerConnection.StreamID: ServerConnection.StreamHandle] = [:]
-    private var stats = ServerConnection.TransportStats()
-    private var supervisorState: ServerConnection.LocalServerSupervisorState?
-
-    init(
-        session: ServerConnection.Session? = nil,
-        supervisorState: ServerConnection.LocalServerSupervisorState? = nil
-    ) {
-        self.session = session
-        self.supervisorState = supervisorState
-    }
-
-    func loadSession(sessionID: ServerConnection.SessionID?) async throws -> ServerConnection.Session? {
-        guard let session else {
-            return nil
-        }
-        guard let sessionID else {
-            return session
-        }
-        return session.sessionID == sessionID ? session : nil
-    }
-
-    func saveSession(_ session: ServerConnection.Session) async throws {
-        self.session = session
-    }
-
-    func deleteSession(sessionID: ServerConnection.SessionID) async throws {
-        if session?.sessionID == sessionID {
-            session = nil
-            streams.removeAll()
-            activeRequests = 0
-        }
-    }
-
-    func nextReconnectGeneration(sessionID: ServerConnection.SessionID) async throws -> UInt64 {
-        guard let session, session.sessionID == sessionID else {
-            throw ServerConnection.ServerConnectionError.sessionClosed
-        }
-        return session.reconnectGeneration + 1
-    }
-
-    func activeRequestCount(sessionID: ServerConnection.SessionID) async throws -> Int {
-        activeRequests
-    }
-
-    func incrementActiveRequestCount(sessionID: ServerConnection.SessionID) async throws {
-        activeRequests += 1
-    }
-
-    func decrementActiveRequestCount(sessionID: ServerConnection.SessionID) async throws {
-        activeRequests = max(0, activeRequests - 1)
-    }
-
-    func loadStreams(sessionID: ServerConnection.SessionID) async throws -> [ServerConnection.StreamHandle] {
-        Array(streams.values)
-    }
-
-    func saveStream(_ stream: ServerConnection.StreamHandle, sessionID: ServerConnection.SessionID) async throws {
-        streams[stream.streamID] = stream
-    }
-
-    func deleteStream(streamID: ServerConnection.StreamID, sessionID: ServerConnection.SessionID) async throws {
-        streams.removeValue(forKey: streamID)
-    }
-
-    func transportStats(sessionID: ServerConnection.SessionID) async throws -> ServerConnection.TransportStats {
-        stats
-    }
-
-    func saveTransportStats(_ stats: ServerConnection.TransportStats, sessionID: ServerConnection.SessionID) async throws {
-        self.stats = stats
-    }
-
-    func commitReconnect(_ commit: ServerConnection.ReconnectCommit) async throws {
-        session = commit.session
-        stats = commit.transportStats
-        streams = Dictionary(uniqueKeysWithValues: commit.streams.map { ($0.streamID, $0) })
-        activeRequests = 0
-    }
-
-    func loadLocalServerSupervisorState() async throws -> ServerConnection.LocalServerSupervisorState? {
-        supervisorState
-    }
-
-    func saveLocalServerSupervisorState(_ state: ServerConnection.LocalServerSupervisorState) async throws {
-        supervisorState = state
-    }
-
-    func clearLocalServerSupervisorState() async throws {
-        supervisorState = nil
     }
 }
 
@@ -5597,16 +6067,24 @@ private struct NativePaneGridClock: PaneGrid.PaneGridClock {
 @MainActor
 private final class NativeBootstrapTerminalBackend: FenrirTerminalBackend {
     let descriptor = TerminalViewport.RendererDescriptor(rendererID: "native-bootstrap-terminal", status: .ready)
+    private let workspaceID: WorkspaceID
+    private let themeTokens: NativeShellThemeTokens
     private weak var mountedSurface: NSTextView?
 
-    init(workspaceID: WorkspaceID) {}
+    init(
+        workspaceID: WorkspaceID,
+        themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID)
+    ) {
+        self.workspaceID = workspaceID
+        self.themeTokens = themeTokens
+    }
 
     func mount(in hostView: NSView) {
         let surface = NSTextView(frame: .zero)
         surface.isEditable = false
         surface.isSelectable = true
-        surface.backgroundColor = .black
-        surface.textColor = NSColor(calibratedWhite: 0.86, alpha: 1)
+        surface.backgroundColor = themeTokens.terminalBackground
+        surface.textColor = themeTokens.secondaryText
         surface.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         surface.textContainerInset = NSSize(width: 16, height: 14)
         surface.wantsLayer = true
@@ -5684,6 +6162,22 @@ private final class NativeBootstrapTerminalBackend: FenrirTerminalBackend {
     }
 }
 
+final class NativeTerminalViewRendererWriter: TerminalViewport.TerminalRendererWriting, @unchecked Sendable {
+    private let terminalView: FenrirTerminalView
+
+    @MainActor
+    init(terminalView: FenrirTerminalView) {
+        self.terminalView = terminalView
+    }
+
+    func ingestOutput(viewportID: ViewportID, bytes: Data) async throws {
+        _ = viewportID
+        await MainActor.run {
+            terminalView.applyRuntimeOutput(bytes)
+        }
+    }
+}
+
 enum NativeOverlayKeyboardInput: Equatable, Sendable {
     case escape
     case moveUp
@@ -5697,18 +6191,21 @@ enum NativeOverlayKeyboardInput: Equatable, Sendable {
 
 @MainActor
 final class NativeOverlayHostView: NSView {
+    let themeTokens: NativeShellThemeTokens
     var onDismissCommandPalette: (() -> Void)?
     var onCloseOverlay: ((WorkspaceOverlays.OverlayID) -> Void)?
     var onExecutePaletteItem: ((WorkspaceOverlays.PaletteItem) -> Void)?
     var onSubmitAgentComposer: ((AgentInteraction.SubmitComposerDraftCommand) -> Void)?
     var onCancelAgentComposer: ((AgentInteraction.CancelAgentComposerInput) -> Void)?
     var onWorkflowCommand: ((WorkflowControl.WorkflowViewCommand) -> Void)?
+    var onAgentIntegrationCommand: ((AgentIntegration.AgentIntegrationViewCommand) -> Void)?
 
     private let dimmingView = NSView()
     private let contentContainer = NSView()
     private let palettePanel = NSView()
     private let paletteTitle = NSTextField(labelWithString: "Command Palette")
     private let paletteQuery = NSTextField(labelWithString: "")
+    private let paletteHint = NSTextField(labelWithString: "")
     private let paletteRows = NSStackView()
     private let overlayPanel = NSView()
     private let overlayTitle = NSTextField(labelWithString: "")
@@ -5726,6 +6223,8 @@ final class NativeOverlayHostView: NSView {
     private var workflowTimeline: WorkflowControl.WorkflowRunTimeline?
     private var workflowError: WorkflowControl.WorkflowControlError?
     private var workflowView: WorkflowControl.WorkflowControlView?
+    private var agentIntegrationState: AgentIntegration.AgentIntegrationPanelState?
+    private var agentIntegrationView: AgentIntegration.AgentIntegrationPanelView?
     private var diagnosticsViewModel = Diagnostics.DiagnosticsOverlayViewModel(report: Diagnostics.DiagnosticsReport(
         generatedAt: FenrirTimestamp(Date(timeIntervalSince1970: 0)),
         policy: .defaults,
@@ -5736,10 +6235,14 @@ final class NativeOverlayHostView: NSView {
     private var selectedPaletteIndex = 0
     private var queryText = ""
 
-    override init(frame frameRect: NSRect) {
+    init(
+        themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID),
+        frame frameRect: NSRect = .zero
+    ) {
+        self.themeTokens = themeTokens
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.backgroundColor = themeTokens.transparent.cgColor
         build()
     }
 
@@ -5770,7 +6273,8 @@ final class NativeOverlayHostView: NSView {
         workflowRuns: [WorkflowControl.WorkflowRunSnapshot] = [],
         workflowTimeline: WorkflowControl.WorkflowRunTimeline? = nil,
         workflowError: WorkflowControl.WorkflowControlError? = nil,
-        diagnosticsViewModel: Diagnostics.DiagnosticsOverlayViewModel? = nil
+        diagnosticsViewModel: Diagnostics.DiagnosticsOverlayViewModel? = nil,
+        agentIntegrationState: AgentIntegration.AgentIntegrationPanelState? = nil
     ) {
         self.focusedSurface = focusedSurface
         self.activeOverlayIDs = activeOverlayIDs
@@ -5782,6 +6286,9 @@ final class NativeOverlayHostView: NSView {
         self.workflowError = workflowError
         if let diagnosticsViewModel {
             self.diagnosticsViewModel = diagnosticsViewModel
+        }
+        if let agentIntegrationState {
+            self.agentIntegrationState = agentIntegrationState
         }
         allPaletteItems = paletteItems.sorted { lhs, rhs in
             if lhs.baseScore == rhs.baseScore {
@@ -5823,6 +6330,12 @@ final class NativeOverlayHostView: NSView {
                 workflowView.applyError(error)
             }
         }
+        render()
+    }
+
+    func updateAgentIntegration(_ state: AgentIntegration.AgentIntegrationPanelState) {
+        agentIntegrationState = state
+        agentIntegrationView?.apply(state)
         render()
     }
 
@@ -5906,16 +6419,21 @@ final class NativeOverlayHostView: NSView {
             addSubview($0)
         }
         dimmingView.wantsLayer = true
-        dimmingView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.22).cgColor
+        dimmingView.layer?.backgroundColor = themeTokens.overlayScrim.cgColor
 
         [palettePanel, overlayPanel].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             contentContainer.addSubview($0)
             $0.wantsLayer = true
-            $0.layer?.cornerRadius = 8
-            $0.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-            $0.layer?.borderColor = NSColor.separatorColor.cgColor
+            $0.layer?.cornerRadius = 10
+            $0.layer?.backgroundColor = themeTokens.overlayBackground.cgColor
+            $0.layer?.borderColor = themeTokens.overlayBorder.cgColor
             $0.layer?.borderWidth = 1
+            $0.shadow = NSShadow()
+            $0.layer?.shadowColor = NSColor.black.cgColor
+            $0.layer?.shadowOpacity = 0.6
+            $0.layer?.shadowRadius = 30
+            $0.layer?.shadowOffset = CGSize(width: 0, height: -12)
         }
 
         buildPalettePanel()
@@ -5937,55 +6455,96 @@ final class NativeOverlayHostView: NSView {
             contentContainer.topAnchor.constraint(equalTo: topAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            palettePanel.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: 28),
+            palettePanel.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: 48),
             palettePanel.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),
-            palettePanel.widthAnchor.constraint(lessThanOrEqualToConstant: 560),
+            palettePanel.widthAnchor.constraint(lessThanOrEqualToConstant: 620),
             palettePanel.widthAnchor.constraint(lessThanOrEqualTo: contentContainer.widthAnchor, constant: -32),
             paletteMinimumWidth,
 
             overlayPanel.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),
-            overlayPanel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
-            overlayPanel.widthAnchor.constraint(lessThanOrEqualToConstant: 460),
+            overlayPanel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor, constant: -24),
+            overlayPanel.widthAnchor.constraint(lessThanOrEqualToConstant: 620),
             overlayPanel.widthAnchor.constraint(lessThanOrEqualTo: contentContainer.widthAnchor, constant: -32),
             overlayMinimumWidth
         ])
     }
 
     private func buildPalettePanel() {
-        paletteTitle.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        paletteTitle.isHidden = true
         paletteQuery.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        paletteQuery.textColor = .secondaryLabelColor
+        paletteQuery.textColor = themeTokens.secondaryText
         paletteQuery.lineBreakMode = .byTruncatingTail
+
+        paletteHint.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)
+        paletteHint.lineBreakMode = .byTruncatingTail
+        paletteHint.attributedStringValue = Self.domainHint(themeTokens: themeTokens)
+
+        let queryDivider = NSView()
+        queryDivider.wantsLayer = true
+        queryDivider.layer?.backgroundColor = themeTokens.hairline.cgColor
+
+        let hintDivider = NSView()
+        hintDivider.wantsLayer = true
+        hintDivider.layer?.backgroundColor = themeTokens.hairline.cgColor
+
         paletteRows.orientation = .vertical
         paletteRows.spacing = 2
         paletteRows.alignment = .leading
 
-        [paletteTitle, paletteQuery, paletteRows].forEach {
+        [paletteTitle, paletteQuery, queryDivider, paletteHint, hintDivider, paletteRows].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             palettePanel.addSubview($0)
         }
 
         NSLayoutConstraint.activate([
-            paletteTitle.leadingAnchor.constraint(equalTo: palettePanel.leadingAnchor, constant: 14),
-            paletteTitle.trailingAnchor.constraint(lessThanOrEqualTo: palettePanel.trailingAnchor, constant: -14),
-            paletteTitle.topAnchor.constraint(equalTo: palettePanel.topAnchor, constant: 12),
+            paletteQuery.leadingAnchor.constraint(equalTo: palettePanel.leadingAnchor, constant: 18),
+            paletteQuery.trailingAnchor.constraint(equalTo: palettePanel.trailingAnchor, constant: -18),
+            paletteQuery.topAnchor.constraint(equalTo: palettePanel.topAnchor, constant: 12),
+            paletteQuery.heightAnchor.constraint(equalToConstant: 24),
 
-            paletteQuery.leadingAnchor.constraint(equalTo: palettePanel.leadingAnchor, constant: 14),
-            paletteQuery.trailingAnchor.constraint(equalTo: palettePanel.trailingAnchor, constant: -14),
-            paletteQuery.topAnchor.constraint(equalTo: paletteTitle.bottomAnchor, constant: 8),
-            paletteQuery.heightAnchor.constraint(equalToConstant: 28),
+            queryDivider.leadingAnchor.constraint(equalTo: palettePanel.leadingAnchor),
+            queryDivider.trailingAnchor.constraint(equalTo: palettePanel.trailingAnchor),
+            queryDivider.topAnchor.constraint(equalTo: paletteQuery.bottomAnchor, constant: 10),
+            queryDivider.heightAnchor.constraint(equalToConstant: 1),
+
+            paletteHint.leadingAnchor.constraint(equalTo: palettePanel.leadingAnchor, constant: 18),
+            paletteHint.trailingAnchor.constraint(lessThanOrEqualTo: palettePanel.trailingAnchor, constant: -18),
+            paletteHint.topAnchor.constraint(equalTo: queryDivider.bottomAnchor, constant: 7),
+
+            hintDivider.leadingAnchor.constraint(equalTo: palettePanel.leadingAnchor),
+            hintDivider.trailingAnchor.constraint(equalTo: palettePanel.trailingAnchor),
+            hintDivider.topAnchor.constraint(equalTo: paletteHint.bottomAnchor, constant: 7),
+            hintDivider.heightAnchor.constraint(equalToConstant: 1),
 
             paletteRows.leadingAnchor.constraint(equalTo: palettePanel.leadingAnchor, constant: 8),
             paletteRows.trailingAnchor.constraint(equalTo: palettePanel.trailingAnchor, constant: -8),
-            paletteRows.topAnchor.constraint(equalTo: paletteQuery.bottomAnchor, constant: 8),
+            paletteRows.topAnchor.constraint(equalTo: hintDivider.bottomAnchor, constant: 8),
             paletteRows.bottomAnchor.constraint(equalTo: palettePanel.bottomAnchor, constant: -8)
         ])
     }
 
+    private static func domainHint(themeTokens: NativeShellThemeTokens) -> NSAttributedString {
+        let dim: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular),
+            .foregroundColor: themeTokens.tertiaryText
+        ]
+        let accent: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 10.5, weight: .medium),
+            .foregroundColor: themeTokens.accent
+        ]
+        let hint = NSMutableAttributedString(string: "workspaces · ", attributes: dim)
+        for (prefix, label) in [("@", " actions · "), ("$", " files · "), ("%", " panes · "), ("!", " attention · "), ("?", " help")] {
+            hint.append(NSAttributedString(string: prefix, attributes: accent))
+            hint.append(NSAttributedString(string: label, attributes: dim))
+        }
+        return hint
+    }
+
     private func buildOverlayPanel() {
-        overlayTitle.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
-        overlaySubtitle.font = NSFont.systemFont(ofSize: 12, weight: .regular)
-        overlaySubtitle.textColor = .secondaryLabelColor
+        overlayTitle.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold)
+        overlayTitle.textColor = themeTokens.primaryText
+        overlaySubtitle.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        overlaySubtitle.textColor = themeTokens.secondaryText
         overlaySubtitle.lineBreakMode = .byTruncatingTail
         overlayRows.orientation = .vertical
         overlayRows.spacing = 6
@@ -6023,18 +6582,31 @@ final class NativeOverlayHostView: NSView {
     }
 
     private func renderPalette() {
-        paletteQuery.stringValue = queryText.isEmpty ? "Type command, workspace, or prefix" : queryText
-        paletteQuery.textColor = queryText.isEmpty ? .tertiaryLabelColor : .labelColor
+        let prompt = NSMutableAttributedString(
+            string: "❯ ",
+            attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: themeTokens.accent
+            ]
+        )
+        prompt.append(NSAttributedString(
+            string: queryText.isEmpty ? "Type command, workspace, or prefix" : queryText,
+            attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: queryText.isEmpty ? themeTokens.tertiaryText : themeTokens.primaryText
+            ]
+        ))
+        paletteQuery.attributedStringValue = prompt
         clearArrangedSubviews(from: paletteRows)
 
         let visibleItems = Array(filteredPaletteItems.prefix(7))
         if visibleItems.isEmpty {
-            paletteRows.addArrangedSubview(NativeOverlayStatusRowView(text: "No matching commands"))
+            paletteRows.addArrangedSubview(NativeOverlayStatusRowView(text: "No matching commands", themeTokens: themeTokens))
             return
         }
 
         for (index, item) in visibleItems.enumerated() {
-            let row = NativeOverlayPaletteRowView(item: item, isSelected: index == selectedPaletteIndex)
+            let row = NativeOverlayPaletteRowView(item: item, isSelected: index == selectedPaletteIndex, themeTokens: themeTokens)
             paletteRows.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: paletteRows.widthAnchor).isActive = true
         }
@@ -6052,8 +6624,13 @@ final class NativeOverlayHostView: NSView {
             renderWorkflowPanel()
             return
         }
+        if overlayID == NativeAgentIntegrationOverlay.overlayID {
+            renderAgentIntegrationPanel()
+            return
+        }
         agentComposerView = nil
         workflowView = nil
+        agentIntegrationView = nil
         if isDiagnosticsOverlay(overlayID) {
             overlayTitle.stringValue = diagnosticsViewModel.title
             overlaySubtitle.stringValue = diagnosticsViewModel.subtitle
@@ -6063,7 +6640,7 @@ final class NativeOverlayHostView: NSView {
         }
         clearArrangedSubviews(from: overlayRows)
         for text in rows(for: overlayID) {
-            let row = NativeOverlayStatusRowView(text: text)
+            let row = NativeOverlayStatusRowView(text: text, themeTokens: themeTokens)
             overlayRows.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: overlayRows.widthAnchor).isActive = true
         }
@@ -6073,9 +6650,11 @@ final class NativeOverlayHostView: NSView {
         overlayTitle.stringValue = "Agent Composer"
         overlaySubtitle.stringValue = "Context summary only; terminal content is kept out of overlay diagnostics"
         clearArrangedSubviews(from: overlayRows)
+        workflowView = nil
+        agentIntegrationView = nil
 
         guard let agentComposer else {
-            let row = NativeOverlayStatusRowView(text: "Preparing terminal context")
+            let row = NativeOverlayStatusRowView(text: "Preparing terminal context", themeTokens: themeTokens)
             overlayRows.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: overlayRows.widthAnchor).isActive = true
             agentComposerView = nil
@@ -6097,6 +6676,7 @@ final class NativeOverlayHostView: NSView {
         overlaySubtitle.stringValue = "Server-owned runs, timeline replay, agents, tasks, and input"
         clearArrangedSubviews(from: overlayRows)
         agentComposerView = nil
+        agentIntegrationView = nil
 
         let view = WorkflowControl.WorkflowControlView(
             runs: workflowRuns,
@@ -6111,6 +6691,29 @@ final class NativeOverlayHostView: NSView {
         overlayRows.addArrangedSubview(view)
         view.widthAnchor.constraint(equalTo: overlayRows.widthAnchor).isActive = true
         view.heightAnchor.constraint(greaterThanOrEqualToConstant: 420).isActive = true
+    }
+
+    private func renderAgentIntegrationPanel() {
+        overlayTitle.stringValue = "Agent Integrations"
+        overlaySubtitle.stringValue = "Repair or remove detected agent CLI integrations"
+        clearArrangedSubviews(from: overlayRows)
+        agentComposerView = nil
+        workflowView = nil
+
+        guard let agentIntegrationState else {
+            let row = NativeOverlayStatusRowView(text: "Checking agent integrations", themeTokens: themeTokens)
+            overlayRows.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: overlayRows.widthAnchor).isActive = true
+            agentIntegrationView = nil
+            return
+        }
+
+        let view = AgentIntegration.AgentIntegrationPanelView(state: agentIntegrationState)
+        view.onCommand = { [weak self] command in self?.onAgentIntegrationCommand?(command) }
+        agentIntegrationView = view
+        overlayRows.addArrangedSubview(view)
+        view.widthAnchor.constraint(equalTo: overlayRows.widthAnchor).isActive = true
+        view.heightAnchor.constraint(greaterThanOrEqualToConstant: 240).isActive = true
     }
 
     private func updateFilteredPaletteItems() {
@@ -6268,7 +6871,10 @@ private extension NativeOverlayKeyboardInput {
 
 @MainActor
 private final class NativeOverlayPaletteRowView: NSView {
-    init(item: WorkspaceOverlays.PaletteItem, isSelected: Bool) {
+    private let themeTokens: NativeShellThemeTokens
+
+    init(item: WorkspaceOverlays.PaletteItem, isSelected: Bool, themeTokens: NativeShellThemeTokens) {
+        self.themeTokens = themeTokens
         super.init(frame: .zero)
         build(item: item, isSelected: isSelected)
     }
@@ -6282,22 +6888,22 @@ private final class NativeOverlayPaletteRowView: NSView {
         wantsLayer = true
         layer?.cornerRadius = 6
         layer?.backgroundColor = isSelected
-            ? NSColor.selectedContentBackgroundColor.withAlphaComponent(0.9).cgColor
-            : NSColor.clear.cgColor
+            ? themeTokens.selectedRowBackground.cgColor
+            : themeTokens.transparent.cgColor
 
         let title = NSTextField(labelWithString: item.title)
-        title.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        title.textColor = isSelected ? .alternateSelectedControlTextColor : .labelColor
+        title.font = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .medium)
+        title.textColor = isSelected ? themeTokens.selectedRowText : themeTokens.primaryText
         title.lineBreakMode = .byTruncatingTail
 
         let subtitle = NSTextField(labelWithString: item.subtitle ?? item.domain.rawValue)
-        subtitle.font = NSFont.systemFont(ofSize: 11, weight: .regular)
-        subtitle.textColor = isSelected ? .alternateSelectedControlTextColor : .secondaryLabelColor
+        subtitle.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)
+        subtitle.textColor = isSelected ? themeTokens.secondaryText : themeTokens.tertiaryText
         subtitle.lineBreakMode = .byTruncatingTail
 
         let domain = NSTextField(labelWithString: item.domain.rawValue)
         domain.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold)
-        domain.textColor = isSelected ? .alternateSelectedControlTextColor : .tertiaryLabelColor
+        domain.textColor = isSelected ? themeTokens.accent : themeTokens.tertiaryText
         domain.alignment = .right
         domain.lineBreakMode = .byTruncatingTail
 
@@ -6325,7 +6931,10 @@ private final class NativeOverlayPaletteRowView: NSView {
 
 @MainActor
 private final class NativeOverlayStatusRowView: NSView {
-    init(text: String) {
+    private let themeTokens: NativeShellThemeTokens
+
+    init(text: String, themeTokens: NativeShellThemeTokens) {
+        self.themeTokens = themeTokens
         super.init(frame: .zero)
         build(text: text)
     }
@@ -6338,7 +6947,7 @@ private final class NativeOverlayStatusRowView: NSView {
     private func build(text: String) {
         let label = NSTextField(labelWithString: text)
         label.font = NSFont.systemFont(ofSize: 12, weight: .regular)
-        label.textColor = .labelColor
+        label.textColor = themeTokens.primaryText
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
@@ -6352,96 +6961,3 @@ private final class NativeOverlayStatusRowView: NSView {
     }
 }
 
-@MainActor
-final class NativeWorkspaceSidebarView: NSView {
-    var onFocusRequested: (() -> Void)?
-    private let stack = NSStackView()
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        build()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        onFocusRequested?()
-        super.mouseDown(with: event)
-    }
-
-    func apply(items: [WorkspaceIndex.WorkspaceSidebarItem]) {
-        stack.arrangedSubviews.forEach {
-            stack.removeArrangedSubview($0)
-            $0.removeFromSuperview()
-        }
-        for item in items where item.visibility == .visible {
-            stack.addArrangedSubview(NativeWorkspaceSidebarRowView(item: item))
-        }
-    }
-
-    private func build() {
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 4
-        stack.edgeInsets = NSEdgeInsets(top: 12, left: 10, bottom: 12, right: 10)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor)
-        ])
-    }
-}
-
-@MainActor
-final class NativeWorkspaceSidebarRowView: NSView {
-    init(item: WorkspaceIndex.WorkspaceSidebarItem) {
-        super.init(frame: .zero)
-        build(item)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    private func build(_ item: WorkspaceIndex.WorkspaceSidebarItem) {
-        let name = NSTextField(labelWithString: item.displayName)
-        name.font = NSFont.systemFont(ofSize: 13, weight: item.isOpenLocally ? .semibold : .regular)
-        name.lineBreakMode = .byTruncatingTail
-
-        let badge = NSTextField(labelWithString: item.notificationCount > 0 ? "\(item.notificationCount)" : "")
-        badge.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-        badge.alignment = .center
-        badge.textColor = .white
-        badge.wantsLayer = true
-        badge.layer?.cornerRadius = 7
-        badge.layer?.backgroundColor = item.notificationLevel == .attention
-            ? NSColor.systemRed.cgColor
-            : NSColor.systemBlue.cgColor
-        badge.isHidden = item.notificationCount == 0
-
-        [name, badge].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            addSubview($0)
-        }
-
-        NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 28),
-            name.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            name.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badge.leadingAnchor.constraint(greaterThanOrEqualTo: name.trailingAnchor, constant: 8),
-            badge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            badge.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badge.widthAnchor.constraint(greaterThanOrEqualToConstant: 20),
-            badge.heightAnchor.constraint(equalToConstant: 18),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: 220)
-        ])
-    }
-}

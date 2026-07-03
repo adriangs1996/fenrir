@@ -158,9 +158,13 @@ describe("resolveInitialServerAuthGateState", () => {
       },
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://remote.example.com/api/auth/session", {
-      credentials: "include",
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://remote.example.com/api/auth/session",
+      expect.objectContaining({
+        credentials: "include",
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 
   it("uses the current origin as an auth proxy base for local dev environments", async () => {
@@ -190,9 +194,13 @@ describe("resolveInitialServerAuthGateState", () => {
       },
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5735/api/auth/session", {
-      credentials: "include",
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:5735/api/auth/session",
+      expect.objectContaining({
+        credentials: "include",
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 
   it("does not fetch auth urls from the packaged desktop app protocol", async () => {
@@ -244,9 +252,13 @@ describe("resolveInitialServerAuthGateState", () => {
       },
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:5733/api/auth/session", {
-      credentials: "include",
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:5733/api/auth/session",
+      expect.objectContaining({
+        credentials: "include",
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 
   it("bootstraps packaged desktop auth with a bearer session token", async () => {
@@ -305,26 +317,37 @@ describe("resolveInitialServerAuthGateState", () => {
       status: "authenticated",
     });
     expect(readPrimaryBearerSessionToken()).toBe("desktop-bearer-token");
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://127.0.0.1:3773/api/auth/session", {
-      credentials: "include",
-    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:3773/api/auth/session",
+      expect.objectContaining({
+        credentials: "include",
+        signal: expect.any(AbortSignal),
+      }),
+    );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "http://127.0.0.1:3773/api/auth/bootstrap/bearer",
-      {
+      expect.objectContaining({
         body: JSON.stringify({ credential: "desktop-bootstrap-token" }),
         headers: {
           "content-type": "application/json",
         },
         method: "POST",
-      },
+        signal: expect.any(AbortSignal),
+      }),
     );
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://127.0.0.1:3773/api/auth/session", {
-      credentials: "omit",
-      headers: {
-        authorization: "Bearer desktop-bearer-token",
-      },
-    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://127.0.0.1:3773/api/auth/session",
+      expect.objectContaining({
+        credentials: "omit",
+        headers: {
+          authorization: "Bearer desktop-bearer-token",
+        },
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 
   it("issues primary websocket tokens with the packaged desktop bearer session", async () => {
