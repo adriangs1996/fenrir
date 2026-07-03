@@ -4319,7 +4319,7 @@ struct NativeAppServerConnectionContext: Sendable {
     }
 
     static func localDefault(
-        transport: any ServerConnection.NativeServerRPCTransporting = ServerConnection.NativeWebSocketServerRPCTransport(),
+        transport: any ServerConnection.NativeServerRPCTransporting = ServerConnection.NativeURLSessionServerRPCTransport(),
         bootstrapCredential: String? = NativeAppServerConnectionContext.localBootstrapCredential()
     ) -> NativeAppServerConnectionContext {
         let sessionID = ServerConnection.SessionID(rawValue: "native-app-local")
@@ -4335,7 +4335,7 @@ struct NativeAppServerConnectionContext: Sendable {
     static func preparedLocalDefault(
         spec: ServerConnection.LocalServerSpec = NativeAppServerConnectionContext.localDefaultSpec(),
         supervisor: NativeLocalServerSupervisor = NativeLocalServerSupervisor.localDefault(),
-        transport: any ServerConnection.NativeServerRPCTransporting = ServerConnection.NativeWebSocketServerRPCTransport(),
+        transport: any ServerConnection.NativeServerRPCTransporting = ServerConnection.NativeURLSessionServerRPCTransport(),
         bootstrapCredential: String? = NativeAppServerConnectionContext.localBootstrapCredential(),
         restartPolicy: ServerConnection.LocalServerRestartPolicy = ServerConnection.LocalServerRestartPolicy(),
         requestID: RequestID = "native-local-default-prepare"
