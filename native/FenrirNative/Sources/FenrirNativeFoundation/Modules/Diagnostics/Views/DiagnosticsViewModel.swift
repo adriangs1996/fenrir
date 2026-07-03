@@ -34,6 +34,8 @@ private extension Diagnostics.DiagnosticCategory {
             "Terminal viewport"
         case .nativeShell:
             "Native shell"
+        case .crashReport:
+            "Crash report"
         }
     }
 }

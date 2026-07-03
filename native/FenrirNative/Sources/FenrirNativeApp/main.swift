@@ -19,6 +19,7 @@ import WorkspaceIndex
 import WorkspaceOverlays
 import WorkflowControl
 
+NativeCrashReporter.install()
 let app = NSApplication.shared
 let nativeApplicationDelegate = FenrirNativeApplication()
 app.delegate = nativeApplicationDelegate
@@ -157,6 +158,18 @@ final class FenrirNativeApplication: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+}
+
+enum NativeCrashReporter {
+    static func install() {
+        NSSetUncaughtExceptionHandler { exception in
+            _ = Diagnostics.recordNativeCrashReport(
+                exceptionName: exception.name.rawValue,
+                reason: exception.reason,
+                callStackSymbols: exception.callStackSymbols
+            )
+        }
     }
 }
 
@@ -3541,7 +3554,7 @@ final class NativeDiagnosticsActionController {
     private let policy: Diagnostics.DiagnosticsPolicy
 
     init(
-        store: any Diagnostics.DiagnosticsStore = Diagnostics.inMemoryDiagnosticsStore(),
+        store: any Diagnostics.DiagnosticsStore = Diagnostics.localFileDiagnosticsStore(),
         redactor: any Diagnostics.DiagnosticsRedactor = Diagnostics.supportBundleRedactor(),
         clock: any Diagnostics.DiagnosticsClock = NativeDiagnosticsClock(),
         policy: Diagnostics.DiagnosticsPolicy = Diagnostics.DiagnosticsPolicy(detailLevel: .verboseLocal)

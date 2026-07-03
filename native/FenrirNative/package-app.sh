@@ -97,6 +97,7 @@ CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
 CODESIGN_ENTITLEMENTS="${CODESIGN_ENTITLEMENTS:-}"
 CLEAN="${CLEAN:-1}"
 SKIP_SWIFT_BUILD="${SKIP_SWIFT_BUILD:-0}"
+REQUIRE_RELEASE_ASSETS="${REQUIRE_RELEASE_ASSETS:-}"
 
 case "$CONFIGURATION" in
   debug|release)
@@ -108,6 +109,28 @@ esac
 
 if [[ ! -f "$PACKAGE_ROOT/Package.swift" ]]; then
   fail "PACKAGE_ROOT must point at native/FenrirNative: $PACKAGE_ROOT"
+fi
+
+if [[ -z "$REQUIRE_RELEASE_ASSETS" ]]; then
+  if [[ "$CONFIGURATION" == "release" ]]; then
+    REQUIRE_RELEASE_ASSETS=1
+  else
+    REQUIRE_RELEASE_ASSETS=0
+  fi
+fi
+
+case "$REQUIRE_RELEASE_ASSETS" in
+  0|1)
+    ;;
+  *)
+    fail "REQUIRE_RELEASE_ASSETS must be 0 or 1, got '$REQUIRE_RELEASE_ASSETS'"
+    ;;
+esac
+
+if [[ "$REQUIRE_RELEASE_ASSETS" == "1" ]]; then
+  [[ -n "$SERVER_ASSET" ]] || fail "SERVER_ASSET is required for release packaging"
+  [[ -n "$TERMINAL_RENDERER_ARTIFACT" ]] || fail "TERMINAL_RENDERER_ARTIFACT is required for release packaging"
+  [[ -n "$TERMINAL_RENDERER_RESOURCES" ]] || fail "TERMINAL_RENDERER_RESOURCES is required for release packaging"
 fi
 
 command -v swift >/dev/null 2>&1 || fail "swift is required on PATH"

@@ -88,7 +88,7 @@ struct DiagnosticsTests {
         #expect(!String(describing: defaultReport.report).contains("should not appear"))
     }
 
-    @Test("Diagnostics categorizes server, tmux, workflow, and keybinding events")
+    @Test("Diagnostics categorizes server, tmux, workflow, keybinding, and crash events")
     func diagnosticsCategorizesOperationalEvents() async throws {
         let store = Diagnostics.inMemoryDiagnosticsStore()
         let record = Diagnostics.RecordDiagnosticEvent(
@@ -102,7 +102,8 @@ struct DiagnosticsTests {
             Diagnostics.DiagnosticCategory.serverConnection,
             .tmuxKernel,
             .workflow,
-            .keybinding
+            .keybinding,
+            .crashReport
         ] {
             _ = try await record.run(.init(
                 requestID: RequestID(rawValue: "record-\(category.rawValue)"),
@@ -117,6 +118,7 @@ struct DiagnosticsTests {
         #expect(result.report.categoryCounts[.tmuxKernel] == 1)
         #expect(result.report.categoryCounts[.workflow] == 1)
         #expect(result.report.categoryCounts[.keybinding] == 1)
+        #expect(result.report.categoryCounts[.crashReport] == 1)
     }
 
     @Test("Disabled diagnostics do not record events or expose report contents")
@@ -205,6 +207,88 @@ struct DiagnosticsTests {
         #expect(recorded.recorded)
     }
 
+    @Test("File diagnostics store persists safe events across store instances")
+    func fileDiagnosticsStorePersistsSafeEventsAcrossInstances() async throws {
+        let eventsFileURL = temporaryDiagnosticsFileURL()
+        defer { try? FileManager.default.removeItem(at: eventsFileURL.deletingLastPathComponent()) }
+        let store = Diagnostics.localFileDiagnosticsStore(eventsFileURL: eventsFileURL)
+        let record = Diagnostics.RecordDiagnosticEvent(
+            clock: FixedClock(),
+            store: store,
+            redactor: Diagnostics.supportBundleRedactor()
+        )
+        let event = diagnosticEvent(
+            category: .nativeShell,
+            severity: .error,
+            message: "Failure included bearer abc.def.ghi",
+            metadata: ["token": "plain-secret"]
+        )
+
+        _ = try await record.run(.init(requestID: "record", event: event, source: .test)).get()
+
+        let reloadedStore = Diagnostics.localFileDiagnosticsStore(eventsFileURL: eventsFileURL)
+        let report = Diagnostics.BuildDiagnosticsReport(clock: FixedClock(), store: reloadedStore)
+        let result = try await report.run(.init(requestID: "report", source: .test)).get()
+
+        #expect(result.report.events.count == 1)
+        #expect(result.report.events[0].message == "Failure included bearer [redacted]")
+        #expect(result.report.events[0].metadata["token"] == "[redacted]")
+    }
+
+    @Test("File diagnostics store bounds retained events")
+    func fileDiagnosticsStoreBoundsRetainedEvents() async throws {
+        let eventsFileURL = temporaryDiagnosticsFileURL()
+        defer { try? FileManager.default.removeItem(at: eventsFileURL.deletingLastPathComponent()) }
+        let store = Diagnostics.localFileDiagnosticsStore(eventsFileURL: eventsFileURL, maximumEvents: 2)
+        let record = Diagnostics.RecordDiagnosticEvent(
+            clock: FixedClock(),
+            store: store,
+            redactor: Diagnostics.supportBundleRedactor()
+        )
+        let report = Diagnostics.BuildDiagnosticsReport(clock: FixedClock(), store: store)
+
+        for index in 1...3 {
+            let event = Diagnostics.DiagnosticEvent(
+                id: Diagnostics.DiagnosticEventID(rawValue: "event-\(index)"),
+                workspaceID: "workspace-a",
+                category: .workflow,
+                severity: .warning,
+                title: "Diagnostic \(index)",
+                message: "event \(index)",
+                occurredAt: FixedClock().now()
+            )
+            _ = try await record.run(.init(requestID: RequestID(rawValue: "record-\(index)"), event: event, source: .test)).get()
+        }
+
+        let result = try await report.run(.init(requestID: "report", source: .test)).get()
+
+        #expect(result.report.events.map(\.id.rawValue) == ["event-2", "event-3"])
+    }
+
+    @Test("Native crash reports persist through the safe diagnostics redactor")
+    func nativeCrashReportsPersistThroughSafeRedactor() async throws {
+        let eventsFileURL = temporaryDiagnosticsFileURL()
+        defer { try? FileManager.default.removeItem(at: eventsFileURL.deletingLastPathComponent()) }
+
+        let recorded = Diagnostics.recordNativeCrashReport(
+            exceptionName: "NSInvalidArgumentException",
+            reason: "bearer abc.def.ghi token=plain-secret",
+            callStackSymbols: ["frame password=from-stack"],
+            occurredAt: FixedClock().now(),
+            eventsFileURL: eventsFileURL
+        )
+
+        let store = Diagnostics.localFileDiagnosticsStore(eventsFileURL: eventsFileURL)
+        let report = Diagnostics.BuildDiagnosticsReport(clock: FixedClock(), store: store)
+        let result = try await report.run(.init(requestID: "report", source: .test)).get()
+
+        #expect(recorded)
+        #expect(result.report.events.count == 1)
+        #expect(result.report.events[0].category == .crashReport)
+        #expect(result.report.events[0].message == "Uncaught native exception: bearer [redacted] token=[redacted]")
+        #expect(result.report.events[0].metadata["callStack"] == "frame password=[redacted]")
+    }
+
     @Test("Diagnostics are accessible through command palette actions")
     func diagnosticsAreAccessibleThroughCommandPaletteActions() async throws {
         let provider = Diagnostics.paletteProvider()
@@ -259,5 +343,11 @@ struct DiagnosticsTests {
             terminalContent: terminalContent,
             occurredAt: FixedClock().now()
         )
+    }
+
+    private func temporaryDiagnosticsFileURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("FenrirDiagnosticsTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("events.jsonl")
     }
 }

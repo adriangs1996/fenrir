@@ -52,6 +52,7 @@ Useful environment overrides:
 - `SERVER_ASSET=/path/to/fenrir-server` bundles an executable server helper as `Contents/Resources/fenrir-server`.
 - `TERMINAL_RENDERER_ARTIFACT=/path/to/FenrirTerminalRenderer` bundles the renderer artifact consumed by distribution readiness.
 - `TERMINAL_RENDERER_RESOURCES=/path/to/resources` bundles renderer resources as `Contents/Resources/FenrirTerminalResources`.
+- `REQUIRE_RELEASE_ASSETS=0|1` overrides the default release gate. Release packaging requires `SERVER_ASSET`, `TERMINAL_RENDERER_ARTIFACT`, and `TERMINAL_RENDERER_RESOURCES`; debug packaging keeps the smoke bundle path available.
 - `CODESIGN_IDENTITY=...` signs the app bundle with hardened runtime; `CODESIGN_ENTITLEMENTS=...` adds entitlements when needed.
 
-The script validates `Info.plist`, executable resource permissions, and prints the bundle path. Notarization and update-feed publication remain release-pipeline concerns because they require Apple credentials and distribution-channel configuration.
+The script validates `Info.plist`, executable resource permissions, required release assets, and prints the bundle path. Notarization and update-feed publication remain release-pipeline concerns because they require Apple credentials and distribution-channel configuration.

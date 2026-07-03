@@ -19,8 +19,8 @@ Distribution assumptions:
 - remote attach mode does not require local tmux or a local server binary.
 - Neovim is not bundled; Neovim panes are created by server/tmux workflows when
   available.
-- the native terminal renderer artifact is reported as warning-only until the
-  renderer is bundled; bootstrap text rendering remains the fallback.
+- the native terminal renderer artifact is required by default; bootstrap text
+  rendering is an explicit local smoke fallback and reports degraded readiness.
 
 Testing:
 

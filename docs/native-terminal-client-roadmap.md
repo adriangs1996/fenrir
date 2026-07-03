@@ -161,9 +161,11 @@ Current implementation state:
 - AgentInteraction supports bounded context capture and native composer flow;
   base submission dispatches server orchestration commands and intentionally
   avoids writing into tmux panes.
-- Remaining large product gaps are the production libGhostty backend/artifact
-  and packaging artifact path, signing/notarization/updater, crash reporting,
-  and broader performance/failure-injection hardening.
+- Remaining large product gaps are the production libGhostty backend/artifact,
+  signing/notarization/updater, and broader performance/failure-injection
+  hardening. The packaging path now fails release bundles that omit the server,
+  renderer artifact, or renderer resources, and native crash reports persist as
+  local redacted diagnostics records.
 
 Implemented documentation should distinguish this scaffolded/partially wired
 state from final target behavior. Roadmap workstreams below remain the target

@@ -65,6 +65,7 @@ public extension Diagnostics {
         case nativeRuntime
         case terminalViewport
         case nativeShell
+        case crashReport
     }
 
     enum DiagnosticSeverity: String, Codable, Equatable, Comparable, Sendable {
