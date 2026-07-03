@@ -123,6 +123,53 @@ struct NativeLocalServerSupervisorTests {
         #expect(String(describing: launchRequests[0]).contains("super-secret") == false)
     }
 
+    @Test("Development launch configuration starts the monorepo server with a desktop bootstrap token")
+    func developmentLaunchConfigurationStartsMonorepoServer() throws {
+        let fileManager = FileManager.default
+        let rootURL = fileManager.temporaryDirectory
+            .appendingPathComponent("fenrir-native-dev-\(UUID().uuidString)")
+        let serverSourceURL = rootURL.appendingPathComponent("apps/server/src", isDirectory: true)
+        let nativePackageURL = rootURL.appendingPathComponent("native/FenrirNative", isDirectory: true)
+        let workspaceURL = rootURL.appendingPathComponent("fixtures/workspace", isDirectory: true)
+        try fileManager.createDirectory(at: serverSourceURL, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: nativePackageURL, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        try "{}".write(to: rootURL.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+        try "{}".write(to: rootURL.appendingPathComponent("apps/server/package.json"), atomically: true, encoding: .utf8)
+        try "".write(to: rootURL.appendingPathComponent("apps/server/src/bin.ts"), atomically: true, encoding: .utf8)
+        defer {
+            try? fileManager.removeItem(at: rootURL)
+        }
+
+        let configuration = try #require(NativeLocalServerSupervisor.developmentLaunchConfiguration(
+            environment: [
+                "FENRIR_NATIVE_BOOTSTRAP_TOKEN": "dev-bootstrap-token",
+                "FENRIR_NATIVE_WORKSPACE_ROOT": workspaceURL.path
+            ],
+            currentDirectoryURL: nativePackageURL,
+            fileManager: fileManager
+        ))
+
+        #expect(configuration.executableURL.path == "/usr/bin/env")
+        #expect(configuration.arguments == [
+            "bun",
+            "run",
+            "src/bin.ts",
+            "--mode",
+            "desktop",
+            "--host",
+            NativeLocalServerSupervisor.defaultHost,
+            "--port",
+            String(NativeLocalServerSupervisor.defaultPort),
+            "--no-browser",
+            "--auto-bootstrap-project-from-cwd",
+            workspaceURL.path
+        ])
+        #expect(configuration.environment["FENRIR_DESKTOP_BOOTSTRAP_TOKEN"] == "dev-bootstrap-token")
+        #expect(configuration.environment["FENRIR_PORT"] == String(NativeLocalServerSupervisor.defaultPort))
+        #expect(configuration.workingDirectoryURL?.path == rootURL.appendingPathComponent("apps/server").path)
+    }
+
     @Test("Spawn failure maps to stable local server spawn error")
     func spawnFailureMapsToStableError() async throws {
         let launcher = RecordingProcessLauncher(launchResults: [.failure(ExampleLaunchError())])

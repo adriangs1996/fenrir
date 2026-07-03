@@ -679,7 +679,8 @@ final class NativeApplicationBootstrapCoordinator {
     }
 
     nonisolated static func distributionStartupMode(
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        canLaunchDevelopmentServer: Bool? = nil
     ) -> NativeDistribution.StartupMode {
         let hasExternalBootstrapCredential = [
             "FENRIR_NATIVE_BOOTSTRAP_TOKEN",
@@ -688,7 +689,13 @@ final class NativeApplicationBootstrapCoordinator {
         ]
             .compactMap { environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .contains { !$0.isEmpty }
-        return hasExternalBootstrapCredential ? .existingLocalServer : .localDefault
+        if hasExternalBootstrapCredential {
+            return .existingLocalServer
+        }
+        if canLaunchDevelopmentServer ?? NativeLocalServerSupervisor.canLaunchDevelopmentServer(environment: environment) {
+            return .existingLocalServer
+        }
+        return .localDefault
     }
 
     func startTask() -> Task<NativeApplicationStartupSnapshot, Never> {
@@ -4551,7 +4558,8 @@ struct NativeAppServerConnectionContext: Sendable {
     private static func localDefaultSpec() -> ServerConnection.LocalServerSpec {
         ServerConnection.LocalServerSpec(
             httpBaseURL: "http://127.0.0.1:31337",
-            webSocketURL: "ws://127.0.0.1:31337/ws"
+            webSocketURL: "ws://127.0.0.1:31337/ws",
+            readinessTimeoutMilliseconds: 30_000
         )
     }
 
@@ -4709,13 +4717,7 @@ struct NativeAppServerConnectionContext: Sendable {
     }
 
     private static func localBootstrapCredential(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        [
-            "FENRIR_NATIVE_BOOTSTRAP_TOKEN",
-            "FENRIR_DESKTOP_BOOTSTRAP_TOKEN",
-            "FENRIR_BOOTSTRAP_TOKEN"
-        ]
-            .compactMap { environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
+        NativeDesktopBootstrapCredential.resolve(environment: environment)
     }
 }
 

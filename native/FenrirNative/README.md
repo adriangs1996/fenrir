@@ -29,7 +29,10 @@ terminal app rather than a document editor:
 
 - local default mode opens the native app and connects to the configured local
   Fenrir server endpoint; the prepared NativeHost path can attach to an
-  already-running server or spawn the bundled server under native supervision
+  already-running server, spawn the bundled server under native supervision, or
+  when launched from this monorepo with `swift run`, spawn
+  `apps/server/src/bin.ts` through `bun` with a generated desktop bootstrap
+  credential
 - existing-local mode attaches to a separately managed local server without
   killing or restarting it
 - remote mode is explicit and connects to a named remote profile or endpoint

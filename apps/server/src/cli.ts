@@ -179,6 +179,10 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  desktopBootstrapToken: Config.string("FENRIR_DESKTOP_BOOTSTRAP_TOKEN").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   bootstrapFd: Config.int("FENRIR_BOOTSTRAP_FD").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
@@ -311,8 +315,11 @@ export const resolveServerConfig = (
       ),
     );
     const desktopBootstrapToken = Option.getOrUndefined(
-      Option.flatMap(bootstrapEnvelope, (bootstrap) =>
-        Option.fromUndefinedOr(bootstrap.desktopBootstrapToken),
+      resolveOptionPrecedence(
+        Option.fromUndefinedOr(env.desktopBootstrapToken),
+        Option.flatMap(bootstrapEnvelope, (bootstrap) =>
+          Option.fromUndefinedOr(bootstrap.desktopBootstrapToken),
+        ),
       ),
     );
     const autoBootstrapProjectFromCwd = resolveBooleanFlag(

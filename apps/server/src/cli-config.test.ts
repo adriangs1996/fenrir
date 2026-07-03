@@ -64,6 +64,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
                   FENRIR_HOME: baseDir,
                   VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
                   FENRIR_NO_BROWSER: "true",
+                  FENRIR_DESKTOP_BOOTSTRAP_TOKEN: "desktop-bootstrap-token",
                   FENRIR_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
                   FENRIR_LOG_WS_EVENTS: "true",
                 },
@@ -86,7 +87,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         staticDir: undefined,
         devUrl: new URL("http://127.0.0.1:5173"),
         noBrowser: true,
-        desktopBootstrapToken: undefined,
+        desktopBootstrapToken: "desktop-bootstrap-token",
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: true,
       });

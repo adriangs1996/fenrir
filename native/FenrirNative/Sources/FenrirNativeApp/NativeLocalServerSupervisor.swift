@@ -65,8 +65,11 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
     ServerConnection.LocalServerSpawning,
     ServerConnection.LocalServerProcessManaging
 {
+    static let defaultHost = "127.0.0.1"
+    static let defaultPort = 31337
     static let defaultProbePath = "/.well-known/t3/environment"
     static let defaultServerResourceName = "fenrir-server"
+    static let developmentServerEntryRelativePath = "apps/server/src/bin.ts"
 
     private let launchConfiguration: NativeLocalServerLaunchConfiguration
     private let launcher: any ProcessLaunching
@@ -94,11 +97,106 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
         self.ownership = ownership
     }
 
-    static func localDefault(bundle: Bundle = .main) -> NativeLocalServerSupervisor {
-        let executableURL = bundle.url(forResource: defaultServerResourceName, withExtension: nil)
-            ?? URL(fileURLWithPath: "/nonexistent/fenrir-server")
+    static func localDefault(
+        bundle: Bundle = .main,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        currentDirectoryURL: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        fileManager: FileManager = .default
+    ) -> NativeLocalServerSupervisor {
         return NativeLocalServerSupervisor(
-            launchConfiguration: NativeLocalServerLaunchConfiguration(executableURL: executableURL)
+            launchConfiguration: localDefaultLaunchConfiguration(
+                bundle: bundle,
+                environment: environment,
+                currentDirectoryURL: currentDirectoryURL,
+                fileManager: fileManager
+            )
+        )
+    }
+
+    static func localDefaultLaunchConfiguration(
+        bundle: Bundle = .main,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        currentDirectoryURL: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        fileManager: FileManager = .default
+    ) -> NativeLocalServerLaunchConfiguration {
+        let workspaceRoot = workspaceRootURL(environment: environment, fallback: currentDirectoryURL)
+        if let explicitAssetURL = explicitServerAssetURL(environment: environment, relativeTo: currentDirectoryURL) {
+            return serverExecutableLaunchConfiguration(
+                executableURL: explicitAssetURL,
+                workspaceRootURL: workspaceRoot,
+                environment: environment
+            )
+        }
+
+        if let bundledURL = bundle.url(forResource: defaultServerResourceName, withExtension: nil) {
+            return serverExecutableLaunchConfiguration(
+                executableURL: bundledURL,
+                workspaceRootURL: workspaceRoot,
+                environment: environment
+            )
+        }
+
+        if let developmentConfiguration = developmentLaunchConfiguration(
+            environment: environment,
+            currentDirectoryURL: currentDirectoryURL,
+            fileManager: fileManager
+        ) {
+            return developmentConfiguration
+        }
+
+        return NativeLocalServerLaunchConfiguration(
+            executableURL: URL(fileURLWithPath: "/nonexistent/fenrir-server")
+        )
+    }
+
+    static func canLaunchDevelopmentServer(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        currentDirectoryURL: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        fileManager: FileManager = .default
+    ) -> Bool {
+        developmentLaunchConfiguration(
+            environment: environment,
+            currentDirectoryURL: currentDirectoryURL,
+            fileManager: fileManager
+        ) != nil
+    }
+
+    static func developmentLaunchConfiguration(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        currentDirectoryURL: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        fileManager: FileManager = .default
+    ) -> NativeLocalServerLaunchConfiguration? {
+        guard let repositoryRootURL = repositoryRootURL(
+            environment: environment,
+            currentDirectoryURL: currentDirectoryURL,
+            fileManager: fileManager
+        ) else {
+            return nil
+        }
+
+        let serverEntryURL = repositoryRootURL.appendingPathComponent(developmentServerEntryRelativePath)
+        guard fileManager.fileExists(atPath: serverEntryURL.path) else {
+            return nil
+        }
+
+        return NativeLocalServerLaunchConfiguration(
+            executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+            arguments: [
+                "bun",
+                "run",
+                "src/bin.ts",
+                "--mode",
+                "desktop",
+                "--host",
+                defaultHost,
+                "--port",
+                String(defaultPort),
+                "--no-browser",
+                "--auto-bootstrap-project-from-cwd",
+                workspaceRootURL(environment: environment, fallback: repositoryRootURL).path
+            ],
+            environment: serverLaunchEnvironment(environment: environment),
+            workingDirectoryURL: repositoryRootURL.appendingPathComponent("apps/server")
         )
     }
 
@@ -216,6 +314,128 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
         components.query = nil
         components.fragment = nil
         return components.url
+    }
+
+    private static func serverExecutableLaunchConfiguration(
+        executableURL: URL,
+        workspaceRootURL: URL,
+        environment: [String: String]
+    ) -> NativeLocalServerLaunchConfiguration {
+        NativeLocalServerLaunchConfiguration(
+            executableURL: executableURL,
+            arguments: [
+                "--mode",
+                "desktop",
+                "--host",
+                defaultHost,
+                "--port",
+                String(defaultPort),
+                "--no-browser",
+                "--auto-bootstrap-project-from-cwd",
+                workspaceRootURL.path
+            ],
+            environment: serverLaunchEnvironment(environment: environment),
+            workingDirectoryURL: workspaceRootURL
+        )
+    }
+
+    private static func serverLaunchEnvironment(environment: [String: String]) -> [String: String] {
+        var launchEnvironment = [
+            "FENRIR_MODE": "desktop",
+            "FENRIR_HOST": defaultHost,
+            "FENRIR_PORT": String(defaultPort),
+            "FENRIR_NO_BROWSER": "true",
+            "FENRIR_AUTO_BOOTSTRAP_PROJECT_FROM_CWD": "true"
+        ]
+        if let bootstrapCredential = NativeDesktopBootstrapCredential.resolve(environment: environment) {
+            launchEnvironment["FENRIR_DESKTOP_BOOTSTRAP_TOKEN"] = bootstrapCredential
+        }
+        return launchEnvironment
+    }
+
+    private static func explicitServerAssetURL(
+        environment: [String: String],
+        relativeTo currentDirectoryURL: URL
+    ) -> URL? {
+        [
+            "FENRIR_NATIVE_SERVER_ASSET",
+            "FENRIR_SERVER_ASSET",
+            "SERVER_ASSET"
+        ]
+            .compactMap { environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+            .map { absoluteURL(path: $0, relativeTo: currentDirectoryURL) }
+    }
+
+    private static func repositoryRootURL(
+        environment: [String: String],
+        currentDirectoryURL: URL,
+        fileManager: FileManager
+    ) -> URL? {
+        if let configured = [
+            "FENRIR_NATIVE_REPO_ROOT",
+            "FENRIR_REPO_ROOT"
+        ]
+            .compactMap({ environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .first(where: { !$0.isEmpty })
+        {
+            let url = absoluteURL(path: configured, relativeTo: currentDirectoryURL)
+            return isRepositoryRoot(url, fileManager: fileManager) ? url : nil
+        }
+
+        return nearestRepositoryRoot(startingAt: currentDirectoryURL, fileManager: fileManager)
+    }
+
+    private static func workspaceRootURL(
+        environment: [String: String],
+        fallback: URL
+    ) -> URL {
+        if let configured = [
+            "FENRIR_NATIVE_WORKSPACE_ROOT",
+            "FENRIR_WORKSPACE_ROOT"
+        ]
+            .compactMap({ environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .first(where: { !$0.isEmpty })
+        {
+            return absoluteURL(path: configured, relativeTo: fallback)
+        }
+
+        return fallback.standardizedFileURL
+    }
+
+    private static func nearestRepositoryRoot(startingAt url: URL, fileManager: FileManager) -> URL? {
+        var candidate = url.standardizedFileURL
+        var isDirectory = ObjCBool(false)
+        if fileManager.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
+           !isDirectory.boolValue
+        {
+            candidate.deleteLastPathComponent()
+        }
+
+        while true {
+            if isRepositoryRoot(candidate, fileManager: fileManager) {
+                return candidate
+            }
+            let parent = candidate.deletingLastPathComponent()
+            if parent.path == candidate.path {
+                return nil
+            }
+            candidate = parent
+        }
+    }
+
+    private static func isRepositoryRoot(_ url: URL, fileManager: FileManager) -> Bool {
+        fileManager.fileExists(atPath: url.appendingPathComponent("package.json").path)
+            && fileManager.fileExists(atPath: url.appendingPathComponent("apps/server/package.json").path)
+            && fileManager.fileExists(atPath: url.appendingPathComponent(developmentServerEntryRelativePath).path)
+    }
+
+    private static func absoluteURL(path rawPath: String, relativeTo baseURL: URL) -> URL {
+        let expanded = (rawPath as NSString).expandingTildeInPath
+        if (expanded as NSString).isAbsolutePath {
+            return URL(fileURLWithPath: expanded).standardizedFileURL
+        }
+        return baseURL.appendingPathComponent(expanded).standardizedFileURL
     }
 }
 

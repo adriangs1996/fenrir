@@ -15,8 +15,15 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
         ]) == .existingLocalServer)
         #expect(NativeApplicationBootstrapCoordinator.distributionStartupMode(environment: [
             "FENRIR_BOOTSTRAP_TOKEN": "  "
-        ]) == .localDefault)
-        #expect(NativeApplicationBootstrapCoordinator.distributionStartupMode(environment: [:]) == .localDefault)
+        ], canLaunchDevelopmentServer: false) == .localDefault)
+        #expect(NativeApplicationBootstrapCoordinator.distributionStartupMode(
+            environment: [:],
+            canLaunchDevelopmentServer: false
+        ) == .localDefault)
+        #expect(NativeApplicationBootstrapCoordinator.distributionStartupMode(
+            environment: [:],
+            canLaunchDevelopmentServer: true
+        ) == .existingLocalServer)
     }
 
     @Test("NativeHost startup uses prepared local default before opening workspace and socket hooks")

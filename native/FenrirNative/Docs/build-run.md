@@ -12,6 +12,12 @@ swift test
 swift run FenrirNativeApp
 ```
 
+When launched from this monorepo, `swift run FenrirNativeApp` does not require a
+pre-bundled `SERVER_ASSET`. If no server is already listening on
+`127.0.0.1:31337`, the native supervisor starts `apps/server/src/bin.ts` through
+`bun`, passes a desktop bootstrap credential to the server, and waits for the
+real health endpoint before opening the workspace.
+
 ## Repository Gates
 
 From the repository root:
