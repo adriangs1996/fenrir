@@ -65,8 +65,8 @@ struct NativeDistributionTests {
         #expect(result.report.diagnostics.contains { $0.title == "Local Fenrir server asset is unavailable" })
     }
 
-    @Test("Renderer artifact absence is warning-only and keeps startup possible")
-    func rendererArtifactAbsenceIsWarningOnly() async throws {
+    @Test("Renderer artifact absence blocks local default startup by default")
+    func rendererArtifactAbsenceBlocksLocalDefaultByDefault() async throws {
         let action = readinessAction(
             tmux: .init(executablePath: "/opt/homebrew/bin/tmux", version: "3.4"),
             serverAsset: .init(assetPath: "/app/fenrir-server", isExecutable: true),
@@ -75,9 +75,29 @@ struct NativeDistributionTests {
 
         let result = try await action.run(.init(requestID: "readiness", mode: .localDefault, source: .test)).get()
 
-        #expect(result.report.canStart)
+        #expect(!result.report.canStart)
         #expect(result.report.checks.first { $0.kind == .terminalRendererArtifact }?.status == .missing)
-        #expect(result.report.diagnostics.contains { $0.title == "Native terminal renderer artifact is unavailable" && $0.severity == .warning })
+        #expect(result.report.diagnostics.contains { $0.title == "Native terminal renderer artifact is unavailable" && $0.severity == .error })
+    }
+
+    @Test("Renderer artifact absence is warning-only when bootstrap fallback is explicit")
+    func rendererArtifactAbsenceAllowsExplicitBootstrapFallback() async throws {
+        let action = readinessAction(
+            tmux: .init(executablePath: "/opt/homebrew/bin/tmux", version: "3.4"),
+            serverAsset: .init(assetPath: "/app/fenrir-server", isExecutable: true),
+            terminalRenderer: .init(artifactPath: nil, isLoadable: false)
+        )
+
+        let result = try await action.run(.init(
+            requestID: "readiness",
+            mode: .localDefault,
+            allowBootstrapRendererFallback: true,
+            source: .test
+        )).get()
+
+        #expect(result.report.canStart)
+        #expect(result.report.checks.first { $0.kind == .terminalRendererArtifact }?.status == .fallbackAvailable)
+        #expect(result.report.diagnostics.contains { $0.title == "Native terminal renderer fallback is active" && $0.severity == .warning })
     }
 
     @Test("Renderer artifact availability is reported by readiness")
@@ -118,7 +138,8 @@ struct NativeDistributionTests {
         let action = NativeDistribution.AssessStartupReadiness(
             clock: FixedClock(),
             tmuxChecker: tmux,
-            serverAssetLocator: serverAsset
+            serverAssetLocator: serverAsset,
+            terminalRendererLocator: RecordingTerminalRendererArtifactLocator(result: availableTerminalRenderer)
         )
 
         let result = try await action.run(.init(requestID: "readiness", mode: .remoteAttach, source: .test)).get()
@@ -133,7 +154,7 @@ struct NativeDistributionTests {
     private func readinessAction(
         tmux: NativeDistribution.ToolProbeResult,
         serverAsset: NativeDistribution.ServerAssetProbeResult,
-        terminalRenderer: NativeDistribution.TerminalRendererArtifactProbeResult = .init(artifactPath: nil, isLoadable: false)
+        terminalRenderer: NativeDistribution.TerminalRendererArtifactProbeResult = availableTerminalRenderer
     ) -> NativeDistribution.AssessStartupReadiness {
         NativeDistribution.AssessStartupReadiness(
             clock: FixedClock(),
@@ -143,6 +164,13 @@ struct NativeDistributionTests {
         )
     }
 }
+
+private let availableTerminalRenderer = NativeDistribution.TerminalRendererArtifactProbeResult(
+    artifactPath: "/app/FenrirTerminalRenderer",
+    resourcesPath: "/app/FenrirTerminalResources",
+    isLoadable: true,
+    version: "1"
+)
 
 private actor RecordingTmuxChecker: NativeDistribution.TmuxDependencyChecking {
     private let result: NativeDistribution.ToolProbeResult

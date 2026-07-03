@@ -41,7 +41,11 @@ terminal app rather than a document editor:
 
 `libGhostty` stays behind `TerminalViewport` and `FenrirTerminalView`.
 High-volume terminal bytes do not flow through CLI control, workspace index,
-notifications, or generic product command paths.
+notifications, or generic product command paths. Startup readiness treats the
+native terminal renderer artifact as required by default; the bootstrap
+`NSTextView` renderer reports `RendererStatus.degraded` and is only considered
+an acceptable smoke fallback when `FENRIR_NATIVE_ALLOW_BOOTSTRAP_TERMINAL=1` is
+set.
 
 ## CLI Control
 

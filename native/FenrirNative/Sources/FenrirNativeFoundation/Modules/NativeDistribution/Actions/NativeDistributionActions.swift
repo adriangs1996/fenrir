@@ -48,6 +48,7 @@ public extension NativeDistribution {
                 let checks = try await NativeDistribution.checks(
                     mode: input.mode,
                     minimumTmuxVersion: input.minimumTmuxVersion,
+                    allowBootstrapRendererFallback: input.allowBootstrapRendererFallback,
                     tmuxChecker: tmuxChecker,
                     serverAssetLocator: serverAssetLocator,
                     terminalRendererLocator: terminalRendererLocator
@@ -77,6 +78,7 @@ public extension NativeDistribution {
     static func checks(
         mode: StartupMode,
         minimumTmuxVersion: String,
+        allowBootstrapRendererFallback: Bool = false,
         tmuxChecker: any TmuxDependencyChecking,
         serverAssetLocator: any ServerAssetLocating,
         terminalRendererLocator: any TerminalRendererArtifactLocating
@@ -105,7 +107,10 @@ public extension NativeDistribution {
             ))
         }
 
-        checks.append(try await terminalRendererArtifactCheck(locator: terminalRendererLocator))
+        checks.append(try await terminalRendererArtifactCheck(
+            locator: terminalRendererLocator,
+            allowBootstrapRendererFallback: allowBootstrapRendererFallback
+        ))
 
         checks.append(DependencyCheck(
             kind: .neovim,
@@ -189,7 +194,10 @@ public extension NativeDistribution {
         )
     }
 
-    static func terminalRendererArtifactCheck(locator: any TerminalRendererArtifactLocating) async throws -> DependencyCheck {
+    static func terminalRendererArtifactCheck(
+        locator: any TerminalRendererArtifactLocating,
+        allowBootstrapRendererFallback: Bool = false
+    ) async throws -> DependencyCheck {
         let probe: TerminalRendererArtifactProbeResult
         do {
             probe = try await locator.locateTerminalRendererArtifact()
@@ -200,10 +208,12 @@ public extension NativeDistribution {
         guard let path = probe.artifactPath, !path.isEmpty, probe.isLoadable else {
             return DependencyCheck(
                 kind: .terminalRendererArtifact,
-                status: .missing,
+                status: allowBootstrapRendererFallback ? .fallbackAvailable : .missing,
                 path: probe.artifactPath,
                 version: probe.version,
-                message: "Native terminal renderer artifact was not found; bootstrap text rendering will be used."
+                message: allowBootstrapRendererFallback
+                    ? "Native terminal renderer artifact was not found; explicit bootstrap text rendering fallback is enabled."
+                    : "Native terminal renderer artifact was not found; production terminal rendering cannot be marked ready."
             )
         }
 
@@ -241,10 +251,17 @@ public extension NativeDistribution {
             )
         case (.terminalRendererArtifact, .missing):
             return StartupDiagnostic(
-                severity: .warning,
+                severity: .error,
                 title: "Native terminal renderer artifact is unavailable",
                 message: check.message,
-                recoverySuggestion: "Build or bundle the native terminal renderer artifact; the app can still start with bootstrap text rendering."
+                recoverySuggestion: "Build or bundle the native terminal renderer artifact, or explicitly enable bootstrap renderer fallback for local smoke work."
+            )
+        case (.terminalRendererArtifact, .fallbackAvailable):
+            return StartupDiagnostic(
+                severity: .warning,
+                title: "Native terminal renderer fallback is active",
+                message: check.message,
+                recoverySuggestion: "Bundle the native terminal renderer artifact before treating this client as production-ready."
             )
         case (.neovim, .externalNotBundled):
             return StartupDiagnostic(

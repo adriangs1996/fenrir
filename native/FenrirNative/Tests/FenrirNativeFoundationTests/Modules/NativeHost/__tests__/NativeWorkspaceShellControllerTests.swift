@@ -30,7 +30,7 @@ struct NativeWorkspaceShellControllerTests {
         #expect(view.terminalPaneHost.paneGridView.superview === view.terminalPaneHost)
         #expect(view.terminalPaneHost.paneGridView.renderedPaneIDs() == ["pane-a"])
         #expect(view.terminalPaneHost.paneGridView.renderedTmuxPaneIDs() == ["%1"])
-        #expect(view.terminalPaneHost.terminalView.rendererDescriptor.status == .ready)
+        #expect(view.terminalPaneHost.terminalView.rendererDescriptor.status == .degraded)
         #expect(view.terminalPaneHost.terminalView.attachedStreamID == nil)
         #expect(view.terminalPaneHost.terminalView.captureLastLines(maxLines: nil).text.contains("Fenrir tmux pane stream attached") == false)
         #expect(view.terminalPaneHost.terminalView.captureLastLines(maxLines: nil).text.contains("attached pane stream") == false)

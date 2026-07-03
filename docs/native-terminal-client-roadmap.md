@@ -137,7 +137,10 @@ Current implementation state:
 - TerminalViewport owns the FenrirTerminalView boundary, stream ingestion,
   reserved OSC stripping/forwarding, renderer backpressure batching, and context
   capture contracts. The production libGhostty backend artifact remains a
-  distribution/runtime dependency; tests use fake renderer ports.
+  distribution/runtime dependency; tests use fake renderer ports. Startup
+  readiness now treats a missing renderer artifact as a blocking diagnostic by
+  default; the AppKit bootstrap text renderer is explicitly degraded and only
+  opt-in for local smoke work with `FENRIR_NATIVE_ALLOW_BOOTSTRAP_TERMINAL=1`.
 - PaneGrid and WorkspaceShell have AppKit host surfaces with tmux window/tab and
   pane projection, focus, resize, palette, sidebar, overlays, and theme tokens.
 - WorkflowControl lists, opens timelines, controls server-owned workflow runs
@@ -152,14 +155,15 @@ Current implementation state:
   idempotent, backup-backed, and conflict-refusing. NativeHost and the
   `fenrir agent-integration status|repair|remove` CLI now expose explicit
   status, repair, and clean removal operations over the local native control
-  socket. First-run, palette, and settings UI repair flows remain the next
-  integration layer.
+  socket. First-run degraded-state presentation, the sidebar attention entry,
+  and the command-palette repair surface are wired; a dedicated settings
+  preferences page for agent integrations remains the next integration layer.
 - AgentInteraction supports bounded context capture and native composer flow;
   base submission dispatches server orchestration commands and intentionally
   avoids writing into tmux panes.
-- Remaining large product gaps are the production libGhostty backend/artifact,
-  agent-integration first-run/palette/settings UI repair flows,
-  signing/notarization/updater, crash reporting, and broader
+- Remaining large product gaps are the production libGhostty backend/artifact
+  and packaging artifact path, a dedicated agent-integration settings
+  preferences page, signing/notarization/updater, crash reporting, and broader
   performance/failure-injection hardening.
 
 Implemented documentation should distinguish this scaffolded/partially wired
@@ -1192,9 +1196,11 @@ Deliverables:
   sidebar rows, palette results, and dispatch targeting in Workstream 16
 - CLI status, repair, and clean remove operations are exposed as
   `fenrir agent-integration status|repair|remove` through NativeHost
-  diagnostics over the local control socket; first-run integration prompt plus
-  palette/settings repair and upgrade UI actions remain required so missing or
-  outdated integration is a visible degraded state with a one-action fix
+  diagnostics over the local control socket; first-run integration prompt,
+  sidebar attention, and palette repair actions are wired so missing or outdated
+  integrations are visible degraded states with one-action fixes. A dedicated
+  settings preferences page remains required for persistent agent integration
+  management.
 - optional supplemental reporting from hooks to an authenticated server
   endpoint, with no base-client feature depending on it
 

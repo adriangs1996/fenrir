@@ -560,7 +560,12 @@ final class NativeApplicationBootstrapCoordinator {
                 tmuxChecker: NativeDistribution.pathTmuxDependencyChecker(),
                 serverAssetLocator: NativeDistribution.appResourceServerAssetLocator()
             )
-            switch await action.run(NativeDistribution.AssessStartupReadinessInput(requestID: "native-startup-readiness", mode: .localDefault, source: .nativeHost)) {
+            switch await action.run(NativeDistribution.AssessStartupReadinessInput(
+                requestID: "native-startup-readiness",
+                mode: .localDefault,
+                allowBootstrapRendererFallback: NativeBootstrapTerminalBackend.isExplicitlyAllowed,
+                source: .nativeHost
+            )) {
             case .success(let result):
                 return .success(result.report)
             case .failure(let error):
@@ -6070,7 +6075,12 @@ private struct NativePaneGridClock: PaneGrid.PaneGridClock {
 
 @MainActor
 private final class NativeBootstrapTerminalBackend: FenrirTerminalBackend {
-    let descriptor = TerminalViewport.RendererDescriptor(rendererID: "native-bootstrap-terminal", status: .ready)
+    nonisolated static let allowFallbackEnvironmentVariable = "FENRIR_NATIVE_ALLOW_BOOTSTRAP_TERMINAL"
+    nonisolated static var isExplicitlyAllowed: Bool {
+        ProcessInfo.processInfo.environment[allowFallbackEnvironmentVariable] == "1"
+    }
+
+    let descriptor = TerminalViewport.RendererDescriptor(rendererID: "native-bootstrap-terminal", status: .degraded)
     private let workspaceID: WorkspaceID
     private let themeTokens: NativeShellThemeTokens
     private weak var mountedSurface: NSTextView?

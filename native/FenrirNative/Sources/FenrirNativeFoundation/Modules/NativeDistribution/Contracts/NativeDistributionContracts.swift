@@ -22,6 +22,7 @@ public extension NativeDistribution {
 
     enum DependencyStatus: String, Codable, Equatable, Sendable {
         case available
+        case fallbackAvailable
         case missing
         case unsupportedVersion
         case externalNotBundled
@@ -177,17 +178,20 @@ public extension NativeDistribution {
         public let requestID: RequestID
         public let mode: StartupMode
         public let minimumTmuxVersion: String
+        public let allowBootstrapRendererFallback: Bool
         public let source: ActionSource
 
         public init(
             requestID: RequestID,
             mode: StartupMode,
             minimumTmuxVersion: String = "3.2",
+            allowBootstrapRendererFallback: Bool = false,
             source: ActionSource
         ) {
             self.requestID = requestID
             self.mode = mode
             self.minimumTmuxVersion = minimumTmuxVersion
+            self.allowBootstrapRendererFallback = allowBootstrapRendererFallback
             self.source = source
         }
     }

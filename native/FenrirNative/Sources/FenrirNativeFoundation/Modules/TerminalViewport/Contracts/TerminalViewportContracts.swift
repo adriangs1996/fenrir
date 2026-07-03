@@ -4,6 +4,7 @@ import FenrirNativeShared
 public extension TerminalViewport {
     enum RendererStatus: String, Codable, Equatable, Sendable {
         case unavailable
+        case degraded
         case ready
         case disposed
     }
