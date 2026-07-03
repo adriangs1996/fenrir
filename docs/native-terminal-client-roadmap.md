@@ -155,16 +155,15 @@ Current implementation state:
   idempotent, backup-backed, and conflict-refusing. NativeHost and the
   `fenrir agent-integration status|repair|remove` CLI now expose explicit
   status, repair, and clean removal operations over the local native control
-  socket. First-run degraded-state presentation, the sidebar attention entry,
-  and the command-palette repair surface are wired; a dedicated settings
-  preferences page for agent integrations remains the next integration layer.
+  socket. First-run degraded-state presentation, sidebar attention, command
+  palette repair, and the persistent `Settings: Agent Integrations` palette
+  entry all open the native repair/remove panel.
 - AgentInteraction supports bounded context capture and native composer flow;
   base submission dispatches server orchestration commands and intentionally
   avoids writing into tmux panes.
 - Remaining large product gaps are the production libGhostty backend/artifact
-  and packaging artifact path, a dedicated agent-integration settings
-  preferences page, signing/notarization/updater, crash reporting, and broader
-  performance/failure-injection hardening.
+  and packaging artifact path, signing/notarization/updater, crash reporting,
+  and broader performance/failure-injection hardening.
 
 Implemented documentation should distinguish this scaffolded/partially wired
 state from final target behavior. Roadmap workstreams below remain the target
@@ -1197,10 +1196,9 @@ Deliverables:
 - CLI status, repair, and clean remove operations are exposed as
   `fenrir agent-integration status|repair|remove` through NativeHost
   diagnostics over the local control socket; first-run integration prompt,
-  sidebar attention, and palette repair actions are wired so missing or outdated
-  integrations are visible degraded states with one-action fixes. A dedicated
-  settings preferences page remains required for persistent agent integration
-  management.
+  sidebar attention, palette repair actions, and `Settings: Agent Integrations`
+  are wired so missing or outdated integrations are visible degraded states with
+  one-action fixes and persistent management entrypoints.
 - optional supplemental reporting from hooks to an authenticated server
   endpoint, with no base-client feature depending on it
 

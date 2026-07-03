@@ -1185,6 +1185,23 @@ struct NativeWorkspaceShellControllerTests {
         #expect(actions == [.switchWorkspace("workspace-a")])
     }
 
+    @Test("Command palette exposes persistent settings entry for agent integrations")
+    @MainActor
+    func commandPaletteExposesSettingsEntryForAgentIntegrations() {
+        let view = NativeWorkspaceRootView(
+            state: state(focusedSurface: .commandPalette),
+            paneGridActions: FakePaneGridActions()
+        )
+        var actions: [WorkspaceOverlays.PaletteAction] = []
+        view.onExecutePaletteAction = { actions.append($0) }
+
+        view.setPaletteQuery("settings")
+
+        #expect(view.overlayHost.selectedPaletteItemID() == "action-settings-agent-integrations")
+        #expect(view.overlayHost.handleKeyboard(.submit))
+        #expect(actions == [.runAction("action-settings-agent-integrations")])
+    }
+
     @Test("Root controller opens command palette and diagnostics from shell keyboard shortcuts")
     @MainActor
     func rootControllerOpensOverlaysFromShellKeyboardShortcuts() {
@@ -1207,6 +1224,23 @@ struct NativeWorkspaceShellControllerTests {
         #expect(root.handleShellKeyboardShortcut(.diagnostics))
         #expect(root.overlayHost.isCapturingKeyboard)
         #expect(root.overlayHost.visibleOverlayTitles() == ["Diagnostics"])
+    }
+
+    @Test("Client control settings action opens agent integration settings panel")
+    @MainActor
+    func clientControlSettingsActionOpensAgentIntegrationSettingsPanel() {
+        let controller = NativeWorkspaceRootViewController(
+            controller: NativeWorkspaceShellController(state: state(focusedSurface: .terminal("pane-a"))),
+            paneGridRuntime: RecordingPaneGridRuntimeController(),
+            agentPromptSubmitter: RecordingAgentPromptSubmitter()
+        )
+        controller.loadView()
+        let root = controller.view as! NativeWorkspaceRootView
+
+        controller.executePaletteActionFromClientControl(actionID: "action-settings-agent-integrations")
+
+        #expect(root.overlayHost.isCapturingKeyboard)
+        #expect(root.overlayHost.visibleOverlayTitles() == ["Agent Integrations"])
     }
 
     @Test("Root controller applies live workflow stream items while workflow overlay is open")

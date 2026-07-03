@@ -1970,7 +1970,7 @@ final class NativeWorkspaceRootViewController: NSViewController {
             rootView.apply(shellController.state)
             return
         }
-        if actionID == "action-agent-integrations" {
+        if actionID == "action-agent-integrations" || actionID == "action-settings-agent-integrations" {
             presentAgentIntegrationsOverlay()
             rootView.apply(shellController.state)
             return
@@ -2294,7 +2294,7 @@ final class NativeWorkspaceRootViewController: NSViewController {
             shellController.dismissCommandPalette()
             shellController.presentOverlay(NativeWorkflowOverlay.overlayID)
             dispatchWorkflowCommand(WorkflowControl.WorkflowViewCommand(kind: .refreshRuns))
-        case .runAction("action-agent-integrations"):
+        case .runAction("action-agent-integrations"), .runAction("action-settings-agent-integrations"):
             shellController.dismissCommandPalette()
             presentAgentIntegrationsOverlay()
         case .openHelp(let topic):
@@ -2814,6 +2814,15 @@ final class NativeWorkspaceRootView: NSView {
                 keywords: ["agent", "integration", "repair", "settings"],
                 action: .runAction("action-agent-integrations"),
                 baseScore: 78
+            ),
+            WorkspaceOverlays.PaletteItem(
+                id: "action-settings-agent-integrations",
+                domain: .actions,
+                title: "Settings: Agent Integrations",
+                subtitle: "Manage provider hooks, MCP config, repair, and removal",
+                keywords: ["settings", "preferences", "agent", "integration", "repair", "mcp", "hooks"],
+                action: .runAction("action-settings-agent-integrations"),
+                baseScore: 79
             ),
             WorkspaceOverlays.PaletteItem(
                 id: "workflow-panel",
@@ -6792,6 +6801,9 @@ final class NativeOverlayHostView: NSView {
         if overlayID == NativeWorkflowOverlay.overlayID {
             return "Workflows"
         }
+        if overlayID == NativeAgentIntegrationOverlay.overlayID {
+            return "Agent Integrations"
+        }
         if raw.contains("diagnostic") {
             return "Diagnostics"
         }
@@ -6811,6 +6823,9 @@ final class NativeOverlayHostView: NSView {
         }
         if overlayID == NativeWorkflowOverlay.overlayID {
             return "Server-owned workflow visualization and control"
+        }
+        if overlayID == NativeAgentIntegrationOverlay.overlayID {
+            return "Settings, repair, and removal for provider CLI integrations"
         }
         if raw.contains("diagnostic") {
             return "Native client health and tmux integration"
