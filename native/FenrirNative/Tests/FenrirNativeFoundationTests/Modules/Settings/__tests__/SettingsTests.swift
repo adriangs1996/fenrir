@@ -15,6 +15,25 @@ struct SettingsTests {
         #expect(result.requestID == "settings")
     }
 
+    @Test("Native theme identifiers include desktop custom registry themes")
+    func nativeThemeIdentifiersIncludeDesktopRegistryThemes() throws {
+        let decoder = JSONDecoder()
+
+        let pierreDarkSoft = try decoder.decode(
+            Settings.ThemeID.self,
+            from: Data(#""pierre-dark-soft""#.utf8)
+        )
+        let kanagawaDragon = try decoder.decode(
+            Settings.ThemeID.self,
+            from: Data(#""kanagawa-dragon""#.utf8)
+        )
+
+        #expect(pierreDarkSoft == .pierreDarkSoft)
+        #expect(kanagawaDragon == .kanagawaDragon)
+        #expect(pierreDarkSoft.rawValue == "pierre-dark-soft")
+        #expect(kanagawaDragon.rawValue == "kanagawa-dragon")
+    }
+
     @Test("ReadSettings returns defaults when no local settings have been persisted")
     func readDefaults() async throws {
         let persistence = FakeSettingsPersistence()

@@ -58,6 +58,23 @@ struct NativeWorkspaceShellControllerTests {
         #expect(view.terminalPaneHost.themeTokens.themeID == .kanagawa)
     }
 
+    @Test("Shell resolves native tokens for desktop custom registry themes")
+    @MainActor
+    func shellResolvesDesktopCustomRegistryThemes() {
+        let pierreDarkSoft = NativeShellThemeTokens.resolve(.pierreDarkSoft)
+        let kanagawaDragon = NativeShellThemeTokens.resolve(.kanagawaDragon)
+
+        #expect(pierreDarkSoft.themeID == .pierreDarkSoft)
+        #expect(rgbHex(pierreDarkSoft.rootBackground) == 0x171717)
+        #expect(rgbHex(pierreDarkSoft.accent) == 0x69B1FF)
+        #expect(rgbHex(pierreDarkSoft.attentionBadge) == 0xFFD452)
+
+        #expect(kanagawaDragon.themeID == .kanagawaDragon)
+        #expect(rgbHex(kanagawaDragon.rootBackground) == 0x181616)
+        #expect(rgbHex(kanagawaDragon.accent) == 0x8BA4B0)
+        #expect(rgbHex(kanagawaDragon.attentionBadge) == 0xC4B28A)
+    }
+
     @Test("Shell apply refreshes mounted PaneGrid state")
     @MainActor
     func applyRefreshesMountedPaneGridState() {
@@ -3399,6 +3416,12 @@ private func swiftSourceFiles(under directory: URL) throws -> [URL] {
         let values = try url.resourceValues(forKeys: [.isRegularFileKey])
         return values.isRegularFile == true ? url : nil
     }
+}
+
+private func rgbHex(_ color: NSColor) -> UInt32 {
+    UInt32(round(color.redComponent * 255)) << 16
+        | UInt32(round(color.greenComponent * 255)) << 8
+        | UInt32(round(color.blueComponent * 255))
 }
 
 private extension PaneGrid.PanePresentation {

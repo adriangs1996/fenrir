@@ -53,9 +53,11 @@ public extension Settings {
     enum ThemeID: String, Codable, Equatable, Sendable {
         case fenrirDark = "fenrir-dark"
         case pierreDark = "pierre-dark"
+        case pierreDarkSoft = "pierre-dark-soft"
         case catppuccinMocha = "catppuccin-mocha"
         case rosePine = "rose-pine"
         case kanagawa
+        case kanagawaDragon = "kanagawa-dragon"
         case tokyoNightMoon = "tokyonight-moon"
         case nord
     }

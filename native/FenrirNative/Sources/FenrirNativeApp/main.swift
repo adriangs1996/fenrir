@@ -55,12 +55,16 @@ struct NativeShellThemeTokens {
             return NativeShellThemeTokens(themeID: themeID, root: 0x0A0F16, sidebar: 0x0B111A, toolbar: 0x0D141E, terminal: 0x070B10, overlay: 0x0D141E, border: 0x1A2432, primary: 0xC3CDD9, secondary: 0x8B99A9, tertiary: 0x566677, accent: 0x3FB8AF, attention: 0xF0B429, ok: 0x4CC38A, failure: 0xE5534B, workflow: 0x9D7BD8)
         case .pierreDark:
             return NativeShellThemeTokens(themeID: themeID, root: 0x101112, sidebar: 0x131312, toolbar: 0x161615, terminal: 0x0B0B0B, overlay: 0x161615, border: 0x2A2925, primary: 0xF0EDE4, secondary: 0xB8B1A3, tertiary: 0x7C766B, accent: 0xD5B778, attention: 0xE0B15E, ok: 0x86B380, failure: 0xF07178, workflow: 0x82AAFF)
+        case .pierreDarkSoft:
+            return NativeShellThemeTokens(themeID: themeID, root: 0x171717, sidebar: 0x101010, toolbar: 0x101010, terminal: 0x101010, overlay: 0x101010, border: 0x262626, primary: 0xD4D4D4, secondary: 0xB8B8B8, tertiary: 0x8A8A8A, accent: 0x69B1FF, attention: 0xFFD452, ok: 0x60D199, failure: 0xFF6762, workflow: 0xBA8FFD)
         case .catppuccinMocha:
             return NativeShellThemeTokens(themeID: themeID, root: 0x11111B, sidebar: 0x181825, toolbar: 0x1E1E2E, terminal: 0x0B0B14, overlay: 0x1E1E2E, border: 0x313244, primary: 0xCDD6F4, secondary: 0xA6ADC8, tertiary: 0x6C7086, accent: 0xCBA6F7, attention: 0xF9E2AF, ok: 0xA6E3A1, failure: 0xF38BA8, workflow: 0xB4BEFE)
         case .rosePine:
             return NativeShellThemeTokens(themeID: themeID, root: 0x191724, sidebar: 0x1B192A, toolbar: 0x1F1D2E, terminal: 0x12101B, overlay: 0x1F1D2E, border: 0x403D52, primary: 0xE0DEF4, secondary: 0x908CAA, tertiary: 0x6E6A86, accent: 0x9CCFD8, attention: 0xF6C177, ok: 0x95B1AC, failure: 0xEB6F92, workflow: 0xC4A7E7)
         case .kanagawa:
             return NativeShellThemeTokens(themeID: themeID, root: 0x16161D, sidebar: 0x1A1A22, toolbar: 0x1F1F28, terminal: 0x101016, overlay: 0x1F1F28, border: 0x2F2F3D, primary: 0xDCD7BA, secondary: 0xC8C093, tertiary: 0x727169, accent: 0x7E9CD8, attention: 0xE6C384, ok: 0x98BB6C, failure: 0xC34043, workflow: 0x957FB8)
+        case .kanagawaDragon:
+            return NativeShellThemeTokens(themeID: themeID, root: 0x181616, sidebar: 0x181616, toolbar: 0x0D0C0C, terminal: 0x0D0C0C, overlay: 0x282727, border: 0x393836, primary: 0xC5C9C5, secondary: 0xC8C093, tertiary: 0x737C73, accent: 0x8BA4B0, attention: 0xC4B28A, ok: 0x8A9A7B, failure: 0xC34043, workflow: 0xA292A3)
         case .tokyoNightMoon:
             return NativeShellThemeTokens(themeID: themeID, root: 0x1E2030, sidebar: 0x1B1D2D, toolbar: 0x222436, terminal: 0x16182A, overlay: 0x222436, border: 0x2F334D, primary: 0xC8D3F5, secondary: 0xA9B1D6, tertiary: 0x636DA6, accent: 0x82AAFF, attention: 0xFFC777, ok: 0xC3E88D, failure: 0xFF757F, workflow: 0xC099FF)
         case .nord:
@@ -6960,4 +6964,3 @@ private final class NativeOverlayStatusRowView: NSView {
         ])
     }
 }
-
