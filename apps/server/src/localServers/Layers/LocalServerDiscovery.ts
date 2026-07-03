@@ -13,7 +13,8 @@ import { runProcess } from "../../processRunner";
 import { LocalServerDiscovery } from "../Services/LocalServerDiscovery";
 
 export const COMMON_DEV_PORTS: ReadonlyArray<number> = Object.freeze([
-  3000, 3001, 3333, 4173, 4200, 4321, 5000, 5173, 5174, 5175, 5500, 8000, 8080, 8081, 8888, 9000,
+  3000, 3001, 3333, 4173, 4200, 4321, 5000, 5173, 5174, 5175, 5500, 8000, 8080,
+  8081, 8888, 9000,
 ]);
 
 const POLL_INTERVAL_MS = 3_000;
@@ -89,15 +90,16 @@ const KNOWN_DEV_SERVER_PROCESS_NAMES = new Set([
   "webpack",
   "yarn",
 ]);
-const KNOWN_DEV_SERVER_PROCESS_NAME_PREFIXES: ReadonlyArray<string> = Object.freeze([
-  "node",
-  "python",
-  "ruby",
-  "java",
-  "php",
-  "uvicorn",
-  "gunicorn",
-]);
+const KNOWN_DEV_SERVER_PROCESS_NAME_PREFIXES: ReadonlyArray<string> =
+  Object.freeze([
+    "node",
+    "python",
+    "ruby",
+    "java",
+    "php",
+    "uvicorn",
+    "gunicorn",
+  ]);
 
 type Listener = (snapshot: LocalServersSnapshot) => void;
 
@@ -113,7 +115,10 @@ interface ProcessTreeRow {
 
 type LocalServerHttpProbe = (server: DiscoveredLocalServer) => Promise<boolean>;
 
-function terminalOwnerKey(input: { readonly threadId: string; readonly terminalId: string }) {
+function terminalOwnerKey(input: {
+  readonly threadId: string;
+  readonly terminalId: string;
+}) {
   return `${input.threadId}\u0000${input.terminalId}`;
 }
 
@@ -125,13 +130,20 @@ function normalizeProcessName(processName: string | null | undefined): string {
     .replace(/\s+/gu, " ");
 }
 
-function matchesProcessNamePrefix(processName: string, prefix: string): boolean {
-  if (processName === prefix || processName.startsWith(`${prefix} `)) return true;
+function matchesProcessNamePrefix(
+  processName: string,
+  prefix: string,
+): boolean {
+  if (processName === prefix || processName.startsWith(`${prefix} `))
+    return true;
 
   const suffix = processName.slice(prefix.length);
   if (suffix.length === 0) return false;
   const firstSuffixChar = suffix.charAt(0);
-  return firstSuffixChar === "." || (firstSuffixChar >= "0" && firstSuffixChar <= "9");
+  return (
+    firstSuffixChar === "." ||
+    (firstSuffixChar >= "0" && firstSuffixChar <= "9")
+  );
 }
 
 export function isKnownNoiseLocalServerProcessName(
@@ -144,7 +156,9 @@ export function isKnownNoiseLocalServerProcessName(
   );
 }
 
-export function isLikelyDevServerProcessName(processName: string | null | undefined): boolean {
+export function isLikelyDevServerProcessName(
+  processName: string | null | undefined,
+): boolean {
   const normalized = normalizeProcessName(processName);
   if (normalized.length === 0) return false;
   if (KNOWN_DEV_SERVER_PROCESS_NAMES.has(normalized)) return true;
@@ -175,7 +189,10 @@ function toServer(input: {
   readonly pid?: number | null;
   readonly terminal?: LocalServerTerminalOwner | null | undefined;
 }): DiscoveredLocalServer {
-  const pid = input.pid && Number.isInteger(input.pid) && input.pid > 0 ? input.pid : null;
+  const pid =
+    input.pid && Number.isInteger(input.pid) && input.pid > 0
+      ? input.pid
+      : null;
   return {
     host: "localhost",
     port: input.port,
@@ -189,7 +206,10 @@ function toServer(input: {
 
 export function parseLsofOutput(
   raw: string,
-  terminalByProcessId: ReadonlyMap<number, LocalServerTerminalOwner> = new Map(),
+  terminalByProcessId: ReadonlyMap<
+    number,
+    LocalServerTerminalOwner
+  > = new Map(),
 ): ReadonlyArray<DiscoveredLocalServer> {
   const seen = new Map<number, DiscoveredLocalServer>();
   let pid: number | null = null;
@@ -235,18 +255,24 @@ export function parseLsofOutput(
 
 export function parseWindowsListenerOutput(
   raw: string,
-  terminalByProcessId: ReadonlyMap<number, LocalServerTerminalOwner> = new Map(),
+  terminalByProcessId: ReadonlyMap<
+    number,
+    LocalServerTerminalOwner
+  > = new Map(),
 ): ReadonlyArray<DiscoveredLocalServer> {
   const seen = new Map<number, DiscoveredLocalServer>();
 
   for (const line of raw.split(/\r?\n/g)) {
-    const [hostRaw, portRaw, pidRaw, processNameRaw] = line.trim().split("|", 4);
+    const [hostRaw, portRaw, pidRaw, processNameRaw] = line
+      .trim()
+      .split("|", 4);
     const host = hostRaw?.trim() ?? "";
     if (!LOCAL_HOST_TOKENS.has(host)) continue;
 
     const port = Number.parseInt(portRaw ?? "", 10);
     const pid = Number.parseInt(pidRaw ?? "", 10);
-    if (!Number.isInteger(port) || port <= 0 || port > 65535 || seen.has(port)) continue;
+    if (!Number.isInteger(port) || port <= 0 || port > 65535 || seen.has(port))
+      continue;
 
     seen.set(
       port,
@@ -255,7 +281,10 @@ export function parseWindowsListenerOutput(
         pid,
         processName: processNameRaw,
         source: "powershell",
-        terminal: Number.isInteger(pid) && pid > 0 ? terminalByProcessId.get(pid) : null,
+        terminal:
+          Number.isInteger(pid) && pid > 0
+            ? terminalByProcessId.get(pid)
+            : null,
       }),
     );
   }
@@ -310,11 +339,16 @@ function canConnect(host: string, port: number): Promise<boolean> {
 }
 
 async function isLocalPortListening(port: number): Promise<boolean> {
-  const results = await Promise.all([canConnect("127.0.0.1", port), canConnect("::1", port)]);
+  const results = await Promise.all([
+    canConnect("127.0.0.1", port),
+    canConnect("::1", port),
+  ]);
   return results.some(Boolean);
 }
 
-async function probeCommonPorts(): Promise<ReadonlyArray<DiscoveredLocalServer>> {
+async function probeCommonPorts(): Promise<
+  ReadonlyArray<DiscoveredLocalServer>
+> {
   const results = await Promise.all(
     COMMON_DEV_PORTS.map(async (port) => ({
       port,
@@ -324,12 +358,16 @@ async function probeCommonPorts(): Promise<ReadonlyArray<DiscoveredLocalServer>>
 
   return results
     .filter((result) => result.listening)
-    .map((result) => toServer({ port: result.port, source: "common-port-probe" }))
+    .map((result) =>
+      toServer({ port: result.port, source: "common-port-probe" }),
+    )
     .filter((server) => !isKnownNoiseLocalServerProcessName(server.processName))
     .toSorted((left, right) => left.port - right.port);
 }
 
-export async function probeLocalHttpServer(server: DiscoveredLocalServer): Promise<boolean> {
+export async function probeLocalHttpServer(
+  server: DiscoveredLocalServer,
+): Promise<boolean> {
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     controller.abort();
@@ -377,10 +415,15 @@ export function makeCachedLocalServerHttpProbe(
   };
 }
 
-export function shouldProbeLocalServerCandidate(server: DiscoveredLocalServer): boolean {
+export function shouldProbeLocalServerCandidate(
+  server: DiscoveredLocalServer,
+): boolean {
   if (server.terminal !== null) return false;
   if (isKnownNoiseLocalServerProcessName(server.processName)) return false;
-  return COMMON_DEV_PORT_SET.has(server.port) || isLikelyDevServerProcessName(server.processName);
+  return (
+    COMMON_DEV_PORT_SET.has(server.port) ||
+    isLikelyDevServerProcessName(server.processName)
+  );
 }
 
 const cachedLocalHttpProbe = makeCachedLocalServerHttpProbe();
@@ -397,7 +440,9 @@ export async function filterRelevantLocalServers(
     }),
   );
 
-  return filtered.filter((server): server is DiscoveredLocalServer => server !== null);
+  return filtered.filter(
+    (server): server is DiscoveredLocalServer => server !== null,
+  );
 }
 
 function parseProcessTreeRows(raw: string): ReadonlyArray<ProcessTreeRow> {
@@ -406,7 +451,13 @@ function parseProcessTreeRows(raw: string): ReadonlyArray<ProcessTreeRow> {
     const [pidRaw, ppidRaw] = line.trim().split(/\s+/g);
     const pid = Number.parseInt(pidRaw ?? "", 10);
     const ppid = Number.parseInt(ppidRaw ?? "", 10);
-    if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(ppid) || ppid < 0) continue;
+    if (
+      !Number.isInteger(pid) ||
+      pid <= 0 ||
+      !Number.isInteger(ppid) ||
+      ppid < 0
+    )
+      continue;
     rows.push({ pid, ppid });
   }
   return rows;
@@ -504,12 +555,16 @@ async function scanWithLsof(
   terminalByProcessId: ReadonlyMap<number, LocalServerTerminalOwner>,
 ): Promise<ReadonlyArray<DiscoveredLocalServer> | null> {
   try {
-    const result = await runProcess("lsof", ["-iTCP", "-sTCP:LISTEN", "-P", "-n", "-F", "pcn"], {
-      allowNonZeroExit: true,
-      maxBufferBytes: LISTENER_OUTPUT_MAX_BYTES,
-      outputMode: "truncate",
-      timeoutMs: LSOF_TIMEOUT_MS,
-    });
+    const result = await runProcess(
+      "lsof",
+      ["-iTCP", "-sTCP:LISTEN", "-P", "-n", "-F", "pcn"],
+      {
+        allowNonZeroExit: true,
+        maxBufferBytes: LISTENER_OUTPUT_MAX_BYTES,
+        outputMode: "truncate",
+        timeoutMs: LSOF_TIMEOUT_MS,
+      },
+    );
     if (result.timedOut) return null;
     return parseLsofOutput(result.stdout, terminalByProcessId);
   } catch {
@@ -534,7 +589,10 @@ async function scanWithPowerShell(
         timeoutMs: WINDOWS_LISTENER_TIMEOUT_MS,
       },
     );
-    if (result.timedOut || (result.code !== 0 && result.stdout.trim().length === 0)) {
+    if (
+      result.timedOut ||
+      (result.code !== 0 && result.stdout.trim().length === 0)
+    ) {
       return null;
     }
     return parseWindowsListenerOutput(result.stdout, terminalByProcessId);
@@ -546,7 +604,8 @@ async function scanWithPowerShell(
 async function scanServers(
   terminalProcesses: ReadonlyMap<string, TerminalProcessRegistration>,
 ): Promise<LocalServersSnapshot> {
-  const terminalByProcessId = await buildTerminalProcessIndex(terminalProcesses);
+  const terminalByProcessId =
+    await buildTerminalProcessIndex(terminalProcesses);
   const detected =
     process.platform === "win32"
       ? await scanWithPowerShell(terminalByProcessId)
@@ -586,7 +645,8 @@ function makeLocalServerDiscovery() {
     try {
       const snapshot = await runScan();
       const changed =
-        latestSnapshot === null || !serversEqual(latestSnapshot.servers, snapshot.servers);
+        latestSnapshot === null ||
+        !serversEqual(latestSnapshot.servers, snapshot.servers);
       latestSnapshot = snapshot;
 
       if (target) {
@@ -639,7 +699,9 @@ function makeLocalServerDiscovery() {
     }) =>
       Effect.sync(() => {
         const processIds = new Set(
-          input.processIds.filter((processId) => Number.isInteger(processId) && processId > 0),
+          input.processIds.filter(
+            (processId) => Number.isInteger(processId) && processId > 0,
+          ),
         );
         const key = terminalOwnerKey(input);
 
@@ -659,7 +721,10 @@ function makeLocalServerDiscovery() {
           void refresh();
         }
       }),
-    unregisterTerminal: (input: { readonly threadId: string; readonly terminalId: string }) =>
+    unregisterTerminal: (input: {
+      readonly threadId: string;
+      readonly terminalId: string;
+    }) =>
       Effect.sync(() => {
         terminalProcesses.delete(terminalOwnerKey(input));
         if (listeners.size > 0) {
