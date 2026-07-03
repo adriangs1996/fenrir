@@ -65,27 +65,27 @@ struct NativeDistributionTests {
         #expect(result.report.diagnostics.contains { $0.title == "Local Fenrir server asset is unavailable" })
     }
 
-    @Test("Renderer artifact absence blocks local default startup by default")
-    func rendererArtifactAbsenceBlocksLocalDefaultByDefault() async throws {
+    @Test("Ghostty runtime absence blocks local default startup by default")
+    func ghosttyRuntimeAbsenceBlocksLocalDefaultByDefault() async throws {
         let action = readinessAction(
             tmux: .init(executablePath: "/opt/homebrew/bin/tmux", version: "3.4"),
             serverAsset: .init(assetPath: "/app/fenrir-server", isExecutable: true),
-            terminalRenderer: .init(artifactPath: nil, isLoadable: false)
+            ghosttyRuntime: .init(isLinked: false)
         )
 
         let result = try await action.run(.init(requestID: "readiness", mode: .localDefault, source: .test)).get()
 
         #expect(!result.report.canStart)
-        #expect(result.report.checks.first { $0.kind == .terminalRendererArtifact }?.status == .missing)
-        #expect(result.report.diagnostics.contains { $0.title == "Native terminal renderer artifact is unavailable" && $0.severity == .error })
+        #expect(result.report.checks.first { $0.kind == .ghosttyTerminalRuntime }?.status == .missing)
+        #expect(result.report.diagnostics.contains { $0.title == "Ghostty terminal runtime is unavailable" && $0.severity == .error })
     }
 
-    @Test("Renderer artifact absence is warning-only when bootstrap fallback is explicit")
-    func rendererArtifactAbsenceAllowsExplicitBootstrapFallback() async throws {
+    @Test("Ghostty runtime absence is warning-only when bootstrap fallback is explicit")
+    func ghosttyRuntimeAbsenceAllowsExplicitBootstrapFallback() async throws {
         let action = readinessAction(
             tmux: .init(executablePath: "/opt/homebrew/bin/tmux", version: "3.4"),
             serverAsset: .init(assetPath: "/app/fenrir-server", isExecutable: true),
-            terminalRenderer: .init(artifactPath: nil, isLoadable: false)
+            ghosttyRuntime: .init(isLinked: false)
         )
 
         let result = try await action.run(.init(
@@ -96,25 +96,25 @@ struct NativeDistributionTests {
         )).get()
 
         #expect(result.report.canStart)
-        #expect(result.report.checks.first { $0.kind == .terminalRendererArtifact }?.status == .fallbackAvailable)
-        #expect(result.report.diagnostics.contains { $0.title == "Native terminal renderer fallback is active" && $0.severity == .warning })
+        #expect(result.report.checks.first { $0.kind == .ghosttyTerminalRuntime }?.status == .fallbackAvailable)
+        #expect(result.report.diagnostics.contains { $0.title == "Ghostty terminal fallback is active" && $0.severity == .warning })
     }
 
-    @Test("Renderer artifact availability is reported by readiness")
-    func rendererArtifactAvailabilityIsReported() async throws {
+    @Test("Ghostty runtime availability is reported by readiness")
+    func ghosttyRuntimeAvailabilityIsReported() async throws {
         let action = readinessAction(
             tmux: .init(executablePath: "/opt/homebrew/bin/tmux", version: "3.4"),
             serverAsset: .init(assetPath: "/app/fenrir-server", isExecutable: true),
-            terminalRenderer: .init(artifactPath: "/app/FenrirTerminalRenderer", resourcesPath: "/app/FenrirTerminalResources", isLoadable: true, version: "1")
+            ghosttyRuntime: .init(isLinked: true, version: "libghostty-spm-1.2.8")
         )
 
         let result = try await action.run(.init(requestID: "readiness", mode: .localDefault, source: .test)).get()
 
-        let renderer = result.report.checks.first { $0.kind == .terminalRendererArtifact }
+        let renderer = result.report.checks.first { $0.kind == .ghosttyTerminalRuntime }
         #expect(result.report.canStart)
         #expect(renderer?.status == .available)
-        #expect(renderer?.path == "/app/FenrirTerminalRenderer")
-        #expect(renderer?.version == "1")
+        #expect(renderer?.path == "GhosttyTerminal/libghostty")
+        #expect(renderer?.version == "libghostty-spm-1.2.8")
     }
 
     @Test("Existing local server mode does not require bundled server asset")
@@ -139,7 +139,7 @@ struct NativeDistributionTests {
             clock: FixedClock(),
             tmuxChecker: tmux,
             serverAssetLocator: serverAsset,
-            terminalRendererLocator: RecordingTerminalRendererArtifactLocator(result: availableTerminalRenderer)
+            ghosttyRuntimeChecker: RecordingGhosttyTerminalRuntimeChecker(result: availableGhosttyRuntime)
         )
 
         let result = try await action.run(.init(requestID: "readiness", mode: .remoteAttach, source: .test)).get()
@@ -154,22 +154,20 @@ struct NativeDistributionTests {
     private func readinessAction(
         tmux: NativeDistribution.ToolProbeResult,
         serverAsset: NativeDistribution.ServerAssetProbeResult,
-        terminalRenderer: NativeDistribution.TerminalRendererArtifactProbeResult = availableTerminalRenderer
+        ghosttyRuntime: NativeDistribution.GhosttyTerminalRuntimeProbeResult = availableGhosttyRuntime
     ) -> NativeDistribution.AssessStartupReadiness {
         NativeDistribution.AssessStartupReadiness(
             clock: FixedClock(),
             tmuxChecker: RecordingTmuxChecker(result: tmux),
             serverAssetLocator: RecordingServerAssetLocator(result: serverAsset),
-            terminalRendererLocator: RecordingTerminalRendererArtifactLocator(result: terminalRenderer)
+            ghosttyRuntimeChecker: RecordingGhosttyTerminalRuntimeChecker(result: ghosttyRuntime)
         )
     }
 }
 
-private let availableTerminalRenderer = NativeDistribution.TerminalRendererArtifactProbeResult(
-    artifactPath: "/app/FenrirTerminalRenderer",
-    resourcesPath: "/app/FenrirTerminalResources",
-    isLoadable: true,
-    version: "1"
+private let availableGhosttyRuntime = NativeDistribution.GhosttyTerminalRuntimeProbeResult(
+    isLinked: true,
+    version: "libghostty-spm-1.2.8"
 )
 
 private actor RecordingTmuxChecker: NativeDistribution.TmuxDependencyChecking {
@@ -186,15 +184,15 @@ private actor RecordingTmuxChecker: NativeDistribution.TmuxDependencyChecking {
     }
 }
 
-private actor RecordingTerminalRendererArtifactLocator: NativeDistribution.TerminalRendererArtifactLocating {
-    private let result: NativeDistribution.TerminalRendererArtifactProbeResult
+private actor RecordingGhosttyTerminalRuntimeChecker: NativeDistribution.GhosttyTerminalRuntimeChecking {
+    private let result: NativeDistribution.GhosttyTerminalRuntimeProbeResult
     private(set) var probeCount = 0
 
-    init(result: NativeDistribution.TerminalRendererArtifactProbeResult) {
+    init(result: NativeDistribution.GhosttyTerminalRuntimeProbeResult) {
         self.result = result
     }
 
-    func locateTerminalRendererArtifact() async throws -> NativeDistribution.TerminalRendererArtifactProbeResult {
+    func probeGhosttyTerminalRuntime() async throws -> NativeDistribution.GhosttyTerminalRuntimeProbeResult {
         probeCount += 1
         return result
     }

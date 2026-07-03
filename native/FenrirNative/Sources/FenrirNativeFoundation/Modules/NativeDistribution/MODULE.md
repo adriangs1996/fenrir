@@ -1,14 +1,14 @@
 # NativeDistribution
 
 Owns native app distribution readiness checks for external tools, bundled
-server assets, terminal renderer artifacts, and startup-mode diagnostics.
+server assets, linked terminal runtime, and startup-mode diagnostics.
 
 Public API:
 
 - `AssessStartupReadiness`
 - startup mode and dependency contracts
 - `TmuxDependencyChecking` and `ServerAssetLocating` service ports
-- live service factories for PATH tmux, app resource server asset discovery, and terminal renderer artifact discovery
+- live service factories for PATH tmux, app resource server asset discovery, and Ghostty runtime linkage checks
 
 Distribution assumptions:
 
@@ -19,8 +19,9 @@ Distribution assumptions:
 - remote attach mode does not require local tmux or a local server binary.
 - Neovim is not bundled; Neovim panes are created by server/tmux workflows when
   available.
-- the native terminal renderer artifact is required by default; bootstrap text
-  rendering is an explicit local smoke fallback and reports degraded readiness.
+- the `GhosttyTerminal`/`libghostty` runtime must be linked by the native binary;
+  bootstrap text rendering is an explicit local smoke fallback and reports
+  degraded readiness.
 
 Testing:
 

@@ -38,6 +38,9 @@ let package = Package(
             targets: ["FenrirNativeApp"]
         )
     ],
+    dependencies: [
+        .package(path: "ThirdParty/libghostty-spm")
+    ],
     targets: [
         .target(
             name: "Settings",
@@ -126,7 +129,12 @@ let package = Package(
         ),
         .target(
             name: "TerminalViewport",
-            dependencies: ["FenrirNativeShared", "NativeRuntime", "Keybinding"],
+            dependencies: [
+                "FenrirNativeShared",
+                "NativeRuntime",
+                "Keybinding",
+                .product(name: "GhosttyTerminal", package: "libghostty-spm")
+            ],
             path: "Sources/FenrirNativeFoundation/Modules/TerminalViewport",
             exclude: ["MODULE.md", "__tests__"]
         ),

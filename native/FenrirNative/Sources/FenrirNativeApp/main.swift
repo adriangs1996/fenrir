@@ -624,7 +624,7 @@ final class NativeApplicationBootstrapCoordinator {
             )
             switch await action.run(NativeDistribution.AssessStartupReadinessInput(
                 requestID: "native-startup-readiness",
-                mode: .localDefault,
+                mode: NativeApplicationBootstrapCoordinator.distributionStartupMode(),
                 allowBootstrapRendererFallback: NativeBootstrapTerminalBackend.isExplicitlyAllowed,
                 source: .nativeHost
             )) {
@@ -676,6 +676,19 @@ final class NativeApplicationBootstrapCoordinator {
         self.activateApplication = activateApplication
         self.shutdownPreparedLocalServer = shutdownPreparedLocalServer
         self.logMessage = logMessage
+    }
+
+    nonisolated static func distributionStartupMode(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> NativeDistribution.StartupMode {
+        let hasExternalBootstrapCredential = [
+            "FENRIR_NATIVE_BOOTSTRAP_TOKEN",
+            "FENRIR_DESKTOP_BOOTSTRAP_TOKEN",
+            "FENRIR_BOOTSTRAP_TOKEN"
+        ]
+            .compactMap { environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .contains { !$0.isEmpty }
+        return hasExternalBootstrapCredential ? .existingLocalServer : .localDefault
     }
 
     func startTask() -> Task<NativeApplicationStartupSnapshot, Never> {
@@ -1301,7 +1314,34 @@ final class NativeHostVisibleStateDispatcher: NativeHostClientControlDispatching
     }
 
     func openWorkspace(_ input: ClientControl.OpenWorkspaceInput) async -> Result<ClientControl.OpenWorkspaceResult, ClientControl.ClientControlError> {
-        await MainActor.run {
+        if let workspaceProjector {
+            let workspaceID = Self.workspaceID(for: input.identity)
+            guard case .success(let summary) = await workspaceProjector.projectWorkspace(
+                requestID: input.requestID,
+                workspaceID: workspaceID,
+                identity: input.identity,
+                server: nil
+            ) else {
+                return .failure(.unavailable)
+            }
+            return await MainActor.run {
+                guard let workspaceWindows,
+                      let result = workspaceWindows.focusWorkspace(identity: input.identity)
+                else {
+                    return .failure(.unavailable)
+                }
+                return .success(ClientControl.OpenWorkspaceResult(
+                    requestID: input.requestID,
+                    workspace: summary,
+                    windowID: result.windowID,
+                    didCreateWindow: result.didCreateWindow,
+                    didFocusExistingWindow: result.didFocusExistingWindow,
+                    timestamp: FenrirTimestamp(Date())
+                ))
+            }
+        }
+
+        return await MainActor.run {
             guard let workspaceWindows else {
                 return .failure(.unavailable)
             }
@@ -1315,6 +1355,22 @@ final class NativeHostVisibleStateDispatcher: NativeHostClientControlDispatching
                 timestamp: FenrirTimestamp(Date())
             ))
         }
+    }
+
+    private static func workspaceID(for identity: WorkspaceIndex.WorkspaceIdentity) -> WorkspaceID {
+        if let workspaceID = identity.workspaceID {
+            return workspaceID
+        }
+        if let projectID = identity.projectID, !projectID.isEmpty {
+            return WorkspaceID(rawValue: projectID)
+        }
+        if let canonicalPath = identity.canonicalPath, !canonicalPath.isEmpty {
+            return WorkspaceID(rawValue: URL(fileURLWithPath: canonicalPath).lastPathComponent)
+        }
+        if let serverID = identity.serverID, !serverID.isEmpty {
+            return WorkspaceID(rawValue: serverID)
+        }
+        return WorkspaceID(rawValue: "local-workspace")
     }
 
     func switchWorkspace(_ input: ClientControl.SwitchWorkspaceInput) async -> Result<ClientControl.SwitchWorkspaceResult, ClientControl.ClientControlError> {
@@ -2982,6 +3038,19 @@ private struct NativeVisiblePaneStreamSubscription: Equatable {
 }
 
 @MainActor
+private final class NativeTerminalInputRouter {
+    weak var host: NativeTerminalPaneHostView?
+
+    func send(_ bytes: Data, paneID: PaneID) {
+        host?.dispatchTerminalInput(bytes, paneID: paneID)
+    }
+
+    func resize(_ size: TerminalViewport.Size, paneID: PaneID) {
+        host?.dispatchTerminalResize(size, paneID: paneID)
+    }
+}
+
+@MainActor
 final class NativeTerminalPaneHostView: NSView {
     let paneGridView: PaneGrid.AppKitPaneGridView
     let themeTokens: NativeShellThemeTokens
@@ -2989,6 +3058,7 @@ final class NativeTerminalPaneHostView: NSView {
     private let paneGridActionQueue = NativePaneGridActionQueue()
     private let paneStreamSubscriber: NativePaneStreamSubscriber?
     private let terminalStreamIngestor: NativeTerminalStreamIngestor?
+    private let terminalInputRouter: NativeTerminalInputRouter
     private var streamTasksByViewportID: [ViewportID: Task<Void, Never>] = [:]
     private var streamSubscriptionsByViewportID: [ViewportID: NativeVisiblePaneStreamSubscription] = [:]
     private var lastObservedSequenceByPaneID: [PaneID: UInt64] = [:]
@@ -3008,6 +3078,8 @@ final class NativeTerminalPaneHostView: NSView {
         themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID),
         frame frameRect: NSRect = .zero
     ) {
+        let terminalInputRouter = NativeTerminalInputRouter()
+        self.terminalInputRouter = terminalInputRouter
         self.themeTokens = themeTokens
         self.paneStreamSubscriber = paneStreamSubscriber
         self.terminalStreamIngestor = terminalStreamIngestor
@@ -3031,10 +3103,22 @@ final class NativeTerminalPaneHostView: NSView {
             ),
             showsWindowTabBar: false
         ) { pane in
-            let terminal = FenrirTerminalView(backend: NativeBootstrapTerminalBackend(workspaceID: paneGridState.workspaceID, themeTokens: themeTokens))
+            let terminal = FenrirTerminalView(backend: FenrirGhosttyTerminalBackend(
+                onUserInput: { [weak terminalInputRouter] bytes in
+                    Task { @MainActor in
+                        terminalInputRouter?.send(bytes, paneID: pane.paneID)
+                    }
+                },
+                onResize: { [weak terminalInputRouter] size in
+                    Task { @MainActor in
+                        terminalInputRouter?.resize(size, paneID: pane.paneID)
+                    }
+                }
+            ))
             return terminal
         }
         super.init(frame: frameRect)
+        terminalInputRouter.host = self
         build()
         attachVisiblePaneStreams()
         paneGridView.onFocusPane = { [weak self] target in
@@ -3109,7 +3193,7 @@ final class NativeTerminalPaneHostView: NSView {
                 continue
             }
             terminal.attach(streamID: streamID)
-            let backfill = lastObservedSequenceByPaneID[pane.paneID].map(NativeRuntime.BackfillMode.fromSeq) ?? .latest
+            let backfill = lastObservedSequenceByPaneID[pane.paneID].map(NativeRuntime.BackfillMode.fromSeq) ?? .fromSeq(0)
             let workspaceID = paneGridView.state.workspaceID
             streamSubscriptionsByViewportID[pane.viewportID] = NativeVisiblePaneStreamSubscription(paneID: pane.paneID, streamID: streamID)
             streamTasksByViewportID[pane.viewportID] = Task { [weak self, workspaceID, pane, terminal, paneStreamSubscriber] in
@@ -3233,6 +3317,38 @@ final class NativeTerminalPaneHostView: NSView {
         }
     }
 
+    fileprivate func dispatchTerminalInput(_ bytes: Data, paneID: PaneID) {
+        guard !bytes.isEmpty, let target = target(for: paneID) else {
+            return
+        }
+        enqueuePaneGridAction { [paneGridActions] in
+            await paneGridActions.writeInput(bytes, to: target)
+        }
+    }
+
+    fileprivate func dispatchTerminalResize(_ size: TerminalViewport.Size, paneID: PaneID) {
+        guard size.columns > 0, size.rows > 0, let target = target(for: paneID) else {
+            return
+        }
+        dispatchMeasuredResize(target, size: size)
+    }
+
+    private func target(for paneID: PaneID) -> PaneGrid.PaneKernelTarget? {
+        let state = paneGridView.state
+        guard let window = state.windows.first(where: { $0.panes.contains { $0.paneID == paneID } }),
+              let pane = window.panes.first(where: { $0.paneID == paneID })
+        else {
+            return nil
+        }
+        return PaneGrid.PaneKernelTarget(
+            workspaceID: state.workspaceID,
+            windowID: window.windowID,
+            tmuxWindowID: window.tmuxWindowID,
+            paneID: pane.paneID,
+            tmuxPaneID: pane.tmuxPaneID
+        )
+    }
+
     private func enqueuePaneGridAction(_ operation: @escaping @Sendable () async -> Void) {
         paneGridActionQueue.enqueue(operation)
     }
@@ -3241,9 +3357,10 @@ final class NativeTerminalPaneHostView: NSView {
 private enum NativeTerminalSelectionSmokeSupport {
     @MainActor
     static func selectText(_ text: String, in terminal: FenrirTerminalView) -> String? {
-        guard let textView = textView(in: terminal),
-              let range = textView.string.range(of: text)
-        else {
+        guard let textView = textView(in: terminal) else {
+            return terminal.setSyntheticSelectionForTesting(text) ? text : nil
+        }
+        guard let range = textView.string.range(of: text) else {
             return nil
         }
         let nsRange = NSRange(range, in: textView.string)
@@ -5628,6 +5745,7 @@ protocol NativePaneGridActionDispatching: Sendable {
     func markServerBackedPaneGridState(_ state: PaneGrid.State)
     func focusPane(_ target: PaneGrid.PaneKernelTarget) async -> PaneGrid.State?
     func selectWindow(_ command: PaneGrid.SelectTabWindowCommand) async -> PaneGrid.State?
+    func writeInput(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) async
     func resizePane(_ allocation: PaneGrid.PaneResizeAllocation, in state: PaneGrid.State) async
     func resizePane(_ target: PaneGrid.PaneKernelTarget, size: TerminalViewport.Size, in state: PaneGrid.State) async
 }
@@ -5681,6 +5799,10 @@ struct NativePaneGridActionController: NativePaneGridActionDispatching {
             windowID: command.windowID,
             source: command.source
         )).get().state
+    }
+
+    func writeInput(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) async {
+        try? await runtime?.writeInput(bytes, to: target)
     }
 
     func resizePane(_ allocation: PaneGrid.PaneResizeAllocation, in state: PaneGrid.State) async {
@@ -5744,6 +5866,7 @@ protocol NativePaneGridRuntimeControlling: Sendable {
     func applyPaneGridState(_ state: PaneGrid.State)
     func markServerBackedPaneGridState(_ state: PaneGrid.State)
     func focusPane(_ command: PaneGrid.FocusPaneCommand) async throws
+    func writeInput(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) async throws
     func resizePaneAllocation(_ command: PaneGrid.ResizePaneAllocationCommand) async throws
     func resizePane(_ target: PaneGrid.PaneKernelTarget, size: NativeRuntime.PaneSize) async throws
     func selectWindow(_ command: PaneGrid.SelectTabWindowCommand) async throws
@@ -5765,6 +5888,12 @@ struct NativePaneGridUnavailableRuntimeController: NativePaneGridRuntimeControll
     func markServerBackedPaneGridState(_ state: PaneGrid.State) {}
 
     func focusPane(_ command: PaneGrid.FocusPaneCommand) async throws {
+        throw NativeRuntime.NativeRuntimeError.serverUnavailable
+    }
+
+    func writeInput(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) async throws {
+        _ = bytes
+        _ = target
         throw NativeRuntime.NativeRuntimeError.serverUnavailable
     }
 
@@ -5811,6 +5940,17 @@ struct NativePaneGridAppRuntimeController: NativePaneGridRuntimeControlling {
 
     func focusPane(_ command: PaneGrid.FocusPaneCommand) async throws {
         try await commandPort.send(.focusPane(command))
+    }
+
+    func writeInput(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) async throws {
+        guard stateStore.isServerBacked(target) else {
+            return
+        }
+        try await commandPort.send(.writePaneInput(
+            RequestID(rawValue: "appkit-pane-input-\(target.paneID.rawValue)-\(UUID().uuidString)"),
+            target,
+            bytes
+        ))
     }
 
     func resizePaneAllocation(_ command: PaneGrid.ResizePaneAllocationCommand) async throws {
@@ -5874,6 +6014,7 @@ struct NativePaneGridServerConnectionRuntimeFactory: NativePaneGridRuntimeMaking
 
 enum NativePaneGridRuntimeCommand: Sendable, Equatable {
     case focusPane(PaneGrid.FocusPaneCommand)
+    case writePaneInput(RequestID, PaneGrid.PaneKernelTarget, Data)
     case resizePane(PaneGrid.ResizePaneAllocationCommand, NativeRuntime.PaneSize)
     case resizePaneToSize(RequestID, PaneGrid.PaneKernelTarget, NativeRuntime.PaneSize)
     case selectWindow(PaneGrid.SelectTabWindowCommand)
@@ -6042,6 +6183,18 @@ struct NativePaneGridServerRuntimeCommandPort: NativePaneGridRuntimeCommandSendi
                     paneId: command.target.paneID.rawValue
                 )
             )
+        case .writePaneInput(let requestID, let target, let bytes):
+            try encode(
+                requestID: requestID,
+                method: "tmux.pane.write",
+                payload: NativePaneGridPaneWriteRPCInput(
+                    actor: actor.rpcActor,
+                    workspaceId: target.workspaceID.rawValue,
+                    paneId: target.paneID.rawValue,
+                    requestId: requestID.rawValue,
+                    data: String(decoding: bytes, as: UTF8.self)
+                )
+            )
         case .resizePane(let command, let size):
             try encode(
                 requestID: command.requestID,
@@ -6101,6 +6254,14 @@ private struct NativePaneGridPaneFocusRPCInput: Codable, Equatable, Sendable {
     let actor: NativePaneGridRPCActor
     let workspaceId: String
     let paneId: String
+}
+
+private struct NativePaneGridPaneWriteRPCInput: Codable, Equatable, Sendable {
+    let actor: NativePaneGridRPCActor
+    let workspaceId: String
+    let paneId: String
+    let requestId: String
+    let data: String
 }
 
 private struct NativePaneGridPaneResizeRPCInput: Codable, Equatable, Sendable {

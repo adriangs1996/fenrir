@@ -146,7 +146,7 @@ struct NativeTerminalStreamIngestorOSCTests {
                 #expect(workspaceID == "workspace-a")
                 #expect(pane.paneID == "pane-host-osc")
                 #expect(pane.streamID == "stream-pane-host-osc")
-                #expect(backfill == .latest)
+                #expect(backfill == .fromSeq(0))
                 return stream
             },
             terminalStreamIngestor: ingestor

@@ -16,7 +16,7 @@ public extension NativeDistribution {
     enum DependencyKind: String, Codable, Equatable, Sendable {
         case tmux
         case fenrirServerAsset
-        case terminalRendererArtifact
+        case ghosttyTerminalRuntime
         case neovim
     }
 
@@ -67,21 +67,21 @@ public extension NativeDistribution {
         }
     }
 
-    struct TerminalRendererArtifactProbeResult: Codable, Equatable, Sendable {
-        public let artifactPath: String?
-        public let resourcesPath: String?
-        public let isLoadable: Bool
+    struct GhosttyTerminalRuntimeProbeResult: Codable, Equatable, Sendable {
+        public let runtimeIdentifier: String
+        public let symbolName: String
+        public let isLinked: Bool
         public let version: String?
 
         public init(
-            artifactPath: String?,
-            resourcesPath: String? = nil,
-            isLoadable: Bool,
+            runtimeIdentifier: String = "GhosttyTerminal/libghostty",
+            symbolName: String = "ghostty_surface_new",
+            isLinked: Bool,
             version: String? = nil
         ) {
-            self.artifactPath = artifactPath
-            self.resourcesPath = resourcesPath
-            self.isLoadable = isLoadable
+            self.runtimeIdentifier = runtimeIdentifier
+            self.symbolName = symbolName
+            self.isLinked = isLinked
             self.version = version
         }
     }

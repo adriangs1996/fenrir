@@ -39,13 +39,13 @@ terminal app rather than a document editor:
 - command palette, sidebar, settings, diagnostics, agent composer, and workflow
   detail are native auxiliary surfaces, not fake tmux panes
 
-`libGhostty` stays behind `TerminalViewport` and `FenrirTerminalView`.
-High-volume terminal bytes do not flow through CLI control, workspace index,
-notifications, or generic product command paths. Startup readiness treats the
-native terminal renderer artifact as required by default; the bootstrap
-`NSTextView` renderer reports `RendererStatus.degraded` and is only considered
-an acceptable smoke fallback when `FENRIR_NATIVE_ALLOW_BOOTSTRAP_TERMINAL=1` is
-set.
+`libGhostty` stays behind `TerminalViewport` and `FenrirTerminalView`. Fenrir
+uses the vendored `GhosttyTerminal` wrapper with a checksum-verified
+`GhosttyKit.xcframework.zip` fetched by `prefetch-ghosttykit.sh`, and pane
+input/resize flows back into the server tmux runtime. High-volume terminal bytes
+do not flow through CLI control, workspace index, notifications, or generic
+product command paths. The bootstrap `NSTextView` renderer reports
+`RendererStatus.degraded` and is only retained for explicit local fallback work.
 
 ## CLI Control
 
@@ -246,12 +246,13 @@ Run the native doctor before local smoke testing or release packaging:
 
 ```sh
 cd native/FenrirNative
-MODE=local-smoke FENRIR_NATIVE_ALLOW_BOOTSTRAP_TERMINAL=1 bash doctor.sh
+MODE=local-smoke bash doctor.sh
 ```
 
-`MODE=release` requires `SERVER_ASSET`, `TERMINAL_RENDERER_ARTIFACT`, and
-`TERMINAL_RENDERER_RESOURCES`; set `REQUIRE_SIGNING=1` when CI/release should
-also fail on missing `CODESIGN_IDENTITY`.
+`MODE=release` requires `SERVER_ASSET`; `prefetch-ghosttykit.sh` fetches and
+checksum-verifies the GhosttyKit binary target before package builds. Set
+`REQUIRE_SIGNING=1` when CI/release should also fail on missing
+`CODESIGN_IDENTITY`.
 
 Use the package script when a real `.app` bundle is needed for local smoke
 testing or release-pipeline input:
@@ -262,8 +263,8 @@ bash package-app.sh
 ```
 
 The script builds `FenrirNativeApp`, writes `Fenrir Native.app`, validates the
-bundle plist, optionally copies `fenrir-server`, `FenrirTerminalRenderer`, and
-`FenrirTerminalResources`, and signs the bundle when `CODESIGN_IDENTITY` is set.
+bundle plist, optionally copies `fenrir-server`, records the Ghostty runtime
+version, and signs the bundle when `CODESIGN_IDENTITY` is set.
 Unsigned bundles are valid for development but are not a release artifact.
 
 ## Distribution Readiness

@@ -134,13 +134,14 @@ Current implementation state:
 - NativeRuntime has a server tmux adapter for workspace snapshot, ensure,
   focus, resize, pane write contracts, stream subscribe, and stream envelope
   mapping.
-- TerminalViewport owns the FenrirTerminalView boundary, stream ingestion,
-  reserved OSC stripping/forwarding, renderer backpressure batching, and context
-  capture contracts. The production libGhostty backend artifact remains a
-  distribution/runtime dependency; tests use fake renderer ports. Startup
-  readiness now treats a missing renderer artifact as a blocking diagnostic by
-  default; the AppKit bootstrap text renderer is explicitly degraded and only
-  opt-in for local smoke work with `FENRIR_NATIVE_ALLOW_BOOTSTRAP_TERMINAL=1`.
+- TerminalViewport owns the FenrirTerminalView boundary, a Ghostty-backed
+  AppKit renderer backend, stream ingestion, reserved OSC stripping/forwarding,
+  renderer backpressure batching, and context capture contracts. The production
+  renderer is provided by the vendored `GhosttyTerminal` wrapper plus a
+  checksum-verified `GhosttyKit.xcframework.zip` fetched by
+  `native/FenrirNative/prefetch-ghosttykit.sh`; tests can still use fake
+  renderer ports. The AppKit bootstrap text renderer is explicitly degraded and
+  retained only for fallback development work.
 - PaneGrid and WorkspaceShell have AppKit host surfaces with tmux window/tab and
   pane projection, focus, resize, palette, sidebar, overlays, and theme tokens.
 - WorkflowControl lists, opens timelines, controls server-owned workflow runs
@@ -161,13 +162,14 @@ Current implementation state:
 - AgentInteraction supports bounded context capture and native composer flow;
   base submission dispatches server orchestration commands and intentionally
   avoids writing into tmux panes.
-- Remaining large product gaps are the production libGhostty backend/artifact,
-  signing/notarization/updater, and broader performance/failure-injection
-  hardening. The packaging path now fails release bundles that omit the server,
-  renderer artifact, or renderer resources, and native crash reports persist as
-  local redacted diagnostics records. `native/FenrirNative/doctor.sh` provides
-  local-smoke and release preflight checks for Swift, tmux, package assets,
-  renderer fallback policy, and signing readiness.
+- Remaining large product gaps are signing/notarization/updater, managed
+  dependency distribution policy, and broader performance/failure-injection
+  hardening. The packaging path now fails release bundles that omit the server
+  and prefetches the GhosttyKit binary target before building; native crash
+  reports persist as local redacted diagnostics records.
+  `native/FenrirNative/doctor.sh` provides local-smoke and release preflight
+  checks for Swift, tmux, package assets, GhosttyKit checksum readiness, and
+  signing readiness.
 
 Implemented documentation should distinguish this scaffolded/partially wired
 state from final target behavior. Roadmap workstreams below remain the target
@@ -677,16 +679,17 @@ Goal: render one tmux pane as a native terminal viewport through `libGhostty`.
 
 Deliverables:
 
-- `FenrirTerminalView` AppKit wrapper
-- Ghostty runtime initialization and resource loading
-- terminal surface lifecycle, create, attach, detach, dispose
-- input routing, IME, secure input, key equivalents, and modifier handling
+- [x] `FenrirTerminalView` AppKit wrapper
+- [x] Ghostty runtime initialization and resource loading
+- [x] terminal surface lifecycle, create, attach, detach, dispose
+- [x] input routing through Ghostty key handling into host-managed tmux writes
+- IME, secure input, key equivalents, and modifier handling hardening
 - clipboard, selection, context menu, paste protection, and bracketed paste
 - resize, font, theme, color scheme, cursor, search, and scrollback behavior
 - renderer-local scrollback separated from durable stream replay
 - bounded terminal context capture from selection, visible viewport, and last N
   rendered lines
-- stream chunk application from `NativeRuntime`
+- [x] stream chunk application from `NativeRuntime`
 - visible gap/overflow/degraded indicators
 - fake renderer ports for tests
 

@@ -95,6 +95,7 @@ MINIMUM_TMUX_VERSION="${MINIMUM_TMUX_VERSION:-3.2}"
 SERVER_ASSET="${SERVER_ASSET:-}"
 TERMINAL_RENDERER_ARTIFACT="${TERMINAL_RENDERER_ARTIFACT:-}"
 TERMINAL_RENDERER_RESOURCES="${TERMINAL_RENDERER_RESOURCES:-}"
+GHOSTTYKIT_PREFETCH="${GHOSTTYKIT_PREFETCH:-$PACKAGE_ROOT/prefetch-ghosttykit.sh}"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
 REQUIRE_SIGNING="${REQUIRE_SIGNING:-0}"
 
@@ -115,6 +116,22 @@ fi
 check_command swift
 check_command plutil
 
+if grep -q 'libghostty-spm' "$PACKAGE_ROOT/Package.swift"; then
+  pass "GhosttyTerminal/libghostty SwiftPM dependency is declared"
+else
+  fail "GhosttyTerminal/libghostty SwiftPM dependency is missing from Package.swift"
+fi
+
+if [[ -x "$GHOSTTYKIT_PREFETCH" ]]; then
+  if "$GHOSTTYKIT_PREFETCH" >/dev/null; then
+    pass "GhosttyKit binary artifact is present and checksum-verified"
+  else
+    fail "GhosttyKit binary artifact prefetch failed"
+  fi
+else
+  fail "GhosttyKit prefetch script is missing or not executable: $GHOSTTYKIT_PREFETCH"
+fi
+
 if command -v tmux >/dev/null 2>&1; then
   tmux_version="$(tmux -V | awk '{print $2}')"
   if version_at_least "$tmux_version" "$MINIMUM_TMUX_VERSION"; then
@@ -128,8 +145,12 @@ fi
 
 if [[ "$MODE" == "release" ]]; then
   check_executable_file SERVER_ASSET "$SERVER_ASSET"
-  check_executable_file TERMINAL_RENDERER_ARTIFACT "$TERMINAL_RENDERER_ARTIFACT"
-  check_existing_path TERMINAL_RENDERER_RESOURCES "$TERMINAL_RENDERER_RESOURCES"
+  if [[ -n "$TERMINAL_RENDERER_ARTIFACT" ]]; then
+    check_executable_file TERMINAL_RENDERER_ARTIFACT "$TERMINAL_RENDERER_ARTIFACT"
+  fi
+  if [[ -n "$TERMINAL_RENDERER_RESOURCES" ]]; then
+    check_existing_path TERMINAL_RENDERER_RESOURCES "$TERMINAL_RENDERER_RESOURCES"
+  fi
   if [[ -n "$CODESIGN_IDENTITY" ]]; then
     check_command codesign
     pass "CODESIGN_IDENTITY is set"
@@ -141,10 +162,8 @@ if [[ "$MODE" == "release" ]]; then
 else
   if [[ -n "$TERMINAL_RENDERER_ARTIFACT" ]]; then
     check_executable_file TERMINAL_RENDERER_ARTIFACT "$TERMINAL_RENDERER_ARTIFACT"
-  elif [[ "${FENRIR_NATIVE_ALLOW_BOOTSTRAP_TERMINAL:-0}" == "1" ]]; then
-    warn "native terminal renderer artifact is absent; explicit bootstrap renderer fallback is enabled for local smoke"
   else
-    fail "local smoke needs TERMINAL_RENDERER_ARTIFACT or FENRIR_NATIVE_ALLOW_BOOTSTRAP_TERMINAL=1"
+    pass "native terminal renderer is provided by GhosttyTerminal SwiftPM dependency"
   fi
 
   if [[ -n "$SERVER_ASSET" ]]; then

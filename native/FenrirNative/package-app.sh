@@ -67,8 +67,8 @@ write_info_plist() {
   <string>$VERSION</string>
   <key>CFBundleVersion</key>
   <string>$BUILD_NUMBER</string>
-  <key>FenrirTerminalRendererVersion</key>
-  <string>$TERMINAL_RENDERER_VERSION</string>
+  <key>FenrirGhosttyTerminalVersion</key>
+  <string>$GHOSTTY_TERMINAL_VERSION</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MINIMUM_SYSTEM_VERSION</string>
   <key>NSHighResolutionCapable</key>
@@ -90,9 +90,9 @@ BUILD_NUMBER="${BUILD_NUMBER:-1}"
 MINIMUM_SYSTEM_VERSION="${MINIMUM_SYSTEM_VERSION:-14.0}"
 OUT_DIR="${OUT_DIR:-$PACKAGE_ROOT/.build/package}"
 SERVER_ASSET="${SERVER_ASSET:-}"
-TERMINAL_RENDERER_ARTIFACT="${TERMINAL_RENDERER_ARTIFACT:-}"
-TERMINAL_RENDERER_RESOURCES="${TERMINAL_RENDERER_RESOURCES:-}"
-TERMINAL_RENDERER_VERSION="${TERMINAL_RENDERER_VERSION:-unknown}"
+TERMINAL_RENDERER_VERSION="${TERMINAL_RENDERER_VERSION:-}"
+GHOSTTY_TERMINAL_VERSION="${GHOSTTY_TERMINAL_VERSION:-${TERMINAL_RENDERER_VERSION:-libghostty-spm-1.2.8}}"
+GHOSTTYKIT_PREFETCH="${GHOSTTYKIT_PREFETCH:-$PACKAGE_ROOT/prefetch-ghosttykit.sh}"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
 CODESIGN_ENTITLEMENTS="${CODESIGN_ENTITLEMENTS:-}"
 CLEAN="${CLEAN:-1}"
@@ -129,12 +129,16 @@ esac
 
 if [[ "$REQUIRE_RELEASE_ASSETS" == "1" ]]; then
   [[ -n "$SERVER_ASSET" ]] || fail "SERVER_ASSET is required for release packaging"
-  [[ -n "$TERMINAL_RENDERER_ARTIFACT" ]] || fail "TERMINAL_RENDERER_ARTIFACT is required for release packaging"
-  [[ -n "$TERMINAL_RENDERER_RESOURCES" ]] || fail "TERMINAL_RENDERER_RESOURCES is required for release packaging"
 fi
 
 command -v swift >/dev/null 2>&1 || fail "swift is required on PATH"
 command -v plutil >/dev/null 2>&1 || fail "plutil is required on PATH"
+
+if [[ -x "$GHOSTTYKIT_PREFETCH" ]]; then
+  "$GHOSTTYKIT_PREFETCH" >/dev/null
+else
+  fail "GhosttyKit prefetch script is missing or not executable: $GHOSTTYKIT_PREFETCH"
+fi
 
 if [[ "$SKIP_SWIFT_BUILD" != "1" ]]; then
   log "building FenrirNativeApp ($CONFIGURATION)"
@@ -160,8 +164,6 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$APP_EXECUTABLE" "$MACOS_DIR/FenrirNativeApp"
 chmod 755 "$MACOS_DIR/FenrirNativeApp"
 copy_optional_resource "$SERVER_ASSET" "$RESOURCES_DIR/fenrir-server" SERVER_ASSET executable
-copy_optional_resource "$TERMINAL_RENDERER_ARTIFACT" "$RESOURCES_DIR/FenrirTerminalRenderer" TERMINAL_RENDERER_ARTIFACT executable
-copy_optional_resource "$TERMINAL_RENDERER_RESOURCES" "$RESOURCES_DIR/FenrirTerminalResources" TERMINAL_RENDERER_RESOURCES data
 write_info_plist "$CONTENTS_DIR/Info.plist"
 printf 'APPL????' >"$CONTENTS_DIR/PkgInfo"
 plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
@@ -169,10 +171,6 @@ plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
 if [[ -n "$SERVER_ASSET" && ! -x "$RESOURCES_DIR/fenrir-server" ]]; then
   fail "bundled fenrir-server is not executable"
 fi
-if [[ -n "$TERMINAL_RENDERER_ARTIFACT" && ! -x "$RESOURCES_DIR/FenrirTerminalRenderer" ]]; then
-  fail "bundled FenrirTerminalRenderer is not executable"
-fi
-
 if [[ -n "$CODESIGN_IDENTITY" ]]; then
   command -v codesign >/dev/null 2>&1 || fail "codesign is required when CODESIGN_IDENTITY is set"
   codesign_args=(--force --options runtime --sign "$CODESIGN_IDENTITY")

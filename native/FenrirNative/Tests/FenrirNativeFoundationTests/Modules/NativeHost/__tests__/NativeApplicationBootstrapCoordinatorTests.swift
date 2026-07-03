@@ -8,6 +8,17 @@ import Testing
 
 @Suite("NativeHost application bootstrap coordinator")
 struct NativeHostApplicationBootstrapCoordinatorTests {
+    @Test("NativeHost startup readiness treats explicit bootstrap token as existing local server")
+    func nativeHostStartupReadinessTreatsBootstrapTokenAsExistingLocalServer() {
+        #expect(NativeApplicationBootstrapCoordinator.distributionStartupMode(environment: [
+            "FENRIR_NATIVE_BOOTSTRAP_TOKEN": "desktop-bootstrap-token"
+        ]) == .existingLocalServer)
+        #expect(NativeApplicationBootstrapCoordinator.distributionStartupMode(environment: [
+            "FENRIR_BOOTSTRAP_TOKEN": "  "
+        ]) == .localDefault)
+        #expect(NativeApplicationBootstrapCoordinator.distributionStartupMode(environment: [:]) == .localDefault)
+    }
+
     @Test("NativeHost startup uses prepared local default before opening workspace and socket hooks")
     @MainActor
     func nativeHostStartupUsesPreparedLocalDefaultBeforeRuntimeHooks() async {

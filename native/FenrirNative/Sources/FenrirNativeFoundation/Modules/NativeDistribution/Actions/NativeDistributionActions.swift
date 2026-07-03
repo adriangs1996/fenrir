@@ -27,18 +27,18 @@ public extension NativeDistribution {
         public let clock: any NativeDistributionClock
         public let tmuxChecker: any TmuxDependencyChecking
         public let serverAssetLocator: any ServerAssetLocating
-        public let terminalRendererLocator: any TerminalRendererArtifactLocating
+        public let ghosttyRuntimeChecker: any GhosttyTerminalRuntimeChecking
 
         public init(
             clock: any NativeDistributionClock,
             tmuxChecker: any TmuxDependencyChecking,
             serverAssetLocator: any ServerAssetLocating,
-            terminalRendererLocator: any TerminalRendererArtifactLocating = NativeDistribution.appResourceTerminalRendererArtifactLocator()
+            ghosttyRuntimeChecker: any GhosttyTerminalRuntimeChecking = NativeDistribution.linkedGhosttyTerminalRuntimeChecker()
         ) {
             self.clock = clock
             self.tmuxChecker = tmuxChecker
             self.serverAssetLocator = serverAssetLocator
-            self.terminalRendererLocator = terminalRendererLocator
+            self.ghosttyRuntimeChecker = ghosttyRuntimeChecker
         }
 
         public func run(_ input: AssessStartupReadinessInput) async -> Result<AssessStartupReadinessResult, DistributionReadinessError> {
@@ -51,7 +51,7 @@ public extension NativeDistribution {
                     allowBootstrapRendererFallback: input.allowBootstrapRendererFallback,
                     tmuxChecker: tmuxChecker,
                     serverAssetLocator: serverAssetLocator,
-                    terminalRendererLocator: terminalRendererLocator
+                    ghosttyRuntimeChecker: ghosttyRuntimeChecker
                 )
                 let diagnostics = checks.compactMap(NativeDistribution.diagnostic(for:))
                 let canStart = !diagnostics.contains { $0.severity == .error }
@@ -81,7 +81,7 @@ public extension NativeDistribution {
         allowBootstrapRendererFallback: Bool = false,
         tmuxChecker: any TmuxDependencyChecking,
         serverAssetLocator: any ServerAssetLocating,
-        terminalRendererLocator: any TerminalRendererArtifactLocating
+        ghosttyRuntimeChecker: any GhosttyTerminalRuntimeChecking
     ) async throws -> [DependencyCheck] {
         var checks: [DependencyCheck] = []
 
@@ -107,8 +107,8 @@ public extension NativeDistribution {
             ))
         }
 
-        checks.append(try await terminalRendererArtifactCheck(
-            locator: terminalRendererLocator,
+        checks.append(try await ghosttyTerminalRuntimeCheck(
+            checker: ghosttyRuntimeChecker,
             allowBootstrapRendererFallback: allowBootstrapRendererFallback
         ))
 
@@ -194,35 +194,34 @@ public extension NativeDistribution {
         )
     }
 
-    static func terminalRendererArtifactCheck(
-        locator: any TerminalRendererArtifactLocating,
+    static func ghosttyTerminalRuntimeCheck(
+        checker: any GhosttyTerminalRuntimeChecking,
         allowBootstrapRendererFallback: Bool = false
     ) async throws -> DependencyCheck {
-        let probe: TerminalRendererArtifactProbeResult
+        let probe: GhosttyTerminalRuntimeProbeResult
         do {
-            probe = try await locator.locateTerminalRendererArtifact()
+            probe = try await checker.probeGhosttyTerminalRuntime()
         } catch {
             throw DistributionReadinessError.dependencyProbeFailed(String(describing: error))
         }
 
-        guard let path = probe.artifactPath, !path.isEmpty, probe.isLoadable else {
+        guard probe.isLinked else {
             return DependencyCheck(
-                kind: .terminalRendererArtifact,
+                kind: .ghosttyTerminalRuntime,
                 status: allowBootstrapRendererFallback ? .fallbackAvailable : .missing,
-                path: probe.artifactPath,
                 version: probe.version,
                 message: allowBootstrapRendererFallback
-                    ? "Native terminal renderer artifact was not found; explicit bootstrap text rendering fallback is enabled."
-                    : "Native terminal renderer artifact was not found; production terminal rendering cannot be marked ready."
+                    ? "GhosttyTerminal/libghostty runtime symbol \(probe.symbolName) was not found; explicit bootstrap text rendering fallback is enabled."
+                    : "GhosttyTerminal/libghostty runtime symbol \(probe.symbolName) was not found; production terminal rendering cannot be marked ready."
             )
         }
 
         return DependencyCheck(
-            kind: .terminalRendererArtifact,
+            kind: .ghosttyTerminalRuntime,
             status: .available,
-            path: path,
+            path: probe.runtimeIdentifier,
             version: probe.version,
-            message: "Native terminal renderer artifact is available."
+            message: "GhosttyTerminal/libghostty runtime is linked."
         )
     }
 
@@ -249,19 +248,19 @@ public extension NativeDistribution {
                 message: check.message,
                 recoverySuggestion: "Reinstall the native app bundle or use existing local server or remote attach mode."
             )
-        case (.terminalRendererArtifact, .missing):
+        case (.ghosttyTerminalRuntime, .missing):
             return StartupDiagnostic(
                 severity: .error,
-                title: "Native terminal renderer artifact is unavailable",
+                title: "Ghostty terminal runtime is unavailable",
                 message: check.message,
-                recoverySuggestion: "Build or bundle the native terminal renderer artifact, or explicitly enable bootstrap renderer fallback for local smoke work."
+                recoverySuggestion: "Verify the GhosttyTerminal SwiftPM dependency and GhosttyKit binary target are linked, or explicitly enable bootstrap renderer fallback for local smoke work."
             )
-        case (.terminalRendererArtifact, .fallbackAvailable):
+        case (.ghosttyTerminalRuntime, .fallbackAvailable):
             return StartupDiagnostic(
                 severity: .warning,
-                title: "Native terminal renderer fallback is active",
+                title: "Ghostty terminal fallback is active",
                 message: check.message,
-                recoverySuggestion: "Bundle the native terminal renderer artifact before treating this client as production-ready."
+                recoverySuggestion: "Fix the GhosttyTerminal/libghostty runtime linkage before treating this client as production-ready."
             )
         case (.neovim, .externalNotBundled):
             return StartupDiagnostic(

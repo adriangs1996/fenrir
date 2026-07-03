@@ -40,6 +40,11 @@ public protocol FenrirTerminalBackend: AnyObject {
 }
 
 @MainActor
+public protocol FenrirTerminalSyntheticSelectionCapturing: AnyObject {
+    func setSyntheticSelectionForTesting(_ text: String?)
+}
+
+@MainActor
 public final class FenrirTerminalView: NSView {
     private let backend: any FenrirTerminalBackend
     public private(set) var attachedStreamID: StreamID?
@@ -134,5 +139,14 @@ public final class FenrirTerminalView: NSView {
 
     public func captureLastLines(maxLines: Int?) -> TerminalViewport.CapturedTextBuffer {
         backend.captureLastLines(maxLines: maxLines)
+    }
+
+    @discardableResult
+    public func setSyntheticSelectionForTesting(_ text: String?) -> Bool {
+        guard let backend = backend as? any FenrirTerminalSyntheticSelectionCapturing else {
+            return false
+        }
+        backend.setSyntheticSelectionForTesting(text)
+        return true
     }
 }

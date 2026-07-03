@@ -30,7 +30,7 @@ struct NativeWorkspaceShellControllerTests {
         #expect(view.terminalPaneHost.paneGridView.superview === view.terminalPaneHost)
         #expect(view.terminalPaneHost.paneGridView.renderedPaneIDs() == ["pane-a"])
         #expect(view.terminalPaneHost.paneGridView.renderedTmuxPaneIDs() == ["%1"])
-        #expect(view.terminalPaneHost.terminalView.rendererDescriptor.status == .degraded)
+        #expect(view.terminalPaneHost.terminalView.rendererDescriptor.status == .ready)
         #expect(view.terminalPaneHost.terminalView.attachedStreamID == nil)
         #expect(view.terminalPaneHost.terminalView.captureLastLines(maxLines: nil).text.contains("Fenrir tmux pane stream attached") == false)
         #expect(view.terminalPaneHost.terminalView.captureLastLines(maxLines: nil).text.contains("attached pane stream") == false)
@@ -1504,7 +1504,7 @@ struct NativeWorkspaceShellControllerTests {
                 #expect(workspaceID == "workspace-a")
                 #expect(pane.paneID == "pane-a")
                 #expect(pane.streamID == "stream-pane-a")
-                #expect(backfill == .latest)
+                #expect(backfill == .fromSeq(0))
                 return stream
             }
         )
@@ -1546,7 +1546,7 @@ struct NativeWorkspaceShellControllerTests {
         try await waitUntil {
             recorder.streamIDs == ["stream-pane-a", "stream-pane-a-reconnected"]
         }
-        #expect(recorder.backfills == [.latest, .latest])
+        #expect(recorder.backfills == [.fromSeq(0), .fromSeq(0)])
         #expect(host.terminalView.attachedStreamID == "stream-pane-a-reconnected")
 
         let marker = "same-viewport-new-stream-marker"
@@ -1599,7 +1599,7 @@ struct NativeWorkspaceShellControllerTests {
         try await waitUntil {
             recorder.streamIDs == ["stream-pane-a", "stream-pane-a-reconnected"]
         }
-        #expect(recorder.backfills == [.latest, .fromSeq(42)])
+        #expect(recorder.backfills == [.fromSeq(0), .fromSeq(42)])
         recorder.finishAll()
     }
 
@@ -2810,6 +2810,10 @@ private final class FakePaneGridActions: NativePaneGridActionDispatching, @unche
         return nil
     }
 
+    func writeInput(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) async {
+        append("write:\(target.paneID.rawValue):\(String(decoding: bytes, as: UTF8.self))")
+    }
+
     func resizePane(_ allocation: PaneGrid.PaneResizeAllocation, in state: PaneGrid.State) async {
         append("resize:\(allocation.paneID.rawValue):\(allocation.delta):\(allocation.unit.rawValue):\(allocation.direction.rawValue)")
     }
@@ -2836,6 +2840,7 @@ private final class SelectReturningPaneGridActions: NativePaneGridActionDispatch
     func markServerBackedPaneGridState(_ state: PaneGrid.State) {}
     func focusPane(_ target: PaneGrid.PaneKernelTarget) async -> PaneGrid.State? { nil }
     func selectWindow(_ command: PaneGrid.SelectTabWindowCommand) async -> PaneGrid.State? { nextState }
+    func writeInput(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) async {}
     func resizePane(_ allocation: PaneGrid.PaneResizeAllocation, in state: PaneGrid.State) async {}
     func resizePane(_ target: PaneGrid.PaneKernelTarget, size: TerminalViewport.Size, in state: PaneGrid.State) async {}
 }
@@ -2936,6 +2941,10 @@ private final class RecordingPaneGridRuntimeController: NativePaneGridRuntimeCon
 
     func focusPane(_ command: PaneGrid.FocusPaneCommand) async throws {
         append("focus:\(command.target.paneID.rawValue):\(command.target.tmuxPaneID.rawValue)")
+    }
+
+    func writeInput(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) async throws {
+        append("write:\(target.paneID.rawValue):\(String(decoding: bytes, as: UTF8.self))")
     }
 
     func resizePaneAllocation(_ command: PaneGrid.ResizePaneAllocationCommand) async throws {

@@ -14,8 +14,8 @@ public extension NativeDistribution {
         func locateServerAsset() async throws -> ServerAssetProbeResult
     }
 
-    protocol TerminalRendererArtifactLocating: Sendable {
-        func locateTerminalRendererArtifact() async throws -> TerminalRendererArtifactProbeResult
+    protocol GhosttyTerminalRuntimeChecking: Sendable {
+        func probeGhosttyTerminalRuntime() async throws -> GhosttyTerminalRuntimeProbeResult
     }
 
     static func pathTmuxDependencyChecker() -> any TmuxDependencyChecking {
@@ -34,19 +34,10 @@ public extension NativeDistribution {
         )
     }
 
-    static func appResourceTerminalRendererArtifactLocator(
+    static func linkedGhosttyTerminalRuntimeChecker(
         bundle: Bundle = .main,
-        artifactResourceName: String = "FenrirTerminalRenderer",
-        artifactResourceExtension: String? = nil,
-        resourcesResourceName: String = "FenrirTerminalResources",
-        resourcesResourceExtension: String? = nil
-    ) -> any TerminalRendererArtifactLocating {
-        AppResourceTerminalRendererArtifactLocator(
-            bundle: bundle,
-            artifactResourceName: artifactResourceName,
-            artifactResourceExtension: artifactResourceExtension,
-            resourcesResourceName: resourcesResourceName,
-            resourcesResourceExtension: resourcesResourceExtension
-        )
+        symbolName: String = "ghostty_surface_new"
+    ) -> any GhosttyTerminalRuntimeChecking {
+        LinkedGhosttyTerminalRuntimeChecker(bundle: bundle, symbolName: symbolName)
     }
 }

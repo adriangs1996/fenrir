@@ -111,6 +111,32 @@ struct FenrirTerminalViewTests {
         #expect(backend.lastLineRequests == [1])
     }
 
+    @Test("Ghostty backend resolves user config files in Ghostty load order")
+    func ghosttyBackendResolvesUserConfigFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fenrir-ghostty-config-test-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let xdg = root.appendingPathComponent("xdg", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let paths = [
+            xdg.appendingPathComponent("ghostty/config.ghostty"),
+            xdg.appendingPathComponent("ghostty/config"),
+            home.appendingPathComponent("Library/Application Support/com.mitchellh.ghostty/config.ghostty"),
+            home.appendingPathComponent("Library/Application Support/com.mitchellh.ghostty/config")
+        ]
+        for path in paths {
+            try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "font-size = 13\n".write(to: path, atomically: true, encoding: .utf8)
+        }
+
+        #expect(FenrirGhosttyTerminalBackend.resolvedGhosttyConfigFilePaths(environment: [
+            "HOME": home.path,
+            "XDG_CONFIG_HOME": xdg.path
+        ]) == paths.map(\.path))
+    }
+
     @Test("Public TerminalViewport surface does not expose Ghostty implementation names")
     func publicSurfaceDoesNotExposeGhostty() throws {
         let root = URL(fileURLWithPath: #filePath)

@@ -41,7 +41,7 @@ Before packaging or running a local smoke session, run the native doctor:
 
 ```sh
 cd native/FenrirNative
-MODE=local-smoke FENRIR_NATIVE_ALLOW_BOOTSTRAP_TERMINAL=1 bash doctor.sh
+MODE=local-smoke bash doctor.sh
 ```
 
 For release preflight:
@@ -49,8 +49,6 @@ For release preflight:
 ```sh
 MODE=release \
 SERVER_ASSET=/path/to/fenrir-server \
-TERMINAL_RENDERER_ARTIFACT=/path/to/FenrirTerminalRenderer \
-TERMINAL_RENDERER_RESOURCES=/path/to/resources \
 bash doctor.sh
 ```
 
@@ -67,9 +65,8 @@ Useful environment overrides:
 - `CONFIGURATION=debug|release` selects the SwiftPM build configuration.
 - `OUT_DIR=/path/to/output` chooses where the `.app` bundle is written.
 - `SERVER_ASSET=/path/to/fenrir-server` bundles an executable server helper as `Contents/Resources/fenrir-server`.
-- `TERMINAL_RENDERER_ARTIFACT=/path/to/FenrirTerminalRenderer` bundles the renderer artifact consumed by distribution readiness.
-- `TERMINAL_RENDERER_RESOURCES=/path/to/resources` bundles renderer resources as `Contents/Resources/FenrirTerminalResources`.
-- `REQUIRE_RELEASE_ASSETS=0|1` overrides the default release gate. Release packaging requires `SERVER_ASSET`, `TERMINAL_RENDERER_ARTIFACT`, and `TERMINAL_RENDERER_RESOURCES`; debug packaging keeps the smoke bundle path available.
+- `GHOSTTY_TERMINAL_VERSION=...` records the vendored GhosttyTerminal/libghostty runtime version in `Info.plist`.
+- `REQUIRE_RELEASE_ASSETS=0|1` overrides the default release gate. Release packaging requires `SERVER_ASSET`; `prefetch-ghosttykit.sh` fetches and checksum-verifies the GhosttyKit binary target before every package build.
 - `CODESIGN_IDENTITY=...` signs the app bundle with hardened runtime; `CODESIGN_ENTITLEMENTS=...` adds entitlements when needed.
 
 The script validates `Info.plist`, executable resource permissions, required release assets, and prints the bundle path. Notarization and update-feed publication remain release-pipeline concerns because they require Apple credentials and distribution-channel configuration.
