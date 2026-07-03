@@ -242,6 +242,17 @@ generic handle-command action when a typed action should exist.
 
 ## Package The Native App
 
+Run the native doctor before local smoke testing or release packaging:
+
+```sh
+cd native/FenrirNative
+MODE=local-smoke FENRIR_NATIVE_ALLOW_BOOTSTRAP_TERMINAL=1 bash doctor.sh
+```
+
+`MODE=release` requires `SERVER_ASSET`, `TERMINAL_RENDERER_ARTIFACT`, and
+`TERMINAL_RENDERER_RESOURCES`; set `REQUIRE_SIGNING=1` when CI/release should
+also fail on missing `CODESIGN_IDENTITY`.
+
 Use the package script when a real `.app` bundle is needed for local smoke
 testing or release-pipeline input:
 

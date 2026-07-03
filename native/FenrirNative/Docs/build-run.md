@@ -37,6 +37,23 @@ run `bun run test`.
 
 ## Package The Native App
 
+Before packaging or running a local smoke session, run the native doctor:
+
+```sh
+cd native/FenrirNative
+MODE=local-smoke FENRIR_NATIVE_ALLOW_BOOTSTRAP_TERMINAL=1 bash doctor.sh
+```
+
+For release preflight:
+
+```sh
+MODE=release \
+SERVER_ASSET=/path/to/fenrir-server \
+TERMINAL_RENDERER_ARTIFACT=/path/to/FenrirTerminalRenderer \
+TERMINAL_RENDERER_RESOURCES=/path/to/resources \
+bash doctor.sh
+```
+
 `package-app.sh` creates a deterministic macOS `.app` bundle from the SwiftPM
 product without requiring Xcode project generation:
 

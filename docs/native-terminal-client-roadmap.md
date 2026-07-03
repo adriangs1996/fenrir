@@ -165,7 +165,9 @@ Current implementation state:
   signing/notarization/updater, and broader performance/failure-injection
   hardening. The packaging path now fails release bundles that omit the server,
   renderer artifact, or renderer resources, and native crash reports persist as
-  local redacted diagnostics records.
+  local redacted diagnostics records. `native/FenrirNative/doctor.sh` provides
+  local-smoke and release preflight checks for Swift, tmux, package assets,
+  renderer fallback policy, and signing readiness.
 
 Implemented documentation should distinguish this scaffolded/partially wired
 state from final target behavior. Roadmap workstreams below remain the target
