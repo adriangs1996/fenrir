@@ -109,6 +109,13 @@ struct NativeHostDiagnosticsInput: Equatable, Sendable {
     let contextSource: Keybinding.AgentComposerContextSource?
     let expectedMarker: String?
     let selectionText: String?
+    let scriptCommand: String?
+    /// run-script-smoke sub-operation: "run" (default) creates a script pane,
+    /// "stop" stops the tracked running script and reports the closed pane.
+    let scriptOperation: String?
+    /// notifications-smoke: restore the pre-smoke overlay state after reading
+    /// (live sessions). Default keeps the panel open for CI verification.
+    let dismiss: Bool
 
     init(
         requestID: RequestID,
@@ -118,7 +125,10 @@ struct NativeHostDiagnosticsInput: Equatable, Sendable {
         agentID: String? = nil,
         contextSource: Keybinding.AgentComposerContextSource? = nil,
         expectedMarker: String? = nil,
-        selectionText: String? = nil
+        selectionText: String? = nil,
+        scriptCommand: String? = nil,
+        scriptOperation: String? = nil,
+        dismiss: Bool = false
     ) {
         self.requestID = requestID
         self.operation = operation
@@ -128,6 +138,9 @@ struct NativeHostDiagnosticsInput: Equatable, Sendable {
         self.contextSource = contextSource
         self.expectedMarker = expectedMarker
         self.selectionText = selectionText
+        self.scriptCommand = scriptCommand
+        self.scriptOperation = scriptOperation
+        self.dismiss = dismiss
     }
 }
 
@@ -368,7 +381,10 @@ struct NativeHostControlController: Sendable {
                 agentID: request.parameters["agentID"],
                 contextSource: NativeHostControlController.agentComposerContextSource(from: request.parameters),
                 expectedMarker: request.parameters["expectedMarker"],
-                selectionText: request.parameters["selectionText"]
+                selectionText: request.parameters["selectionText"],
+                scriptCommand: request.parameters["scriptCommand"],
+                scriptOperation: request.parameters["scriptOperation"],
+                dismiss: request.parameters["dismiss"] == "true"
             ))
                 .nativeHostResponse(request)
         }

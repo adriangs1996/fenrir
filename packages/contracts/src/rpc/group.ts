@@ -53,6 +53,7 @@ import {
   WsManagedProcessWriteStdinRpc,
 } from "./managedProcess";
 import { WsSubscribeLocalServersRpc } from "./localServers";
+import { WsApprovalFeedDecideRpc, WsSubscribeApprovalFeedRpc } from "./agentFeed";
 import {
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetArchivedShellSnapshotRpc,
@@ -258,6 +259,7 @@ import {
   WsVcsRefreshStatusRpc,
   WsVcsRemoveWorktreeRpc,
   WsVcsSwitchRefRpc,
+  WsWorkspaceGitProbeRpc,
 } from "./vcs";
 
 export const WsRpcGroup = RpcGroup.make(
@@ -342,6 +344,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsCreateRefRpc,
   WsVcsSwitchRefRpc,
   WsVcsInitRpc,
+  WsWorkspaceGitProbeRpc,
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,
   WsTerminalResizeRpc,
@@ -354,6 +357,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerLifecycleRpc,
   WsSubscribeAuthAccessRpc,
   WsSubscribeLocalServersRpc,
+  WsSubscribeApprovalFeedRpc,
+  WsApprovalFeedDecideRpc,
   WsOrchestrationGetBootstrapSnapshotRpc,
   WsServerUpdateProviderRpc,
   WsOrchestrationGetArchivedShellSnapshotRpc,

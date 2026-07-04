@@ -75,6 +75,22 @@ public extension NativeRuntime {
         func resizePaneRuntime(_ input: ResizePaneRuntimeInput) async throws -> PaneResizeAck
     }
 
+    protocol PaneRuntimeCreating: Sendable {
+        func createPaneRuntime(_ input: CreatePaneRuntimeInput) async throws -> PaneRuntimeState
+    }
+
+    /// D-044: creates a NEW tmux pane running a validated agent resume
+    /// command, carrying agent pane metadata instead of managed-process.
+    protocol AgentPaneRuntimeCreating: Sendable {
+        func createAgentPaneRuntime(_ input: CreateAgentPaneRuntimeInput) async throws -> PaneRuntimeState
+    }
+
+    /// D-044: attaches {agentID, sessionID} to an existing pane record via
+    /// the server's `tmux.pane.attachMetadata` contract.
+    protocol PaneAgentMetadataAttaching: Sendable {
+        func attachAgentPaneMetadata(_ input: AttachAgentPaneMetadataInput) async throws -> PaneRuntimeState
+    }
+
     protocol PaneRuntimeClosing: Sendable {
         func closePaneRuntime(_ input: ClosePaneRuntimeInput) async throws
     }

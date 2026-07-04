@@ -14,6 +14,8 @@ extension Settings {
         let appearance: StoredAppearancePreferences?
         let keybindingImport: StoredKeybindingImportPreferences?
         let diagnostics: StoredDiagnosticsPolicy?
+        let runScripts: StoredScriptPreferences?
+        let editorTarget: StoredEditorTargetPreference?
 
         init(
             schemaVersion: Int? = nil,
@@ -22,7 +24,9 @@ extension Settings {
             workspaceUI: StoredWorkspaceUIPreferences? = nil,
             appearance: StoredAppearancePreferences? = nil,
             keybindingImport: StoredKeybindingImportPreferences? = nil,
-            diagnostics: StoredDiagnosticsPolicy? = nil
+            diagnostics: StoredDiagnosticsPolicy? = nil,
+            runScripts: StoredScriptPreferences? = nil,
+            editorTarget: StoredEditorTargetPreference? = nil
         ) {
             self.schemaVersion = schemaVersion
             self.appMode = appMode
@@ -31,6 +35,8 @@ extension Settings {
             self.appearance = appearance
             self.keybindingImport = keybindingImport
             self.diagnostics = diagnostics
+            self.runScripts = runScripts
+            self.editorTarget = editorTarget
         }
 
         init(configuration: NativeSettingsConfiguration) {
@@ -41,7 +47,9 @@ extension Settings {
                 workspaceUI: StoredWorkspaceUIPreferences(configuration: configuration.workspaceUI),
                 appearance: StoredAppearancePreferences(configuration: configuration.appearance),
                 keybindingImport: StoredKeybindingImportPreferences(configuration: configuration.keybindingImport),
-                diagnostics: StoredDiagnosticsPolicy(configuration: configuration.diagnostics)
+                diagnostics: StoredDiagnosticsPolicy(configuration: configuration.diagnostics),
+                runScripts: StoredScriptPreferences(configuration: configuration.runScripts),
+                editorTarget: StoredEditorTargetPreference(configuration: configuration.editorTarget)
             )
         }
 
@@ -53,7 +61,70 @@ extension Settings {
                 workspaceUI: workspaceUI?.defaultedConfiguration ?? NativeSettingsConfiguration.defaults.workspaceUI,
                 appearance: appearance?.defaultedConfiguration ?? NativeSettingsConfiguration.defaults.appearance,
                 keybindingImport: keybindingImport?.defaultedConfiguration ?? NativeSettingsConfiguration.defaults.keybindingImport,
-                diagnostics: diagnostics?.defaultedConfiguration ?? NativeSettingsConfiguration.defaults.diagnostics
+                diagnostics: diagnostics?.defaultedConfiguration ?? NativeSettingsConfiguration.defaults.diagnostics,
+                runScripts: runScripts?.defaultedConfiguration ?? NativeSettingsConfiguration.defaults.runScripts,
+                editorTarget: editorTarget?.defaultedConfiguration ?? NativeSettingsConfiguration.defaults.editorTarget
+            )
+        }
+    }
+
+    /// D-045 back-compat: settings.json files written before schema version 4
+    /// have no `runScripts` key; every field defaults so old documents decode
+    /// to empty script preferences.
+    struct StoredScriptPreferences: Codable, Equatable, Sendable {
+        let globalScripts: [ScriptDefinition]?
+        let repositoryScripts: [String: [ScriptDefinition]]?
+
+        init(
+            globalScripts: [ScriptDefinition]? = nil,
+            repositoryScripts: [String: [ScriptDefinition]]? = nil
+        ) {
+            self.globalScripts = globalScripts
+            self.repositoryScripts = repositoryScripts
+        }
+
+        init(configuration: ScriptPreferences) {
+            self.init(
+                globalScripts: configuration.globalScripts,
+                repositoryScripts: configuration.repositoryScripts
+            )
+        }
+
+        var defaultedConfiguration: ScriptPreferences {
+            let defaults = NativeSettingsConfiguration.defaults.runScripts
+            return ScriptPreferences(
+                globalScripts: globalScripts ?? defaults.globalScripts,
+                repositoryScripts: repositoryScripts ?? defaults.repositoryScripts
+            )
+        }
+    }
+
+    /// D-045 back-compat: settings.json files written before schema version 4
+    /// have no `editorTarget` key; old documents decode to no chosen editor.
+    struct StoredEditorTargetPreference: Codable, Equatable, Sendable {
+        let defaultEditorID: String?
+        let repositoryOverrides: [String: String]?
+
+        init(
+            defaultEditorID: String? = nil,
+            repositoryOverrides: [String: String]? = nil
+        ) {
+            self.defaultEditorID = defaultEditorID
+            self.repositoryOverrides = repositoryOverrides
+        }
+
+        init(configuration: EditorTargetPreference) {
+            self.init(
+                defaultEditorID: configuration.defaultEditorID,
+                repositoryOverrides: configuration.repositoryOverrides
+            )
+        }
+
+        var defaultedConfiguration: EditorTargetPreference {
+            let defaults = NativeSettingsConfiguration.defaults.editorTarget
+            return EditorTargetPreference(
+                defaultEditorID: defaultEditorID ?? defaults.defaultEditorID,
+                repositoryOverrides: repositoryOverrides ?? defaults.repositoryOverrides
             )
         }
     }
@@ -339,7 +410,11 @@ extension Settings.NativeSettingsConfiguration {
             workspaceUI: workspaceUI,
             appearance: appearance,
             keybindingImport: keybindingImport,
-            diagnostics: diagnostics
+            diagnostics: diagnostics,
+            // Forged-kind protection runs on every load and persist: a global
+            // script that claims "kind": "run" is rewritten to `.custom`.
+            runScripts: runScripts.normalizedForPersistence(),
+            editorTarget: editorTarget
         )
     }
 }

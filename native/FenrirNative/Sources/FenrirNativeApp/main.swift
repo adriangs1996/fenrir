@@ -3,6 +3,7 @@ import AgentIntegration
 import AgentInteraction
 import AuthSession
 import ClientControl
+import CryptoKit
 import Diagnostics
 import FenrirNativeShared
 import Keybinding
@@ -214,11 +215,14 @@ enum NativeCrashReporter {
 
 struct NativeAgentPresenceOSCForwarder: TerminalViewport.TerminalReservedOSCForwarding {
     let ingestAgentPresenceSignal: AgentIntegration.IngestAgentPresenceSignal
-    let onPresenceStored: (@Sendable (WorkspaceID) async -> Void)?
+    /// Receives every stored presence event (with provenance) so the shell
+    /// can refresh presence projections and, for session-start events with a
+    /// session id, persist D-044 resumability metadata.
+    let onPresenceStored: (@Sendable (AgentIntegration.AgentPresenceEvent) async -> Void)?
 
     init(
         ingestAgentPresenceSignal: AgentIntegration.IngestAgentPresenceSignal,
-        onPresenceStored: (@Sendable (WorkspaceID) async -> Void)? = nil
+        onPresenceStored: (@Sendable (AgentIntegration.AgentPresenceEvent) async -> Void)? = nil
     ) {
         self.ingestAgentPresenceSignal = ingestAgentPresenceSignal
         self.onPresenceStored = onPresenceStored
@@ -242,8 +246,47 @@ struct NativeAgentPresenceOSCForwarder: TerminalViewport.TerminalReservedOSCForw
             signal: agentSignal,
             source: .terminalViewport
         ))
-        if case .success(let output) = result, output.stored {
-            await onPresenceStored?(signal.provenance.workspaceID)
+        if case .success(let output) = result, output.stored, let event = output.event {
+            await onPresenceStored?(event)
+        }
+    }
+}
+
+/// Routing seam for D-043 generic terminal notifications: the workspace window
+/// registry resolves the provenance workspace to its shell controller so the
+/// notification lands in that workspace's attention model.
+@MainActor
+protocol NativeWorkspaceNotificationRouting: AnyObject {
+    func routeWorkspaceNotification(
+        workspaceID: WorkspaceID,
+        title: String?,
+        body: String,
+        paneID: PaneID?,
+        source: Notifications.WorkspaceNotificationSource
+    )
+}
+
+/// D-043 wiring: generic terminal notifications (OSC 9 / OSC 99 / OSC
+/// 777;notify) stripped by `TerminalViewport` flow into the Notifications
+/// model with workspace/pane provenance. Mirrors
+/// `NativeAgentPresenceOSCForwarder`; forwarding is advisory and never fails
+/// terminal ingestion (the action swallows forwarder errors).
+struct NativeWorkspaceTerminalNotificationForwarder: TerminalViewport.TerminalNotificationForwarding {
+    let resolveRouter: @MainActor @Sendable () -> (any NativeWorkspaceNotificationRouting)?
+
+    init(resolveRouter: @escaping @MainActor @Sendable () -> (any NativeWorkspaceNotificationRouting)?) {
+        self.resolveRouter = resolveRouter
+    }
+
+    func forwardTerminalNotification(_ event: TerminalViewport.TerminalNotificationEvent) async throws {
+        await MainActor.run {
+            resolveRouter()?.routeWorkspaceNotification(
+                workspaceID: event.provenance.workspaceID,
+                title: event.title,
+                body: event.body,
+                paneID: event.provenance.paneID,
+                source: .terminalOSC
+            )
         }
     }
 }
@@ -443,15 +486,18 @@ final class NativeTerminalStreamIngestor {
     private let store: NativeAppTerminalViewportStore
     private let clock: any TerminalViewport.TerminalViewportClock
     private let reservedOSCForwarder: (any TerminalViewport.TerminalReservedOSCForwarding)?
+    private let notificationForwarder: (any TerminalViewport.TerminalNotificationForwarding)?
 
     init(
         store: NativeAppTerminalViewportStore,
         clock: any TerminalViewport.TerminalViewportClock = NativeTerminalViewportClock(),
-        reservedOSCForwarder: (any TerminalViewport.TerminalReservedOSCForwarding)? = nil
+        reservedOSCForwarder: (any TerminalViewport.TerminalReservedOSCForwarding)? = nil,
+        notificationForwarder: (any TerminalViewport.TerminalNotificationForwarding)? = nil
     ) {
         self.store = store
         self.clock = clock
         self.reservedOSCForwarder = reservedOSCForwarder
+        self.notificationForwarder = notificationForwarder
     }
 
     func ingestOutput(
@@ -469,6 +515,7 @@ final class NativeTerminalStreamIngestor {
                 store: store,
                 rendererWriter: NativeTerminalViewRendererWriter(terminalView: terminalView),
                 reservedOSCForwarder: reservedOSCForwarder,
+                notificationForwarder: notificationForwarder,
                 clock: clock
             )
             return await action.run(TerminalViewport.IngestTerminalOutputInput(
@@ -831,6 +878,9 @@ final class NativeApplicationRuntime {
     private let initialWorkspaceID: WorkspaceID
     private var clientControlSocketServer: NativeHostLocalCLISocketServer?
     private var serverEventController: NativeHostServerEventController?
+    /// D-042: strong reference for the approval banner action router — the
+    /// notification-center delegate property is weak.
+    private let approvalBannerRouter: NativeApprovalBannerActionRouter?
 
     init(
         serverConnection: NativeAppServerConnectionContext,
@@ -838,7 +888,8 @@ final class NativeApplicationRuntime {
         serverEventIntegration: NativeServerEventIntegrationGraph,
         shouldShutdownPreparedLocalServer: Bool,
         visibleWorkspaceProjector: any NativeVisibleWorkspaceProjecting,
-        initialWorkspaceID: WorkspaceID
+        initialWorkspaceID: WorkspaceID,
+        approvalBannerRouter: NativeApprovalBannerActionRouter? = nil
     ) {
         self.serverConnection = serverConnection
         self.workspaceWindows = workspaceWindows
@@ -846,6 +897,7 @@ final class NativeApplicationRuntime {
         self.shouldShutdownPreparedLocalServer = shouldShutdownPreparedLocalServer
         self.visibleWorkspaceProjector = visibleWorkspaceProjector
         self.initialWorkspaceID = initialWorkspaceID
+        self.approvalBannerRouter = approvalBannerRouter
     }
 
     static func live(
@@ -858,6 +910,7 @@ final class NativeApplicationRuntime {
         let agentPresenceStore = AgentIntegration.InMemoryAgentPresenceStore()
         let agentPresenceClock = NativeAgentIntegrationClock()
         let workspaceWindowRegistry = NativeWorkspaceWindowRegistryReference()
+        let agentPaneMetadataAttacher = serverConnection.agentPaneMetadataAttacher
         let terminalStreamIngestor = NativeTerminalStreamIngestor(
             store: terminalViewportStore,
             reservedOSCForwarder: NativeAgentPresenceOSCForwarder(
@@ -865,7 +918,26 @@ final class NativeApplicationRuntime {
                     store: agentPresenceStore,
                     clock: agentPresenceClock
                 ),
-                onPresenceStored: { workspaceID in
+                onPresenceStored: { event in
+                    let workspaceID = event.provenance.workspaceID
+                    // D-044: session-start presence with a session id attaches
+                    // {agentID, sessionID} to the pane record server-side so
+                    // resumability survives client restarts. Attach failures
+                    // must never break presence projection.
+                    if event.state == .sessionStarted,
+                       let sessionID = event.sessionID,
+                       AgentIntegration.isValidAgentSessionID(sessionID) {
+                        do {
+                            try await agentPaneMetadataAttacher.attachResumableSessionMetadata(
+                                workspaceID: workspaceID,
+                                paneID: event.provenance.paneID,
+                                agentID: event.agentID,
+                                sessionID: sessionID
+                            )
+                        } catch {
+                            NSLog("Fenrir Native agent session metadata attach failed: \(String(describing: error))")
+                        }
+                    }
                     let result = await AgentIntegration.ListAgentPresence(
                         store: agentPresenceStore,
                         clock: agentPresenceClock
@@ -885,6 +957,9 @@ final class NativeApplicationRuntime {
                         )
                     }
                 }
+            ),
+            notificationForwarder: NativeWorkspaceTerminalNotificationForwarder(
+                resolveRouter: { workspaceWindowRegistry.value }
             )
         )
         let workspaceWindows = NativeWorkspaceWindowRegistry(
@@ -896,6 +971,16 @@ final class NativeApplicationRuntime {
             workflowServerClientFactory: serverConnection.workflowServerClientFactory,
             workflowEventStreamFactory: serverConnection.workflowEventStreamFactory,
             workflowNotificationStore: serverConnection.notificationStore,
+            productivityPreferences: NativeShellProductivityPreferencesStore.applicationSupport(),
+            scriptPaneRunner: serverConnection.scriptPaneRunner,
+            agentSessionResumer: serverConnection.agentSessionResumer,
+            editorOpener: .system(),
+            notificationsHub: NativeWorkspaceNotificationsHub(),
+            localServersEventStream: serverConnection.localServersEventStream,
+            vcsStatusProvider: serverConnection.workspaceVcsStatusProvider,
+            gitProbeProvider: serverConnection.workspaceGitProbeProvider,
+            approvalFeedEventStream: serverConnection.approvalFeedEventStream,
+            approvalFeedDecider: serverConnection.approvalFeedDecider,
             themeTokens: themeTokens
         )
         workspaceWindowRegistry.value = workspaceWindows
@@ -903,18 +988,51 @@ final class NativeApplicationRuntime {
             serverConnection: serverConnection,
             workspaceWindows: workspaceWindows
         )
+        installWorkspaceLayoutRefresher(
+            serverConnection: serverConnection,
+            workspaceWindows: workspaceWindows,
+            workspaceWindowRegistry: workspaceWindowRegistry
+        )
+        // D-042: approval banner action buttons decide directly through the
+        // decide RPC; the settled stream event then clears cards/banners.
+        let approvalFeedDecider = serverConnection.approvalFeedDecider
+        let approvalBannerRouter = NativeApprovalBannerActionRouter(onDecision: { requestID, optionID in
+            Task {
+                do {
+                    try await approvalFeedDecider.decide(requestID: requestID, optionID: optionID)
+                } catch {
+                    NSLog("Fenrir Native approval banner decision rejected: \(String(describing: error))")
+                }
+            }
+        })
+        approvalBannerRouter.installIfAvailable()
         return NativeApplicationRuntime(
             serverConnection: serverConnection,
             workspaceWindows: workspaceWindows,
             serverEventIntegration: serverConnection.serverEventIntegrationGraph(workspaceWindows: workspaceWindows),
             shouldShutdownPreparedLocalServer: shouldShutdownPreparedLocalServer,
             visibleWorkspaceProjector: visibleWorkspaceProjector,
-            initialWorkspaceID: initialLocalWorkspaceID()
+            initialWorkspaceID: initialLocalWorkspaceID(),
+            approvalBannerRouter: approvalBannerRouter
         )
     }
 
-    static func initialLocalWorkspaceID() -> WorkspaceID {
-        WorkspaceID(rawValue: "local-workspace-\(UUID().uuidString.lowercased())")
+    /// Stable workspace identity derived from the workspace root path
+    /// (D-002/D-012 payoff): relaunching the app reattaches the SAME
+    /// server-owned tmux session instead of minting a per-launch UUID that
+    /// orphans the previous `fenrir-ws-*` session. The projector flow
+    /// (ensure/reconnect) already tolerates an existing session — it
+    /// reconnects by workspaceID.
+    static func initialLocalWorkspaceID(
+        workspaceRootPath: String = NativeLocalServerSupervisor.defaultWorkspaceRootURL().path
+    ) -> WorkspaceID {
+        let canonicalPath = URL(fileURLWithPath: workspaceRootPath)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+        let digest = SHA256.hash(data: Data(canonicalPath.utf8))
+        let stableHex = digest.map { String(format: "%02x", $0) }.joined().prefix(16)
+        return WorkspaceID(rawValue: "local-workspace-\(stableHex)")
     }
 
     private static func makeVisibleWorkspaceProjector(
@@ -939,6 +1057,60 @@ final class NativeApplicationRuntime {
                 clock: NativeAppServerConnectionClock()
             )
         )
+    }
+
+    /// D-045 run-script liveness: script pane create/close (and a running
+    /// script's stream ending) re-enumerates the server-owned tmux layout and
+    /// applies it live, so the grid shows the new pane immediately and
+    /// `reconcileRunningScript` clears the Stop state when the pane died —
+    /// without waiting for a reconnect. Enumerate-only: unlike full workspace
+    /// projection this never re-opens or refocuses windows.
+    private static func installWorkspaceLayoutRefresher(
+        serverConnection: NativeAppServerConnectionContext,
+        workspaceWindows: NativeWorkspaceWindowRegistry,
+        workspaceWindowRegistry: NativeWorkspaceWindowRegistryReference
+    ) {
+        let actor = NativeRuntime.RuntimeActorIdentity(
+            profileID: "local",
+            authSessionID: serverConnection.sessionID.rawValue,
+            subject: "native-app"
+        )
+        let runtime = NativeRuntime.ServerTmuxRuntimeAdapter(transport: NativeServerConnectionRuntimeRPCTransport(
+            sessionID: serverConnection.sessionID,
+            sendServerRequest: serverConnection.sendServerRequest,
+            streamServerRequest: serverConnection.streamServerRequest
+        ))
+        let reconcileLayout = PaneGrid.ReconcileRuntimeLayout(
+            store: NativeAppPaneGridStore(),
+            viewportHost: NativeAppPaneViewportHost(),
+            clock: NativeAppServerConnectionClock()
+        )
+        workspaceWindows.setWorkspaceLayoutRefresher { workspaceID in
+            do {
+                let enumerated = try await runtime.enumerateWorkspaceRuntime(NativeRuntime.EnumerateWorkspaceRuntimeInput(
+                    requestID: RequestID(rawValue: "native-layout-refresh-\(workspaceID.rawValue)-\(UUID().uuidString.lowercased())"),
+                    workspaceID: workspaceID,
+                    actor: actor,
+                    source: .workspaceShell
+                ))
+                guard let snapshot = nativeTmuxLayoutSnapshot(from: enumerated.workspace, panes: enumerated.panes) else {
+                    return
+                }
+                let layout = await reconcileLayout.run(PaneGrid.ReconcileRuntimeLayoutInput(
+                    requestID: RequestID(rawValue: "native-layout-refresh-reconcile-\(workspaceID.rawValue)"),
+                    snapshot: snapshot,
+                    source: .workspaceShell
+                ))
+                guard case .success(let reconciled) = layout else {
+                    return
+                }
+                await MainActor.run {
+                    workspaceWindowRegistry.value?.applyReconnectedLayout(workspaceID: workspaceID, layout: reconciled.state)
+                }
+            } catch {
+                NSLog("Fenrir Native workspace layout refresh failed: \(String(describing: error))")
+            }
+        }
     }
 
     func openInitialWorkspace() {
@@ -1006,6 +1178,9 @@ private final class NativeWorkspaceWindowRegistryReference: @unchecked Sendable 
 final class NativeWorkspaceWindowRegistry {
     private var controllers: [WorkspaceID: NativeWorkspaceWindowController] = [:]
     private var activeWorkspaceID: WorkspaceID?
+    /// Enumerate-only live layout refresh (D-045 run-script loop); installed
+    /// by the application runtime once the server-backed projection exists.
+    private var workspaceLayoutRefresher: (@Sendable (WorkspaceID) async -> Void)?
     private let paneGridRuntimeFactory: any NativePaneGridRuntimeMaking
     private let paneStreamSubscriber: NativePaneStreamSubscriber?
     private let terminalStreamIngestor: NativeTerminalStreamIngestor?
@@ -1014,7 +1189,20 @@ final class NativeWorkspaceWindowRegistry {
     private let workflowServerClientFactory: any NativeWorkflowServerClientMaking
     private let workflowEventStreamFactory: any NativeWorkflowEventStreamMaking
     private let workflowNotificationStore: any Notifications.NotificationStore
+    private let productivityPreferences: NativeShellProductivityPreferencesStore?
+    private let scriptPaneRunner: any NativeWorkspaceScriptPaneRunning
+    private let agentSessionResumer: any NativeAgentSessionResuming
+    private let editorOpener: NativeWorkspaceEditorOpening
+    private let notificationsHub: NativeWorkspaceNotificationsHub
+    private let localServersEventStream: (any NativeLocalServersEventStreaming)?
+    private let vcsStatusProvider: (any NativeWorkspaceVcsStatusProviding)?
+    private let gitProbeProvider: (any NativeWorkspaceGitProbeProviding)?
+    /// D-042 approval feed relay stream + decide RPC ports.
+    private let approvalFeedEventStream: (any NativeApprovalFeedEventStreaming)?
+    private let approvalFeedDecider: (any NativeApprovalFeedDeciding)?
     private let themeTokens: NativeShellThemeTokens
+    private let diagnosticsActions: NativeDiagnosticsActionController
+    private var notificationRoutingDiagnosticsTask: Task<Void, Never>?
 
     init(
         paneGridRuntimeFactory: any NativePaneGridRuntimeMaking = NativePaneGridUnavailableRuntimeFactory(),
@@ -1025,7 +1213,18 @@ final class NativeWorkspaceWindowRegistry {
         workflowServerClientFactory: any NativeWorkflowServerClientMaking = NativeWorkflowUnavailableServerClientFactory(),
         workflowEventStreamFactory: any NativeWorkflowEventStreamMaking = NativeWorkflowUnavailableEventStreamFactory(),
         workflowNotificationStore: any Notifications.NotificationStore = Notifications.inMemoryNotificationStore(),
-        themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID)
+        productivityPreferences: NativeShellProductivityPreferencesStore? = nil,
+        scriptPaneRunner: any NativeWorkspaceScriptPaneRunning = NativeUnavailableScriptPaneRunner(),
+        agentSessionResumer: any NativeAgentSessionResuming = NativeUnavailableAgentSessionResumer(),
+        editorOpener: NativeWorkspaceEditorOpening = .system(),
+        notificationsHub: NativeWorkspaceNotificationsHub = NativeWorkspaceNotificationsHub(),
+        localServersEventStream: (any NativeLocalServersEventStreaming)? = nil,
+        vcsStatusProvider: (any NativeWorkspaceVcsStatusProviding)? = nil,
+        gitProbeProvider: (any NativeWorkspaceGitProbeProviding)? = nil,
+        approvalFeedEventStream: (any NativeApprovalFeedEventStreaming)? = nil,
+        approvalFeedDecider: (any NativeApprovalFeedDeciding)? = nil,
+        themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID),
+        diagnosticsActions: NativeDiagnosticsActionController = NativeDiagnosticsActionController()
     ) {
         self.paneGridRuntimeFactory = paneGridRuntimeFactory
         self.paneStreamSubscriber = paneStreamSubscriber
@@ -1035,7 +1234,18 @@ final class NativeWorkspaceWindowRegistry {
         self.workflowServerClientFactory = workflowServerClientFactory
         self.workflowEventStreamFactory = workflowEventStreamFactory
         self.workflowNotificationStore = workflowNotificationStore
+        self.productivityPreferences = productivityPreferences
+        self.scriptPaneRunner = scriptPaneRunner
+        self.agentSessionResumer = agentSessionResumer
+        self.editorOpener = editorOpener
+        self.notificationsHub = notificationsHub
+        self.localServersEventStream = localServersEventStream
+        self.vcsStatusProvider = vcsStatusProvider
+        self.gitProbeProvider = gitProbeProvider
+        self.approvalFeedEventStream = approvalFeedEventStream
+        self.approvalFeedDecider = approvalFeedDecider
         self.themeTokens = themeTokens
+        self.diagnosticsActions = diagnosticsActions
     }
 
     func openInitialWorkspace(
@@ -1121,6 +1331,10 @@ final class NativeWorkspaceWindowRegistry {
         controllers[workspaceID]?.applyAgentPresence(records)
     }
 
+    func setWorkspaceLayoutRefresher(_ refresher: @escaping @Sendable (WorkspaceID) async -> Void) {
+        workspaceLayoutRefresher = refresher
+    }
+
     func visibleNotificationState(workspaceID: WorkspaceID) -> WorkspaceIndex.WorkspaceNotificationState? {
         controllers[workspaceID]?.visibleNotificationState()
     }
@@ -1166,6 +1380,59 @@ final class NativeWorkspaceWindowRegistry {
         return await controller.runWorkflowTimelineSmoke(runID: runID)
     }
 
+    func runNotificationsSmoke(
+        workspaceID: WorkspaceID?,
+        expectedMarker: String? = nil,
+        dismiss: Bool = false
+    ) async -> [String: String]? {
+        guard let controller = controller(for: workspaceID) else {
+            return nil
+        }
+        return await controller.runNotificationsSmoke(expectedMarker: expectedMarker, dismiss: dismiss)
+    }
+
+    func runTitlebarSmoke(workspaceID: WorkspaceID?) async -> [String: String]? {
+        guard let controller = controller(for: workspaceID) else {
+            return nil
+        }
+        return await controller.runTitlebarSmoke()
+    }
+
+    func runRunScriptSmoke(workspaceID: WorkspaceID?, scriptCommand: String) async -> [String: String]? {
+        guard let controller = controller(for: workspaceID) else {
+            return nil
+        }
+        return await controller.runRunScriptSmoke(scriptCommand: scriptCommand)
+    }
+
+    func runStopScriptSmoke(workspaceID: WorkspaceID?) async -> [String: String]? {
+        guard let controller = controller(for: workspaceID) else {
+            return nil
+        }
+        return await controller.runStopScriptSmoke()
+    }
+
+    func runAgentResumeSmoke(workspaceID: WorkspaceID?) async -> [String: String]? {
+        guard let controller = controller(for: workspaceID) else {
+            return nil
+        }
+        return controller.runAgentResumeSmoke()
+    }
+
+    func runGitProbeSmoke(workspaceID: WorkspaceID?) async -> [String: String]? {
+        guard let controller = controller(for: workspaceID) else {
+            return nil
+        }
+        return await controller.runGitProbeSmoke()
+    }
+
+    func runApprovalFeedSmoke(workspaceID: WorkspaceID?, expectedMarker: String? = nil) async -> [String: String]? {
+        guard let controller = controller(for: workspaceID) else {
+            return nil
+        }
+        return await controller.runApprovalFeedSmoke(expectedMarker: expectedMarker)
+    }
+
     private func openWorkspace(summary: WorkspaceIndex.WorkspaceSummary) -> NativeWorkspaceOpenResult {
         let workspaceID = summary.workspaceID
         let windowID = FenrirWindowID(rawValue: "native-window-\(workspaceID.rawValue)")
@@ -1206,6 +1473,20 @@ final class NativeWorkspaceWindowRegistry {
             workflowServerClient: workflowServerClientFactory.makeClient(for: shellState),
             workflowEventStream: workflowEventStreamFactory.makeEventStream(for: shellState),
             workflowNotificationStore: workflowNotificationStore,
+            productivityPreferences: productivityPreferences,
+            scriptPaneRunner: scriptPaneRunner,
+            agentSessionResumer: agentSessionResumer,
+            editorOpener: editorOpener,
+            notificationsHub: notificationsHub,
+            localServersEventStream: localServersEventStream,
+            vcsStatusProvider: vcsStatusProvider,
+            gitProbeProvider: gitProbeProvider,
+            approvalFeedEventStream: approvalFeedEventStream,
+            approvalFeedDecider: approvalFeedDecider,
+            refreshWorkspaceLayout: { [weak self] in
+                let refresher = await MainActor.run { self?.workspaceLayoutRefresher }
+                await refresher?(workspaceID)
+            },
             switchWorkspace: { [weak self] workspaceID in
                 self?.focusWorkspace(workspaceID)
             }
@@ -1350,6 +1631,49 @@ final class NativeWorkspaceWindowRegistry {
     }
 }
 
+extension NativeWorkspaceWindowRegistry: NativeWorkspaceNotificationRouting {
+    /// D-043: terminal-notification provenance resolves to the workspace's own
+    /// shell controller so badges/panel/banner state land on the right window.
+    /// Notifications are advisory — an unknown workspace drops the payload,
+    /// but the drop is counted in diagnostics (identifiers only, never
+    /// title/body content, D-031) instead of vanishing silently.
+    func routeWorkspaceNotification(
+        workspaceID: WorkspaceID,
+        title: String?,
+        body: String,
+        paneID: PaneID?,
+        source: Notifications.WorkspaceNotificationSource
+    ) {
+        guard let controller = controllers[workspaceID] else {
+            let diagnostics = diagnosticsActions
+            notificationRoutingDiagnosticsTask = Task { @MainActor in
+                await diagnostics.record(
+                    category: .nativeShell,
+                    severity: .warning,
+                    workspaceID: workspaceID,
+                    title: "Workspace notification unroutable",
+                    message: "No open workspace window matched the notification provenance; the payload was dropped.",
+                    metadata: [
+                        "notificationSource": source.rawValue,
+                        "paneID": paneID?.rawValue ?? ""
+                    ]
+                )
+            }
+            return
+        }
+        controller.ingestWorkspaceNotification(
+            title: title,
+            body: body,
+            paneID: paneID,
+            source: source
+        )
+    }
+
+    func waitForNotificationRoutingDiagnostics() async {
+        await notificationRoutingDiagnosticsTask?.value
+    }
+}
+
 struct NativeWorkspaceOpenResult: Sendable {
     let summary: WorkspaceIndex.WorkspaceSummary
     let windowID: FenrirWindowID
@@ -1361,15 +1685,27 @@ final class NativeHostVisibleStateDispatcher: NativeHostClientControlDispatching
     private weak var workspaceWindows: NativeWorkspaceWindowRegistry?
     private let workspaceProjector: (any NativeVisibleWorkspaceProjecting)?
     private let agentIntegrationCommands: any NativeAgentIntegrationCommandHandling
+    /// Script-executing smoke ops (run-script-smoke run/stop) are an
+    /// arbitrary-command surface: the control socket is same-user, but the
+    /// surface stays opt-in via FENRIR_SMOKE_OPS=1 in the app's environment.
+    private let smokeOpsEnabled: Bool
 
     init(
         workspaceWindows: NativeWorkspaceWindowRegistry,
         workspaceProjector: (any NativeVisibleWorkspaceProjecting)? = nil,
-        agentIntegrationCommands: any NativeAgentIntegrationCommandHandling = NativeAgentIntegrationCommandController()
+        agentIntegrationCommands: any NativeAgentIntegrationCommandHandling = NativeAgentIntegrationCommandController(),
+        smokeOpsEnabled: Bool = NativeHostVisibleStateDispatcher.smokeOpsEnabledFromEnvironment()
     ) {
         self.workspaceWindows = workspaceWindows
         self.workspaceProjector = workspaceProjector
         self.agentIntegrationCommands = agentIntegrationCommands
+        self.smokeOpsEnabled = smokeOpsEnabled
+    }
+
+    static func smokeOpsEnabledFromEnvironment(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        environment["FENRIR_SMOKE_OPS"] == "1"
     }
 
     func openWorkspace(_ input: ClientControl.OpenWorkspaceInput) async -> Result<ClientControl.OpenWorkspaceResult, ClientControl.ClientControlError> {
@@ -1658,6 +1994,121 @@ final class NativeHostVisibleStateDispatcher: NativeHostClientControlDispatching
                 payload: payload
             ))
         }
+        if input.operation == "notifications-smoke" {
+            guard let workspaceWindows,
+                  let payload = await workspaceWindows.runNotificationsSmoke(
+                      workspaceID: input.workspaceID,
+                      expectedMarker: input.expectedMarker,
+                      dismiss: input.dismiss
+                  )
+            else {
+                return .failure(.workspaceNotOpen)
+            }
+            return .success(NativeHostProductCommandResult(
+                requestID: input.requestID,
+                resultKind: "NotificationsSmokeObserved",
+                payload: payload
+            ))
+        }
+        if input.operation == "titlebar-smoke" {
+            guard let workspaceWindows,
+                  let payload = await workspaceWindows.runTitlebarSmoke(workspaceID: input.workspaceID)
+            else {
+                return .failure(.workspaceNotOpen)
+            }
+            return .success(NativeHostProductCommandResult(
+                requestID: input.requestID,
+                resultKind: "TitlebarSmokeObserved",
+                payload: payload
+            ))
+        }
+        if input.operation == "approval-feed-smoke" {
+            // Read-only D-042 probe: pending approval count plus the last
+            // card's identifiers. Per D-031 the summary content never crosses
+            // the diagnostics channel — verifiers pass `expectedMarker` and
+            // get a match boolean plus the summary length instead. Injection
+            // of fake requests happens server-side behind FENRIR_SMOKE_OPS=1.
+            guard let workspaceWindows,
+                  let payload = await workspaceWindows.runApprovalFeedSmoke(
+                      workspaceID: input.workspaceID,
+                      expectedMarker: input.expectedMarker
+                  )
+            else {
+                return .failure(.workspaceNotOpen)
+            }
+            return .success(NativeHostProductCommandResult(
+                requestID: input.requestID,
+                resultKind: "ApprovalFeedSmokeObserved",
+                payload: payload
+            ))
+        }
+        if input.operation == "agent-resume-smoke" {
+            // Read-only D-044 plumbing probe: reports the resumable-session
+            // records the shell currently knows (agentID/sessionID/paneAlive)
+            // without creating panes, so no smoke-ops gate is required.
+            guard let workspaceWindows,
+                  let payload = await workspaceWindows.runAgentResumeSmoke(workspaceID: input.workspaceID)
+            else {
+                return .failure(.workspaceNotOpen)
+            }
+            return .success(NativeHostProductCommandResult(
+                requestID: input.requestID,
+                resultKind: "AgentResumeSmokeObserved",
+                payload: payload
+            ))
+        }
+        if input.operation == "git-probe-smoke" {
+            // Read-only D-045 plumbing probe: refreshes the server-side
+            // workspace.gitProbe projection and reports what the shell knows
+            // (branch/ahead/behind/PR + chip tone). Never scrapes panes and
+            // never shells out, so no smoke-ops gate is required.
+            guard let workspaceWindows,
+                  let payload = await workspaceWindows.runGitProbeSmoke(workspaceID: input.workspaceID)
+            else {
+                return .failure(.workspaceNotOpen)
+            }
+            return .success(NativeHostProductCommandResult(
+                requestID: input.requestID,
+                resultKind: "GitProbeSmokeObserved",
+                payload: payload
+            ))
+        }
+        if input.operation == "run-script-smoke" {
+            // Opt-in gate for the arbitrary-command surface (run and stop):
+            // refused with a typed permission error unless the app was
+            // launched with FENRIR_SMOKE_OPS=1.
+            guard smokeOpsEnabled else {
+                return .failure(.permissionError)
+            }
+            if input.scriptOperation == "stop" {
+                guard let workspaceWindows,
+                      let payload = await workspaceWindows.runStopScriptSmoke(workspaceID: input.workspaceID)
+                else {
+                    return .failure(.workspaceNotOpen)
+                }
+                return .success(NativeHostProductCommandResult(
+                    requestID: input.requestID,
+                    resultKind: "RunScriptStopSmokeObserved",
+                    payload: payload
+                ))
+            }
+            guard let scriptCommand = input.scriptCommand, !scriptCommand.isEmpty else {
+                return .failure(.decodeError)
+            }
+            guard let workspaceWindows,
+                  let payload = await workspaceWindows.runRunScriptSmoke(
+                    workspaceID: input.workspaceID,
+                    scriptCommand: scriptCommand
+                  )
+            else {
+                return .failure(.workspaceNotOpen)
+            }
+            return .success(NativeHostProductCommandResult(
+                requestID: input.requestID,
+                resultKind: "RunScriptSmokeObserved",
+                payload: payload
+            ))
+        }
         if input.operation == "pane-grid" {
             return await MainActor.run {
                 let workspaceID = input.workspaceID ?? workspaceWindows?.listVisibleWorkspaces().first?.workspaceID
@@ -1715,6 +2166,17 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
         workflowServerClient: any WorkflowControl.WorkflowServerClient,
         workflowEventStream: any WorkflowControl.WorkflowEventStreaming = NativeWorkflowUnavailableEventStream(),
         workflowNotificationStore: any Notifications.NotificationStore = Notifications.inMemoryNotificationStore(),
+        productivityPreferences: NativeShellProductivityPreferencesStore? = nil,
+        scriptPaneRunner: any NativeWorkspaceScriptPaneRunning = NativeUnavailableScriptPaneRunner(),
+        agentSessionResumer: any NativeAgentSessionResuming = NativeUnavailableAgentSessionResumer(),
+        editorOpener: NativeWorkspaceEditorOpening = .system(),
+        notificationsHub: NativeWorkspaceNotificationsHub = NativeWorkspaceNotificationsHub(),
+        localServersEventStream: (any NativeLocalServersEventStreaming)? = nil,
+        vcsStatusProvider: (any NativeWorkspaceVcsStatusProviding)? = nil,
+        gitProbeProvider: (any NativeWorkspaceGitProbeProviding)? = nil,
+        approvalFeedEventStream: (any NativeApprovalFeedEventStreaming)? = nil,
+        approvalFeedDecider: (any NativeApprovalFeedDeciding)? = nil,
+        refreshWorkspaceLayout: (@Sendable () async -> Void)? = nil,
         switchWorkspace: @MainActor @escaping (WorkspaceID) -> Void = { _ in }
     ) {
         workspaceID = state.workspaceID
@@ -1729,6 +2191,17 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
             workflowServerClient: workflowServerClient,
             workflowEventStream: workflowEventStream,
             workflowNotificationStore: workflowNotificationStore,
+            productivityPreferences: productivityPreferences,
+            scriptPaneRunner: scriptPaneRunner,
+            agentSessionResumer: agentSessionResumer,
+            editorOpener: editorOpener,
+            notificationsHub: notificationsHub,
+            localServersEventStream: localServersEventStream,
+            vcsStatusProvider: vcsStatusProvider,
+            gitProbeProvider: gitProbeProvider,
+            approvalFeedEventStream: approvalFeedEventStream,
+            approvalFeedDecider: approvalFeedDecider,
+            refreshWorkspaceLayout: refreshWorkspaceLayout,
             switchWorkspace: switchWorkspace
         )
         let window = NSWindow(
@@ -1785,6 +2258,20 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
         shellViewController.applyAgentPresence(records)
     }
 
+    func ingestWorkspaceNotification(
+        title: String?,
+        body: String,
+        paneID: PaneID?,
+        source: Notifications.WorkspaceNotificationSource
+    ) {
+        shellViewController.ingestWorkspaceNotification(
+            title: title,
+            body: body,
+            paneID: paneID,
+            source: source
+        )
+    }
+
     func visibleNotificationState() -> WorkspaceIndex.WorkspaceNotificationState? {
         shellViewController.visibleNotificationState()
     }
@@ -1816,6 +2303,34 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
     func runWorkflowTimelineSmoke(runID: WorkflowControl.WorkflowRunID) async -> [String: String] {
         await shellViewController.runWorkflowTimelineSmoke(runID: runID)
     }
+
+    func runNotificationsSmoke(expectedMarker: String? = nil, dismiss: Bool = false) async -> [String: String] {
+        await shellViewController.runNotificationsSmoke(expectedMarker: expectedMarker, dismiss: dismiss)
+    }
+
+    func runTitlebarSmoke() async -> [String: String] {
+        await shellViewController.runTitlebarSmoke()
+    }
+
+    func runAgentResumeSmoke() -> [String: String] {
+        shellViewController.runAgentResumeSmoke()
+    }
+
+    func runGitProbeSmoke() async -> [String: String] {
+        await shellViewController.runGitProbeSmoke()
+    }
+
+    func runRunScriptSmoke(scriptCommand: String) async -> [String: String] {
+        await shellViewController.runRunScriptSmoke(scriptCommand: scriptCommand)
+    }
+
+    func runStopScriptSmoke() async -> [String: String] {
+        await shellViewController.runStopScriptSmoke()
+    }
+
+    func runApprovalFeedSmoke(expectedMarker: String? = nil) async -> [String: String] {
+        await shellViewController.runApprovalFeedSmoke(expectedMarker: expectedMarker)
+    }
 }
 
 @MainActor
@@ -1833,13 +2348,59 @@ final class NativeWorkspaceRootViewController: NSViewController {
     private let diagnosticsActions: NativeDiagnosticsActionController
     private let agentIntegrationActions: any NativeAgentIntegrationActionDispatching
     private let switchWorkspace: @MainActor (WorkspaceID) -> Void
+    private let productivityPreferences: NativeShellProductivityPreferencesStore
+    private let scriptPaneRunner: any NativeWorkspaceScriptPaneRunning
+    private let agentSessionResumer: any NativeAgentSessionResuming
+    private let editorOpener: NativeWorkspaceEditorOpening
+    private let notificationsHub: NativeWorkspaceNotificationsHub
+    /// D-045 row metadata sources: listening ports (localServers discovery
+    /// contract), workspace branch (server vcs contract) and PR status
+    /// (server workspace.gitProbe contract).
+    private let localServersEventStream: (any NativeLocalServersEventStreaming)?
+    private let vcsStatusProvider: (any NativeWorkspaceVcsStatusProviding)?
+    private let gitProbeProvider: (any NativeWorkspaceGitProbeProviding)?
+    /// D-042 approval feed: relay stream, decide RPC, pending-card store,
+    /// and actionable banner port. Cards carry only the structured payload;
+    /// settlement always comes from the stream.
+    private let approvalFeedEventStream: (any NativeApprovalFeedEventStreaming)?
+    private let approvalFeedDecider: (any NativeApprovalFeedDeciding)?
+    private let approvalFeedStore: any Notifications.ApprovalFeedStoring
+    private let approvalBannerPresenter: any Notifications.ApprovalBannerPresenting
+    private var approvalFeedTask: Task<Void, Never>?
+    private var approvalFeedRefreshTask: Task<Void, Never>?
+    /// In-flight decide request ids: double-clicking an option button must
+    /// dispatch exactly one decide RPC (late/duplicate decisions are typed
+    /// rejections server-side, the client avoids provoking them).
+    private var approvalDecisionsInFlight: Set<String> = []
+    /// Enumerate-only re-projection of the server-owned tmux layout (D-019):
+    /// run after script pane create/close and when a running script's pane
+    /// stream ends, so the grid and the run button track live pane state.
+    private let refreshWorkspaceLayout: (@Sendable () async -> Void)?
+    private let isAppActive: @MainActor () -> Bool
     private var agentComposerTask: Task<Void, Never>?
     private var neovimTask: Task<Void, Never>?
     private var workflowTask: Task<Void, Never>?
     private var workflowEventStreamTask: Task<Void, Never>?
+    private var localServersTask: Task<Void, Never>?
+    private var workspaceMetadataTask: Task<Void, Never>?
+    /// In-flight refresh of the workspace.gitProbe snapshot (D-045 PR chip).
+    private var gitProbeRefreshTask: Task<Void, Never>?
+    /// 60s poll loop that re-probes while the window stays key (D-045).
+    private var gitProbePollTask: Task<Void, Never>?
+    /// Last decoded workspace.gitProbe snapshot, reported by git-probe-smoke.
+    private var lastGitProbeSnapshot: WorkspaceIndex.WorkspaceGitProbeSnapshot?
     private var diagnosticsTask: Task<Void, Never>?
     private var agentIntegrationTask: Task<Void, Never>?
+    private var productivityTask: Task<Void, Never>?
     private var didRunFirstRunAgentIntegrationRefresh = false
+    private var runningScript: (script: Settings.ScriptDefinition, paneID: PaneID)?
+    /// In-flight guard for the run/stop split-button actions: a double-click
+    /// must not double-create or double-close script panes (D-045).
+    private var scriptOperationInFlight = false
+    /// In-flight guard for D-044 resume: a double-click on a Resume row must
+    /// not create two panes for the same recorded session.
+    private var resumeOperationInFlight = false
+    private var presenceStateByPane: [PaneID: AgentIntegration.AgentPresenceState] = [:]
     private var rootView: NativeWorkspaceRootView {
         view as! NativeWorkspaceRootView
     }
@@ -1857,6 +2418,20 @@ final class NativeWorkspaceRootViewController: NSViewController {
         workflowNotificationStore: any Notifications.NotificationStore = Notifications.inMemoryNotificationStore(),
         diagnosticsActions: NativeDiagnosticsActionController? = nil,
         agentIntegrationActions: any NativeAgentIntegrationActionDispatching = NativeAgentIntegrationActionController(),
+        productivityPreferences: NativeShellProductivityPreferencesStore? = nil,
+        scriptPaneRunner: any NativeWorkspaceScriptPaneRunning = NativeUnavailableScriptPaneRunner(),
+        agentSessionResumer: any NativeAgentSessionResuming = NativeUnavailableAgentSessionResumer(),
+        editorOpener: NativeWorkspaceEditorOpening = .system(),
+        notificationsHub: NativeWorkspaceNotificationsHub = NativeWorkspaceNotificationsHub(),
+        localServersEventStream: (any NativeLocalServersEventStreaming)? = nil,
+        vcsStatusProvider: (any NativeWorkspaceVcsStatusProviding)? = nil,
+        gitProbeProvider: (any NativeWorkspaceGitProbeProviding)? = nil,
+        approvalFeedEventStream: (any NativeApprovalFeedEventStreaming)? = nil,
+        approvalFeedDecider: (any NativeApprovalFeedDeciding)? = nil,
+        approvalFeedStore: (any Notifications.ApprovalFeedStoring)? = nil,
+        approvalBannerPresenter: (any Notifications.ApprovalBannerPresenting)? = nil,
+        refreshWorkspaceLayout: (@Sendable () async -> Void)? = nil,
+        isAppActive: @MainActor @escaping () -> Bool = { NSApplication.shared.isActive },
         switchWorkspace: @MainActor @escaping (WorkspaceID) -> Void = { _ in }
     ) {
         shellController = controller
@@ -1881,7 +2456,45 @@ final class NativeWorkspaceRootViewController: NSViewController {
         )
         self.diagnosticsActions = diagnosticsActions ?? NativeDiagnosticsActionController()
         self.agentIntegrationActions = agentIntegrationActions
+        self.productivityPreferences = productivityPreferences
+            ?? NativeShellProductivityPreferencesStore.applicationSupport()
+            ?? NativeShellProductivityPreferencesStore.ephemeral()
+        self.scriptPaneRunner = scriptPaneRunner
+        self.agentSessionResumer = agentSessionResumer
+        self.editorOpener = editorOpener
+        self.notificationsHub = notificationsHub
+        self.localServersEventStream = localServersEventStream
+        self.vcsStatusProvider = vcsStatusProvider
+        self.gitProbeProvider = gitProbeProvider
+        self.approvalFeedEventStream = approvalFeedEventStream
+        self.approvalFeedDecider = approvalFeedDecider
+        self.approvalFeedStore = approvalFeedStore ?? Notifications.inMemoryApprovalFeedStore()
+        self.approvalBannerPresenter = approvalBannerPresenter
+            ?? Notifications.UserNotificationCenterApprovalBannerPresenter()
+        self.refreshWorkspaceLayout = refreshWorkspaceLayout
+        self.isAppActive = isAppActive
         super.init(nibName: nil, bundle: nil)
+        // Preferences write failures must not stay silent (D-045): the store
+        // reverts its cache to the last-persisted state and this hook routes
+        // the failure into the D-043 notifications hub. The error detail is
+        // already NSLog'd by the store; the notification stays content-free.
+        let hub = notificationsHub
+        let workspaceID = controller.state.workspaceID
+        self.productivityPreferences.setPersistenceFailureHandler { [weak self] _ in
+            Task { @MainActor in
+                _ = await hub.ingest(
+                    Notifications.WorkspaceNotificationDraft(
+                        workspaceID: workspaceID,
+                        paneID: nil,
+                        title: "Preferences not saved",
+                        body: "Saving productivity preferences failed; recent changes were not persisted.",
+                        source: .system
+                    ),
+                    isAppActive: self?.isAppActive() ?? false
+                )
+                await self?.refreshNotificationsProjectionNow()
+            }
+        }
     }
 
     @available(*, unavailable)
@@ -1948,16 +2561,73 @@ final class NativeWorkspaceRootViewController: NSViewController {
         rootView.onOpenAgentIntegrations = { [weak self] in
             self?.presentAgentIntegrationsOverlay()
         }
+        rootView.onResumeAgentSession = { [weak self] agentID, sessionID in
+            self?.resumeAgentSession(agentID: agentID, sessionID: sessionID)
+        }
+        rootView.onRunPrimaryScript = { [weak self] in
+            self?.runPrimaryScriptOrStop()
+        }
+        rootView.onRunScript = { [weak self] scriptID in
+            self?.runScript(withID: scriptID)
+        }
+        rootView.onManageScripts = { [weak self] in
+            self?.presentManageScriptsOverlay()
+        }
+        rootView.onOpenEditorPrimary = { [weak self] in
+            self?.openWorkspaceInEditor(targetID: nil, persistChoice: false)
+        }
+        rootView.onPickEditorTarget = { [weak self] targetID in
+            self?.openWorkspaceInEditor(targetID: targetID, persistChoice: true)
+        }
+        rootView.onOpenNotifications = { [weak self] in
+            self?.presentNotificationsPanel()
+        }
+        rootView.onJumpToLatestUnread = { [weak self] in
+            self?.jumpToLatestUnreadNotification()
+        }
+        rootView.onSelectNotification = { [weak self] notificationID, paneID in
+            self?.selectNotification(notificationID, paneID: paneID)
+        }
+        rootView.onMarkAllNotificationsRead = { [weak self] in
+            self?.markAllNotificationsRead()
+        }
+        rootView.onOpenApprovals = { [weak self] in
+            self?.presentApprovalsPanel()
+        }
+        rootView.onDecideApproval = { [weak self] requestID, optionID in
+            self?.decideApproval(requestID: requestID, optionID: optionID)
+        }
+        rootView.onAddScript = { [weak self] name, command in
+            self?.addWorkspaceScript(name: name, command: command)
+        }
+        rootView.onRemoveScript = { [weak self] scriptID in
+            self?.removeWorkspaceScript(scriptID)
+        }
+        rootView.terminalPaneHost.onPaneStreamEnded = { [weak self] paneID in
+            self?.handlePaneStreamEnded(paneID)
+        }
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
         restoreDeterministicFocus()
         runFirstRunAgentIntegrationRefreshIfNeeded()
+        refreshTitlebarControls()
+        refreshNotificationsProjection()
+        startLocalServersStreamIfNeeded()
+        startApprovalFeedStreamIfNeeded()
+        refreshWorkspaceBranch()
+        refreshWorkspaceGitProbe()
+        startGitProbePollingIfNeeded()
     }
 
     deinit {
         workflowEventStreamTask?.cancel()
+        localServersTask?.cancel()
+        approvalFeedTask?.cancel()
+        approvalFeedRefreshTask?.cancel()
+        gitProbeRefreshTask?.cancel()
+        gitProbePollTask?.cancel()
     }
 
     func restoreDeterministicFocus() {
@@ -1981,7 +2651,167 @@ final class NativeWorkspaceRootViewController: NSViewController {
         }
         paneGridActions.markServerBackedPaneGridState(layout)
         shellController.updatePaneGrid(layout)
+        reconcileRunningScript(with: layout)
+        prunePresenceState(for: layout)
+        refreshWorkspaceBranch()
+        refreshWorkspaceGitProbe()
         restoreDeterministicFocus()
+    }
+
+    /// Subscribes to the server's localServers discovery stream and projects
+    /// listening-port chips into the workspace row (D-045 row metadata). The
+    /// subscription re-establishes itself after stream failures; a lost
+    /// stream degrades to stale/absent chips, never to client-side probing.
+    private func startLocalServersStreamIfNeeded() {
+        guard localServersTask == nil, let localServersEventStream else {
+            return
+        }
+        localServersTask = Task { [weak self] in
+            var didRecordFailure = false
+            while !Task.isCancelled {
+                let stream = await localServersEventStream.observeLocalServers()
+                do {
+                    for try await snapshot in stream {
+                        didRecordFailure = false
+                        self?.applyLocalServersSnapshot(snapshot)
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    if !didRecordFailure {
+                        didRecordFailure = true
+                        await self?.recordLocalServersStreamError(error)
+                    }
+                }
+                guard !Task.isCancelled, self != nil else {
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+    }
+
+    private func applyLocalServersSnapshot(_ snapshot: NativeLocalServersSnapshot) {
+        let chips = Set(snapshot.servers.map(\.port))
+            .sorted()
+            .map { NativeSidebarWorkspacePortChip(port: $0) }
+        rootView.updateLocalServerPorts(chips)
+    }
+
+    private func recordLocalServersStreamError(_ error: Error) async {
+        await diagnosticsActions.record(
+            category: .serverConnection,
+            severity: .warning,
+            workspaceID: shellController.state.workspaceID,
+            title: "Local servers stream failed",
+            message: String(describing: error),
+            metadata: ["surface": "workspace-row-ports"]
+        )
+    }
+
+    /// Resolves the workspace's current branch through the server vcs
+    /// contract and projects it into the workspace row (D-041/D-045: name,
+    /// branch, hotkey slot). Refreshed on appear and on layout reconciles.
+    private func refreshWorkspaceBranch() {
+        guard let vcsStatusProvider else {
+            return
+        }
+        let workspaceID = shellController.state.workspaceID
+        guard let workspacePath = shellController.state.sidebarItems
+            .first(where: { $0.workspaceID == workspaceID })?
+            .canonicalPath
+        else {
+            return
+        }
+        workspaceMetadataTask = Task { @MainActor [weak self] in
+            guard let branch = try? await vcsStatusProvider.currentRefName(workspacePath: workspacePath) else {
+                return
+            }
+            self?.rootView.updateWorkspaceBranch(workspaceID, branch: branch)
+        }
+    }
+
+    /// Resolves the workspace git/PR probe through the server-side
+    /// `workspace.gitProbe` contract (D-045) and projects the PR chip into
+    /// the workspace row. Runs on appear, on layout reconciles (workspace
+    /// projection), and on the 60s key-window poll — never via pane scraping.
+    private func refreshWorkspaceGitProbe() {
+        guard let gitProbeProvider else {
+            return
+        }
+        let workspaceID = shellController.state.workspaceID
+        guard let workspacePath = shellController.state.sidebarItems
+            .first(where: { $0.workspaceID == workspaceID })?
+            .canonicalPath
+        else {
+            return
+        }
+        gitProbeRefreshTask = Task { @MainActor [weak self] in
+            guard let snapshot = try? await gitProbeProvider.probe(workspacePath: workspacePath) else {
+                return
+            }
+            guard let self else {
+                return
+            }
+            self.lastGitProbeSnapshot = snapshot
+            self.rootView.updateWorkspacePullRequest(
+                workspaceID,
+                chip: WorkspaceIndex.pullRequestChip(from: snapshot)
+            )
+        }
+    }
+
+    /// D-045 PR chip freshness: re-probe every 60s while the window is key.
+    /// Skipped ticks (background window) cost nothing; the server keeps its
+    /// own short-TTL cache so key-window polling stays cheap.
+    private func startGitProbePollingIfNeeded() {
+        guard gitProbePollTask == nil, gitProbeProvider != nil else {
+            return
+        }
+        gitProbePollTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                guard let self else {
+                    return
+                }
+                guard !Task.isCancelled, self.view.window?.isKeyWindow == true else {
+                    continue
+                }
+                self.refreshWorkspaceGitProbe()
+            }
+        }
+    }
+
+    func waitForWorkspaceMetadataActions() async {
+        await workspaceMetadataTask?.value
+        await gitProbeRefreshTask?.value
+    }
+
+    /// Clears the run-button "Stop" state when the script pane died outside
+    /// the shell (server-owned layout is the source of truth, D-019).
+    private func reconcileRunningScript(with layout: PaneGrid.State) {
+        guard let runningScript else {
+            return
+        }
+        let paneIDs = Set(layout.windows.flatMap(\.panes).map(\.paneID))
+        if !paneIDs.contains(runningScript.paneID) {
+            self.runningScript = nil
+            refreshTitlebarControls()
+        }
+    }
+
+    /// Drops presence entries for panes that no longer exist in the
+    /// server-owned tmux layout (D-019). A pane killed without a final
+    /// presence transition (script stop, tmux kill-pane, agent crash) must
+    /// not pin the workspace in the D-045 attention set forever.
+    private func prunePresenceState(for layout: PaneGrid.State) {
+        let livePaneIDs = Set(layout.windows.flatMap(\.panes).map(\.paneID))
+        let pruned = presenceStateByPane.filter { livePaneIDs.contains($0.key) }
+        guard pruned.count != presenceStateByPane.count else {
+            return
+        }
+        presenceStateByPane = pruned
+        refreshNotificationsProjection()
     }
 
     func applyReconnectedNotifications(_ notifications: WorkspaceIndex.WorkspaceNotificationState) {
@@ -2004,6 +2834,48 @@ final class NativeWorkspaceRootViewController: NSViewController {
 
     func applyAgentPresence(_ records: [AgentIntegration.AgentPresenceRecord]) {
         rootView.updateAgentPresence(records)
+
+        // D-045 attention loop: awaiting-input presence draws the pane ring.
+        let workspaceID = shellController.state.workspaceID
+        let workspaceRecords = records.filter { $0.provenance.workspaceID == workspaceID }
+        let attentionPaneIDs = Set(workspaceRecords
+            .filter { $0.state == .awaitingInput || $0.state == .awaitingApproval }
+            .map(\.provenance.paneID))
+        rootView.updateAttentionPaneIDs(attentionPaneIDs)
+
+        // D-043 companion: transitions into a waiting presence state
+        // (awaiting-input or awaiting-approval, D-045 attention loop) append a
+        // workspace notification (source: agentPresence) so badges, the panel,
+        // banners, and jump-to-unread work without OSC-emitting CLIs.
+        //
+        // The map is rebuilt from the presence snapshot on every application
+        // (D-038/D-043: attention is event-driven state, never an accumulating
+        // cache) — entries for panes that dropped out of the records are
+        // pruned so a killed pane cannot pin the workspace in the attention
+        // set forever.
+        var transitioned: [AgentIntegration.AgentPresenceRecord] = []
+        var reconciled: [PaneID: AgentIntegration.AgentPresenceState] = [:]
+        for record in workspaceRecords {
+            let paneID = record.provenance.paneID
+            let previous = reconciled[paneID] ?? presenceStateByPane[paneID]
+            let isWaitingState = record.state == .awaitingInput || record.state == .awaitingApproval
+            if isWaitingState, previous != record.state {
+                transitioned.append(record)
+            }
+            reconciled[paneID] = record.state
+        }
+        presenceStateByPane = reconciled
+        for record in transitioned {
+            let agentName = AgentIntegration.supportedAgentDescriptors
+                .first { $0.id == record.agentID }?
+                .displayName ?? record.agentID.rawValue
+            ingestWorkspaceNotification(
+                title: agentName,
+                body: record.state == .awaitingApproval ? "approval required" : "awaiting input",
+                paneID: record.provenance.paneID,
+                source: .agentPresence
+            )
+        }
     }
 
     func visibleNotificationState() -> WorkspaceIndex.WorkspaceNotificationState? {
@@ -2153,6 +3025,783 @@ final class NativeWorkspaceRootViewController: NSViewController {
         return payload
     }
 
+    // MARK: - D-045 titlebar productivity controls
+
+    func waitForProductivityActions() async {
+        await productivityTask?.value
+    }
+
+    private func workspaceCanonicalPath() -> String? {
+        shellController.state.sidebarItems
+            .first { $0.workspaceID == shellController.state.workspaceID }?
+            .canonicalPath
+    }
+
+    private func mergedWorkspaceScripts() -> [Settings.ScriptDefinition] {
+        productivityPreferences.scripts(forRepositoryPath: workspaceCanonicalPath())
+    }
+
+    func refreshTitlebarControls() {
+        let scripts = mergedWorkspaceScripts()
+        let primary = productivityPreferences.primaryRunScript(forRepositoryPath: workspaceCanonicalPath())
+            ?? scripts.first
+        // Chrome labels follow the Settings display-name contract (D-045
+        // `ScriptDefinition.displayName`): predefined kinds render their kind
+        // label so future renames propagate; custom scripts render the
+        // user-facing name (visual contract: "stop web").
+        let menuItems = scripts.map { script in
+            NativeShellRunScriptMenuItem(scriptID: script.id, title: script.displayName)
+        }
+        let run: NativeShellRunControlState = if let runningScript {
+            NativeShellRunControlState(
+                phase: .running,
+                title: "Stop \(runningScript.script.displayName)",
+                menuItems: menuItems
+            )
+        } else if let primary {
+            NativeShellRunControlState(phase: .idle, title: "Run \(primary.displayName)", menuItems: menuItems)
+        } else {
+            NativeShellRunControlState(phase: .unavailable, title: "Run", menuItems: menuItems)
+        }
+
+        let installed = editorOpener.installedTargets()
+        let preferredTargetID = productivityPreferences.editorTargetID(forRepositoryPath: workspaceCanonicalPath())
+        let resolvedTarget = preferredTargetID.flatMap { targetID in installed.first { $0.id == targetID } }
+            ?? installed.first
+        let editor = NativeShellEditorControlState(
+            title: resolvedTarget.map { "Open in \($0.displayName)" } ?? "Open",
+            isEnabled: resolvedTarget != nil && workspaceCanonicalPath() != nil,
+            menuItems: installed.map { NativeShellEditorMenuItem(targetID: $0.id, title: $0.displayName) }
+        )
+
+        // D-042: the bell badge counts unread notifications plus pending
+        // approval cards, so waiting agents surface even with zero unread.
+        rootView.updateTitlebarControls(NativeShellTitlebarControlsState(
+            run: run,
+            editor: editor,
+            notificationUnreadCount: rootView.visibleNotificationsUnreadCount()
+                + rootView.visibleApprovalsPendingCount()
+        ))
+    }
+
+    private func runPrimaryScriptOrStop() {
+        guard !scriptOperationInFlight else {
+            return
+        }
+        if runningScript != nil {
+            stopRunningScript()
+            return
+        }
+        let primary = productivityPreferences.primaryRunScript(forRepositoryPath: workspaceCanonicalPath())
+            ?? mergedWorkspaceScripts().first
+        guard let primary else {
+            presentManageScriptsOverlay()
+            return
+        }
+        runScript(primary)
+    }
+
+    private func runScript(withID scriptID: Settings.ScriptID) {
+        guard let script = mergedWorkspaceScripts().first(where: { $0.id == scriptID }) else {
+            return
+        }
+        runScript(script)
+    }
+
+    private func runScript(_ script: Settings.ScriptDefinition) {
+        guard !scriptOperationInFlight else {
+            return
+        }
+        guard let request = scriptPaneRequest(command: script.command, title: script.name, processDefID: "script:\(script.id.rawValue)") else {
+            return
+        }
+        scriptOperationInFlight = true
+        productivityTask = Task { @MainActor in
+            _ = await self.executeScriptPane(request, trackAs: script)
+            self.scriptOperationInFlight = false
+        }
+    }
+
+    private func scriptPaneRequest(command: String, title: String, processDefID: String) -> NativeScriptPaneRequest? {
+        let state = shellController.state
+        let grid = state.paneGridState
+        guard let window = grid.windows.first(where: { $0.windowID == grid.activeWindowID }) ?? grid.windows.first else {
+            return nil
+        }
+        return NativeScriptPaneRequest(
+            workspaceID: state.workspaceID,
+            windowID: window.windowID,
+            workingDirectory: workspaceCanonicalPath(),
+            command: command,
+            title: title,
+            processDefID: processDefID
+        )
+    }
+
+    @discardableResult
+    private func executeScriptPane(
+        _ request: NativeScriptPaneRequest,
+        trackAs script: Settings.ScriptDefinition?
+    ) async -> PaneID? {
+        do {
+            let paneID = try await scriptPaneRunner.createScriptPane(request)
+            if let script {
+                runningScript = (script: script, paneID: paneID)
+            }
+            refreshTitlebarControls()
+            // The pane grid is server-owned (D-019): re-project the layout so
+            // the new script pane appears live, not on the next reconnect.
+            await refreshWorkspaceLayout?()
+            return paneID
+        } catch {
+            await diagnosticsActions.record(
+                category: .nativeShell,
+                severity: .error,
+                workspaceID: request.workspaceID,
+                title: "Run script failed",
+                message: String(describing: error),
+                metadata: ["script": request.title]
+            )
+            refreshTitlebarControls()
+            return nil
+        }
+    }
+
+    private func stopRunningScript() {
+        guard !scriptOperationInFlight, let running = runningScript else {
+            return
+        }
+        let workspaceID = shellController.state.workspaceID
+        scriptOperationInFlight = true
+        productivityTask = Task { @MainActor in
+            do {
+                try await self.scriptPaneRunner.closeScriptPane(workspaceID: workspaceID, paneID: running.paneID)
+                self.runningScript = nil
+            } catch {
+                // The close RPC failed, so the pane may well still be alive
+                // server-side (D-019: the server owns the pane). Keep the
+                // Stop state — clearing it would lie about a running script —
+                // and surface the failure as a workspace notification so the
+                // user sees why the button did not flip.
+                await self.diagnosticsActions.record(
+                    category: .nativeShell,
+                    severity: .error,
+                    workspaceID: workspaceID,
+                    title: "Stop script failed",
+                    message: String(describing: error),
+                    metadata: ["script": running.script.name]
+                )
+                _ = await self.notificationsHub.ingest(
+                    Notifications.WorkspaceNotificationDraft(
+                        workspaceID: workspaceID,
+                        paneID: running.paneID,
+                        title: "Stop \(running.script.displayName) failed",
+                        body: "Fenrir could not close the script pane; it may still be running.",
+                        source: .system
+                    ),
+                    isAppActive: self.isAppActive()
+                )
+                await self.refreshNotificationsProjectionNow()
+            }
+            self.scriptOperationInFlight = false
+            self.refreshTitlebarControls()
+            await self.refreshWorkspaceLayout?()
+        }
+    }
+
+    /// F3 (D-045 attention loop): when the running script's pane stream ends
+    /// (process exit, kill from another client), re-project the layout so
+    /// `reconcileRunningScript` flips the Stop button back without a reconnect.
+    private func handlePaneStreamEnded(_ paneID: PaneID) {
+        guard runningScript?.paneID == paneID, let refreshWorkspaceLayout else {
+            return
+        }
+        productivityTask = Task { @MainActor in
+            await refreshWorkspaceLayout()
+        }
+    }
+
+    private func presentManageScriptsOverlay() {
+        rootView.updateManageableScripts(mergedWorkspaceScripts())
+        shellController.presentOverlay(NativeOverlayHostView.manageScriptsOverlayID)
+        restoreDeterministicFocus()
+    }
+
+    private func addWorkspaceScript(name: String, command: String) {
+        guard let canonicalPath = workspaceCanonicalPath() else {
+            return
+        }
+        let existing = productivityPreferences.load().scripts.repositoryScripts[canonicalPath] ?? []
+        let kind: Settings.ScriptKind = existing.contains { $0.kind == .run } ? .custom : .run
+        let script = Settings.ScriptDefinition(kind: kind, name: name, command: command)
+        productivityPreferences.replaceRepositoryScripts(existing + [script], canonicalPath: canonicalPath)
+        rootView.updateManageableScripts(mergedWorkspaceScripts())
+        refreshTitlebarControls()
+    }
+
+    private func removeWorkspaceScript(_ scriptID: Settings.ScriptID) {
+        guard let canonicalPath = workspaceCanonicalPath() else {
+            return
+        }
+        let existing = productivityPreferences.load().scripts.repositoryScripts[canonicalPath] ?? []
+        productivityPreferences.replaceRepositoryScripts(
+            existing.filter { $0.id != scriptID },
+            canonicalPath: canonicalPath
+        )
+        rootView.updateManageableScripts(mergedWorkspaceScripts())
+        refreshTitlebarControls()
+    }
+
+    private func openWorkspaceInEditor(targetID: WorkspaceIndex.EditorTargetID?, persistChoice: Bool) {
+        guard let workspacePath = workspaceCanonicalPath() else {
+            return
+        }
+        let installed = editorOpener.installedTargets()
+        let resolvedTargetID = targetID
+            ?? productivityPreferences.editorTargetID(forRepositoryPath: workspacePath)
+                .flatMap { preferred in installed.first { $0.id == preferred }?.id }
+            ?? installed.first?.id
+        guard let resolvedTargetID else {
+            return
+        }
+        productivityTask = Task { @MainActor in
+            switch await self.editorOpener.open(targetID: resolvedTargetID, workspacePath: workspacePath) {
+            case .success(.opened):
+                if persistChoice {
+                    self.productivityPreferences.persistEditorTarget(resolvedTargetID, canonicalPath: workspacePath)
+                }
+                self.refreshTitlebarControls()
+            case .success(.routeToTerminalPane(let command)):
+                // $EDITOR runs inside a real tmux pane via the server (D-019);
+                // the client never launches the editor process itself.
+                if persistChoice {
+                    self.productivityPreferences.persistEditorTarget(resolvedTargetID, canonicalPath: workspacePath)
+                }
+                let commandLine = ([command.executable] + command.arguments)
+                    .map(Self.shellQuoted)
+                    .joined(separator: " ")
+                if let request = self.scriptPaneRequest(
+                    command: commandLine,
+                    title: "$EDITOR",
+                    processDefID: "editor:environment"
+                ) {
+                    _ = await self.executeScriptPane(request, trackAs: nil)
+                }
+                self.refreshTitlebarControls()
+            case .failure(let error):
+                await self.diagnosticsActions.record(
+                    category: .nativeShell,
+                    severity: .error,
+                    workspaceID: self.shellController.state.workspaceID,
+                    title: "Open in editor failed",
+                    message: error.rawValue,
+                    metadata: ["target": resolvedTargetID.rawValue]
+                )
+            }
+        }
+    }
+
+    private static func shellQuoted(_ value: String) -> String {
+        guard value.rangeOfCharacter(from: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./")).inverted) != nil else {
+            return value
+        }
+        return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    // MARK: - D-043/D-045 workspace notifications
+
+    func ingestWorkspaceNotification(
+        title: String?,
+        body: String,
+        paneID: PaneID?,
+        source: Notifications.WorkspaceNotificationSource
+    ) {
+        let draft = Notifications.WorkspaceNotificationDraft(
+            workspaceID: shellController.state.workspaceID,
+            paneID: paneID,
+            title: title,
+            body: body,
+            source: source
+        )
+        let hub = notificationsHub
+        let active = isAppActive()
+        productivityTask = Task { @MainActor in
+            if await hub.ingest(draft, isAppActive: active) == nil {
+                // D-043: malformed payloads are dropped with a diagnostics
+                // count only — title/body content never reaches diagnostics
+                // surfaces (D-031).
+                await self.diagnosticsActions.record(
+                    category: .nativeShell,
+                    severity: .warning,
+                    workspaceID: draft.workspaceID,
+                    title: "Workspace notification dropped",
+                    message: "D-043 sanitization dropped a malformed notification payload.",
+                    metadata: ["notificationSource": draft.source.rawValue]
+                )
+            }
+            await self.refreshNotificationsProjectionNow()
+        }
+    }
+
+    private func refreshNotificationsProjection() {
+        productivityTask = Task { @MainActor in
+            await self.refreshNotificationsProjectionNow()
+        }
+    }
+
+    private func refreshNotificationsProjectionNow() async {
+        let workspaceID = shellController.state.workspaceID
+        let store = notificationsHub.store
+        let feed = await store.notifications(workspaceID: workspaceID)
+        let unreadCount = await store.unreadCount(workspaceID: workspaceID)
+
+        var latestLines: [WorkspaceID: String] = [:]
+        var attentionWorkspaceIDs: Set<WorkspaceID> = []
+        for item in shellController.state.sidebarItems {
+            if let latest = await store.latest(workspaceID: item.workspaceID) {
+                latestLines[item.workspaceID] = nativeSidebarLatestNotificationLine(latest)
+            }
+            if await store.unreadCount(workspaceID: item.workspaceID) > 0 {
+                attentionWorkspaceIDs.insert(item.workspaceID)
+            }
+        }
+        // Only panes still present in the server-owned layout can hold the
+        // workspace in the attention set — a recorded waiting state for a
+        // dead pane is stale by definition (D-045 attention loop stays
+        // driven by live D-038/D-043 state).
+        let livePaneIDs = Set(shellController.state.paneGridState.windows.flatMap(\.panes).map(\.paneID))
+        let hasWaitingPane = presenceStateByPane.contains { paneID, state in
+            livePaneIDs.contains(paneID) && (state == .awaitingInput || state == .awaitingApproval)
+        }
+        if hasWaitingPane {
+            attentionWorkspaceIDs.insert(workspaceID)
+        }
+
+        rootView.updateNotifications(
+            feed: feed,
+            unreadCount: unreadCount,
+            latestLines: latestLines,
+            attentionWorkspaceIDs: attentionWorkspaceIDs
+        )
+        if unreadCount > 0 || !feed.isEmpty {
+            shellController.updateWorkspaceNotifications(WorkspaceIndex.WorkspaceNotificationState(
+                unreadCount: unreadCount,
+                level: unreadCount > 0 ? .attention : .badge
+            ))
+            rootView.apply(shellController.state)
+        }
+        refreshTitlebarControls()
+    }
+
+    func presentNotificationsPanel() {
+        shellController.presentOverlay(NativeOverlayHostView.notificationsOverlayID)
+        restoreDeterministicFocus()
+        refreshNotificationsProjection()
+    }
+
+    private func jumpToLatestUnreadNotification() {
+        let workspaceID = shellController.state.workspaceID
+        let store = notificationsHub.store
+        productivityTask = Task { @MainActor in
+            guard let latest = await store.latestUnread(workspaceID: workspaceID) else {
+                return
+            }
+            _ = await store.markRead(latest.id)
+            self.focusNotificationTarget(paneID: latest.paneID)
+            await self.refreshNotificationsProjectionNow()
+            self.restoreDeterministicFocus()
+        }
+    }
+
+    private func selectNotification(_ notificationID: Notifications.NotificationID, paneID: PaneID?) {
+        let store = notificationsHub.store
+        productivityTask = Task { @MainActor in
+            _ = await store.markRead(notificationID)
+            self.focusNotificationTarget(paneID: paneID)
+            await self.refreshNotificationsProjectionNow()
+            self.restoreDeterministicFocus()
+        }
+    }
+
+    private func markAllNotificationsRead() {
+        let workspaceID = shellController.state.workspaceID
+        let store = notificationsHub.store
+        productivityTask = Task { @MainActor in
+            _ = await store.markAllRead(workspaceID: workspaceID)
+            await self.refreshNotificationsProjectionNow()
+        }
+    }
+
+    private func focusNotificationTarget(paneID: PaneID?) {
+        guard let paneID else {
+            return
+        }
+        let panes = shellController.state.paneGridState.windows.flatMap(\.panes).map(\.paneID)
+        guard panes.contains(paneID) else {
+            return
+        }
+        _ = rootView.terminalPaneHost.paneGridView.focusPane(paneID)
+        shellController.focusTerminal(paneID: paneID)
+    }
+
+    // MARK: - D-042 agent approval feed
+
+    /// Subscribes to the server's approval-feed relay stream and projects
+    /// pending cards into the feed overlay, the bell badge, and actionable
+    /// macOS banners. The subscription re-establishes itself after stream
+    /// failures; on resubscribe the pending set is resynced from the
+    /// stream's replay, so a lost stream degrades to stale cards, never to
+    /// client-side polling.
+    func startApprovalFeedStreamIfNeeded() {
+        guard approvalFeedTask == nil, let approvalFeedEventStream else {
+            return
+        }
+        let store = approvalFeedStore
+        approvalFeedTask = Task { [weak self] in
+            var didRecordFailure = false
+            while !Task.isCancelled {
+                // The stream replays the authoritative pending set on
+                // subscribe; drop local cards first so settled-while-offline
+                // requests do not linger.
+                await store.removeAll()
+                let stream = await approvalFeedEventStream.observeApprovalFeed()
+                do {
+                    for try await event in stream {
+                        didRecordFailure = false
+                        await self?.applyApprovalFeedEvent(event)
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    if !didRecordFailure {
+                        didRecordFailure = true
+                        await self?.recordApprovalFeedStreamError(error)
+                    }
+                }
+                guard !Task.isCancelled, self != nil else {
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+    }
+
+    private func applyApprovalFeedEvent(_ event: Notifications.ApprovalFeedStreamEvent) async {
+        let outcome = await approvalFeedStore.apply(event)
+        switch outcome {
+        case .added(let card):
+            // Actionable banner only while the app is inactive, mirroring
+            // the D-043 banner rule; banner buttons decide directly.
+            if !isAppActive() {
+                await approvalBannerPresenter.presentApprovalBanner(card: card)
+            }
+        case .settled(let card, _, _):
+            approvalDecisionsInFlight.remove(card.requestID)
+            await approvalBannerPresenter.withdrawApprovalBanner(requestID: card.requestID)
+        case .ignored:
+            return
+        }
+        await refreshApprovalFeedProjectionNow()
+    }
+
+    private func recordApprovalFeedStreamError(_ error: Error) async {
+        await diagnosticsActions.record(
+            category: .serverConnection,
+            severity: .warning,
+            workspaceID: shellController.state.workspaceID,
+            title: "Approval feed stream failed",
+            message: String(describing: error),
+            metadata: ["surface": "approval-feed"]
+        )
+    }
+
+    private func refreshApprovalFeedProjectionNow() async {
+        let cards = await approvalFeedStore.pendingCards(workspaceID: shellController.state.workspaceID)
+        rootView.updateApprovalFeed(cards)
+        refreshTitlebarControls()
+    }
+
+    func presentApprovalsPanel() {
+        shellController.presentOverlay(NativeOverlayHostView.approvalsOverlayID)
+        restoreDeterministicFocus()
+        approvalFeedRefreshTask = Task { @MainActor in
+            await self.refreshApprovalFeedProjectionNow()
+        }
+    }
+
+    /// Dispatches exactly one decide RPC per card (D-040 authority: the
+    /// hook applies the decision in the agent's process; the card leaves
+    /// the overlay when the stream's settled event arrives).
+    func decideApproval(requestID: String, optionID: String) {
+        guard !approvalDecisionsInFlight.contains(requestID) else {
+            return
+        }
+        guard let approvalFeedDecider else {
+            return
+        }
+        approvalDecisionsInFlight.insert(requestID)
+        approvalFeedRefreshTask = Task { @MainActor in
+            do {
+                try await approvalFeedDecider.decide(requestID: requestID, optionID: optionID)
+            } catch {
+                // Late/duplicate decisions are typed rejections; the agent
+                // has already fallen back to its own TUI. Drop the local
+                // card and record metadata-only diagnostics.
+                self.approvalDecisionsInFlight.remove(requestID)
+                _ = await self.approvalFeedStore.apply(
+                    .settled(requestID: requestID, reason: .timeout, optionID: nil)
+                )
+                await self.approvalBannerPresenter.withdrawApprovalBanner(requestID: requestID)
+                await self.diagnosticsActions.record(
+                    category: .serverConnection,
+                    severity: .warning,
+                    workspaceID: self.shellController.state.workspaceID,
+                    title: "Approval decision rejected",
+                    message: String(describing: error),
+                    metadata: ["surface": "approval-feed", "requestID": requestID]
+                )
+                await self.refreshApprovalFeedProjectionNow()
+            }
+        }
+    }
+
+    /// Read-only D-042 smoke: pending count plus last card metadata.
+    /// D-031: the card summary embeds hook/injector-controlled content
+    /// (`tool_name` from agent hook input), so — exactly like
+    /// `runNotificationsSmoke` — only identifiers, the summary LENGTH, and an
+    /// expected-marker match cross the diagnostics control channel; the
+    /// summary text itself never does.
+    func runApprovalFeedSmoke(expectedMarker: String? = nil) async -> [String: String] {
+        await refreshApprovalFeedProjectionNow()
+        let cards = rootView.visibleApprovalFeedCards()
+        let last = cards.last
+        let lastSummaryMatchesExpected = expectedMarker.map { marker in
+            last?.summary.contains(marker) ?? false
+        }
+        return [
+            "workspaceID": shellController.state.workspaceID.rawValue,
+            "pendingCount": String(cards.count),
+            "lastRequestID": last?.requestID ?? "",
+            "lastKind": last?.kind.rawValue ?? "",
+            "lastAgentID": last?.agentID ?? "",
+            "lastSummaryLength": last.map { String($0.summary.count) } ?? "",
+            "lastSummaryMatchesExpected": lastSummaryMatchesExpected.map(String.init) ?? "",
+            "lastOptionIDs": last?.options.map(\.id).joined(separator: ",") ?? "",
+            "panelVisible": String(shellController.state.activeOverlayIDs.contains(NativeOverlayHostView.approvalsOverlayID))
+        ]
+    }
+
+    // MARK: - D-045 diagnostics smoke operations
+
+    func runNotificationsSmoke(expectedMarker: String? = nil, dismiss: Bool = false) async -> [String: String] {
+        // `dismiss` restores the pre-smoke overlay state after reading, so a
+        // smoke against a live session does not leave the panel open. The
+        // default keeps the panel visible (CI screenshots verify the panel).
+        let panelWasAlreadyVisible = shellController.state.activeOverlayIDs
+            .contains(NativeOverlayHostView.notificationsOverlayID)
+        presentNotificationsPanel()
+        await productivityTask?.value
+        await refreshNotificationsProjectionNow()
+        let feed = rootView.visibleNotificationsFeed()
+        let latest = feed.last
+        // D-031/D-043: notification title/body are user-visible content and are
+        // excluded from the diagnostics control channel. The smoke returns
+        // identifiers plus an expected-marker match so end-to-end verification
+        // never exfiltrates pane-controlled text.
+        let latestMatchesExpected = expectedMarker.map { marker in
+            (latest?.title?.contains(marker) ?? false) || (latest?.body.contains(marker) ?? false)
+        }
+        var payload: [String: String] = [
+            "workspaceID": shellController.state.workspaceID.rawValue,
+            "unreadCount": String(rootView.visibleNotificationsUnreadCount()),
+            "notificationCount": String(feed.count),
+            "panelVisible": String(rootView.visibleOverlayTitles().contains("Notifications")),
+            "latestNotificationID": latest?.id.rawValue ?? "",
+            "latestSource": latest?.source.rawValue ?? "",
+            "latestPaneID": latest?.paneID?.rawValue ?? ""
+        ]
+        payload["latestMatchesExpected"] = latestMatchesExpected.map(String.init) ?? ""
+        payload["dismissed"] = String(dismiss && !panelWasAlreadyVisible)
+        if dismiss, !panelWasAlreadyVisible {
+            closeOverlay(NativeOverlayHostView.notificationsOverlayID)
+        }
+        return payload
+    }
+
+    func runTitlebarSmoke() async -> [String: String] {
+        await refreshNotificationsProjectionNow()
+        let controls = rootView.titlebarControlsState()
+        return [
+            "workspaceID": shellController.state.workspaceID.rawValue,
+            "runButtonState": controls.run.phase.rawValue,
+            "runButtonTitle": controls.run.title,
+            "editorButtonTitle": controls.editor.title,
+            "notificationBadgeCount": String(controls.notificationUnreadCount)
+        ]
+    }
+
+    func runRunScriptSmoke(scriptCommand: String) async -> [String: String] {
+        let script = Settings.ScriptDefinition(kind: .run, name: "smoke", command: scriptCommand)
+        guard let request = scriptPaneRequest(
+            command: script.command,
+            title: script.name,
+            processDefID: "script:\(script.id.rawValue)"
+        ) else {
+            return [
+                "workspaceID": shellController.state.workspaceID.rawValue,
+                "paneID": "",
+                "runButtonState": rootView.titlebarControlsState().run.phase.rawValue,
+                "error": "no-active-window"
+            ]
+        }
+        let paneID = await executeScriptPane(request, trackAs: script)
+        let controls = rootView.titlebarControlsState()
+        return [
+            "workspaceID": shellController.state.workspaceID.rawValue,
+            "paneID": paneID?.rawValue ?? "",
+            "runButtonState": controls.run.phase.rawValue,
+            "runButtonTitle": controls.run.title,
+            "error": paneID == nil ? "create-failed" : ""
+        ]
+    }
+
+    /// Stop-path smoke (operation=stop): stops the tracked running script
+    /// through the same Stop action the titlebar uses and reports the closed
+    /// pane id, so verification can exercise Stop end-to-end.
+    func runStopScriptSmoke() async -> [String: String] {
+        guard let running = runningScript else {
+            return [
+                "workspaceID": shellController.state.workspaceID.rawValue,
+                "stoppedPaneID": "",
+                "runButtonState": rootView.titlebarControlsState().run.phase.rawValue,
+                "error": "no-running-script"
+            ]
+        }
+        stopRunningScript()
+        await productivityTask?.value
+        let controls = rootView.titlebarControlsState()
+        let didStop = runningScript == nil
+        return [
+            "workspaceID": shellController.state.workspaceID.rawValue,
+            "stoppedPaneID": didStop ? running.paneID.rawValue : "",
+            "runButtonState": controls.run.phase.rawValue,
+            "runButtonTitle": controls.run.title,
+            "error": didStop ? "" : "stop-failed"
+        ]
+    }
+
+    // MARK: - D-044 agent session resume
+
+    /// User-initiated resume of a dead agent session (sidebar row action or
+    /// palette). Resume is NEVER automatic — auto-resume on workspace
+    /// projection is a deferred opt-in setting (D-044 follow-up). The command
+    /// comes exclusively from the AgentIntegration descriptor table after
+    /// session-id validation.
+    func resumeAgentSession(agentID: AgentIntegration.AgentCLIIdentifier, sessionID: String) {
+        guard !resumeOperationInFlight else {
+            return
+        }
+        guard AgentIntegration.resumeCommand(agentID: agentID, sessionID: sessionID) != nil else {
+            // Unsupported adapter or session id outside the allowlist — the
+            // id never reaches the shell.
+            return
+        }
+        let state = shellController.state
+        let grid = state.paneGridState
+        guard let window = grid.windows.first(where: { $0.windowID == grid.activeWindowID }) ?? grid.windows.first else {
+            return
+        }
+        let request = NativeAgentResumeRequest(
+            workspaceID: state.workspaceID,
+            windowID: window.windowID,
+            workingDirectory: workspaceCanonicalPath(),
+            agentID: agentID,
+            sessionID: sessionID
+        )
+        resumeOperationInFlight = true
+        productivityTask = Task { @MainActor in
+            do {
+                _ = try await self.agentSessionResumer.resumeAgentSession(request)
+                // The resumed pane is server-owned (D-019): re-project the
+                // layout so it appears live, not on the next reconnect.
+                await self.refreshWorkspaceLayout?()
+            } catch {
+                await self.diagnosticsActions.record(
+                    category: .nativeShell,
+                    severity: .error,
+                    workspaceID: request.workspaceID,
+                    title: "Agent session resume failed",
+                    message: String(describing: error),
+                    metadata: ["agentID": agentID.rawValue]
+                )
+                _ = await self.notificationsHub.ingest(
+                    Notifications.WorkspaceNotificationDraft(
+                        workspaceID: request.workspaceID,
+                        paneID: nil,
+                        title: "Resume failed",
+                        body: "Fenrir could not relaunch the recorded agent session.",
+                        source: .system
+                    ),
+                    isAppActive: self.isAppActive()
+                )
+                await self.refreshNotificationsProjectionNow()
+            }
+            self.resumeOperationInFlight = false
+        }
+    }
+
+    /// Palette action ids carry only (agentID, sessionID); session ids cannot
+    /// contain ":" (allowlist), so the 3-way split is unambiguous.
+    private func executeResumeAgentPaletteAction(_ actionID: String) {
+        let components = actionID.split(separator: ":", maxSplits: 2).map(String.init)
+        guard components.count == 3,
+              components[0] == "action-resume-agent",
+              let agentID = AgentIntegration.AgentCLIIdentifier(rawValue: components[1])
+        else {
+            return
+        }
+        resumeAgentSession(agentID: agentID, sessionID: components[2])
+    }
+
+    /// D-044 diagnostics smoke: reports the resumable-session records the
+    /// shell currently knows (agentID/sessionID/paneAlive), so verification
+    /// can assert the plumbing without a real agent CLI.
+    func runAgentResumeSmoke() -> [String: String] {
+        let sessions = rootView.visibleResumableAgentSessions()
+        return [
+            "workspaceID": shellController.state.workspaceID.rawValue,
+            "resumableCount": String(sessions.count),
+            "deadResumableCount": String(sessions.filter { !$0.paneAlive }.count),
+            "records": sessions
+                .map { "\($0.agentID.rawValue):\($0.sessionID):paneAlive=\($0.paneAlive)" }
+                .joined(separator: ",")
+        ]
+    }
+
+    /// Read-only D-045 git-probe plumbing probe: refreshes the
+    /// workspace.gitProbe projection and reports what the shell knows
+    /// (branch/ahead/behind/PR + rendered chip tone) without touching panes,
+    /// so no smoke-ops gate is required.
+    func runGitProbeSmoke() async -> [String: String] {
+        refreshWorkspaceGitProbe()
+        await gitProbeRefreshTask?.value
+        let workspaceID = shellController.state.workspaceID
+        let snapshot = lastGitProbeSnapshot
+        let chip = rootView.visibleWorkspacePullRequests()[workspaceID]
+        return [
+            "workspaceID": workspaceID.rawValue,
+            "probeAvailable": gitProbeProvider == nil ? "false" : "true",
+            "branch": snapshot?.branch ?? "",
+            "ahead": snapshot?.ahead.map(String.init) ?? "",
+            "behind": snapshot?.behind.map(String.init) ?? "",
+            "prNumber": snapshot?.pr.map { String($0.number) } ?? "",
+            "prState": snapshot?.pr?.state.rawValue ?? "",
+            "prChecks": snapshot?.pr?.checks.rawValue ?? "",
+            "chipTone": chip?.tone.rawValue ?? "",
+            "chipGlyph": chip?.glyph ?? ""
+        ]
+    }
+
     private func toggleSidebar() {
         shellController.toggleSidebarVisibility()
         restoreDeterministicFocus()
@@ -2205,6 +3854,41 @@ final class NativeWorkspaceRootViewController: NSViewController {
         }
         if actionID == "workflow-panel" {
             presentWorkflowPanel()
+            rootView.apply(shellController.state)
+            return
+        }
+        if actionID == "action-run-script" {
+            runPrimaryScriptOrStop()
+            rootView.apply(shellController.state)
+            return
+        }
+        if actionID == "action-stop-script" {
+            stopRunningScript()
+            rootView.apply(shellController.state)
+            return
+        }
+        if actionID == "action-open-in-editor" {
+            openWorkspaceInEditor(targetID: nil, persistChoice: false)
+            rootView.apply(shellController.state)
+            return
+        }
+        if actionID == "action-open-notifications" {
+            presentNotificationsPanel()
+            rootView.apply(shellController.state)
+            return
+        }
+        if actionID == "action-jump-latest-unread" {
+            jumpToLatestUnreadNotification()
+            rootView.apply(shellController.state)
+            return
+        }
+        if actionID == "action-open-approvals" {
+            presentApprovalsPanel()
+            rootView.apply(shellController.state)
+            return
+        }
+        if actionID.hasPrefix("action-resume-agent:") {
+            executeResumeAgentPaletteAction(actionID)
             rootView.apply(shellController.state)
             return
         }
@@ -2454,10 +4138,12 @@ final class NativeWorkspaceRootViewController: NSViewController {
             let command = AgentIntegration.AgentIntegrationViewCommand(source: .workspaceShell, kind: .refresh)
             let state = await agentIntegrationActions.dispatch(command, workspaceID: shellController.state.workspaceID)
             rootView.updateAgentIntegration(state)
-            guard state.shouldPresentFirstRunPrompt else {
+            let promptGate = AgentIntegration.AgentIntegrationFirstRunPromptGate.applicationSupport()
+            guard promptGate?.shouldPresentPrompt(for: state) ?? state.shouldPresentFirstRunPrompt else {
                 restoreDeterministicFocus()
                 return
             }
+            promptGate?.markPromptPresented(for: state)
             await diagnosticsActions.record(
                 category: .nativeShell,
                 severity: .warning,
@@ -2531,6 +4217,26 @@ final class NativeWorkspaceRootViewController: NSViewController {
         case .runAction("toggle-sidebar"):
             shellController.dismissCommandPalette()
             shellController.toggleSidebarVisibility()
+        case .runAction("action-run-script"):
+            shellController.dismissCommandPalette()
+            runPrimaryScriptOrStop()
+        case .runAction("action-stop-script"):
+            shellController.dismissCommandPalette()
+            stopRunningScript()
+        case .runAction("action-open-in-editor"):
+            shellController.dismissCommandPalette()
+            openWorkspaceInEditor(targetID: nil, persistChoice: false)
+        case .runAction("action-open-approvals"):
+            presentApprovalsPanel()
+        case .runAction("action-open-notifications"):
+            shellController.dismissCommandPalette()
+            presentNotificationsPanel()
+        case .runAction("action-jump-latest-unread"):
+            shellController.dismissCommandPalette()
+            jumpToLatestUnreadNotification()
+        case .runAction(let actionID) where actionID.hasPrefix("action-resume-agent:"):
+            shellController.dismissCommandPalette()
+            executeResumeAgentPaletteAction(actionID)
         case .openFile(let path):
             shellController.dismissCommandPalette()
             let state = shellController.state
@@ -2572,7 +4278,6 @@ final class NativeWorkspaceRootViewController: NSViewController {
         switch surface {
         case .terminal:
             rootView.terminalPaneHost.setTerminalFocused(true)
-            view.window?.makeFirstResponder(rootView.terminalPaneHost.terminalView)
         case .sidebar:
             rootView.terminalPaneHost.setTerminalFocused(false)
             view.window?.makeFirstResponder(rootView.sidebarList)
@@ -2596,6 +4301,10 @@ enum NativeWorkspaceShellKeyboardShortcut: Equatable, Sendable {
     case toggleSidebar
     case workspaceHotkey(Int)
     case agentComposer(Keybinding.AgentComposerContextSource)
+    /// D-045: ⌘⇧U jumps to the pane of the latest unread notification. Only
+    /// consumed while an unread notification exists; otherwise the event
+    /// falls through to the terminal.
+    case jumpToLatestUnread
 }
 
 private extension NativeWorkspaceShellKeyboardShortcut {
@@ -2618,6 +4327,8 @@ private extension NativeWorkspaceShellKeyboardShortcut {
             self = .agentComposer(.viewport)
         case "a" where modifiers == [.control, .option]:
             self = .agentComposer(.lastLines(80))
+        case "u" where modifiers == [.command, .shift]:
+            self = .jumpToLatestUnread
         case "1", "2", "3", "4", "5", "6", "7", "8", "9":
             guard modifiers == [.command], let slot = Int(key) else {
                 return nil
@@ -2669,6 +4380,22 @@ final class NativeWorkspaceRootView: NSView {
     var onAgentIntegrationCommand: ((AgentIntegration.AgentIntegrationViewCommand) -> Void)?
     var onSwitchWorkspace: ((WorkspaceID) -> Void)?
     var onOpenAgentIntegrations: (() -> Void)?
+    var onRunPrimaryScript: (() -> Void)?
+    var onRunScript: ((Settings.ScriptID) -> Void)?
+    var onManageScripts: (() -> Void)?
+    var onOpenEditorPrimary: (() -> Void)?
+    var onPickEditorTarget: ((WorkspaceIndex.EditorTargetID) -> Void)?
+    var onOpenNotifications: (() -> Void)?
+    var onJumpToLatestUnread: (() -> Void)?
+    var onSelectNotification: ((Notifications.NotificationID, PaneID?) -> Void)?
+    var onMarkAllNotificationsRead: (() -> Void)?
+    /// D-042 approval feed: open the overlay / decide (requestID, optionID).
+    var onOpenApprovals: (() -> Void)?
+    var onDecideApproval: ((String, String) -> Void)?
+    var onAddScript: ((String, String) -> Void)?
+    var onRemoveScript: ((Settings.ScriptID) -> Void)?
+    /// D-044: user-initiated resume of a dead agent session.
+    var onResumeAgentSession: ((AgentIntegration.AgentCLIIdentifier, String) -> Void)?
 
     private let titlebar: NativeShellTitlebarView
     private let statusBar: NativeShellStatusBarView
@@ -2692,6 +4419,16 @@ final class NativeWorkspaceRootView: NSView {
         redactionNotice: "Sensitive metadata and terminal content are redacted."
     ))
     private var agentIntegrationState: AgentIntegration.AgentIntegrationPanelState?
+    private var titlebarControls = NativeShellTitlebarControlsState()
+    private var notificationsFeed: [Notifications.WorkspaceNotification] = []
+    private var notificationsUnreadCount = 0
+    private var approvalFeedCards: [Notifications.ApprovalFeedCard] = []
+    private var latestNotificationLines: [WorkspaceID: String] = [:]
+    private var attentionWorkspaceIDs: Set<WorkspaceID> = []
+    private var workspaceBranches: [WorkspaceID: String] = [:]
+    private var workspacePullRequests: [WorkspaceID: WorkspaceIndex.WorkspaceGitPullRequestChip] = [:]
+    private var localServerPortChips: [NativeSidebarWorkspacePortChip] = []
+    private var manageableScripts: [Settings.ScriptDefinition] = []
 
     init(
         state: NativeWorkspaceShellState,
@@ -2751,8 +4488,131 @@ final class NativeWorkspaceRootView: NSView {
             onSwitchWorkspace?(ordered[slot - 1].workspaceID)
         case .agentComposer(let contextSource):
             onPresentAgentComposer?(contextSource)
+        case .jumpToLatestUnread:
+            // Only consume ⌘⇧U while an unread notification exists; otherwise
+            // let the event fall through to the terminal (D-045).
+            guard notificationsUnreadCount > 0 else {
+                return false
+            }
+            onJumpToLatestUnread?()
         }
         return true
+    }
+
+    func updateTitlebarControls(_ controls: NativeShellTitlebarControlsState) {
+        titlebarControls = controls
+        titlebar.applyControls(controls)
+    }
+
+    func titlebarControlsState() -> NativeShellTitlebarControlsState {
+        titlebar.controlsState
+    }
+
+    func titlebarRunIndicatorVisible() -> Bool {
+        titlebar.runControlShowsRunningIndicator()
+    }
+
+    func updateNotifications(
+        feed: [Notifications.WorkspaceNotification],
+        unreadCount: Int,
+        latestLines: [WorkspaceID: String],
+        attentionWorkspaceIDs: Set<WorkspaceID>
+    ) {
+        notificationsFeed = feed
+        notificationsUnreadCount = unreadCount
+        latestNotificationLines = latestLines
+        self.attentionWorkspaceIDs = attentionWorkspaceIDs
+        overlayHost.updateNotificationsPanel(feed: feed, unreadCount: unreadCount)
+        if let lastAppliedState {
+            applyChrome(lastAppliedState)
+        }
+    }
+
+    func visibleNotificationsFeed() -> [Notifications.WorkspaceNotification] {
+        notificationsFeed
+    }
+
+    func visibleNotificationsUnreadCount() -> Int {
+        notificationsUnreadCount
+    }
+
+    /// D-042 approval feed projection (current workspace pending cards).
+    func updateApprovalFeed(_ cards: [Notifications.ApprovalFeedCard]) {
+        approvalFeedCards = cards
+        overlayHost.updateApprovalsPanel(cards: cards)
+        if let lastAppliedState {
+            applyChrome(lastAppliedState)
+        }
+    }
+
+    func visibleApprovalFeedCards() -> [Notifications.ApprovalFeedCard] {
+        approvalFeedCards
+    }
+
+    func visibleApprovalsPendingCount() -> Int {
+        approvalFeedCards.count
+    }
+
+    func visibleAttentionWorkspaceIDs() -> Set<WorkspaceID> {
+        attentionWorkspaceIDs
+    }
+
+    /// D-045 row metadata: current branch per workspace (server vcs contract).
+    func updateWorkspaceBranch(_ workspaceID: WorkspaceID, branch: String?) {
+        guard workspaceBranches[workspaceID] != branch else {
+            return
+        }
+        workspaceBranches[workspaceID] = branch
+        if let lastAppliedState {
+            applyChrome(lastAppliedState)
+        }
+    }
+
+    /// D-045 row metadata: PR status chip per workspace (server
+    /// workspace.gitProbe contract).
+    func updateWorkspacePullRequest(
+        _ workspaceID: WorkspaceID,
+        chip: WorkspaceIndex.WorkspaceGitPullRequestChip?
+    ) {
+        guard workspacePullRequests[workspaceID] != chip else {
+            return
+        }
+        workspacePullRequests[workspaceID] = chip
+        if let lastAppliedState {
+            applyChrome(lastAppliedState)
+        }
+    }
+
+    func visibleWorkspacePullRequests() -> [WorkspaceID: WorkspaceIndex.WorkspaceGitPullRequestChip] {
+        workspacePullRequests
+    }
+
+    /// D-045 row metadata: listening-port chips (localServers discovery).
+    func updateLocalServerPorts(_ chips: [NativeSidebarWorkspacePortChip]) {
+        guard localServerPortChips != chips else {
+            return
+        }
+        localServerPortChips = chips
+        if let lastAppliedState {
+            applyChrome(lastAppliedState)
+        }
+    }
+
+    func visibleWorkspaceBranches() -> [WorkspaceID: String] {
+        workspaceBranches
+    }
+
+    func visibleLocalServerPortChips() -> [NativeSidebarWorkspacePortChip] {
+        localServerPortChips
+    }
+
+    func updateAttentionPaneIDs(_ paneIDs: Set<PaneID>) {
+        terminalPaneHost.paneGridView.applyAttentionPaneIDs(paneIDs)
+    }
+
+    func updateManageableScripts(_ scripts: [Settings.ScriptDefinition]) {
+        manageableScripts = scripts
+        overlayHost.updateManageScripts(scripts)
     }
 
     func updateAgentComposer(_ composer: AgentInteraction.ComposerState, error: AgentInteraction.AgentInteractionError? = nil) {
@@ -2810,6 +4670,26 @@ final class NativeWorkspaceRootView: NSView {
         }
     }
 
+    /// D-044: recorded resumable agent sessions, derived from the workspace's
+    /// presence records against the live pane grid. `paneAlive == false`
+    /// means the pane process is gone and the session is offered for resume.
+    static func resumableAgentSessions(
+        records: [AgentIntegration.AgentPresenceRecord],
+        state: NativeWorkspaceShellState
+    ) -> [AgentIntegration.AgentResumableSessionSnapshot] {
+        AgentIntegration.resumableAgentSessions(
+            records: records.filter { $0.provenance.workspaceID == state.workspaceID },
+            livePaneIDs: Set(state.paneGridState.windows.flatMap(\.panes).map(\.paneID))
+        )
+    }
+
+    func visibleResumableAgentSessions() -> [AgentIntegration.AgentResumableSessionSnapshot] {
+        guard let lastAppliedState else {
+            return []
+        }
+        return Self.resumableAgentSessions(records: agentPresenceRecords, state: lastAppliedState)
+    }
+
     func apply(_ state: NativeWorkspaceShellState) {
         lastAppliedState = state
         sidebarContainer.isHidden = !state.isSidebarVisible
@@ -2846,7 +4726,8 @@ final class NativeWorkspaceRootView: NSView {
                 serverText: isConnected ? state.workspaceID.rawValue : (state.reconnectBanner?.message ?? "reconnecting…"),
                 isServerHealthy: isConnected,
                 attentionText: attentionText
-            )
+            ),
+            controls: titlebarControls
         )
 
         sidebarList.apply(model: NativeSidebarViewModel(
@@ -2857,7 +4738,13 @@ final class NativeWorkspaceRootView: NSView {
             agentPresenceRecords: agentPresenceRecords,
             workflowRuns: workflowRuns,
             serverStatusText: isConnected ? "local server" : "server reconnecting…",
-            isServerHealthy: isConnected
+            isServerHealthy: isConnected,
+            latestNotificationLines: latestNotificationLines,
+            attentionWorkspaceIDs: attentionWorkspaceIDs,
+            workspaceBranches: workspaceBranches,
+            workspacePullRequests: workspacePullRequests,
+            activeWorkspacePorts: localServerPortChips,
+            resumableAgentSessions: Self.resumableAgentSessions(records: agentPresenceRecords, state: state)
         ))
 
         let paneCount = state.paneGridState.windows
@@ -2912,6 +4799,12 @@ final class NativeWorkspaceRootView: NSView {
         titlebar.onSelectWindow = { [weak self] windowID in
             _ = self?.terminalPaneHost.paneGridView.selectWindow(windowID)
         }
+        titlebar.onRunPrimaryScript = { [weak self] in self?.onRunPrimaryScript?() }
+        titlebar.onRunScript = { [weak self] scriptID in self?.onRunScript?(scriptID) }
+        titlebar.onManageScripts = { [weak self] in self?.onManageScripts?() }
+        titlebar.onOpenEditorPrimary = { [weak self] in self?.onOpenEditorPrimary?() }
+        titlebar.onPickEditorTarget = { [weak self] targetID in self?.onPickEditorTarget?(targetID) }
+        titlebar.onOpenNotifications = { [weak self] in self?.onOpenNotifications?() }
 
         sidebarWidthConstraint = sidebarContainer.widthAnchor.constraint(equalToConstant: NativeShellChromeMetrics.sidebarWidth)
         NSLayoutConstraint.activate([
@@ -2969,6 +4862,9 @@ final class NativeWorkspaceRootView: NSView {
         sidebarList.onFocusRequested = { [weak self] in self?.onFocusSidebar?() }
         sidebarList.onSelectWorkspace = { [weak self] workspaceID in self?.onSwitchWorkspace?(workspaceID) }
         sidebarList.onOpenAgentIntegrations = { [weak self] in self?.onOpenAgentIntegrations?() }
+        sidebarList.onResumeAgentSession = { [weak self] agentID, sessionID in
+            self?.onResumeAgentSession?(agentID, sessionID)
+        }
     }
 
     private func buildMainArea() {
@@ -2992,6 +4888,16 @@ final class NativeWorkspaceRootView: NSView {
         overlayHost.onCancelAgentComposer = { [weak self] input in self?.onCancelAgentComposer?(input) }
         overlayHost.onWorkflowCommand = { [weak self] command in self?.onWorkflowCommand?(command) }
         overlayHost.onAgentIntegrationCommand = { [weak self] command in self?.onAgentIntegrationCommand?(command) }
+        overlayHost.onSelectNotification = { [weak self] notificationID, paneID in
+            self?.onSelectNotification?(notificationID, paneID)
+        }
+        overlayHost.onMarkAllNotificationsRead = { [weak self] in self?.onMarkAllNotificationsRead?() }
+        overlayHost.onDecideApproval = { [weak self] requestID, optionID in
+            self?.onDecideApproval?(requestID, optionID)
+        }
+        overlayHost.onJumpToLatestUnread = { [weak self] in self?.onJumpToLatestUnread?() }
+        overlayHost.onAddScript = { [weak self] name, command in self?.onAddScript?(name, command) }
+        overlayHost.onRemoveScript = { [weak self] scriptID in self?.onRemoveScript?(scriptID) }
         terminalPaneHost.onFocusRequested = { [weak self] in self?.onFocusTerminal?() }
 
         bannerHeightConstraint = reconnectBanner.heightAnchor.constraint(equalToConstant: 0)
@@ -3026,7 +4932,26 @@ final class NativeWorkspaceRootView: NSView {
                     baseScore: item.isOpenLocally ? 90 : 50
                 )
             }
-        return workspaceItems + state.paletteFileItems + [
+        // D-044: resume actions for recorded agent sessions whose pane
+        // process died. The action id carries only (agentID, sessionID); the
+        // command is derived from the descriptor table at execution time.
+        let resumeItems = Self.resumableAgentSessions(records: agentPresenceRecords, state: state)
+            .filter { !$0.paneAlive }
+            .map { session in
+                let displayName = AgentIntegration.supportedAgentDescriptors
+                    .first { $0.id == session.agentID }?
+                    .displayName ?? session.agentID.rawValue
+                return WorkspaceOverlays.PaletteItem(
+                    id: "action-resume-agent-\(session.agentID.rawValue)-\(session.sessionID)",
+                    domain: .actions,
+                    title: "Resume \(displayName) Session",
+                    subtitle: "Relaunch session \(NativeWorkspaceSidebarView.shortSessionID(session.sessionID)) in a new tmux pane",
+                    keywords: ["resume", "agent", "session", session.agentID.rawValue],
+                    action: .runAction("action-resume-agent:\(session.agentID.rawValue):\(session.sessionID)"),
+                    baseScore: 77
+                )
+            }
+        return workspaceItems + resumeItems + state.paletteFileItems + [
             WorkspaceOverlays.PaletteItem(
                 id: "action-diagnostics",
                 domain: .actions,
@@ -3073,6 +4998,60 @@ final class NativeWorkspaceRootView: NSView {
                 baseScore: 75
             ),
             WorkspaceOverlays.PaletteItem(
+                id: "action-run-script",
+                domain: .actions,
+                title: titlebarControls.run.phase == .running ? "Run Script (running)" : "Run Script",
+                subtitle: "Run the primary run-kind script in a tmux pane",
+                keywords: ["run", "script", "dev", "start"],
+                action: .runAction("action-run-script"),
+                baseScore: 74
+            ),
+            WorkspaceOverlays.PaletteItem(
+                id: "action-stop-script",
+                domain: .actions,
+                title: "Stop Script",
+                subtitle: "Stop the running script pane",
+                keywords: ["stop", "script", "kill"],
+                action: .runAction("action-stop-script"),
+                baseScore: 73
+            ),
+            WorkspaceOverlays.PaletteItem(
+                id: "action-open-in-editor",
+                domain: .actions,
+                title: "Open in Editor",
+                subtitle: "Open the workspace path with the default editor target",
+                keywords: ["editor", "open", "ide", "vscode", "zed", "finder"],
+                action: .runAction("action-open-in-editor"),
+                baseScore: 72
+            ),
+            WorkspaceOverlays.PaletteItem(
+                id: "action-open-approvals",
+                domain: .actions,
+                title: "Approvals",
+                subtitle: "Review pending agent approval requests",
+                keywords: ["approvals", "approve", "deny", "permission", "agent", "feed"],
+                action: .runAction("action-open-approvals"),
+                baseScore: 76
+            ),
+            WorkspaceOverlays.PaletteItem(
+                id: "action-open-notifications",
+                domain: .actions,
+                title: "Open Notifications",
+                subtitle: "Show the workspace notifications panel",
+                keywords: ["notifications", "unread", "attention", "bell"],
+                action: .runAction("action-open-notifications"),
+                baseScore: 71
+            ),
+            WorkspaceOverlays.PaletteItem(
+                id: "action-jump-latest-unread",
+                domain: .actions,
+                title: "Jump to Latest Unread Notification",
+                subtitle: "Focus the pane of the newest unread notification (⌘⇧U)",
+                keywords: ["jump", "unread", "notification", "attention"],
+                action: .runAction("action-jump-latest-unread"),
+                baseScore: 70
+            ),
+            WorkspaceOverlays.PaletteItem(
                 id: "help-keyboard",
                 domain: .help,
                 title: "Keyboard Help",
@@ -3105,6 +5084,9 @@ private final class NativeTerminalInputRouter {
     }
 
     func resize(_ size: TerminalViewport.Size, paneID: PaneID) {
+        if host == nil {
+            NSLog("Fenrir Native terminal resize dropped: router has no host pane=%@", paneID.rawValue)
+        }
         host?.dispatchTerminalResize(size, paneID: paneID)
     }
 }
@@ -3128,6 +5110,10 @@ final class NativeTerminalPaneHostView: NSView {
         return terminal
     }
     var onFocusRequested: (() -> Void)?
+    /// Fires once per subscription when a pane's output stream ends outside a
+    /// resubscribe (server closed it or it failed) — the live signal that the
+    /// pane process likely died (D-045 run-script reconcile).
+    var onPaneStreamEnded: ((PaneID) -> Void)?
 
     init(
         paneGridState: PaneGrid.State,
@@ -3154,6 +5140,7 @@ final class NativeTerminalPaneHostView: NSView {
                 paneHeaderBackground: themeTokens.panelBackground,
                 paneBorder: themeTokens.hairline,
                 focusedPaneBorder: themeTokens.accent.withAlphaComponent(0.55),
+                attentionPaneBorder: themeTokens.attentionBadge.withAlphaComponent(0.7),
                 headerPrimaryText: themeTokens.primaryText,
                 headerSecondaryText: themeTokens.tertiaryText,
                 tabText: themeTokens.tertiaryText,
@@ -3261,9 +5248,11 @@ final class NativeTerminalPaneHostView: NSView {
                     for try await envelope in stream {
                         await self?.apply(envelope, pane: pane, to: terminal)
                     }
+                    self?.onPaneStreamEnded?(pane.paneID)
                 } catch is CancellationError {
                 } catch {
                     NSLog("Fenrir Native pane stream failed pane=\(pane.paneID.rawValue): \(String(describing: error))")
+                    self?.onPaneStreamEnded?(pane.paneID)
                 }
             }
         }
@@ -3386,7 +5375,16 @@ final class NativeTerminalPaneHostView: NSView {
     }
 
     fileprivate func dispatchTerminalResize(_ size: TerminalViewport.Size, paneID: PaneID) {
-        guard size.columns > 0, size.rows > 0, let target = target(for: paneID) else {
+        guard size.columns > 0, size.rows > 0 else {
+            return
+        }
+        guard let target = target(for: paneID) else {
+            NSLog(
+                "Fenrir Native terminal resize dropped: no kernel target pane=%@ cols=%d rows=%d",
+                paneID.rawValue,
+                size.columns,
+                size.rows
+            )
             return
         }
         dispatchMeasuredResize(target, size: size)
@@ -4167,6 +6165,148 @@ private struct NativeWorkflowNullableRunEvent: Decodable {
     }
 }
 
+// MARK: - D-045 workspace row metadata sources (ports + branch)
+
+/// One server discovered by the server-side localServers contract
+/// (`subscribeLocalServers`). Mirrors `DiscoveredLocalServer` from
+/// `packages/contracts` — the client never probes ports itself.
+struct NativeDiscoveredLocalServer: Decodable, Equatable, Sendable {
+    let host: String
+    let port: Int
+    let url: String
+    let processName: String?
+    let pid: Int?
+}
+
+struct NativeLocalServersSnapshot: Decodable, Equatable, Sendable {
+    let servers: [NativeDiscoveredLocalServer]
+    let scannedAt: String
+}
+
+protocol NativeLocalServersEventStreaming: Sendable {
+    func observeLocalServers() async -> AsyncThrowingStream<NativeLocalServersSnapshot, Error>
+}
+
+struct NativeLocalServersServerConnectionEventStream: NativeLocalServersEventStreaming {
+    private let streamServerRequest: @Sendable (NativeRuntime.ServerRPCRequest) -> AsyncThrowingStream<Data, Error>
+
+    init(streamServerRequest: @escaping @Sendable (NativeRuntime.ServerRPCRequest) -> AsyncThrowingStream<Data, Error>) {
+        self.streamServerRequest = streamServerRequest
+    }
+
+    func observeLocalServers() async -> AsyncThrowingStream<NativeLocalServersSnapshot, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                let request = NativeRuntime.ServerRPCRequest(
+                    requestID: RequestID(rawValue: "native-local-servers-\(UUID().uuidString)"),
+                    method: "subscribeLocalServers",
+                    payload: Data("{}".utf8)
+                )
+                let upstream = streamServerRequest(request)
+                do {
+                    for try await data in upstream {
+                        guard let snapshot = try? JSONDecoder().decode(NativeLocalServersSnapshot.self, from: data) else {
+                            continue
+                        }
+                        continuation.yield(snapshot)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+/// Resolves the current branch of a workspace path through the existing
+/// server vcs contract (`vcs.refreshStatus`); the client never shells out to
+/// git (D-045 row-metadata rule).
+protocol NativeWorkspaceVcsStatusProviding: Sendable {
+    func currentRefName(workspacePath: String) async throws -> String?
+}
+
+struct NativeVcsServerConnectionStatusClient: NativeWorkspaceVcsStatusProviding {
+    private let sessionID: ServerConnection.SessionID
+    private let sendServerRequest: ServerConnection.SendServerRequest
+
+    init(
+        sessionID: ServerConnection.SessionID,
+        sendServerRequest: ServerConnection.SendServerRequest
+    ) {
+        self.sessionID = sessionID
+        self.sendServerRequest = sendServerRequest
+    }
+
+    func currentRefName(workspacePath: String) async throws -> String? {
+        let payloadData = try JSONEncoder().encode(NativeVcsStatusRequest(cwd: workspacePath))
+        let result = try await sendServerRequest.run(ServerConnection.SendServerRequestInput(
+            requestID: .generated(),
+            sessionID: sessionID,
+            request: ServerConnection.RequestEnvelope(
+                method: "vcs.refreshStatus",
+                payload: String(decoding: payloadData, as: UTF8.self),
+                retryPolicy: .retryOnceAfterReconnect
+            )
+        )).get()
+        let response = try JSONDecoder().decode(
+            NativeVcsStatusResponse.self,
+            from: Data(result.response.payload.utf8)
+        )
+        return response.refName
+    }
+}
+
+private struct NativeVcsStatusRequest: Encodable {
+    let cwd: String
+}
+
+private struct NativeVcsStatusResponse: Decodable {
+    let refName: String?
+}
+
+/// Resolves the workspace git/PR probe snapshot through the server-side
+/// `workspace.gitProbe` contract (D-045): branch, ahead/behind and PR
+/// number/state/checks. The client never shells out to `gh` or scrapes
+/// panes; the server owns probing and caches per workspace.
+protocol NativeWorkspaceGitProbeProviding: Sendable {
+    func probe(workspacePath: String) async throws -> WorkspaceIndex.WorkspaceGitProbeSnapshot
+}
+
+struct NativeGitProbeServerConnectionClient: NativeWorkspaceGitProbeProviding {
+    private let sessionID: ServerConnection.SessionID
+    private let sendServerRequest: ServerConnection.SendServerRequest
+
+    init(
+        sessionID: ServerConnection.SessionID,
+        sendServerRequest: ServerConnection.SendServerRequest
+    ) {
+        self.sessionID = sessionID
+        self.sendServerRequest = sendServerRequest
+    }
+
+    func probe(workspacePath: String) async throws -> WorkspaceIndex.WorkspaceGitProbeSnapshot {
+        let payloadData = try JSONEncoder().encode(NativeWorkspaceGitProbeRequest(cwd: workspacePath))
+        let result = try await sendServerRequest.run(ServerConnection.SendServerRequestInput(
+            requestID: .generated(),
+            sessionID: sessionID,
+            request: ServerConnection.RequestEnvelope(
+                method: "workspace.gitProbe",
+                payload: String(decoding: payloadData, as: UTF8.self),
+                retryPolicy: .retryOnceAfterReconnect
+            )
+        )).get()
+        return try WorkspaceIndex.decodeWorkspaceGitProbeSnapshot(
+            from: Data(result.response.payload.utf8)
+        )
+    }
+}
+
+private struct NativeWorkspaceGitProbeRequest: Encodable {
+    let cwd: String
+}
+
 struct NativeAgentComposerTarget: Equatable, Sendable {
     let workspaceID: WorkspaceID
     let windowID: FenrirWindowID
@@ -4449,6 +6589,43 @@ struct NativeAppServerConnectionContext: Sendable {
         )
     }
 
+    var scriptPaneRunner: any NativeWorkspaceScriptPaneRunning {
+        NativeServerScriptPaneRunner(
+            actor: NativeAppServerConnectionContext.runtimeActor(sessionID: sessionID),
+            paneRuntime: NativeRuntime.ServerTmuxRuntimeAdapter(transport: NativeServerConnectionRuntimeRPCTransport(
+                sessionID: sessionID,
+                sendServerRequest: sendServerRequest,
+                streamServerRequest: streamServerRequest
+            ))
+        )
+    }
+
+    /// D-044: resume launcher for dead agent sessions — a fresh tmux pane
+    /// running the validated per-adapter resume command with agent metadata.
+    var agentSessionResumer: any NativeAgentSessionResuming {
+        NativeServerAgentSessionResumer(
+            actor: NativeAppServerConnectionContext.runtimeActor(sessionID: sessionID),
+            paneRuntime: NativeRuntime.ServerTmuxRuntimeAdapter(transport: NativeServerConnectionRuntimeRPCTransport(
+                sessionID: sessionID,
+                sendServerRequest: sendServerRequest,
+                streamServerRequest: streamServerRequest
+            ))
+        )
+    }
+
+    /// D-044: attaches {agentID, sessionID} to pane records when session-start
+    /// presence arrives, so resumability survives client restarts server-side.
+    var agentPaneMetadataAttacher: any NativeAgentPaneMetadataAttaching {
+        NativeServerAgentPaneMetadataAttacher(
+            actor: NativeAppServerConnectionContext.runtimeActor(sessionID: sessionID),
+            paneRuntime: NativeRuntime.ServerTmuxRuntimeAdapter(transport: NativeServerConnectionRuntimeRPCTransport(
+                sessionID: sessionID,
+                sendServerRequest: sendServerRequest,
+                streamServerRequest: streamServerRequest
+            ))
+        )
+    }
+
     var paneStreamSubscriber: NativePaneStreamSubscriber {
         let runtime = NativeRuntime.ServerTmuxRuntimeAdapter(transport: NativeServerConnectionRuntimeRPCTransport(
             sessionID: sessionID,
@@ -4494,6 +6671,37 @@ struct NativeAppServerConnectionContext: Sendable {
         NativeWorkflowServerConnectionEventStreamFactory(streamServerRequest: streamServerRequest)
     }
 
+    var localServersEventStream: any NativeLocalServersEventStreaming {
+        NativeLocalServersServerConnectionEventStream(streamServerRequest: streamServerRequest)
+    }
+
+    /// D-042 approval feed relay stream (`subscribeApprovalFeed`).
+    var approvalFeedEventStream: any NativeApprovalFeedEventStreaming {
+        NativeApprovalFeedServerConnectionEventStream(streamServerRequest: streamServerRequest)
+    }
+
+    /// D-042 decide RPC (`agentFeed.decide`).
+    var approvalFeedDecider: any NativeApprovalFeedDeciding {
+        NativeApprovalFeedServerConnectionDecider(
+            sessionID: sessionID,
+            sendServerRequest: sendServerRequest
+        )
+    }
+
+    var workspaceVcsStatusProvider: any NativeWorkspaceVcsStatusProviding {
+        NativeVcsServerConnectionStatusClient(
+            sessionID: sessionID,
+            sendServerRequest: sendServerRequest
+        )
+    }
+
+    var workspaceGitProbeProvider: any NativeWorkspaceGitProbeProviding {
+        NativeGitProbeServerConnectionClient(
+            sessionID: sessionID,
+            sendServerRequest: sendServerRequest
+        )
+    }
+
     static func localDefault(
         transport: any ServerConnection.NativeServerRPCTransporting = ServerConnection.NativeURLSessionServerRPCTransport(),
         bootstrapCredential: String? = NativeAppServerConnectionContext.localBootstrapCredential()
@@ -4514,6 +6722,7 @@ struct NativeAppServerConnectionContext: Sendable {
         transport: any ServerConnection.NativeServerRPCTransporting = ServerConnection.NativeURLSessionServerRPCTransport(),
         bootstrapCredential: String? = NativeAppServerConnectionContext.localBootstrapCredential(),
         restartPolicy: ServerConnection.LocalServerRestartPolicy = ServerConnection.LocalServerRestartPolicy(),
+        attachPolicy: ServerConnection.LocalServerAttachPolicy = NativeAppServerConnectionContext.defaultLocalAttachPolicy(),
         requestID: RequestID = "native-local-default-prepare"
     ) async -> Result<NativeAppServerConnectionContext, ServerConnection.ServerConnectionError> {
         let sessionID = ServerConnection.SessionID(rawValue: "native-app-local")
@@ -4523,12 +6732,14 @@ struct NativeAppServerConnectionContext: Sendable {
             spawner: supervisor,
             readiness: supervisor,
             processManager: supervisor,
+            foreignTerminator: supervisor,
             stateStore: store,
             clock: NativeAppServerConnectionClock()
         ).run(ServerConnection.PrepareLocalServerConnectionInput(
             requestID: requestID,
             mode: .localDefault(spec),
-            restartPolicy: restartPolicy
+            restartPolicy: restartPolicy,
+            attachPolicy: attachPolicy
         ))
 
         switch prepareResult {
@@ -4771,6 +6982,24 @@ struct NativeAppServerConnectionContext: Sendable {
     private static func localBootstrapCredential(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         NativeDesktopBootstrapCredential.resolve(environment: environment)
     }
+
+    /// A process-generated bootstrap credential can only ever authenticate
+    /// against a server this process spawns, so an inherited server must be
+    /// replaced. Environment-provided credentials are shared and may attach.
+    ///
+    /// `.replaceExisting` only ever replaces *orphaned* Fenrir servers: the
+    /// supervisor verifies identity and ownership per pid at kill time and
+    /// refuses (failing preparation with `.localServerForeignOwned`) when the
+    /// port is held by a server owned by another live Fenrir instance or by
+    /// any foreign process — see
+    /// `NativeLocalServerSupervisor.terminateUnmanagedLocalServer`.
+    static func defaultLocalAttachPolicy(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> ServerConnection.LocalServerAttachPolicy {
+        NativeDesktopBootstrapCredential.resolve(environment: environment, generateIfMissing: false) != nil
+            ? .attachIfHealthy
+            : .replaceExisting
+    }
 }
 
 struct NativeServerConnectionRuntimeRPCTransport: NativeRuntime.ServerRPCTransport {
@@ -4932,6 +7161,63 @@ protocol NativeVisibleWorkspaceProjecting: Sendable {
     ) async -> Result<WorkspaceIndex.WorkspaceSummary, WorkspaceCoordinator.WorkspaceCoordinatorError>
 }
 
+/// Projects an enumerated server tmux runtime into a PaneGrid session
+/// snapshot. Shared by initial projection, reconnect restore, and the D-045
+/// live layout refresh so every path renders the identical real-pane set
+/// (D-019: only attached tmux panes appear).
+func nativeTmuxLayoutSnapshot(
+    from runtime: NativeRuntime.WorkspaceRuntimeState,
+    panes runtimePanes: [NativeRuntime.PaneRuntimeState]
+) -> PaneGrid.SessionSnapshot? {
+    let panesByID = Dictionary(uniqueKeysWithValues: runtimePanes.map { ($0.paneID, $0) })
+    guard let activeWindowID = runtime.activeWindowID ?? runtime.windows.first?.windowID,
+          let tmuxSessionID = runtime.tmuxSessionID,
+          !runtime.windows.isEmpty
+    else {
+        return nil
+    }
+    let windows = runtime.windows.compactMap { window -> PaneGrid.WindowSnapshot? in
+        let panes = window.paneIDs.compactMap { paneID -> PaneGrid.PaneSnapshot? in
+            guard let pane = panesByID[paneID],
+                  pane.status == .attached,
+                  let tmuxPaneID = pane.tmuxPaneID,
+                  let x = pane.x,
+                  let y = pane.y,
+                  let size = pane.size
+            else {
+                return nil
+            }
+            return PaneGrid.PaneSnapshot(
+                paneID: paneID,
+                tmuxPaneID: tmuxPaneID,
+                streamID: pane.stream.streamID,
+                title: pane.metadata?.title ?? paneID.rawValue,
+                rect: PaneGrid.PaneRect(x: x, y: y, columns: size.columns, rows: size.rows)
+            )
+        }
+        guard !panes.isEmpty else {
+            return nil
+        }
+        return PaneGrid.WindowSnapshot(
+            windowID: window.windowID,
+            tmuxWindowID: window.tmuxWindowID.rawValue,
+            index: window.index,
+            title: window.title,
+            activePaneID: window.activePaneID,
+            panes: panes
+        )
+    }
+    guard windows.contains(where: { $0.windowID == activeWindowID }) else {
+        return nil
+    }
+    return PaneGrid.SessionSnapshot(
+        workspaceID: runtime.workspaceID,
+        tmuxSessionID: tmuxSessionID.rawValue,
+        activeWindowID: activeWindowID,
+        windows: windows
+    )
+}
+
 private final class NativeServerTmuxVisibleWorkspaceProjector: NativeVisibleWorkspaceProjecting, @unchecked Sendable {
     private weak var workspaceWindows: NativeWorkspaceWindowRegistry?
     private let actor: NativeRuntime.RuntimeActorIdentity
@@ -4996,7 +7282,7 @@ private final class NativeServerTmuxVisibleWorkspaceProjector: NativeVisibleWork
                 actor: actor,
                 source: .nativeHost
             ))
-            guard let snapshot = NativeServerTmuxVisibleWorkspaceProjector.layoutSnapshot(
+            guard let snapshot = nativeTmuxLayoutSnapshot(
                 from: enumerated.workspace,
                 panes: enumerated.panes
             ) else {
@@ -5020,58 +7306,6 @@ private final class NativeServerTmuxVisibleWorkspaceProjector: NativeVisibleWork
         }
     }
 
-    private static func layoutSnapshot(
-        from runtime: NativeRuntime.WorkspaceRuntimeState,
-        panes runtimePanes: [NativeRuntime.PaneRuntimeState]
-    ) -> PaneGrid.SessionSnapshot? {
-        let panesByID = Dictionary(uniqueKeysWithValues: runtimePanes.map { ($0.paneID, $0) })
-        guard let activeWindowID = runtime.activeWindowID ?? runtime.windows.first?.windowID,
-              let tmuxSessionID = runtime.tmuxSessionID,
-              !runtime.windows.isEmpty
-        else {
-            return nil
-        }
-        let windows = runtime.windows.compactMap { window -> PaneGrid.WindowSnapshot? in
-            let panes = window.paneIDs.compactMap { paneID -> PaneGrid.PaneSnapshot? in
-                guard let pane = panesByID[paneID],
-                      pane.status == .attached,
-                      let tmuxPaneID = pane.tmuxPaneID,
-                      let x = pane.x,
-                      let y = pane.y,
-                      let size = pane.size
-                else {
-                    return nil
-                }
-                return PaneGrid.PaneSnapshot(
-                    paneID: paneID,
-                    tmuxPaneID: tmuxPaneID,
-                    streamID: pane.stream.streamID,
-                    title: pane.metadata?.title ?? paneID.rawValue,
-                    rect: PaneGrid.PaneRect(x: x, y: y, columns: size.columns, rows: size.rows)
-                )
-            }
-            guard !panes.isEmpty else {
-                return nil
-            }
-            return PaneGrid.WindowSnapshot(
-                windowID: window.windowID,
-                tmuxWindowID: window.tmuxWindowID.rawValue,
-                index: window.index,
-                title: window.title,
-                activePaneID: window.activePaneID,
-                panes: panes
-            )
-        }
-        guard windows.contains(where: { $0.windowID == activeWindowID }) else {
-            return nil
-        }
-        return PaneGrid.SessionSnapshot(
-            workspaceID: runtime.workspaceID,
-            tmuxSessionID: tmuxSessionID.rawValue,
-            activeWindowID: activeWindowID,
-            windows: windows
-        )
-    }
 }
 
 final class NativeVisibleReconnectProjectionApplier: NativeServerReconnectProjectionApplying, @unchecked Sendable {
@@ -5152,10 +7386,9 @@ private final class NativeRuntimeWorkspaceExperienceReconnectHandler: NativeWork
             source: input.source
         ))
         guard case .success(let runtime) = runtimeResult,
-              let snapshot = NativeRuntimeWorkspaceExperienceReconnectHandler.layoutSnapshot(
+              let snapshot = nativeTmuxLayoutSnapshot(
                 from: runtime.workspace,
-                panes: runtime.panes,
-                workspace: opened.summary
+                panes: runtime.panes
               )
         else {
             return .failure(.restoreFailed)
@@ -5200,60 +7433,6 @@ private final class NativeRuntimeWorkspaceExperienceReconnectHandler: NativeWork
             experience: experience,
             timestamp: layout.timestamp
         ))
-    }
-
-    private static func layoutSnapshot(
-        from runtime: NativeRuntime.WorkspaceRuntimeState,
-        panes runtimePanes: [NativeRuntime.PaneRuntimeState],
-        workspace: WorkspaceIndex.WorkspaceSummary
-    ) -> PaneGrid.SessionSnapshot? {
-        let panesByID = Dictionary(uniqueKeysWithValues: runtimePanes.map { ($0.paneID, $0) })
-        guard let activeWindowID = runtime.activeWindowID ?? runtime.windows.first?.windowID,
-              let tmuxSessionID = runtime.tmuxSessionID,
-              !runtime.windows.isEmpty
-        else {
-            return nil
-        }
-        let windows = runtime.windows.compactMap { window -> PaneGrid.WindowSnapshot? in
-            let panes = window.paneIDs.compactMap { paneID -> PaneGrid.PaneSnapshot? in
-                guard let pane = panesByID[paneID],
-                      pane.status == .attached,
-                      let tmuxPaneID = pane.tmuxPaneID,
-                      let x = pane.x,
-                      let y = pane.y,
-                      let size = pane.size
-                else {
-                    return nil
-                }
-                return PaneGrid.PaneSnapshot(
-                    paneID: paneID,
-                    tmuxPaneID: tmuxPaneID,
-                    streamID: pane.stream.streamID,
-                    title: pane.metadata?.title ?? paneID.rawValue,
-                    rect: PaneGrid.PaneRect(x: x, y: y, columns: size.columns, rows: size.rows)
-                )
-            }
-            guard !panes.isEmpty else {
-                return nil
-            }
-            return PaneGrid.WindowSnapshot(
-                windowID: window.windowID,
-                tmuxWindowID: window.tmuxWindowID.rawValue,
-                index: window.index,
-                title: window.title,
-                activePaneID: window.activePaneID,
-                panes: panes
-            )
-        }
-        guard windows.contains(where: { $0.windowID == activeWindowID }) else {
-            return nil
-        }
-        return PaneGrid.SessionSnapshot(
-            workspaceID: workspace.workspaceID,
-            tmuxSessionID: tmuxSessionID.rawValue,
-            activeWindowID: activeWindowID,
-            windows: windows
-        )
     }
 }
 
@@ -5875,7 +8054,17 @@ struct NativePaneGridActionController: NativePaneGridActionDispatching {
     func resizePane(_ target: PaneGrid.PaneKernelTarget, size: TerminalViewport.Size, in state: PaneGrid.State) async {
         let clampedSize = NativePaneGridPaneSizeBounds.clamp(columns: size.columns, rows: size.rows)
         applyPaneGridState(state.resizing(paneID: target.paneID, size: clampedSize))
-        try? await runtime?.resizePane(target, size: clampedSize)
+        do {
+            try await runtime?.resizePane(target, size: clampedSize)
+        } catch {
+            NSLog(
+                "Fenrir Native pane resize failed pane=%@ cols=%d rows=%d error=%@",
+                target.tmuxPaneID.rawValue,
+                clampedSize.columns,
+                clampedSize.rows,
+                String(describing: error)
+            )
+        }
     }
 }
 
@@ -6561,6 +8750,13 @@ final class NativeOverlayHostView: NSView {
     var onCancelAgentComposer: ((AgentInteraction.CancelAgentComposerInput) -> Void)?
     var onWorkflowCommand: ((WorkflowControl.WorkflowViewCommand) -> Void)?
     var onAgentIntegrationCommand: ((AgentIntegration.AgentIntegrationViewCommand) -> Void)?
+    var onSelectNotification: ((Notifications.NotificationID, PaneID?) -> Void)?
+    var onMarkAllNotificationsRead: (() -> Void)?
+    var onJumpToLatestUnread: (() -> Void)?
+    /// D-042: option button on an approval card (requestID, optionID).
+    var onDecideApproval: ((String, String) -> Void)?
+    var onAddScript: ((String, String) -> Void)?
+    var onRemoveScript: ((Settings.ScriptID) -> Void)?
 
     private let dimmingView = NSView()
     private let contentContainer = NSView()
@@ -6587,6 +8783,13 @@ final class NativeOverlayHostView: NSView {
     private var workflowView: WorkflowControl.WorkflowControlView?
     private var agentIntegrationState: AgentIntegration.AgentIntegrationPanelState?
     private var agentIntegrationView: AgentIntegration.AgentIntegrationPanelView?
+    private var notificationsFeed: [Notifications.WorkspaceNotification] = []
+    private var notificationsUnreadCount = 0
+    private var notificationsPanelView: NativeNotificationsPanelView?
+    private var approvalFeedCards: [Notifications.ApprovalFeedCard] = []
+    private var approvalsPanelView: NativeApprovalFeedPanelView?
+    private var manageableScripts: [Settings.ScriptDefinition] = []
+    private var manageScriptsView: NativeManageScriptsPanelView?
     private var diagnosticsViewModel = Diagnostics.DiagnosticsOverlayViewModel(report: Diagnostics.DiagnosticsReport(
         generatedAt: FenrirTimestamp(Date(timeIntervalSince1970: 0)),
         policy: .defaults,
@@ -6596,6 +8799,10 @@ final class NativeOverlayHostView: NSView {
     ))
     private var selectedPaletteIndex = 0
     private var queryText = ""
+
+    static let notificationsOverlayID: WorkspaceOverlays.OverlayID = "notifications"
+    static let approvalsOverlayID: WorkspaceOverlays.OverlayID = "approvals"
+    static let manageScriptsOverlayID: WorkspaceOverlays.OverlayID = "manage-scripts"
 
     init(
         themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID),
@@ -6698,6 +8905,25 @@ final class NativeOverlayHostView: NSView {
     func updateAgentIntegration(_ state: AgentIntegration.AgentIntegrationPanelState) {
         agentIntegrationState = state
         agentIntegrationView?.apply(state)
+        render()
+    }
+
+    func updateNotificationsPanel(feed: [Notifications.WorkspaceNotification], unreadCount: Int) {
+        notificationsFeed = feed
+        notificationsUnreadCount = unreadCount
+        notificationsPanelView?.apply(feed: feed, unreadCount: unreadCount)
+        render()
+    }
+
+    func updateApprovalsPanel(cards: [Notifications.ApprovalFeedCard]) {
+        approvalFeedCards = cards
+        approvalsPanelView?.apply(cards: cards)
+        render()
+    }
+
+    func updateManageScripts(_ scripts: [Settings.ScriptDefinition]) {
+        manageableScripts = scripts
+        manageScriptsView?.apply(scripts: scripts)
         render()
     }
 
@@ -6990,9 +9216,24 @@ final class NativeOverlayHostView: NSView {
             renderAgentIntegrationPanel()
             return
         }
+        if overlayID == Self.notificationsOverlayID {
+            renderNotificationsPanel()
+            return
+        }
+        if overlayID == Self.approvalsOverlayID {
+            renderApprovalsPanel()
+            return
+        }
+        if overlayID == Self.manageScriptsOverlayID {
+            renderManageScriptsPanel()
+            return
+        }
         agentComposerView = nil
         workflowView = nil
         agentIntegrationView = nil
+        notificationsPanelView = nil
+        approvalsPanelView = nil
+        manageScriptsView = nil
         if isDiagnosticsOverlay(overlayID) {
             overlayTitle.stringValue = diagnosticsViewModel.title
             overlaySubtitle.stringValue = diagnosticsViewModel.subtitle
@@ -7078,6 +9319,68 @@ final class NativeOverlayHostView: NSView {
         view.heightAnchor.constraint(greaterThanOrEqualToConstant: 240).isActive = true
     }
 
+    private func renderNotificationsPanel() {
+        overlayTitle.stringValue = "Notifications"
+        overlaySubtitle.stringValue = "Workspace attention feed · row click focuses the pane"
+        clearArrangedSubviews(from: overlayRows)
+        agentComposerView = nil
+        workflowView = nil
+        agentIntegrationView = nil
+        approvalsPanelView = nil
+        manageScriptsView = nil
+
+        let view = NativeNotificationsPanelView(
+            feed: notificationsFeed,
+            unreadCount: notificationsUnreadCount,
+            themeTokens: themeTokens
+        )
+        view.onSelectNotification = { [weak self] notificationID, paneID in
+            self?.onSelectNotification?(notificationID, paneID)
+        }
+        view.onMarkAllRead = { [weak self] in self?.onMarkAllNotificationsRead?() }
+        view.onJumpToLatestUnread = { [weak self] in self?.onJumpToLatestUnread?() }
+        notificationsPanelView = view
+        overlayRows.addArrangedSubview(view)
+        view.widthAnchor.constraint(equalTo: overlayRows.widthAnchor).isActive = true
+    }
+
+    private func renderApprovalsPanel() {
+        overlayTitle.stringValue = "Approvals"
+        overlaySubtitle.stringValue = "Pending agent requests · buttons decide via the server relay"
+        clearArrangedSubviews(from: overlayRows)
+        agentComposerView = nil
+        workflowView = nil
+        agentIntegrationView = nil
+        notificationsPanelView = nil
+        manageScriptsView = nil
+
+        let view = NativeApprovalFeedPanelView(cards: approvalFeedCards, themeTokens: themeTokens)
+        view.onDecideApproval = { [weak self] requestID, optionID in
+            self?.onDecideApproval?(requestID, optionID)
+        }
+        approvalsPanelView = view
+        overlayRows.addArrangedSubview(view)
+        view.widthAnchor.constraint(equalTo: overlayRows.widthAnchor).isActive = true
+    }
+
+    private func renderManageScriptsPanel() {
+        overlayTitle.stringValue = "Manage Scripts"
+        overlaySubtitle.stringValue = "Scripts run as server-owned tmux panes (repository scope)"
+        clearArrangedSubviews(from: overlayRows)
+        agentComposerView = nil
+        workflowView = nil
+        agentIntegrationView = nil
+        notificationsPanelView = nil
+        approvalsPanelView = nil
+
+        let view = NativeManageScriptsPanelView(scripts: manageableScripts, themeTokens: themeTokens)
+        view.onAddScript = { [weak self] name, command in self?.onAddScript?(name, command) }
+        view.onRemoveScript = { [weak self] scriptID in self?.onRemoveScript?(scriptID) }
+        manageScriptsView = view
+        overlayRows.addArrangedSubview(view)
+        view.widthAnchor.constraint(equalTo: overlayRows.widthAnchor).isActive = true
+    }
+
     private func updateFilteredPaletteItems() {
         let trimmed = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
@@ -7142,6 +9445,15 @@ final class NativeOverlayHostView: NSView {
         }
         if overlayID == NativeAgentIntegrationOverlay.overlayID {
             return "Agent Integrations"
+        }
+        if overlayID == Self.notificationsOverlayID {
+            return "Notifications"
+        }
+        if overlayID == Self.approvalsOverlayID {
+            return "Approvals"
+        }
+        if overlayID == Self.manageScriptsOverlayID {
+            return "Manage Scripts"
         }
         if raw.contains("diagnostic") {
             return "Diagnostics"

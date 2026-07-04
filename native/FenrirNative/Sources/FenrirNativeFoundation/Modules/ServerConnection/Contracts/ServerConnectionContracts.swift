@@ -554,6 +554,16 @@ public extension ServerConnection {
         case localServerReadinessFailed = "LocalServerReadinessFailed"
         case localServerCrashed = "LocalServerCrashed"
         case localServerShutdownFailed = "LocalServerShutdownFailed"
+        /// The endpoint's port is held by a process this client must not
+        /// terminate: either a Fenrir server owned by another live instance
+        /// or a foreign (non-Fenrir) process.
+        case localServerForeignOwned = "LocalServerForeignOwned"
+        /// `.replaceExisting` was demanded for a discovered server but no
+        /// foreign terminator was wired. Attaching instead would recreate the
+        /// permanent-401 (an inherited server can never authenticate this
+        /// process's generated bootstrap credential), so preparation fails
+        /// fast instead of degrading to attach.
+        case localServerReplacementUnavailable = "LocalServerReplacementUnavailable"
         case transportBackpressure = "ServerTransportBackpressure"
         case transportUnavailable = "ServerTransportUnavailable"
         case transportDisposed = "ServerTransportDisposed"
@@ -593,19 +603,35 @@ public extension ServerConnection {
         }
     }
 
+    enum LocalServerAttachPolicy: String, Codable, Equatable, Sendable {
+        /// Reuse a healthy server already listening on the endpoint.
+        case attachIfHealthy
+        /// Replace an *orphaned* Fenrir server already listening on the
+        /// endpoint and spawn a fresh one. Required when the client's
+        /// bootstrap credential is process-generated: an inherited server can
+        /// never authenticate it. The foreign terminator verifies identity
+        /// and ownership per pid at kill time — a server owned by another
+        /// live process is never terminated; preparation fails with
+        /// `.localServerForeignOwned` instead.
+        case replaceExisting
+    }
+
     struct PrepareLocalServerConnectionInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let mode: LocalServerMode
         public let restartPolicy: LocalServerRestartPolicy
+        public let attachPolicy: LocalServerAttachPolicy
 
         public init(
             requestID: RequestID,
             mode: LocalServerMode,
-            restartPolicy: LocalServerRestartPolicy = LocalServerRestartPolicy()
+            restartPolicy: LocalServerRestartPolicy = LocalServerRestartPolicy(),
+            attachPolicy: LocalServerAttachPolicy = .attachIfHealthy
         ) {
             self.requestID = requestID
             self.mode = mode
             self.restartPolicy = restartPolicy
+            self.attachPolicy = attachPolicy
         }
     }
 

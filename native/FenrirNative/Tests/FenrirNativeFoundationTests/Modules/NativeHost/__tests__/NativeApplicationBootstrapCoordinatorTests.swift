@@ -98,6 +98,30 @@ struct NativeHostApplicationBootstrapCoordinatorTests {
         #expect(capturedThemeID == .kanagawaDragon)
     }
 
+    @Test("Initial local workspace id is stable per workspace root and distinct across paths")
+    @MainActor
+    func initialLocalWorkspaceIDIsStablePerPath() {
+        // D-002/D-012: a per-launch UUID would mint a new tmux session every
+        // app run and orphan the previous one. The id must be a pure function
+        // of the canonical workspace root path.
+        let first = NativeApplicationRuntime.initialLocalWorkspaceID(workspaceRootPath: "/tmp/fenrir-stable-a")
+        let second = NativeApplicationRuntime.initialLocalWorkspaceID(workspaceRootPath: "/tmp/fenrir-stable-a")
+        let trailingSlash = NativeApplicationRuntime.initialLocalWorkspaceID(workspaceRootPath: "/tmp/fenrir-stable-a/")
+        let other = NativeApplicationRuntime.initialLocalWorkspaceID(workspaceRootPath: "/tmp/fenrir-stable-b")
+
+        #expect(first == second)
+        #expect(first == trailingSlash)
+        #expect(first != other)
+        #expect(first.rawValue.hasPrefix("local-workspace-"))
+        let suffix = first.rawValue.dropFirst("local-workspace-".count)
+        #expect(suffix.count == 16)
+        #expect(suffix.allSatisfy { $0.isHexDigit })
+
+        // The default derivation (app workspace root) is stable across calls,
+        // so relaunching the app reattaches the same tmux session.
+        #expect(NativeApplicationRuntime.initialLocalWorkspaceID() == NativeApplicationRuntime.initialLocalWorkspaceID())
+    }
+
     @Test("Native runtime projects the initial local workspace through the visible tmux projector")
     @MainActor
     func nativeRuntimeProjectsInitialWorkspaceThroughProjector() async {

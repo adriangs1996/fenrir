@@ -386,7 +386,9 @@ struct SettingsTests {
             .workspaceUIPreferences,
             .appearancePreferences,
             .keybindingImportPreferences,
-            .diagnosticsPolicy
+            .diagnosticsPolicy,
+            .runScriptPreferences,
+            .editorTargetPreferences
         ])
         #expect(boundary.secretMaterialOwners == [.authSession, .keychain])
         #expect(boundary.secretMaterialKinds.contains(.bearerToken))

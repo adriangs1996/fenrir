@@ -505,6 +505,42 @@ public extension NativeRuntime {
         }
     }
 
+    struct CreatePaneRuntime: FenrirAction {
+        public typealias Failure = NativeRuntimeError
+
+        let creator: any PaneRuntimeCreating
+        let store: any NativeRuntimeStore
+        let clock: any NativeRuntimeClock
+        let events: (any NativeRuntimeEventPublishing)?
+
+        public init(creator: any PaneRuntimeCreating, store: any NativeRuntimeStore, clock: any NativeRuntimeClock, events: (any NativeRuntimeEventPublishing)? = nil) {
+            self.creator = creator
+            self.store = store
+            self.clock = clock
+            self.events = events
+        }
+
+        public func run(_ input: CreatePaneRuntimeInput) async -> Result<CreatePaneRuntimeResult, NativeRuntimeError> {
+            do {
+                _ = try await NativeRuntime.loadCapabilities(store: store)
+                let workspace = try await NativeRuntime.loadWorkspaceForActor(input.workspaceID, actor: input.actor, store: store)
+                guard workspace.windows.contains(where: { $0.windowID == input.windowID }) else {
+                    return .failure(.orphanedTmuxResource)
+                }
+                let pane = try await creator.createPaneRuntime(input)
+                guard pane.workspaceID == input.workspaceID else {
+                    return .failure(.paneCreateFailed)
+                }
+                try await store.savePane(pane)
+                let timestamp = clock.now()
+                await events?.publish(NativeRuntime.envelope(input.requestID, "PaneRuntimeCreated", timestamp, .paneRuntimeCreated(pane.paneID)))
+                return .success(CreatePaneRuntimeResult(requestID: input.requestID, pane: pane, timestamp: timestamp))
+            } catch {
+                return .failure(NativeRuntime.map(error, fallback: .paneCreateFailed))
+            }
+        }
+    }
+
     struct ClosePaneRuntime: FenrirAction {
         public typealias Failure = NativeRuntimeError
 

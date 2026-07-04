@@ -135,6 +135,68 @@ struct ServerConnectionTests {
         #expect(await readiness.candidates() == [.existing(endpoint)])
     }
 
+    @Test("PrepareLocalServerConnection replaces inherited server when attach policy demands it")
+    func prepareLocalDefaultReplacesInheritedServer() async throws {
+        let inheritedEndpoint = localWebSocketEndpoint()
+        let discovery = LocalDiscovery(discovery: .init(status: .found, endpoint: inheritedEndpoint))
+        let spawner = LocalSpawner()
+        let readiness = LocalReadiness()
+        let terminator = LocalForeignTerminator()
+        let store = LocalSupervisorStore()
+
+        let result = try await ServerConnection.PrepareLocalServerConnection(
+            discovery: discovery,
+            spawner: spawner,
+            readiness: readiness,
+            processManager: LocalProcessManager(),
+            foreignTerminator: terminator,
+            stateStore: store,
+            clock: FixedClock()
+        ).run(
+            ServerConnection.PrepareLocalServerConnectionInput(
+                requestID: "prepare",
+                mode: .localDefault(localServerSpec()),
+                attachPolicy: .replaceExisting
+            )
+        ).get()
+
+        #expect(await terminator.terminatedEndpoints() == [inheritedEndpoint])
+        #expect(result.supervisorState.ownership == .nativeManaged)
+        #expect(await spawner.spawnCount() == 1)
+        #expect(await readiness.candidates().count == 1)
+    }
+
+    @Test("PrepareLocalServerConnection fails fast when replacement is required but no terminator is wired")
+    func prepareLocalDefaultFailsFastWithoutTerminatorForReplacement() async {
+        let inheritedEndpoint = localWebSocketEndpoint()
+        let discovery = LocalDiscovery(discovery: .init(status: .found, endpoint: inheritedEndpoint))
+        let spawner = LocalSpawner()
+        let readiness = LocalReadiness()
+
+        // Degrading to attach would recreate the permanent-401 (an inherited
+        // server can never authenticate this process's generated bootstrap
+        // credential), so preparation must fail with the distinct error.
+        let result = await ServerConnection.PrepareLocalServerConnection(
+            discovery: discovery,
+            spawner: spawner,
+            readiness: readiness,
+            processManager: LocalProcessManager(),
+            stateStore: LocalSupervisorStore(),
+            clock: FixedClock()
+        ).run(
+            ServerConnection.PrepareLocalServerConnectionInput(
+                requestID: "prepare",
+                mode: .localDefault(localServerSpec()),
+                attachPolicy: .replaceExisting
+            )
+        )
+
+        #expect(result == .failure(.localServerReplacementUnavailable))
+        // Neither attach nor spawn may have happened.
+        #expect(await spawner.spawnCount() == 0)
+        #expect(await readiness.candidates().isEmpty)
+    }
+
     @Test("PrepareLocalServerConnection reports failed local spawn")
     func prepareLocalDefaultReportsFailedSpawn() async {
         let discovery = LocalDiscovery(discovery: .init(status: .missing))
@@ -1395,6 +1457,18 @@ private actor LocalDiscovery: ServerConnection.LocalServerDiscovering {
 
     func count() -> Int {
         discoveries
+    }
+}
+
+private actor LocalForeignTerminator: ServerConnection.LocalServerForeignTerminating {
+    private var endpoints: [ServerConnection.Endpoint] = []
+
+    func terminateUnmanagedLocalServer(endpoint: ServerConnection.Endpoint) async throws {
+        endpoints.append(endpoint)
+    }
+
+    func terminatedEndpoints() -> [ServerConnection.Endpoint] {
+        endpoints
     }
 }
 

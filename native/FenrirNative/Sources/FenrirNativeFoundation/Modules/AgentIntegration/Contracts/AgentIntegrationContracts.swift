@@ -53,6 +53,161 @@ public extension AgentIntegration {
         AgentDescriptor(id: .future, displayName: "Future Adapter", executableNames: [], supportsHooks: false, supportsSkills: false, supportsMCP: false)
     ]
 
+    // MARK: - D-044 agent session resume
+
+    /// Allowlisted shape for agent-native session identifiers
+    /// (`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`). Session ids originate in-band
+    /// (hook payloads forwarded over the reserved OSC channel), so they MUST
+    /// be validated against this strict allowlist before any interpolation
+    /// into a resume command or a pane-metadata RPC (D-044). The first
+    /// character must be alphanumeric: a leading `-` would let a
+    /// pane-controlled id reach the agent CLI as an option token (e.g.
+    /// `claude --resume --dangerous-flag`) — argument injection.
+    static let agentSessionIDPattern = "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+
+    static func isValidAgentSessionID(_ raw: String) -> Bool {
+        guard !raw.isEmpty, raw.count <= 128 else {
+            return false
+        }
+        guard let first = raw.unicodeScalars.first, isAlphanumericScalar(first) else {
+            return false
+        }
+        return raw.unicodeScalars.allSatisfy { scalar in
+            switch scalar {
+            case "A"..."Z", "a"..."z", "0"..."9", ".", "_", "-":
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    private static func isAlphanumericScalar(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar {
+        case "A"..."Z", "a"..."z", "0"..."9":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Per-adapter resume command descriptor (D-044). Resume commands come
+    /// EXCLUSIVELY from this table — hook payloads and pane content never
+    /// supply command strings; the only in-band datum is the session id,
+    /// validated against `agentSessionIDPattern` before interpolation.
+    struct AgentResumeDescriptor: Codable, Equatable, Sendable {
+        public let agentID: AgentCLIIdentifier
+        /// Fixed command tokens the validated session id is appended to,
+        /// e.g. `["claude", "--resume"]` -> `claude --resume <id>`.
+        public let commandPrefix: [String]
+
+        public init(agentID: AgentCLIIdentifier, commandPrefix: [String]) {
+            self.agentID = agentID
+            self.commandPrefix = commandPrefix
+        }
+
+        /// Interpolates a validated session id into the descriptor's command.
+        /// Returns nil for session ids outside the strict allowlist — the id
+        /// never reaches the shell in that case.
+        public func command(sessionID: String) -> String? {
+            guard AgentIntegration.isValidAgentSessionID(sessionID) else {
+                return nil
+            }
+            return (commandPrefix + [sessionID]).joined(separator: " ")
+        }
+    }
+
+    /// Resume command table mirroring each agent CLI's documented resume
+    /// invocation (reference ergonomics: cmux agent-hooks resume table).
+    /// Adapters without a descriptor simply show a dead pane (D-044).
+    static let agentResumeDescriptors: [AgentResumeDescriptor] = [
+        AgentResumeDescriptor(agentID: .claudeCode, commandPrefix: ["claude", "--resume"]),
+        AgentResumeDescriptor(agentID: .codex, commandPrefix: ["codex", "resume"]),
+        AgentResumeDescriptor(agentID: .openCode, commandPrefix: ["opencode", "--session"]),
+        AgentResumeDescriptor(agentID: .cursor, commandPrefix: ["cursor-agent", "--resume"])
+    ]
+
+    static func resumeDescriptor(for agentID: AgentCLIIdentifier) -> AgentResumeDescriptor? {
+        agentResumeDescriptors.first { $0.agentID == agentID }
+    }
+
+    /// Builds the validated resume command for an agent session, or nil when
+    /// the adapter has no resume descriptor or the session id fails the
+    /// allowlist. This is the ONLY sanctioned path from a recorded session id
+    /// to a runnable command string.
+    static func resumeCommand(agentID: AgentCLIIdentifier, sessionID: String) -> String? {
+        resumeDescriptor(for: agentID)?.command(sessionID: sessionID)
+    }
+
+    /// A recorded, potentially resumable agent session derived from presence
+    /// records (D-044). `paneAlive` distinguishes sessions whose pane process
+    /// is still in the grid (no resume affordance) from dead ones.
+    struct AgentResumableSessionSnapshot: Codable, Equatable, Sendable {
+        public let agentID: AgentCLIIdentifier
+        public let sessionID: String
+        public let provenance: AgentPresenceProvenance
+        public let updatedAt: FenrirTimestamp
+        public let paneAlive: Bool
+
+        public init(
+            agentID: AgentCLIIdentifier,
+            sessionID: String,
+            provenance: AgentPresenceProvenance,
+            updatedAt: FenrirTimestamp,
+            paneAlive: Bool
+        ) {
+            self.agentID = agentID
+            self.sessionID = sessionID
+            self.provenance = provenance
+            self.updatedAt = updatedAt
+            self.paneAlive = paneAlive
+        }
+    }
+
+    /// Derives resumable-session snapshots from presence records: only
+    /// records carrying a valid session id for an adapter with a resume
+    /// descriptor qualify; one snapshot per (agent, session) keeping the
+    /// most recent record. Pure so the sidebar, palette, and diagnostics
+    /// smoke share the exact same derivation.
+    static func resumableAgentSessions(
+        records: [AgentPresenceRecord],
+        livePaneIDs: Set<PaneID>
+    ) -> [AgentResumableSessionSnapshot] {
+        var latest: [String: AgentPresenceRecord] = [:]
+        for record in records {
+            guard let sessionID = record.sessionID,
+                  isValidAgentSessionID(sessionID),
+                  resumeDescriptor(for: record.agentID) != nil
+            else {
+                continue
+            }
+            let key = "\(record.agentID.rawValue)\u{1F}\(sessionID)"
+            if let existing = latest[key], existing.updatedAt >= record.updatedAt {
+                continue
+            }
+            latest[key] = record
+        }
+        return latest.values
+            .map { record in
+                AgentResumableSessionSnapshot(
+                    agentID: record.agentID,
+                    sessionID: record.sessionID ?? "",
+                    provenance: record.provenance,
+                    updatedAt: record.updatedAt,
+                    paneAlive: livePaneIDs.contains(record.provenance.paneID)
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.updatedAt != rhs.updatedAt {
+                    return lhs.updatedAt > rhs.updatedAt
+                }
+                if lhs.agentID.rawValue != rhs.agentID.rawValue {
+                    return lhs.agentID.rawValue < rhs.agentID.rawValue
+                }
+                return lhs.sessionID < rhs.sessionID
+            }
+    }
+
     struct IntegrationVersion: Codable, Equatable, Comparable, Sendable, ExpressibleByStringLiteral {
         public let rawValue: String
 
@@ -347,14 +502,19 @@ public extension AgentIntegration {
         public let state: AgentPresenceState
         public let provenance: AgentPresenceProvenance
         public let sequence: Int?
+        /// Agent-native session id carried by session-start presence events
+        /// (D-044). Validated against `agentSessionIDPattern` at parse time;
+        /// metadata only (D-038) — never a command string.
+        public let sessionID: String?
         public let emittedAt: FenrirTimestamp?
         public let ingestedAt: FenrirTimestamp
 
-        public init(agentID: AgentCLIIdentifier, state: AgentPresenceState, provenance: AgentPresenceProvenance, sequence: Int? = nil, emittedAt: FenrirTimestamp? = nil, ingestedAt: FenrirTimestamp) {
+        public init(agentID: AgentCLIIdentifier, state: AgentPresenceState, provenance: AgentPresenceProvenance, sequence: Int? = nil, sessionID: String? = nil, emittedAt: FenrirTimestamp? = nil, ingestedAt: FenrirTimestamp) {
             self.agentID = agentID
             self.state = state
             self.provenance = provenance
             self.sequence = sequence
+            self.sessionID = sessionID
             self.emittedAt = emittedAt
             self.ingestedAt = ingestedAt
         }
@@ -365,14 +525,37 @@ public extension AgentIntegration {
         public let state: AgentPresenceState
         public let provenance: AgentPresenceProvenance
         public let sequence: Int?
+        /// Last known agent-native session id for this pane (D-044). Sticky
+        /// across state changes: presence events without a session id retain
+        /// the previously recorded one (see `InMemoryAgentPresenceStore`).
+        public let sessionID: String?
         public let updatedAt: FenrirTimestamp
 
         public init(event: AgentPresenceEvent) {
-            self.agentID = event.agentID
-            self.state = event.state
-            self.provenance = event.provenance
-            self.sequence = event.sequence
-            self.updatedAt = event.ingestedAt
+            self.init(
+                agentID: event.agentID,
+                state: event.state,
+                provenance: event.provenance,
+                sequence: event.sequence,
+                sessionID: event.sessionID,
+                updatedAt: event.ingestedAt
+            )
+        }
+
+        public init(
+            agentID: AgentCLIIdentifier,
+            state: AgentPresenceState,
+            provenance: AgentPresenceProvenance,
+            sequence: Int? = nil,
+            sessionID: String? = nil,
+            updatedAt: FenrirTimestamp
+        ) {
+            self.agentID = agentID
+            self.state = state
+            self.provenance = provenance
+            self.sequence = sequence
+            self.sessionID = sessionID
+            self.updatedAt = updatedAt
         }
     }
 

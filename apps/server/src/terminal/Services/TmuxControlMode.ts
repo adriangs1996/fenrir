@@ -22,6 +22,15 @@ export interface TmuxControlModeConnectInput {
    * absent. Plain attach is used when false.
    */
   readonly createIfMissing?: boolean;
+  /**
+   * Session environment entries passed as `new-session -e KEY=VALUE`. tmux
+   * applies them before spawning the session's initial pane, so the very
+   * first shell (and any hooks it launches) inherits them — `set-environment`
+   * after connect only reaches panes spawned later. Ignored when attaching to
+   * an existing session (`-A` attach path); `ensureSessionEnvironment` keeps
+   * those sessions current instead.
+   */
+  readonly environment?: ReadonlyArray<readonly [string, string]>;
 }
 
 export interface TmuxControlModeCommandInput {

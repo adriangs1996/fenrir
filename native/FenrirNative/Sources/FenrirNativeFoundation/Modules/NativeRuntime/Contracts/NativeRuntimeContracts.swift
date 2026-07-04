@@ -230,11 +230,47 @@ public extension NativeRuntime {
         public let kind: String
         public let title: String?
         public let neovim: NeovimPaneRuntimeMetadata?
+        public let managedProcess: ManagedProcessPaneRuntimeMetadata?
+        public let agent: AgentPaneRuntimeMetadata?
 
-        public init(kind: String, title: String? = nil, neovim: NeovimPaneRuntimeMetadata? = nil) {
+        public init(
+            kind: String,
+            title: String? = nil,
+            neovim: NeovimPaneRuntimeMetadata? = nil,
+            managedProcess: ManagedProcessPaneRuntimeMetadata? = nil,
+            agent: AgentPaneRuntimeMetadata? = nil
+        ) {
             self.kind = kind
             self.title = title
             self.neovim = neovim
+            self.managedProcess = managedProcess
+            self.agent = agent
+        }
+    }
+
+    /// Mirror of the server's `TmuxAgentPaneMetadata` (D-044): the agent id
+    /// (`providerID`) and its agent-native session id (`providerInstanceID`)
+    /// recorded on the pane so resumability survives client restarts
+    /// server-side.
+    struct AgentPaneRuntimeMetadata: Codable, Equatable, Sendable {
+        public let providerID: String
+        public let providerInstanceID: String?
+        public let threadID: String?
+
+        public init(providerID: String, providerInstanceID: String? = nil, threadID: String? = nil) {
+            self.providerID = providerID
+            self.providerInstanceID = providerInstanceID
+            self.threadID = threadID
+        }
+    }
+
+    struct ManagedProcessPaneRuntimeMetadata: Codable, Equatable, Sendable {
+        public let instanceID: String
+        public let processDefID: String
+
+        public init(instanceID: String, processDefID: String) {
+            self.instanceID = instanceID
+            self.processDefID = processDefID
         }
     }
 
@@ -391,6 +427,8 @@ public extension NativeRuntime {
         case paneResizeRejected = "NativeRuntimePaneResizeRejected"
         case malformedResizeAcknowledgement = "NativeRuntimeMalformedResizeAcknowledgement"
         case paneClosed = "NativeRuntimePaneClosed"
+        case paneCreateFailed = "NativeRuntimePaneCreateFailed"
+        case paneMetadataAttachFailed = "NativeRuntimePaneMetadataAttachFailed"
         case serverUnavailable = "NativeRuntimeServerUnavailable"
         case permissionDenied = "NativeRuntimePermissionDenied"
     }
@@ -700,6 +738,186 @@ public extension NativeRuntime {
         public let timestamp: FenrirTimestamp
     }
 
+    /// Mirrors the server's `TmuxPaneCreateInput.split` literals
+    /// ("same-window" | "horizontal" | "vertical").
+    enum PaneSplitDirection: String, Codable, Equatable, Sendable {
+        case sameWindow = "same-window"
+        case horizontal
+        case vertical
+    }
+
+    /// Managed-process pane request (D-019/D-034/D-045): scripts run as real
+    /// tmux panes carrying `managed-process` metadata so they land in the pane
+    /// grid and populate the sidebar dev-servers/apps groups. `instanceID`
+    /// must be unique per launch; the adapter uses it to identify the pane the
+    /// server created inside the returned workspace snapshot.
+    struct ManagedProcessPaneSpec: Codable, Equatable, Sendable {
+        public let title: String
+        public let command: String
+        public let instanceID: String
+        public let processDefID: String
+        public let labels: [String: String]
+
+        public init(
+            title: String,
+            command: String,
+            instanceID: String,
+            processDefID: String,
+            labels: [String: String] = [:]
+        ) {
+            self.title = title
+            self.command = command
+            self.instanceID = instanceID
+            self.processDefID = processDefID
+            self.labels = labels
+        }
+    }
+
+    struct CreatePaneRuntimeInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let workspaceID: WorkspaceID
+        public let windowID: FenrirWindowID
+        public let actor: RuntimeActorIdentity
+        public let split: PaneSplitDirection
+        public let workingDirectory: String?
+        public let managedProcess: ManagedProcessPaneSpec
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            workspaceID: WorkspaceID,
+            windowID: FenrirWindowID,
+            actor: RuntimeActorIdentity,
+            managedProcess: ManagedProcessPaneSpec,
+            split: PaneSplitDirection = .sameWindow,
+            workingDirectory: String? = nil,
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.workspaceID = workspaceID
+            self.windowID = windowID
+            self.actor = actor
+            self.split = split
+            self.workingDirectory = workingDirectory
+            self.managedProcess = managedProcess
+            self.source = source
+        }
+    }
+
+    struct CreatePaneRuntimeResult: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let pane: PaneRuntimeState
+        public let timestamp: FenrirTimestamp
+
+        public init(requestID: RequestID, pane: PaneRuntimeState, timestamp: FenrirTimestamp) {
+            self.requestID = requestID
+            self.pane = pane
+            self.timestamp = timestamp
+        }
+    }
+
+    /// Agent pane request (D-044 resume): a resumed agent is a NEW tmux pane
+    /// with fresh pane identity running the validated resume command, carrying
+    /// `agent` pane metadata (kind "agent") instead of `managed-process`.
+    /// `instanceID` must be unique per launch; the adapter resolves the
+    /// created pane by its `agent.providerInstanceId` marker in the returned
+    /// snapshot, mirroring the managed-process identity discipline.
+    struct AgentPaneSpec: Codable, Equatable, Sendable {
+        public let title: String
+        public let command: String
+        /// Agent adapter identity recorded as `agent.providerId`.
+        public let providerID: String
+        /// Unique launch marker recorded as `agent.providerInstanceId`.
+        public let instanceID: String
+        public let labels: [String: String]
+
+        public init(
+            title: String,
+            command: String,
+            providerID: String,
+            instanceID: String,
+            labels: [String: String] = [:]
+        ) {
+            self.title = title
+            self.command = command
+            self.providerID = providerID
+            self.instanceID = instanceID
+            self.labels = labels
+        }
+    }
+
+    struct CreateAgentPaneRuntimeInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let workspaceID: WorkspaceID
+        public let windowID: FenrirWindowID
+        public let actor: RuntimeActorIdentity
+        public let split: PaneSplitDirection
+        public let workingDirectory: String?
+        public let agent: AgentPaneSpec
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            workspaceID: WorkspaceID,
+            windowID: FenrirWindowID,
+            actor: RuntimeActorIdentity,
+            agent: AgentPaneSpec,
+            split: PaneSplitDirection = .sameWindow,
+            workingDirectory: String? = nil,
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.workspaceID = workspaceID
+            self.windowID = windowID
+            self.actor = actor
+            self.split = split
+            self.workingDirectory = workingDirectory
+            self.agent = agent
+            self.source = source
+        }
+    }
+
+    /// Attaches D-044 resumability metadata ({agentID, sessionID}) to an
+    /// existing pane through the server's `tmux.pane.attachMetadata`
+    /// contract. Metadata only — the session id is never a command string.
+    struct AttachAgentPaneMetadataInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let workspaceID: WorkspaceID
+        public let paneID: PaneID
+        public let actor: RuntimeActorIdentity
+        /// Recorded as `agent.providerId`.
+        public let agentID: String
+        /// Agent-native session id recorded as `agent.providerInstanceId`.
+        /// Callers must validate it against the AgentIntegration session-id
+        /// allowlist before it reaches this input.
+        public let sessionID: String
+        public let title: String?
+        public let labels: [String: String]
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            workspaceID: WorkspaceID,
+            paneID: PaneID,
+            actor: RuntimeActorIdentity,
+            agentID: String,
+            sessionID: String,
+            title: String? = nil,
+            labels: [String: String] = [:],
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.workspaceID = workspaceID
+            self.paneID = paneID
+            self.actor = actor
+            self.agentID = agentID
+            self.sessionID = sessionID
+            self.title = title
+            self.labels = labels
+            self.source = source
+        }
+    }
+
     struct ClosePaneRuntimeInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let workspaceID: WorkspaceID
@@ -732,6 +950,7 @@ public extension NativeRuntime {
         case workspaceRuntimeReconnected(WorkspaceID)
         case workspaceRuntimeEnumerated(WorkspaceID)
         case paneRuntimeAttached(PaneID)
+        case paneRuntimeCreated(PaneID)
         case paneRuntimeFocused(PaneID)
         case paneOutputReceived(PaneID, UInt64)
         case paneInputAccepted(PaneID, UInt64)

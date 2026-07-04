@@ -3,9 +3,10 @@
 Status: execution roadmap for the native Fenrir terminal client.
 
 This roadmap converts the current product vision, the Swift module scaffold,
-and the Supacode reference study into a complete implementation plan. It is
-not an MVP plan. The target is the final robust architecture: a native macOS
-terminal emulator for agentic development, backed by Fenrir server and tmux.
+the cmux product/runtime reference, and the Supacode workflow reference into a
+complete implementation plan. It is not an MVP plan. The target is the final
+robust architecture: a native macOS terminal emulator for agentic development,
+backed by Fenrir server and tmux.
 
 Related references:
 
@@ -15,11 +16,22 @@ Related references:
 - `docs/tmux-session-kernel-architecture.md`
 - `docs/native-terminal-ui-shell.html` (D-041 shell visual contract, interactive)
 - `native/FenrirNative/README.md`
+- `references/cmux`
 - `references/supacode`
 
-Note: the requested reference path was `references/supabase`, but the repository
-contains `references/supacode`. This roadmap uses `references/supacode` as the
-app reference.
+Reference priority:
+
+- `references/cmux` is the primary product/runtime reference for the native
+  terminal shell: AppKit terminal-first UX, libGhostty embedding, workspaces,
+  panes/splits, local socket control, browser automation, SSH/remote terminal
+  behavior, notifications, session restore, and agent hook ergonomics.
+- `references/supacode` remains a secondary workflow/orchestration reference:
+  command/event boundaries, sidebar projections, command-palette structure, and
+  ownership-marked agent integration provisioning patterns.
+- Fenrir's own server-owned tmux kernel, auth/actor model, websocket RPC
+  contracts, pane data-plane semantics, workflow contracts, and MCP/provider
+  contracts remain the source of truth. Do not replace those with cmux's
+  local-only socket model.
 
 ## Target Product
 
@@ -52,7 +64,40 @@ and workflow semantics must continue to be server-owned.
 ## Architecture Direction
 
 The implementation should keep the existing module architecture and avoid
-copying Supacode's architecture wholesale.
+copying cmux or Supacode architecture wholesale.
+
+cmux patterns to reuse:
+
+- treat the app as a terminal-first native macOS product, not a chat shell
+- build around AppKit windowing, native panes/splits, and a libGhostty-backed
+  terminal renderer hidden behind Fenrir-owned viewport contracts
+- expose a CLI/local-control channel for driving the running app
+- make the sidebar an operational surface with attention, branch/workspace,
+  process, port, notification, and status projections
+- support programmable workspaces, panes, surface focus, input dispatch, and
+  browser surfaces as first-class automation targets
+- support browser automation as a peer surface to terminal panes where native
+  Browser Lab is later reintroduced
+- model SSH/remote workspaces and terminal notifications as first-class terminal
+  workflows
+- restore layout, working directories, scrollback best-effort, browser state,
+  and agent resume metadata without pretending to checkpoint arbitrary process
+  memory
+- integrate agent CLIs through hooks, notifications/presence, resume metadata,
+  and terminal-native ergonomics instead of duplicating every agent's TUI
+
+cmux patterns to adapt:
+
+- use Fenrir's server-owned tmux session kernel instead of cmux's app-local
+  terminal/session ownership
+- use authenticated Fenrir websocket RPC and explicit actor identity instead of
+  treating local socket ancestry as runtime authority
+- keep pane output/input on Fenrir's explicit data-plane stream with sequencing,
+  backfill, overflow, and write acknowledgements
+- keep workflows, MCP/provider contracts, and multiuser/remote permissions in
+  Fenrir server modules
+- keep the cmux-style socket for small product-control commands only; terminal
+  bytes and durable runtime state do not cross that channel
 
 Supacode patterns to reuse:
 
@@ -61,7 +106,6 @@ Supacode patterns to reuse:
 - route terminal keybindings through the terminal runtime first
 - persist layout and agent/process activity snapshots
 - treat the sidebar as an operational surface, not just navigation
-- expose a CLI/local-control channel for driving the running app
 - aggressively test terminal models, sidebar projections, and lifecycle seams
 - use Supacode's sidebar and command-palette ideas as product inspiration:
   cached projections, active/pinned sections, badges, hotkey slots, recency, and
@@ -297,8 +341,9 @@ Required outcomes:
 
 - canonical modules remain the product architecture
 - AppKit controllers/views call typed actions and services
-- Supacode influences boundaries, sidebar projections, terminal managers, and
-  command/event patterns, not the framework choice
+- cmux influences native terminal product/runtime shape; Supacode influences
+  boundaries, sidebar projections, terminal managers, and command/event
+  patterns; neither reference controls the framework choice
 
 ### Pane Grid Ownership
 
@@ -789,7 +834,8 @@ Deliverables:
   presence), integrated apps (Neovim, gh-dash, hunks via `AgentIntegration`
   detection adapters), and dev servers (managed-process metadata rows); active
   workspace auto-expands, collapsed workspaces roll attention into badges
-- Supacode-inspired attention section, hotkey slots, and row-level projections
+- cmux-inspired operational rows and notification attention, with
+  Supacode-style hotkey slots and row-level projections
 - themed rendering through the shared design-token contract (D-041); no
   hardcoded colors
 - notification badges for workspace, pane, agent, workflow, future git/PR, and

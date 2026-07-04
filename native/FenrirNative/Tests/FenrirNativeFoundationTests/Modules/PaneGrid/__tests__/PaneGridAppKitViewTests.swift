@@ -127,6 +127,52 @@ struct PaneGridAppKitViewTests {
         #expect(focused.map(\.tmuxPaneID.rawValue) == ["%2"])
     }
 
+    @Test("Focused pane renders a thicker border than unfocused panes")
+    func focusedPaneRendersThickerBorder() {
+        let view = PaneGrid.AppKitPaneGridView(state: appKitState(), terminalFactory: TerminalFactory().makeTerminal)
+
+        #expect(view.renderedFocusedPaneIDs() == ["pane-1"])
+        #expect(view.paneBorderRendering("pane-1") == .init(colorRole: .focused, borderWidth: 2, isFocused: true, hasAttention: false))
+        #expect(view.paneBorderRendering("pane-2") == .init(colorRole: .standard, borderWidth: 1, isFocused: false, hasAttention: false))
+    }
+
+    @Test("Attention composes with focus: color wins, focus width stays visible")
+    func attentionComposesWithFocus() {
+        let view = PaneGrid.AppKitPaneGridView(state: appKitState(), terminalFactory: TerminalFactory().makeTerminal)
+
+        view.applyAttentionPaneIDs(["pane-1", "pane-2"])
+
+        #expect(view.renderedAttentionPaneIDs() == ["pane-1", "pane-2"])
+        #expect(view.renderedFocusedPaneIDs() == ["pane-1"])
+        // Focused + attention exposes both signals: attention color, focus width.
+        #expect(view.paneBorderRendering("pane-1") == .init(colorRole: .attention, borderWidth: 2, isFocused: true, hasAttention: true))
+        // Unfocused + attention: attention color at normal width.
+        #expect(view.paneBorderRendering("pane-2") == .init(colorRole: .attention, borderWidth: 1, isFocused: false, hasAttention: true))
+    }
+
+    @Test("Focus changes keep the attention color while moving the thick border")
+    func focusChangeUnderAttentionMovesThickBorder() {
+        let view = PaneGrid.AppKitPaneGridView(state: appKitState(), terminalFactory: TerminalFactory().makeTerminal)
+        view.applyAttentionPaneIDs(["pane-1", "pane-2"])
+
+        #expect(view.focusPane("pane-2"))
+
+        #expect(view.paneBorderRendering("pane-1") == .init(colorRole: .attention, borderWidth: 1, isFocused: false, hasAttention: true))
+        #expect(view.paneBorderRendering("pane-2") == .init(colorRole: .attention, borderWidth: 2, isFocused: true, hasAttention: true))
+    }
+
+    @Test("Clearing attention restores focus and standard border colors")
+    func clearingAttentionRestoresBorders() {
+        let view = PaneGrid.AppKitPaneGridView(state: appKitState(), terminalFactory: TerminalFactory().makeTerminal)
+        view.applyAttentionPaneIDs(["pane-1", "pane-2"])
+
+        view.applyAttentionPaneIDs([])
+
+        #expect(view.renderedAttentionPaneIDs() == [])
+        #expect(view.paneBorderRendering("pane-1") == .init(colorRole: .focused, borderWidth: 2, isFocused: true, hasAttention: false))
+        #expect(view.paneBorderRendering("pane-2") == .init(colorRole: .standard, borderWidth: 1, isFocused: false, hasAttention: false))
+    }
+
     @Test("Compact desktop layout has stable constraints")
     func compactLayoutHasStableConstraints() {
         let view = PaneGrid.AppKitPaneGridView(state: appKitState(), terminalFactory: TerminalFactory().makeTerminal)

@@ -144,6 +144,122 @@ struct NativeWorkspaceShellControllerTests {
         #expect(labels.contains("local server"))
     }
 
+    @Test("Workspace row renders D-045 metadata: branch chip and listening-port chips")
+    @MainActor
+    func workspaceRowRendersBranchAndPortChips() {
+        let sidebar = NativeWorkspaceSidebarView(themeTokens: NativeShellThemeTokens.resolve(.fenrirDark))
+
+        sidebar.apply(model: NativeSidebarViewModel(
+            items: [
+                sidebarItem("workspace-a", name: "Alpha", visibility: .visible, unread: 0, level: .none),
+                WorkspaceIndex.WorkspaceSidebarItem(summary: WorkspaceIndex.WorkspaceSummary(
+                    workspaceID: "workspace-b",
+                    displayName: "Beta",
+                    status: .open
+                ))
+            ],
+            activeWorkspaceID: "workspace-a",
+            paneGridState: shellPaneGridState(),
+            serverStatusText: "local server",
+            isServerHealthy: true,
+            workspaceBranches: ["workspace-a": "term-em"],
+            activeWorkspacePorts: [
+                NativeSidebarWorkspacePortChip(port: 3000),
+                NativeSidebarWorkspacePortChip(port: 31337)
+            ]
+        ))
+
+        let labels = allLabelStrings(in: sidebar)
+        #expect(labels.contains("⎇ term-em"))
+        #expect(labels.contains(":3000"))
+        #expect(labels.contains(":31337"))
+        #expect(view(in: sidebar, identifiedBy: "workspace-branch-workspace-a") != nil)
+        #expect(view(in: sidebar, identifiedBy: "workspace-ports-workspace-a") != nil)
+        #expect(view(in: sidebar, identifiedBy: "workspace-port-workspace-a-3000") != nil)
+        // Discovery is machine-scoped: port chips render on the active
+        // (expanded) workspace row only, matching the D-045 visual contract.
+        #expect(view(in: sidebar, identifiedBy: "workspace-ports-workspace-b") == nil)
+    }
+
+    @Test("Workspace row renders the D-045 PR status chip next to the port chips")
+    @MainActor
+    func workspaceRowRendersPullRequestChip() {
+        let sidebar = NativeWorkspaceSidebarView(themeTokens: NativeShellThemeTokens.resolve(.fenrirDark))
+
+        sidebar.apply(model: NativeSidebarViewModel(
+            items: [
+                sidebarItem("workspace-a", name: "Alpha", visibility: .visible, unread: 0, level: .none),
+                WorkspaceIndex.WorkspaceSidebarItem(summary: WorkspaceIndex.WorkspaceSummary(
+                    workspaceID: "workspace-b",
+                    displayName: "Beta",
+                    status: .open
+                ))
+            ],
+            activeWorkspaceID: "workspace-a",
+            paneGridState: shellPaneGridState(),
+            serverStatusText: "local server",
+            isServerHealthy: true,
+            workspaceBranches: ["workspace-a": "term-em"],
+            workspacePullRequests: [
+                "workspace-a": WorkspaceIndex.pullRequestChip(
+                    from: WorkspaceIndex.WorkspaceGitProbeSnapshot(
+                        branch: "term-em",
+                        ahead: 1,
+                        behind: 0,
+                        pr: WorkspaceIndex.WorkspaceGitPullRequestStatus(
+                            number: 128,
+                            state: .open,
+                            checks: .pass,
+                            url: "https://github.com/acme/fenrir/pull/128"
+                        )
+                    )
+                )!
+            ],
+            activeWorkspacePorts: [NativeSidebarWorkspacePortChip(port: 3000)]
+        ))
+
+        let labels = allLabelStrings(in: sidebar)
+        #expect(labels.contains("● #128"))
+        #expect(labels.contains(":3000"))
+        #expect(view(in: sidebar, identifiedBy: "workspace-pr-workspace-a-128") != nil)
+        // The PR chip shares the ws-meta chip stack with the port chips.
+        #expect(view(in: sidebar, identifiedBy: "workspace-ports-workspace-a") != nil)
+        // No probe data for the other workspace: no chip.
+        #expect(view(in: sidebar, identifiedBy: "workspace-pr-workspace-b-128") == nil)
+    }
+
+    @Test("PR chip renders on a non-active workspace row without port chips")
+    @MainActor
+    func pullRequestChipRendersWithoutPorts() {
+        let sidebar = NativeWorkspaceSidebarView(themeTokens: NativeShellThemeTokens.resolve(.fenrirDark))
+
+        sidebar.apply(model: NativeSidebarViewModel(
+            items: [
+                sidebarItem("workspace-a", name: "Alpha", visibility: .visible, unread: 0, level: .none),
+                WorkspaceIndex.WorkspaceSidebarItem(summary: WorkspaceIndex.WorkspaceSummary(
+                    workspaceID: "workspace-b",
+                    displayName: "Beta",
+                    status: .open
+                ))
+            ],
+            activeWorkspaceID: "workspace-a",
+            paneGridState: shellPaneGridState(),
+            serverStatusText: "local server",
+            isServerHealthy: true,
+            workspacePullRequests: [
+                "workspace-b": WorkspaceIndex.WorkspaceGitPullRequestChip(
+                    number: 12,
+                    glyph: "◌",
+                    tone: .attention,
+                    accessibilityLabel: "PR #12 draft, checks pending"
+                )
+            ]
+        ))
+
+        #expect(view(in: sidebar, identifiedBy: "workspace-pr-workspace-b-12") != nil)
+        #expect(allLabelStrings(in: sidebar).contains("◌ #12"))
+    }
+
     @Test("Shell apply refreshes mounted PaneGrid state")
     @MainActor
     func applyRefreshesMountedPaneGridState() {
@@ -258,6 +374,76 @@ struct NativeWorkspaceShellControllerTests {
         }
         #expect(removed.workspaceID == "local-workspace")
         #expect(registry.listVisibleWorkspaces().isEmpty)
+    }
+
+    @Test("Script-executing smoke ops refuse without the FENRIR_SMOKE_OPS opt-in")
+    @MainActor
+    func runScriptSmokeRefusesWithoutSmokeOpsOptIn() async throws {
+        let registry = NativeWorkspaceWindowRegistry(
+            agentPromptSubmitterFactory: RecordingAgentPromptSubmitterFactory()
+        )
+        let gated = NativeHostVisibleStateDispatcher(workspaceWindows: registry, smokeOpsEnabled: false)
+
+        // Both run and stop are an arbitrary-command surface and stay opt-in.
+        let runResult = await gated.presentDiagnostics(NativeHostDiagnosticsInput(
+            requestID: "smoke-gated-run",
+            operation: "run-script-smoke",
+            scriptCommand: "echo hi"
+        ))
+        #expect(runResult == .failure(.permissionError))
+        let stopResult = await gated.presentDiagnostics(NativeHostDiagnosticsInput(
+            requestID: "smoke-gated-stop",
+            operation: "run-script-smoke",
+            scriptOperation: "stop"
+        ))
+        #expect(stopResult == .failure(.permissionError))
+
+        // With the opt-in the gate passes; the empty registry then fails with
+        // the workspace error, proving the permission check is the only gate.
+        let enabled = NativeHostVisibleStateDispatcher(workspaceWindows: registry, smokeOpsEnabled: true)
+        let enabledRun = await enabled.presentDiagnostics(NativeHostDiagnosticsInput(
+            requestID: "smoke-enabled-run",
+            operation: "run-script-smoke",
+            scriptCommand: "echo hi"
+        ))
+        #expect(enabledRun == .failure(.workspaceNotOpen))
+        let enabledStop = await enabled.presentDiagnostics(NativeHostDiagnosticsInput(
+            requestID: "smoke-enabled-stop",
+            operation: "run-script-smoke",
+            scriptOperation: "stop"
+        ))
+        #expect(enabledStop == .failure(.workspaceNotOpen))
+
+        #expect(NativeHostVisibleStateDispatcher.smokeOpsEnabledFromEnvironment(["FENRIR_SMOKE_OPS": "1"]))
+        #expect(!NativeHostVisibleStateDispatcher.smokeOpsEnabledFromEnvironment([:]))
+        #expect(!NativeHostVisibleStateDispatcher.smokeOpsEnabledFromEnvironment(["FENRIR_SMOKE_OPS": "0"]))
+    }
+
+    @Test("Unroutable workspace notifications increment a diagnostics counter")
+    @MainActor
+    func unroutableWorkspaceNotificationCountsInDiagnostics() async throws {
+        let diagnosticsStore = Diagnostics.inMemoryDiagnosticsStore()
+        let registry = NativeWorkspaceWindowRegistry(
+            agentPromptSubmitterFactory: RecordingAgentPromptSubmitterFactory(),
+            diagnosticsActions: NativeDiagnosticsActionController(store: diagnosticsStore)
+        )
+
+        registry.routeWorkspaceNotification(
+            workspaceID: "ghost-workspace",
+            title: "build finished",
+            body: "0 errors",
+            paneID: "pane-a",
+            source: .terminalOSC
+        )
+        await registry.waitForNotificationRoutingDiagnostics()
+
+        let events = try await diagnosticsStore.list(workspaceID: nil)
+        let unroutable = events.filter { $0.title == "Workspace notification unroutable" }
+        #expect(unroutable.count == 1)
+        #expect(unroutable.first?.workspaceID == "ghost-workspace")
+        #expect(unroutable.first?.metadata["notificationSource"] == "terminalOSC")
+        // D-031: no notification content crosses into diagnostics.
+        #expect(unroutable.first?.message.contains("build finished") == false)
     }
 
     @Test("Native visible-state dispatcher reports switched workspace as active")

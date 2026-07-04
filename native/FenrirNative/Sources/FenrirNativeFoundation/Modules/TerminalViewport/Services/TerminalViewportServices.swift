@@ -48,6 +48,10 @@ public extension TerminalViewport {
         func forwardReservedOSC(_ signal: ReservedOSCSignal) async throws
     }
 
+    protocol TerminalNotificationForwarding: Sendable {
+        func forwardTerminalNotification(_ event: TerminalNotificationEvent) async throws
+    }
+
     protocol TerminalViewportEventPublishing: Sendable {
         func publish(_ event: EventEnvelope<Event>) async
     }

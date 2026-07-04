@@ -318,7 +318,19 @@ export function parseTmuxControlModeChunk(
 
 function tmuxControlModeArgs(input: TmuxControlModeConnectInput): string[] {
   if (input.createIfMissing) {
-    return ["-C", "new-session", "-A", "-s", input.sessionName, "-c", input.cwd];
+    return [
+      "-C",
+      "new-session",
+      "-A",
+      "-s",
+      input.sessionName,
+      "-c",
+      input.cwd,
+      // `-e` seeds the session environment BEFORE the initial pane's shell
+      // spawns, so processes started in the first pane inherit these entries
+      // (tmux ignores `-e` when `-A` attaches to an existing session).
+      ...(input.environment ?? []).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
+    ];
   }
   return ["-C", "attach-session", "-t", input.sessionName];
 }

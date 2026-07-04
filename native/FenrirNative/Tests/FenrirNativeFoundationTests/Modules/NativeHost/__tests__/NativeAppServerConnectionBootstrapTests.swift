@@ -17,6 +17,7 @@ struct NativeHostAppServerConnectionBootstrapTests {
             spec: spec(),
             supervisor: supervisor(launcher: launcher, prober: prober),
             bootstrapCredential: "desktop-bootstrap-token",
+            attachPolicy: .attachIfHealthy,
             requestID: "prepare-attach"
         ).get()
 
@@ -46,6 +47,7 @@ struct NativeHostAppServerConnectionBootstrapTests {
             spec: spec(),
             supervisor: supervisor(launcher: launcher, prober: prober),
             bootstrapCredential: "desktop-bootstrap-token",
+            attachPolicy: .attachIfHealthy,
             requestID: "prepare-spawn"
         ).get()
 
@@ -72,6 +74,7 @@ struct NativeHostAppServerConnectionBootstrapTests {
             spec: spec(),
             supervisor: supervisor(launcher: launcher, prober: prober),
             bootstrapCredential: "desktop-bootstrap-token",
+            attachPolicy: .attachIfHealthy,
             requestID: "prepare-spawn-shutdown"
         ).get()
 
@@ -99,6 +102,7 @@ struct NativeHostAppServerConnectionBootstrapTests {
             supervisor: supervisor(launcher: launcher, prober: prober),
             bootstrapCredential: "desktop-bootstrap-token",
             restartPolicy: ServerConnection.LocalServerRestartPolicy(maxCrashRestarts: 0),
+            attachPolicy: .attachIfHealthy,
             requestID: "prepare-failure"
         )
 
@@ -107,6 +111,14 @@ struct NativeHostAppServerConnectionBootstrapTests {
             return
         }
         #expect(await launcher.launchRequests.count == 1)
+    }
+
+    @Test("NativeHost default attach policy follows bootstrap credential provenance")
+    func nativeHostDefaultAttachPolicyFollowsCredentialProvenance() {
+        #expect(NativeAppServerConnectionContext.defaultLocalAttachPolicy(environment: [:]) == .replaceExisting)
+        #expect(NativeAppServerConnectionContext.defaultLocalAttachPolicy(environment: [
+            "FENRIR_NATIVE_BOOTSTRAP_TOKEN": "shared-token"
+        ]) == .attachIfHealthy)
     }
 
     @Test("NativeHost synchronous local default remains compatible")

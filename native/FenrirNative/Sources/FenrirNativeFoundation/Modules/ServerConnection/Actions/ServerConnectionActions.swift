@@ -39,6 +39,7 @@ public extension ServerConnection {
         let spawner: any LocalServerSpawning
         let readiness: any LocalServerReadinessChecking
         let processManager: any LocalServerProcessManaging
+        let foreignTerminator: (any LocalServerForeignTerminating)?
         let stateStore: any LocalServerSupervisorStateStore
         let clock: any ServerConnectionClock
         let events: (any ServerConnectionEventPublishing)?
@@ -48,6 +49,7 @@ public extension ServerConnection {
             spawner: any LocalServerSpawning,
             readiness: any LocalServerReadinessChecking,
             processManager: any LocalServerProcessManaging,
+            foreignTerminator: (any LocalServerForeignTerminating)? = nil,
             stateStore: any LocalServerSupervisorStateStore,
             clock: any ServerConnectionClock,
             events: (any ServerConnectionEventPublishing)? = nil
@@ -56,6 +58,7 @@ public extension ServerConnection {
             self.spawner = spawner
             self.readiness = readiness
             self.processManager = processManager
+            self.foreignTerminator = foreignTerminator
             self.stateStore = stateStore
             self.clock = clock
             self.events = events
@@ -107,6 +110,7 @@ public extension ServerConnection {
                     spawner: spawner,
                     readiness: readiness,
                     processManager: processManager,
+                    foreignTerminator: foreignTerminator,
                     stateStore: stateStore,
                     clock: clock,
                     events: events
@@ -1025,6 +1029,7 @@ private extension ServerConnection {
         spawner: any LocalServerSpawning,
         readiness: any LocalServerReadinessChecking,
         processManager: any LocalServerProcessManaging,
+        foreignTerminator: (any LocalServerForeignTerminating)? = nil,
         stateStore: any LocalServerSupervisorStateStore,
         clock: any ServerConnectionClock,
         events: (any ServerConnectionEventPublishing)?
@@ -1035,25 +1040,38 @@ private extension ServerConnection {
         do {
             let discovered = try await discovery.discoverLocalServer(spec)
             if discovered.status == .found, let discoveredEndpoint = discovered.endpoint {
-                let endpoint = try await readiness.waitForLocalServerReadiness(
-                    .existing(discoveredEndpoint),
-                    timeoutMilliseconds: spec.readinessTimeoutMilliseconds
-                )
-                let timestamp = clock.now()
-                let state = try await stateForAttachedLocalServer(
-                    mode: input.mode,
-                    endpoint: endpoint,
-                    timestamp: timestamp,
-                    requestID: input.requestID,
-                    stateStore: stateStore,
-                    processManager: processManager,
-                    clock: clock,
-                    events: events
-                )
-                try await stateStore.saveLocalServerSupervisorState(state)
-                await events?.publish(envelope(input.requestID, "LocalServerAttached", timestamp, .localServerAttached(endpoint)))
-                await events?.publish(envelope(input.requestID, "LocalServerReady", timestamp, .localServerReady(endpoint, state.ownership)))
-                return .success(PrepareLocalServerConnectionResult(requestID: input.requestID, endpoint: endpoint, supervisorState: state, timestamp: timestamp))
+                if input.attachPolicy == .replaceExisting {
+                    // An inherited server cannot authenticate this process's
+                    // generated bootstrap credential; keeping it running would
+                    // strand the app on a permanent 401. Without a terminator
+                    // we must not silently degrade to attach — that recreates
+                    // the permanent-401 — so preparation fails fast.
+                    guard let foreignTerminator else {
+                        return .failure(.localServerReplacementUnavailable)
+                    }
+                    try await foreignTerminator.terminateUnmanagedLocalServer(endpoint: discoveredEndpoint)
+                    await events?.publish(envelope(input.requestID, "LocalServerReplaced", clock.now(), .localServerStopped(LocalServerProcessID(rawValue: "unmanaged"))))
+                } else {
+                    let endpoint = try await readiness.waitForLocalServerReadiness(
+                        .existing(discoveredEndpoint),
+                        timeoutMilliseconds: spec.readinessTimeoutMilliseconds
+                    )
+                    let timestamp = clock.now()
+                    let state = try await stateForAttachedLocalServer(
+                        mode: input.mode,
+                        endpoint: endpoint,
+                        timestamp: timestamp,
+                        requestID: input.requestID,
+                        stateStore: stateStore,
+                        processManager: processManager,
+                        clock: clock,
+                        events: events
+                    )
+                    try await stateStore.saveLocalServerSupervisorState(state)
+                    await events?.publish(envelope(input.requestID, "LocalServerAttached", timestamp, .localServerAttached(endpoint)))
+                    await events?.publish(envelope(input.requestID, "LocalServerReady", timestamp, .localServerReady(endpoint, state.ownership)))
+                    return .success(PrepareLocalServerConnectionResult(requestID: input.requestID, endpoint: endpoint, supervisorState: state, timestamp: timestamp))
+                }
             }
         } catch {
             return .failure(map(error, fallback: .localServerUnavailable))

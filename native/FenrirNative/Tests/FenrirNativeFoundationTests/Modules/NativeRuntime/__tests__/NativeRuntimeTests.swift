@@ -840,6 +840,247 @@ struct NativeRuntimeTests {
         #expect(await transport.methods() == ["tmux.pane.resize", "tmux.pane.close"])
         #expect(await transport.payload(for: "tmux.pane.close")?.contains("\"mode\":\"terminate\"") == true)
     }
+
+    @Test("ServerTmuxRuntimeAdapter creates managed-process panes with the exact tmux pane create wire shape")
+    func serverTmuxAdapterCreatesManagedProcessPane() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.pane.create": serverManagedProcessSnapshotData()
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        let pane = try await adapter.createPaneRuntime(createPaneInput())
+
+        // The snapshot retains a closed managed-process pane; the unique
+        // instanceId marker must resolve to the live pane the server created.
+        #expect(pane.paneID == "pane-script")
+        #expect(pane.status == .attached)
+        #expect(pane.windowID == "window-1")
+        #expect(pane.tmuxPaneID == "%9")
+        #expect(pane.metadata?.kind == "managed-process")
+        #expect(pane.metadata?.title == "dev server")
+        #expect(pane.metadata?.managedProcess?.instanceID == "script-run-1")
+        #expect(pane.metadata?.managedProcess?.processDefID == "script:dev")
+        #expect(await transport.methods() == ["tmux.pane.create"])
+
+        let payloadData = Data((await transport.payload(for: "tmux.pane.create") ?? "").utf8)
+        let payload = try #require(try JSONSerialization.jsonObject(with: payloadData) as? [String: Any])
+        #expect(payload["workspaceId"] as? String == "workspace-1")
+        #expect(payload["windowId"] as? String == "window-1")
+        #expect(payload["kind"] as? String == "managed-process")
+        #expect(payload["split"] as? String == "horizontal")
+        #expect(payload["cwd"] as? String == "/repo/apps/web")
+        #expect(payload["command"] as? String == "bun run dev")
+        let actor = try #require(payload["actor"] as? [String: Any])
+        #expect(actor["sessionId"] as? String == "auth-user-a")
+        #expect(actor["subject"] as? String == "user-a")
+        let metadata = try #require(payload["metadata"] as? [String: Any])
+        #expect(metadata["kind"] as? String == "managed-process")
+        #expect(metadata["title"] as? String == "dev server")
+        #expect(metadata["labels"] as? [String: String] == ["fenrir.script": "dev"])
+        let managedProcess = try #require(metadata["managedProcess"] as? [String: Any])
+        #expect(managedProcess["instanceId"] as? String == "script-run-1")
+        #expect(managedProcess["processDefId"] as? String == "script:dev")
+        let process = try #require(metadata["process"] as? [String: Any])
+        #expect(process["command"] as? String == "bun run dev")
+        #expect((process["argv"] as? [String])?.isEmpty == true)
+        #expect((process["envKeys"] as? [String])?.isEmpty == true)
+        for key in ["pid", "startedAt", "exitedAt", "exitCode", "exitSignal"] {
+            #expect(process[key] is NSNull, "process.\(key) must be an explicit null")
+        }
+        // The server metadata schema requires every kind slot as an explicit null.
+        for key in ["neovim", "agent", "workflow", "remoteProcess", "browserLab"] {
+            #expect(metadata[key] is NSNull, "metadata.\(key) must be an explicit null")
+        }
+    }
+
+    @Test("ServerTmuxRuntimeAdapter fails pane creation when the snapshot lacks the managed-process marker")
+    func serverTmuxAdapterFailsCreateWithoutManagedProcessMarker() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.pane.create": serverSnapshotData()
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        await #expect(throws: NativeRuntime.NativeRuntimeError.paneCreateFailed) {
+            _ = try await adapter.createPaneRuntime(createPaneInput())
+        }
+    }
+
+    @Test("ServerTmuxRuntimeAdapter rejects malformed managed-process specs before calling the server")
+    func serverTmuxAdapterRejectsMalformedManagedProcessSpec() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.pane.create": serverManagedProcessSnapshotData()
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        await #expect(throws: NativeRuntime.NativeRuntimeError.paneCreateFailed) {
+            _ = try await adapter.createPaneRuntime(createPaneInput(command: "  "))
+        }
+        await #expect(throws: NativeRuntime.NativeRuntimeError.paneCreateFailed) {
+            _ = try await adapter.createPaneRuntime(createPaneInput(title: ""))
+        }
+        #expect(await transport.methods().isEmpty)
+    }
+
+    @Test("CreatePaneRuntime persists created pane state within the actor-owned window")
+    func createPaneActionPersistsCreatedPane() async throws {
+        let store = RuntimeStore()
+        try await store.saveCapabilities(runtimeCapabilities())
+        try await store.saveWorkspace(workspaceState(actor: actorIdentity()))
+
+        let created = try await NativeRuntime.CreatePaneRuntime(
+            creator: PaneCreator(),
+            store: store,
+            clock: FixedClock()
+        ).run(createPaneInput()).get()
+
+        #expect(created.pane.paneID == "pane-script")
+        #expect(created.pane.metadata?.managedProcess?.instanceID == "script-run-1")
+        #expect(try await store.loadPane(paneID: "pane-script")?.metadata?.kind == "managed-process")
+    }
+
+    @Test("CreatePaneRuntime rejects windows outside the actor-owned tmux layout")
+    func createPaneActionRejectsUnknownWindow() async throws {
+        let store = RuntimeStore()
+        try await store.saveCapabilities(runtimeCapabilities())
+        try await store.saveWorkspace(workspaceState(actor: actorIdentity()))
+
+        let result = await NativeRuntime.CreatePaneRuntime(
+            creator: PaneCreator(),
+            store: store,
+            clock: FixedClock()
+        ).run(createPaneInput(windowID: "window-unknown"))
+
+        #expect(result == .failure(.orphanedTmuxResource))
+        #expect(try await store.loadPane(paneID: "pane-script") == nil)
+    }
+
+    @Test("ServerTmuxRuntimeAdapter creates agent resume panes with the exact tmux pane create wire shape")
+    func serverTmuxAdapterCreatesAgentResumePane() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.pane.create": serverAgentPaneSnapshotData()
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        let pane = try await adapter.createAgentPaneRuntime(createAgentPaneInput())
+
+        // The snapshot retains a closed agent pane; the unique
+        // providerInstanceId marker must resolve to the live pane created
+        // by the server (D-044 identity discipline).
+        #expect(pane.paneID == "pane-agent")
+        #expect(pane.status == .attached)
+        #expect(pane.tmuxPaneID == "%12")
+        #expect(pane.metadata?.kind == "agent")
+        #expect(pane.metadata?.agent?.providerID == "claudeCode")
+        #expect(pane.metadata?.agent?.providerInstanceID == "agent-resume-1")
+        #expect(await transport.methods() == ["tmux.pane.create"])
+
+        let payloadData = Data((await transport.payload(for: "tmux.pane.create") ?? "").utf8)
+        let payload = try #require(try JSONSerialization.jsonObject(with: payloadData) as? [String: Any])
+        #expect(payload["workspaceId"] as? String == "workspace-1")
+        #expect(payload["windowId"] as? String == "window-1")
+        #expect(payload["kind"] as? String == "agent")
+        #expect(payload["split"] as? String == "horizontal")
+        #expect(payload["command"] as? String == "claude --resume sess-42")
+        let metadata = try #require(payload["metadata"] as? [String: Any])
+        #expect(metadata["kind"] as? String == "agent")
+        #expect(metadata["title"] as? String == "Claude Code")
+        #expect(metadata["labels"] as? [String: String] == ["fenrir.agent.resumedSessionID": "sess-42"])
+        let agent = try #require(metadata["agent"] as? [String: Any])
+        #expect(agent["providerId"] as? String == "claudeCode")
+        #expect(agent["providerInstanceId"] as? String == "agent-resume-1")
+        #expect(agent["threadId"] is NSNull, "agent.threadId must be an explicit null")
+        let process = try #require(metadata["process"] as? [String: Any])
+        #expect(process["command"] as? String == "claude --resume sess-42")
+        // The server metadata schema requires every kind slot as an explicit null.
+        for key in ["neovim", "workflow", "managedProcess", "remoteProcess", "browserLab"] {
+            #expect(metadata[key] is NSNull, "metadata.\(key) must be an explicit null")
+        }
+    }
+
+    @Test("ServerTmuxRuntimeAdapter rejects malformed agent pane specs before calling the server")
+    func serverTmuxAdapterRejectsMalformedAgentPaneSpec() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.pane.create": serverAgentPaneSnapshotData()
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        await #expect(throws: NativeRuntime.NativeRuntimeError.paneCreateFailed) {
+            _ = try await adapter.createAgentPaneRuntime(createAgentPaneInput(command: "  "))
+        }
+        await #expect(throws: NativeRuntime.NativeRuntimeError.paneCreateFailed) {
+            _ = try await adapter.createAgentPaneRuntime(createAgentPaneInput(providerID: ""))
+        }
+        #expect(await transport.methods().isEmpty)
+    }
+
+    @Test("ServerTmuxRuntimeAdapter fails agent pane creation when the snapshot lacks the instance marker")
+    func serverTmuxAdapterFailsAgentCreateWithoutInstanceMarker() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.pane.create": serverSnapshotData()
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        await #expect(throws: NativeRuntime.NativeRuntimeError.paneCreateFailed) {
+            _ = try await adapter.createAgentPaneRuntime(createAgentPaneInput())
+        }
+    }
+
+    @Test("ServerTmuxRuntimeAdapter attaches agent session metadata through tmux.pane.attachMetadata")
+    func serverTmuxAdapterAttachesAgentPaneMetadata() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.pane.attachMetadata": jsonData(serverAgentPaneJSON(
+                paneID: "pane-1",
+                tmuxPaneID: "%1",
+                providerInstanceID: "sess-42",
+                status: "running"
+            ))
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        let pane = try await adapter.attachAgentPaneMetadata(attachAgentPaneMetadataInput())
+
+        // Round-trip: the RPC returns the updated pane record with the
+        // recorded {agentID, sessionID}.
+        #expect(pane.paneID == "pane-1")
+        #expect(pane.metadata?.kind == "agent")
+        #expect(pane.metadata?.agent?.providerID == "claudeCode")
+        #expect(pane.metadata?.agent?.providerInstanceID == "sess-42")
+        #expect(await transport.methods() == ["tmux.pane.attachMetadata"])
+
+        let payloadData = Data((await transport.payload(for: "tmux.pane.attachMetadata") ?? "").utf8)
+        let payload = try #require(try JSONSerialization.jsonObject(with: payloadData) as? [String: Any])
+        #expect(payload["workspaceId"] as? String == "workspace-1")
+        #expect(payload["paneId"] as? String == "pane-1")
+        let actor = try #require(payload["actor"] as? [String: Any])
+        #expect(actor["sessionId"] as? String == "auth-user-a")
+        #expect(actor["subject"] as? String == "user-a")
+        let metadata = try #require(payload["metadata"] as? [String: Any])
+        #expect(metadata["kind"] as? String == "agent")
+        #expect(metadata["title"] as? String == "Claude Code")
+        #expect(metadata["labels"] as? [String: String] == ["fenrir.agent.sessionID": "sess-42"])
+        #expect(metadata["process"] is NSNull, "metadata.process must be an explicit null when unknown")
+        let agent = try #require(metadata["agent"] as? [String: Any])
+        #expect(agent["providerId"] as? String == "claudeCode")
+        #expect(agent["providerInstanceId"] as? String == "sess-42")
+        #expect(agent["threadId"] is NSNull)
+        for key in ["neovim", "workflow", "managedProcess", "remoteProcess", "browserLab"] {
+            #expect(metadata[key] is NSNull, "metadata.\(key) must be an explicit null")
+        }
+    }
+
+    @Test("ServerTmuxRuntimeAdapter rejects blank agent metadata attach inputs before calling the server")
+    func serverTmuxAdapterRejectsBlankAgentMetadataAttach() async throws {
+        let transport = RuntimeRPCTransport(responses: [:])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        await #expect(throws: NativeRuntime.NativeRuntimeError.paneMetadataAttachFailed) {
+            _ = try await adapter.attachAgentPaneMetadata(attachAgentPaneMetadataInput(sessionID: "  "))
+        }
+        await #expect(throws: NativeRuntime.NativeRuntimeError.paneMetadataAttachFailed) {
+            _ = try await adapter.attachAgentPaneMetadata(attachAgentPaneMetadataInput(agentID: ""))
+        }
+        #expect(await transport.methods().isEmpty)
+    }
 }
 
 private func attachPaneInput() -> NativeRuntime.AttachPaneRuntimeInput {
@@ -872,6 +1113,30 @@ private func resizeInput() -> NativeRuntime.ResizePaneRuntimeInput {
         actor: actorIdentity(),
         size: NativeRuntime.PaneSize(columns: 120, rows: 40),
         source: .terminalViewport
+    )
+}
+
+private func createPaneInput(
+    windowID: FenrirWindowID = "window-1",
+    title: String = "dev server",
+    command: String = "bun run dev",
+    instanceID: String = "script-run-1"
+) -> NativeRuntime.CreatePaneRuntimeInput {
+    NativeRuntime.CreatePaneRuntimeInput(
+        requestID: "create-pane",
+        workspaceID: "workspace-1",
+        windowID: windowID,
+        actor: actorIdentity(),
+        managedProcess: NativeRuntime.ManagedProcessPaneSpec(
+            title: title,
+            command: command,
+            instanceID: instanceID,
+            processDefID: "script:dev",
+            labels: ["fenrir.script": "dev"]
+        ),
+        split: .horizontal,
+        workingDirectory: "/repo/apps/web",
+        source: .test
     )
 }
 
@@ -1181,6 +1446,27 @@ private struct PaneCloser: NativeRuntime.PaneRuntimeClosing {
     func closePaneRuntime(_ input: NativeRuntime.ClosePaneRuntimeInput) async throws {}
 }
 
+private struct PaneCreator: NativeRuntime.PaneRuntimeCreating {
+    func createPaneRuntime(_ input: NativeRuntime.CreatePaneRuntimeInput) async throws -> NativeRuntime.PaneRuntimeState {
+        NativeRuntime.PaneRuntimeState(
+            workspaceID: input.workspaceID,
+            paneID: "pane-script",
+            status: .attached,
+            windowID: input.windowID,
+            tmuxPaneID: "%9",
+            stream: NativeRuntime.PaneStreamState(paneID: "pane-script", streamID: "stream-script", status: .live),
+            metadata: NativeRuntime.PaneRuntimeMetadata(
+                kind: "managed-process",
+                title: input.managedProcess.title,
+                managedProcess: NativeRuntime.ManagedProcessPaneRuntimeMetadata(
+                    instanceID: input.managedProcess.instanceID,
+                    processDefID: input.managedProcess.processDefID
+                )
+            )
+        )
+    }
+}
+
 private actor RuntimeRPCTransport: NativeRuntime.ServerRPCTransport {
     private let responses: [String: Data]
     private let streams: [String: [Data]]
@@ -1406,6 +1692,237 @@ private func serverNeovimPaneJSON() -> String {
       "stream": {
         "streamId": "stream-nvim",
         "paneId": "pane-nvim",
+        "encoding": "utf8",
+        "lowSeq": 0,
+        "highSeq": 5,
+        "droppedCount": 0,
+        "backfillAvailable": true,
+        "maxChunkBytes": 262144
+      },
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+    """
+}
+
+private func serverManagedProcessSnapshotData() -> Data {
+    jsonData("""
+    {
+      "workspace": {
+        "workspaceId": "workspace-1",
+        "projectId": "project-1",
+        "tmuxSessionName": "fenrir-ws-workspace-1",
+        "cwd": "/tmp",
+        "status": "running",
+        "activeWindowId": "window-1",
+        "grants": [],
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z"
+      },
+      "windows": [
+        {
+          "windowId": "window-1",
+          "workspaceId": "workspace-1",
+          "tmuxWindowId": "@1",
+          "tmuxWindowIndex": 0,
+          "name": "shell",
+          "cwd": "/tmp",
+          "status": "active",
+          "activePaneId": "pane-script",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z"
+        }
+      ],
+      "panes": [
+        \(serverPaneJSON(workspaceID: "workspace-1", paneID: "pane-1", tmuxPaneID: "%1", cols: 100, rows: 30)),
+        \(serverManagedProcessPaneJSON(paneID: "pane-stale", tmuxPaneID: "%8", instanceID: "script-run-0", status: "closed")),
+        \(serverManagedProcessPaneJSON(paneID: "pane-script", tmuxPaneID: "%9", instanceID: "script-run-1", status: "running"))
+      ],
+      "revision": 6
+    }
+    """)
+}
+
+private func serverManagedProcessPaneJSON(
+    paneID: String,
+    tmuxPaneID: String,
+    instanceID: String,
+    status: String
+) -> String {
+    """
+    {
+      "paneId": "\(paneID)",
+      "workspaceId": "workspace-1",
+      "windowId": "window-1",
+      "tmuxPaneId": "\(tmuxPaneID)",
+      "cwd": "/repo/apps/web",
+      "cols": 100,
+      "rows": 30,
+      "status": "\(status)",
+      "metadata": {
+        "kind": "managed-process",
+        "title": "dev server",
+        "process": {
+          "command": "bun run dev",
+          "argv": [],
+          "envKeys": [],
+          "pid": null,
+          "startedAt": null,
+          "exitedAt": null,
+          "exitCode": null,
+          "exitSignal": null
+        },
+        "labels": { "fenrir.script": "dev" },
+        "neovim": null,
+        "agent": null,
+        "workflow": null,
+        "managedProcess": {
+          "instanceId": "\(instanceID)",
+          "processDefId": "script:dev"
+        },
+        "remoteProcess": null,
+        "browserLab": null
+      },
+      "stream": {
+        "streamId": "stream-\(paneID)",
+        "paneId": "\(paneID)",
+        "encoding": "utf8",
+        "lowSeq": 0,
+        "highSeq": 5,
+        "droppedCount": 0,
+        "backfillAvailable": true,
+        "maxChunkBytes": 262144
+      },
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+    """
+}
+
+private func createAgentPaneInput(
+    windowID: FenrirWindowID = "window-1",
+    title: String = "Claude Code",
+    command: String = "claude --resume sess-42",
+    providerID: String = "claudeCode",
+    instanceID: String = "agent-resume-1"
+) -> NativeRuntime.CreateAgentPaneRuntimeInput {
+    NativeRuntime.CreateAgentPaneRuntimeInput(
+        requestID: "create-agent-pane",
+        workspaceID: "workspace-1",
+        windowID: windowID,
+        actor: actorIdentity(),
+        agent: NativeRuntime.AgentPaneSpec(
+            title: title,
+            command: command,
+            providerID: providerID,
+            instanceID: instanceID,
+            labels: ["fenrir.agent.resumedSessionID": "sess-42"]
+        ),
+        split: .horizontal,
+        workingDirectory: "/repo",
+        source: .test
+    )
+}
+
+private func attachAgentPaneMetadataInput(
+    agentID: String = "claudeCode",
+    sessionID: String = "sess-42"
+) -> NativeRuntime.AttachAgentPaneMetadataInput {
+    NativeRuntime.AttachAgentPaneMetadataInput(
+        requestID: "attach-agent-metadata",
+        workspaceID: "workspace-1",
+        paneID: "pane-1",
+        actor: actorIdentity(),
+        agentID: agentID,
+        sessionID: sessionID,
+        title: "Claude Code",
+        labels: ["fenrir.agent.sessionID": "sess-42"],
+        source: .terminalViewport
+    )
+}
+
+private func serverAgentPaneSnapshotData() -> Data {
+    jsonData("""
+    {
+      "workspace": {
+        "workspaceId": "workspace-1",
+        "projectId": "project-1",
+        "tmuxSessionName": "fenrir-ws-workspace-1",
+        "cwd": "/tmp",
+        "status": "running",
+        "activeWindowId": "window-1",
+        "grants": [],
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z"
+      },
+      "windows": [
+        {
+          "windowId": "window-1",
+          "workspaceId": "workspace-1",
+          "tmuxWindowId": "@1",
+          "tmuxWindowIndex": 0,
+          "name": "shell",
+          "cwd": "/tmp",
+          "status": "active",
+          "activePaneId": "pane-agent",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z"
+        }
+      ],
+      "panes": [
+        \(serverPaneJSON(workspaceID: "workspace-1", paneID: "pane-1", tmuxPaneID: "%1", cols: 100, rows: 30)),
+        \(serverAgentPaneJSON(paneID: "pane-agent-old", tmuxPaneID: "%11", providerInstanceID: "agent-resume-0", status: "closed")),
+        \(serverAgentPaneJSON(paneID: "pane-agent", tmuxPaneID: "%12", providerInstanceID: "agent-resume-1", status: "running"))
+      ],
+      "revision": 9
+    }
+    """)
+}
+
+private func serverAgentPaneJSON(
+    paneID: String,
+    tmuxPaneID: String,
+    providerInstanceID: String,
+    status: String
+) -> String {
+    """
+    {
+      "paneId": "\(paneID)",
+      "workspaceId": "workspace-1",
+      "windowId": "window-1",
+      "tmuxPaneId": "\(tmuxPaneID)",
+      "cwd": "/repo",
+      "cols": 100,
+      "rows": 30,
+      "status": "\(status)",
+      "metadata": {
+        "kind": "agent",
+        "title": "Claude Code",
+        "process": {
+          "command": "claude --resume sess-42",
+          "argv": [],
+          "envKeys": [],
+          "pid": null,
+          "startedAt": null,
+          "exitedAt": null,
+          "exitCode": null,
+          "exitSignal": null
+        },
+        "labels": { "fenrir.agent.sessionID": "sess-42" },
+        "neovim": null,
+        "agent": {
+          "providerId": "claudeCode",
+          "providerInstanceId": "\(providerInstanceID)",
+          "threadId": null
+        },
+        "workflow": null,
+        "managedProcess": null,
+        "remoteProcess": null,
+        "browserLab": null
+      },
+      "stream": {
+        "streamId": "stream-\(paneID)",
+        "paneId": "\(paneID)",
         "encoding": "utf8",
         "lowSeq": 0,
         "highSeq": 5,

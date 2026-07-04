@@ -34,6 +34,19 @@ const NativeUnaryRpcRequest = Schema.Struct({
   payload: Schema.Unknown,
 });
 
+/**
+ * Streaming WS RPC methods reachable through the native HTTP stream
+ * transport. The native client consumes pane byte streams (tmux kernel),
+ * workflow events (workflow panel), and localServers discovery snapshots
+ * (D-045 workspace-row port chips) over this route.
+ */
+const NATIVE_STREAM_RPC_METHODS: ReadonlySet<string> = new Set([
+  WS_METHODS.tmuxPaneSubscribeStream,
+  WS_METHODS.subscribeWorkflowEvents,
+  WS_METHODS.subscribeLocalServers,
+  WS_METHODS.subscribeApprovalFeed,
+]);
+
 let nativeUnaryRpcRequestSequence = 0n;
 
 const nextNativeUnaryRpcRequestId = () => {
@@ -207,7 +220,7 @@ const nativeStreamRpcRoute = Effect.gen(function* () {
       new NativeUnaryRpcError(`Unknown native RPC method: ${body.method}`, 404),
     );
   }
-  if (body.method !== WS_METHODS.tmuxPaneSubscribeStream) {
+  if (!NATIVE_STREAM_RPC_METHODS.has(body.method)) {
     return yield* Effect.fail(
       new NativeUnaryRpcError(`Unsupported native stream RPC method: ${body.method}`, 404),
     );

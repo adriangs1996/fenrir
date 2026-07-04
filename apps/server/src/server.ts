@@ -40,6 +40,7 @@ import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore";
 import { GitCoreLive } from "./git/Layers/GitCore";
 import { GitDiffCoreLive } from "./git/Layers/GitDiffCore";
 import { GitHubCliLive } from "./git/Layers/GitHubCli";
+import { WorkspaceGitProbeLive } from "./git/Layers/WorkspaceGitProbe";
 import { RoutingTextGenerationLive } from "./git/Layers/RoutingTextGeneration";
 import { TerminalBackendLive } from "./terminal/Layers/Backend";
 import { TerminalManagerLive } from "./terminal/Layers/Manager";
@@ -56,6 +57,14 @@ import { RemoteConnectionManagerLive } from "./puppeteer/Layers/RemoteConnection
 import { TrafficLensServiceLive } from "./traffic-lens/Layers/TrafficLensService";
 import { TrafficLensStorageServiceLive } from "./traffic-lens-storage/Layers/TrafficLensStorageService";
 import { LocalServerDiscoveryLive } from "./localServers/Layers/LocalServerDiscovery";
+import {
+  AgentFeedHookCredentialLive,
+  AgentFeedServiceLive,
+} from "./agentFeed/Layers/AgentFeedService";
+import {
+  agentFeedRequestsRouteLayer,
+  agentFeedSmokeInjectRouteLayer,
+} from "./agentFeed/agentFeedHttp";
 import { BrowserLabControlHttpLive } from "./browserLab/browserLabControlHttp";
 import { BrowserLabControlServiceLive } from "./browserLab/Layers/BrowserLabControlService";
 import { RemoteHostMcpHttpLive } from "./mcp/remoteHostMcpHttp";
@@ -248,6 +257,9 @@ const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitManagerLayerLive),
   Layer.provideMerge(GitCoreLive),
   Layer.provideMerge(GitDiffLayerLive),
+  Layer.provideMerge(
+    WorkspaceGitProbeLive.pipe(Layer.provide(GitCoreLive), Layer.provide(GitHubCliLive)),
+  ),
 );
 
 const GitWorkflowLayerLive = GitWorkflowServiceLive.pipe(
@@ -269,6 +281,16 @@ const SourceControlStackLayerLive = SourceControlStackServiceLive.pipe(
   Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
 );
 
+/**
+ * AgentFeedLayerLive — D-042 approval-feed relay plus the per-boot hook
+ * bearer credential. Provided into the terminal runtime (so tmux workspace
+ * sessions export FENRIR_HOOK_TOKEN/FENRIR_SERVER_URL for provisioned feed
+ * hooks) and merged out through CoreInfrastructureLive for the HTTP and WS
+ * routes. The same layer reference is used in both places so the per-boot
+ * token is minted exactly once.
+ */
+const AgentFeedLayerLive = Layer.mergeAll(AgentFeedServiceLive, AgentFeedHookCredentialLive);
+
 const TerminalRuntimeLayerLive = Layer.mergeAll(
   TerminalManagerLive.pipe(
     Layer.provide(TerminalHistoryManagerLive),
@@ -280,6 +302,7 @@ const TerminalRuntimeLayerLive = Layer.mergeAll(
   TmuxPaneStreamServiceLive,
   TmuxWorkspaceServiceLive.pipe(
     Layer.provide(Layer.mergeAll(TmuxControlModeAdapterLive, TmuxPaneStreamServiceLive)),
+    Layer.provide(AgentFeedLayerLive),
   ),
 ).pipe(Layer.provide(PtyAdapterLive));
 
@@ -339,6 +362,7 @@ const CoreInfrastructureLive = ReactorLayerLive.pipe(
   Layer.provideMerge(TrafficLensServiceLive),
   Layer.provideMerge(TrafficLensStorageServiceLive),
   Layer.provideMerge(LocalServerDiscoveryLive),
+  Layer.provideMerge(AgentFeedLayerLive),
   Layer.provideMerge(BrowserLabControlServiceLive),
   Layer.provideMerge(
     PlanRunnerLive.pipe(
@@ -407,6 +431,8 @@ export const makeRoutesLayer = Layer.mergeAll(
   fontsRouteLayer,
   trafficLensIngestRouteLayer,
   trafficLensStorageIngestRouteLayer,
+  agentFeedRequestsRouteLayer,
+  agentFeedSmokeInjectRouteLayer,
   BrowserLabControlHttpLive,
   RemoteHostMcpHttpLive,
   WorkflowMcpHttpLive,

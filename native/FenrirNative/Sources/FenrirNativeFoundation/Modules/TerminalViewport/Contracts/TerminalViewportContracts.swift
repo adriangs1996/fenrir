@@ -97,6 +97,7 @@ public extension TerminalViewport {
         public let streamStatus: StreamStatus
         public let size: Size?
         public let pendingReservedOSCSequence: Data
+        public let pendingKittyNotificationChunks: [PendingKittyNotificationChunk]
 
         public init(
             viewportID: ViewportID,
@@ -109,7 +110,8 @@ public extension TerminalViewport {
             rendererStatus: RendererStatus,
             streamStatus: StreamStatus = .detached,
             size: Size? = nil,
-            pendingReservedOSCSequence: Data = Data()
+            pendingReservedOSCSequence: Data = Data(),
+            pendingKittyNotificationChunks: [PendingKittyNotificationChunk] = []
         ) {
             self.viewportID = viewportID
             self.workspaceID = workspaceID
@@ -122,6 +124,7 @@ public extension TerminalViewport {
             self.streamStatus = streamStatus
             self.size = size
             self.pendingReservedOSCSequence = pendingReservedOSCSequence
+            self.pendingKittyNotificationChunks = pendingKittyNotificationChunks
         }
     }
 
@@ -353,6 +356,123 @@ public extension TerminalViewport {
             self.oscIdentifier = signal.oscIdentifier
             self.payloadByteCount = signal.payload.utf8.count
             self.provenance = signal.provenance
+        }
+    }
+
+    /// Provenance shared by every signal stripped at the render-input boundary
+    /// (reserved presence OSC and generic notification OSCs alike).
+    typealias TerminalStreamProvenance = ReservedOSCProvenance
+
+    static let maxTerminalNotificationTitleCharacters = 256
+    static let maxTerminalNotificationBodyCharacters = 1024
+
+    /// Bounds for the kitty (OSC 99) notification chunk reassembly buffer:
+    /// at most this many distinct `i=<id>` reassemblies may be pending, and
+    /// each pending reassembly may accumulate at most this many UTF-8 bytes.
+    static let maxPendingKittyNotificationChunkIDs = 4
+    static let maxPendingKittyNotificationChunkBytes = 8192
+
+    /// Partially assembled kitty (OSC 99) notification: payloads carrying
+    /// `i=<id>` with `d=1` (more chunks follow) accumulate here until a chunk
+    /// with `d=0` (or no `d`) for the same id finalizes them into a single
+    /// notification (D-043). Threaded through `State` exactly like
+    /// `pendingReservedOSCSequence` so the scanner stays stateless.
+    struct PendingKittyNotificationChunk: Codable, Equatable, Sendable {
+        public let chunkID: String
+        public let title: String
+        public let body: String
+
+        public init(chunkID: String, title: String = "", body: String = "") {
+            self.chunkID = chunkID
+            self.title = title
+            self.body = body
+        }
+
+        public var accumulatedByteCount: Int {
+            title.utf8.count + body.utf8.count
+        }
+    }
+
+    enum TerminalNotificationSource: String, Codable, Equatable, Sendable, CaseIterable {
+        case osc9
+        case osc99
+        case osc777
+
+        public var oscIdentifier: Int {
+            switch self {
+            case .osc9: 9
+            case .osc99: 99
+            case .osc777: 777
+            }
+        }
+
+        public init?(oscIdentifier: Int) {
+            switch oscIdentifier {
+            case 9: self = .osc9
+            case 99: self = .osc99
+            case 777: self = .osc777
+            default: return nil
+            }
+        }
+    }
+
+    /// Advisory notification parsed from a standard terminal notification OSC
+    /// (D-043). Sanitized and length-capped; carries no authorization or
+    /// presence semantics.
+    struct TerminalNotificationEvent: Codable, Equatable, Sendable {
+        public let title: String?
+        public let body: String
+        public let source: TerminalNotificationSource
+        public let provenance: TerminalStreamProvenance
+
+        public init(title: String?, body: String, source: TerminalNotificationSource, provenance: TerminalStreamProvenance) {
+            self.title = title
+            self.body = body
+            self.source = source
+            self.provenance = provenance
+        }
+    }
+
+    /// Content-free projection for the event stream: title/body are user-visible
+    /// content and stay out of diagnostics surfaces by default (D-031/D-043).
+    struct TerminalNotificationEventSummary: Codable, Equatable, Sendable {
+        public let source: TerminalNotificationSource
+        public let titleCharacterCount: Int
+        public let bodyCharacterCount: Int
+        public let provenance: TerminalStreamProvenance
+
+        public init(event: TerminalNotificationEvent) {
+            self.source = event.source
+            self.titleCharacterCount = event.title?.count ?? 0
+            self.bodyCharacterCount = event.body.count
+            self.provenance = event.provenance
+        }
+    }
+
+    enum TerminalNotificationDropReason: String, Codable, Equatable, Sendable {
+        case emptyContent = "empty-content"
+        case invalidEncoding = "invalid-encoding"
+        case unsupportedParameters = "unsupported-parameters"
+        /// A pending kitty chunk reassembly was evicted (oldest first) to make
+        /// room when more than `maxPendingKittyNotificationChunkIDs` ids were
+        /// pending.
+        case chunkBufferEvicted = "chunk-buffer-evicted"
+        /// A kitty chunk reassembly exceeded
+        /// `maxPendingKittyNotificationChunkBytes` and was discarded.
+        case chunkBufferOverflow = "chunk-buffer-overflow"
+    }
+
+    /// Diagnostics record for a malformed notification payload that was stripped
+    /// from the render stream but produced no notification (D-043 drop count).
+    struct TerminalNotificationDropSummary: Codable, Equatable, Sendable {
+        public let source: TerminalNotificationSource
+        public let reason: TerminalNotificationDropReason
+        public let provenance: TerminalStreamProvenance
+
+        public init(source: TerminalNotificationSource, reason: TerminalNotificationDropReason, provenance: TerminalStreamProvenance) {
+            self.source = source
+            self.reason = reason
+            self.provenance = provenance
         }
     }
 
@@ -659,5 +779,7 @@ public extension TerminalViewport {
         case terminalViewportSnapshotted(ViewportID)
         case terminalContextCaptured(CapturedContextSummary)
         case reservedOSCForwarded(ReservedOSCSignalSummary)
+        case terminalNotificationForwarded(TerminalNotificationEventSummary)
+        case terminalNotificationDropped(TerminalNotificationDropSummary)
     }
 }

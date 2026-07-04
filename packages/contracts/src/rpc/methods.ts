@@ -29,6 +29,7 @@ export const WS_METHODS = {
   gitRunStackedAction: "git.runStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  workspaceGitProbe: "workspace.gitProbe",
   gitDiffListRepositories: "gitDiff.listRepositories",
   gitDiffLoadChangeSignature: "gitDiff.loadChangeSignature",
   gitDiffLoadFile: "gitDiff.loadFile",
@@ -104,6 +105,10 @@ export const WS_METHODS = {
   subscribeServerLifecycle: "subscribeServerLifecycle",
   subscribeAuthAccess: "subscribeAuthAccess",
   subscribeLocalServers: "subscribeLocalServers",
+  subscribeApprovalFeed: "subscribeApprovalFeed",
+
+  // Agent approval feed (D-042)
+  agentFeedDecide: "agentFeed.decide",
 
   // Tmux manager
   terminalAttachTmux: "terminal.attachTmux",

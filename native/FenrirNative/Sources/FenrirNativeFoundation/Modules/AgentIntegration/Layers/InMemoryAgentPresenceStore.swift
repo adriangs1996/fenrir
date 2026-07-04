@@ -10,7 +10,24 @@ public extension AgentIntegration {
         }
 
         public func upsertPresence(_ event: AgentPresenceEvent) async throws {
-            records[event.provenance] = AgentPresenceRecord(event: event)
+            // D-044 resumability: presence states after session-start (busy,
+            // awaiting-input, ...) do not carry a session id, so the last
+            // recorded id for the same pane + agent stays sticky. A different
+            // agent taking over the pane resets it.
+            var sessionID = event.sessionID
+            if sessionID == nil,
+               let previous = records[event.provenance],
+               previous.agentID == event.agentID {
+                sessionID = previous.sessionID
+            }
+            records[event.provenance] = AgentPresenceRecord(
+                agentID: event.agentID,
+                state: event.state,
+                provenance: event.provenance,
+                sequence: event.sequence,
+                sessionID: sessionID,
+                updatedAt: event.ingestedAt
+            )
         }
 
         public func listPresence(workspaceID: WorkspaceID?) async throws -> [AgentPresenceRecord] {

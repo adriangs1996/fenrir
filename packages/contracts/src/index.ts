@@ -28,6 +28,7 @@ export * from "./remoteController";
 export * from "./vpn";
 export * from "./trafficLens";
 export * from "./localServers";
+export * from "./agentFeed";
 export * from "./planRunner";
 export * from "./workflows";
 export * from "./fonts";

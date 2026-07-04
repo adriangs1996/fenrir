@@ -152,7 +152,6 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
             )
             return
         }
-        lock.unlock()
 
         TerminalDebugLog.log(
             .output,

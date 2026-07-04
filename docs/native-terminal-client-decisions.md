@@ -13,6 +13,8 @@ Related references:
 - `docs/native-terminal-client-runtime-boundary.md`
 - `docs/native-terminal-capability-map.md`
 - `docs/native-terminal-client-module-map.md`
+- `docs/native-terminal-reference-alignment.md` (cmux/Supacode copy map behind
+  D-042 through D-045)
 
 ## Product Intent
 
@@ -454,8 +456,13 @@ window control rather than a primarily declarative UI toolkit.
     `Actions`, `Services`, `Contracts`, `Layers`, `Models`, and `Views`.
   - AppKit controllers/views call typed actions and services, not a global
     reducer.
-  - Supacode is a reference for boundaries, command/event streams, sidebar
-    projections, and terminal managers, not for adopting TCA wholesale.
+  - cmux is the primary reference for native terminal product/runtime shape:
+    AppKit terminal-first UX, libGhostty-backed panes, local control, browser,
+    SSH/remote terminal behavior, notifications, restore, and agent hook
+    ergonomics.
+  - Supacode remains a secondary reference for boundaries, command/event
+    streams, sidebar projections, and terminal managers, not for adopting TCA
+    wholesale.
 - Consequences:
   - The codebase avoids having two competing architectures.
   - Reducer-style local view state may exist inside isolated UI components, but
@@ -612,8 +619,9 @@ window control rather than a primarily declarative UI toolkit.
 ### D-027: Sidebar information architecture
 
 - Status: accepted, amended by D-041 (workspace tree)
-- Decision: use a collapsible Supacode-inspired operational sidebar adapted to
-  Fenrir workspaces and activity.
+- Decision: use a collapsible cmux-inspired operational sidebar adapted to
+  Fenrir workspaces and activity, with Supacode-style projection discipline
+  where it improves performance and modularity.
 - Final choice:
   - The sidebar has global workspace sections such as attention, workspaces,
     recent, remote/profile grouping, and degraded states.
@@ -767,7 +775,7 @@ window control rather than a primarily declarative UI toolkit.
 
 ### D-037: Agent execution model
 
-- Status: accepted
+- Status: accepted, amended by D-042 (approval feed)
 - Decision: in Fenrir Native, agents run as normal CLI processes inside tmux
   panes, and the native client does not implement a chat view.
 - Why:
@@ -779,9 +787,10 @@ window control rather than a primarily declarative UI toolkit.
   - Each agent CLI already ships its own TUI for transcripts, approvals, plan
     review, model selection, and context management. Reproducing that natively
     duplicates the hardest UI surface for no product gain.
-  - This matches the Supacode reference model, which Fenrir Native follows in
-    spirit: the terminal orchestrates agents, it does not host their
-    conversations.
+  - This matches the cmux product model, which Fenrir Native follows in spirit:
+    the terminal orchestrates agents, it does not host their conversations.
+    Supacode remains useful as a secondary workflow reference for the same
+    product direction.
 - Final choice:
   - Agent CLIs are launched, focused, and managed as real tmux pane processes
     with pane metadata, exactly like Neovim under D-013.
@@ -807,7 +816,7 @@ window control rather than a primarily declarative UI toolkit.
 
 ### D-038: Agent presence channel
 
-- Status: accepted
+- Status: accepted, amended by D-043 (generic notification ingestion)
 - Decision: agent presence is emitted by provisioned hooks as OSC sequences on
   the agent's own terminal stream, parsed by the native client; server-side
   ingestion is a supplemental channel, not the primary one.
@@ -816,9 +825,9 @@ window control rather than a primarily declarative UI toolkit.
     provider session to read state from. The pane's own byte stream is the one
     channel that always exists, works over SSH in remote workspaces, and needs
     no extra transport or auth.
-  - The Supacode reference validates this design: hooks emit presence and
-    notifications as OSC to the terminal precisely because a local socket
-    cannot be reached from remote shells.
+  - The cmux and Supacode references both validate this design: hooks emit
+    presence and notifications as OSC to the terminal precisely because a local
+    socket cannot be reached from remote shells.
   - This supersedes the earlier bias toward "server-authenticated metadata
     instead of OSC" for pane-hosted agent state. That bias remains correct for
     workflows (D-020), which are server-executed; it is inverted for agents the
@@ -855,7 +864,7 @@ Implementation note: provider-real target mapping now lives in `ProviderAgentIns
 
 Implementation note: the native foundation now includes two live provisioning paths. `ManagedAgentIntegrationProvisioner` keeps the legacy Fenrir-owned text-block/JSON core for safe internal config surfaces, while `ProviderStructuredAgentIntegrationProvisioner` writes the real provider surfaces for Claude Code, Codex, Cursor, and OpenCode: structured JSON hooks, owned skills/plugins, JSON MCP, and Codex TOML MCP. The provider path is idempotent, backup-backed, cleanly removable, and conflict-refusing. NativeHost now exposes explicit status, repair, and remove operations through the diagnostics product command, and `fenrir agent-integration status|repair|remove` reaches those operations over the local native control socket. First-run, palette, and settings UI repair/install surfaces remain separate integration work.
 
-- Status: accepted
+- Status: accepted, extended by D-044 (agent session resume)
 - Decision: Fenrir installs and manages per-agent hooks, skills, and MCP
   configuration behind a common integration contract, with explicit ownership
   markers and reversible edits.
@@ -867,8 +876,10 @@ Implementation note: the native foundation now includes two live provisioning pa
     OpenCode config dirs, hook schemas, skill/plugin formats). This is exactly
     the provider-interface problem the repository root already mandates a
     common contract for.
-  - The Supacode reference implements this as per-agent settings installers
-    with ownership-marked, idempotent edits; Fenrir adopts the same shape.
+  - cmux is the primary reference for agent hook and resume ergonomics, while
+    Supacode remains the reference for per-agent settings installers with
+    ownership-marked, idempotent edits; Fenrir adopts the shared shape behind
+    its own provider-neutral contracts.
 - Final choice:
   - A native `AgentIntegration` module owns integration contracts: detect
     installed agent CLIs, report integration status, install/update/remove
@@ -942,7 +953,7 @@ Implementation note: the native foundation now includes two live provisioning pa
 
 ### D-041: Shell visual contract
 
-- Status: accepted
+- Status: accepted, amended by D-045 (titlebar controls and row metadata)
 - Decision: the shell follows the "operations deck" direction with quiet tmux
   tabs, a collapsible workspace-tree sidebar, and themes shared with Fenrir
   Desktop's theme registry. Reference mockup:
@@ -995,6 +1006,199 @@ Implementation note: the native foundation now includes two live provisioning pa
     theme mapping) before shell surfaces multiply.
   - Open micro-questions tracked in the mockup's contract notes: idle app rows
     visibility, dev-server start/stop as row action vs palette-only.
+
+### D-042: Agent approval feed
+
+- Status: accepted, post-base milestone (amends D-037)
+- Decision: after the base client ships, Fenrir Native adds a native approval
+  feed — hook-fed approval/question cards in a workspace overlay and in
+  notification banner actions — while keeping the no-chat-view stance intact.
+- Why:
+  - cmux, the primary reference, treats inline approvals ("Feed") as core to
+    running many agents in parallel: permission requests, plan-exit reviews,
+    and agent questions surface as actionable cards with a bounded soft wait
+    and automatic fallback to the agent's own TUI. The agent never blocks on
+    the native UI.
+  - D-037's original consequence ("no approval panel") conflated approvals
+    with conversation hosting. Approvals are discrete, structured decisions;
+    they do not require a transcript store, response renderer, or model
+    picker. The no-chat-view rule is unaffected — the primary reference
+    itself ships no chat view on macOS.
+  - Fenrir's topology makes this cleaner than the reference: hooks run next
+    to the pane process, which is next to the Fenrir server, so the reply
+    channel is a server-local endpoint plus existing authenticated WS
+    contracts to clients. Remote workspaces work without any client-reachable
+    socket, which the reference cannot do.
+- Final choice:
+  - Provisioned hooks (D-039) gain a feed component that reports approval
+    requests (permission request, plan-exit review, agent question) to the
+    Fenrir server through a server-local hook endpoint, then parks with a
+    bounded soft wait (target ≤120s) for a decision.
+  - On timeout, missing client, or unsupported request kind, the hook replies
+    neutrally and the interaction falls back to the agent's own TUI in its
+    pane. The feed is an accelerator, never a gate.
+  - The server relays requests to connected clients over a WS event stream
+    and accepts exactly one decision per request id over RPC; late or
+    duplicate decisions are rejected.
+  - The native client renders cards in a workspace overlay (D-023 surface)
+    and as macOS notification actions. Approval cards and D-038 presence stay
+    distinct channels, and approvals never travel over OSC — it is one-way
+    and byte-capped.
+  - Card payloads carry the structured request the hook provides (tool/action
+    summary, options); they must not include broader terminal content, and
+    diagnostics record metadata only per D-031.
+  - Decisions dispatch through typed actions with the same authority rules as
+    D-040: the client never writes decision keystrokes into panes; the hook
+    applies the decision inside the agent's own process.
+- Consequences:
+  - D-037's consequence list is narrowed: still no native transcript store,
+    response stream renderer, or provider/model picker; the approval feed is
+    allowed as a post-base milestone.
+  - New server contract: approval feed relay (hook endpoint, WS event, decide
+    RPC) with per-workspace/actor scoping.
+  - `AgentIntegration` adapters gain per-agent feed hook definitions; agents
+    without hook support simply never produce cards.
+  - `WorkspaceOverlays` gains a feed overlay; `Notifications` gains
+    actionable banner categories.
+
+### D-043: Generic terminal notification ingestion
+
+- Status: accepted (amends D-038)
+- Decision: `TerminalViewport` parses the standard terminal notification
+  sequences — OSC 9, OSC 99, and OSC 777;notify — from any pane process and
+  forwards them as typed notification events; the reserved Fenrir OSC channel
+  remains the only structured presence source.
+- Why:
+  - The primary reference honors the standard sequences, which lets any CLI
+    (builds, tests, long jobs) notify without Fenrir-specific provisioning.
+  - D-038's reserved channel exists for structured agent presence; it was
+    never meant to make ordinary `printf`-style notifications impossible.
+- Final choice:
+  - The viewport detects and strips OSC 9 / OSC 99 / OSC 777;notify at the
+    same render-input boundary as the reserved sequence and emits typed
+    notification events (title, body, workspace/pane provenance).
+  - Payloads are sanitized: control characters removed, length-capped, and
+    bounded well under libghostty's OSC ceiling; malformed payloads are
+    dropped with a diagnostics count.
+  - Generic notifications are advisory UI signals only: they feed the
+    notifications model, banners, badges, and attention ordering. They are
+    never authorization signals, never presence state, and never trigger pane
+    writes.
+  - Notification title/body are user-visible content and may appear in
+    banners and the notifications panel, but are excluded from diagnostics
+    exports by default per D-031.
+- Consequences:
+  - Banners and the notifications panel work with zero provisioning.
+  - Agent presence semantics stay exclusively on the reserved channel; a
+    generic OSC 9 from an agent shows a notification but never flips presence
+    state.
+  - `TerminalViewport` gains one parser and one typed event; `Notifications`
+    owns routing and coalescing.
+
+### D-044: Agent session resume
+
+- Status: accepted (extends D-039)
+- Decision: provisioned hooks record agent-native session identifiers as pane
+  metadata through the server, and Fenrir can relaunch a dead agent by
+  spawning a fresh pane process running that agent's documented resume
+  command.
+- Why:
+  - cmux is the named primary reference for resume ergonomics (D-039): hooks
+    record session ids and relaunch replays each agent's native resume
+    command (`claude --resume <id>`, `codex resume <id>`, ...).
+  - Fenrir's scope is narrower than the reference's: tmux keeps pane
+    processes alive across client restarts (D-002/D-012), so resume only
+    matters after real process death — server host restart, agent crash, or
+    a future hibernation-style feature — not after app relaunch.
+- Final choice:
+  - Hook session-start events carry agent id and agent-native session id as
+    presence metadata (D-038 rules: metadata only, no prompt text); the
+    client attaches them to the pane record via the existing pane-metadata
+    contract, so resumability survives client restarts server-side.
+  - Resume commands come exclusively from a per-adapter descriptor table in
+    `AgentIntegration`; hook payloads and pane content never supply command
+    strings. Session ids are validated against a strict allowlisted charset
+    before interpolation, since they originate in-band.
+  - User-defined resume commands are a Settings feature gated on explicit
+    approval bound to workspace + agent, following the reference's
+    signed-approval shape; secrets are never stored in the command record.
+  - Resume is user-initiated by default (sidebar row action, palette, and
+    dead-pane affordance). Auto-resume on workspace projection is an opt-in
+    setting and only fires for panes whose recorded process died.
+  - A resumed agent is a new tmux pane process with fresh pane identity; the
+    old pane's metadata records the succession for sidebar/palette history.
+- Consequences:
+  - `AgentIntegration` adapters gain a resume descriptor per agent; agents
+    without one simply show a dead pane.
+  - No scrollback snapshotting is introduced; terminal history stays governed
+    by D-012.
+  - The dead-pane affordance and succession metadata are new `PaneGrid` /
+    `WorkspaceIndex` surface work.
+
+### D-045: Titlebar productivity controls and workspace row metadata
+
+- Status: accepted (amends D-041; refines D-027)
+- Decision: the operations-deck titlebar gains three controls — a run-script
+  split button, an open-in-editor split button, and a notifications button —
+  and workspace rows gain branch/PR/ports/latest-notification metadata with
+  cmux-style attention treatment (pane rings, row lighting, jump to latest
+  unread).
+- Why:
+  - D-041's own rule is that persistent chrome must pay rent. These controls
+    each carry live state (running script, unread count, resolved editor) and
+    remove a palette round-trip from high-frequency actions.
+  - The Supacode reference supplies the proven surfaces: a `ScriptDefinition`
+    model (run/test/lint/format/custom; repo scripts merged over global with
+    repo precedence and forged-kind protection) behind a run/stop split
+    button, and an open-in-editor split button over a catalogue of editor /
+    terminal / git-client / Finder / `$EDITOR` targets with per-repo and
+    global defaults.
+  - The cmux reference supplies the row metadata (git branch, linked PR
+    status/number, working directory, listening ports, latest notification
+    line) and the attention loop that makes many parallel workspaces
+    glanceable.
+- Final choice:
+  - Run scripts: script definitions live in `Settings` (repository and global
+    scopes); the split button's primary action runs the primary run-kind
+    script or stops it while running; the dropdown lists remaining scripts
+    plus manage entries. Scripts execute as real tmux panes with
+    managed-process metadata (D-019/D-034) — never app-local child processes
+    — which also populates the D-041 sidebar `dev servers`/`apps` groups and
+    keeps script output attachable, streamable, and server-owned.
+  - Open in editor: a target catalogue modeled on the reference (editors,
+    terminals, git clients, Finder, `$EDITOR`), resolved against installed
+    apps; the split button opens the workspace path with the persisted
+    default (global, overridable per repository); the dropdown picks and
+    persists another. Pure client feature over workspace identity; no server
+    contract.
+  - Notifications button: opens the notifications panel overlay (D-042/D-043
+    feed it); badge shows unread count; ⌘-style jump-to-latest-unread gets a
+    default keybinding and palette action.
+  - Row metadata: branch stays as specified; listening ports come from the
+    existing localServers discovery contracts; the latest notification line
+    comes from the notifications model; PR status/number requires a new
+    server-side git/PR probe contract and ships only when that contract
+    exists — the client never shells out to `gh` or scrapes panes.
+  - Attention treatment: panes with awaiting-input presence get a themed ring
+    (attention slot of the D-041 token set); sidebar rows light up and sort
+    into the attention section; all of it remains driven by D-038/D-043
+    events.
+  - The visual contract file `docs/native-terminal-ui-shell.html` must be
+    revised to show the three titlebar controls, row metadata, and ring
+    treatment before shell implementation starts; the mockup remains the
+    review reference (D-041 discipline).
+- Consequences:
+  - `WorkspaceShell` owns the new titlebar controls; `Settings` gains script
+    and editor-target models with the reference's migration/backup
+    discipline.
+  - New server contract needed for PR probes; ports and notifications reuse
+    existing contracts.
+  - `Keybinding` and the palette gain run/stop-script, open-in-editor,
+    notifications-panel, and jump-to-unread actions (palette parity so the
+    controls stay optional chrome).
+  - The D-041 open micro-question "dev-server start/stop as row action vs
+    palette-only" is resolved: start/stop is also a titlebar/palette action
+    through the run-script model.
 
 ## Decision Order
 

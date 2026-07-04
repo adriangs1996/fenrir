@@ -8,6 +8,7 @@ import { respondToAuthError } from "./auth/http";
 import { ServerAuth } from "./auth/Services/ServerAuth";
 import { SessionCredentialService } from "./auth/Services/SessionCredentialService";
 import { ProviderMaintenanceRunnerLive } from "./provider/providerMaintenanceRunner";
+import { makeAgentFeedRoutes } from "./ws/routes/agentFeed";
 import { makeAuthRoutes } from "./ws/routes/auth";
 import { makeGitDiffRoutes } from "./ws/routes/gitDiff";
 import { makeLocalServersRoutes } from "./ws/routes/localServers";
@@ -52,6 +53,7 @@ export const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const planRunnerRoutes = yield* makePlanRunnerRoutes;
       const workflowRoutes = yield* makeWorkflowRoutes;
       const managedProcessRoutes = yield* makeManagedProcessRoutes;
+      const agentFeedRoutes = yield* makeAgentFeedRoutes;
 
       return WsRpcGroup.of({
         ...terminalRoutes,
@@ -70,6 +72,7 @@ export const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         ...planRunnerRoutes,
         ...workflowRoutes,
         ...managedProcessRoutes,
+        ...agentFeedRoutes,
         ...sourceControlStackRoutes,
       });
     }),

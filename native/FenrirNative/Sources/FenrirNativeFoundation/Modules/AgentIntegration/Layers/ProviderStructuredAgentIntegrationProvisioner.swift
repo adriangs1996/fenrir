@@ -158,6 +158,11 @@ private extension AgentIntegration.ProviderStructuredAgentIntegrationProvisioner
             entries.append(hookEntry(for: agentID, event: event))
             hooks[event.name] = entries
         }
+        for feedEvent in feedHookEvents(for: agentID) {
+            var entries = hooks[feedEvent.eventName] as? [[String: Any]] ?? []
+            entries.append(feedEvent.entry)
+            hooks[feedEvent.eventName] = entries
+        }
         root["hooks"] = hooks
         return try renderJSONObject(root)
     }
@@ -325,6 +330,63 @@ private extension AgentIntegration.ProviderStructuredAgentIntegrationProvisioner
         return ["type": "command", "command": command, "timeout": 10]
     }
 
+    struct ProviderFeedHookEvent {
+        let eventName: String
+        let entry: [String: Any]
+    }
+
+    /// D-042 approval-feed bridge hooks per agent.
+    ///
+    /// Claude Code is the only adapter with a feed bridge today: its
+    /// `PermissionRequest` hook posts the structured request (metadata only:
+    /// tool name summary + allow/deny options) to the local Fenrir
+    /// approval-feed endpoint and soft-waits for a decision. On any missing
+    /// environment, non-2xx, timeout, or transport failure it exits 0 with a
+    /// neutral `{}` payload so Claude falls back to its own TUI prompt. The
+    /// hook-config timeout is 125s so a 110s server soft-wait never trips it
+    /// (reference: cmux uses 125s for the blocking PermissionRequest entry).
+    ///
+    /// All other adapters are explicitly NOT SUPPORTED yet: they install no
+    /// feed hook and keep approving inside their own TUIs (D-042: agents
+    /// without hook support simply never produce cards).
+    func feedHookEvents(for agentID: AgentIntegration.AgentCLIIdentifier) -> [ProviderFeedHookEvent] {
+        switch agentID {
+        case .claudeCode:
+            return [
+                ProviderFeedHookEvent(
+                    eventName: "PermissionRequest",
+                    entry: ["hooks": [["type": "command", "command": claudeFeedPermissionCommand(), "timeout": 125]]]
+                )
+            ]
+        case .codex, .cursor, .openCode, .custom, .future:
+            // Approval-feed bridge not supported for this adapter yet.
+            return []
+        }
+    }
+
+    /// Blocking Claude Code PermissionRequest feed bridge (see
+    /// `feedHookEvents`). The tool name is extracted from the hook input
+    /// with a strict allowlist capture so nothing outside `[A-Za-z0-9._-]`
+    /// can reach the request summary; the decision is applied by the hook in
+    /// the agent's own process, never by client keystrokes (D-040).
+    func claudeFeedPermissionCommand() -> String {
+        let marker = " # " + Self.hookMarker + " agent=claude-code event=PermissionRequest feed=approval-v1"
+        let readInput = #"in=$(head -c 65536 2>/dev/null)"#
+        let extractTool = #"tool=$(printf %s "$in" | LC_ALL=C sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9._-]\{1,64\}\)".*/\1/p' | head -n 1)"#
+        let requireEnv = #"[ -n "${FENRIR_SERVER_URL:-}" ] && [ -n "${FENRIR_HOOK_TOKEN:-}" ] && [ -n "${FENRIR_WORKSPACE_ID:-}" ]"#
+        let paneFragment = #"pane=''; if [ -n "${TMUX_PANE:-}" ]; then pane=$(printf '"paneId":"%s",' "$TMUX_PANE"); fi"#
+        let buildBody = #"body=$(printf '{"workspaceId":"%s",%s"agentId":"claude-code","kind":"permission","summary":"Permission request: %s","options":[{"id":"allow","label":"Allow"},{"id":"deny","label":"Deny"}],"timeoutMs":110000}' "$FENRIR_WORKSPACE_ID" "$pane" "${tool:-tool}")"#
+        let post = #"res=$(curl -s -f --max-time 115 -H "Authorization: Bearer $FENRIR_HOOK_TOKEN" -H 'Content-Type: application/json' -d "$body" "$FENRIR_SERVER_URL/api/agent-feed/requests" 2>/dev/null || printf '')"#
+        let allowOut = #"'{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'"#
+        let denyOut = #"'{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Denied via Fenrir approval feed"}}}'"#
+        let decide = #"case "$res" in *'"outcome":"decided"'*'"optionId":"allow"'*) out="# + allowOut
+            + #" ;; *'"outcome":"decided"'*'"optionId":"deny"'*) out="# + denyOut
+            + #" ;; esac"#
+        return readInput + "; " + extractTool + "; out='{}'; if " + requireEnv
+            + "; then " + paneFragment + "; " + buildBody + "; " + post + "; " + decide
+            + #"; fi; printf %s "$out"; exit 0"# + marker
+    }
+
     func hookEvents(for agentID: AgentIntegration.AgentCLIIdentifier) -> [ProviderHookEvent] {
         switch agentID {
         case .claudeCode:
@@ -349,9 +411,54 @@ private extension AgentIntegration.ProviderStructuredAgentIntegrationProvisioner
         }
     }
 
+    /// JSON-hook adapters whose hook input JSON carries the agent-native
+    /// session id under `session_id` (D-044). Adapters without a documented
+    /// id surface simply omit `sessionID` from the presence payload.
+    static var sessionIDCapableJSONHookAgents: Set<AgentIntegration.AgentCLIIdentifier> {
+        [.claudeCode, .codex]
+    }
+
+    /// Extracts the hook-input `session_id` from stdin with a strict
+    /// allowlist capture (`[A-Za-z0-9][A-Za-z0-9._-]{0,127}`), so nothing
+    /// outside the D-044 session-id shape — including option-like ids with a
+    /// leading `-` — can ever reach the emitted payload.
+    static var sessionIDStdinExtractor: String {
+        "sid=$(head -c 65536 2>/dev/null | LC_ALL=C sed -n 's/.*\"session_id\"[[:space:]]*:[[:space:]]*\"\\([A-Za-z0-9][A-Za-z0-9._-]\\{0,127\\}\\)\".*/\\1/p' | head -n 1)"
+    }
+
+    func presencePayloadJSON(
+        agentID: AgentIntegration.AgentCLIIdentifier,
+        state: AgentIntegration.AgentPresenceState,
+        sessionIDFormatToken: Bool = false
+    ) -> String {
+        var fields = [
+            "\"namespace\":\"" + AgentIntegration.AgentPresenceSignal.namespace + "\"",
+            "\"agentID\":\"" + agentID.rawValue + "\"",
+            "\"state\":\"" + state.rawValue + "\""
+        ]
+        if sessionIDFormatToken {
+            fields.append("\"sessionID\":\"%s\"")
+        }
+        return "{" + fields.joined(separator: ",") + "}"
+    }
+
     func presenceCommand(agentID: AgentIntegration.AgentCLIIdentifier, state: AgentIntegration.AgentPresenceState, eventName: String) -> String {
-        let payload = "{\"namespace\":\"" + AgentIntegration.AgentPresenceSignal.namespace + "\",\"agentID\":\"" + agentID.rawValue + "\",\"state\":\"" + state.rawValue + "\"}"
-        return "printf \"\\033]8737;" + payload + "\\007\" > /dev/tty 2>/dev/null || true # " + Self.hookMarker + " agent=" + agentID.rawValue + " event=" + eventName
+        let marker = " # " + Self.hookMarker + " agent=" + agentID.rawValue + " event=" + eventName
+        // The payload is single-quoted so the shell hands JSON (with its
+        // double quotes) to printf verbatim; printf renders \033/\007.
+        let plainEmit = "printf '\\033]8737;" + presencePayloadJSON(agentID: agentID, state: state) + "\\007' > /dev/tty 2>/dev/null"
+        guard state == .sessionStarted, Self.sessionIDCapableJSONHookAgents.contains(agentID) else {
+            return plainEmit + " || true" + marker
+        }
+        // D-044: session-start hooks read the hook input JSON from stdin and
+        // forward the agent-native session id as presence metadata. The id is
+        // interpolated only through printf %s after the allowlist capture;
+        // hooks without a session id fall back to the plain payload.
+        let sessionEmit = "printf '\\033]8737;" + presencePayloadJSON(agentID: agentID, state: state, sessionIDFormatToken: true) + "\\007' \"$sid\" > /dev/tty 2>/dev/null"
+        return Self.sessionIDStdinExtractor
+            + "; if [ -n \"$sid\" ]; then " + sessionEmit
+            + "; else " + plainEmit
+            + "; fi; true" + marker
     }
 
     func mcpServerObject(_ server: AgentIntegration.AgentMCPServerDescriptor, request: AgentIntegration.AgentMCPProvisioningRequest) -> [String: Any] {
@@ -431,18 +538,29 @@ private extension AgentIntegration.ProviderStructuredAgentIntegrationProvisioner
         const namespace = "\(AgentIntegration.AgentPresenceSignal.namespace)";
         const agentID = "\(agentID.rawValue)";
         const marker = "\(Self.hookMarker)";
-        const emit = async ($, state) => {
+        // D-044 session-id allowlist: only ids matching this shape (leading
+        // char alphanumeric, so no option-like `-` prefixes) are ever
+        // forwarded; everything else is dropped, never sanitized in place.
+        const sessionIDPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+        const emit = async ($, state, sessionID) => {
           if (typeof $ !== "function") return;
-          const payload = JSON.stringify({ namespace, agentID, state });
+          const body = { namespace, agentID, state };
+          if (typeof sessionID === "string" && sessionIDPattern.test(sessionID)) {
+            body.sessionID = sessionID;
+          }
+          const payload = JSON.stringify(body);
           const command = "printf '\\033]8737;" + payload.replace(/'/g, "'\\\\''") + "\\007' > /dev/tty 2>/dev/null || true # " + marker;
           await $({ raw: command }).quiet().nothrow();
         };
+        export const SessionCreated = async ({ $, session, sessionID }) =>
+          emit($, "sessionStarted", (session && session.id) || sessionID);
         export const ToolBefore = async ({ $ }) => emit($, "busy");
         export const ToolAfter = async ({ $ }) => emit($, "turnCompleted");
         export const PermissionAsk = async ({ $ }) => emit($, "awaitingApproval");
         export const SessionIdle = async ({ $ }) => emit($, "awaitingInput");
         export const PermissionReplied = async ({ $ }) => emit($, "busy");
         export default async function fenrirPresencePlugin({ app }) {
+          app.on("session.created", SessionCreated);
           app.on("tool.execute.before", ToolBefore);
           app.on("tool.execute.after", ToolAfter);
           app.on("permission.ask", PermissionAsk);

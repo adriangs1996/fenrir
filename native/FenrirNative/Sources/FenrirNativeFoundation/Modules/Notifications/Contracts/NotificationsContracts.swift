@@ -6,6 +6,9 @@ public extension Notifications {
         case unavailable
         case notificationNotFound(NotificationID)
         case storeFailure(String)
+        /// D-043 sanitization left an empty payload; the event was dropped
+        /// and the caller should record a diagnostics count.
+        case malformedNotificationPayload
     }
 
     struct NotificationID: FenrirID, ExpressibleByStringLiteral {

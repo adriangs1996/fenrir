@@ -182,6 +182,60 @@ struct ProviderStructuredAgentIntegrationProvisionerTests {
         #expect((root["mcp"] as? [String: Any])?["fenrir"] != nil)
     }
 
+    @Test("Claude PermissionRequest installs the approval-feed bridge hook and removal prunes it")
+    func claudeApprovalFeedBridgeInstallsAndPrunes() async throws {
+        let store = AgentIntegration.InMemoryAgentIntegrationConfigFileStore()
+        let provisioner = providerStructuredProvisioner(store: store)
+        let request = provisioningRequest(agentID: .claudeCode)
+
+        let first = try await provisioner.installAgentIntegration(request)
+        let second = try await provisioner.installAgentIntegration(request)
+        let content = try #require(await store.content(at: claudeSettingsPath))
+        let root = try parseJSONObject(content)
+        let hooks = try #require(root["hooks"] as? [String: Any])
+        let permissionHooks = try #require(hooks["PermissionRequest"] as? [[String: Any]])
+        let commands = permissionHooks.flatMap { entry -> [String] in
+            ((entry["hooks"] as? [[String: Any]]) ?? []).compactMap { $0["command"] as? String }
+        }
+        let feedCommand = try #require(commands.first { $0.contains("feed=approval-v1") })
+
+        #expect(first.change == .installed)
+        #expect(second.change == .unchanged)
+        // The bridge posts to the local approval-feed endpoint with the pane
+        // env token and soft-waits; on any failure it must exit 0 neutrally.
+        #expect(feedCommand.contains("/api/agent-feed/requests"))
+        #expect(feedCommand.contains("FENRIR_HOOK_TOKEN"))
+        #expect(feedCommand.contains("--max-time 115"))
+        #expect(feedCommand.contains("out='{}'"))
+        #expect(feedCommand.contains(#"printf %s "$out"; exit 0"#))
+        // The blocking bridge coexists with the non-blocking presence hook.
+        #expect(commands.contains { $0.contains("com.fenrir.agent.presence.v1") })
+        // The blocking entry raises the hook timeout above the soft-wait.
+        let feedTimeouts = permissionHooks.flatMap { entry -> [Int] in
+            ((entry["hooks"] as? [[String: Any]]) ?? []).compactMap { hook in
+                (hook["command"] as? String)?.contains("feed=approval-v1") == true ? hook["timeout"] as? Int : nil
+            }
+        }
+        #expect(feedTimeouts == [125])
+
+        let removed = try await provisioner.removeAgentIntegration(request)
+        #expect(removed.change == .removed)
+        let removedContent = await store.content(at: claudeSettingsPath) ?? ""
+        #expect(!removedContent.contains("feed=approval-v1"))
+    }
+
+    @Test("non-Claude adapters install no approval-feed bridge hook")
+    func nonClaudeAdaptersHaveNoFeedBridge() async throws {
+        let store = AgentIntegration.InMemoryAgentIntegrationConfigFileStore()
+        let provisioner = providerStructuredProvisioner(store: store)
+
+        _ = try await provisioner.installAgentIntegration(provisioningRequest(agentID: .codex))
+        let codexContent = try #require(await store.content(at: codexHooksPath))
+
+        #expect(!codexContent.contains("agent-feed"))
+        #expect(!codexContent.contains("feed=approval-v1"))
+    }
+
     @Test("owned provider artifacts refuse non Fenrir files and create a backup")
     func ownedProviderArtifactsRefuseNonFenrirFiles() async throws {
         let store = AgentIntegration.InMemoryAgentIntegrationConfigFileStore()

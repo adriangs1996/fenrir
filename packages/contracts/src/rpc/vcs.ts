@@ -24,6 +24,8 @@ import {
   VcsStatusStreamEvent,
   VcsSwitchRefInput,
   VcsSwitchRefResult,
+  WorkspaceGitProbeInput,
+  WorkspaceGitProbeResult,
 } from "../git";
 import { VcsError } from "../vcs";
 import { WS_METHODS } from "./methods";
@@ -98,4 +100,10 @@ export const WsVcsSwitchRefRpc = Rpc.make(WS_METHODS.vcsSwitchRef, {
 export const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
   payload: VcsInitInput,
   error: VcsError,
+});
+
+export const WsWorkspaceGitProbeRpc = Rpc.make(WS_METHODS.workspaceGitProbe, {
+  payload: WorkspaceGitProbeInput,
+  success: WorkspaceGitProbeResult,
+  error: GitCommandError,
 });

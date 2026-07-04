@@ -234,6 +234,11 @@ public extension AgentIntegration {
         if let sequence = payload.sequence, sequence < 0 {
             throw AgentIntegrationError.malformedPresence("invalid-sequence")
         }
+        // D-044: session ids originate in-band, so anything outside the
+        // strict allowlist drops the whole signal before it can be stored.
+        if let sessionID = payload.sessionID, !isValidAgentSessionID(sessionID) {
+            throw AgentIntegrationError.malformedPresence("invalid-session-id")
+        }
 
         let emittedAt: FenrirTimestamp?
         if let timestamp = payload.timestamp {
@@ -250,6 +255,7 @@ public extension AgentIntegration {
             state: payload.state,
             provenance: signal.provenance,
             sequence: payload.sequence,
+            sessionID: payload.sessionID,
             emittedAt: emittedAt,
             ingestedAt: ingestedAt
         )

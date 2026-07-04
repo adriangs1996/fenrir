@@ -74,6 +74,10 @@ public extension ServerConnection {
         func shutdownLocalServer(processID: LocalServerProcessID) async throws
     }
 
+    protocol LocalServerForeignTerminating: Sendable {
+        func terminateUnmanagedLocalServer(endpoint: Endpoint) async throws
+    }
+
     protocol LocalServerSupervisorStateStore: Sendable {
         func loadLocalServerSupervisorState() async throws -> LocalServerSupervisorState?
         func saveLocalServerSupervisorState(_ state: LocalServerSupervisorState) async throws

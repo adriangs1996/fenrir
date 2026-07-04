@@ -16,15 +16,17 @@ import {
   type TmuxPaneStreamDescriptor,
   type TmuxPaneWriteResult,
   type TmuxPath,
+  type TmuxPermissionGrant,
   type TmuxNeovimPaneInput,
   type TmuxNeovimPaneMetadata,
   type TmuxWindow,
   type TmuxWorkspace,
   type TmuxWorkspaceSnapshot,
 } from "@fenrir/contracts";
-import { Effect, FileSystem, Layer, Path, Ref } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Ref } from "effect";
 import { createHash } from "node:crypto";
 
+import { AgentFeedHookCredential } from "../../agentFeed/Services/AgentFeedService";
 import { ServerConfig } from "../../config";
 import { isCommandAvailable as isSystemCommandAvailable } from "../../open";
 import { writeFileStringAtomically } from "../../atomicWrite";
@@ -68,6 +70,14 @@ interface WorkspaceRuntime {
   connection: TmuxControlModeConnection | null;
   unsubscribeControl: (() => void) | null;
   paneInputSeq: Map<TmuxPaneId, number>;
+  /**
+   * Panes restored from persisted metadata whose in-memory stream ring buffer
+   * is empty (a server restart discards it). The first stream subscription
+   * for such a pane seeds the buffer with the pane's visible tmux screen so
+   * reattaching clients render the pre-restart content instead of a blank
+   * viewport (D-046 stable-workspace reattach).
+   */
+  screenSeedPaneIds: Set<TmuxPaneId>;
 }
 
 interface ReconciledPaneRow {
@@ -660,6 +670,60 @@ function requirePermissions(
   );
 }
 
+const ENSURE_WORKSPACE_PERMISSIONS = ["workspace:read", "workspace:control"] as const;
+
+/**
+ * Auth session ids are minted per client boot, while tmux workspaces (and
+ * their persisted grants) outlive them: a workspace restored after a server
+ * restart — or still in memory across an app relaunch — carries grants keyed
+ * to session ids that can never authenticate again, so its rightful owner
+ * would be permanently locked out of `ensureWorkspace`.
+ *
+ * When the requesting actor lacks the ensure permissions but (a) the request
+ * carries `initialGrants` for that exact actor (the transport layer already
+ * verified those grants name the authenticated session) covering
+ * workspace:read + workspace:control, and (b) the workspace holds a grant for
+ * the SAME subject under a DIFFERENT session id, the stale same-subject
+ * grants are replaced by the offered ones. Actors whose subject never held a
+ * grant on the workspace remain denied exactly as before.
+ */
+function adoptGrantsForNewSession(
+  runtime: WorkspaceRuntime,
+  input: {
+    readonly actor: TmuxActor;
+    readonly initialGrants?: readonly TmuxPermissionGrant[] | undefined;
+  },
+): void {
+  if (
+    ENSURE_WORKSPACE_PERMISSIONS.every((permission) =>
+      hasPermission(runtime, input.actor, permission),
+    )
+  ) {
+    return;
+  }
+  const offeredGrants = (input.initialGrants ?? []).filter((grant) =>
+    actorMatches(grant.actor, input.actor),
+  );
+  const offersEnsurePermissions = ENSURE_WORKSPACE_PERMISSIONS.every((permission) =>
+    offeredGrants.some((grant) => grant.permissions.includes(permission)),
+  );
+  if (!offersEnsurePermissions) return;
+  const hasStaleSameSubjectGrant = runtime.workspace.grants.some(
+    (grant) =>
+      grant.actor.subject === input.actor.subject &&
+      grant.actor.sessionId !== input.actor.sessionId,
+  );
+  if (!hasStaleSameSubjectGrant) return;
+  runtime.workspace = {
+    ...runtime.workspace,
+    grants: [
+      ...runtime.workspace.grants.filter((grant) => grant.actor.subject !== input.actor.subject),
+      ...offeredGrants,
+    ],
+    updatedAt: nowIso(),
+  };
+}
+
 function permissionDeniedResult(input: {
   workspaceId: TmuxWorkspace["workspaceId"];
   paneId: TmuxPane["paneId"];
@@ -689,6 +753,14 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
       const services = yield* Effect.context<never>();
       const runDetached = Effect.runForkWith(services);
       const serverConfig = yield* ServerConfig;
+      // D-042: optional per-boot agent-feed hook credential. When present it
+      // is exported into tmux session environments so provisioned feed hooks
+      // can authenticate against the local approval-feed endpoint. Absent
+      // (e.g. in tests without the agent-feed layer) no token is exported
+      // and feed hooks simply fall back to the agent's own TUI.
+      const agentFeedHookCredential = Option.getOrNull(
+        yield* Effect.serviceOption(AgentFeedHookCredential),
+      );
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const persistencePath = path.join(serverConfig.stateDir, "tmux-workspaces", "metadata.json");
@@ -719,6 +791,9 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
             connection: null,
             unsubscribeControl: null,
             paneInputSeq: new Map(),
+            screenSeedPaneIds: new Set(
+              entry.panes.filter((pane) => pane.status !== "closed").map((pane) => pane.paneId),
+            ),
           });
         }
         return restored;
@@ -1024,6 +1099,44 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
           runDetached(drain);
         });
 
+      /**
+       * Appends pane bytes through the shared stream service and keeps the
+       * cached pane stream descriptor in sync. Shared by live control-mode
+       * output and by the restored-screen seeding path so both flow through
+       * identical overflow accounting.
+       */
+      const appendPaneStreamData = (
+        runtime: WorkspaceRuntime,
+        id: TmuxPaneId,
+        data: string,
+      ): Effect.Effect<void> =>
+        Effect.gen(function* () {
+          const pane = runtime.panes.get(id);
+          if (!pane) return;
+          const appendResult = yield* paneStreams.append(id, data).pipe(Effect.exit);
+          if (appendResult._tag === "Failure") return;
+          const overflow = appendResult.value.overflow;
+          const updatedPane = {
+            ...pane,
+            stream: appendResult.value.descriptor,
+            updatedAt: nowIso(),
+          };
+          runtime.panes.set(id, updatedPane);
+          if (overflow) {
+            bump(runtime);
+            yield* persistState.pipe(Effect.exit);
+            yield* publish({
+              type: "pane.stream-overflow",
+              workspaceId: runtime.workspace.workspaceId,
+              revision: runtime.revision,
+              occurredAt: nowIso(),
+              paneId: id,
+              stream: updatedPane.stream,
+              reason: overflow.reason,
+            });
+          }
+        });
+
       const handleControlEvent = (
         runtime: WorkspaceRuntime,
         event: TmuxControlModeEvent,
@@ -1043,30 +1156,7 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
           if (event.type === "pane-output" || event.type === "pane-extended-output") {
             const id = runtime.tmuxPaneToPaneId.get(event.paneId);
             if (!id) return;
-            const pane = runtime.panes.get(id);
-            if (!pane) return;
-            const appendResult = yield* paneStreams.append(id, event.data).pipe(Effect.exit);
-            if (appendResult._tag === "Failure") return;
-            const overflow = appendResult.value.overflow;
-            const updatedPane = {
-              ...pane,
-              stream: appendResult.value.descriptor,
-              updatedAt: nowIso(),
-            };
-            runtime.panes.set(id, updatedPane);
-            if (overflow) {
-              bump(runtime);
-              yield* persistState.pipe(Effect.exit);
-              yield* publish({
-                type: "pane.stream-overflow",
-                workspaceId: runtime.workspace.workspaceId,
-                revision: runtime.revision,
-                occurredAt: nowIso(),
-                paneId: id,
-                stream: updatedPane.stream,
-                reason: overflow.reason,
-              });
-            }
+            yield* appendPaneStreamData(runtime, id, event.data);
             return;
           }
           if (
@@ -1080,6 +1170,55 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
             yield* scheduleControlReconcile(runtime);
           }
         });
+
+      /**
+       * Workspace identity plus the D-042 agent-feed hook endpoint
+       * coordinates. Exported twice on purpose: as `new-session -e` entries so
+       * the session's INITIAL pane inherits them (see `connectRuntime`), and
+       * via `set-environment` so panes of pre-existing sessions created after
+       * connect pick them up too.
+       */
+      const sessionEnvironmentEntries = (
+        runtime: WorkspaceRuntime,
+      ): ReadonlyArray<readonly [string, string]> => [
+        ["FENRIR_WORKSPACE_ID", runtime.workspace.workspaceId],
+        ["FENRIR_SERVER_URL", `http://127.0.0.1:${serverConfig.port}`],
+        ...(agentFeedHookCredential
+          ? ([["FENRIR_HOOK_TOKEN", agentFeedHookCredential.token]] as const)
+          : []),
+      ];
+
+      /**
+       * Exports workspace identity plus the D-042 agent-feed hook endpoint
+       * coordinates into the tmux session environment, so panes created
+       * afterwards (and the agent hooks they spawn) can reach the local
+       * approval-feed endpoint. Panes created before a server restart keep a
+       * stale token; their hooks fail auth and reply neutrally, which is the
+       * intended TUI fallback. Failures here never block connecting.
+       */
+      const ensureSessionEnvironment = (runtime: WorkspaceRuntime): Effect.Effect<void> =>
+        Effect.gen(function* () {
+          yield* Effect.forEach(
+            sessionEnvironmentEntries(runtime),
+            ([key, value]) =>
+              runAdmin(runtime, [
+                "set-environment",
+                "-t",
+                runtime.workspace.tmuxSessionName,
+                key,
+                value,
+              ]),
+            { discard: true },
+          );
+        }).pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("Failed to export tmux session environment", {
+              workspaceId: runtime.workspace.workspaceId,
+              cause,
+            }),
+          ),
+          Effect.ignoreCause({ log: true }),
+        );
 
       const connectRuntime = (
         runtime: WorkspaceRuntime,
@@ -1096,6 +1235,10 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
               sessionName: runtime.workspace.tmuxSessionName,
               cwd: runtime.workspace.cwd,
               createIfMissing: true,
+              // Seeded at creation so the session's FIRST pane (whose shell
+              // spawns before any `set-environment` can run) already carries
+              // the D-042 hook coordinates.
+              environment: sessionEnvironmentEntries(runtime),
             })
             .pipe(
               Effect.mapError((cause) =>
@@ -1113,8 +1256,29 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
           runtime.connection = connection;
           runtime.unsubscribeControl = unsubscribe;
           runtime.workspace = { ...runtime.workspace, status: "running", updatedAt: nowIso() };
+          yield* ensureSessionEnvironment(runtime);
           return connection;
         });
+
+      /**
+       * Dumps the visible screen of a tmux pane (`capture-pane -p -e`) as a
+       * CRLF-delimited byte stream suitable for replay into a fresh terminal
+       * emulator. Trailing blank rows are dropped so the seeded cursor lands
+       * just after the last populated row (approximating the live cursor).
+       */
+      const captureVisibleScreen = (
+        runtime: WorkspaceRuntime,
+        pane: TmuxPane,
+      ): Effect.Effect<string, TmuxKernelError> =>
+        runAdmin(runtime, ["capture-pane", "-p", "-e", "-t", pane.tmuxPaneId]).pipe(
+          Effect.map((output) => {
+            const rows = output.replace(/\n+$/u, "").split("\n");
+            while (rows.length > 0 && (rows.at(-1) ?? "").trim().length === 0) {
+              rows.pop();
+            }
+            return rows.join("\r\n");
+          }),
+        );
 
       const getWindow = (
         runtime: WorkspaceRuntime,
@@ -1177,10 +1341,8 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
             const existingId = projectToWorkspace.get(input.projectId);
             const existing = existingId ? runtimes.get(existingId) : undefined;
             if (existing) {
-              yield* requirePermissions(existing, input.actor, [
-                "workspace:read",
-                "workspace:control",
-              ]);
+              adoptGrantsForNewSession(existing, input);
+              yield* requirePermissions(existing, input.actor, ENSURE_WORKSPACE_PERMISSIONS);
               yield* connectRuntime(existing);
               return yield* reconcile(existing);
             }
@@ -1194,10 +1356,12 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
                     workspaceId: input.workspaceId,
                   });
                 }
-                yield* requirePermissions(requestedRuntime, input.actor, [
-                  "workspace:read",
-                  "workspace:control",
-                ]);
+                adoptGrantsForNewSession(requestedRuntime, input);
+                yield* requirePermissions(
+                  requestedRuntime,
+                  input.actor,
+                  ENSURE_WORKSPACE_PERMISSIONS,
+                );
                 projectToWorkspace.set(input.projectId, input.workspaceId);
                 yield* Ref.set(projectToWorkspaceRef, projectToWorkspace);
                 yield* connectRuntime(requestedRuntime);
@@ -1241,6 +1405,7 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
               connection: null,
               unsubscribeControl: null,
               paneInputSeq: new Map(),
+              screenSeedPaneIds: new Set(),
             };
             runtimes.set(id, runtime);
             projectToWorkspace.set(input.projectId, id);
@@ -1571,15 +1736,80 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
             const runtime = yield* getRuntime(input.workspaceId);
             yield* requirePermission(runtime, input.actor, "pane:control", input.paneId);
             const pane = yield* getPane(runtime, input.paneId);
-            yield* runAdmin(runtime, [
-              "resize-pane",
+            const window = yield* getWindow(runtime, pane.windowId);
+            const cachedRunningSiblings = [...runtime.panes.values()].filter(
+              (candidate) => candidate.windowId === pane.windowId && candidate.status === "running",
+            ).length;
+            // Decide window-resize vs pane-resize from the LIVE tmux pane
+            // count: the cached runtime.panes map races concurrent pane
+            // creation (a split already applied in tmux but not yet
+            // reconciled), which would misclassify a multi-pane window as
+            // single-pane and clobber sibling panes with a window resize.
+            // The cached count remains the fallback when the query output is
+            // unparsable. A tiny TOCTOU window still exists between this
+            // query and the resize command below; that is acceptable because
+            // the next resize self-corrects.
+            const rawPaneCount = yield* runAdmin(runtime, [
+              "display-message",
+              "-p",
               "-t",
-              pane.tmuxPaneId,
-              "-x",
-              String(input.cols),
-              "-y",
-              String(input.rows),
-            ]);
+              window.tmuxWindowId,
+              "#{window_panes}",
+            ]).pipe(Effect.orElseSucceed(() => ""));
+            const livePaneCount = Number.parseInt(rawPaneCount.trim(), 10);
+            const paneCount =
+              Number.isInteger(livePaneCount) && livePaneCount > 0
+                ? livePaneCount
+                : cachedRunningSiblings;
+            // A pane can never outgrow its window, and server-owned windows
+            // have no sized client, so tmux pins them to its 80x24 default:
+            // `resize-pane` alone is a no-op there. Sizing the window is the
+            // only way to honor the client viewport.
+            if (paneCount <= 1) {
+              yield* runAdmin(runtime, [
+                "resize-window",
+                "-t",
+                window.tmuxWindowId,
+                "-x",
+                String(input.cols),
+                "-y",
+                String(input.rows),
+              ]);
+            } else {
+              const rawWindowSize = yield* runAdmin(runtime, [
+                "display-message",
+                "-p",
+                "-t",
+                window.tmuxWindowId,
+                "#{window_width} #{window_height}",
+              ]);
+              const [windowWidth = 0, windowHeight = 0] = rawWindowSize
+                .trim()
+                .split(/\s+/)
+                .map((value) => Number.parseInt(value, 10) || 0);
+              const targetWidth = Math.max(windowWidth, input.cols);
+              const targetHeight = Math.max(windowHeight, input.rows);
+              if (targetWidth !== windowWidth || targetHeight !== windowHeight) {
+                yield* runAdmin(runtime, [
+                  "resize-window",
+                  "-t",
+                  window.tmuxWindowId,
+                  "-x",
+                  String(targetWidth),
+                  "-y",
+                  String(targetHeight),
+                ]);
+              }
+              yield* runAdmin(runtime, [
+                "resize-pane",
+                "-t",
+                pane.tmuxPaneId,
+                "-x",
+                String(input.cols),
+                "-y",
+                String(input.rows),
+              ]);
+            }
             const updated = {
               ...pane,
               cols: input.cols,
@@ -1683,8 +1913,27 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
                 paneId: input.paneId,
               });
             }
-            yield* getPane(runtime, input.paneId);
-            return yield* paneStreams.subscribe(input);
+            const pane = yield* getPane(runtime, input.paneId);
+            // A restored pane's ring buffer is empty after a server restart,
+            // so a reattaching client would render blank until new output
+            // arrives. Seed the FIRST subscription with the pane's visible
+            // tmux screen; the delete-before-capture keeps concurrent
+            // subscribers from double-seeding, and capture failures (pane or
+            // session already gone) degrade to the old blank-until-output
+            // behavior instead of failing the subscription.
+            const needsScreenSeed =
+              runtime.screenSeedPaneIds.delete(input.paneId) && pane.status === "running";
+            const screenSeed = needsScreenSeed
+              ? yield* captureVisibleScreen(runtime, pane).pipe(Effect.orElseSucceed(() => ""))
+              : "";
+            const stream = yield* paneStreams.subscribe(input);
+            if (screenSeed.length > 0) {
+              // Appended AFTER the subscription registers so every backfill
+              // mode — including "latest", which skips buffered history —
+              // receives the restored screen as a live chunk.
+              yield* appendPaneStreamData(runtime, input.paneId, screenSeed);
+            }
+            return stream;
           }),
 
         subscribe: (input, listener) =>

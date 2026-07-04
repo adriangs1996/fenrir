@@ -427,7 +427,13 @@ private extension AgentIntegration.ManagedAgentIntegrationProvisioner {
             "fenrir.agent.integration.version=\(version.rawValue)",
             "fenrir.agent.presence.osc=\(AgentIntegration.AgentPresenceSignal.oscIdentifier)",
             "fenrir.agent.presence.namespace=\(AgentIntegration.AgentPresenceSignal.namespace)",
-            "fenrir.agent.presence.mode=metadata-only"
+            "fenrir.agent.presence.mode=metadata-only",
+            // D-044: session-start presence events carry the agent-native
+            // session id (when the CLI exposes one) so dead agent panes stay
+            // resumable. Ids stay metadata; commands come only from the
+            // client-side resume descriptor table.
+            "fenrir.agent.presence.session_start.session_id=include-when-available",
+            "fenrir.agent.presence.session_id.pattern=\(AgentIntegration.agentSessionIDPattern)"
         ].joined(separator: "\n")
     }
 

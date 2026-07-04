@@ -213,6 +213,40 @@ describe("TmuxControlModeAdapterLive", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("passes session environment entries as new-session -e arguments", () => {
+    const { adapter, layer } = makeTestLayer();
+
+    return Effect.gen(function* () {
+      const control = yield* TmuxControlModeAdapter;
+      yield* control.connect({
+        sessionName: "fenrir-proj-1",
+        cwd: "/tmp/project",
+        createIfMissing: true,
+        environment: [
+          ["FENRIR_WORKSPACE_ID", "workspace-env"],
+          ["FENRIR_HOOK_TOKEN", "hook-token"],
+        ],
+      });
+
+      // `-e` applies the entries before the initial pane's shell spawns, so
+      // the session's FIRST pane inherits them (set-environment after connect
+      // only reaches later panes).
+      expect(adapter.spawnCalls[0]?.args).toEqual([
+        "-C",
+        "new-session",
+        "-A",
+        "-s",
+        "fenrir-proj-1",
+        "-c",
+        "/tmp/project",
+        "-e",
+        "FENRIR_WORKSPACE_ID=workspace-env",
+        "-e",
+        "FENRIR_HOOK_TOKEN=hook-token",
+      ]);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("fails initial connect when tmux control-mode cannot spawn", () => {
     const { adapter, layer } = makeTestLayer();
     adapter.spawnFailures.push(new Error("tmux executable unavailable"));

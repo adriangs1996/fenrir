@@ -60,10 +60,35 @@ protocol NativeLocalServerHTTPProbing: Sendable {
     func probeLocalServer(_ request: NativeLocalServerHTTPProbeRequest) async throws -> NativeLocalServerHTTPProbeResponse
 }
 
+/// A process currently listening on the local server port, with the identity
+/// data required to decide whether it may be replaced (D-019 safety: the
+/// native client must never kill a server owned by another live process).
+struct NativeListeningServerProcess: Equatable, Sendable {
+    let processID: pid_t
+    let parentProcessID: pid_t
+    let command: String
+}
+
+enum NativeLocalServerListenerDecision: Equatable, Sendable {
+    /// A Fenrir local server whose parent process is gone (re-parented to
+    /// launchd): an orphan from a crashed/killed app instance. Safe to replace.
+    case terminateOrphanedServer
+    /// A Fenrir local server whose parent process is still alive — owned by a
+    /// concurrently running Fenrir instance (or a user shell). Never killed.
+    case keepLiveOwnedServer
+    /// Not recognizable as a Fenrir local server at kill time. Never killed.
+    case keepForeignProcess
+}
+
+protocol NativeLocalServerPortListenerEnumerating: Sendable {
+    func listeningServerProcesses(port: Int) async throws -> [NativeListeningServerProcess]
+}
+
 struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
     ServerConnection.LocalServerReadinessChecking,
     ServerConnection.LocalServerSpawning,
-    ServerConnection.LocalServerProcessManaging
+    ServerConnection.LocalServerProcessManaging,
+    ServerConnection.LocalServerForeignTerminating
 {
     static let defaultHost = "127.0.0.1"
     static let defaultPort = 31337
@@ -78,6 +103,8 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
     private let probePath: String
     private let pollIntervalMilliseconds: Int
     private let ownership: NativeLocalServerProcessOwnership
+    private let portListeners: any NativeLocalServerPortListenerEnumerating
+    private let signalProcess: @Sendable (pid_t, Int32) -> Void
 
     init(
         launchConfiguration: NativeLocalServerLaunchConfiguration,
@@ -86,7 +113,9 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
         clock: any FenrirClock = SystemFenrirClock(),
         probePath: String = NativeLocalServerSupervisor.defaultProbePath,
         pollIntervalMilliseconds: Int = 100,
-        ownership: NativeLocalServerProcessOwnership = NativeLocalServerProcessOwnership()
+        ownership: NativeLocalServerProcessOwnership = NativeLocalServerProcessOwnership(),
+        portListeners: any NativeLocalServerPortListenerEnumerating = NativeLSOFPortListenerEnumerator(),
+        signalProcess: @escaping @Sendable (pid_t, Int32) -> Void = { kill($0, $1) }
     ) {
         self.launchConfiguration = launchConfiguration
         self.launcher = launcher
@@ -95,6 +124,8 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
         self.probePath = probePath
         self.pollIntervalMilliseconds = max(1, pollIntervalMilliseconds)
         self.ownership = ownership
+        self.portListeners = portListeners
+        self.signalProcess = signalProcess
     }
 
     static func localDefault(
@@ -287,6 +318,108 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
         } catch {
             throw ServerConnection.ServerConnectionError.localServerSpawnFailed
         }
+    }
+
+    /// Replaces an orphaned Fenrir local server occupying the endpoint's port.
+    ///
+    /// Safety contract (D-019, reliability-first): identity and ownership are
+    /// verified per-pid at kill time — a listener is only signalled when its
+    /// command line is recognizably a Fenrir local server AND its parent
+    /// process is gone (re-parented to launchd), i.e. it was orphaned by a
+    /// crashed or force-quit app instance. A server owned by another live
+    /// Fenrir instance (or any foreign process that appears on the port,
+    /// including between the discovery probe and this call) is never killed;
+    /// the preparation fails with `.localServerForeignOwned` instead.
+    func terminateUnmanagedLocalServer(endpoint: ServerConnection.Endpoint) async throws {
+        guard let httpBaseURL = endpoint.httpBaseURL,
+              let components = URLComponents(string: httpBaseURL),
+              let port = components.port
+        else {
+            throw ServerConnection.ServerConnectionError.localServerShutdownFailed
+        }
+
+        let listeners = try await listenersEligibleForTermination(port: port)
+        guard !listeners.isEmpty else {
+            return
+        }
+        NSLog(
+            "Fenrir Native terminating orphaned local server port=%d pids=%@",
+            port,
+            listeners.map { String($0.processID) }.joined(separator: ",")
+        )
+        for listener in listeners {
+            signalProcess(listener.processID, SIGTERM)
+        }
+
+        let gracefulDeadline = Date().addingTimeInterval(5)
+        while Date() < gracefulDeadline {
+            if try await portListeners.listeningServerProcesses(port: port).isEmpty {
+                return
+            }
+            try await Task.sleep(nanoseconds: UInt64(pollIntervalMilliseconds) * 1_000_000)
+        }
+
+        // Escalation re-verifies identity and ownership at kill time: the pid
+        // set may have changed while waiting for the graceful shutdown.
+        for listener in try await listenersEligibleForTermination(port: port) {
+            signalProcess(listener.processID, SIGKILL)
+        }
+        let forcedDeadline = Date().addingTimeInterval(3)
+        while Date() < forcedDeadline {
+            if try await portListeners.listeningServerProcesses(port: port).isEmpty {
+                return
+            }
+            try await Task.sleep(nanoseconds: UInt64(pollIntervalMilliseconds) * 1_000_000)
+        }
+        throw ServerConnection.ServerConnectionError.localServerShutdownFailed
+    }
+
+    /// Enumerates the port's listeners and requires every one of them to be a
+    /// replaceable orphaned Fenrir server. If any listener is foreign or is
+    /// owned by a live parent process, nothing is killed and the whole
+    /// replacement is refused — killing the eligible subset could not free
+    /// the port anyway and would only destroy state.
+    private func listenersEligibleForTermination(port: Int) async throws -> [NativeListeningServerProcess] {
+        let listeners = try await portListeners.listeningServerProcesses(port: port)
+        var eligible: [NativeListeningServerProcess] = []
+        for listener in listeners {
+            switch Self.terminationDecision(for: listener) {
+            case .terminateOrphanedServer:
+                eligible.append(listener)
+            case .keepLiveOwnedServer, .keepForeignProcess:
+                NSLog(
+                    "Fenrir Native refusing to terminate local server listener pid=%d ppid=%d decision=%@",
+                    listener.processID,
+                    listener.parentProcessID,
+                    String(describing: Self.terminationDecision(for: listener))
+                )
+                throw ServerConnection.ServerConnectionError.localServerForeignOwned
+            }
+        }
+        return eligible
+    }
+
+    static func terminationDecision(for listener: NativeListeningServerProcess) -> NativeLocalServerListenerDecision {
+        guard isRecognizedFenrirServerCommand(listener.command) else {
+            return .keepForeignProcess
+        }
+        // A server spawned by a Fenrir app is a direct child of that app
+        // process; once the app dies the server is re-parented to launchd
+        // (ppid 1). A live parent therefore means another running instance
+        // (or a user shell) still owns this server.
+        guard listener.parentProcessID <= 1 else {
+            return .keepLiveOwnedServer
+        }
+        return .terminateOrphanedServer
+    }
+
+    static func isRecognizedFenrirServerCommand(_ command: String) -> Bool {
+        let lowered = command.lowercased()
+        if lowered.contains("fenrir-server") {
+            return true
+        }
+        // Development launch: `bun run src/bin.ts --mode desktop …`.
+        return lowered.contains("bun") && lowered.contains("bin.ts")
     }
 
     func shutdownLocalServer(processID: ServerConnection.LocalServerProcessID) async throws {
@@ -497,6 +630,86 @@ struct NativeLocalServerSupervisor: ServerConnection.LocalServerDiscovering,
 enum NativeLocalServerSupervisorError: Error, Sendable {
     case missing
     case unhealthy
+}
+
+/// Enumerates listeners on a TCP port via `lsof`, then resolves parent pid
+/// and command line per listener via `ps`. All subprocess execution is
+/// asynchronous — no Swift-concurrency thread is ever blocked on pipe reads
+/// or process exit (the supervisor polls this inside its shutdown loops).
+struct NativeLSOFPortListenerEnumerator: NativeLocalServerPortListenerEnumerating {
+    func listeningServerProcesses(port: Int) async throws -> [NativeListeningServerProcess] {
+        let lsofOutput = try await NativeAsyncSubprocess.runCollectingStandardOutput(
+            executableURL: URL(fileURLWithPath: "/usr/sbin/lsof"),
+            arguments: ["-nP", "-iTCP:\(port)", "-sTCP:LISTEN", "-t"]
+        )
+        let processIDs = lsofOutput
+            .split(whereSeparator: \.isNewline)
+            .compactMap { pid_t($0.trimmingCharacters(in: .whitespaces)) }
+            .filter { $0 > 0 }
+        guard !processIDs.isEmpty else {
+            return []
+        }
+
+        let psOutput = try await NativeAsyncSubprocess.runCollectingStandardOutput(
+            executableURL: URL(fileURLWithPath: "/bin/ps"),
+            arguments: ["-o", "pid=,ppid=,command=", "-p", processIDs.map(String.init).joined(separator: ",")]
+        )
+        return Self.parseProcessListing(psOutput, restrictedTo: Set(processIDs))
+    }
+
+    /// Parses `ps -o pid=,ppid=,command=` output rows. Rows for pids outside
+    /// `restrictedTo` (or unparsable rows) are dropped.
+    static func parseProcessListing(_ output: String, restrictedTo processIDs: Set<pid_t>) -> [NativeListeningServerProcess] {
+        output.split(whereSeparator: \.isNewline).compactMap { line in
+            let fields = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard fields.count >= 3,
+                  let processID = pid_t(fields[0]),
+                  let parentProcessID = pid_t(fields[1]),
+                  processIDs.contains(processID)
+            else {
+                return nil
+            }
+            let command = fields[2...].joined(separator: " ")
+            return NativeListeningServerProcess(
+                processID: processID,
+                parentProcessID: parentProcessID,
+                command: command
+            )
+        }
+    }
+}
+
+enum NativeAsyncSubprocess {
+    /// Runs a subprocess and collects its standard output without blocking a
+    /// Swift-concurrency thread: stdout is consumed through the FileHandle
+    /// async-bytes sequence and process exit is awaited via the termination
+    /// handler. A non-zero exit status is not an error — callers parse
+    /// whatever output was produced (`lsof` exits 1 when nothing matches).
+    static func runCollectingStandardOutput(
+        executableURL: URL,
+        arguments: [String]
+    ) async throws -> String {
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+
+        let exited = AsyncStream<Void> { continuation in
+            process.terminationHandler = { _ in
+                continuation.finish()
+            }
+        }
+        try process.run()
+
+        var data = Data()
+        for try await byte in stdoutPipe.fileHandleForReading.bytes {
+            data.append(byte)
+        }
+        for await _ in exited {}
+        return String(decoding: data, as: UTF8.self)
+    }
 }
 
 actor NativeLocalServerProcessOwnership {

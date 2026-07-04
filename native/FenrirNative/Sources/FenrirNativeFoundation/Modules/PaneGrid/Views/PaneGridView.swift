@@ -14,6 +14,9 @@ public extension PaneGrid {
         public let paneHeaderBackground: NSColor
         public let paneBorder: NSColor
         public let focusedPaneBorder: NSColor
+        /// D-045 attention ring: panes whose agent presence is awaiting input
+        /// draw this border (attention slot of the shell theme tokens).
+        public let attentionPaneBorder: NSColor
         public let headerPrimaryText: NSColor
         public let headerSecondaryText: NSColor
         public let tabText: NSColor
@@ -26,6 +29,7 @@ public extension PaneGrid {
             paneHeaderBackground: NSColor,
             paneBorder: NSColor,
             focusedPaneBorder: NSColor,
+            attentionPaneBorder: NSColor? = nil,
             headerPrimaryText: NSColor,
             headerSecondaryText: NSColor,
             tabText: NSColor,
@@ -37,6 +41,7 @@ public extension PaneGrid {
             self.paneHeaderBackground = paneHeaderBackground
             self.paneBorder = paneBorder
             self.focusedPaneBorder = focusedPaneBorder
+            self.attentionPaneBorder = attentionPaneBorder ?? focusedPaneBorder
             self.headerPrimaryText = headerPrimaryText
             self.headerSecondaryText = headerSecondaryText
             self.tabText = tabText
@@ -44,12 +49,20 @@ public extension PaneGrid {
             self.activeTabUnderline = activeTabUnderline
         }
 
+        /// Token-definition fallback used only by tests and previews. The live
+        /// app never renders this style: the composition root
+        /// (FenrirNativeApp/main.swift) always injects a PaneGridStyle resolved
+        /// from NativeShellThemeTokens (D-041). System semantic colors are used
+        /// here so the fallback adapts to either appearance; defining them in
+        /// this token set does not violate the "no hardcoded colors in
+        /// surfaces" rule because PaneGridStyle IS the token set.
         public static let system = PaneGridStyle(
             background: .black,
             paneBackground: .black,
             paneHeaderBackground: .controlBackgroundColor,
             paneBorder: .separatorColor,
             focusedPaneBorder: .keyboardFocusIndicatorColor,
+            attentionPaneBorder: .systemOrange,
             headerPrimaryText: .labelColor,
             headerSecondaryText: .secondaryLabelColor,
             tabText: .secondaryLabelColor,
@@ -71,6 +84,7 @@ public extension PaneGrid {
         private let showsWindowTabBar: Bool
         private var terminalViewsByViewportID: [ViewportID: FenrirTerminalView] = [:]
         private var paneViewsByPaneID: [PaneID: PaneView] = [:]
+        private var attentionPaneIDs: Set<PaneID> = []
         private let rootStack = NSStackView()
         private let tabBar = NSStackView()
         private let contentHost = NSView()
@@ -99,6 +113,58 @@ public extension PaneGrid {
         public func apply(_ nextState: State) {
             state = nextState
             rebuild()
+        }
+
+        /// D-045 attention ring: marks the given panes as awaiting input.
+        /// Driven exclusively by agent presence records (D-038); the grid
+        /// never derives attention from pane content.
+        public func applyAttentionPaneIDs(_ paneIDs: Set<PaneID>) {
+            guard paneIDs != attentionPaneIDs else {
+                return
+            }
+            attentionPaneIDs = paneIDs
+            for (paneID, paneView) in paneViewsByPaneID {
+                paneView.setPaneAttention(paneIDs.contains(paneID))
+            }
+        }
+
+        public func renderedAttentionPaneIDs() -> [PaneID] {
+            attentionPaneIDs.sorted { $0.rawValue < $1.rawValue }
+                .filter { paneViewsByPaneID[$0] != nil }
+        }
+
+        /// Border state actually applied to a rendered pane's backing layer.
+        /// Lets tests assert that focus and attention compose (D-045) instead
+        /// of one signal replacing the other.
+        public struct PaneBorderRendering: Equatable, Sendable {
+            public enum ColorRole: Equatable, Sendable {
+                case standard
+                case focused
+                case attention
+            }
+
+            public let colorRole: ColorRole
+            public let borderWidth: CGFloat
+            public let isFocused: Bool
+            public let hasAttention: Bool
+
+            public init(colorRole: ColorRole, borderWidth: CGFloat, isFocused: Bool, hasAttention: Bool) {
+                self.colorRole = colorRole
+                self.borderWidth = borderWidth
+                self.isFocused = isFocused
+                self.hasAttention = hasAttention
+            }
+        }
+
+        public func paneBorderRendering(_ paneID: PaneID) -> PaneBorderRendering? {
+            paneViewsByPaneID[paneID]?.borderRendering()
+        }
+
+        public func renderedFocusedPaneIDs() -> [PaneID] {
+            paneViewsByPaneID
+                .filter { $0.value.borderRendering().isFocused }
+                .keys
+                .sorted { $0.rawValue < $1.rawValue }
         }
 
         public func renderedPaneIDs() -> [PaneID] {
@@ -317,6 +383,7 @@ public extension PaneGrid {
         private func paneView(for pane: PanePresentation) -> PaneView {
             let terminal = terminalView(for: pane)
             let view = PaneView(pane: pane, terminalView: terminal, style: style)
+            view.setPaneAttention(attentionPaneIDs.contains(pane.paneID))
             view.onFocusRequested = { [weak self] paneID in
                 _ = self?.focusPane(paneID)
             }
@@ -350,10 +417,10 @@ public extension PaneGrid {
             for (paneID, paneView) in paneViewsByPaneID {
                 let isFocused = paneID == focusedPaneID
                 paneView.setPaneFocused(isFocused)
+                // setTerminalFocused(true) hands first responder to the
+                // backend's input view; making the container view first
+                // responder instead would swallow keystrokes.
                 paneView.terminalView.setTerminalFocused(isFocused)
-                if isFocused {
-                    window?.makeFirstResponder(paneView.terminalView)
-                }
             }
         }
 
@@ -384,6 +451,8 @@ private final class PaneView: NSView {
     private let title = NSTextField(labelWithString: "")
     private let paneLocation = NSTextField(labelWithString: "")
     private var lastTerminalSize: TerminalViewport.Size?
+    private var isPaneFocused = false
+    private var hasPaneAttention = false
 
     init(pane: PaneGrid.PanePresentation, terminalView: FenrirTerminalView, style: PaneGrid.PaneGridStyle = .system) {
         self.paneID = pane.paneID
@@ -412,10 +481,49 @@ private final class PaneView: NSView {
     }
 
     func setPaneFocused(_ focused: Bool) {
-        layer?.borderWidth = 1
-        layer?.borderColor = focused
+        isPaneFocused = focused
+        applyBorder()
+    }
+
+    /// D-045 attention ring: attention (awaiting-input presence) composes with
+    /// focus instead of replacing it. See applyBorder() for the composition.
+    func setPaneAttention(_ attention: Bool) {
+        hasPaneAttention = attention
+        applyBorder()
+    }
+
+    /// Border composition (D-045): attention always wins the border COLOR so a
+    /// waiting pane stays visible across the whole grid, while focus stays
+    /// legible through border WIDTH — the focused pane is always the thick one,
+    /// with or without attention.
+    private func applyBorder() {
+        layer?.borderWidth = isPaneFocused ? 2 : 1
+        if hasPaneAttention {
+            layer?.borderColor = style.attentionPaneBorder.cgColor
+            return
+        }
+        layer?.borderColor = isPaneFocused
             ? style.focusedPaneBorder.cgColor
             : style.paneBorder.cgColor
+    }
+
+    /// Test/diagnostics introspection of the border actually applied to the
+    /// backing layer (not just the stored flags).
+    func borderRendering() -> PaneGrid.AppKitPaneGridView.PaneBorderRendering {
+        let colorRole: PaneGrid.AppKitPaneGridView.PaneBorderRendering.ColorRole
+        if layer?.borderColor == style.attentionPaneBorder.cgColor {
+            colorRole = .attention
+        } else if layer?.borderColor == style.focusedPaneBorder.cgColor {
+            colorRole = .focused
+        } else {
+            colorRole = .standard
+        }
+        return PaneGrid.AppKitPaneGridView.PaneBorderRendering(
+            colorRole: colorRole,
+            borderWidth: layer?.borderWidth ?? 0,
+            isFocused: isPaneFocused,
+            hasAttention: hasPaneAttention
+        )
     }
 
     private func resizeTerminalForCurrentBounds() {

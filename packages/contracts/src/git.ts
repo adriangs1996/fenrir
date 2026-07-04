@@ -551,3 +551,49 @@ export const GitActionProgressEvent = Schema.Union([
   GitActionFailedEvent,
 ]);
 export type GitActionProgressEvent = typeof GitActionProgressEvent.Type;
+
+// D-045 workspace git/PR probe: cheap sidebar row metadata (branch,
+// ahead/behind, PR number/state/checks). Served by the server-side probe
+// contract — native/web clients never shell out to `git`/`gh` or scrape
+// panes for this data.
+
+export const WorkspaceGitProbeInput = Schema.Struct({
+  /** Canonical workspace path to probe (the workspace root). */
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type WorkspaceGitProbeInput = typeof WorkspaceGitProbeInput.Type;
+
+export const WorkspaceGitProbePullRequestState = Schema.Literals([
+  "open",
+  "draft",
+  "merged",
+  "closed",
+]);
+export type WorkspaceGitProbePullRequestState = typeof WorkspaceGitProbePullRequestState.Type;
+
+export const WorkspaceGitProbeChecksState = Schema.Literals(["pass", "fail", "pending", "unknown"]);
+export type WorkspaceGitProbeChecksState = typeof WorkspaceGitProbeChecksState.Type;
+
+export const WorkspaceGitProbePullRequest = Schema.Struct({
+  number: PositiveInt,
+  state: WorkspaceGitProbePullRequestState,
+  checks: WorkspaceGitProbeChecksState,
+  url: Schema.String,
+});
+export type WorkspaceGitProbePullRequest = typeof WorkspaceGitProbePullRequest.Type;
+
+export const WorkspaceGitProbeResult = Schema.Struct({
+  /** Current branch, or null when detached / not a repository. */
+  branch: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  /** Commits ahead of upstream; null when unknown (no upstream / no repo). */
+  ahead: Schema.NullOr(NonNegativeInt),
+  /** Commits behind upstream; null when unknown (no upstream / no repo). */
+  behind: Schema.NullOr(NonNegativeInt),
+  /**
+   * Pull request for the current branch, or null when there is none — or the
+   * probe cannot know (gh missing/unauthenticated). Absence is always
+   * graceful, never an error.
+   */
+  pr: Schema.NullOr(WorkspaceGitProbePullRequest),
+});
+export type WorkspaceGitProbeResult = typeof WorkspaceGitProbeResult.Type;

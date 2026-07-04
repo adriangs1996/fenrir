@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+import { AgentFeedHookCredential } from "../../agentFeed/Services/AgentFeedService";
 import { ServerConfig } from "../../config";
 import { makeTmuxWorkspaceServiceLive } from "../Layers/TmuxWorkspaceService";
 import { TmuxPaneStreamServiceLive } from "../Layers/TmuxPaneStreamService";
@@ -21,6 +22,7 @@ import {
   TmuxControlModeError,
   type TmuxControlModeAdapterShape,
   type TmuxControlModeCommandInput,
+  type TmuxControlModeConnectInput,
   type TmuxControlModeConnection,
   type TmuxControlModeConnectionStatus,
   type TmuxControlModeEvent,
@@ -135,6 +137,10 @@ const OTHER_GRANT = {
   ...AUTH_GRANT,
   actor: OTHER_ACTOR,
 };
+const FOREIGN_SUBJECT_ACTOR = {
+  sessionId: AuthSessionId.make("auth-session-3"),
+  subject: "someone-else",
+} as const;
 
 interface FakePane {
   id: string;
@@ -151,6 +157,8 @@ interface FakeWindow {
   index: number;
   name: string;
   active: boolean;
+  cols: number;
+  rows: number;
   panes: FakePane[];
 }
 
@@ -159,6 +167,7 @@ interface FakeSession {
   cwd: string;
   windows: FakeWindow[];
   options: Map<string, string>;
+  environment: Map<string, string>;
 }
 
 class FakeControlModeConnection implements TmuxControlModeConnection {
@@ -232,10 +241,12 @@ class FakeControlModeConnection implements TmuxControlModeConnection {
 
 class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
   readonly connections: FakeControlModeConnection[] = [];
+  readonly connectCalls: TmuxControlModeConnectInput[] = [];
   readonly adminCalls: string[][] = [];
   readonly adminFailures: Error[] = [];
   readonly adminFailuresByCommand = new Map<string, Error>();
   readonly connectFailures: Error[] = [];
+  readonly capturedScreens = new Map<string, string>();
   nvimAvailable = true;
   private nextPid = 3000;
   private nextWindow = 1;
@@ -243,7 +254,8 @@ class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
   private readonly outputEnabledPanes = new Set<string>();
   private readonly sessions = new Map<string, FakeSession>();
 
-  connect(input: { readonly sessionName: string; readonly cwd: string }) {
+  connect(input: TmuxControlModeConnectInput) {
+    this.connectCalls.push(input);
     const failure = this.connectFailures.shift();
     if (failure) {
       return Effect.fail(
@@ -262,6 +274,7 @@ class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
         cwd: input.cwd,
         windows: [this.makeWindow("shell", input.cwd, true)],
         options: new Map(),
+        environment: new Map(),
       };
       this.sessions.set(input.sessionName, session);
     }
@@ -308,6 +321,7 @@ class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
       cwd,
       windows: [this.makeWindow("shell", cwd, true)],
       options: new Map(),
+      environment: new Map(),
     });
   }
 
@@ -344,6 +358,8 @@ class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
       index: this.nextWindow - 2,
       name,
       active,
+      cols: 80,
+      rows: 24,
       panes: [this.makePane(cwd, true)],
     };
   }
@@ -413,7 +429,17 @@ class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
   private runAdmin(args: readonly string[]): string {
     const command = args[0];
     if (command === "display-message") {
-      const session = this.sessionByTarget(args[args.indexOf("-t") + 1] ?? "");
+      const target = args[args.indexOf("-t") + 1] ?? "";
+      const window = [...this.sessions.values()]
+        .flatMap((session) => session.windows)
+        .find((candidate) => candidate.id === target);
+      if (window) {
+        return (args.at(-1) ?? "")
+          .replaceAll("#{window_width}", String(window.cols))
+          .replaceAll("#{window_height}", String(window.rows))
+          .replaceAll("#{window_panes}", String(window.panes.length));
+      }
+      const session = this.sessionByTarget(target);
       const format = args.at(-1) ?? "";
       const match = /^#\{(.+)\}$/.exec(format);
       return match ? (session.options.get(match[1]!) ?? "") : "";
@@ -421,6 +447,11 @@ class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
     if (command === "set-option") {
       const session = this.sessionByTarget(args[args.indexOf("-t") + 1] ?? "");
       session.options.set(args.at(-2) ?? "", args.at(-1) ?? "");
+      return "";
+    }
+    if (command === "set-environment") {
+      const session = this.sessionByTarget(args[args.indexOf("-t") + 1] ?? "");
+      session.environment.set(args.at(-2) ?? "", args.at(-1) ?? "");
       return "";
     }
     if (command === "list-panes") {
@@ -470,6 +501,16 @@ class FakeControlModeAdapter implements TmuxControlModeAdapterShape {
       pane.cols = Number(args[args.indexOf("-x") + 1] ?? pane.cols);
       pane.rows = Number(args[args.indexOf("-y") + 1] ?? pane.rows);
       return "";
+    }
+    if (command === "resize-window") {
+      const { window } = this.findWindow(args[args.indexOf("-t") + 1] ?? "");
+      window.cols = Number(args[args.indexOf("-x") + 1] ?? window.cols);
+      window.rows = Number(args[args.indexOf("-y") + 1] ?? window.rows);
+      return "";
+    }
+    if (command === "capture-pane") {
+      const { pane } = this.findPane(args[args.indexOf("-t") + 1] ?? "");
+      return this.capturedScreens.get(pane.id) ?? "";
     }
     if (command === "kill-pane") {
       const { window, pane } = this.findPane(args[args.indexOf("-t") + 1] ?? "");
@@ -528,6 +569,80 @@ describe("TmuxWorkspaceServiceLive", () => {
       expect(snapshot.panes).toHaveLength(1);
       expect(adapter.connections).toHaveLength(1);
       expect(adapter.adminCalls.some((args) => args[0] === "list-panes")).toBe(true);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("exports workspace identity and server URL into the tmux session environment", () => {
+    const { adapter, layer } = makeLayer();
+
+    return Effect.gen(function* () {
+      const service = yield* TmuxWorkspaceService;
+      const snapshot = yield* service.ensureWorkspace({
+        actor: AUTH_ACTOR,
+        projectId: ProjectId.make("project-env"),
+        cwd: "/tmp/project",
+        initialGrants: [AUTH_GRANT],
+      });
+
+      const environmentCalls = adapter.adminCalls.filter((args) => args[0] === "set-environment");
+      const exportedKeys = environmentCalls.map((args) => args.at(-2));
+      expect(exportedKeys).toContain("FENRIR_WORKSPACE_ID");
+      expect(exportedKeys).toContain("FENRIR_SERVER_URL");
+      // No agent-feed credential provided: the hook token must not appear.
+      expect(exportedKeys).not.toContain("FENRIR_HOOK_TOKEN");
+      const workspaceIdCall = environmentCalls.find(
+        (args) => args.at(-2) === "FENRIR_WORKSPACE_ID",
+      );
+      expect(workspaceIdCall?.at(-1)).toBe(snapshot.workspace.workspaceId);
+      // The same entries ride `new-session -e` so the session's INITIAL pane
+      // (spawned before any set-environment can run) inherits them too.
+      const connectEnvironmentKeys = (adapter.connectCalls[0]?.environment ?? []).map(
+        ([key]) => key,
+      );
+      expect(connectEnvironmentKeys).toContain("FENRIR_WORKSPACE_ID");
+      expect(connectEnvironmentKeys).toContain("FENRIR_SERVER_URL");
+      expect(connectEnvironmentKeys).not.toContain("FENRIR_HOOK_TOKEN");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("exports the agent-feed hook token when the credential is provided", () => {
+    const adapter = new FakeControlModeAdapter();
+    const configLayer = ServerConfig.layerTest(process.cwd(), {
+      prefix: "fenrir-tmux-workspace-",
+    }).pipe(Layer.provide(NodeServices.layer));
+    const layer = makeTmuxWorkspaceServiceLive({
+      isCommandAvailable: (command) => adapter.isCommandAvailable(command),
+    }).pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          NodeServices.layer,
+          configLayer,
+          Layer.succeed(TmuxControlModeAdapter, adapter),
+          TmuxPaneStreamServiceLive,
+          Layer.succeed(AgentFeedHookCredential, { token: "hook-token-test" }),
+        ),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const service = yield* TmuxWorkspaceService;
+      yield* service.ensureWorkspace({
+        actor: AUTH_ACTOR,
+        projectId: ProjectId.make("project-env-token"),
+        cwd: "/tmp/project",
+        initialGrants: [AUTH_GRANT],
+      });
+
+      const tokenCall = adapter.adminCalls.find(
+        (args) => args[0] === "set-environment" && args.at(-2) === "FENRIR_HOOK_TOKEN",
+      );
+      expect(tokenCall?.at(-1)).toBe("hook-token-test");
+      // The token must also be present at session creation so agents started
+      // in the very first pane can authenticate to the approval-feed endpoint.
+      const connectToken = (adapter.connectCalls[0]?.environment ?? []).find(
+        ([key]) => key === "FENRIR_HOOK_TOKEN",
+      );
+      expect(connectToken?.[1]).toBe("hook-token-test");
     }).pipe(Effect.provide(layer));
   });
 
@@ -1496,6 +1611,128 @@ describe("TmuxWorkspaceServiceLive", () => {
     },
   );
 
+  it.effect("resizes a sole pane by sizing its window to the client viewport", () => {
+    const { adapter, layer } = makeLayer();
+
+    return Effect.gen(function* () {
+      const service = yield* TmuxWorkspaceService;
+      const initial = yield* service.ensureWorkspace({
+        actor: AUTH_ACTOR,
+        projectId: ProjectId.make("project-1"),
+        cwd: "/tmp/project",
+        initialGrants: [AUTH_GRANT],
+      });
+      const pane = initial.panes[0]!;
+
+      const resized = yield* service.resizePane({
+        actor: AUTH_ACTOR,
+        workspaceId: initial.workspace.workspaceId,
+        paneId: pane.paneId,
+        cols: 277,
+        rows: 74,
+      });
+
+      expect(resized.cols).toBe(277);
+      expect(resized.rows).toBe(74);
+      const resizeCalls = adapter.adminCalls.filter(
+        (args) => args[0] === "resize-window" || args[0] === "resize-pane",
+      );
+      expect(resizeCalls).toEqual([
+        ["resize-window", "-t", expect.any(String), "-x", "277", "-y", "74"],
+      ]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect(
+    "decides the resize strategy from the live tmux pane count when the cache is stale",
+    () => {
+      const { adapter, layer } = makeLayer();
+
+      return Effect.gen(function* () {
+        const service = yield* TmuxWorkspaceService;
+        const initial = yield* service.ensureWorkspace({
+          actor: AUTH_ACTOR,
+          projectId: ProjectId.make("project-1"),
+          cwd: "/tmp/project",
+          initialGrants: [AUTH_GRANT],
+        });
+        const pane = initial.panes[0]!;
+        const window = initial.windows[0]!;
+        // Simulate a concurrent split that tmux already applied but the
+        // service has not reconciled yet: the cached pane map still sees a
+        // single running pane in the window.
+        yield* adapter.adminCommand([
+          "split-window",
+          "-t",
+          window.tmuxWindowId,
+          "-c",
+          "/tmp/project",
+        ]);
+
+        const resized = yield* service.resizePane({
+          actor: AUTH_ACTOR,
+          workspaceId: initial.workspace.workspaceId,
+          paneId: pane.paneId,
+          cols: 60,
+          rows: 20,
+        });
+
+        expect(resized.cols).toBe(60);
+        expect(resized.rows).toBe(20);
+        expect(
+          adapter.adminCalls.some(
+            (args) => args[0] === "display-message" && args.at(-1) === "#{window_panes}",
+          ),
+        ).toBe(true);
+        // The live count (2 panes) must win over the stale cached count (1):
+        // a stale single-pane decision would emit `resize-window -x 60 -y 20`
+        // and clobber the sibling pane. The multi-pane path never shrinks the
+        // window, so only the pane resize is issued here.
+        const resizeCalls = adapter.adminCalls.filter(
+          (args) => args[0] === "resize-window" || args[0] === "resize-pane",
+        );
+        expect(resizeCalls).toEqual([
+          ["resize-pane", "-t", pane.tmuxPaneId, "-x", "60", "-y", "20"],
+        ]);
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.effect("falls back to the cached pane count when the live pane count query fails", () => {
+    const { adapter, layer } = makeLayer();
+
+    return Effect.gen(function* () {
+      const service = yield* TmuxWorkspaceService;
+      const initial = yield* service.ensureWorkspace({
+        actor: AUTH_ACTOR,
+        projectId: ProjectId.make("project-1"),
+        cwd: "/tmp/project",
+        initialGrants: [AUTH_GRANT],
+      });
+      const pane = initial.panes[0]!;
+      // Fail the pane-count query: resizePane must fall back to the cached
+      // count (one running pane) and still size the window.
+      adapter.adminFailuresByCommand.set("display-message", new Error("tmux briefly unavailable"));
+
+      const resized = yield* service.resizePane({
+        actor: AUTH_ACTOR,
+        workspaceId: initial.workspace.workspaceId,
+        paneId: pane.paneId,
+        cols: 200,
+        rows: 50,
+      });
+
+      expect(resized.cols).toBe(200);
+      expect(resized.rows).toBe(50);
+      const resizeCalls = adapter.adminCalls.filter(
+        (args) => args[0] === "resize-window" || args[0] === "resize-pane",
+      );
+      expect(resizeCalls).toEqual([
+        ["resize-window", "-t", expect.any(String), "-x", "200", "-y", "50"],
+      ]);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("attaches operational metadata and reports pane lifecycle status", () => {
     const { layer } = makeLayer();
 
@@ -1693,6 +1930,96 @@ describe("TmuxWorkspaceServiceLive", () => {
         ]);
         expect(statuses.panes.every((pane) => pane.status === "running")).toBe(true);
         expect(JSON.stringify(statuses)).not.toContain("secret bytes");
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.effect(
+    "creates managed-process panes running a command and terminates them through pane close",
+    () => {
+      const { adapter, layer } = makeLayer();
+
+      return Effect.gen(function* () {
+        const service = yield* TmuxWorkspaceService;
+        const initial = yield* service.ensureWorkspace({
+          actor: AUTH_ACTOR,
+          projectId: ProjectId.make("project-1"),
+          cwd: "/tmp/project",
+          initialGrants: [AUTH_GRANT],
+        });
+        const window = initial.windows[0]!;
+        const existingPaneIds = new Set(initial.panes.map((pane) => pane.paneId));
+
+        const afterCreate = yield* service.createPane({
+          actor: AUTH_ACTOR,
+          workspaceId: initial.workspace.workspaceId,
+          windowId: window.windowId,
+          kind: "managed-process",
+          split: "horizontal",
+          cwd: "/tmp/project/apps/web",
+          command: "bun run dev",
+          metadata: {
+            kind: "managed-process",
+            title: "bun run dev",
+            process: {
+              command: "bun run dev",
+              argv: [],
+              envKeys: [],
+              pid: null,
+              startedAt: null,
+              exitedAt: null,
+              exitCode: null,
+              exitSignal: null,
+            },
+            labels: { "fenrir.script": "dev" },
+            neovim: null,
+            agent: null,
+            workflow: null,
+            managedProcess: { instanceId: "script-run-1", processDefId: "script:dev" },
+            remoteProcess: null,
+            browserLab: null,
+          },
+        });
+
+        const created = afterCreate.panes.find((pane) => !existingPaneIds.has(pane.paneId));
+        expect(created).toBeDefined();
+        expect(created!.status).toBe("running");
+        expect(created!.metadata).toMatchObject({
+          kind: "managed-process",
+          title: "bun run dev",
+          process: { command: "bun run dev" },
+          managedProcess: { instanceId: "script-run-1", processDefId: "script:dev" },
+        });
+
+        const splitCall = adapter.adminCalls.findLast((args) => args[0] === "split-window");
+        expect(splitCall).toBeDefined();
+        expect(splitCall).toContain("-h");
+        expect(splitCall![splitCall!.indexOf("-c") + 1]).toBe("/tmp/project/apps/web");
+        expect(splitCall!.at(-1)).toBe("bun run dev");
+
+        const statuses = yield* service.listOperationalPaneStatuses({
+          actor: AUTH_ACTOR,
+          workspaceId: initial.workspace.workspaceId,
+        });
+        expect(
+          statuses.panes.some(
+            (pane) => pane.paneId === created!.paneId && pane.kind === "managed-process",
+          ),
+        ).toBe(true);
+
+        const afterClose = yield* service.closePane({
+          actor: AUTH_ACTOR,
+          workspaceId: initial.workspace.workspaceId,
+          paneId: created!.paneId,
+          mode: "terminate",
+        });
+        expect(
+          adapter.adminCalls.some(
+            (args) => args[0] === "kill-pane" && args.includes(created!.tmuxPaneId),
+          ),
+        ).toBe(true);
+        const closedPane = afterClose.panes.find((pane) => pane.paneId === created!.paneId);
+        expect(closedPane?.status).toBe("closed");
       }).pipe(Effect.provide(layer));
     },
   );
@@ -2283,6 +2610,140 @@ describe("TmuxWorkspaceServiceLive", () => {
       );
     });
   });
+
+  it.effect("re-grants a restored workspace to the same subject on a new auth session", () => {
+    const baseDir = join(tmpdir(), `fenrir-tmux-workspace-${randomUUID()}`);
+    const adapter = new FakeControlModeAdapter();
+    const first = makeLayer(adapter, baseDir);
+    const second = makeLayer(adapter, baseDir);
+
+    return Effect.gen(function* () {
+      const created = yield* Effect.gen(function* () {
+        const service = yield* TmuxWorkspaceService;
+        return yield* service.ensureWorkspace({
+          actor: AUTH_ACTOR,
+          projectId: ProjectId.make("project-1"),
+          cwd: "/tmp/project",
+          initialGrants: [AUTH_GRANT],
+        });
+      }).pipe(Effect.provide(first.layer));
+
+      // App relaunch: same subject, freshly minted auth session id. The
+      // persisted grants reference the dead session, so without grant
+      // adoption every subsequent ensure would fail permission-denied.
+      const relaunched = yield* Effect.gen(function* () {
+        const service = yield* TmuxWorkspaceService;
+        const ensured = yield* service.ensureWorkspace({
+          actor: OTHER_ACTOR,
+          workspaceId: created.workspace.workspaceId,
+          projectId: ProjectId.make("project-1"),
+          cwd: "/tmp/project",
+          initialGrants: [OTHER_GRANT],
+        });
+        // The adopted grant covers follow-up calls from the new session.
+        const snapshot = yield* service.getSnapshot({
+          actor: OTHER_ACTOR,
+          workspaceId: ensured.workspace.workspaceId,
+        });
+        // An actor whose subject never held a grant remains denied even when
+        // it offers its own initial grants.
+        const foreignSubject = yield* Effect.exit(
+          service.ensureWorkspace({
+            actor: FOREIGN_SUBJECT_ACTOR,
+            projectId: ProjectId.make("project-1"),
+            cwd: "/tmp/project",
+            initialGrants: [{ ...AUTH_GRANT, actor: FOREIGN_SUBJECT_ACTOR }],
+          }),
+        );
+        return { ensured, snapshot, foreignSubject };
+      }).pipe(Effect.provide(second.layer));
+
+      expect(relaunched.ensured.workspace.workspaceId).toBe(created.workspace.workspaceId);
+      expect(relaunched.ensured.workspace.status).toBe("running");
+      const grantSessions = relaunched.snapshot.workspace.grants.map(
+        (grant) => grant.actor.sessionId,
+      );
+      expect(grantSessions).toContain(OTHER_ACTOR.sessionId);
+      expect(grantSessions).not.toContain(AUTH_ACTOR.sessionId);
+      expect(relaunched.foreignSubject._tag).toBe("Failure");
+    });
+  });
+
+  it.effect(
+    "seeds a restored pane's first stream subscription with the visible tmux screen",
+    () => {
+      const baseDir = join(tmpdir(), `fenrir-tmux-workspace-${randomUUID()}`);
+      const adapter = new FakeControlModeAdapter();
+      const first = makeLayer(adapter, baseDir);
+      const second = makeLayer(adapter, baseDir);
+
+      return Effect.gen(function* () {
+        const created = yield* Effect.gen(function* () {
+          const service = yield* TmuxWorkspaceService;
+          return yield* service.ensureWorkspace({
+            actor: AUTH_ACTOR,
+            projectId: ProjectId.make("project-1"),
+            cwd: "/tmp/project",
+            initialGrants: [AUTH_GRANT],
+          });
+        }).pipe(Effect.provide(first.layer));
+        const pane = created.panes[0]!;
+        // The tmux session survived the "restart"; its pane still shows the
+        // pre-restart screen (including trailing blank rows tmux pads with).
+        adapter.capturedScreens.set(
+          pane.tmuxPaneId,
+          "$ echo STABLE_MARKER\nSTABLE_MARKER\n$\n\n\n",
+        );
+
+        const observed = yield* Effect.gen(function* () {
+          const service = yield* TmuxWorkspaceService;
+          yield* service.ensureWorkspace({
+            actor: AUTH_ACTOR,
+            projectId: ProjectId.make("project-1"),
+            cwd: "/tmp/project",
+            initialGrants: [AUTH_GRANT],
+          });
+          // "latest" ignores buffered history, so the seed must arrive as a
+          // live chunk appended after the subscription registers.
+          const stream = yield* service.subscribePaneStream({
+            workspaceId: created.workspace.workspaceId,
+            paneId: pane.paneId,
+            actor: AUTH_ACTOR,
+            backfill: "latest",
+            slowClientPolicy: "fast-forward",
+            maxBufferedChunks: 10,
+          });
+          const events = Array.from(yield* stream.pipe(Stream.take(1), Stream.runCollect));
+          const resubscribed = yield* service.subscribePaneStream({
+            workspaceId: created.workspace.workspaceId,
+            paneId: pane.paneId,
+            actor: AUTH_ACTOR,
+            afterSeq: 0,
+            backfill: "from-seq",
+            slowClientPolicy: "fast-forward",
+            maxBufferedChunks: 10,
+          });
+          const replayEvents = Array.from(
+            yield* resubscribed.pipe(Stream.take(2), Stream.runCollect),
+          );
+          return { events, replayEvents };
+        }).pipe(Effect.provide(second.layer));
+
+        expect(observed.events).toHaveLength(1);
+        expect(observed.events[0]).toMatchObject({
+          type: "chunk",
+          data: "$ echo STABLE_MARKER\r\nSTABLE_MARKER\r\n$",
+        });
+        // Later subscriptions replay the seeded chunk from the buffer without
+        // re-capturing (exactly one capture-pane for the whole relaunch).
+        expect(observed.replayEvents.map((event) => event.type)).toEqual([
+          "backfill-started",
+          "chunk",
+        ]);
+        expect(adapter.adminCalls.filter((args) => args[0] === "capture-pane")).toHaveLength(1);
+      });
+    },
+  );
 
   it.effect(
     "updates stream descriptors from control-mode pane output without lifecycle hot-path events",

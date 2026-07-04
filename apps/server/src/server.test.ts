@@ -66,6 +66,11 @@ import { vi } from "vitest";
 import type { ServerConfigShape } from "./config.ts";
 import { deriveServerPaths, ServerConfig } from "./config.ts";
 import { makeBunHttpServerOptions, makeRoutesLayer } from "./server.ts";
+import {
+  AgentFeedHookCredentialLive,
+  AgentFeedServiceLive,
+} from "./agentFeed/Layers/AgentFeedService.ts";
+import { WorkspaceGitProbe } from "./git/Services/WorkspaceGitProbe.ts";
 import { resolveAttachmentRelativePath } from "./attachmentPaths.ts";
 import {
   CheckpointDiffQuery,
@@ -948,6 +953,14 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provide(
         Layer.mergeAll(
+          // D-042 agent-feed relay: the real in-memory layer is cheap and
+          // deterministic, so the seam tests exercise it directly.
+          AgentFeedServiceLive,
+          AgentFeedHookCredentialLive,
+          // D-045 workspace git probe consumed by the vcs ws routes.
+          Layer.mock(WorkspaceGitProbe)({
+            probe: () => Effect.die(new Error("not available in test")),
+          }),
           Layer.mock(LocalServerDiscovery)({
             scan: Effect.succeed({
               servers: [],
@@ -1899,6 +1912,197 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(lines[0]?.data, "hello native stream");
       assert.equal(receivedPaneId, "pane-native-rpc");
       assert.equal(receivedSessionId, sessionId);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes native stream RPC subscribeLocalServers through shared handlers", () =>
+    Effect.gen(function* () {
+      const snapshot = {
+        servers: [
+          {
+            host: "localhost",
+            port: 5173,
+            url: "http://localhost:5173",
+            processName: "vite",
+            pid: 1234,
+            source: "lsof" as const,
+            terminal: null,
+          },
+        ],
+        scannedAt: "2026-06-17T00:00:00.000Z",
+      };
+
+      yield* buildAppUnderTest({
+        layers: {
+          localServerDiscovery: {
+            scan: Effect.succeed(snapshot),
+            subscribe: (listener) =>
+              Effect.sync(() => {
+                listener(snapshot);
+                return () => {};
+              }),
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const response = yield* postNativeStreamRpc({
+        bearerToken,
+        body: {
+          method: WS_METHODS.subscribeLocalServers,
+          requestId: "native-rpc-local-servers",
+          payload: {},
+        },
+      });
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type")?.includes("application/x-ndjson"), true);
+      // The localServers stream never completes on its own: read the first
+      // ndjson line, then cancel the body.
+      const firstLine = yield* Effect.promise(async () => {
+        if (!response.body) {
+          throw new Error("Expected native stream RPC response body.");
+        }
+        const bodyReader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffered = "";
+        for (;;) {
+          const { done, value } = await bodyReader.read();
+          if (value) {
+            buffered += decoder.decode(value, { stream: true });
+          }
+          const newlineIndex = buffered.indexOf("\n");
+          if (newlineIndex >= 0) {
+            await bodyReader.cancel();
+            return buffered.slice(0, newlineIndex);
+          }
+          if (done) {
+            throw new Error("Native stream RPC response ended before the first event.");
+          }
+        }
+      });
+      const event = JSON.parse(firstLine) as {
+        readonly servers: ReadonlyArray<{ readonly port: number; readonly url: string }>;
+      };
+      assert.equal(event.servers[0]?.port, 5173);
+      assert.equal(event.servers[0]?.url, "http://localhost:5173");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("relays agent-feed approval requests from hook endpoint to stream (D-042)", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+
+      // Hook long-poll first: authenticated session bearer is accepted
+      // alongside the pane env hook token. The response is held until a
+      // decision or the (clamped) soft-wait elapses; with no decision the
+      // hook gets a timeout outcome and the agent falls back to its own
+      // TUI. The stream response flushes headers with its first event, so
+      // the pending request must exist (or arrive) after subscribing —
+      // the store replays pending requests on subscribe, making the
+      // ordering race-free.
+      const hookUrl = yield* getHttpServerUrl("/api/agent-feed/requests");
+      const hookResponsePromise = fetch(hookUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${bearerToken}`,
+        },
+        body: JSON.stringify({
+          workspaceId: "workspace-seam",
+          paneId: "%7",
+          agentId: "claude-code",
+          kind: "permission",
+          summary: "Permission request: Bash",
+          options: [
+            { id: "allow", label: "Allow" },
+            { id: "deny", label: "Deny" },
+          ],
+          timeoutMs: 1_000,
+        }),
+      });
+
+      const streamResponse = yield* postNativeStreamRpc({
+        bearerToken,
+        body: {
+          method: WS_METHODS.subscribeApprovalFeed,
+          requestId: "native-rpc-approval-feed",
+          payload: {},
+        },
+      });
+      assert.equal(streamResponse.status, 200);
+
+      const firstLine = yield* Effect.promise(async () => {
+        if (!streamResponse.body) {
+          throw new Error("Expected approval feed stream response body.");
+        }
+        const bodyReader = streamResponse.body.getReader();
+        const decoder = new TextDecoder();
+        let buffered = "";
+        for (;;) {
+          const { done, value } = await bodyReader.read();
+          if (value) {
+            buffered += decoder.decode(value, { stream: true });
+          }
+          const newlineIndex = buffered.indexOf("\n");
+          if (newlineIndex >= 0) {
+            await bodyReader.cancel();
+            return buffered.slice(0, newlineIndex);
+          }
+          if (done) {
+            throw new Error("Approval feed stream ended before the first event.");
+          }
+        }
+      });
+      const pendingEvent = JSON.parse(firstLine) as {
+        readonly type: string;
+        readonly workspaceId: string;
+        readonly request: {
+          readonly id: string;
+          readonly kind: string;
+          readonly summary: string;
+          readonly options: ReadonlyArray<{ readonly id: string }>;
+        };
+      };
+      assert.equal(pendingEvent.type, "pending");
+      assert.equal(pendingEvent.workspaceId, "workspace-seam");
+      assert.equal(pendingEvent.request.kind, "permission");
+      assert.equal(pendingEvent.request.summary, "Permission request: Bash");
+      assert.deepEqual(
+        pendingEvent.request.options.map((option) => option.id),
+        ["allow", "deny"],
+      );
+
+      const hookResponse = yield* Effect.promise(() => hookResponsePromise);
+      const hookBody = (yield* Effect.promise(() => hookResponse.json())) as {
+        readonly outcome: string;
+        readonly requestId: string;
+      };
+      assert.equal(hookResponse.status, 200);
+      assert.equal(hookBody.outcome, "timeout");
+      assert.equal(hookBody.requestId, pendingEvent.request.id);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects unauthenticated agent-feed hook requests", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const hookUrl = yield* getHttpServerUrl("/api/agent-feed/requests");
+      const response = yield* Effect.promise(() =>
+        fetch(hookUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            workspaceId: "workspace-seam",
+            agentId: "claude-code",
+            kind: "permission",
+            summary: "Permission request: Bash",
+            options: [],
+          }),
+        }),
+      );
+      assert.equal(response.status, 401);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

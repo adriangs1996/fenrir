@@ -8,6 +8,10 @@ public extension AgentIntegration {
         public let workspaceID: String?
         public let paneID: String?
         public let sequence: Int?
+        /// Agent-native session id (D-044). Emitted by provisioned
+        /// session-start hooks; optional everywhere else. Metadata only —
+        /// validated against the strict session-id allowlist at parse time.
+        public let sessionID: String?
         public let timestamp: String?
 
         public init(
@@ -17,6 +21,7 @@ public extension AgentIntegration {
             workspaceID: String?,
             paneID: String?,
             sequence: Int?,
+            sessionID: String? = nil,
             timestamp: String?
         ) {
             self.namespace = namespace
@@ -25,6 +30,7 @@ public extension AgentIntegration {
             self.workspaceID = workspaceID
             self.paneID = paneID
             self.sequence = sequence
+            self.sessionID = sessionID
             self.timestamp = timestamp
         }
     }

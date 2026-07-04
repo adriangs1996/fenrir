@@ -264,10 +264,127 @@ struct NativeLocalServerSupervisorTests {
         #expect(await launcher.terminatedProcessIDs.isEmpty)
     }
 
+    @Test("Termination decision replaces only orphaned Fenrir servers")
+    func terminationDecisionReplacesOnlyOrphanedFenrirServers() {
+        let orphanBundled = NativeListeningServerProcess(
+            processID: 4242,
+            parentProcessID: 1,
+            command: "/Applications/Fenrir.app/Contents/Resources/fenrir-server --mode desktop --port 31337"
+        )
+        let orphanDevelopment = NativeListeningServerProcess(
+            processID: 4243,
+            parentProcessID: 1,
+            command: "bun run src/bin.ts --mode desktop --host 127.0.0.1 --port 31337"
+        )
+        let liveOwned = NativeListeningServerProcess(
+            processID: 4244,
+            parentProcessID: 987,
+            command: "/Applications/Fenrir.app/Contents/Resources/fenrir-server --mode desktop --port 31337"
+        )
+        let foreign = NativeListeningServerProcess(
+            processID: 4245,
+            parentProcessID: 1,
+            command: "/usr/local/bin/nginx -g daemon off;"
+        )
+
+        #expect(NativeLocalServerSupervisor.terminationDecision(for: orphanBundled) == .terminateOrphanedServer)
+        #expect(NativeLocalServerSupervisor.terminationDecision(for: orphanDevelopment) == .terminateOrphanedServer)
+        #expect(NativeLocalServerSupervisor.terminationDecision(for: liveOwned) == .keepLiveOwnedServer)
+        #expect(NativeLocalServerSupervisor.terminationDecision(for: foreign) == .keepForeignProcess)
+    }
+
+    @Test("Terminate replaces an orphaned Fenrir server via SIGTERM without blocking")
+    func terminateReplacesOrphanedServer() async throws {
+        let orphan = NativeListeningServerProcess(
+            processID: 909_090,
+            parentProcessID: 1,
+            command: "fenrir-server --mode desktop --port 31337"
+        )
+        let enumerator = FakePortListenerEnumerator(responses: [[orphan], []])
+        let signals = SignalRecorder()
+        let supervisor = makeSupervisor(portListeners: enumerator, signals: signals)
+
+        try await supervisor.terminateUnmanagedLocalServer(endpoint: spec().endpoint)
+
+        #expect(signals.sent == [SignalRecord(processID: 909_090, signal: SIGTERM)])
+    }
+
+    @Test("Terminate refuses to kill a server owned by another live instance")
+    func terminateRefusesLiveOwnedServer() async throws {
+        let liveOwned = NativeListeningServerProcess(
+            processID: 909_091,
+            parentProcessID: 4321,
+            command: "fenrir-server --mode desktop --port 31337"
+        )
+        let enumerator = FakePortListenerEnumerator(responses: [[liveOwned]])
+        let signals = SignalRecorder()
+        let supervisor = makeSupervisor(portListeners: enumerator, signals: signals)
+
+        await #expect(throws: ServerConnection.ServerConnectionError.localServerForeignOwned) {
+            try await supervisor.terminateUnmanagedLocalServer(endpoint: spec().endpoint)
+        }
+        #expect(signals.sent.isEmpty)
+    }
+
+    @Test("Terminate refuses to kill a foreign process that appears on the port at kill time")
+    func terminateRefusesForeignProcessOnPort() async throws {
+        let foreign = NativeListeningServerProcess(
+            processID: 909_092,
+            parentProcessID: 1,
+            command: "python3 -m http.server 31337"
+        )
+        let enumerator = FakePortListenerEnumerator(responses: [[foreign]])
+        let signals = SignalRecorder()
+        let supervisor = makeSupervisor(portListeners: enumerator, signals: signals)
+
+        await #expect(throws: ServerConnection.ServerConnectionError.localServerForeignOwned) {
+            try await supervisor.terminateUnmanagedLocalServer(endpoint: spec().endpoint)
+        }
+        #expect(signals.sent.isEmpty)
+    }
+
+    @Test("Terminate is a no-op when nothing listens on the port")
+    func terminateWithNoListenersIsNoOp() async throws {
+        let enumerator = FakePortListenerEnumerator(responses: [[]])
+        let signals = SignalRecorder()
+        let supervisor = makeSupervisor(portListeners: enumerator, signals: signals)
+
+        try await supervisor.terminateUnmanagedLocalServer(endpoint: spec().endpoint)
+
+        #expect(signals.sent.isEmpty)
+    }
+
+    @Test("ps listener rows parse pid, ppid, and full command")
+    func psListenerRowsParse() {
+        let output = """
+          4242     1 /Applications/Fenrir.app/Contents/Resources/fenrir-server --mode desktop
+         51500 51000 bun run src/bin.ts --mode desktop --host 127.0.0.1 --port 31337
+        garbage row
+          9999     1 /usr/local/bin/nginx
+        """
+
+        let parsed = NativeLSOFPortListenerEnumerator.parseProcessListing(output, restrictedTo: [4242, 51500])
+
+        #expect(parsed == [
+            NativeListeningServerProcess(
+                processID: 4242,
+                parentProcessID: 1,
+                command: "/Applications/Fenrir.app/Contents/Resources/fenrir-server --mode desktop"
+            ),
+            NativeListeningServerProcess(
+                processID: 51500,
+                parentProcessID: 51000,
+                command: "bun run src/bin.ts --mode desktop --host 127.0.0.1 --port 31337"
+            )
+        ])
+    }
+
     private func makeSupervisor(
         launcher: RecordingProcessLauncher = RecordingProcessLauncher(launchResults: []),
         prober: RecordingLocalServerProber = RecordingLocalServerProber(results: []),
-        pollIntervalMilliseconds: Int = 1
+        pollIntervalMilliseconds: Int = 1,
+        portListeners: any NativeLocalServerPortListenerEnumerating = FakePortListenerEnumerator(responses: [[]]),
+        signals: SignalRecorder = SignalRecorder()
     ) -> NativeLocalServerSupervisor {
         NativeLocalServerSupervisor(
             launchConfiguration: NativeLocalServerLaunchConfiguration(
@@ -279,7 +396,11 @@ struct NativeLocalServerSupervisorTests {
             launcher: launcher,
             prober: prober,
             clock: FixedFenrirClock(timestamp: fixedTimestamp),
-            pollIntervalMilliseconds: pollIntervalMilliseconds
+            pollIntervalMilliseconds: pollIntervalMilliseconds,
+            portListeners: portListeners,
+            signalProcess: { processID, signal in
+                signals.record(processID: processID, signal: signal)
+            }
         )
     }
 
@@ -340,5 +461,54 @@ private actor RecordingProcessLauncher: ProcessLaunching {
 
     func terminateLocalServer(processID: String) async throws {
         terminatedProcessIDs.append(processID)
+    }
+}
+
+private struct SignalRecord: Equatable, Sendable {
+    let processID: pid_t
+    let signal: Int32
+}
+
+private final class SignalRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var records: [SignalRecord] = []
+
+    var sent: [SignalRecord] {
+        lock.lock()
+        defer { lock.unlock() }
+        return records
+    }
+
+    func record(processID: pid_t, signal: Int32) {
+        lock.lock()
+        defer { lock.unlock() }
+        records.append(SignalRecord(processID: processID, signal: signal))
+    }
+}
+
+/// Replays queued listener snapshots; the last snapshot repeats once the
+/// queue is drained (mirrors a port that stays in its final state).
+private final class FakePortListenerEnumerator: NativeLocalServerPortListenerEnumerating, @unchecked Sendable {
+    private let lock = NSLock()
+    private var responses: [[NativeListeningServerProcess]]
+
+    init(responses: [[NativeListeningServerProcess]]) {
+        self.responses = responses
+    }
+
+    func listeningServerProcesses(port: Int) async throws -> [NativeListeningServerProcess] {
+        nextResponse()
+    }
+
+    private func nextResponse() -> [NativeListeningServerProcess] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let next = responses.first else {
+            return []
+        }
+        if responses.count > 1 {
+            responses.removeFirst()
+        }
+        return next
     }
 }

@@ -353,7 +353,6 @@
         animation: pulse 1.4s ease infinite;
       }
       .health {
-        margin-left: auto;
         display: flex;
         gap: 14px;
         font-size: 10.5px;
@@ -367,6 +366,82 @@
       }
       .health .bell {
         color: var(--attn);
+      }
+
+      /* titlebar productivity controls (D-045): run script · open in editor · notifications */
+      .tb-actions {
+        margin-left: auto;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .tbtn {
+        display: flex;
+        align-items: stretch;
+        border: 1px solid var(--hair);
+        border-radius: 5px;
+        overflow: hidden;
+        font-size: 10.5px;
+        color: var(--ink);
+        background: color-mix(in srgb, var(--side) 55%, var(--panel));
+        cursor: default;
+      }
+      .tbtn .lbl,
+      .tbtn .car {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 9px;
+      }
+      .tbtn .car {
+        border-left: 1px solid var(--hair);
+        padding: 3px 6px;
+        font-size: 8px;
+        color: var(--dim);
+      }
+      .tbtn .ico {
+        color: var(--dim);
+      }
+      .tbtn.run-toggle {
+        cursor: pointer;
+      }
+      .tbtn.running {
+        border-color: color-mix(in srgb, var(--wf) 40%, transparent);
+        color: var(--ok);
+      }
+      .tbtn.running .spin {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--wf);
+        animation: pulse 1.2s ease infinite;
+      }
+      .tbell {
+        position: relative;
+        font: 11px var(--mono);
+        color: var(--dim);
+        background: color-mix(in srgb, var(--side) 55%, var(--panel));
+        border: 1px solid var(--hair);
+        border-radius: 5px;
+        padding: 3px 9px;
+        cursor: pointer;
+      }
+      .tbell:hover {
+        color: var(--ink);
+      }
+      .tbell .n {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        min-width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        padding: 0 3px;
+        background: var(--attn);
+        color: var(--bg);
+        font-size: 9px;
+        line-height: 14px;
+        text-align: center;
       }
 
       .body-row {
@@ -450,6 +525,8 @@
       }
       .row.attn-row {
         color: var(--attn);
+        background: color-mix(in srgb, var(--attn) 9%, transparent);
+        box-shadow: inset 2px 0 0 var(--attn);
       }
       .row.attn-row .meta {
         color: color-mix(in srgb, var(--attn) 60%, transparent);
@@ -489,6 +566,45 @@
       .ws.open > .ws-head {
         background: color-mix(in srgb, var(--accent) 8%, transparent);
         box-shadow: inset 2px 0 0 var(--accent);
+      }
+      /* workspace row metadata (D-045): latest notification + listening ports */
+      .ws-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 14px 6px 32px;
+        font-size: 10px;
+        color: var(--dim);
+        min-width: 0;
+      }
+      .ws.open > .ws-meta {
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
+        box-shadow: inset 2px 0 0 var(--accent);
+      }
+      .ws-meta .wnote {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .ws-meta .wnote.unread {
+        color: color-mix(in srgb, var(--attn) 75%, var(--dim));
+      }
+      .ws-meta .ports {
+        margin-left: auto;
+        display: flex;
+        gap: 4px;
+        flex: none;
+      }
+      .ws-meta .port {
+        font-size: 9px;
+        padding: 0 5px;
+        border: 1px solid var(--hair);
+        border-radius: 7px;
+        color: var(--dim);
+      }
+      .ws-meta .port.live {
+        color: var(--ok);
+        border-color: color-mix(in srgb, var(--ok) 35%, transparent);
       }
       .ws-kids {
         border-left: 1px solid var(--hair);
@@ -608,6 +724,11 @@
       }
       .pane.focused {
         border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+      }
+      /* attention ring (D-045): awaiting-input presence, attention token slot */
+      .pane.attn-ring {
+        border-color: color-mix(in srgb, var(--attn) 70%, transparent);
+        box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--attn) 40%, transparent);
       }
       .phead {
         display: flex;
@@ -849,6 +970,73 @@
         margin-left: auto;
       }
 
+      /* notifications panel (D-042/D-043 feed it, D-045 titlebar bell opens it) */
+      .ntf-head {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 13px 18px;
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--dim);
+        border-bottom: 1px solid var(--hair);
+      }
+      .ntf-head .cnt {
+        color: var(--attn);
+      }
+      .ntf-head .right {
+        margin-left: auto;
+        letter-spacing: 0;
+        text-transform: none;
+        font-size: 10.5px;
+        color: var(--attn);
+      }
+      .ntf-row {
+        display: flex;
+        gap: 10px;
+        padding: 10px 18px;
+        font-size: 12px;
+        color: var(--dim);
+        align-items: baseline;
+      }
+      .ntf-row + .ntf-row {
+        border-top: 1px solid var(--hair);
+      }
+      .ntf-row .d {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex: none;
+        background: var(--hair);
+        align-self: center;
+      }
+      .ntf-row.unread {
+        color: var(--ink);
+        background: color-mix(in srgb, var(--attn) 7%, transparent);
+      }
+      .ntf-row.unread .d {
+        background: var(--attn);
+        box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--attn) 20%, transparent);
+      }
+      .ntf-row .txt b {
+        font-weight: 500;
+      }
+      .ntf-row .src {
+        margin-left: auto;
+        font-size: 10px;
+        color: var(--dim);
+        flex: none;
+      }
+      .ntf-row .act {
+        font-size: 11px;
+        flex: none;
+      }
+      .ntf-row.unread .act {
+        color: var(--attn);
+      }
+
       /* annotations */
       .dot-note {
         position: absolute;
@@ -975,7 +1163,9 @@
         the <b>quiet tmux tabs</b> from concept A in the titlebar, and
         <b>themes shared with Fenrir Desktop's registry</b> — swapping a theme swaps every token:
         chrome, tree, presence, ANSI, overlays. Tree rows come from pane metadata and hook presence
-        (D-038/D-039), never from scraping.
+        (D-038/D-039), never from scraping. Revised per <b>D-045</b>: titlebar run / open-in-editor
+        / notifications controls, pane attention rings, workspace row metadata (latest notification
+        + listening ports), and the notifications panel overlay.
       </p>
     </header>
 
@@ -984,10 +1174,14 @@
       <button class="toggle" id="tg-side" onclick="toggleSidebar()">sidebar</button>
       <button class="toggle" id="tg-palette" onclick="toggleOverlay('palette')">palette</button>
       <button class="toggle" id="tg-composer" onclick="toggleOverlay('composer')">composer</button>
+      <button class="toggle" id="tg-ntf" onclick="toggleOverlay('notifications')">
+        notifications
+      </button>
+      <button class="toggle on" id="tg-run" onclick="toggleRun()">run state</button>
       <button class="toggle" id="tg-notes" onclick="toggleNotes()">annotations</button>
       <span class="keys">
         <kbd>t</kbd> theme · <kbd>s</kbd> sidebar · <kbd>p</kbd> palette · <kbd>c</kbd> composer ·
-        <kbd>a</kbd> notes
+        <kbd>n</kbd> notifications · <kbd>r</kbd> run · <kbd>a</kbd> notes
       </span>
     </div>
 
@@ -1001,6 +1195,25 @@
             <span class="wtab">3 review</span>
           </div>
           <span class="dot-note" style="top: 9px; left: 300px">1</span>
+          <div class="tb-actions">
+            <span
+              class="tbtn run-toggle running"
+              id="run-btn"
+              onclick="toggleRun()"
+              title="run script — idle: run primary run-kind script · running: stop it (click or r to toggle states)"
+            >
+              <span class="lbl"><i class="spin"></i>stop web</span>
+              <span class="car">▾</span>
+            </span>
+            <span class="tbtn" title="open workspace in resolved default editor">
+              <span class="lbl"><span class="ico">↗</span>Zed</span>
+              <span class="car">▾</span>
+            </span>
+            <button class="tbell" onclick="toggleOverlay('notifications')" title="notifications">
+              ⚑<span class="n">2</span>
+            </button>
+          </div>
+          <span class="dot-note" style="top: 9px; right: 210px">8</span>
           <div class="health">
             <span class="srv">local · 12ms</span>
             <span>streams 3/3</span>
@@ -1025,6 +1238,14 @@
                   <span class="tw">▾</span>fenrir<span class="br">⎇ term-em</span>
                   <span class="hk">⌘1</span>
                 </div>
+                <div class="ws-meta">
+                  <span class="wnote unread">◉ claude: approval required</span>
+                  <span class="ports">
+                    <span class="port live">:3000</span>
+                    <span class="port">:31337</span>
+                  </span>
+                </div>
+                <span class="dot-note" style="top: 132px; left: 238px">10</span>
                 <div class="ws-kids">
                   <div class="kid-sec">agents</div>
                   <div class="kid attn-kid">
@@ -1035,7 +1256,7 @@
                     <span class="st busy"></span>codex<span class="meta">working · 4m</span>
                     <span class="loc">%4</span>
                   </div>
-                  <span class="dot-note" style="top: 148px; left: 238px">3</span>
+                  <span class="dot-note" style="top: 170px; left: 238px">3</span>
 
                   <div class="kid-sec">apps</div>
                   <div class="kid">
@@ -1049,7 +1270,7 @@
                   <div class="kid">
                     <span class="st off"></span>hunks<span class="meta">12 files</span>
                   </div>
-                  <span class="dot-note" style="top: 232px; left: 238px">4</span>
+                  <span class="dot-note" style="top: 254px; left: 238px">4</span>
 
                   <div class="kid-sec">dev servers</div>
                   <div class="kid">
@@ -1058,7 +1279,7 @@
                   <div class="kid">
                     <span class="st off"></span>api<span class="meta">:31337 · stopped</span>
                   </div>
-                  <span class="dot-note" style="top: 310px; left: 238px">5</span>
+                  <span class="dot-note" style="top: 332px; left: 238px">5</span>
                 </div>
               </div>
 
@@ -1097,12 +1318,13 @@
 
           <div class="main-col">
             <div class="panes">
-              <div class="pane agent focused">
+              <div class="pane agent focused attn-ring">
                 <div class="phead">
                   <span class="proc">claude</span><span>%1</span><span>hooks v3</span>
                   <span class="pchip need">◉ needs input</span>
                 </div>
                 <span class="dot-note" style="top: 36px; right: 14px">6</span>
+                <span class="dot-note" style="top: 200px; left: 266px">9</span>
                 <pre>
 <span class="a">✳</span> <span class="ink">Claude Code</span> <span class="p">— fenrir (term-em)</span>
 
@@ -1205,6 +1427,43 @@
             </div>
           </div>
         </div>
+
+        <div class="overlay" data-overlay="notifications">
+          <div class="box">
+            <div class="ntf-head">
+              notifications<span class="cnt">2 unread</span>
+              <span class="right">⌘⇧U jump to latest unread</span>
+            </div>
+            <div class="ntf-row unread">
+              <span class="d"></span>
+              <span class="txt"
+                ><b>claude — approval required</b> · swift test --filter NativeHost</span
+              >
+              <span class="src">fenrir %1 · 12s</span>
+              <span class="act">⏎ jump</span>
+            </div>
+            <div class="ntf-row unread">
+              <span class="d"></span>
+              <span class="txt"><b>test run finished</b> · 386 pass, 0 fail</span>
+              <span class="src">fenrir %3 · 3m</span>
+              <span class="act">jump</span>
+            </div>
+            <div class="ntf-row">
+              <span class="d"></span>
+              <span class="txt">web dev server started on :3000</span>
+              <span class="src">fenrir · 18m</span>
+            </div>
+            <div class="ntf-row">
+              <span class="d"></span>
+              <span class="txt">workflow deploy-docs finished</span>
+              <span class="src">t3code-upstream · 1h</span>
+            </div>
+            <div class="cmp-foot">
+              <span>⏎ jump</span><span>e mark read</span><span>esc close</span>
+              <span class="right">D-042 approvals · D-043 OSC 9/99/777</span>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -1242,6 +1501,26 @@
           <b>The status bar is stream health</b> (WS20): ws latency, pane count, attention echo,
           sidebar/palette hints.
         </li>
+        <li>
+          <b>Titlebar productivity controls</b> (D-045): a run split-button (idle: "run" primary
+          script; running: stop, with a pulsing workflow-token indicator and ok-token label — both
+          states toggleable in this mockup via the button or <b>r</b>; scripts execute as real tmux
+          panes with managed-process metadata, which is what feeds the dev-servers group), an
+          open-in-editor split-button showing the resolved default editor (dropdown picks/persists
+          another target), and a notifications bell whose unread badge uses the attention token and
+          opens the notifications panel.
+        </li>
+        <li>
+          <b>Pane attention ring</b> (D-045): a pane whose agent awaits input draws a 1.5px ring in
+          the attention slot on top of the normal border — driven by D-038 presence / D-043
+          notifications, never by scraping. Focus (accent border) and attention (ring) compose.
+        </li>
+        <li>
+          <b>Workspace row metadata</b> (D-045): a muted latest-notification line (from the
+          notifications model) plus listening-port chips (from localServers discovery contracts)
+          under the workspace row; attention rows additionally tint their background. PR
+          status/number joins only once a server-side PR-probe contract exists.
+        </li>
       </ol>
     </div>
 
@@ -1272,9 +1551,37 @@
           violet — each theme maps these four semantic slots to its own palette.
         </li>
         <li>
+          <b>Titlebar controls are D-045 chrome that pays rent</b>: run split-button (script
+          definitions live in Settings, repository scope over global; scripts run as real tmux panes
+          with managed-process metadata — never app-local child processes), open-in-editor
+          split-button (target catalogue of editors/terminals/git clients/Finder/$EDITOR resolved
+          against installed apps; per-repo default over global; pure client feature), notifications
+          bell (unread badge in the attention token). Palette parity is mandatory: run/stop-script,
+          open-in-editor, notifications-panel, and jump-to-unread all exist as palette actions and
+          keybindings, so the controls stay optional chrome.
+        </li>
+        <li>
+          <b>Notifications panel is an elevated card</b> like the palette, fed by D-042 approval
+          cards and D-043 generic OSC 9/99/777 notifications; unread rows are emphasized with the
+          attention token and ⌘⇧U jumps to the latest unread. Notification title/body are
+          user-visible content, excluded from diagnostics exports by default (D-031).
+        </li>
+        <li>
+          <b>Attention treatment (D-045)</b>: awaiting-input panes get a themed ring in the
+          attention slot; sidebar attention rows light up (background tint + dot) and sort into the
+          attention section; the workspace row carries a muted latest-notification line and
+          listening-port chips (existing localServers discovery contracts). PR status/number ships
+          only when a server-side PR-probe contract exists — the client never shells out to gh or
+          scrapes panes.
+        </li>
+        <li>
+          <b>Resolved micro-question (D-045)</b>: dev-server start/stop is a titlebar/palette action
+          through the run-script model — no dedicated row action needed; dev-server rows stay
+          passive metadata (D-034).
+        </li>
+        <li>
           <b>Open micro-questions</b>: does the tree auto-expand the active workspace only (mocked
-          here)? Do app rows for tools without live metadata (hunks idle) show at all? Is dev-server
-          start/stop an allowed row action or palette-only?
+          here)? Do app rows for tools without live metadata (hunks idle) show at all?
         </li>
       </ul>
     </footer>
@@ -1312,6 +1619,17 @@
         document.querySelector("[data-ov]").classList.toggle("show", overlayOn !== null);
         document.getElementById("tg-palette").classList.toggle("on", overlayOn === "palette");
         document.getElementById("tg-composer").classList.toggle("on", overlayOn === "composer");
+        document.getElementById("tg-ntf").classList.toggle("on", overlayOn === "notifications");
+      }
+      let runRunning = true;
+      function toggleRun() {
+        runRunning = !runRunning;
+        const b = document.getElementById("run-btn");
+        b.classList.toggle("running", runRunning);
+        b.querySelector(".lbl").innerHTML = runRunning
+          ? '<i class="spin"></i>stop web'
+          : '<span class="ico">▸</span>run web';
+        document.getElementById("tg-run").classList.toggle("on", runRunning);
       }
       function toggleSidebar() {
         const s = document.getElementById("shell");
@@ -1328,6 +1646,8 @@
         if (e.key === "t") setTheme((themeIdx + 1) % THEMES.length);
         else if (e.key === "p") toggleOverlay("palette");
         else if (e.key === "c") toggleOverlay("composer");
+        else if (e.key === "n") toggleOverlay("notifications");
+        else if (e.key === "r") toggleRun();
         else if (e.key === "s") toggleSidebar();
         else if (e.key === "a") toggleNotes();
         else if (e.key === "Escape" && overlayOn) toggleOverlay(overlayOn);

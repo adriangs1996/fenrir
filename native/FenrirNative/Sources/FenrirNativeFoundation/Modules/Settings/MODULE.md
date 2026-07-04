@@ -11,6 +11,13 @@ Public API:
 - `ValidateSettings`
 - `UpdateSettings`
 - `ObserveSettings`
+- `ReadWorkspaceScripts` / `UpdateScripts` for D-045 run-script preferences
+  (`ScriptDefinition`, `ScriptPreferences`; repository scripts merged over
+  globals with repository precedence and forged-kind protection — global
+  scripts are always forced to `.custom` kind)
+- `ReadEditorTarget` / `UpdateEditorTarget` for D-045 editor-target
+  preferences (`EditorTargetPreference`; Settings persists chosen editor ids
+  only, the editor catalogue itself is not settings-owned)
 - local configuration contracts for app mode, server connection defaults,
   workspace UI preferences, appearance/theme preferences, keybinding import
   preferences, and diagnostics policy

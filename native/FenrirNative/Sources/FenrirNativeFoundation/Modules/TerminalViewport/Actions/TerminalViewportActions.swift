@@ -141,6 +141,7 @@ public extension TerminalViewport {
         let store: any TerminalViewportStore
         let rendererWriter: any TerminalRendererWriting
         let reservedOSCForwarder: (any TerminalReservedOSCForwarding)?
+        let notificationForwarder: (any TerminalNotificationForwarding)?
         let clock: any TerminalViewportClock
         let events: (any TerminalViewportEventPublishing)?
 
@@ -148,12 +149,14 @@ public extension TerminalViewport {
             store: any TerminalViewportStore,
             rendererWriter: any TerminalRendererWriting,
             reservedOSCForwarder: (any TerminalReservedOSCForwarding)? = nil,
+            notificationForwarder: (any TerminalNotificationForwarding)? = nil,
             clock: any TerminalViewportClock,
             events: (any TerminalViewportEventPublishing)? = nil
         ) {
             self.store = store
             self.rendererWriter = rendererWriter
             self.reservedOSCForwarder = reservedOSCForwarder
+            self.notificationForwarder = notificationForwarder
             self.clock = clock
             self.events = events
         }
@@ -162,7 +165,7 @@ public extension TerminalViewport {
             do {
                 let state = try await TerminalViewport.loadMatchingState(store, viewportID: input.viewportID, paneID: input.paneID, streamID: input.streamID)
                 try TerminalViewport.validateNextSequence(input.sequence, after: state.lastAppliedSequence)
-                let scanned = try TerminalViewport.stripReservedOSC(
+                let scanned = try TerminalViewport.scanTerminalStream(
                     from: input.bytes,
                     pending: state.pendingReservedOSCSequence,
                     state: state,
@@ -177,9 +180,14 @@ public extension TerminalViewport {
                     rendererWriter: rendererWriter,
                     clock: clock,
                     reservedOSCForwarder: reservedOSCForwarder,
+                    notificationForwarder: notificationForwarder,
                     events: events
                 )
-                let next = state.updated(lastAppliedSequence: .some(input.sequence), pendingReservedOSCSequence: scanned.pending)
+                let next = state.updated(
+                    lastAppliedSequence: .some(input.sequence),
+                    pendingReservedOSCSequence: scanned.pending,
+                    pendingKittyNotificationChunks: scanned.pendingKittyChunks
+                )
                 try await store.saveViewport(next)
                 let timestamp = clock.now()
                 await events?.publish(TerminalViewport.envelope(input.requestID, "TerminalOutputIngested", timestamp, .terminalOutputIngested(input.viewportID, input.sequence)))
@@ -198,6 +206,7 @@ public extension TerminalViewport {
         let store: any TerminalViewportStore
         let rendererWriter: any TerminalRendererWriting
         let reservedOSCForwarder: (any TerminalReservedOSCForwarding)?
+        let notificationForwarder: (any TerminalNotificationForwarding)?
         let clock: any TerminalViewportClock
         let events: (any TerminalViewportEventPublishing)?
 
@@ -205,12 +214,14 @@ public extension TerminalViewport {
             store: any TerminalViewportStore,
             rendererWriter: any TerminalRendererWriting,
             reservedOSCForwarder: (any TerminalReservedOSCForwarding)? = nil,
+            notificationForwarder: (any TerminalNotificationForwarding)? = nil,
             clock: any TerminalViewportClock,
             events: (any TerminalViewportEventPublishing)? = nil
         ) {
             self.store = store
             self.rendererWriter = rendererWriter
             self.reservedOSCForwarder = reservedOSCForwarder
+            self.notificationForwarder = notificationForwarder
             self.clock = clock
             self.events = events
         }
@@ -219,7 +230,7 @@ public extension TerminalViewport {
             do {
                 let state = try await TerminalViewport.loadMatchingState(store, viewportID: input.viewportID, paneID: input.paneID, streamID: input.streamID)
                 try TerminalViewport.validate(input.chunks, after: state.lastAppliedSequence, policy: input.policy)
-                let scanned = try TerminalViewport.stripReservedOSC(
+                let scanned = try TerminalViewport.scanTerminalStream(
                     from: input.chunks,
                     pending: state.pendingReservedOSCSequence,
                     state: state,
@@ -233,12 +244,17 @@ public extension TerminalViewport {
                     rendererWriter: rendererWriter,
                     clock: clock,
                     reservedOSCForwarder: reservedOSCForwarder,
+                    notificationForwarder: notificationForwarder,
                     events: events
                 )
                 guard let lastSequence = input.chunks.last?.sequence else {
                     throw TerminalViewportError.streamOrderViolation
                 }
-                let next = state.updated(lastAppliedSequence: .some(lastSequence), pendingReservedOSCSequence: scanned.pending)
+                let next = state.updated(
+                    lastAppliedSequence: .some(lastSequence),
+                    pendingReservedOSCSequence: scanned.pending,
+                    pendingKittyNotificationChunks: scanned.pendingKittyChunks
+                )
                 try await store.saveViewport(next)
                 let timestamp = clock.now()
                 await events?.publish(TerminalViewport.envelope(input.requestID, "TerminalOutputIngested", timestamp, .terminalOutputIngested(input.viewportID, lastSequence)))
@@ -661,37 +677,37 @@ extension TerminalViewport {
         return writes
     }
 
-    static func stripReservedOSC(
+    static func scanTerminalStream(
         from bytes: Data,
         pending: Data,
         state: State,
         streamID: StreamID,
         sequence: UInt64
-    ) throws -> (operations: [ReservedOSCOperation], pending: Data) {
-        let scanned = try ReservedOSCScanner(
+    ) throws -> (operations: [TerminalStreamOperation], pending: Data, pendingKittyChunks: [PendingKittyNotificationChunk]) {
+        try TerminalStreamScanner(
             state: state,
             streamID: streamID
         ).scan(chunks: [TerminalOutputChunk(sequence: sequence, bytes: bytes)], pending: pending)
-        return (scanned.operations, scanned.pending)
     }
 
-    static func stripReservedOSC(
+    static func scanTerminalStream(
         from chunks: [TerminalOutputChunk],
         pending: Data,
         state: State,
         streamID: StreamID
-    ) throws -> (operations: [ReservedOSCOperation], pending: Data) {
-        try ReservedOSCScanner(state: state, streamID: streamID).scan(chunks: chunks, pending: pending)
+    ) throws -> (operations: [TerminalStreamOperation], pending: Data, pendingKittyChunks: [PendingKittyNotificationChunk]) {
+        try TerminalStreamScanner(state: state, streamID: streamID).scan(chunks: chunks, pending: pending)
     }
 
     static func apply(
-        _ operations: [ReservedOSCOperation],
+        _ operations: [TerminalStreamOperation],
         viewportID: ViewportID,
         maxBytesPerRendererWrite: Int,
         requestID: RequestID,
         rendererWriter: any TerminalRendererWriting,
         clock: any TerminalViewportClock,
         reservedOSCForwarder: (any TerminalReservedOSCForwarding)?,
+        notificationForwarder: (any TerminalNotificationForwarding)? = nil,
         events: (any TerminalViewportEventPublishing)?
     ) async throws -> Int {
         let limit = max(1, maxBytesPerRendererWrite)
@@ -728,6 +744,18 @@ extension TerminalViewport {
                 } catch {
                     continue
                 }
+            case let .terminalNotification(notification):
+                try await flushRendererBytes()
+                do {
+                    try await notificationForwarder?.forwardTerminalNotification(notification)
+                    let timestamp = clock.now()
+                    await events?.publish(envelope(requestID, "TerminalNotificationForwarded", timestamp, .terminalNotificationForwarded(TerminalNotificationEventSummary(event: notification))))
+                } catch {
+                    continue
+                }
+            case let .terminalNotificationDropped(drop):
+                let timestamp = clock.now()
+                await events?.publish(envelope(requestID, "TerminalNotificationDropped", timestamp, .terminalNotificationDropped(drop)))
             }
         }
 
@@ -771,7 +799,8 @@ private extension TerminalViewport.State {
         isFocused: Bool? = nil,
         streamStatus: TerminalViewport.StreamStatus? = nil,
         size: TerminalViewport.Size? = nil,
-        pendingReservedOSCSequence: Data? = nil
+        pendingReservedOSCSequence: Data? = nil,
+        pendingKittyNotificationChunks: [TerminalViewport.PendingKittyNotificationChunk]? = nil
     ) -> TerminalViewport.State {
         TerminalViewport.State(
             viewportID: viewportID,
@@ -784,19 +813,25 @@ private extension TerminalViewport.State {
             rendererStatus: rendererStatus,
             streamStatus: streamStatus ?? self.streamStatus,
             size: size ?? self.size,
-            pendingReservedOSCSequence: pendingReservedOSCSequence ?? self.pendingReservedOSCSequence
+            pendingReservedOSCSequence: pendingReservedOSCSequence ?? self.pendingReservedOSCSequence,
+            pendingKittyNotificationChunks: pendingKittyNotificationChunks ?? self.pendingKittyNotificationChunks
         )
     }
 }
 
 extension TerminalViewport {
-    enum ReservedOSCOperation: Equatable, Sendable {
+    enum TerminalStreamOperation: Equatable, Sendable {
         case rendererBytes(Data)
         case reservedSignal(ReservedOSCSignal)
+        case terminalNotification(TerminalNotificationEvent)
+        case terminalNotificationDropped(TerminalNotificationDropSummary)
     }
 }
 
-private struct ReservedOSCScanner {
+/// Single render-input-boundary scanner (D-038/D-043): detects and strips the
+/// reserved presence OSC and the standard notification OSCs (9, 99, 777;notify)
+/// before bytes reach the renderer, buffering sequences split across chunks.
+private struct TerminalStreamScanner {
     private let state: TerminalViewport.State
     private let streamID: StreamID
 
@@ -808,26 +843,37 @@ private struct ReservedOSCScanner {
     func scan(
         chunks: [TerminalViewport.TerminalOutputChunk],
         pending: Data
-    ) throws -> (operations: [TerminalViewport.ReservedOSCOperation], pending: Data) {
+    ) throws -> (operations: [TerminalViewport.TerminalStreamOperation], pending: Data, pendingKittyChunks: [TerminalViewport.PendingKittyNotificationChunk]) {
         var pendingBytes = [UInt8](pending)
-        var operations: [TerminalViewport.ReservedOSCOperation] = []
+        var pendingKittyChunks = state.pendingKittyNotificationChunks
+        var operations: [TerminalViewport.TerminalStreamOperation] = []
 
         for chunk in chunks {
-            let scanned = try scanChunk([UInt8](chunk.bytes), pending: pendingBytes, sequence: chunk.sequence)
+            let scanned = try scanChunk([UInt8](chunk.bytes), pending: pendingBytes, pendingKittyChunks: pendingKittyChunks, sequence: chunk.sequence)
             pendingBytes = scanned.pending
+            pendingKittyChunks = scanned.pendingKittyChunks
             operations.append(contentsOf: scanned.operations)
         }
 
-        return (operations, Data(pendingBytes))
+        return (operations, Data(pendingBytes), pendingKittyChunks)
+    }
+
+    private enum OSCIntroducer {
+        case none
+        /// The chunk ends inside what could still become a tracked introducer.
+        case potentialTrackedPrefix
+        case tracked(identifier: Int, payloadStart: Int)
     }
 
     private func scanChunk(
         _ bytes: [UInt8],
         pending: [UInt8],
+        pendingKittyChunks: [TerminalViewport.PendingKittyNotificationChunk],
         sequence: UInt64
-    ) throws -> (operations: [TerminalViewport.ReservedOSCOperation], pending: [UInt8]) {
+    ) throws -> (operations: [TerminalViewport.TerminalStreamOperation], pending: [UInt8], pendingKittyChunks: [TerminalViewport.PendingKittyNotificationChunk]) {
         let source = pending + bytes
-        var operations: [TerminalViewport.ReservedOSCOperation] = []
+        var operations: [TerminalViewport.TerminalStreamOperation] = []
+        var kittyChunks = pendingKittyChunks
         var rendererBytes: [UInt8] = []
         var index = 0
 
@@ -840,69 +886,137 @@ private struct ReservedOSCScanner {
         }
 
         while index < source.count {
-            if isReservedPrefix(in: source, at: index) {
+            switch introducer(in: source, at: index) {
+            case .none:
+                rendererBytes.append(source[index])
+                index += 1
+            case .potentialTrackedPrefix:
                 flushRendererBytes()
-                guard let terminator = findTerminator(in: source, startingAt: index + Self.reservedPrefix.count) else {
+                return (operations, Array(source[index...]), kittyChunks)
+            case let .tracked(identifier, payloadStart):
+                guard let terminator = findTerminator(in: source, startingAt: payloadStart) else {
+                    flushRendererBytes()
                     let pendingSequence = Array(source[index...])
                     guard pendingSequence.count <= TerminalViewport.maxPendingReservedOSCSequenceBytes else {
                         throw TerminalViewport.TerminalViewportError.outputBackpressure
                     }
-                    return (operations, pendingSequence)
+                    return (operations, pendingSequence, kittyChunks)
                 }
 
-                let payloadBytes = Array(source[(index + Self.reservedPrefix.count)..<terminator.payloadEnd])
-                operations.append(.reservedSignal(signal(payloadBytes: payloadBytes, sequence: sequence)))
+                let payloadBytes = Array(source[payloadStart..<terminator.payloadEnd])
+                if let sequenceOperations = streamOperations(identifier: identifier, payloadBytes: payloadBytes, sequence: sequence, pendingKittyChunks: &kittyChunks) {
+                    flushRendererBytes()
+                    operations.append(contentsOf: sequenceOperations)
+                } else {
+                    rendererBytes.append(contentsOf: source[index..<terminator.sequenceEnd])
+                }
                 index = terminator.sequenceEnd
-                continue
             }
-
-            if isPotentialReservedPrefixAtEnd(in: source, at: index) {
-                flushRendererBytes()
-                return (operations, Array(source[index...]))
-            }
-
-            rendererBytes.append(source[index])
-            index += 1
         }
 
         flushRendererBytes()
-        return (operations, [])
+        return (operations, [], kittyChunks)
     }
 
-    private func signal(payloadBytes: [UInt8], sequence: UInt64) -> TerminalViewport.ReservedOSCSignal {
-        TerminalViewport.ReservedOSCSignal(
-            oscIdentifier: TerminalViewport.fenrirReservedOSCIdentifier,
-            payload: String(decoding: payloadBytes, as: UTF8.self),
-            provenance: TerminalViewport.ReservedOSCProvenance(
-                workspaceID: state.workspaceID,
-                tabID: state.tabID,
-                paneID: state.paneID,
-                viewportID: state.viewportID,
-                streamID: streamID,
-                sequence: sequence
-            )
+    /// Classify the bytes at `index` as the start of a tracked OSC sequence.
+    /// Tracked identifiers are matched exactly at the `;` boundary, so OSC 999
+    /// or OSC 9999 never shadow OSC 9/99.
+    private func introducer(in bytes: [UInt8], at index: Int) -> OSCIntroducer {
+        guard bytes[index] == Self.escape else {
+            return .none
+        }
+        guard index + 1 < bytes.count else {
+            return .potentialTrackedPrefix
+        }
+        guard bytes[index + 1] == Self.rightBracket else {
+            return .none
+        }
+
+        var cursor = index + 2
+        var digits: [UInt8] = []
+        while cursor < bytes.count, (0x30...0x39).contains(bytes[cursor]) {
+            digits.append(bytes[cursor])
+            cursor += 1
+            if digits.count > Self.maxTrackedIdentifierDigits {
+                return .none
+            }
+        }
+
+        let digitsString = String(decoding: digits, as: UTF8.self)
+        guard cursor < bytes.count else {
+            let extendsToTracked = Self.trackedIdentifierStrings.contains { $0.hasPrefix(digitsString) }
+            return extendsToTracked ? .potentialTrackedPrefix : .none
+        }
+        guard
+            bytes[cursor] == Self.semicolon,
+            let identifier = Int(digitsString),
+            Self.trackedIdentifiers.contains(identifier)
+        else {
+            return .none
+        }
+        return .tracked(identifier: identifier, payloadStart: cursor + 1)
+    }
+
+    /// Build the stream operations for a complete tracked sequence. Returns
+    /// nil when the sequence should pass through to the renderer untouched
+    /// (e.g. ConEmu progress on OSC 9, a non-notify OSC 777 module). A single
+    /// sequence can yield several operations (kitty chunk-buffer eviction
+    /// drops preceding the triggering payload's outcome) or none at all (a
+    /// kitty chunk absorbed into the reassembly buffer).
+    private func streamOperations(
+        identifier: Int,
+        payloadBytes: [UInt8],
+        sequence: UInt64,
+        pendingKittyChunks: inout [TerminalViewport.PendingKittyNotificationChunk]
+    ) -> [TerminalViewport.TerminalStreamOperation]? {
+        if identifier == TerminalViewport.fenrirReservedOSCIdentifier {
+            return [.reservedSignal(TerminalViewport.ReservedOSCSignal(
+                oscIdentifier: identifier,
+                payload: String(decoding: payloadBytes, as: UTF8.self),
+                provenance: provenance(sequence: sequence)
+            ))]
+        }
+        guard let source = TerminalViewport.TerminalNotificationSource(oscIdentifier: identifier) else {
+            return nil
+        }
+        let parsed = TerminalNotificationParser.parse(source: source, payloadBytes: payloadBytes, pendingKittyChunks: pendingKittyChunks)
+        if parsed.outcomes == [.passThrough] {
+            return nil
+        }
+        pendingKittyChunks = parsed.pendingKittyChunks
+
+        var operations: [TerminalViewport.TerminalStreamOperation] = []
+        for outcome in parsed.outcomes {
+            switch outcome {
+            case let .notification(title, body):
+                operations.append(.terminalNotification(TerminalViewport.TerminalNotificationEvent(
+                    title: title,
+                    body: body,
+                    source: source,
+                    provenance: provenance(sequence: sequence)
+                )))
+            case let .dropped(reason):
+                operations.append(.terminalNotificationDropped(TerminalViewport.TerminalNotificationDropSummary(
+                    source: source,
+                    reason: reason,
+                    provenance: provenance(sequence: sequence)
+                )))
+            case .buffered, .passThrough:
+                continue
+            }
+        }
+        return operations
+    }
+
+    private func provenance(sequence: UInt64) -> TerminalViewport.TerminalStreamProvenance {
+        TerminalViewport.TerminalStreamProvenance(
+            workspaceID: state.workspaceID,
+            tabID: state.tabID,
+            paneID: state.paneID,
+            viewportID: state.viewportID,
+            streamID: streamID,
+            sequence: sequence
         )
-    }
-
-    private func isReservedPrefix(in bytes: [UInt8], at index: Int) -> Bool {
-        guard bytes.count - index >= Self.reservedPrefix.count else {
-            return false
-        }
-        for offset in 0..<Self.reservedPrefix.count where bytes[index + offset] != Self.reservedPrefix[offset] {
-            return false
-        }
-        return true
-    }
-
-    private func isPotentialReservedPrefixAtEnd(in bytes: [UInt8], at index: Int) -> Bool {
-        let remainingCount = bytes.count - index
-        guard remainingCount < Self.reservedPrefix.count else {
-            return false
-        }
-        for offset in 0..<remainingCount where bytes[index + offset] != Self.reservedPrefix[offset] {
-            return false
-        }
-        return true
     }
 
     private func findTerminator(in bytes: [UInt8], startingAt start: Int) -> (payloadEnd: Int, sequenceEnd: Int)? {
@@ -922,7 +1036,15 @@ private struct ReservedOSCScanner {
     private static let escape: UInt8 = 0x1B
     private static let bel: UInt8 = 0x07
     private static let backslash: UInt8 = 0x5C
-    private static let reservedPrefix: [UInt8] = [escape, 0x5D] + Array(String(TerminalViewport.fenrirReservedOSCIdentifier).utf8) + [0x3B]
+    private static let rightBracket: UInt8 = 0x5D
+    private static let semicolon: UInt8 = 0x3B
+    private static let trackedIdentifiers: Set<Int> = {
+        var identifiers = Set(TerminalViewport.TerminalNotificationSource.allCases.map(\.oscIdentifier))
+        identifiers.insert(TerminalViewport.fenrirReservedOSCIdentifier)
+        return identifiers
+    }()
+    private static let trackedIdentifierStrings: [String] = trackedIdentifiers.map { String($0) }
+    private static let maxTrackedIdentifierDigits: Int = trackedIdentifierStrings.map(\.count).max() ?? 0
 }
 
 private extension String {

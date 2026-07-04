@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import Foundation
 import GhosttyTerminal
 import FenrirNativeShared
@@ -18,12 +19,25 @@ public final class FenrirGhosttyTerminalBackend: FenrirTerminalBackend, FenrirTe
     private var lastReceivedPlainText = ""
     private var syntheticSelection: String?
 
+    private static let debugLoggingResolved: Bool = {
+        let value = ProcessInfo.processInfo.environment["FENRIR_TERMINAL_DEBUG"] ?? ""
+        guard !value.isEmpty, value != "0" else {
+            return false
+        }
+        TerminalDebugLog.sink = { message in
+            NSLog("%@", message)
+        }
+        TerminalDebugLog.enable(.standard)
+        return true
+    }()
+
     public init(
         fontSize: Float? = nil,
         workingDirectory: String? = nil,
         onUserInput: @escaping @Sendable (Data) -> Void,
         onResize: @escaping @Sendable (TerminalViewport.Size) -> Void = { _ in }
     ) {
+        _ = Self.debugLoggingResolved
         session = InMemoryTerminalSession(
             write: onUserInput,
             resize: { viewport in
@@ -130,15 +144,61 @@ public final class FenrirGhosttyTerminalBackend: FenrirTerminalBackend, FenrirTe
         syntheticSelection = text
     }
 
+    /// Fallback families appended after the user's own `font-family` entries.
+    /// Ghostty treats repeated `font-family` entries as a fallback chain, so
+    /// styled glyphs missing from the primary family's installed faces (e.g.
+    /// bold U+276F when only JetBrainsMono-Regular is installed) resolve to a
+    /// full-coverage installed family instead of a synthesized/wrong glyph.
+    nonisolated static let ghosttyFallbackFontFamilies = [
+        "JetBrainsMonoNL Nerd Font",
+        "Menlo"
+    ]
+
+    /// The `font-family` config lines to append, restricted to families that
+    /// are actually installed (an entry naming a missing family is useless).
+    /// The availability check is injectable for tests.
+    nonisolated static func ghosttyFontFallbackConfigLines(
+        isFontFamilyInstalled: (String) -> Bool
+    ) -> [String] {
+        ghosttyFallbackFontFamilies
+            .filter(isFontFamilyInstalled)
+            .map { "font-family = \"\($0)\"" }
+    }
+
+    /// Appends the installed fallback `font-family` lines after the inlined
+    /// user config so the user's own entries keep priority in the chain.
+    nonisolated static func ghosttyConfigAppendingFontFallback(
+        to contents: String,
+        isFontFamilyInstalled: (String) -> Bool
+    ) -> String {
+        let lines = ghosttyFontFallbackConfigLines(isFontFamilyInstalled: isFontFamilyInstalled)
+        guard !lines.isEmpty else {
+            return contents
+        }
+        return ([contents] + lines).joined(separator: "\n")
+    }
+
+    nonisolated static func installedFontFamilyNames() -> Set<String> {
+        Set(CTFontManagerCopyAvailableFontFamilyNames() as? [String] ?? [])
+    }
+
     private static func resolvedGhosttyConfigSource() -> TerminalController.ConfigSource {
         let paths = resolvedGhosttyConfigFilePaths()
         guard !paths.isEmpty else {
             return .none
         }
+        // Inline the file contents: the embedded libghostty build does not
+        // follow `config-file` directives from a generated config, which
+        // silently discards the user's font settings.
         let contents = paths
-            .map { "config-file = \(quotedGhosttyConfigPath($0))" }
+            .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }
             .joined(separator: "\n")
-        return .generated("\(contents)\n")
+        guard !contents.isEmpty else {
+            return .none
+        }
+        let installed = installedFontFamilyNames()
+        let combined = ghosttyConfigAppendingFontFallback(to: contents) { installed.contains($0) }
+        return .generated("\(combined)\n")
     }
 
     private static func quotedGhosttyConfigPath(_ path: String) -> String {

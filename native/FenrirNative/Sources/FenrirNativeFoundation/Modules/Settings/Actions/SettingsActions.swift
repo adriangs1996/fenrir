@@ -90,17 +90,142 @@ public extension Settings {
         }
 
         public func run(_ input: UpdateSettingsInput) async -> Result<UpdateSettingsResult, SettingsError> {
-            let validation = input.configuration.validatedForLocalPersistence()
-            guard validation.isValid else {
-                return .failure(.validationFailed(validation.issues))
-            }
-
             do {
-                let data = try Settings.encodeConfiguration(validation.configuration)
-                try await persistence.saveSettingsData(data)
+                let configuration = try await Settings.persistConfiguration(input.configuration, to: persistence)
                 return .success(UpdateSettingsResult(
                     requestID: input.requestID,
-                    configuration: validation.configuration,
+                    configuration: configuration,
+                    timestamp: clock.now()
+                ))
+            } catch let error as SettingsError {
+                return .failure(error)
+            } catch {
+                return .failure(.persistenceFailed(String(describing: error)))
+            }
+        }
+    }
+
+    /// Typed accessor for the D-045 run-script split button: the merged
+    /// script list and primary run script for one workspace.
+    struct ReadWorkspaceScripts: FenrirAction {
+        public typealias Failure = SettingsError
+
+        public let clock: any SettingsClock
+        public let persistence: any LocalSettingsPersistence
+
+        public init(clock: any SettingsClock, persistence: any LocalSettingsPersistence) {
+            self.clock = clock
+            self.persistence = persistence
+        }
+
+        public func run(_ input: ReadWorkspaceScriptsInput) async -> Result<ReadWorkspaceScriptsResult, SettingsError> {
+            let timestamp = clock.now()
+
+            do {
+                let configuration = try await Settings.loadConfiguration(from: persistence)
+                return .success(ReadWorkspaceScriptsResult(
+                    requestID: input.requestID,
+                    scripts: configuration.runScripts.scripts(forRepositoryPath: input.repositoryPath),
+                    primaryRunScript: configuration.runScripts.primaryRunScript(forRepositoryPath: input.repositoryPath),
+                    timestamp: timestamp
+                ))
+            } catch let error as SettingsError {
+                return .failure(error)
+            } catch {
+                return .failure(.persistenceFailed(String(describing: error)))
+            }
+        }
+    }
+
+    /// Replaces the script list for one scope (repository or global) and
+    /// persists the result. Global scripts are forced to `.custom` kind
+    /// before persistence (forged-kind protection).
+    struct UpdateScripts: FenrirAction {
+        public typealias Failure = SettingsError
+
+        public let clock: any SettingsClock
+        public let persistence: any LocalSettingsPersistence
+
+        public init(clock: any SettingsClock, persistence: any LocalSettingsPersistence) {
+            self.clock = clock
+            self.persistence = persistence
+        }
+
+        public func run(_ input: UpdateScriptsInput) async -> Result<UpdateScriptsResult, SettingsError> {
+            do {
+                let current = try await Settings.loadConfiguration(from: persistence)
+                let updated = current.replacingRunScripts(
+                    current.runScripts.replacingScripts(input.scripts, scope: input.scope)
+                )
+                let configuration = try await Settings.persistConfiguration(updated, to: persistence)
+                return .success(UpdateScriptsResult(
+                    requestID: input.requestID,
+                    configuration: configuration,
+                    timestamp: clock.now()
+                ))
+            } catch let error as SettingsError {
+                return .failure(error)
+            } catch {
+                return .failure(.persistenceFailed(String(describing: error)))
+            }
+        }
+    }
+
+    /// Typed accessor for the D-045 open-in-editor split button: the resolved
+    /// editor id for one workspace (repository override, then global default).
+    struct ReadEditorTarget: FenrirAction {
+        public typealias Failure = SettingsError
+
+        public let clock: any SettingsClock
+        public let persistence: any LocalSettingsPersistence
+
+        public init(clock: any SettingsClock, persistence: any LocalSettingsPersistence) {
+            self.clock = clock
+            self.persistence = persistence
+        }
+
+        public func run(_ input: ReadEditorTargetInput) async -> Result<ReadEditorTargetResult, SettingsError> {
+            let timestamp = clock.now()
+
+            do {
+                let configuration = try await Settings.loadConfiguration(from: persistence)
+                return .success(ReadEditorTargetResult(
+                    requestID: input.requestID,
+                    editorID: configuration.editorTarget.editorID(forRepositoryPath: input.repositoryPath),
+                    preference: configuration.editorTarget,
+                    timestamp: timestamp
+                ))
+            } catch let error as SettingsError {
+                return .failure(error)
+            } catch {
+                return .failure(.persistenceFailed(String(describing: error)))
+            }
+        }
+    }
+
+    /// Applies one editor-target change (global default or per-repository
+    /// override) and persists the result.
+    struct UpdateEditorTarget: FenrirAction {
+        public typealias Failure = SettingsError
+
+        public let clock: any SettingsClock
+        public let persistence: any LocalSettingsPersistence
+
+        public init(clock: any SettingsClock, persistence: any LocalSettingsPersistence) {
+            self.clock = clock
+            self.persistence = persistence
+        }
+
+        public func run(_ input: UpdateEditorTargetInput) async -> Result<UpdateEditorTargetResult, SettingsError> {
+            do {
+                let current = try await Settings.loadConfiguration(from: persistence)
+                let updated = current.replacingEditorTarget(
+                    current.editorTarget.applying(input.change)
+                )
+                let configuration = try await Settings.persistConfiguration(updated, to: persistence)
+                return .success(UpdateEditorTargetResult(
+                    requestID: input.requestID,
+                    configuration: configuration,
                     timestamp: clock.now()
                 ))
             } catch let error as SettingsError {
@@ -178,6 +303,23 @@ public extension Settings {
 extension Settings {
     static func loadConfiguration(from persistence: any LocalSettingsPersistence) async throws -> NativeSettingsConfiguration {
         try await configuration(from: persistence.loadSettingsData())
+    }
+
+    /// Shared validate → normalize → encode → save path used by every
+    /// settings-mutating action; returns the normalized configuration that
+    /// was persisted.
+    static func persistConfiguration(
+        _ configuration: NativeSettingsConfiguration,
+        to persistence: any LocalSettingsPersistence
+    ) async throws -> NativeSettingsConfiguration {
+        let validation = configuration.validatedForLocalPersistence()
+        guard validation.isValid else {
+            throw SettingsError.validationFailed(validation.issues)
+        }
+
+        let data = try encodeConfiguration(validation.configuration)
+        try await persistence.saveSettingsData(data)
+        return validation.configuration
     }
 
     static func configuration(from data: Data?) throws -> NativeSettingsConfiguration {

@@ -8,6 +8,7 @@ import {
 } from "@fenrir/contracts";
 
 import { GitWorkflowService } from "../../git/Services/GitWorkflowService";
+import { WorkspaceGitProbe } from "../../git/Services/WorkspaceGitProbe";
 import { ServerSettingsService } from "../../serverSettings";
 import { VcsProvisioningService } from "../../vcs/VcsProvisioningService";
 import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster";
@@ -18,6 +19,7 @@ export const makeVcsRoutes = (deps: { readonly refreshGitStatus: RefreshGitStatu
   Effect.gen(function* () {
     const { refreshGitStatus } = deps;
     const gitWorkflow = yield* GitWorkflowService;
+    const workspaceGitProbe = yield* WorkspaceGitProbe;
     const vcsProvisioning = yield* VcsProvisioningService;
     const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
     const serverSettings = yield* ServerSettingsService;
@@ -97,6 +99,12 @@ export const makeVcsRoutes = (deps: { readonly refreshGitStatus: RefreshGitStatu
           gitWorkflow
             .preparePullRequestThread(input)
             .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+      ),
+      // D-045 sidebar row metadata: branch + PR number/state/checks. Served
+      // from a short-TTL server-side cache; clients poll this instead of
+      // shelling out to `git`/`gh` or scraping panes.
+      [WS_METHODS.workspaceGitProbe]: git.effect(WS_METHODS.workspaceGitProbe, (input) =>
+        workspaceGitProbe.probe(input),
       ),
     };
   });
