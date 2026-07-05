@@ -95,18 +95,37 @@ public extension ServerConnection {
     }
 
     actor NativeURLSessionServerRPCTransport: NativeServerRPCTransporting {
+        /// Where the active bearer came from. Only `.secureStorage` bearers are
+        /// worth a retry after `.authRejected`: a rejected direct credential
+        /// stays rejected, and bootstrap exchanges consume one-shot pairing
+        /// tokens, so re-exchanging after a fresh exchange cannot recover.
+        private enum BearerSource: Sendable {
+            case directCredential
+            case secureStorage
+            case exchanged
+        }
+
         private struct CachedBearerSession: Sendable {
             let httpBaseURL: String
             let bootstrapCredential: String
             let bearerSession: NativeBearerSession
+            let source: BearerSource
         }
 
         private let network: any NativeServerRPCNetworking
+        private let bearerTokenStore: (any AuthSession.BearerTokenStoring)?
+        private let bearerTokenScope: AuthSession.EndpointScope?
         private var cachedBearerSession: CachedBearerSession?
-        private var pendingBearerSession: (httpBaseURL: String, bootstrapCredential: String, task: Task<NativeBearerSession, Error>)?
+        private var pendingBearerSession: (httpBaseURL: String, bootstrapCredential: String, task: Task<(NativeBearerSession, BearerSource), Error>)?
 
-        public init(network: any NativeServerRPCNetworking = NativeURLSessionServerRPCNetwork()) {
+        public init(
+            network: any NativeServerRPCNetworking = NativeURLSessionServerRPCNetwork(),
+            bearerTokenStore: (any AuthSession.BearerTokenStoring)? = nil,
+            bearerTokenScope: AuthSession.EndpointScope? = nil
+        ) {
             self.network = network
+            self.bearerTokenStore = bearerTokenStore
+            self.bearerTokenScope = bearerTokenScope
         }
 
         public func sendAuthenticatedRPC(
@@ -117,11 +136,94 @@ public extension ServerConnection {
             requestID: RequestID,
             request: RequestEnvelope
         ) async throws -> ResponseEnvelope {
+            _ = webSocketURL
+            do {
+                return try await performUnaryRPC(
+                    httpBaseURL: httpBaseURL,
+                    bootstrapCredential: bootstrapCredential,
+                    session: session,
+                    requestID: requestID,
+                    request: request
+                )
+            } catch ServerConnectionError.authRejected {
+                guard await invalidateRejectedStoredBearer(
+                    httpBaseURL: httpBaseURL,
+                    bootstrapCredential: bootstrapCredential
+                ) else {
+                    throw ServerConnectionError.authRejected
+                }
+                return try await performUnaryRPC(
+                    httpBaseURL: httpBaseURL,
+                    bootstrapCredential: bootstrapCredential,
+                    session: session,
+                    requestID: requestID,
+                    request: request
+                )
+            }
+        }
+
+        public func streamAuthenticatedRPC(
+            httpBaseURL: URL,
+            webSocketURL: URL,
+            bootstrapCredential: String,
+            session: Session,
+            requestID: RequestID,
+            request: RequestEnvelope
+        ) async -> AsyncThrowingStream<Data, Error> {
+            _ = webSocketURL
+            return AsyncThrowingStream { continuation in
+                let task = Task {
+                    let outcome = await self.runStream(
+                        httpBaseURL: httpBaseURL,
+                        bootstrapCredential: bootstrapCredential,
+                        requestID: requestID,
+                        request: request,
+                        continuation: continuation
+                    )
+                    switch outcome {
+                    case .finished:
+                        continuation.finish()
+                    case .failed(let error, let didYield):
+                        let isAuthRejection = (error as? ServerConnectionError) == .authRejected
+                        guard isAuthRejection,
+                              !didYield,
+                              await self.invalidateRejectedStoredBearer(
+                                  httpBaseURL: httpBaseURL,
+                                  bootstrapCredential: bootstrapCredential
+                              )
+                        else {
+                            continuation.finish(throwing: error)
+                            return
+                        }
+                        switch await self.runStream(
+                            httpBaseURL: httpBaseURL,
+                            bootstrapCredential: bootstrapCredential,
+                            requestID: requestID,
+                            request: request,
+                            continuation: continuation
+                        ) {
+                        case .finished:
+                            continuation.finish()
+                        case .failed(let retryError, _):
+                            continuation.finish(throwing: retryError)
+                        }
+                    }
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
+        }
+
+        private func performUnaryRPC(
+            httpBaseURL: URL,
+            bootstrapCredential: String,
+            session: Session,
+            requestID: RequestID,
+            request: RequestEnvelope
+        ) async throws -> ResponseEnvelope {
             let bearer = try await reusableBearerSession(
                 httpBaseURL: httpBaseURL,
                 bootstrapCredential: bootstrapCredential
             )
-            _ = webSocketURL
             let authenticatedRequest = NativeServerRPCWire.request(
                 request,
                 rewritingActorSessionID: bearer.authSessionID
@@ -139,42 +241,67 @@ public extension ServerConnection {
             )
         }
 
-        public func streamAuthenticatedRPC(
+        private enum StreamOutcome: Sendable {
+            case finished
+            case failed(Error, didYield: Bool)
+        }
+
+        private func runStream(
             httpBaseURL: URL,
-            webSocketURL: URL,
             bootstrapCredential: String,
-            session: Session,
             requestID: RequestID,
-            request: RequestEnvelope
-        ) async -> AsyncThrowingStream<Data, Error> {
-            AsyncThrowingStream { continuation in
-                let task = Task {
-                    do {
-                        let bearer = try await reusableBearerSession(
-                            httpBaseURL: httpBaseURL,
-                            bootstrapCredential: bootstrapCredential
-                        )
-                        _ = webSocketURL
-                        let authenticatedRequest = NativeServerRPCWire.request(
-                            request,
-                            rewritingActorSessionID: bearer.authSessionID
-                        )
-                        let responseStream = await network.streamNativeRPC(
-                            httpBaseURL: httpBaseURL,
-                            bearerToken: bearer.token,
-                            requestID: requestID,
-                            request: authenticatedRequest
-                        )
-                        for try await data in responseStream {
-                            continuation.yield(data)
-                        }
-                        continuation.finish()
-                    } catch {
-                        continuation.finish(throwing: error)
-                    }
+            request: RequestEnvelope,
+            continuation: AsyncThrowingStream<Data, Error>.Continuation
+        ) async -> StreamOutcome {
+            var didYield = false
+            do {
+                let bearer = try await reusableBearerSession(
+                    httpBaseURL: httpBaseURL,
+                    bootstrapCredential: bootstrapCredential
+                )
+                let authenticatedRequest = NativeServerRPCWire.request(
+                    request,
+                    rewritingActorSessionID: bearer.authSessionID
+                )
+                let responseStream = await network.streamNativeRPC(
+                    httpBaseURL: httpBaseURL,
+                    bearerToken: bearer.token,
+                    requestID: requestID,
+                    request: authenticatedRequest
+                )
+                for try await data in responseStream {
+                    didYield = true
+                    continuation.yield(data)
                 }
-                continuation.onTermination = { _ in task.cancel() }
+                return .finished
+            } catch {
+                return .failed(error, didYield: didYield)
             }
+        }
+
+        /// Clears the cached bearer after a server rejection. Returns whether a
+        /// retry has a chance of succeeding — only when the rejected bearer came
+        /// from secure storage (stale Keychain entry) and a fresh acquisition
+        /// can take a different path.
+        private func invalidateRejectedStoredBearer(
+            httpBaseURL: URL,
+            bootstrapCredential: String
+        ) async -> Bool {
+            guard let cachedBearerSession,
+                  cachedBearerSession.httpBaseURL == httpBaseURL.absoluteString,
+                  cachedBearerSession.bootstrapCredential == bootstrapCredential
+            else {
+                return false
+            }
+            guard cachedBearerSession.source == .secureStorage else {
+                self.cachedBearerSession = nil
+                return false
+            }
+            self.cachedBearerSession = nil
+            if let bearerTokenStore, let bearerTokenScope {
+                await bearerTokenStore.discardBearerToken(scope: bearerTokenScope)
+            }
+            return true
         }
 
         private func reusableBearerSession(httpBaseURL: URL, bootstrapCredential: String) async throws -> NativeBearerSession {
@@ -190,12 +317,54 @@ public extension ServerConnection {
                pendingBearerSession.httpBaseURL == httpBaseURLString,
                pendingBearerSession.bootstrapCredential == bootstrapCredential
             {
-                return try await pendingBearerSession.task.value
+                return try await pendingBearerSession.task.value.0
             }
 
+            // An owner-issued session token (REMOTE.md `auth session issue
+            // --token-only`) is usable as-is: exchanging it would fail because
+            // the bootstrap endpoint only consumes pairing credentials.
+            // This check never suspends, so it is safe outside the
+            // single-flight task.
+            if let authSessionID = NativeServerRPCWire.authSessionID(fromBearerToken: bootstrapCredential) {
+                let bearerSession = NativeBearerSession(token: bootstrapCredential, authSessionID: authSessionID)
+                cachedBearerSession = CachedBearerSession(
+                    httpBaseURL: httpBaseURLString,
+                    bootstrapCredential: bootstrapCredential,
+                    bearerSession: bearerSession,
+                    source: .directCredential
+                )
+                return bearerSession
+            }
+
+            // The whole acquisition (Keychain read, bootstrap exchange,
+            // persistence) runs inside the single-flight task: any suspension
+            // between the pending check and the pending assignment would let
+            // concurrent callers race extra exchanges of a one-shot pairing
+            // credential (actor reentrancy).
             let network = network
-            let task = Task {
-                try await network.exchangeBearerSession(httpBaseURL: httpBaseURL, credential: bootstrapCredential)
+            let bearerTokenStore = bearerTokenStore
+            let bearerTokenScope = bearerTokenScope
+            let task = Task<(NativeBearerSession, BearerSource), Error> {
+                if let bearerTokenStore,
+                   let bearerTokenScope,
+                   let storedToken = await bearerTokenStore.loadBearerToken(scope: bearerTokenScope)
+                {
+                    return (
+                        NativeBearerSession(
+                            token: storedToken,
+                            authSessionID: NativeServerRPCWire.authSessionID(fromBearerToken: storedToken)
+                        ),
+                        .secureStorage
+                    )
+                }
+                let exchanged = try await network.exchangeBearerSession(
+                    httpBaseURL: httpBaseURL,
+                    credential: bootstrapCredential
+                )
+                if let bearerTokenStore, let bearerTokenScope {
+                    await bearerTokenStore.storeBearerToken(exchanged.token, scope: bearerTokenScope)
+                }
+                return (exchanged, .exchanged)
             }
             pendingBearerSession = (
                 httpBaseURL: httpBaseURLString,
@@ -204,8 +373,9 @@ public extension ServerConnection {
             )
 
             let bearerSession: NativeBearerSession
+            let source: BearerSource
             do {
-                bearerSession = try await task.value
+                (bearerSession, source) = try await task.value
             } catch {
                 if pendingBearerSession?.httpBaseURL == httpBaseURLString,
                    pendingBearerSession?.bootstrapCredential == bootstrapCredential
@@ -218,7 +388,8 @@ public extension ServerConnection {
             cachedBearerSession = CachedBearerSession(
                 httpBaseURL: httpBaseURLString,
                 bootstrapCredential: bootstrapCredential,
-                bearerSession: bearerSession
+                bearerSession: bearerSession,
+                source: source
             )
             if pendingBearerSession?.httpBaseURL == httpBaseURLString,
                pendingBearerSession?.bootstrapCredential == bootstrapCredential
@@ -236,7 +407,20 @@ public extension ServerConnection {
 
         private let urlSession: URLSession
 
-        public init(urlSession: URLSession = .shared) {
+        /// The local Fenrir server multiplexes many long-lived ndjson streams
+        /// (one pane stream per visible pane, workspace events, approval feed,
+        /// local servers, workflow events) alongside unary RPCs over plain
+        /// HTTP/1.1. `URLSession.shared`'s 6-connections-per-host default lets
+        /// those never-ending streams starve every unary request (enumerate/
+        /// resize time out after 30s), so the transport owns a session with
+        /// enough per-host headroom for streams plus unary traffic.
+        public static let defaultSession: URLSession = {
+            let configuration = URLSessionConfiguration.default
+            configuration.httpMaximumConnectionsPerHost = 32
+            return URLSession(configuration: configuration)
+        }()
+
+        public init(urlSession: URLSession = NativeURLSessionServerRPCNetwork.defaultSession) {
             self.urlSession = urlSession
         }
 

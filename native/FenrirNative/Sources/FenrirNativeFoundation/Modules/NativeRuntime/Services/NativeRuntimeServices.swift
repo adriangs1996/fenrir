@@ -95,6 +95,31 @@ public extension NativeRuntime {
         func closePaneRuntime(_ input: ClosePaneRuntimeInput) async throws
     }
 
+    /// D-028 keymap window actions: create (`tmux.window.create`), rename
+    /// (`tmux.window.rename`), focus (`tmux.window.focus`), and close
+    /// (`tmux.window.close`) map the prefix-table `n`/`r`/M-1..M-9/`&`
+    /// bindings onto typed server RPCs.
+    protocol WindowRuntimeCreating: Sendable {
+        func createWindowRuntime(_ input: CreateWindowRuntimeInput) async throws -> WorkspaceRuntimeState
+    }
+
+    protocol WindowRuntimeRenaming: Sendable {
+        func renameWindowRuntime(_ input: RenameWindowRuntimeInput) async throws -> WindowRuntimeState
+    }
+
+    protocol WindowRuntimeFocusing: Sendable {
+        func focusWindowRuntime(_ input: FocusWindowRuntimeInput) async throws -> WorkspaceRuntimeState
+    }
+
+    protocol WindowRuntimeClosing: Sendable {
+        func closeWindowRuntime(_ input: CloseWindowRuntimeInput) async throws -> WorkspaceRuntimeState
+    }
+
+    /// D-028 zoom keymap action (`resize-pane -Z` toggle) via `tmux.pane.zoom`.
+    protocol PaneRuntimeZooming: Sendable {
+        func zoomPaneRuntime(_ input: ZoomPaneRuntimeInput) async throws -> WorkspaceRuntimeState
+    }
+
     protocol NativeRuntimeStore: Sendable {
         func loadCapabilities() async throws -> RuntimeCapabilities?
         func saveCapabilities(_ capabilities: RuntimeCapabilities) async throws

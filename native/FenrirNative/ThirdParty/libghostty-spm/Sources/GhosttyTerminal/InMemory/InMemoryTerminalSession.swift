@@ -73,6 +73,15 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
         return surface
     }
 
+    /// The most recent viewport geometry dispatched to the resize handler, if
+    /// any. Lets the host re-announce the surface size after late pane
+    /// (re)binding without waiting for the next layout change.
+    public var lastDispatchedViewport: InMemoryTerminalViewport? {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastResize
+    }
+
     // MARK: - Viewport Read
 
     /// Returns the active viewport as a UTF-8 string, or `nil` if no surface

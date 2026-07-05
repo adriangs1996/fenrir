@@ -1081,6 +1081,179 @@ struct NativeRuntimeTests {
         }
         #expect(await transport.methods().isEmpty)
     }
+
+    @Test("ServerTmuxRuntimeAdapter creates windows with the exact tmux window create wire shape")
+    func serverTmuxAdapterCreatesWindows() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.window.create": serverSnapshotData()
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        let workspace = try await adapter.createWindowRuntime(
+            NativeRuntime.CreateWindowRuntimeInput(
+                requestID: "window-create",
+                workspaceID: "workspace-1",
+                actor: actorIdentity(),
+                name: "ops",
+                workingDirectory: "/repo/apps/web",
+                source: .nativeHost
+            )
+        )
+
+        #expect(workspace.workspaceID == "workspace-1")
+        #expect(await transport.methods() == ["tmux.window.create"])
+        let payloadData = Data((await transport.payload(for: "tmux.window.create") ?? "").utf8)
+        let payload = try #require(try JSONSerialization.jsonObject(with: payloadData) as? [String: Any])
+        #expect(payload["workspaceId"] as? String == "workspace-1")
+        #expect(payload["name"] as? String == "ops")
+        #expect(payload["cwd"] as? String == "/repo/apps/web")
+        let actor = try #require(payload["actor"] as? [String: Any])
+        #expect(actor["sessionId"] as? String == "auth-user-a")
+        #expect(actor["subject"] as? String == "user-a")
+    }
+
+    @Test("ServerTmuxRuntimeAdapter omits optional window create fields and rejects blank names")
+    func serverTmuxAdapterOmitsOptionalWindowCreateFields() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.window.create": serverSnapshotData()
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        await #expect(throws: NativeRuntime.NativeRuntimeError.windowCreateFailed) {
+            _ = try await adapter.createWindowRuntime(
+                NativeRuntime.CreateWindowRuntimeInput(requestID: "window-create", workspaceID: "workspace-1", actor: actorIdentity(), name: "  ", source: .nativeHost)
+            )
+        }
+        #expect(await transport.methods().isEmpty)
+
+        _ = try await adapter.createWindowRuntime(
+            NativeRuntime.CreateWindowRuntimeInput(requestID: "window-create", workspaceID: "workspace-1", actor: actorIdentity(), source: .nativeHost)
+        )
+
+        // The server schema declares name/cwd as Schema.optional: the keys
+        // must be omitted entirely, never explicit nulls.
+        let payloadData = Data((await transport.payload(for: "tmux.window.create") ?? "").utf8)
+        let payload = try #require(try JSONSerialization.jsonObject(with: payloadData) as? [String: Any])
+        #expect(payload["name"] == nil)
+        #expect(payload["cwd"] == nil)
+    }
+
+    @Test("ServerTmuxRuntimeAdapter renames windows through tmux.window.rename")
+    func serverTmuxAdapterRenamesWindows() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.window.rename": serverWindowData(name: "ops-renamed")
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        let window = try await adapter.renameWindowRuntime(
+            NativeRuntime.RenameWindowRuntimeInput(
+                requestID: "window-rename",
+                workspaceID: "workspace-1",
+                windowID: "window-1",
+                name: "ops-renamed",
+                actor: actorIdentity(),
+                source: .nativeHost
+            )
+        )
+
+        #expect(window.windowID == "window-1")
+        #expect(window.tmuxWindowID == "@1")
+        #expect(window.title == "ops-renamed")
+        #expect(window.activePaneID == "pane-1")
+        #expect(await transport.methods() == ["tmux.window.rename"])
+        let payloadData = Data((await transport.payload(for: "tmux.window.rename") ?? "").utf8)
+        let payload = try #require(try JSONSerialization.jsonObject(with: payloadData) as? [String: Any])
+        #expect(payload["workspaceId"] as? String == "workspace-1")
+        #expect(payload["windowId"] as? String == "window-1")
+        #expect(payload["name"] as? String == "ops-renamed")
+    }
+
+    @Test("ServerTmuxRuntimeAdapter rejects blank or mismatched window renames")
+    func serverTmuxAdapterRejectsInvalidWindowRenames() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.window.rename": serverWindowData(name: "other", windowID: "window-other")
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        await #expect(throws: NativeRuntime.NativeRuntimeError.windowRenameFailed) {
+            _ = try await adapter.renameWindowRuntime(
+                NativeRuntime.RenameWindowRuntimeInput(requestID: "window-rename", workspaceID: "workspace-1", windowID: "window-1", name: "   ", actor: actorIdentity(), source: .nativeHost)
+            )
+        }
+        #expect(await transport.methods().isEmpty)
+
+        // The server answered with a different window identity: the rename
+        // must not be reported as applied to the requested window.
+        await #expect(throws: NativeRuntime.NativeRuntimeError.windowRenameFailed) {
+            _ = try await adapter.renameWindowRuntime(
+                NativeRuntime.RenameWindowRuntimeInput(requestID: "window-rename", workspaceID: "workspace-1", windowID: "window-1", name: "other", actor: actorIdentity(), source: .nativeHost)
+            )
+        }
+    }
+
+    @Test("ServerTmuxRuntimeAdapter focuses windows through the tmux window focus RPC")
+    func serverTmuxAdapterFocusesWindows() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.window.focus": serverSnapshotData()
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        let workspace = try await adapter.focusWindowRuntime(
+            NativeRuntime.FocusWindowRuntimeInput(requestID: "window-focus", workspaceID: "workspace-1", windowID: "window-1", actor: actorIdentity(), source: .nativeHost)
+        )
+
+        #expect(workspace.activeWindowID == "window-1")
+        #expect(await transport.methods() == ["tmux.window.focus"])
+        #expect(await transport.payload(for: "tmux.window.focus")?.contains("\"windowId\":\"window-1\"") == true)
+
+        // A window missing from the live tmux layout is an orphaned target.
+        await #expect(throws: NativeRuntime.NativeRuntimeError.orphanedTmuxResource) {
+            _ = try await adapter.focusWindowRuntime(
+                NativeRuntime.FocusWindowRuntimeInput(requestID: "window-focus", workspaceID: "workspace-1", windowID: "window-9", actor: actorIdentity(), source: .nativeHost)
+            )
+        }
+    }
+
+    @Test("ServerTmuxRuntimeAdapter closes windows through tmux.window.close with destroy mode")
+    func serverTmuxAdapterClosesWindows() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.window.close": serverSnapshotData()
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        let workspace = try await adapter.closeWindowRuntime(
+            NativeRuntime.CloseWindowRuntimeInput(requestID: "window-close", workspaceID: "workspace-1", windowID: "window-1", actor: actorIdentity(), source: .nativeHost)
+        )
+
+        #expect(workspace.workspaceID == "workspace-1")
+        #expect(await transport.methods() == ["tmux.window.close"])
+        #expect(await transport.payload(for: "tmux.window.close")?.contains("\"windowId\":\"window-1\"") == true)
+        #expect(await transport.payload(for: "tmux.window.close")?.contains("\"mode\":\"destroy\"") == true)
+    }
+
+    @Test("ServerTmuxRuntimeAdapter toggles pane zoom through tmux.pane.zoom")
+    func serverTmuxAdapterZoomsPanes() async throws {
+        let transport = RuntimeRPCTransport(responses: [
+            "tmux.pane.zoom": serverSnapshotData(activePaneID: "pane-2")
+        ])
+        let adapter = NativeRuntime.ServerTmuxRuntimeAdapter(transport: transport)
+
+        let workspace = try await adapter.zoomPaneRuntime(
+            NativeRuntime.ZoomPaneRuntimeInput(requestID: "pane-zoom", workspaceID: "workspace-1", paneID: "pane-2", actor: actorIdentity(), source: .nativeHost)
+        )
+
+        #expect(workspace.workspaceID == "workspace-1")
+        #expect(await transport.methods() == ["tmux.pane.zoom"])
+        #expect(await transport.payload(for: "tmux.pane.zoom")?.contains("\"paneId\":\"pane-2\"") == true)
+
+        // Zooming a pane that is no longer part of the live layout is an
+        // orphaned-resource failure, never a silent no-op.
+        await #expect(throws: NativeRuntime.NativeRuntimeError.orphanedTmuxResource) {
+            _ = try await adapter.zoomPaneRuntime(
+                NativeRuntime.ZoomPaneRuntimeInput(requestID: "pane-zoom", workspaceID: "workspace-1", paneID: "pane-9", actor: actorIdentity(), source: .nativeHost)
+            )
+        }
+    }
 }
 
 private func attachPaneInput() -> NativeRuntime.AttachPaneRuntimeInput {
@@ -1549,6 +1722,23 @@ private func serverSnapshotData(workspaceID: String = "workspace-1", activePaneI
         \(serverPaneJSON(workspaceID: workspaceID, paneID: "pane-2", tmuxPaneID: "%2", cols: 100, rows: 30))
       ],
       "revision": 3
+    }
+    """)
+}
+
+private func serverWindowData(name: String, windowID: String = "window-1") -> Data {
+    jsonData("""
+    {
+      "windowId": "\(windowID)",
+      "workspaceId": "workspace-1",
+      "tmuxWindowId": "@1",
+      "tmuxWindowIndex": 0,
+      "name": "\(name)",
+      "cwd": "/tmp",
+      "status": "active",
+      "activePaneId": "pane-1",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
     }
     """)
 }

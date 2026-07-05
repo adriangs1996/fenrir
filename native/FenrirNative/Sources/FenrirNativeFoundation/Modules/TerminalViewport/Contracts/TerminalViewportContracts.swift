@@ -513,6 +513,33 @@ public extension TerminalViewport {
         public let timestamp: FenrirTimestamp
     }
 
+    /// Acknowledges a server-declared stream gap (slow-client fast-forward or
+    /// ring-buffer overflow): the viewport accepts the sequence jump and drops
+    /// any partially buffered escape sequences, whose remainder was lost with
+    /// the gap. Screen content recovery arrives separately as a live repaint
+    /// chunk reseeded by the server.
+    struct HandleTerminalStreamGapInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let viewportID: ViewportID
+        public let paneID: PaneID
+        public let streamID: StreamID
+        public let source: ActionSource
+
+        public init(requestID: RequestID, viewportID: ViewportID, paneID: PaneID, streamID: StreamID, source: ActionSource) {
+            self.requestID = requestID
+            self.viewportID = viewportID
+            self.paneID = paneID
+            self.streamID = streamID
+            self.source = source
+        }
+    }
+
+    struct HandleTerminalStreamGapResult: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let state: State
+        public let timestamp: FenrirTimestamp
+    }
+
     struct SendTerminalInputInput: Codable, Equatable, Sendable {
         public let requestID: RequestID
         public let viewportID: ViewportID

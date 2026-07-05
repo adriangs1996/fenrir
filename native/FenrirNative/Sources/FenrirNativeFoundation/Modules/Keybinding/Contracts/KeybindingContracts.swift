@@ -146,6 +146,27 @@ public extension Keybinding {
         case down
         case next
         case previous
+
+        /// The literal control byte a vim-tmux-navigator key produces when it
+        /// is passed through to a full-screen app (nvim/fzf). christoomey binds
+        /// C-h/j/k/l whose FALSE branch is `select-pane -L/-D/-U/-R`; when the
+        /// pane runs vim the SAME control byte the user pressed is re-sent:
+        /// C-h=0x08, C-j=0x0A, C-k=0x0B, C-l=0x0C. Only the four spatial
+        /// directions have a control byte; `next`/`previous` return nil.
+        public var vimNavigationControlByte: UInt8? {
+            switch self {
+            case .left:
+                return 0x08 // C-h
+            case .down:
+                return 0x0A // C-j
+            case .up:
+                return 0x0B // C-k
+            case .right:
+                return 0x0C // C-l
+            case .next, .previous:
+                return nil
+            }
+        }
     }
 
     enum WindowSwitchTarget: Codable, Equatable, Sendable {
@@ -186,11 +207,52 @@ public extension Keybinding {
         case openPalette(prefix: PalettePrefix?)
         case openAgentComposer(context: AgentComposerContextSource)
         case focusPane(PaneNavigationDirection)
+        /// vim-tmux-navigator (christoomey) root-table C-h/j/k/l. The binding
+        /// is an `if-shell` that sends the key to the pane when it runs
+        /// vim/nvim/fzf and otherwise `select-pane`s in `direction`. At
+        /// execution time the host inspects the LIVE focused surface: if the
+        /// pane's program has enabled MOUSE REPORTING (DECSET 1000/1002/1003/1006
+        /// — the only signal libghostty exposes; NOT alt-screen) the literal
+        /// control byte is written to the pane; otherwise native pane focus
+        /// moves in `direction`. Only spatial directions are produced. Because
+        /// christoomey's real `is_vim` check keys off the foreground process,
+        /// mouse mode is only a proxy: a full-screen app that does not enable
+        /// mouse reporting (classic vim, nvim `set mouse=`) is misread as a
+        /// shell and has the key stolen for pane focus.
+        case navigatePaneVimAware(direction: PaneNavigationDirection)
         case switchWindow(WindowSwitchTarget)
         case switchSession(SessionSwitchTarget)
-        case splitPane(PaneSplitAxis)
-        case newWindow
-        case closeWindow
+        /// Split the focused pane.
+        ///
+        /// Axis semantics follow tmux exactly: `split-window -h` performs a
+        /// HORIZONTAL layout split — the new pane sits side-by-side
+        /// (left/right) with the current one — and maps to
+        /// `PaneSplitAxis.horizontal`. `split-window -v` (the tmux default)
+        /// stacks panes top/bottom and maps to `PaneSplitAxis.vertical`.
+        /// `followPaneCwd` mirrors `-c "#{pane_current_path}"`: the new pane
+        /// starts in the current pane's working directory.
+        case splitPane(axis: PaneSplitAxis, followPaneCwd: Bool)
+        /// Create a new window. `followPaneCwd` mirrors
+        /// `-c "#{pane_current_path}"` on `new-window`.
+        case newWindow(followPaneCwd: Bool)
+        /// Open the native rename prompt for the current window. Produced for
+        /// `command-prompt … rename-window …` bindings and direct
+        /// `rename-window` bindings alike: a key binding cannot carry the
+        /// final name, so the native surface always prompts.
+        case renameWindowPrompt
+        /// Resize the focused pane by `amount` tmux cells in `direction`.
+        /// Whether the binding repeats without re-entering the prefix table
+        /// comes from the surrounding binding record (`bind-key -r`), not
+        /// from this action.
+        case resizePane(direction: PaneNavigationDirection, amount: Int)
+        /// Toggle pane zoom (`resize-pane -Z`).
+        case zoomPane
+        /// Close the focused pane. `needsConfirmation` is set when the tmux
+        /// binding wrapped `kill-pane` in `confirm-before`.
+        case closePane(needsConfirmation: Bool)
+        /// Close the current window. `needsConfirmation` is set when the tmux
+        /// binding wrapped `kill-window` in `confirm-before`.
+        case closeWindow(needsConfirmation: Bool)
         case sendTmuxPrefix
         case activateTmuxKeyTable(TmuxKeyTable)
     }
@@ -199,27 +261,73 @@ public extension Keybinding {
         public let table: TmuxKeyTable
         public let key: KeyStroke
         public let command: String
+        /// Mirrors `bind-key -r`: while the repeat window is open the key can
+        /// fire again without re-entering the prefix table.
+        public let repeats: Bool
 
-        public init(table: TmuxKeyTable = .prefix, key: KeyStroke, command: String) {
+        public init(table: TmuxKeyTable = .prefix, key: KeyStroke, command: String, repeats: Bool = false) {
             self.table = table
             self.key = key
             self.command = command
+            self.repeats = repeats
         }
 
-        public init(table: String, key: KeyStroke, command: String) {
-            self.init(table: TmuxKeyTable(table), key: key, command: command)
+        public init(table: String, key: KeyStroke, command: String, repeats: Bool = false) {
+            self.init(table: TmuxKeyTable(table), key: key, command: command, repeats: repeats)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case table
+            case key
+            case command
+            case repeats
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            table = try container.decode(TmuxKeyTable.self, forKey: .table)
+            key = try container.decode(KeyStroke.self, forKey: .key)
+            command = try container.decode(String.self, forKey: .command)
+            repeats = try container.decodeIfPresent(Bool.self, forKey: .repeats) ?? false
         }
     }
 
     struct EffectiveTmuxKeymap: Codable, Equatable, Sendable {
+        public static let defaultRepeatTimeMs = 500
+
         public let prefix: KeyStroke
         public let prefix2: KeyStroke?
+        /// tmux `repeat-time` in milliseconds; bounds the repeat window for
+        /// `bind-key -r` bindings.
+        public let repeatTimeMs: Int
         public let bindings: [TmuxKeyBinding]
 
-        public init(prefix: KeyStroke = .control("b"), prefix2: KeyStroke? = nil, bindings: [TmuxKeyBinding]) {
+        public init(
+            prefix: KeyStroke = .control("b"),
+            prefix2: KeyStroke? = nil,
+            repeatTimeMs: Int = EffectiveTmuxKeymap.defaultRepeatTimeMs,
+            bindings: [TmuxKeyBinding]
+        ) {
             self.prefix = prefix
             self.prefix2 = prefix2
+            self.repeatTimeMs = repeatTimeMs
             self.bindings = bindings
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case prefix
+            case prefix2
+            case repeatTimeMs
+            case bindings
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            prefix = try container.decode(KeyStroke.self, forKey: .prefix)
+            prefix2 = try container.decodeIfPresent(KeyStroke.self, forKey: .prefix2)
+            repeatTimeMs = try container.decodeIfPresent(Int.self, forKey: .repeatTimeMs)
+                ?? EffectiveTmuxKeymap.defaultRepeatTimeMs
+            bindings = try container.decode([TmuxKeyBinding].self, forKey: .bindings)
         }
     }
 
@@ -384,11 +492,16 @@ public extension Keybinding {
         public let table: TmuxKeyTable?
         public let key: KeyStroke
         public let reason: String
+        /// The raw tmux command string of the binding when one exists; nil
+        /// when the key had no binding at all. Diagnostics only — D-028
+        /// forbids executing this string.
+        public let rawCommand: String?
 
-        public init(table: TmuxKeyTable?, key: KeyStroke, reason: String) {
+        public init(table: TmuxKeyTable?, key: KeyStroke, reason: String, rawCommand: String? = nil) {
             self.table = table
             self.key = key
             self.reason = reason
+            self.rawCommand = rawCommand
         }
     }
 

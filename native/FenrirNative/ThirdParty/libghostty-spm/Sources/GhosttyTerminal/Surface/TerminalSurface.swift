@@ -272,6 +272,9 @@ public final class TerminalSurface {
 
     // MARK: - Mouse Capture
 
+    /// Whether the running program has captured the mouse via mouse-reporting
+    /// mode (DECSET 1000/1002/1003/1006). Mouse tracking ONLY — this is not an
+    /// alternate-screen signal; libghostty exposes no alt-screen getter.
     var isMouseCaptured: Bool {
         guard let s = surface else { return false }
         return ghostty_surface_mouse_captured(s)

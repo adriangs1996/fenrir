@@ -70,6 +70,21 @@ final class TerminalSurfaceCoordinator {
     private var lastTickTimestamp: TimeInterval = 0
     private var tickScheduled = false
 
+    /// Frame pacing. Without it, every ghostty wakeup schedules a main-queue
+    /// tick, so a PTY flood renders once per runloop pass — far above the
+    /// display refresh — and each surplus `draw()` can block the main thread
+    /// on `nextDrawable`. The link activates on the first wakeup of a burst,
+    /// caps draws at the refresh rate while output streams, and is released
+    /// after `maxIdleDisplayLinkFrames` quiet frames so an idle terminal pays
+    /// zero per-frame cost.
+    private var displayLink: DisplayLink?
+    /// True once the link delivered a frame. Until then the legacy immediate
+    /// path stays responsible for rendering, so environments where
+    /// CVDisplayLink never fires (headless CI) keep working.
+    private var displayLinkDeliveredFrame = false
+    private var idleDisplayLinkFrames = 0
+    private static let maxIdleDisplayLinkFrames = 30
+
     init() {
         bridge.onCellSizeChange = { [weak self] width, height in
             self?.handleCellSizeChange(width: width, height: height)
@@ -81,7 +96,12 @@ final class TerminalSurfaceCoordinator {
 
     func requestImmediateTick() {
         pendingImmediateTick = true
-        scheduleTickIfNeeded()
+        activateDisplayLinkIfNeeded()
+        if !displayLinkDeliveredFrame {
+            // First frame of a burst renders on the next runloop pass for
+            // minimal input latency; once the link is live it paces the rest.
+            scheduleTickIfNeeded()
+        }
     }
 
     func startDisplayLink() {
@@ -90,6 +110,39 @@ final class TerminalSurfaceCoordinator {
 
     func stopDisplayLink() {
         tickScheduled = false
+        releaseDisplayLink()
+    }
+
+    private func activateDisplayLinkIfNeeded() {
+        guard displayLink == nil, canRenderFrame else { return }
+        let link = DisplayLink()
+        link.delegatingObject(self)
+        displayLink = link
+        displayLinkDeliveredFrame = false
+        idleDisplayLinkFrames = 0
+    }
+
+    private func releaseDisplayLink() {
+        displayLink = nil
+        displayLinkDeliveredFrame = false
+        idleDisplayLinkFrames = 0
+    }
+
+    func handleDisplayLinkFrame(context: DisplayLinkCallbackContext) {
+        displayLinkDeliveredFrame = true
+        guard canRenderFrame else {
+            releaseDisplayLink()
+            return
+        }
+        if pendingImmediateTick {
+            idleDisplayLinkFrames = 0
+            tick(context: context)
+            return
+        }
+        idleDisplayLinkFrames += 1
+        if idleDisplayLinkFrames >= Self.maxIdleDisplayLinkFrames {
+            releaseDisplayLink()
+        }
     }
 
     // MARK: - Surface Lifecycle
@@ -311,6 +364,7 @@ final class TerminalSurfaceCoordinator {
     private func tearDownSurface(removingBridgeFrom controller: TerminalController?) {
         TerminalDebugLog.log(.lifecycle, "tear down surface")
         tickScheduled = false
+        releaseDisplayLink()
         if let session = configuration.inMemorySession {
             session.clearSurface(ifMatches: surface?.rawValue)
         }
@@ -405,5 +459,15 @@ final class TerminalSurfaceCoordinator {
                 targetTimestamp: timestamp
             )
         )
+    }
+}
+
+extension TerminalSurfaceCoordinator: DisplayLinkDelegate {
+    /// MSDisplayLink dispatches synchronization on the main queue, so hopping
+    /// into main-actor state is safe here.
+    nonisolated func synchronization(context: DisplayLinkCallbackContext) {
+        MainActor.assumeIsolated {
+            handleDisplayLinkFrame(context: context)
+        }
     }
 }

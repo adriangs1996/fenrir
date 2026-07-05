@@ -76,8 +76,17 @@ public extension PaneGrid {
         public private(set) var state: State
         public var onFocusPane: ((PaneKernelTarget) -> Void)?
         public var onSelectWindow: ((SelectTabWindowCommand) -> Void)?
+        /// Explicit resize GESTURE (D-028 `C-s C-h`): adjusts ONE pane's split
+        /// ratio via `resize-pane`. This is the only per-pane resize path.
         public var onResizePane: ((PaneResizeAllocation) -> Void)?
-        public var onResizePaneToSize: ((PaneKernelTarget, TerminalViewport.Size) -> Void)?
+        /// Classic tmux client model: the client reports ONE overall viewport
+        /// size for the whole pane area and tmux lays the panes out (D-011).
+        /// Fires whenever the pane-host region is laid out; the grid never
+        /// pushes auto-measured PER-PANE sizes back to the server (that
+        /// non-idempotent echo made panes shrink on focus moves and blocked
+        /// splitting the same direction twice). Server-assigned `pane.rect`
+        /// cols/rows drive each surface's grid instead.
+        public var onReportWindowSize: ((TerminalViewport.Size) -> Void)?
 
         private let terminalFactory: TerminalViewFactory
         private let style: PaneGridStyle
@@ -257,6 +266,95 @@ public extension PaneGrid {
             return allocation
         }
 
+        /// Native pane chrome that is NOT terminal cells: the 24pt pane header
+        /// and the 6pt split divider. Subtracted from the pane-host region so
+        /// the reported cell count matches what tmux should allocate.
+        private static let paneHeaderHeight: CGFloat = 24
+        private static let paneDividerThickness: CGFloat = 6
+        /// Monospace cell estimate (points) used only before any surface has
+        /// reported a real grid, so the first viewport report is still sane.
+        private static let fallbackCellSize = CGSize(width: 8, height: 18)
+
+        override public func layout() {
+            super.layout()
+            reportWindowSizeIfPossible()
+        }
+
+        /// Whole-viewport size the client announces to tmux (classic client
+        /// model, D-011): the pane-host content region converted to cells with
+        /// the live ghostty cell metrics, minus the native chrome. Depends only
+        /// on the host bounds, the cell size and the rendered layout's SHAPE
+        /// (header/divider counts) — never on the tmux-assigned pane cell sizes
+        /// — so re-measuring after a server snapshot yields the same number and
+        /// the round-trip is idempotent (no geometry drift). The chrome inset
+        /// scales with the actual layout: every pane owns a 24pt header and each
+        /// split inserts a 6pt divider, so an N-deep vertical stack steals
+        /// N headers — subtracting a single fixed header would over-report rows
+        /// and clip the bottom of each stacked pane.
+        public func measuredViewportSize() -> TerminalViewport.Size? {
+            let bounds = contentHost.bounds
+            guard bounds.width > 0, bounds.height > 0 else {
+                return nil
+            }
+            let cell = cellSizeInPoints()
+            let chrome = PaneGrid.viewportChromeInsets(
+                for: activeWindow?.root,
+                headerHeight: Self.paneHeaderHeight,
+                dividerThickness: Self.paneDividerThickness
+            )
+            let usableWidth = bounds.width - chrome.horizontal
+            let usableHeight = bounds.height - chrome.vertical
+            guard usableWidth > 0, usableHeight > 0, cell.width > 0, cell.height > 0 else {
+                return nil
+            }
+            return TerminalViewport.Size(
+                columns: max(1, Int((usableWidth / cell.width).rounded(.down))),
+                rows: max(1, Int((usableHeight / cell.height).rounded(.down))),
+                pixelWidth: max(1, Int(bounds.width.rounded())),
+                pixelHeight: max(1, Int(bounds.height.rounded()))
+            )
+        }
+
+        private func reportWindowSizeIfPossible() {
+            guard let onReportWindowSize, let size = measuredViewportSize() else {
+                return
+            }
+            onReportWindowSize(size)
+        }
+
+        /// Point size of one terminal cell. Prefers the renderer's exact cell
+        /// metrics (pixels ÷ backing scale) from ANY live surface — the
+        /// estimate must be identical across layout passes or the deduped
+        /// whole-viewport report flaps and round-trips resize-window forever.
+        /// Only when NO surface has reported metrics yet does it fall back to
+        /// dividing a surface's bounds by its grid (lossy: folds padding,
+        /// sub-cell remainder, and mid-rebuild transients in), then to a
+        /// monospace estimate before the first ghostty resize lands.
+        private func cellSizeInPoints() -> CGSize {
+            let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+            if scale > 0 {
+                for paneView in paneViewsByPaneID.values {
+                    if let cell = paneView.terminalView.lastReportedCellPixelSize {
+                        return CGSize(width: cell.width / scale, height: cell.height / scale)
+                    }
+                }
+            }
+            for paneView in paneViewsByPaneID.values {
+                let surface = paneView.terminalView
+                guard let reported = surface.lastReportedSurfaceSize,
+                      reported.columns > 0, reported.rows > 0,
+                      surface.bounds.width > 0, surface.bounds.height > 0
+                else {
+                    continue
+                }
+                return CGSize(
+                    width: surface.bounds.width / CGFloat(reported.columns),
+                    height: surface.bounds.height / CGFloat(reported.rows)
+                )
+            }
+            return Self.fallbackCellSize
+        }
+
         private var activeWindow: WindowPresentation? {
             state.windows.first { $0.windowID == state.activeWindowID }
         }
@@ -387,12 +485,6 @@ public extension PaneGrid {
             view.onFocusRequested = { [weak self] paneID in
                 _ = self?.focusPane(paneID)
             }
-            view.onResizeMeasured = { [weak self] paneID, size in
-                guard let target = self?.target(for: paneID) else {
-                    return
-                }
-                self?.onResizePaneToSize?(target, size)
-            }
             paneViewsByPaneID[pane.paneID] = view
             return view
         }
@@ -444,9 +536,12 @@ private final class PaneView: NSView {
     let terminalView: FenrirTerminalView
     let viewportID: ViewportID
     var onFocusRequested: ((PaneID) -> Void)?
-    var onResizeMeasured: ((PaneID, TerminalViewport.Size) -> Void)?
 
     private let paneID: PaneID
+    /// Server-assigned tmux pane geometry (cells). Drives the surface grid
+    /// size so the client renders each pane at the size tmux allocated,
+    /// instead of pushing an AppKit-measured size back to the server.
+    private let rect: PaneGrid.PaneRect
     private let style: PaneGrid.PaneGridStyle
     private let title = NSTextField(labelWithString: "")
     private let paneLocation = NSTextField(labelWithString: "")
@@ -457,6 +552,7 @@ private final class PaneView: NSView {
     init(pane: PaneGrid.PanePresentation, terminalView: FenrirTerminalView, style: PaneGrid.PaneGridStyle = .system) {
         self.paneID = pane.paneID
         self.viewportID = pane.viewportID
+        self.rect = pane.rect
         self.terminalView = terminalView
         self.style = style
         super.init(frame: .zero)
@@ -526,6 +622,12 @@ private final class PaneView: NSView {
         )
     }
 
+    /// Sizes the local terminal SURFACE so it renders, driving the grid
+    /// (columns/rows) from the SERVER-assigned `rect` — never a lossy
+    /// AppKit pixel measurement — while the pixel extents track the actual
+    /// (server-driven, proportional) AppKit bounds. Emits NO per-pane resize
+    /// back to the server: tmux owns pane layout (D-011/D-019); the client
+    /// reports only the whole viewport via `onReportWindowSize`.
     private func resizeTerminalForCurrentBounds() {
         let pixelWidth = Int(terminalView.bounds.width.rounded(.down))
         let pixelHeight = Int(terminalView.bounds.height.rounded(.down))
@@ -533,8 +635,8 @@ private final class PaneView: NSView {
             return
         }
         let size = TerminalViewport.Size(
-            columns: max(1, pixelWidth / 8),
-            rows: max(1, pixelHeight / 16),
+            columns: max(1, rect.columns),
+            rows: max(1, rect.rows),
             pixelWidth: pixelWidth,
             pixelHeight: pixelHeight
         )
@@ -543,7 +645,6 @@ private final class PaneView: NSView {
         }
         lastTerminalSize = size
         try? terminalView.resizeTerminal(to: size)
-        onResizeMeasured?(paneID, size)
     }
 
     private func build(_ pane: PaneGrid.PanePresentation) {
@@ -659,6 +760,84 @@ private extension NSView {
     func collectSplitFractions() -> [[Double]] {
         let current = (self as? ProportionalPaneSplitView).map { [$0.fractions] } ?? []
         return current + subviews.flatMap { $0.collectSplitFractions() }
+    }
+}
+
+public extension PaneGrid {
+    /// Native pane chrome (points) that is NOT terminal cells and therefore
+    /// must be subtracted from the pane-host region before converting to the
+    /// whole-viewport cell count reported to tmux (D-011 classic client model).
+    struct ViewportChromeInsets: Equatable, Sendable {
+        /// Chrome stealing horizontal space (vertical split dividers).
+        public let horizontal: CGFloat
+        /// Chrome stealing vertical space (per-pane headers + horizontal
+        /// split dividers stacked along the tallest column).
+        public let vertical: CGFloat
+
+        public init(horizontal: CGFloat, vertical: CGFloat) {
+            self.horizontal = horizontal
+            self.vertical = vertical
+        }
+    }
+
+    /// Worst-case chrome inset for the rendered layout `root`. Every leaf pane
+    /// carries its own `headerHeight` header and each split inserts one
+    /// `dividerThickness` divider between adjacent siblings, so the chrome that
+    /// steals cells scales with HOW the panes are stacked — not a single fixed
+    /// header+divider. A vertical stack accumulates its children's vertical
+    /// chrome plus the dividers between them; across sibling columns/rows the
+    /// MAX is taken on the cross axis so the single reported viewport stays
+    /// conservative: a less-subdivided column is only ever under-allocated
+    /// (safe — wastes a cell), never over-allocated (which clips the bottom row
+    /// / trailing column of a pane off-screen). `nil` root (no active window)
+    /// is treated as a single pane: one header, no divider.
+    static func viewportChromeInsets(
+        for root: LayoutNode?,
+        headerHeight: CGFloat,
+        dividerThickness: CGFloat
+    ) -> ViewportChromeInsets {
+        guard let root else {
+            return ViewportChromeInsets(horizontal: 0, vertical: headerHeight)
+        }
+        let insets = chromeInsets(root, headerHeight: headerHeight, dividerThickness: dividerThickness)
+        return ViewportChromeInsets(horizontal: insets.horizontal, vertical: insets.vertical)
+    }
+
+    private static func chromeInsets(
+        _ node: LayoutNode,
+        headerHeight: CGFloat,
+        dividerThickness: CGFloat
+    ) -> (horizontal: CGFloat, vertical: CGFloat) {
+        switch node {
+        case .pane:
+            // Each pane renders a 24pt header above its terminal surface; no
+            // horizontal (side) chrome.
+            return (horizontal: 0, vertical: headerHeight)
+        case let .split(axis, children):
+            guard !children.isEmpty else {
+                return (horizontal: 0, vertical: headerHeight)
+            }
+            let childInsets = children.map {
+                chromeInsets($0, headerHeight: headerHeight, dividerThickness: dividerThickness)
+            }
+            let dividerTotal = dividerThickness * CGFloat(children.count - 1)
+            switch axis {
+            case .vertical:
+                // Children stack top-to-bottom: their vertical chrome (headers
+                // + nested dividers) accumulates, plus the dividers between
+                // them; horizontal chrome is the worst sibling's.
+                let vertical = childInsets.map(\.vertical).reduce(0, +) + dividerTotal
+                let horizontal = childInsets.map(\.horizontal).max() ?? 0
+                return (horizontal: horizontal, vertical: vertical)
+            case .horizontal:
+                // Children sit side-by-side: their horizontal chrome accumulates
+                // plus the dividers between them; vertical chrome is the tallest
+                // column's (a deeper vertical stack elsewhere must still fit).
+                let horizontal = childInsets.map(\.horizontal).reduce(0, +) + dividerTotal
+                let vertical = childInsets.map(\.vertical).max() ?? 0
+                return (horizontal: horizontal, vertical: vertical)
+            }
+        }
     }
 }
 

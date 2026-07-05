@@ -1,4 +1,5 @@
 import Foundation
+import GhosttyTerminal
 import Testing
 @testable import TerminalViewport
 
@@ -49,5 +50,38 @@ struct GhosttyFontFallbackTests {
         let combined = FenrirGhosttyTerminalBackend.ghosttyConfigAppendingFontFallback(to: userConfig) { _ in false }
 
         #expect(combined == userConfig)
+    }
+}
+
+@Suite("Ghostty cell-exact surface sizing")
+struct GhosttyExactSurfaceSizeTests {
+    @Test("Target pixel size lands the derived grid exactly on the tmux grid")
+    func exactSizePreservesRemainderBelowOneCell() {
+        // Reported: 90x30 grid, 20x40px cells, 8px h-padding, 12px v-padding.
+        let reported = InMemoryTerminalViewport(
+            columns: 90, rows: 30,
+            widthPixels: 90 * 20 + 8, heightPixels: 30 * 40 + 12,
+            cellWidthPixels: 20, cellHeightPixels: 40
+        )
+        let target = FenrirGhosttyTerminalBackend.exactSurfacePixelSize(
+            desired: TerminalViewport.Size(columns: 84, rows: 14, pixelWidth: 1, pixelHeight: 1),
+            reported: reported
+        )
+
+        #expect(target?.width == CGFloat(84 * 20 + 8))
+        #expect(target?.height == CGFloat(14 * 40 + 12))
+        // The remainder stays below one cell, so ghostty derives exactly 84x14.
+        #expect(Int((target!.width - 8) / 20) == 84)
+        #expect(Int((target!.height - 12) / 40) == 14)
+    }
+
+    @Test("Missing cell metrics produce no target")
+    func exactSizeRequiresCellMetrics() {
+        let target = FenrirGhosttyTerminalBackend.exactSurfacePixelSize(
+            desired: TerminalViewport.Size(columns: 84, rows: 14, pixelWidth: 1, pixelHeight: 1),
+            reported: InMemoryTerminalViewport(columns: 90, rows: 30)
+        )
+
+        #expect(target == nil)
     }
 }

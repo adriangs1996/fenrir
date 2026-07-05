@@ -33,6 +33,74 @@ struct TerminalViewportTests {
         #expect(outOfOrder == .failure(TerminalViewport.TerminalViewportError.streamOrderViolation))
     }
 
+    @Test("Stale chunks at or below the watermark are silently dropped, never re-applied")
+    func ingestDropsStaleReplayedChunks() async throws {
+        let store = TerminalStore()
+        let renderer = RendererWriter()
+        try await store.saveViewport(state(streamID: "stream-1"))
+        let ingest = TerminalViewport.IngestTerminalOutput(store: store, rendererWriter: renderer, clock: FixedClock())
+        let batch = TerminalViewport.IngestTerminalOutputBatch(store: store, rendererWriter: renderer, clock: FixedClock())
+
+        _ = try await ingest.run(outputInput(sequence: 1, bytes: Data("one".utf8))).get()
+        _ = try await ingest.run(outputInput(sequence: 2, bytes: Data("two".utf8))).get()
+
+        // A replayed single chunk (backfill overlap) is a no-op success.
+        let replayed = try await ingest.run(outputInput(sequence: 2, bytes: Data("two".utf8))).get()
+        #expect(replayed.appliedSequence == 2)
+        #expect(await renderer.ingested == [Data("one".utf8), Data("two".utf8)])
+
+        // A batch straddling the watermark applies only the fresh tail.
+        let straddling = try await batch.run(TerminalViewport.IngestTerminalOutputBatchInput(
+            requestID: "batch-straddle",
+            viewportID: "viewport-1",
+            paneID: "pane-1",
+            streamID: "stream-1",
+            chunks: [
+                TerminalViewport.TerminalOutputChunk(sequence: 1, bytes: Data("one".utf8)),
+                TerminalViewport.TerminalOutputChunk(sequence: 2, bytes: Data("two".utf8)),
+                TerminalViewport.TerminalOutputChunk(sequence: 3, bytes: Data("three".utf8)),
+            ],
+            source: .test
+        )).get()
+        #expect(straddling.appliedSequence == 3)
+        #expect(straddling.chunkCount == 1)
+        #expect(await renderer.ingested == [Data("one".utf8), Data("two".utf8), Data("three".utf8)])
+
+        // A fully stale batch is a no-op success at the current watermark.
+        let stale = try await batch.run(TerminalViewport.IngestTerminalOutputBatchInput(
+            requestID: "batch-stale",
+            viewportID: "viewport-1",
+            paneID: "pane-1",
+            streamID: "stream-1",
+            chunks: [TerminalViewport.TerminalOutputChunk(sequence: 2, bytes: Data("two".utf8))],
+            source: .test
+        )).get()
+        #expect(stale.appliedSequence == 3)
+        #expect(stale.chunkCount == 0)
+        #expect(await renderer.ingested == [Data("one".utf8), Data("two".utf8), Data("three".utf8)])
+    }
+
+    @Test("HandleTerminalStreamGap resets the sequence watermark and pending buffers so post-gap chunks apply")
+    func handleTerminalStreamGapRecoversFromDrops() async throws {
+        let store = TerminalStore()
+        let renderer = RendererWriter()
+        try await store.saveViewport(state(streamID: "stream-1"))
+        let ingest = TerminalViewport.IngestTerminalOutput(store: store, rendererWriter: renderer, clock: FixedClock())
+        let gap = TerminalViewport.HandleTerminalStreamGap(store: store, clock: FixedClock())
+
+        _ = try await ingest.run(outputInput(sequence: 1, bytes: Data("one".utf8))).get()
+        // Leave a partially buffered reserved OSC whose remainder was lost with the gap.
+        _ = try await ingest.run(outputInput(sequence: 2, bytes: Data("\u{1B}]\(TerminalViewport.fenrirReservedOSCIdentifier);partial".utf8))).get()
+
+        let acknowledged = try await gap.run(gapInput()).get()
+        #expect(acknowledged.state.lastAppliedSequence == nil)
+        #expect(acknowledged.state.pendingReservedOSCSequence.isEmpty)
+
+        let resumed = try await ingest.run(outputInput(sequence: 7, bytes: Data("after".utf8))).get()
+        #expect(resumed.appliedSequence == 7)
+        #expect(await renderer.ingested.last == Data("after".utf8))
+    }
+
     @Test("IngestTerminalOutput strips and forwards reserved OSC terminated by BEL")
     func ingestTerminalOutputStripsAndForwardsReservedOSCBEL() async throws {
         let store = TerminalStore()
@@ -177,7 +245,9 @@ struct TerminalViewportTests {
         #expect((try await store.loadViewport(viewportID: "viewport-1"))?.lastAppliedSequence == 1)
         #expect(await renderer.ingested == [Data("before".utf8), Data("after".utf8)])
         #expect(await forwarder.signals.map(\.payload) == ["presence"])
-        #expect(retry == .failure(TerminalViewport.TerminalViewportError.streamOrderViolation))
+        // A replayed chunk is a no-op success (idempotent dedup) — and above
+        // all it must NOT re-render bytes or re-forward the signal.
+        #expect(try retry.get().appliedSequence == 1)
         #expect(await renderer.ingested == [Data("before".utf8), Data("after".utf8)])
         #expect(await forwarder.signals.map(\.payload) == ["presence"])
     }
@@ -574,6 +644,16 @@ private func outputInput(sequence: UInt64, bytes: Data) -> TerminalViewport.Inge
         streamID: "stream-1",
         sequence: sequence,
         bytes: bytes,
+        source: .test
+    )
+}
+
+private func gapInput() -> TerminalViewport.HandleTerminalStreamGapInput {
+    TerminalViewport.HandleTerminalStreamGapInput(
+        requestID: "gap",
+        viewportID: "viewport-1",
+        paneID: "pane-1",
+        streamID: "stream-1",
         source: .test
     )
 }

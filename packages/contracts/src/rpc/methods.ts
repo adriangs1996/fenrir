@@ -123,7 +123,9 @@ export const WS_METHODS = {
   tmuxWorkspaceReconnect: "tmux.workspace.reconnect",
   tmuxWorkspaceSubscribe: "tmux.workspace.subscribe",
   tmuxWindowCreate: "tmux.window.create",
+  tmuxWindowRename: "tmux.window.rename",
   tmuxWindowFocus: "tmux.window.focus",
+  tmuxWindowResize: "tmux.window.resize",
   tmuxWindowClose: "tmux.window.close",
   tmuxPaneCreate: "tmux.pane.create",
   tmuxNeovimPaneCreate: "tmux.neovimPane.create",
@@ -133,8 +135,10 @@ export const WS_METHODS = {
   tmuxPaneFocus: "tmux.pane.focus",
   tmuxPaneClose: "tmux.pane.close",
   tmuxPaneResize: "tmux.pane.resize",
+  tmuxPaneZoom: "tmux.pane.zoom",
   tmuxPaneWrite: "tmux.pane.write",
   tmuxPaneSubscribeStream: "tmux.pane.subscribeStream",
+  tmuxKeymapGet: "tmux.keymap.get",
 
   // Raw TCP Listener
   rawTcpCreateListener: "rawTcp.createListener",

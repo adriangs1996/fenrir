@@ -1110,7 +1110,7 @@ private final class FocusRecordingPaneGridRuntime: NativePaneGridRuntimeControll
 
     func resizePaneAllocation(_ command: PaneGrid.ResizePaneAllocationCommand) async throws {}
 
-    func resizePane(_ target: PaneGrid.PaneKernelTarget, size: NativeRuntime.PaneSize) async throws {}
+    func resizeWindow(_ target: PaneGrid.PaneKernelTarget, size: NativeRuntime.PaneSize) async throws {}
 
     func selectWindow(_ command: PaneGrid.SelectTabWindowCommand) async throws {}
 }

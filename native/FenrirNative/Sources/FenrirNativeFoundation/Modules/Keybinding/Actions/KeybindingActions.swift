@@ -41,20 +41,17 @@ public extension Keybinding {
             var unsupported: [UnsupportedTmuxBinding] = []
             if input.preferences.importTmuxKeybindings {
                 for binding in input.keymap.bindings {
-                    switch tmuxAction(for: binding.command) {
-                    case let .some(action):
+                    switch TmuxCommandMapper.map(binding.command) {
+                    case let .action(action):
                         builder.insert(ActionBinding(
                             trigger: tmuxTrigger(for: binding, keymap: input.keymap),
                             action: action,
                             source: .tmuxImport,
                             sourceTable: binding.table
                         ))
-                    case .none:
+                    case let .unsupported(reason):
                         if input.preferences.unsupportedPolicy == .collectDiagnostics {
-                            unsupported.append(UnsupportedTmuxBinding(
-                                binding: binding,
-                                reason: "Unsupported tmux command for native action routing: \(binding.command)"
-                            ))
+                            unsupported.append(UnsupportedTmuxBinding(binding: binding, reason: reason))
                         }
                     }
                 }
@@ -69,6 +66,89 @@ public extension Keybinding {
                     prefix: input.keymap.prefix,
                     prefix2: input.keymap.prefix2
                 ),
+                timestamp: clock.now()
+            ))
+        }
+    }
+
+    /// Turns the raw server keymap payload (Task A wire shape: `list-keys`
+    /// records captured from the live tmux server) into an
+    /// `EffectiveTmuxKeymap` plus the compiled table index used by
+    /// `TmuxPrefixStateMachine`, recording unparseable key specs and
+    /// unsupported commands as diagnostics. Never parses `.tmux.conf` (D-028).
+    struct ImportServerTmuxKeymap: FenrirAction {
+        public typealias Failure = KeybindingError
+
+        public let clock: any KeybindingClock
+
+        public init(clock: any KeybindingClock) {
+            self.clock = clock
+        }
+
+        public func run(_ input: ImportServerTmuxKeymapInput) async -> Result<ImportServerTmuxKeymapResult, KeybindingError> {
+            guard case let .success(prefix) = TmuxKeySpecParser.parse(input.payload.prefix) else {
+                return .failure(.tmuxImportFailed(
+                    "Unparseable tmux prefix key spec: \(input.payload.prefix)"
+                ))
+            }
+
+            var unparseable: [UnparseableTmuxBinding] = []
+
+            var prefix2: KeyStroke?
+            if let rawPrefix2 = input.payload.prefix2 {
+                switch TmuxKeySpecParser.parse(rawPrefix2) {
+                case let .success(key):
+                    prefix2 = key
+                case let .failure(error):
+                    unparseable.append(UnparseableTmuxBinding(
+                        table: "prefix2",
+                        key: rawPrefix2,
+                        command: "",
+                        reason: TmuxKeySpecParser.reason(for: error)
+                    ))
+                }
+            }
+
+            var bindings: [TmuxKeyBinding] = []
+            for wire in input.payload.bindings {
+                switch TmuxKeySpecParser.parse(wire.key) {
+                case let .success(key):
+                    bindings.append(TmuxKeyBinding(
+                        table: TmuxKeyTable(wire.table),
+                        key: key,
+                        command: wire.command,
+                        repeats: wire.repeats
+                    ))
+                case let .failure(error):
+                    unparseable.append(UnparseableTmuxBinding(
+                        table: wire.table,
+                        key: wire.key,
+                        command: wire.command,
+                        reason: TmuxKeySpecParser.reason(for: error)
+                    ))
+                }
+            }
+
+            let keymap = EffectiveTmuxKeymap(
+                prefix: prefix,
+                prefix2: prefix2,
+                repeatTimeMs: input.payload.repeatTimeMs ?? EffectiveTmuxKeymap.defaultRepeatTimeMs,
+                bindings: bindings
+            )
+
+            var unsupported: [UnsupportedTmuxBinding] = []
+            for binding in keymap.bindings {
+                if case let .unsupported(reason) = TmuxCommandMapper.map(binding.command) {
+                    unsupported.append(UnsupportedTmuxBinding(binding: binding, reason: reason))
+                }
+            }
+
+            return .success(ImportServerTmuxKeymapResult(
+                requestID: input.requestID,
+                keymap: keymap,
+                compiledKeymap: TmuxCommandMapper.compile(keymap),
+                unparseableBindings: unparseable,
+                unsupportedBindings: unsupported,
                 timestamp: clock.now()
             ))
         }
@@ -191,89 +271,6 @@ private extension Keybinding {
         ]
     }
 
-    static func tmuxAction(for command: String) -> FenrirKeyAction? {
-        let tokens = tmuxCommandTokens(command)
-        guard let commandName = tokens.first else {
-            return nil
-        }
-
-        switch commandName {
-        case "select-pane":
-            if tokens.contains("-L") { return .focusPane(.left) }
-            if tokens.contains("-R") { return .focusPane(.right) }
-            if tokens.contains("-U") { return .focusPane(.up) }
-            if tokens.contains("-D") { return .focusPane(.down) }
-            if tokens.contains("-t") { return .focusPane(.next) }
-            return nil
-        case "last-pane":
-            return .focusPane(.previous)
-        case "next-window":
-            return .switchWindow(.next)
-        case "previous-window":
-            return .switchWindow(.previous)
-        case "last-window":
-            return .switchWindow(.last)
-        case "select-window":
-            if tokens.contains("-n") { return .switchWindow(.next) }
-            if tokens.contains("-p") { return .switchWindow(.previous) }
-            if let target = target(after: "-t", in: tokens) {
-                if let index = tmuxWindowIndexTarget(target) {
-                    return .switchWindow(.index(index))
-                }
-                return .switchWindow(.named(target))
-            }
-            return nil
-        case "switch-client":
-            if let table = target(after: "-T", in: tokens) {
-                return .activateTmuxKeyTable(.init(table))
-            }
-            if tokens.contains("-n") { return .switchSession(.next) }
-            if tokens.contains("-p") { return .switchSession(.previous) }
-            if tokens.contains("-l") { return .switchSession(.last) }
-            if let target = target(after: "-t", in: tokens) {
-                return .switchSession(.named(target))
-            }
-            return nil
-        case "new-window":
-            return .newWindow
-        case "kill-window":
-            return .closeWindow
-        case "split-window", "splitw":
-            if tokens.contains("-h") { return .splitPane(.horizontal) }
-            if tokens.contains("-v") { return .splitPane(.vertical) }
-            return .splitPane(.vertical)
-        case "send-prefix":
-            return .sendTmuxPrefix
-        case "command-prompt":
-            return .openPalette(prefix: .help)
-        case "choose-tree":
-            return .openPalette(prefix: .shell)
-        default:
-            return nil
-        }
-    }
-
-    static func tmuxCommandTokens(_ command: String) -> [String] {
-        command.split(whereSeparator: \.isWhitespace).map(String.init)
-    }
-
-    static func target(after flag: String, in tokens: [String]) -> String? {
-        guard let flagIndex = tokens.firstIndex(of: flag) else {
-            return nil
-        }
-
-        let targetIndex = tokens.index(after: flagIndex)
-        guard targetIndex < tokens.endIndex else {
-            return nil
-        }
-
-        return tokens[targetIndex]
-    }
-
-    static func tmuxWindowIndexTarget(_ target: String) -> Int? {
-        let normalized = target.trimmingCharacters(in: CharacterSet(charactersIn: ":="))
-        return Int(normalized)
-    }
 }
 
 private struct KeybindingMapBuilder {

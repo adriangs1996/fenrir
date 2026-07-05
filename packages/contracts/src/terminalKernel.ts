@@ -335,6 +335,8 @@ export const TmuxWindow = Schema.Struct({
   cwd: TmuxPath,
   status: TmuxWindowStatus,
   activePaneId: Schema.NullOr(TmuxPaneId),
+  /** Mirrors tmux `window_zoomed_flag`; absent means not zoomed (legacy state). */
+  zoomed: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -518,6 +520,14 @@ export const TmuxWindowCreateInput = Schema.Struct({
 });
 export type TmuxWindowCreateInput = typeof TmuxWindowCreateInput.Type;
 
+export const TmuxWindowRenameInput = Schema.Struct({
+  actor: TmuxActor,
+  workspaceId: TmuxWorkspaceId,
+  windowId: TmuxWindowId,
+  name: TmuxName,
+});
+export type TmuxWindowRenameInput = typeof TmuxWindowRenameInput.Type;
+
 export const TmuxWindowCloseInput = Schema.Struct({
   actor: TmuxActor,
   workspaceId: TmuxWorkspaceId,
@@ -674,6 +684,22 @@ export const TmuxWindowFocusInput = Schema.Struct({
 });
 export type TmuxWindowFocusInput = typeof TmuxWindowFocusInput.Type;
 
+/**
+ * Sets the size of a whole tmux window to the client's overall viewport
+ * (classic tmux client model): the client reports ONE size for the entire
+ * pane area and the server lays the panes out. Maps to `resize-window -x -y`,
+ * which reflows every pane proportionally and preserves zoom — it never
+ * rewrites individual pane splits, unlike `TmuxPaneResizeInput`.
+ */
+export const TmuxWindowResizeInput = Schema.Struct({
+  actor: TmuxActor,
+  workspaceId: TmuxWorkspaceId,
+  windowId: TmuxWindowId,
+  cols: TmuxPaneCols,
+  rows: TmuxPaneRows,
+});
+export type TmuxWindowResizeInput = typeof TmuxWindowResizeInput.Type;
+
 export const TmuxPaneResizeInput = Schema.Struct({
   actor: TmuxActor,
   workspaceId: TmuxWorkspaceId,
@@ -682,6 +708,14 @@ export const TmuxPaneResizeInput = Schema.Struct({
   rows: TmuxPaneRows,
 });
 export type TmuxPaneResizeInput = typeof TmuxPaneResizeInput.Type;
+
+/** Toggles tmux pane zoom (`resize-pane -Z`) for the target pane (D-028 zoom keymap action). */
+export const TmuxPaneZoomInput = Schema.Struct({
+  actor: TmuxActor,
+  workspaceId: TmuxWorkspaceId,
+  paneId: TmuxPaneId,
+});
+export type TmuxPaneZoomInput = typeof TmuxPaneZoomInput.Type;
 
 export const TmuxPaneWriteInput = Schema.Struct({
   workspaceId: TmuxWorkspaceId,
@@ -718,6 +752,46 @@ export const TmuxPaneWriteResult = Schema.Union([
   TmuxPaneWriteRejectedResult,
 ]);
 export type TmuxPaneWriteResult = typeof TmuxPaneWriteResult.Type;
+
+/**
+ * Effective keymap export (D-028).
+ *
+ * All strings are RAW tmux values: the server performs no interpretation.
+ * `table` is the tmux key-table name verbatim ("root", "prefix",
+ * "copy-mode", "copy-mode-vi", or any custom table), `key` is the tmux key
+ * string with list-keys quoting/escaping removed (e.g. `"` or `M-{`), and
+ * `command` is the remainder of the bind-key line verbatim (may contain
+ * newlines for multi-line payloads such as display-menu blocks). Mapping raw
+ * commands to typed actions happens exclusively on the client.
+ */
+export const TmuxKeymapTableName = TrimmedNonEmptyString.check(Schema.isMaxLength(256));
+export type TmuxKeymapTableName = typeof TmuxKeymapTableName.Type;
+
+export const TmuxKeymapKey = TrimmedNonEmptyString.check(Schema.isMaxLength(256));
+export type TmuxKeymapKey = typeof TmuxKeymapKey.Type;
+
+export const TmuxKeymapBinding = Schema.Struct({
+  table: TmuxKeymapTableName,
+  key: TmuxKeymapKey,
+  repeat: Schema.Boolean,
+  command: Schema.String.check(Schema.isMaxLength(65_536)),
+});
+export type TmuxKeymapBinding = typeof TmuxKeymapBinding.Type;
+
+export const TmuxKeymapGetInput = Schema.Struct({
+  actor: TmuxActor,
+  workspaceId: TmuxWorkspaceId,
+});
+export type TmuxKeymapGetInput = typeof TmuxKeymapGetInput.Type;
+
+export const TmuxEffectiveKeymap = Schema.Struct({
+  workspaceId: TmuxWorkspaceId,
+  prefix: TmuxKeymapKey,
+  prefix2: Schema.NullOr(TmuxKeymapKey),
+  repeatTimeMs: NonNegativeInt,
+  bindings: Schema.Array(TmuxKeymapBinding),
+});
+export type TmuxEffectiveKeymap = typeof TmuxEffectiveKeymap.Type;
 
 export class TmuxKernelError extends Schema.TaggedErrorClass<TmuxKernelError>()("TmuxKernelError", {
   code: Schema.Literals([

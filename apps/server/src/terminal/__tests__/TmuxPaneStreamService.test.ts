@@ -202,6 +202,37 @@ it.effect("fast-forwards slow subscribers without blocking pane append", () =>
   }).pipe(Effect.provide(TmuxPaneStreamServiceLive)),
 );
 
+it.effect("invokes the subscriber gap handler when a slow client is fast-forwarded", () =>
+  Effect.gen(function* () {
+    const service = yield* TmuxPaneStreamService;
+    const pane = TmuxPaneId.make("pane-gap-handler");
+    const reseededPanes: string[] = [];
+    yield* service.setSubscriberGapHandler((paneId) =>
+      Effect.sync(() => {
+        reseededPanes.push(paneId);
+      }),
+    );
+    yield* service.ensurePane(descriptor(pane));
+    const stream = yield* service.subscribe({
+      workspaceId: WORKSPACE_ID,
+      paneId: pane,
+      actor: STREAM_ACTOR,
+      backfill: "latest",
+      slowClientPolicy: "fast-forward",
+      maxBufferedChunks: 1,
+    });
+
+    yield* service.append(pane, "one");
+    yield* service.append(pane, "two");
+    yield* service.append(pane, "three");
+    yield* Effect.yieldNow;
+    const events = Array.from(yield* stream.pipe(Stream.take(2), Stream.runCollect));
+
+    expect(events.map((event) => event.type)).toEqual(["overflow", "gap"]);
+    expect(reseededPanes).toContain(pane);
+  }).pipe(Effect.provide(TmuxPaneStreamServiceLive)),
+);
+
 it.effect("closes slow subscribers when requested by policy", () =>
   Effect.gen(function* () {
     const service = yield* TmuxPaneStreamService;

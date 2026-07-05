@@ -215,7 +215,7 @@ public extension Settings {
     struct AppearancePreferences: Codable, Equatable, Sendable {
         public let themeID: ThemeID
 
-        public init(themeID: ThemeID = .fenrirDark) {
+        public init(themeID: ThemeID = .catppuccinMocha) {
             self.themeID = themeID
         }
     }

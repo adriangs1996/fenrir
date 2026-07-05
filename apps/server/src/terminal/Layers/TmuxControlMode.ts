@@ -106,54 +106,73 @@ function restAfterTokens(line: string, tokenCount: number): string {
   return line.slice(index);
 }
 
+function isOctalDigit(code: number): boolean {
+  return code >= 48 && code <= 55;
+}
+
 export function decodeTmuxControlString(input: string): string {
+  // Hot path: %output payloads are decoded for every pane byte the server
+  // relays, so scan by backslash and copy literal spans in bulk instead of
+  // concatenating per character.
+  let index = input.indexOf("\\");
+  if (index === -1) return input;
+
   let output = "";
-  for (let index = 0; index < input.length; index += 1) {
-    const char = input[index]!;
-    if (char !== "\\") {
-      output += char;
-      continue;
+  let literalStart = 0;
+  while (index !== -1) {
+    if (index > literalStart) {
+      output += input.slice(literalStart, index);
     }
 
     const next = input[index + 1];
     if (next === undefined) {
       output += "\\";
-      continue;
+      literalStart = index + 1;
+      break;
     }
 
-    if (/[0-7]/.test(next)) {
-      const octal = input.slice(index + 1, index + 4);
-      if (/^[0-7]{3}$/.test(octal)) {
-        output += String.fromCharCode(Number.parseInt(octal, 8));
-        index += 3;
-        continue;
+    if (
+      isOctalDigit(input.charCodeAt(index + 1)) &&
+      isOctalDigit(input.charCodeAt(index + 2)) &&
+      isOctalDigit(input.charCodeAt(index + 3))
+    ) {
+      output += String.fromCharCode(
+        (input.charCodeAt(index + 1) - 48) * 64 +
+          (input.charCodeAt(index + 2) - 48) * 8 +
+          (input.charCodeAt(index + 3) - 48),
+      );
+      literalStart = index + 4;
+    } else {
+      switch (next) {
+        case "\\":
+          output += "\\";
+          break;
+        case "e":
+          output += "\u001b";
+          break;
+        case "n":
+          output += "\n";
+          break;
+        case "r":
+          output += "\r";
+          break;
+        case "s":
+          output += " ";
+          break;
+        case "t":
+          output += "\t";
+          break;
+        default:
+          output += next;
+          break;
       }
+      literalStart = index + 2;
     }
+    index = input.indexOf("\\", literalStart);
+  }
 
-    switch (next) {
-      case "\\":
-        output += "\\";
-        break;
-      case "e":
-        output += "\u001b";
-        break;
-      case "n":
-        output += "\n";
-        break;
-      case "r":
-        output += "\r";
-        break;
-      case "s":
-        output += " ";
-        break;
-      case "t":
-        output += "\t";
-        break;
-      default:
-        output += next;
-        break;
-    }
-    index += 1;
+  if (literalStart < input.length) {
+    output += input.slice(literalStart);
   }
   return output;
 }
@@ -198,11 +217,43 @@ function parseCommandNumber(commandId: string): bigint | null {
   return /^\d+$/.test(commandId) ? BigInt(commandId) : null;
 }
 
+const OUTPUT_MARKER = "%output ";
+
+/**
+ * Fast path for `%output <paneId> <data>` — by far the most frequent control
+ * mode line. Skips the quote-aware `tokenize()` (which walks the entire data
+ * payload character by character) and slices the pane id + payload directly.
+ */
+function parseOutputLineFast(line: string): TmuxControlModeEvent | null {
+  let paneStart = OUTPUT_MARKER.length;
+  while (line[paneStart] === " " || line[paneStart] === "\t") {
+    paneStart += 1;
+  }
+  let paneEnd = paneStart;
+  while (paneEnd < line.length && line[paneEnd] !== " " && line[paneEnd] !== "\t") {
+    paneEnd += 1;
+  }
+  if (paneEnd === paneStart) return { type: "unrecognized", line };
+
+  let dataStart = paneEnd;
+  while (line[dataStart] === " " || line[dataStart] === "\t") {
+    dataStart += 1;
+  }
+  return {
+    type: "pane-output",
+    paneId: line.slice(paneStart, paneEnd),
+    data: decodeTmuxControlString(dataStart < line.length ? line.slice(dataStart) : ""),
+  };
+}
+
 export function parseTmuxControlModeLine(rawLine: string): TmuxControlModeEvent | null {
   const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
   if (line.length === 0) return null;
   if (!line.startsWith("%")) {
     return { type: "unrecognized", line };
+  }
+  if (line.startsWith(OUTPUT_MARKER)) {
+    return parseOutputLineFast(line);
   }
 
   const tokens = tokenize(line);
@@ -260,7 +311,30 @@ export function parseTmuxControlModeLine(rawLine: string): TmuxControlModeEvent 
         : { type: "unrecognized", line };
     case "%pane-mode-changed":
       return tokens[1]
-        ? { type: "pane-mode-changed", paneId: tokens[1], mode: tokens[2] ?? null }
+        ? {
+            type: "pane-mode-changed",
+            paneId: tokens[1],
+            mode: tokens[2] ?? null,
+          }
+        : { type: "unrecognized", line };
+    case "%window-pane-changed":
+      // Active pane changed inside a window — emitted when anything other
+      // than this client selects a pane (vim-tmux-navigator's
+      // `tmux select-pane`, scripts, another attached client).
+      return tokens[1] && tokens[2]
+        ? {
+            type: "window-pane-changed",
+            windowId: tokens[1],
+            paneId: tokens[2],
+          }
+        : { type: "unrecognized", line };
+    case "%session-window-changed":
+      return tokens[1] && tokens[2]
+        ? {
+            type: "session-window-changed",
+            sessionId: tokens[1],
+            windowId: tokens[2],
+          }
         : { type: "unrecognized", line };
     case "%session-changed":
       return tokens[1] && tokens[2]
@@ -314,6 +388,46 @@ export function parseTmuxControlModeChunk(
     state: { bufferedLine },
     events,
   };
+}
+
+/**
+ * Upper bound (UTF-16 units) for a merged pane-output payload. Worst case
+ * UTF-8 expansion is 3 bytes per unit, keeping merged chunks safely under the
+ * pane stream service's 256 KiB per-chunk cap.
+ */
+const MAX_COALESCED_OUTPUT_UNITS = 65_536;
+
+/**
+ * Merges consecutive `pane-output` events for the same pane into a single
+ * event. A single PTY read of a busy pane (a TUI redraw, `cat` of a large
+ * file) parses into hundreds of one-line `%output` events; relaying each one
+ * individually costs a stream append, per-subscriber queue slot, and a
+ * websocket frame apiece. Merging at the parse boundary adds zero latency
+ * because it only combines events that arrived in the same read.
+ */
+export function coalescePaneOutputEvents(
+  events: readonly TmuxControlModeEvent[],
+): readonly TmuxControlModeEvent[] {
+  if (events.length < 2) return events;
+  const merged: TmuxControlModeEvent[] = [];
+  for (const event of events) {
+    const previous = merged[merged.length - 1];
+    if (
+      event.type === "pane-output" &&
+      previous?.type === "pane-output" &&
+      previous.paneId === event.paneId &&
+      previous.data.length + event.data.length <= MAX_COALESCED_OUTPUT_UNITS
+    ) {
+      merged[merged.length - 1] = {
+        type: "pane-output",
+        paneId: previous.paneId,
+        data: previous.data + event.data,
+      };
+      continue;
+    }
+    merged.push(event);
+  }
+  return merged;
 }
 
 function tmuxControlModeArgs(input: TmuxControlModeConnectInput): string[] {
@@ -535,7 +649,7 @@ export const TmuxControlModeAdapterLive = Layer.effect(
                   if (currentProc !== proc) return Effect.void;
                   return Ref.modify(parseStateRef, (state) => {
                     const result = parseTmuxControlModeChunk(data, state);
-                    return [result.events, result.state] as const;
+                    return [coalescePaneOutputEvents(result.events), result.state] as const;
                   }).pipe(
                     Effect.flatMap((events) =>
                       Effect.forEach(

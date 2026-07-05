@@ -43,6 +43,19 @@
             core.surface
         }
 
+        /// True while the running program has enabled mouse reporting/tracking
+        /// (DECSET 1000/1002/1003/1006). This reflects mouse mode ONLY, not the
+        /// alternate screen: an app enters the alt-screen and enables mouse
+        /// reporting independently, and libghostty exposes no alt-screen getter.
+        /// Full-screen apps that DO enable mouse (nvim `mouse=nvi`, fzf) set
+        /// this; those that do not (classic vim, nvim `set mouse=`) leave it
+        /// false. Hosts use it as a proxy for "the app owns the keyboard"
+        /// without polling `ps`, accepting that proxy's misses. Reads straight
+        /// from libghostty's surface state.
+        open var isMouseReportingActive: Bool {
+            surface?.isMouseCaptured ?? false
+        }
+
         override public init(frame: NSRect) {
             super.init(frame: frame)
             commonInit()

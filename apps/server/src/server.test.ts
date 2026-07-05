@@ -911,6 +911,7 @@ const buildAppUnderTest = (options?: {
           createWindow: () => Effect.die(new Error("not available in test")),
           renameWindow: () => Effect.die(new Error("not available in test")),
           focusWindow: () => Effect.die(new Error("not available in test")),
+          resizeWindow: () => Effect.die(new Error("not available in test")),
           closeWindow: () => Effect.die(new Error("not available in test")),
           createPane: () => Effect.die(new Error("not available in test")),
           focusPane: () => Effect.die(new Error("not available in test")),

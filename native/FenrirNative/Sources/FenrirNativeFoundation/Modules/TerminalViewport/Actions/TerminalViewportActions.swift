@@ -164,6 +164,15 @@ public extension TerminalViewport {
         public func run(_ input: IngestTerminalOutputInput) async -> Result<IngestTerminalOutputResult, TerminalViewportError> {
             do {
                 let state = try await TerminalViewport.loadMatchingState(store, viewportID: input.viewportID, paneID: input.paneID, streamID: input.streamID)
+                // Idempotent replay protection: a chunk at or below the
+                // watermark was already applied (backfill overlap after a
+                // resubscribe, or briefly overlapping subscriptions). Drop it
+                // silently — treating it as a stream-order violation and
+                // resetting the watermark would re-render old bytes
+                // (duplicated keystrokes, stacked prompts).
+                if let previous = state.lastAppliedSequence, input.sequence <= previous {
+                    return .success(IngestTerminalOutputResult(requestID: input.requestID, state: state, appliedSequence: previous, timestamp: clock.now()))
+                }
                 try TerminalViewport.validateNextSequence(input.sequence, after: state.lastAppliedSequence)
                 let scanned = try TerminalViewport.scanTerminalStream(
                     from: input.bytes,
@@ -210,7 +219,7 @@ public extension TerminalViewport {
         let clock: any TerminalViewportClock
         let events: (any TerminalViewportEventPublishing)?
 
-        init(
+        public init(
             store: any TerminalViewportStore,
             rendererWriter: any TerminalRendererWriting,
             reservedOSCForwarder: (any TerminalReservedOSCForwarding)? = nil,
@@ -229,9 +238,28 @@ public extension TerminalViewport {
         public func run(_ input: IngestTerminalOutputBatchInput) async -> Result<IngestTerminalOutputBatchResult, TerminalViewportError> {
             do {
                 let state = try await TerminalViewport.loadMatchingState(store, viewportID: input.viewportID, paneID: input.paneID, streamID: input.streamID)
-                try TerminalViewport.validate(input.chunks, after: state.lastAppliedSequence, policy: input.policy)
+                // Idempotent replay protection (see IngestTerminalOutput):
+                // chunks at or below the watermark were already applied —
+                // drop them silently instead of failing the whole batch.
+                let freshChunks: [TerminalOutputChunk]
+                if let previous = state.lastAppliedSequence {
+                    freshChunks = input.chunks.filter { $0.sequence > previous }
+                } else {
+                    freshChunks = input.chunks
+                }
+                guard !freshChunks.isEmpty else {
+                    return .success(IngestTerminalOutputBatchResult(
+                        requestID: input.requestID,
+                        state: state,
+                        appliedSequence: state.lastAppliedSequence ?? 0,
+                        chunkCount: 0,
+                        rendererWriteCount: 0,
+                        timestamp: clock.now()
+                    ))
+                }
+                try TerminalViewport.validate(freshChunks, after: state.lastAppliedSequence, policy: input.policy)
                 let scanned = try TerminalViewport.scanTerminalStream(
-                    from: input.chunks,
+                    from: freshChunks,
                     pending: state.pendingReservedOSCSequence,
                     state: state,
                     streamID: input.streamID
@@ -247,7 +275,7 @@ public extension TerminalViewport {
                     notificationForwarder: notificationForwarder,
                     events: events
                 )
-                guard let lastSequence = input.chunks.last?.sequence else {
+                guard let lastSequence = freshChunks.last?.sequence else {
                     throw TerminalViewportError.streamOrderViolation
                 }
                 let next = state.updated(
@@ -262,10 +290,51 @@ public extension TerminalViewport {
                     requestID: input.requestID,
                     state: next,
                     appliedSequence: lastSequence,
-                    chunkCount: input.chunks.count,
+                    chunkCount: freshChunks.count,
                     rendererWriteCount: rendererWriteCount,
                     timestamp: timestamp
                 ))
+            } catch let error as TerminalViewportError {
+                return .failure(error)
+            } catch {
+                return .failure(.outputApplyFailed)
+            }
+        }
+    }
+
+    /// Accepts a server-declared stream gap: clears the applied-sequence
+    /// watermark so the next chunk (whatever its sequence) validates, and
+    /// drops partially buffered OSC/notification bytes whose remainder was
+    /// lost with the gap. Without this, every chunk after a drop fails the
+    /// strict `previous + 1` validation and the pane freezes with corrupt
+    /// content until a detach/reattach.
+    struct HandleTerminalStreamGap: FenrirAction {
+        public typealias Failure = TerminalViewportError
+
+        let store: any TerminalViewportStore
+        let clock: any TerminalViewportClock
+        let events: (any TerminalViewportEventPublishing)?
+
+        public init(
+            store: any TerminalViewportStore,
+            clock: any TerminalViewportClock,
+            events: (any TerminalViewportEventPublishing)? = nil
+        ) {
+            self.store = store
+            self.clock = clock
+            self.events = events
+        }
+
+        public func run(_ input: HandleTerminalStreamGapInput) async -> Result<HandleTerminalStreamGapResult, TerminalViewportError> {
+            do {
+                let state = try await TerminalViewport.loadMatchingState(store, viewportID: input.viewportID, paneID: input.paneID, streamID: input.streamID)
+                let next = state.updated(
+                    lastAppliedSequence: .some(nil),
+                    pendingReservedOSCSequence: Data(),
+                    pendingKittyNotificationChunks: []
+                )
+                try await store.saveViewport(next)
+                return .success(HandleTerminalStreamGapResult(requestID: input.requestID, state: next, timestamp: clock.now()))
             } catch let error as TerminalViewportError {
                 return .failure(error)
             } catch {

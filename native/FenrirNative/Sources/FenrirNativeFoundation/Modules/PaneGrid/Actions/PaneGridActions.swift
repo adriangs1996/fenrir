@@ -420,8 +420,9 @@ extension PaneGrid {
                 tmuxWindowID: window.tmuxWindowID,
                 index: window.index,
                 title: window.title,
-                root: buildLayout(panes),
+                root: layoutRoot(panes, zoomedPaneID: window.zoomedPaneID),
                 activePaneID: window.activePaneID,
+                zoomedPaneID: window.zoomedPaneID,
                 panes: panes
             ))
         }
@@ -471,6 +472,7 @@ extension PaneGrid {
         }
         let openPaneIDs = Set(panes.map(\.paneID))
         let activePaneID = window.activePaneID.flatMap { openPaneIDs.contains($0) ? $0 : nil } ?? first.paneID
+        let zoomedPaneID = window.zoomedPaneID.flatMap { openPaneIDs.contains($0) ? $0 : nil }
         let presentations = panes.map { pane in
             PanePresentation(
                 paneID: pane.paneID,
@@ -487,10 +489,21 @@ extension PaneGrid {
             tmuxWindowID: window.tmuxWindowID,
             index: window.index,
             title: window.title,
-            root: buildLayout(presentations),
+            root: layoutRoot(presentations, zoomedPaneID: zoomedPaneID),
             activePaneID: activePaneID,
+            zoomedPaneID: zoomedPaneID,
             panes: presentations
         )
+    }
+
+    /// Zoom-aware layout root: a zoomed window renders only the zoomed pane
+    /// (tmux parity) while the remaining panes stay in the presentation's
+    /// pane list so their viewports and streams survive the zoom toggle.
+    static func layoutRoot(_ panes: [PanePresentation], zoomedPaneID: PaneID?) -> LayoutNode {
+        if let zoomedPaneID, let zoomed = panes.first(where: { $0.paneID == zoomedPaneID }) {
+            return .pane(zoomed)
+        }
+        return buildLayout(panes)
     }
 
     static func buildLayout(_ panes: [PanePresentation]) -> LayoutNode {
@@ -583,13 +596,19 @@ extension PaneGrid.State {
             let panes = window.panes.map {
                 PaneGrid.PanePresentation(paneID: $0.paneID, tmuxPaneID: $0.tmuxPaneID, streamID: $0.streamID, viewportID: $0.viewportID, title: $0.title, rect: $0.rect, isFocused: $0.paneID == paneID)
             }
+            // tmux parity: focusing a different pane of a zoomed window keeps
+            // the window zoomed on the newly active pane locally, so focus
+            // never lands on an invisible pane; the next server projection
+            // reconciles whatever tmux actually did with the zoom.
+            let zoomedPaneID = window.zoomedPaneID != nil ? paneID : nil
             return PaneGrid.WindowPresentation(
                 windowID: window.windowID,
                 tmuxWindowID: window.tmuxWindowID,
                 index: window.index,
                 title: window.title,
-                root: PaneGrid.buildLayout(panes),
+                root: PaneGrid.layoutRoot(panes, zoomedPaneID: zoomedPaneID),
                 activePaneID: paneID,
+                zoomedPaneID: zoomedPaneID,
                 panes: panes
             )
         }

@@ -8,6 +8,20 @@ Public API:
 
 - keybinding contracts and typed action DTOs
 - keybinding service ports
+- `TmuxKeySpecParser` for tmux key syntax ("C-s", "M-1", "S-F5", named keys,
+  shell escapes) into `KeyStroke`s with AppKit matching data
+  (`appKitCharactersIgnoringModifiers`); mouse key names are typed parse
+  failures for diagnostics
+- `TmuxCommandMapper` for raw `list-keys` command strings into typed
+  `FenrirKeyAction`s (`TmuxCommandMapping`), refusing unknown commands with
+  reasons per D-028, plus `compile` into a `CompiledTmuxKeymap`
+- `TmuxPrefixStateMachine`: value-type reducer replicating tmux client
+  prefix/key-table/repeat-window processing with injectable time; emits typed
+  effects (consume/enter-prefix/execute/stay-in-repeat/unsupported-feedback/
+  exit/pass-through) and never replays the swallowed prefix key
+- `ImportServerTmuxKeymap` for turning the server keymap wire payload
+  (`TmuxKeymapWirePayload`) into `EffectiveTmuxKeymap` + `CompiledTmuxKeymap`
+  with unparseable/unsupported diagnostics
 - `ImportTmuxKeymap` for converting runtime-supplied effective tmux keymap
   records from root, prefix, prefix2, and relevant custom tables into Fenrir
   actions plus diagnostics

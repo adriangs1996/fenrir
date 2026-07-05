@@ -3,6 +3,7 @@ import { Effect, Fiber, Layer, Ref } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
+  coalescePaneOutputEvents,
   decodeTmuxControlString,
   EMPTY_TMUX_CONTROL_MODE_PARSE_STATE,
   parseTmuxControlModeChunk,
@@ -159,6 +160,16 @@ describe("tmux control-mode parser", () => {
       sessionId: "$1",
       name: "fenrir-project",
     });
+    expect(parseTmuxControlModeLine("%window-pane-changed @3 %27")).toEqual({
+      type: "window-pane-changed",
+      windowId: "@3",
+      paneId: "%27",
+    });
+    expect(parseTmuxControlModeLine("%session-window-changed $1 @5")).toEqual({
+      type: "session-window-changed",
+      sessionId: "$1",
+      windowId: "@5",
+    });
   });
 
   it("parses pane output without mixing it into orchestration contracts", () => {
@@ -173,6 +184,60 @@ describe("tmux control-mode parser", () => {
       age: 12,
       data: "later\n",
     });
+  });
+
+  it("decodes escape edge cases identically on the fast path", () => {
+    expect(decodeTmuxControlString("plain ascii with no escapes")).toBe(
+      "plain ascii with no escapes",
+    );
+    expect(decodeTmuxControlString("\\\\literal\\tbackslash")).toBe("\\literal\tbackslash");
+    // A trailing backslash and a too-short octal keep their legacy decoding.
+    expect(decodeTmuxControlString("tail\\")).toBe("tail\\");
+    expect(decodeTmuxControlString("short\\7x")).toBe("short7x");
+    expect(decodeTmuxControlString("\\033[38:2:30:30:46mtext")).toBe("\u001b[38:2:30:30:46mtext");
+  });
+
+  it("preserves data payloads that contain quotes on the %output fast path", () => {
+    expect(parseTmuxControlModeLine("%output %4 echo \"hi 'there'\"")).toEqual({
+      type: "pane-output",
+      paneId: "%4",
+      data: "echo \"hi 'there'\"",
+    });
+    expect(parseTmuxControlModeLine("%output %4 ")).toEqual({
+      type: "pane-output",
+      paneId: "%4",
+      data: "",
+    });
+    expect(parseTmuxControlModeLine("%output ")).toEqual({
+      type: "unrecognized",
+      line: "%output ",
+    });
+  });
+
+  it("coalesces consecutive pane-output events for the same pane", () => {
+    const coalesced = coalescePaneOutputEvents([
+      { type: "pane-output", paneId: "%1", data: "a" },
+      { type: "pane-output", paneId: "%1", data: "b" },
+      { type: "pane-output", paneId: "%2", data: "c" },
+      { type: "pane-output", paneId: "%2", data: "d" },
+      { type: "window-add", windowId: "@1" },
+      { type: "pane-output", paneId: "%2", data: "e" },
+    ]);
+    expect(coalesced).toEqual([
+      { type: "pane-output", paneId: "%1", data: "ab" },
+      { type: "pane-output", paneId: "%2", data: "cd" },
+      { type: "window-add", windowId: "@1" },
+      { type: "pane-output", paneId: "%2", data: "e" },
+    ]);
+  });
+
+  it("caps coalesced pane-output payload size", () => {
+    const big = "x".repeat(65_000);
+    const coalesced = coalescePaneOutputEvents([
+      { type: "pane-output", paneId: "%1", data: big },
+      { type: "pane-output", paneId: "%1", data: big },
+    ]);
+    expect(coalesced).toHaveLength(2);
   });
 
   it("buffers partial control-mode chunks", () => {

@@ -85,6 +85,16 @@ export type TmuxControlModeEvent =
     }
   | { readonly type: "pane-mode-changed"; readonly paneId: string; readonly mode: string | null }
   | { readonly type: "session-changed"; readonly sessionId: string; readonly name: string }
+  | {
+      readonly type: "window-pane-changed";
+      readonly windowId: string;
+      readonly paneId: string;
+    }
+  | {
+      readonly type: "session-window-changed";
+      readonly sessionId: string;
+      readonly windowId: string;
+    }
   | { readonly type: "pane-output"; readonly paneId: string; readonly data: string }
   | {
       readonly type: "pane-extended-output";

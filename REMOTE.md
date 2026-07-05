@@ -101,6 +101,51 @@ Notes:
   bun run --cwd apps/server start -- auth session issue --base-dir "$BASE_DIR" --role owner --label "native terminal" --token-only
   ```
 
+## Native terminal against a remote server
+
+The native macOS terminal can attach to a remote Fenrir server instead of
+spawning a local one. When a remote target is configured the app skips local
+server discovery/spawn and the local tmux dependency check — tmux and the
+PTYs live on the remote host.
+
+Configure the target one of two ways:
+
+1. **Environment variable** (wins over settings):
+
+   ```bash
+   FENRIR_REMOTE_SERVER_URL="http://<your-machine-ip>:3773" \
+   FENRIR_NATIVE_BOOTSTRAP_TOKEN="<pairing token or bearer>" \
+   open -a FenrirNative   # or run the dev binary
+   ```
+
+2. **Settings file** (`~/Library/Application Support/FenrirNative/settings.json`):
+
+   ```json
+   {
+     "serverConnection": {
+       "startupMode": "connectToRemoteProfile",
+       "defaultRemoteProfileID": "workbox",
+       "remoteProfiles": [
+         {
+           "id": "workbox",
+           "displayName": "Workbox",
+           "endpointURL": "http://192.168.1.42:3773"
+         }
+       ]
+     }
+   }
+   ```
+
+Credentials: `FENRIR_NATIVE_BOOTSTRAP_TOKEN` accepts either a one-time pairing
+token (`auth pairing create`) or an owner-issued bearer session
+(`auth session issue --token-only`). A pairing token is exchanged once and the
+resulting bearer is persisted in the macOS Keychain per endpoint, so the token
+only needs to be supplied on first launch; later launches (and bearer
+expiry/revocation recovery) read the Keychain and re-pair only when that
+session is rejected. Only `http`/`https` endpoint URLs are accepted; prefer
+`https` or a Tailnet address — bearer tokens transit in the clear over plain
+HTTP.
+
 ## 2) Tailnet / Tailscale access
 
 If you use Tailscale, you can bind directly to your Tailnet address.

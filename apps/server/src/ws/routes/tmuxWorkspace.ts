@@ -98,6 +98,12 @@ export const makeTmuxWorkspaceRoutes = (deps: { readonly currentSessionId: AuthS
         ),
       ),
 
+      [WS_METHODS.tmuxWindowRename]: tmux.effect(WS_METHODS.tmuxWindowRename, (input) =>
+        validateActorSession(input.actor, currentSessionId).pipe(
+          Effect.andThen(tmuxWorkspace.renameWindow(input)),
+        ),
+      ),
+
       [WS_METHODS.tmuxWindowClose]: tmux.effect(WS_METHODS.tmuxWindowClose, (input) =>
         validateActorSession(input.actor, currentSessionId).pipe(
           Effect.andThen(tmuxWorkspace.closeWindow(input)),
@@ -107,6 +113,12 @@ export const makeTmuxWorkspaceRoutes = (deps: { readonly currentSessionId: AuthS
       [WS_METHODS.tmuxWindowFocus]: tmux.effect(WS_METHODS.tmuxWindowFocus, (input) =>
         validateActorSession(input.actor, currentSessionId).pipe(
           Effect.andThen(tmuxWorkspace.focusWindow(input)),
+        ),
+      ),
+
+      [WS_METHODS.tmuxWindowResize]: tmux.effect(WS_METHODS.tmuxWindowResize, (input) =>
+        validateActorSession(input.actor, currentSessionId).pipe(
+          Effect.andThen(tmuxWorkspace.resizeWindow(input)),
         ),
       ),
 
@@ -162,6 +174,12 @@ export const makeTmuxWorkspaceRoutes = (deps: { readonly currentSessionId: AuthS
         ),
       ),
 
+      [WS_METHODS.tmuxPaneZoom]: tmux.effect(WS_METHODS.tmuxPaneZoom, (input) =>
+        validateActorSession(input.actor, currentSessionId).pipe(
+          Effect.andThen(tmuxWorkspace.zoomPane(input)),
+        ),
+      ),
+
       [WS_METHODS.tmuxPaneWrite]: tmux.effect(WS_METHODS.tmuxPaneWrite, (input) =>
         validateActorSession(input.actor, currentSessionId).pipe(
           Effect.andThen(tmuxWorkspace.writePane(input)),
@@ -174,6 +192,12 @@ export const makeTmuxWorkspaceRoutes = (deps: { readonly currentSessionId: AuthS
           validateActorSession(input.actor, currentSessionId).pipe(
             Effect.andThen(tmuxWorkspace.subscribePaneStream(input)),
           ),
+      ),
+
+      [WS_METHODS.tmuxKeymapGet]: tmux.effect(WS_METHODS.tmuxKeymapGet, (input) =>
+        validateActorSession(input.actor, currentSessionId).pipe(
+          Effect.andThen(tmuxWorkspace.getKeymap(input)),
+        ),
       ),
     };
   });

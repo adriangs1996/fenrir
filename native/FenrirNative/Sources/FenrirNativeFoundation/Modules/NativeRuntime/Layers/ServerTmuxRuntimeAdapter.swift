@@ -2,7 +2,7 @@ import Foundation
 import FenrirNativeShared
 
 public extension NativeRuntime {
-    struct ServerTmuxRuntimeAdapter: RuntimeCapabilityQuerying, WorkspaceRuntimeAttaching, WorkspaceRuntimeOpening, WorkspaceRuntimeClosing, WorkspaceRuntimeSwitching, WorkspaceRuntimeDetaching, WorkspaceRuntimeReconnecting, WorkspaceRuntimeEnumerating, PaneRuntimeAttaching, PaneRuntimeFocusing, PaneStreamSubscribing, PaneInputWriting, PaneRuntimeResizing, PaneRuntimeCreating, AgentPaneRuntimeCreating, PaneAgentMetadataAttaching, PaneRuntimeClosing {
+    struct ServerTmuxRuntimeAdapter: RuntimeCapabilityQuerying, WorkspaceRuntimeAttaching, WorkspaceRuntimeOpening, WorkspaceRuntimeClosing, WorkspaceRuntimeSwitching, WorkspaceRuntimeDetaching, WorkspaceRuntimeReconnecting, WorkspaceRuntimeEnumerating, PaneRuntimeAttaching, PaneRuntimeFocusing, PaneStreamSubscribing, PaneInputWriting, PaneRuntimeResizing, PaneRuntimeCreating, AgentPaneRuntimeCreating, PaneAgentMetadataAttaching, PaneRuntimeClosing, WindowRuntimeCreating, WindowRuntimeRenaming, WindowRuntimeFocusing, WindowRuntimeClosing, PaneRuntimeZooming {
         public let transport: any ServerRPCTransport
         public let defaultWorkingDirectory: String
         public let maxBufferedStreamChunks: Int
@@ -104,6 +104,39 @@ public extension NativeRuntime {
 
         public func reconnectPaneStream(_ input: ReconnectPaneStreamInput, stream: PaneStreamState, backfill: BackfillMode) async -> AsyncThrowingStream<PaneStreamEnvelope, Error> {
             await subscribe(input.requestID, actor: input.actor, workspaceID: input.workspaceID, paneID: input.paneID, backfill: backfill)
+        }
+
+        /// Workspace kernel event feed (`tmux.workspace.subscribe`), classified
+        /// coarsely: one `.layoutOrFocusChanged` tick per event that can change
+        /// the pane grid or the active window/pane — including focus moved from
+        /// INSIDE tmux (vim-tmux-navigator's `select-pane`, another client).
+        /// Consumers re-enumerate the workspace snapshot per tick; event
+        /// payloads are deliberately not mapped.
+        public func subscribeWorkspaceEvents(requestID: RequestID, workspaceID: WorkspaceID, actor runtimeActor: RuntimeActorIdentity) -> AsyncThrowingStream<WorkspaceRuntimeEventKind, Error> {
+            AsyncThrowingStream { continuation in
+                do {
+                    let input = WorkspaceSubscribeInput(actor: actor(runtimeActor), workspaceId: workspaceID.rawValue)
+                    let request = try ServerRPCRequest(requestID: requestID, method: "tmux.workspace.subscribe", payload: encode(input))
+                    let task = Task {
+                        do {
+                            let responseStream = await transport.stream(request)
+                            for try await data in responseStream {
+                                let envelope = try? decode(WorkspaceKernelEventEnvelope.self, from: data)
+                                if ProcessInfo.processInfo.environment["FENRIR_TERMINAL_DEBUG"] == "1" {
+                                    NSLog("Fenrir Native workspace event raw type=%@ bytes=%d", envelope?.type ?? String(decoding: data.prefix(80), as: UTF8.self), data.count)
+                                }
+                                continuation.yield(WorkspaceRuntimeEventKind(kernelEventType: envelope?.type ?? ""))
+                            }
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(throwing: error)
+                        }
+                    }
+                    continuation.onTermination = { _ in task.cancel() }
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
         }
 
         public func writePaneInput(_ input: SendPaneInputInput) async throws -> PaneWriteAck {
@@ -258,6 +291,97 @@ public extension NativeRuntime {
             _ = try await send("tmux.pane.close", PaneCloseInput(actor: actor(input.actor), workspaceId: input.workspaceID.rawValue, paneId: input.paneID.rawValue, mode: "terminate"), requestID: input.requestID, decode: ServerSnapshot.self)
         }
 
+        /// Creates a real tmux window through `tmux.window.create`, mirroring
+        /// the server's `TmuxWindowCreateInput` (name/cwd optional, omitted
+        /// when nil). The server selects the created window, so the returned
+        /// workspace's `activeWindowID` identifies it.
+        public func createWindowRuntime(_ input: CreateWindowRuntimeInput) async throws -> WorkspaceRuntimeState {
+            if let name = input.name, !isTrimmedNonEmpty(name) {
+                throw NativeRuntimeError.windowCreateFailed
+            }
+            return try await snapshot(
+                method: "tmux.window.create",
+                input: WindowCreateInput(
+                    actor: actor(input.actor),
+                    workspaceId: input.workspaceID.rawValue,
+                    name: input.name,
+                    cwd: input.workingDirectory
+                ),
+                requestID: input.requestID,
+                actor: input.actor
+            ).workspace
+        }
+
+        /// Renames a tmux window through `tmux.window.rename`, mirroring the
+        /// server's `TmuxWindowRenameInput`. The RPC returns the updated
+        /// window record (`TmuxWindow`), which is mapped without pane
+        /// membership — the authoritative pane list still comes from
+        /// workspace snapshots/subscriptions.
+        public func renameWindowRuntime(_ input: RenameWindowRuntimeInput) async throws -> WindowRuntimeState {
+            guard isTrimmedNonEmpty(input.name) else {
+                throw NativeRuntimeError.windowRenameFailed
+            }
+            let window = try await send(
+                "tmux.window.rename",
+                WindowRenameInput(
+                    actor: actor(input.actor),
+                    workspaceId: input.workspaceID.rawValue,
+                    windowId: input.windowID.rawValue,
+                    name: input.name
+                ),
+                requestID: input.requestID,
+                decode: ServerWindow.self
+            )
+            guard window.workspaceId == input.workspaceID.rawValue, window.windowId == input.windowID.rawValue else {
+                throw NativeRuntimeError.windowRenameFailed
+            }
+            return mapWindow(window, paneIDs: [])
+        }
+
+        /// Selects the active tmux window through `tmux.window.focus` and
+        /// validates the target against the returned live layout, mirroring
+        /// the pane-focus discipline.
+        public func focusWindowRuntime(_ input: FocusWindowRuntimeInput) async throws -> WorkspaceRuntimeState {
+            let mapped = try await snapshot(
+                method: "tmux.window.focus",
+                input: WindowFocusInput(actor: actor(input.actor), workspaceId: input.workspaceID.rawValue, windowId: input.windowID.rawValue),
+                requestID: input.requestID,
+                actor: input.actor
+            )
+            guard mapped.workspace.windows.contains(where: { $0.windowID == input.windowID }) else {
+                throw NativeRuntimeError.orphanedTmuxResource
+            }
+            return mapped.workspace
+        }
+
+        /// Closes a tmux window through `tmux.window.close` (`destroy` kills
+        /// the tmux window; `detach` closes the Fenrir record only) and
+        /// returns the post-close workspace layout.
+        public func closeWindowRuntime(_ input: CloseWindowRuntimeInput) async throws -> WorkspaceRuntimeState {
+            try await snapshot(
+                method: "tmux.window.close",
+                input: WindowCloseInput(actor: actor(input.actor), workspaceId: input.workspaceID.rawValue, windowId: input.windowID.rawValue, mode: input.mode.rawValue),
+                requestID: input.requestID,
+                actor: input.actor
+            ).workspace
+        }
+
+        /// Toggles pane zoom through `tmux.pane.zoom` (server runs
+        /// `resize-pane -Z`); the pane must exist in the returned live layout.
+        public func zoomPaneRuntime(_ input: ZoomPaneRuntimeInput) async throws -> WorkspaceRuntimeState {
+            let mapped = try await snapshot(
+                method: "tmux.pane.zoom",
+                // Same wire shape as `TmuxPaneFocusInput` ({actor, workspaceId, paneId}).
+                input: PaneFocusInput(actor: actor(input.actor), workspaceId: input.workspaceID.rawValue, paneId: input.paneID.rawValue),
+                requestID: input.requestID,
+                actor: input.actor
+            )
+            guard mapped.panes.contains(where: { $0.paneID == input.paneID && $0.status != .closed }) else {
+                throw NativeRuntimeError.orphanedTmuxResource
+            }
+            return mapped.workspace
+        }
+
         private func subscribe(_ requestID: RequestID, actor: RuntimeActorIdentity, workspaceID: WorkspaceID, paneID: PaneID, backfill: BackfillMode) async -> AsyncThrowingStream<PaneStreamEnvelope, Error> {
             AsyncThrowingStream { continuation in
                 do {
@@ -315,16 +439,7 @@ public extension NativeRuntime {
         private func map(_ snapshot: ServerSnapshot, actor: RuntimeActorIdentity) throws -> (workspace: WorkspaceRuntimeState, panes: [PaneRuntimeState]) {
             let windowPanes = Dictionary(grouping: snapshot.panes, by: \.windowId)
             let windows = snapshot.windows.map { window in
-                let panes = windowPanes[window.windowId] ?? []
-                return WindowRuntimeState(
-                    workspaceID: WorkspaceID(rawValue: window.workspaceId),
-                    windowID: FenrirWindowID(rawValue: window.windowId),
-                    tmuxWindowID: TmuxWindowID(rawValue: window.tmuxWindowId),
-                    index: window.tmuxWindowIndex,
-                    title: window.name,
-                    activePaneID: window.activePaneId.map(PaneID.init(rawValue:)),
-                    paneIDs: panes.map { PaneID(rawValue: $0.paneId) }
-                )
+                mapWindow(window, paneIDs: (windowPanes[window.windowId] ?? []).map { PaneID(rawValue: $0.paneId) })
             }
             let panes = snapshot.panes.map(mapPane)
             let workspace = WorkspaceRuntimeState(
@@ -338,6 +453,19 @@ public extension NativeRuntime {
                 generation: UInt64(snapshot.revision)
             )
             return (workspace, panes)
+        }
+
+        private func mapWindow(_ window: ServerWindow, paneIDs: [PaneID]) -> WindowRuntimeState {
+            WindowRuntimeState(
+                workspaceID: WorkspaceID(rawValue: window.workspaceId),
+                windowID: FenrirWindowID(rawValue: window.windowId),
+                tmuxWindowID: TmuxWindowID(rawValue: window.tmuxWindowId),
+                index: window.tmuxWindowIndex,
+                title: window.name,
+                activePaneID: window.activePaneId.map(PaneID.init(rawValue:)),
+                paneIDs: paneIDs,
+                isZoomed: window.zoomed ?? false
+            )
         }
 
         private func mapPane(_ pane: ServerPane) -> PaneRuntimeState {
@@ -468,6 +596,31 @@ private struct WindowCloseInput: Codable, Equatable, Sendable {
     let workspaceId: String
     let windowId: String
     let mode: String
+}
+
+/// Wire shape of the server's `TmuxWindowCreateInput`: `name` and `cwd` are
+/// `Schema.optional`, so nil values are omitted from the payload (synthesized
+/// Codable uses `encodeIfPresent`).
+private struct WindowCreateInput: Codable, Equatable, Sendable {
+    let actor: ServerActor
+    let workspaceId: String
+    let name: String?
+    let cwd: String?
+}
+
+/// Wire shape of the server's `TmuxWindowRenameInput` (`tmux.window.rename`).
+private struct WindowRenameInput: Codable, Equatable, Sendable {
+    let actor: ServerActor
+    let workspaceId: String
+    let windowId: String
+    let name: String
+}
+
+/// Wire shape of the server's `TmuxWindowFocusInput` (`tmux.window.focus`).
+private struct WindowFocusInput: Codable, Equatable, Sendable {
+    let actor: ServerActor
+    let workspaceId: String
+    let windowId: String
 }
 
 private struct PaneFocusInput: Codable, Equatable, Sendable {
@@ -688,6 +841,15 @@ private struct PaneStreamSubscribeInput: Codable, Equatable, Sendable {
     let maxBufferedChunks: Int
 }
 
+private struct WorkspaceSubscribeInput: Codable, Equatable, Sendable {
+    let actor: ServerActor
+    let workspaceId: String
+}
+
+private struct WorkspaceKernelEventEnvelope: Codable, Equatable, Sendable {
+    let type: String
+}
+
 private struct ServerSnapshot: Codable, Equatable, Sendable {
     let workspace: ServerWorkspace
     let windows: [ServerWindow]
@@ -710,6 +872,8 @@ private struct ServerWindow: Codable, Equatable, Sendable {
     let name: String
     let status: String
     let activePaneId: String?
+    /// Mirrors tmux `window_zoomed_flag`; absent on legacy servers.
+    let zoomed: Bool?
 }
 
 private struct ServerPane: Codable, Equatable, Sendable {

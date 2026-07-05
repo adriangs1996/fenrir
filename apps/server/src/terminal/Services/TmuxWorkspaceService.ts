@@ -1,8 +1,10 @@
 import type {
   ProjectId,
   TmuxActor,
+  TmuxEffectiveKeymap,
   TmuxKernelEvent,
   TmuxKernelError,
+  TmuxKeymapGetInput,
   TmuxPane,
   TmuxPaneAttachMetadataInput,
   TmuxPaneCloseInput,
@@ -14,11 +16,14 @@ import type {
   TmuxPaneStreamSubscribeInput,
   TmuxPaneWriteInput,
   TmuxPaneWriteResult,
+  TmuxPaneZoomInput,
   TmuxNeovimPaneInput,
   TmuxWindow,
   TmuxWindowId,
   TmuxWindowCloseInput,
   TmuxWindowCreateInput,
+  TmuxWindowRenameInput,
+  TmuxWindowResizeInput,
   TmuxWorkspaceEnsureInput,
   TmuxWorkspaceGetSnapshotInput,
   TmuxKernelSubscribeInput,
@@ -29,13 +34,6 @@ import type {
 } from "@fenrir/contracts";
 import { Context, Effect } from "effect";
 import type { Stream } from "effect";
-
-export interface TmuxWindowRenameInput {
-  readonly actor: TmuxActor;
-  readonly workspaceId: TmuxWorkspaceId;
-  readonly windowId: TmuxWindowId;
-  readonly name: string;
-}
 
 export interface TmuxWindowFocusInput {
   readonly actor: TmuxActor;
@@ -62,6 +60,9 @@ export interface TmuxWorkspaceServiceShape {
   readonly getSnapshot: (
     input: TmuxWorkspaceGetSnapshotInput,
   ) => Effect.Effect<TmuxWorkspaceSnapshot, TmuxKernelError>;
+  readonly getKeymap: (
+    input: TmuxKeymapGetInput,
+  ) => Effect.Effect<TmuxEffectiveKeymap, TmuxKernelError>;
   readonly createWindow: (
     input: TmuxWindowCreateInput,
   ) => Effect.Effect<TmuxWorkspaceSnapshot, TmuxKernelError>;
@@ -71,6 +72,9 @@ export interface TmuxWorkspaceServiceShape {
   readonly focusWindow: (
     input: TmuxWindowFocusInput,
   ) => Effect.Effect<TmuxWorkspaceSnapshot, TmuxKernelError>;
+  readonly resizeWindow: (
+    input: TmuxWindowResizeInput,
+  ) => Effect.Effect<TmuxWindow, TmuxKernelError>;
   readonly closeWindow: (
     input: TmuxWindowCloseInput,
   ) => Effect.Effect<TmuxWorkspaceSnapshot, TmuxKernelError>;
@@ -93,6 +97,9 @@ export interface TmuxWorkspaceServiceShape {
     input: TmuxPaneFocusInput,
   ) => Effect.Effect<TmuxWorkspaceSnapshot, TmuxKernelError>;
   readonly resizePane: (input: TmuxPaneResizeInput) => Effect.Effect<TmuxPane, TmuxKernelError>;
+  readonly zoomPane: (
+    input: TmuxPaneZoomInput,
+  ) => Effect.Effect<TmuxWorkspaceSnapshot, TmuxKernelError>;
   readonly closePane: (
     input: TmuxPaneCloseInput,
   ) => Effect.Effect<TmuxWorkspaceSnapshot, TmuxKernelError>;

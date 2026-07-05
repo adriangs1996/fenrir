@@ -1,4 +1,4 @@
-import { Effect, Exit, Layer, Schema, Scope, Stream } from "effect";
+import { Cause, Effect, Exit, Layer, Schema, Scope, Stream } from "effect";
 import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { Rpc, RpcSchema, RpcSerialization } from "effect/unstable/rpc";
 import { RequestId } from "effect/unstable/rpc/RpcMessage";
@@ -42,6 +42,7 @@ const NativeUnaryRpcRequest = Schema.Struct({
  */
 const NATIVE_STREAM_RPC_METHODS: ReadonlySet<string> = new Set([
   WS_METHODS.tmuxPaneSubscribeStream,
+  WS_METHODS.tmuxWorkspaceSubscribe,
   WS_METHODS.subscribeWorkflowEvents,
   WS_METHODS.subscribeLocalServers,
   WS_METHODS.subscribeApprovalFeed,
@@ -252,6 +253,21 @@ const nativeStreamRpcRoute = Effect.gen(function* () {
         Stream.provideContext(rpcContext),
         Stream.mapEffect((event) => encodeRpcStreamElement(rpc, event)),
         Stream.map(encodeNdjsonLine),
+        // A handler failure surfacing while the HTTP response stream is being
+        // consumed (e.g. a permission-denied subscribe raced against workspace
+        // ensure) would otherwise escape the route as an unhandled defect
+        // inside Bun's ReadableStream and kill the whole server process.
+        // Terminate just this response with an error line instead; native
+        // clients treat the ended stream as retryable.
+        Stream.catchCause((cause) =>
+          Stream.fromIterable([
+            encodeNdjsonLine({
+              ok: false,
+              error: `Native stream RPC ${body.method} failed.`,
+              detail: String(Cause.squash(cause)),
+            }),
+          ]),
+        ),
         Stream.ensuring(Scope.close(rpcScope, Exit.void)),
       ),
       {

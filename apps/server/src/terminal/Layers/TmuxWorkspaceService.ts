@@ -19,12 +19,14 @@ import {
   type TmuxPermissionGrant,
   type TmuxNeovimPaneInput,
   type TmuxNeovimPaneMetadata,
+  type TmuxEffectiveKeymap,
   type TmuxWindow,
   type TmuxWorkspace,
   type TmuxWorkspaceSnapshot,
 } from "@fenrir/contracts";
-import { Effect, FileSystem, Layer, Option, Path, Ref } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Ref, Semaphore } from "effect";
 import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 
 import { AgentFeedHookCredential } from "../../agentFeed/Services/AgentFeedService";
 import { ServerConfig } from "../../config";
@@ -37,6 +39,11 @@ import {
   type TmuxControlModeConnection,
   type TmuxControlModeEvent,
 } from "../Services/TmuxControlMode";
+import {
+  parseTmuxListKeysOutput,
+  parseTmuxPrefixKey,
+  parseTmuxRepeatTimeMs,
+} from "./TmuxKeymapParser";
 import { TmuxPaneStreamService } from "../Services/TmuxPaneStreamService";
 import {
   TmuxWorkspaceService,
@@ -47,6 +54,8 @@ const TMUX_WORKSPACE_SESSION_PREFIX = "fenrir-ws-";
 const TMUX_WORKSPACE_COMMAND_TIMEOUT_MS = 5_000;
 const TMUX_CONTROL_RECONCILE_DEBOUNCE_MS = 100;
 const TMUX_WORKSPACE_MARKER_OPTION = "@fenrir_workspace_id";
+const DEFAULT_TMUX_PREFIX = "C-b";
+const DEFAULT_TMUX_REPEAT_TIME_MS = 500;
 const FIELD_SEPARATOR = "\u001f";
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 40;
@@ -69,6 +78,14 @@ interface WorkspaceRuntime {
   revision: number;
   connection: TmuxControlModeConnection | null;
   unsubscribeControl: (() => void) | null;
+  /**
+   * Serializes connectRuntime per workspace. Concurrent callers observing a
+   * dead (or absent) connection would otherwise EACH spawn a control-mode
+   * client on the same tmux session; tmux broadcasts %output to every
+   * attached client, so the leaked extra subscription appends every pane
+   * byte twice (duplicated characters on every subscriber).
+   */
+  connectSemaphore: Semaphore.Semaphore;
   paneInputSeq: Map<TmuxPaneId, number>;
   /**
    * Panes restored from persisted metadata whose in-memory stream ring buffer
@@ -85,6 +102,7 @@ interface ReconciledPaneRow {
   tmuxWindowIndex: number;
   windowName: string;
   windowActive: boolean;
+  windowZoomed: boolean;
   tmuxPaneId: string;
   cwd: string;
   x: number;
@@ -474,6 +492,7 @@ function paneListFormat(): string {
     "#{window_index}",
     "#{window_name}",
     "#{window_active}",
+    "#{window_zoomed_flag}",
     "#{pane_id}",
     "#{pane_current_path}",
     "#{pane_left}",
@@ -500,13 +519,14 @@ function parsePaneRows(output: string): ReconciledPaneRow[] {
         tmuxWindowIndex: Number.parseInt(fields[1] ?? "0", 10) || 0,
         windowName: fields[2] || "shell",
         windowActive: parseBool(fields[3] ?? "0"),
-        tmuxPaneId: fields[4] ?? "",
-        cwd: fields[5] || "/tmp",
-        x: Number.parseInt(fields[6] ?? "0", 10) || 0,
-        y: Number.parseInt(fields[7] ?? "0", 10) || 0,
-        cols: Number.parseInt(fields[8] ?? String(DEFAULT_COLS), 10) || DEFAULT_COLS,
-        rows: Number.parseInt(fields[9] ?? String(DEFAULT_ROWS), 10) || DEFAULT_ROWS,
-        paneActive: parseBool(fields[10] ?? "0"),
+        windowZoomed: parseBool(fields[4] ?? "0"),
+        tmuxPaneId: fields[5] ?? "",
+        cwd: fields[6] || "/tmp",
+        x: Number.parseInt(fields[7] ?? "0", 10) || 0,
+        y: Number.parseInt(fields[8] ?? "0", 10) || 0,
+        cols: Number.parseInt(fields[9] ?? String(DEFAULT_COLS), 10) || DEFAULT_COLS,
+        rows: Number.parseInt(fields[10] ?? String(DEFAULT_ROWS), 10) || DEFAULT_ROWS,
+        paneActive: parseBool(fields[11] ?? "0"),
       };
     })
     .filter((row) => row.tmuxWindowId.length > 0 && row.tmuxPaneId.length > 0);
@@ -765,6 +785,26 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
       const path = yield* Path.Path;
       const persistencePath = path.join(serverConfig.stateDir, "tmux-workspaces", "metadata.json");
 
+      /**
+       * Workspace cwds come from clients and may not exist on this host — a
+       * native client attached to a REMOTE server sends paths from its own
+       * machine, and persisted workspaces can outlive their directory. tmux
+       * rejects `new-session -c <missing dir>`, so fall back to this server's
+       * home directory instead of failing the workspace.
+       */
+      const resolveWorkspaceCwd = (requested: TmuxPath): Effect.Effect<TmuxPath> =>
+        fs.stat(requested).pipe(
+          Effect.map((info) => (info.type === "Directory" ? requested : homedir())),
+          Effect.orElseSucceed(() => homedir()),
+          Effect.tap((resolved) =>
+            resolved === requested
+              ? Effect.void
+              : Effect.logWarning(
+                  `tmux workspace cwd is not a directory on this host; falling back to home directory`,
+                ).pipe(Effect.annotateLogs({ requestedCwd: requested, resolvedCwd: resolved })),
+          ),
+        );
+
       const loadPersistedState = Effect.gen(function* () {
         const exists = yield* fs.exists(persistencePath).pipe(Effect.orElseSucceed(() => false));
         if (!exists) return new Map<TmuxWorkspaceId, WorkspaceRuntime>();
@@ -790,6 +830,7 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
             revision: entry.revision,
             connection: null,
             unsubscribeControl: null,
+            connectSemaphore: Semaphore.makeUnsafe(1),
             paneInputSeq: new Map(),
             screenSeedPaneIds: new Set(
               entry.panes.filter((pane) => pane.status !== "closed").map((pane) => pane.paneId),
@@ -964,13 +1005,62 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
           }
         });
 
+      /**
+       * Structural fingerprint of everything a reconcile can change that
+       * subscribers care about (layout rects, statuses, actives, names) —
+       * deliberately excluding `updatedAt`, which reconcile stamps
+       * unconditionally. Used to skip bump/persist/publish when a reconcile
+       * found tmux in exactly the state we already broadcast: subscribed
+       * clients re-project on every snapshot event, so publishing no-op
+       * reconciles closes an event→refresh→reconcile feedback loop that
+       * floods clients (46KB snapshots several times per second).
+       */
+      const reconcileFingerprint = (runtime: WorkspaceRuntime): string =>
+        JSON.stringify([
+          runtime.workspace.status,
+          runtime.workspace.activeWindowId,
+          [...runtime.windows.entries()]
+            .map(
+              ([id, window]) =>
+                [
+                  id,
+                  window.status,
+                  window.name,
+                  window.activePaneId,
+                  window.zoomed ?? false,
+                  window.tmuxWindowId,
+                ] as const,
+            )
+            .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)),
+          [...runtime.panes.entries()]
+            .map(
+              ([id, pane]) =>
+                [
+                  id,
+                  pane.status,
+                  pane.tmuxPaneId,
+                  pane.x,
+                  pane.y,
+                  pane.cols,
+                  pane.rows,
+                  pane.stream.streamId,
+                ] as const,
+            )
+            .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)),
+        ]);
+
       const reconcile = (
         runtime: WorkspaceRuntime,
       ): Effect.Effect<TmuxWorkspaceSnapshot, TmuxKernelError> =>
         Effect.gen(function* () {
+          const fingerprintBefore = reconcileFingerprint(runtime);
           yield* ensureSessionMarker(runtime);
+          // -s lists panes across ALL windows of the session; without it tmux
+          // only lists the current window's panes and reconcile would mark
+          // every other window/pane as closed (dropping them from snapshots).
           const output = yield* runAdmin(runtime, [
             "list-panes",
+            "-s",
             "-t",
             runtime.workspace.tmuxSessionName,
             "-F",
@@ -981,6 +1071,29 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
           const seenWindows = new Set<TmuxWindowId>();
           const seenPanes = new Set<TmuxPaneId>();
           let activeWindowId: TmuxWindowId | null = null;
+
+          // Self-heal: when EVERY window is tombstoned "closed" but the live
+          // tmux session still has windows, the tombstones are stale (state
+          // corrupted by the historical current-window-only reconcile, or
+          // the last window was detach-closed and the workspace reopened).
+          // tmux is the source of truth — drop the stale mappings so the
+          // loop below re-adopts the live windows/panes with fresh records;
+          // otherwise the workspace can never project a pane again.
+          const hasOpenWindow = [...runtime.windows.values()].some(
+            (window) => window.status !== "closed",
+          );
+          if (!hasOpenWindow && rows.length > 0) {
+            for (const row of rows) {
+              const staleWindowId = runtime.tmuxWindowToWindowId.get(row.tmuxWindowId);
+              if (staleWindowId && runtime.windows.get(staleWindowId)?.status === "closed") {
+                runtime.tmuxWindowToWindowId.delete(row.tmuxWindowId);
+              }
+              const stalePaneId = runtime.tmuxPaneToPaneId.get(row.tmuxPaneId);
+              if (stalePaneId && runtime.panes.get(stalePaneId)?.status === "closed") {
+                runtime.tmuxPaneToPaneId.delete(row.tmuxPaneId);
+              }
+            }
+          }
 
           for (const row of rows) {
             let id = runtime.tmuxWindowToWindowId.get(row.tmuxWindowId);
@@ -1005,6 +1118,7 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
               cwd: row.cwd,
               status: row.windowActive ? "active" : "inactive",
               activePaneId: existingWindow?.activePaneId ?? null,
+              zoomed: row.windowZoomed,
               createdAt: existingWindow?.createdAt ?? now,
               updatedAt: now,
             });
@@ -1066,6 +1180,12 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
             updatedAt: now,
           };
           normalizeActiveReferences(runtime, now);
+          if (reconcileFingerprint(runtime) === fingerprintBefore) {
+            // tmux already matches the last broadcast state — do not bump the
+            // revision or publish, or subscribed clients refresh (and their
+            // refresh-triggered activity reconciles again) in a busy loop.
+            return snapshot(runtime);
+          }
           bump(runtime);
           yield* persistState;
           yield* publishSnapshot(runtime);
@@ -1148,6 +1268,17 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
               status: event.type === "client-error" ? "error" : "exited",
               updatedAt: nowIso(),
             };
+            // The control-mode client died with the session (e.g. the last
+            // pane exited and tmux destroyed the session), so no per-pane
+            // reconcile will run to close pane streams. Close them all now so
+            // subscribed clients see their pane streams END and can reconcile
+            // the layout / recreate the session instead of holding zombie panes.
+            for (const [id, pane] of runtime.panes) {
+              if (pane.status !== "closed") {
+                runtime.panes.set(id, { ...pane, status: "closed", updatedAt: nowIso() });
+              }
+              yield* paneStreams.closePane(id, "pane-closed");
+            }
             bump(runtime);
             yield* persistState.pipe(Effect.exit);
             yield* emitChangedWorkspace(runtime);
@@ -1168,6 +1299,51 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
             event.type === "session-changed"
           ) {
             yield* scheduleControlReconcile(runtime);
+            return;
+          }
+          // Focus moved by something other than this client's own commands —
+          // vim-tmux-navigator running `tmux select-pane`, scripts, or another
+          // attached client. Apply the mapping directly (a full reconcile
+          // round trip would add ~150ms to every keyboard navigation) and
+          // publish the snapshot so subscribed clients move native focus.
+          if (event.type === "window-pane-changed") {
+            const windowId = runtime.tmuxWindowToWindowId.get(event.windowId);
+            const paneId = runtime.tmuxPaneToPaneId.get(event.paneId);
+            const window = windowId ? runtime.windows.get(windowId) : undefined;
+            yield* Effect.logInfo("tmux window-pane-changed", {
+              tmuxWindowId: event.windowId,
+              tmuxPaneId: event.paneId,
+              mappedWindow: windowId ?? "unmapped",
+              mappedPane: paneId ?? "unmapped",
+              previousActive: window?.activePaneId ?? "none",
+            });
+            if (!windowId || !paneId || !window || window.activePaneId === paneId) {
+              if (!windowId || !paneId) yield* scheduleControlReconcile(runtime);
+              return;
+            }
+            runtime.windows.set(windowId, {
+              ...window,
+              activePaneId: paneId,
+              updatedAt: nowIso(),
+            });
+            bump(runtime);
+            yield* publishSnapshot(runtime);
+            return;
+          }
+          if (event.type === "session-window-changed") {
+            const windowId = runtime.tmuxWindowToWindowId.get(event.windowId);
+            if (!windowId || !runtime.windows.get(windowId)) {
+              yield* scheduleControlReconcile(runtime);
+              return;
+            }
+            if (runtime.workspace.activeWindowId === windowId) return;
+            runtime.workspace = {
+              ...runtime.workspace,
+              activeWindowId: windowId,
+              updatedAt: nowIso(),
+            };
+            bump(runtime);
+            yield* publishSnapshot(runtime);
           }
         });
 
@@ -1220,45 +1396,52 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
           Effect.ignoreCause({ log: true }),
         );
 
+      // Single-flight per workspace: the status re-check runs INSIDE the
+      // semaphore, so callers that raced a reconnect reuse the winner's
+      // connection instead of attaching a second control-mode client to the
+      // same tmux session (tmux broadcasts %output to every attached client,
+      // which duplicates every pane byte for all subscribers).
       const connectRuntime = (
         runtime: WorkspaceRuntime,
       ): Effect.Effect<TmuxControlModeConnection, TmuxKernelError> =>
-        Effect.gen(function* () {
-          const current = runtime.connection;
-          if (current && (yield* current.status) === "running") return current;
-          if (runtime.unsubscribeControl) {
-            runtime.unsubscribeControl();
-            runtime.unsubscribeControl = null;
-          }
-          const connection = yield* controlMode
-            .connect({
-              sessionName: runtime.workspace.tmuxSessionName,
-              cwd: runtime.workspace.cwd,
-              createIfMissing: true,
-              // Seeded at creation so the session's FIRST pane (whose shell
-              // spawns before any `set-environment` can run) already carries
-              // the D-042 hook coordinates.
-              environment: sessionEnvironmentEntries(runtime),
-            })
-            .pipe(
-              Effect.mapError((cause) =>
-                kernelError({
-                  code: "control-mode-unavailable",
-                  message: errorMessage(cause, "tmux control-mode connection failed"),
-                  workspaceId: runtime.workspace.workspaceId,
-                  cause,
-                }),
-              ),
+        runtime.connectSemaphore.withPermits(1)(
+          Effect.gen(function* () {
+            const current = runtime.connection;
+            if (current && (yield* current.status) === "running") return current;
+            if (runtime.unsubscribeControl) {
+              runtime.unsubscribeControl();
+              runtime.unsubscribeControl = null;
+            }
+            const connection = yield* controlMode
+              .connect({
+                sessionName: runtime.workspace.tmuxSessionName,
+                cwd: yield* resolveWorkspaceCwd(runtime.workspace.cwd),
+                createIfMissing: true,
+                // Seeded at creation so the session's FIRST pane (whose shell
+                // spawns before any `set-environment` can run) already carries
+                // the D-042 hook coordinates.
+                environment: sessionEnvironmentEntries(runtime),
+              })
+              .pipe(
+                Effect.mapError((cause) =>
+                  kernelError({
+                    code: "control-mode-unavailable",
+                    message: errorMessage(cause, "tmux control-mode connection failed"),
+                    workspaceId: runtime.workspace.workspaceId,
+                    cause,
+                  }),
+                ),
+              );
+            const unsubscribe = yield* connection.subscribe((event) =>
+              handleControlEvent(runtime, event),
             );
-          const unsubscribe = yield* connection.subscribe((event) =>
-            handleControlEvent(runtime, event),
-          );
-          runtime.connection = connection;
-          runtime.unsubscribeControl = unsubscribe;
-          runtime.workspace = { ...runtime.workspace, status: "running", updatedAt: nowIso() };
-          yield* ensureSessionEnvironment(runtime);
-          return connection;
-        });
+            runtime.connection = connection;
+            runtime.unsubscribeControl = unsubscribe;
+            runtime.workspace = { ...runtime.workspace, status: "running", updatedAt: nowIso() };
+            yield* ensureSessionEnvironment(runtime);
+            return connection;
+          }),
+        );
 
       /**
        * Dumps the visible screen of a tmux pane (`capture-pane -p -e`) as a
@@ -1279,6 +1462,71 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
             return rows.join("\r\n");
           }),
         );
+
+      /**
+       * Full-repaint payload used to recover a subscriber whose byte stream
+       * lost chunks (slow-client fast-forward or ring-buffer gap): clear +
+       * home, the pane's visible screen, then the live cursor position so
+       * the emulator converges to tmux's ground truth.
+       */
+      const captureRecoveryScreen = (
+        runtime: WorkspaceRuntime,
+        pane: TmuxPane,
+      ): Effect.Effect<string, TmuxKernelError> =>
+        Effect.all([
+          captureVisibleScreen(runtime, pane),
+          runAdmin(runtime, [
+            "display-message",
+            "-p",
+            "-t",
+            pane.tmuxPaneId,
+            "#{cursor_y} #{cursor_x}",
+          ]).pipe(Effect.orElseSucceed(() => "")),
+        ]).pipe(
+          Effect.map(([screen, cursor]) => {
+            const match = /^(\d+) (\d+)$/.exec(cursor.trim());
+            const restoreCursor = match
+              ? `\u001b[${Number.parseInt(match[1]!, 10) + 1};${Number.parseInt(match[2]!, 10) + 1}H`
+              : "";
+            return `\u001b[2J\u001b[H${screen}${restoreCursor}`;
+          }),
+        );
+
+      const RESEED_DEBOUNCE_MS = 50;
+      const pendingPaneReseeds = new Set<TmuxPaneId>();
+
+      /**
+       * Debounced recovery repaint. Appended through the shared stream path so
+       * it flows to every subscriber with a live sequence number; a healthy
+       * subscriber sees a redundant idempotent repaint, the gapped one gets
+       * its screen back. Failures (pane or session already gone) degrade to
+       * the old stale-until-next-full-redraw behavior.
+       */
+      const schedulePaneReseed = (paneId: TmuxPaneId): Effect.Effect<void> =>
+        Effect.sync(() => {
+          if (pendingPaneReseeds.has(paneId)) return;
+          pendingPaneReseeds.add(paneId);
+          runDetached(
+            Effect.gen(function* () {
+              yield* Effect.sleep(`${RESEED_DEBOUNCE_MS} millis`);
+              pendingPaneReseeds.delete(paneId);
+              const runtimes = yield* Ref.get(runtimesRef);
+              for (const runtime of runtimes.values()) {
+                const pane = runtime.panes.get(paneId);
+                if (!pane) continue;
+                if (pane.status !== "running") return;
+                const screen = yield* captureRecoveryScreen(runtime, pane).pipe(
+                  Effect.orElseSucceed(() => ""),
+                );
+                if (screen.length === 0) return;
+                yield* appendPaneStreamData(runtime, paneId, screen);
+                return;
+              }
+            }),
+          );
+        });
+
+      yield* paneStreams.setSubscriberGapHandler(schedulePaneReseed);
 
       const getWindow = (
         runtime: WorkspaceRuntime,
@@ -1390,7 +1638,7 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
                 workspaceId: id,
                 projectId: input.projectId,
                 tmuxSessionName: service.sessionNameForProject(input.projectId),
-                cwd: input.cwd,
+                cwd: yield* resolveWorkspaceCwd(input.cwd),
                 status: "starting",
                 activeWindowId: null,
                 grants: input.initialGrants ?? [],
@@ -1404,6 +1652,7 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
               revision: 0,
               connection: null,
               unsubscribeControl: null,
+              connectSemaphore: Semaphore.makeUnsafe(1),
               paneInputSeq: new Map(),
               screenSeedPaneIds: new Set(),
             };
@@ -1434,6 +1683,34 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
             const runtime = yield* getRuntime(input.workspaceId);
             yield* requirePermission(runtime, input.actor, "workspace:read");
             return snapshot(runtime);
+          }),
+
+        // D-028: export the EFFECTIVE keymap of the workspace's tmux server.
+        // Raw strings only — the native client owns all interpretation.
+        getKeymap: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(runtime, input.actor, "workspace:read");
+            const listKeysOutput = yield* runAdmin(runtime, ["list-keys"]);
+            const prefixOutput = yield* runAdmin(runtime, ["show-options", "-g", "prefix"]);
+            // prefix2 is unset on most servers; some tmux versions fail the
+            // lookup instead of printing "None", so treat errors as absent.
+            const prefix2Output = yield* runAdmin(runtime, ["show-options", "-g", "prefix2"]).pipe(
+              Effect.orElseSucceed(() => ""),
+            );
+            const repeatTimeOutput = yield* runAdmin(runtime, [
+              "show-options",
+              "-g",
+              "repeat-time",
+            ]);
+            const keymap: TmuxEffectiveKeymap = {
+              workspaceId: runtime.workspace.workspaceId,
+              prefix: parseTmuxPrefixKey(prefixOutput, "prefix") ?? DEFAULT_TMUX_PREFIX,
+              prefix2: parseTmuxPrefixKey(prefix2Output, "prefix2"),
+              repeatTimeMs: parseTmuxRepeatTimeMs(repeatTimeOutput) ?? DEFAULT_TMUX_REPEAT_TIME_MS,
+              bindings: parseTmuxListKeysOutput(listKeysOutput),
+            };
+            return keymap;
           }),
 
         createWindow: (input) =>
@@ -1472,6 +1749,49 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
             const window = yield* getWindow(runtime, input.windowId);
             yield* runAdmin(runtime, ["select-window", "-t", window.tmuxWindowId]);
             return yield* reconcile(runtime);
+          }),
+
+        resizeWindow: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(runtime, input.actor, "window:control");
+            const window = yield* getWindow(runtime, input.windowId);
+            // Idempotence guard: clients re-announce their viewport after
+            // every layout projection, and every projection is itself
+            // triggered by the workspace event feed. Resizing (and above all
+            // reconciling + publishing) for a size tmux already has would
+            // close that loop into an infinite resize/publish cycle that
+            // visibly shakes every pane. Ask tmux for the live size and
+            // no-op when nothing would change.
+            const currentSize = yield* runAdmin(runtime, [
+              "display-message",
+              "-p",
+              "-t",
+              window.tmuxWindowId,
+              "#{window_width} #{window_height}",
+            ]).pipe(Effect.orElseSucceed(() => ""));
+            if (currentSize.trim() === `${input.cols} ${input.rows}`) {
+              return window;
+            }
+            // Classic tmux client model: the client reports ONE overall
+            // viewport size for the whole window and tmux reflows every pane
+            // proportionally. `resize-window` never touches individual pane
+            // splits (unlike `resize-pane`) and preserves zoom, so this is the
+            // only per-pane-safe way to honor a multi-pane client viewport.
+            // reconcile() re-reads the resulting per-pane geometry from tmux
+            // and broadcasts it, so the client renders each surface at the
+            // server-assigned rect rather than pushing sizes back.
+            yield* runAdmin(runtime, [
+              "resize-window",
+              "-t",
+              window.tmuxWindowId,
+              "-x",
+              String(input.cols),
+              "-y",
+              String(input.rows),
+            ]);
+            yield* reconcile(runtime);
+            return (runtime.windows.get(input.windowId) ?? window) as TmuxWindow;
           }),
 
         closeWindow: (input) =>
@@ -1748,24 +2068,30 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
             // The cached count remains the fallback when the query output is
             // unparsable. A tiny TOCTOU window still exists between this
             // query and the resize command below; that is acceptable because
-            // the next resize self-corrects.
-            const rawPaneCount = yield* runAdmin(runtime, [
+            // the next resize self-corrects. The zoomed flag is queried live
+            // in the same round trip: `resize-pane` on a zoomed window
+            // unzooms it and rewrites the saved layout, so zoomed windows are
+            // only ever window-resized (`resize-window` preserves zoom).
+            const rawWindowState = yield* runAdmin(runtime, [
               "display-message",
               "-p",
               "-t",
               window.tmuxWindowId,
-              "#{window_panes}",
+              "#{window_panes} #{window_zoomed_flag}",
             ]).pipe(Effect.orElseSucceed(() => ""));
-            const livePaneCount = Number.parseInt(rawPaneCount.trim(), 10);
+            const [rawPaneCount = "", rawZoomFlag = ""] = rawWindowState.trim().split(/\s+/);
+            const livePaneCount = Number.parseInt(rawPaneCount, 10);
             const paneCount =
               Number.isInteger(livePaneCount) && livePaneCount > 0
                 ? livePaneCount
                 : cachedRunningSiblings;
+            const windowZoomed = rawZoomFlag === "1";
             // A pane can never outgrow its window, and server-owned windows
             // have no sized client, so tmux pins them to its 80x24 default:
             // `resize-pane` alone is a no-op there. Sizing the window is the
-            // only way to honor the client viewport.
-            if (paneCount <= 1) {
+            // only way to honor the client viewport. A zoomed pane spans the
+            // whole window, so the window resize also covers it exactly.
+            if (paneCount <= 1 || windowZoomed) {
               yield* runAdmin(runtime, [
                 "resize-window",
                 "-t",
@@ -1827,6 +2153,17 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
               pane: updated,
             });
             return updated;
+          }),
+
+        zoomPane: (input) =>
+          Effect.gen(function* () {
+            const runtime = yield* getRuntime(input.workspaceId);
+            yield* requirePermission(runtime, input.actor, "pane:control", input.paneId);
+            const pane = yield* getPane(runtime, input.paneId);
+            // tmux toggles zoom on repeat invocations, so the same RPC
+            // implements both zoom and unzoom (D-028 zoom keymap action).
+            yield* runAdmin(runtime, ["resize-pane", "-Z", "-t", pane.tmuxPaneId]);
+            return yield* reconcile(runtime);
           }),
 
         closePane: (input) =>
@@ -1932,6 +2269,22 @@ export function makeTmuxWorkspaceServiceLive(options: TmuxWorkspaceServiceLiveOp
               // mode — including "latest", which skips buffered history —
               // receives the restored screen as a live chunk.
               yield* appendPaneStreamData(runtime, input.paneId, screenSeed);
+            } else {
+              // A from-seq resubscription whose requested sequence fell out of
+              // the ring buffer starts with a hole in its byte stream (the gap
+              // event only fixes sequence accounting, not screen content), so
+              // schedule a recovery repaint. Mirrors the gap conditions of the
+              // pane stream service's subscribe.
+              const requestedAfterSeq =
+                input.backfill === "from-seq" ? (input.afterSeq ?? pane.stream.lowSeq - 1) : null;
+              const subscribeWillGap =
+                requestedAfterSeq !== null &&
+                (pane.stream.backfillAvailable
+                  ? requestedAfterSeq < pane.stream.lowSeq - 1
+                  : requestedAfterSeq < pane.stream.highSeq);
+              if (subscribeWillGap && pane.status === "running") {
+                yield* schedulePaneReseed(input.paneId);
+              }
             }
             return stream;
           }),

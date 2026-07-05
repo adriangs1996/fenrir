@@ -37,6 +37,41 @@ public protocol FenrirTerminalBackend: AnyObject {
     func captureSelection() -> TerminalViewport.CapturedTextBuffer
     func captureViewport() -> TerminalViewport.CapturedTextBuffer
     func captureLastLines(maxLines: Int?) -> TerminalViewport.CapturedTextBuffer
+    /// The most recent surface geometry the renderer reported through the
+    /// resize callback, if the backend tracks one. Hosts use it to re-announce
+    /// the viewport size after a pane is (re)bound, closing the race where a
+    /// resize fired before the pane existed in the grid.
+    var lastReportedSurfaceSize: TerminalViewport.Size? { get }
+    /// The renderer's live cell metrics in PIXELS, if the backend tracks
+    /// them. Hosts prefer this over dividing view bounds by the grid, which
+    /// folds renderer padding and sub-cell remainder into the estimate.
+    var lastReportedCellPixelSize: CGSize? { get }
+    /// True while the renderer's input method is composing marked text (IME
+    /// preedit). Hosts must not intercept or consume key events in this state
+    /// — the input method owns them (NSTextInputClient); stealing a key would
+    /// strand or corrupt the composition.
+    var hasMarkedText: Bool { get }
+    /// True while the running program has enabled terminal MOUSE REPORTING
+    /// (DECSET 1000/1002/1003/1006) — strictly mouse tracking, NOT the
+    /// alternate screen. Hosts use it as the LIVE heuristic for vim-aware pane
+    /// navigation (christoomey C-h/j/k/l): when active the navigation key is
+    /// passed through to the app instead of moving native pane focus.
+    ///
+    /// Known limitation (libghostty exposes no alt-screen getter): a full-screen
+    /// app that does NOT enable mouse reporting — classic vim, nvim with
+    /// `set mouse=`, most pagers/TUIs — reports `false`, so the host will steal
+    /// C-h/j/k/l and move pane focus instead of forwarding the key. Modern nvim
+    /// (`mouse=nvi`) and fzf enable mouse and work. christoomey itself keys off
+    /// the foreground process (a `ps` check) precisely because terminal modes
+    /// are an unreliable proxy; that ground truth is not available here.
+    var isMouseReportingActive: Bool { get }
+}
+
+public extension FenrirTerminalBackend {
+    var lastReportedSurfaceSize: TerminalViewport.Size? { nil }
+    var lastReportedCellPixelSize: CGSize? { nil }
+    var hasMarkedText: Bool { false }
+    var isMouseReportingActive: Bool { false }
 }
 
 @MainActor
@@ -127,6 +162,30 @@ public final class FenrirTerminalView: NSView {
     public func setTerminalFocused(_ focused: Bool) {
         isTerminalFocused = focused
         backend.setFocused(focused)
+    }
+
+    public var lastReportedSurfaceSize: TerminalViewport.Size? {
+        backend.lastReportedSurfaceSize
+    }
+
+    /// The renderer's live cell metrics in pixels (see the backend protocol).
+    public var lastReportedCellPixelSize: CGSize? {
+        backend.lastReportedCellPixelSize
+    }
+
+    /// True while the terminal's input method is composing marked text (IME
+    /// preedit); key monitors must let such events through untouched.
+    public var hasMarkedText: Bool {
+        backend.hasMarkedText
+    }
+
+    /// True while the running program has enabled terminal MOUSE REPORTING
+    /// (DECSET 1000/1002/1003/1006) — mouse tracking only, NOT the alternate
+    /// screen. Drives vim-aware pane navigation passthrough (christoomey
+    /// C-h/j/k/l). See the protocol declaration for the non-mouse full-screen
+    /// app limitation.
+    public var isMouseReportingActive: Bool {
+        backend.isMouseReportingActive
     }
 
     public func captureSelection() -> TerminalViewport.CapturedTextBuffer {

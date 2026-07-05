@@ -116,6 +116,12 @@ struct NativeHostDiagnosticsInput: Equatable, Sendable {
     /// notifications-smoke: restore the pre-smoke overlay state after reading
     /// (live sessions). Default keeps the panel open for CI verification.
     let dismiss: Bool
+    /// keybinding-smoke: space-separated tmux key specs (e.g. "C-s s") fed
+    /// through the LIVE keymap state machine.
+    let keys: String?
+    /// keybinding-smoke: actually execute the resolved actions instead of
+    /// resolution-only reporting. Gated on FENRIR_SMOKE_OPS=1.
+    let execute: Bool
 
     init(
         requestID: RequestID,
@@ -128,7 +134,9 @@ struct NativeHostDiagnosticsInput: Equatable, Sendable {
         selectionText: String? = nil,
         scriptCommand: String? = nil,
         scriptOperation: String? = nil,
-        dismiss: Bool = false
+        dismiss: Bool = false,
+        keys: String? = nil,
+        execute: Bool = false
     ) {
         self.requestID = requestID
         self.operation = operation
@@ -141,6 +149,8 @@ struct NativeHostDiagnosticsInput: Equatable, Sendable {
         self.scriptCommand = scriptCommand
         self.scriptOperation = scriptOperation
         self.dismiss = dismiss
+        self.keys = keys
+        self.execute = execute
     }
 }
 
@@ -384,7 +394,9 @@ struct NativeHostControlController: Sendable {
                 selectionText: request.parameters["selectionText"],
                 scriptCommand: request.parameters["scriptCommand"],
                 scriptOperation: request.parameters["scriptOperation"],
-                dismiss: request.parameters["dismiss"] == "true"
+                dismiss: request.parameters["dismiss"] == "true",
+                keys: request.parameters["keys"],
+                execute: request.parameters["execute"] == "true"
             ))
                 .nativeHostResponse(request)
         }

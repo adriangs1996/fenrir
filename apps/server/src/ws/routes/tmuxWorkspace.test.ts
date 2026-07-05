@@ -123,8 +123,14 @@ function makeRoutesLayer(calls: string[] = []) {
       calls.push("window.create");
       return Effect.succeed(snapshot);
     },
-    renameWindow: () => Effect.succeed(snapshot.windows[0]!),
-    focusWindow: () => Effect.succeed(snapshot),
+    renameWindow: (input) => {
+      calls.push(`window.rename:${input.name}`);
+      return Effect.succeed({ ...snapshot.windows[0]!, name: input.name });
+    },
+    focusWindow: () => {
+      calls.push("window.focus");
+      return Effect.succeed(snapshot);
+    },
     closeWindow: () => {
       calls.push("window.close");
       return Effect.succeed(snapshot);
@@ -179,6 +185,10 @@ function makeRoutesLayer(calls: string[] = []) {
     resizePane: () => {
       calls.push("pane.resize");
       return Effect.succeed(pane);
+    },
+    zoomPane: () => {
+      calls.push("pane.zoom");
+      return Effect.succeed(snapshot);
     },
     closePane: () => {
       calls.push("pane.close");
@@ -264,6 +274,13 @@ it.effect("routes window and pane mutations plus pane write acknowledgements", (
     const routes = yield* makeTmuxWorkspaceRoutes({ currentSessionId: sessionId });
 
     yield* routes[WS_METHODS.tmuxWindowCreate]({ actor, workspaceId, name: "ops" });
+    const renamed = yield* routes[WS_METHODS.tmuxWindowRename]({
+      actor,
+      workspaceId,
+      windowId,
+      name: "renamed-ops",
+    });
+    yield* routes[WS_METHODS.tmuxWindowFocus]({ actor, workspaceId, windowId });
     yield* routes[WS_METHODS.tmuxWindowClose]({ actor, workspaceId, windowId, mode: "detach" });
     yield* routes[WS_METHODS.tmuxPaneCreate]({
       actor,
@@ -318,6 +335,7 @@ it.effect("routes window and pane mutations plus pane write acknowledgements", (
     yield* routes[WS_METHODS.tmuxOperationalPaneStatuses]({ actor, workspaceId });
     yield* routes[WS_METHODS.tmuxPaneFocus]({ actor, workspaceId, paneId });
     yield* routes[WS_METHODS.tmuxPaneResize]({ actor, workspaceId, paneId, cols: 120, rows: 40 });
+    yield* routes[WS_METHODS.tmuxPaneZoom]({ actor, workspaceId, paneId });
     yield* routes[WS_METHODS.tmuxPaneClose]({ actor, workspaceId, paneId, mode: "detach" });
     const write = yield* routes[WS_METHODS.tmuxPaneWrite]({
       workspaceId,
@@ -328,8 +346,11 @@ it.effect("routes window and pane mutations plus pane write acknowledgements", (
     });
 
     expect(write).toMatchObject({ type: "accepted", inputSeq: 1 });
+    expect(renamed.name).toBe("renamed-ops");
     expect(calls).toEqual([
       "window.create",
+      "window.rename:renamed-ops",
+      "window.focus",
       "window.close",
       "pane.create",
       "neovim.create",
@@ -338,6 +359,7 @@ it.effect("routes window and pane mutations plus pane write acknowledgements", (
       "pane.statuses",
       "pane.focus",
       "pane.resize",
+      "pane.zoom",
       "pane.close",
       "pane.write:write-1",
     ]);

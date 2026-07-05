@@ -161,6 +161,81 @@ struct PaneGridTests {
         #expect(result.disposedViewportIDs == [ViewportID(rawValue: "viewport-pane-1")])
     }
 
+    @Test("Zoomed windows render only the zoomed pane while keeping every viewport alive")
+    func zoomedWindowRendersOnlyZoomedPane() async throws {
+        let store = GridStore()
+        let host = ViewportHost()
+        let create = PaneGrid.CreatePaneGrid(store: store, viewportHost: host, clock: PaneGridFixedClock())
+        _ = try await create.run(PaneGrid.CreatePaneGridInput(requestID: "create", snapshot: snapshot(), source: .test)).get()
+        let reconcile = PaneGrid.ReconcileRuntimeLayout(store: store, viewportHost: host, clock: PaneGridFixedClock())
+
+        let zoomed = try await reconcile.run(PaneGrid.ReconcileRuntimeLayoutInput(
+            requestID: "reconcile-zoom",
+            snapshot: snapshot(window1ZoomedPaneID: "pane-1"),
+            source: .test
+        )).get()
+        let window = try #require(zoomed.state.window("window-1"))
+
+        // tmux zoom parity: the layout renders ONLY the zoomed pane…
+        #expect(window.zoomedPaneID == "pane-1")
+        if case let .pane(pane) = window.root {
+            #expect(pane.paneID == "pane-1")
+        } else {
+            Issue.record("Expected the zoomed window root to be the zoomed pane, got \(window.root)")
+        }
+        // …while the hidden pane stays in the pane set with its viewport
+        // alive (no dispose), so content and streams survive the toggle.
+        #expect(window.panes.map(\.paneID) == ["pane-1", "pane-2"])
+        #expect(zoomed.disposedViewportIDs.isEmpty)
+        #expect(await host.disposed.isEmpty)
+
+        let unzoomed = try await reconcile.run(PaneGrid.ReconcileRuntimeLayoutInput(
+            requestID: "reconcile-unzoom",
+            snapshot: snapshot(),
+            source: .test
+        )).get()
+        let restored = try #require(unzoomed.state.window("window-1"))
+        #expect(restored.zoomedPaneID == nil)
+        if case .split = restored.root {
+        } else {
+            Issue.record("Expected the unzoomed window to restore its split, got \(restored.root)")
+        }
+        #expect(restored.panes.map(\.viewportID) == ["viewport-pane-1", "viewport-pane-2"])
+    }
+
+    @Test("Focusing another pane of a zoomed window transfers the zoom rendering")
+    func focusingTransfersZoomRendering() async throws {
+        let store = GridStore()
+        let host = ViewportHost()
+        let kernel = KernelController()
+        let create = PaneGrid.CreatePaneGrid(store: store, viewportHost: host, clock: PaneGridFixedClock())
+        _ = try await create.run(PaneGrid.CreatePaneGridInput(
+            requestID: "create",
+            snapshot: snapshot(window1ZoomedPaneID: "pane-1"),
+            source: .test
+        )).get()
+        let focus = PaneGrid.FocusPane(store: store, kernel: kernel, clock: PaneGridFixedClock())
+
+        let result = try await focus.run(PaneGrid.FocusPaneInput(
+            requestID: "focus-zoomed",
+            workspaceID: "workspace-1",
+            windowID: "window-1",
+            paneID: "pane-2",
+            source: .test
+        )).get()
+        let window = try #require(result.state.window("window-1"))
+
+        // Focus must never land on an invisible pane: the zoom rendering
+        // follows the newly focused pane until the next server projection.
+        #expect(window.activePaneID == "pane-2")
+        #expect(window.zoomedPaneID == "pane-2")
+        if case let .pane(pane) = window.root {
+            #expect(pane.paneID == "pane-2")
+        } else {
+            Issue.record("Expected zoom rendering to follow focus, got \(window.root)")
+        }
+    }
+
     @Test("ReconcileRuntimeLayout maps invalid snapshots to layout failure")
     func reconcileMapsInvalidLayoutFailure() async {
         let store = GridStore()
@@ -194,7 +269,8 @@ private func snapshot(
     pane1Status: PaneGrid.PaneLifecycleStatus = .open,
     pane2Status: PaneGrid.PaneLifecycleStatus = .open,
     pane1TmuxPaneID: String = "%1",
-    pane2TmuxPaneID: String = "%2"
+    pane2TmuxPaneID: String = "%2",
+    window1ZoomedPaneID: PaneID? = nil
 ) -> PaneGrid.SessionSnapshot {
     PaneGrid.SessionSnapshot(
         workspaceID: "workspace-1",
@@ -207,6 +283,7 @@ private func snapshot(
                 index: 0,
                 title: "one",
                 activePaneID: "pane-1",
+                zoomedPaneID: window1ZoomedPaneID,
                 panes: [
                     PaneGrid.PaneSnapshot(paneID: "pane-1", tmuxPaneID: .init(rawValue: pane1TmuxPaneID), title: "left", rect: PaneGrid.PaneRect(x: 0, y: 0, columns: 80, rows: 24), status: pane1Status),
                     PaneGrid.PaneSnapshot(paneID: "pane-2", tmuxPaneID: .init(rawValue: pane2TmuxPaneID), title: "right", rect: PaneGrid.PaneRect(x: 80, y: 0, columns: 80, rows: 24), status: pane2Status)

@@ -169,6 +169,9 @@ public extension NativeRuntime {
         public let title: String
         public let activePaneID: PaneID?
         public let paneIDs: [PaneID]
+        /// Mirrors tmux `window_zoomed_flag`: the active pane temporarily
+        /// spans the whole window; the split layout is saved server-side.
+        public let isZoomed: Bool
 
         public init(
             workspaceID: WorkspaceID,
@@ -177,7 +180,8 @@ public extension NativeRuntime {
             index: Int,
             title: String,
             activePaneID: PaneID? = nil,
-            paneIDs: [PaneID] = []
+            paneIDs: [PaneID] = [],
+            isZoomed: Bool = false
         ) {
             self.workspaceID = workspaceID
             self.windowID = windowID
@@ -186,6 +190,30 @@ public extension NativeRuntime {
             self.title = title
             self.activePaneID = activePaneID
             self.paneIDs = paneIDs
+            self.isZoomed = isZoomed
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case workspaceID
+            case windowID
+            case tmuxWindowID
+            case index
+            case title
+            case activePaneID
+            case paneIDs
+            case isZoomed
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            workspaceID = try container.decode(WorkspaceID.self, forKey: .workspaceID)
+            windowID = try container.decode(FenrirWindowID.self, forKey: .windowID)
+            tmuxWindowID = try container.decode(TmuxWindowID.self, forKey: .tmuxWindowID)
+            index = try container.decode(Int.self, forKey: .index)
+            title = try container.decode(String.self, forKey: .title)
+            activePaneID = try container.decodeIfPresent(PaneID.self, forKey: .activePaneID)
+            paneIDs = try container.decodeIfPresent([PaneID].self, forKey: .paneIDs) ?? []
+            isZoomed = try container.decodeIfPresent(Bool.self, forKey: .isZoomed) ?? false
         }
     }
 
@@ -405,6 +433,25 @@ public extension NativeRuntime {
         }
     }
 
+    /// Coarse classification of a workspace kernel event received over
+    /// `tmux.workspace.subscribe`. `.layoutOrFocusChanged` covers every event
+    /// that can alter the pane grid or the active window/pane (snapshots,
+    /// workspace/pane changes); consumers re-enumerate the workspace on each
+    /// such tick instead of interpreting event payloads.
+    enum WorkspaceRuntimeEventKind: Sendable, Equatable {
+        case layoutOrFocusChanged
+        case other
+
+        public init(kernelEventType: String) {
+            switch kernelEventType {
+            case "workspace.snapshot", "workspace.changed", "pane.changed":
+                self = .layoutOrFocusChanged
+            default:
+                self = .other
+            }
+        }
+    }
+
     enum NativeRuntimeError: String, Error, Codable, Equatable, Sendable {
         case capabilitiesUnavailable = "NativeRuntimeCapabilitiesUnavailable"
         case actorScopeMismatch = "NativeRuntimeActorScopeMismatch"
@@ -429,6 +476,8 @@ public extension NativeRuntime {
         case paneClosed = "NativeRuntimePaneClosed"
         case paneCreateFailed = "NativeRuntimePaneCreateFailed"
         case paneMetadataAttachFailed = "NativeRuntimePaneMetadataAttachFailed"
+        case windowCreateFailed = "NativeRuntimeWindowCreateFailed"
+        case windowRenameFailed = "NativeRuntimeWindowRenameFailed"
         case serverUnavailable = "NativeRuntimeServerUnavailable"
         case permissionDenied = "NativeRuntimePermissionDenied"
     }
@@ -914,6 +963,146 @@ public extension NativeRuntime {
             self.sessionID = sessionID
             self.title = title
             self.labels = labels
+            self.source = source
+        }
+    }
+
+    /// Window creation request (D-028 `new-window` keymap action): mirrors
+    /// the server's `TmuxWindowCreateInput` — `name` and `workingDirectory`
+    /// (`cwd`) are optional and omitted from the wire payload when nil, so
+    /// followPaneCwd callers can pass the focused pane's cwd directly.
+    struct CreateWindowRuntimeInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let workspaceID: WorkspaceID
+        public let actor: RuntimeActorIdentity
+        public let name: String?
+        public let workingDirectory: String?
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            workspaceID: WorkspaceID,
+            actor: RuntimeActorIdentity,
+            name: String? = nil,
+            workingDirectory: String? = nil,
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.workspaceID = workspaceID
+            self.actor = actor
+            self.name = name
+            self.workingDirectory = workingDirectory
+            self.source = source
+        }
+    }
+
+    /// Window rename request (D-028 `rename-window` keymap action): mirrors
+    /// the server's `TmuxWindowRenameInput` (`tmux.window.rename`).
+    struct RenameWindowRuntimeInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let workspaceID: WorkspaceID
+        public let windowID: FenrirWindowID
+        public let name: String
+        public let actor: RuntimeActorIdentity
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            workspaceID: WorkspaceID,
+            windowID: FenrirWindowID,
+            name: String,
+            actor: RuntimeActorIdentity,
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.workspaceID = workspaceID
+            self.windowID = windowID
+            self.name = name
+            self.actor = actor
+            self.source = source
+        }
+    }
+
+    /// Window focus request (D-028 `select-window` keymap actions, including
+    /// M-1..M-9 and 0-9 index switching resolved to a `FenrirWindowID`):
+    /// mirrors the server's `TmuxWindowFocusInput` (`tmux.window.focus`).
+    struct FocusWindowRuntimeInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let workspaceID: WorkspaceID
+        public let windowID: FenrirWindowID
+        public let actor: RuntimeActorIdentity
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            workspaceID: WorkspaceID,
+            windowID: FenrirWindowID,
+            actor: RuntimeActorIdentity,
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.workspaceID = workspaceID
+            self.windowID = windowID
+            self.actor = actor
+            self.source = source
+        }
+    }
+
+    /// Mirrors the server's `TmuxWindowCloseInput.mode` literals.
+    enum WindowCloseMode: String, Codable, Equatable, Sendable {
+        case detach
+        case destroy
+    }
+
+    /// Window close request (D-028 `kill-window` keymap action): mirrors the
+    /// server's `TmuxWindowCloseInput` (`tmux.window.close`). `destroy` kills
+    /// the tmux window; `detach` closes the Fenrir window record only.
+    struct CloseWindowRuntimeInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let workspaceID: WorkspaceID
+        public let windowID: FenrirWindowID
+        public let mode: WindowCloseMode
+        public let actor: RuntimeActorIdentity
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            workspaceID: WorkspaceID,
+            windowID: FenrirWindowID,
+            actor: RuntimeActorIdentity,
+            mode: WindowCloseMode = .destroy,
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.workspaceID = workspaceID
+            self.windowID = windowID
+            self.mode = mode
+            self.actor = actor
+            self.source = source
+        }
+    }
+
+    /// Pane zoom toggle request (D-028 `resize-pane -Z` keymap action):
+    /// mirrors the server's `TmuxPaneZoomInput` (`tmux.pane.zoom`). tmux
+    /// toggles zoom on repeat invocations, so one input covers zoom/unzoom.
+    struct ZoomPaneRuntimeInput: Codable, Equatable, Sendable {
+        public let requestID: RequestID
+        public let workspaceID: WorkspaceID
+        public let paneID: PaneID
+        public let actor: RuntimeActorIdentity
+        public let source: ActionSource
+
+        public init(
+            requestID: RequestID,
+            workspaceID: WorkspaceID,
+            paneID: PaneID,
+            actor: RuntimeActorIdentity,
+            source: ActionSource
+        ) {
+            self.requestID = requestID
+            self.workspaceID = workspaceID
+            self.paneID = paneID
+            self.actor = actor
             self.source = source
         }
     }

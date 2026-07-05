@@ -99,6 +99,7 @@ legacy web/Electron tmux routes by living alongside `TmuxSessionManager`.
 | `listOperationalPaneStatuses` | `TmuxOperationalPaneStatusInput` | `TmuxOperationalPaneStatusResult` | `TmuxKernelError` | Report agent/workflow/process surface pane status |
 | `focusPane`                   | `TmuxPaneFocusInput`             | `TmuxWorkspaceSnapshot`           | `TmuxKernelError` | Select active tmux pane                           |
 | `resizePane`                  | `TmuxPaneResizeInput`            | `TmuxPane`                        | `TmuxKernelError` | Resize tmux pane and update metadata              |
+| `zoomPane`                    | `TmuxPaneZoomInput`              | `TmuxWorkspaceSnapshot`           | `TmuxKernelError` | Toggle pane zoom (`resize-pane -Z`)               |
 | `closePane`                   | `TmuxPaneCloseInput`             | `TmuxWorkspaceSnapshot`           | `TmuxKernelError` | Detach/terminate/kill Fenrir pane                 |
 | `writePane`                   | `TmuxPaneWriteInput`             | `TmuxPaneWriteResult`             | `TmuxKernelError` | Bounded pane input with accepted/rejected ack     |
 | `subscribePaneStream`         | `TmuxPaneStreamSubscribeInput`   | `TmuxPaneStreamEvent`             | `TmuxKernelError` | Explicit pane data-plane stream with replay       |
@@ -106,7 +107,11 @@ legacy web/Electron tmux routes by living alongside `TmuxSessionManager`.
 | `sessionNameForProject`       | `ProjectId`                      | `string`                          | —                 | Stable project → tmux session mapping             |
 
 `TmuxWorkspaceService` uses `TmuxControlModeAdapter` for the live control client
-and lifecycle/event synchronization. Bounded tmux admin commands are retained for
+and lifecycle/event synchronization. `%window-pane-changed` /
+`%session-window-changed` notifications (focus moved by vim-tmux-navigator,
+scripts, or another client) are applied directly to the cached
+active-pane/active-window mappings and published as a `workspace.snapshot`
+event, so subscribed clients mirror tmux focus without a reconcile round trip. Bounded tmux admin commands are retained for
 bootstrap and reconciliation operations that require authoritative tmux IDs
 (`list-panes`, `new-window -P`, `split-window -P`, `select-*`, `resize-pane`,
 `kill-*`). Pane output events are appended into `TmuxPaneStreamService`; kernel
@@ -136,6 +141,20 @@ are not durable, so subscriptions receive a `server-restart` gap rather than
 stale bytes. Slow subscribers use explicit policy: `fast-forward` clears their
 queue and emits `overflow` + `gap`; `close` emits `overflow` + `closed` and ends
 the queue.
+
+Every gap leaves the affected subscriber's emulator missing a byte range —
+usually mid-escape-sequence — so gaps must always be followed by a repaint.
+Two mechanisms provide it: `setSubscriberGapHandler` (registered by
+`TmuxWorkspaceService`) fires on live fast-forward drops, and
+`subscribePaneStream` detects gap-producing resubscriptions itself. Both funnel
+into a debounced recovery reseed that appends clear + `capture-pane -e` screen +
+cursor position as a live chunk, so every subscriber converges back to tmux's
+ground truth.
+
+Consecutive `%output` events for the same pane parsed from a single control-mode
+PTY read are coalesced (bounded well under the per-chunk byte cap) before they
+reach `append`, so a TUI redraw burst costs a handful of appends/websocket
+frames instead of hundreds.
 
 #### `TerminalHistoryManager` (internal — consumed by TerminalManager only)
 

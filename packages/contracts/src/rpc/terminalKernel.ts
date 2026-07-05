@@ -1,8 +1,10 @@
 import * as Rpc from "effect/unstable/rpc/Rpc";
 
 import {
+  TmuxEffectiveKeymap,
   TmuxKernelError,
   TmuxKernelEvent,
+  TmuxKeymapGetInput,
   TmuxKernelSubscribeInput,
   TmuxNeovimPaneInput,
   TmuxOperationalPaneStatusInput,
@@ -17,9 +19,13 @@ import {
   TmuxPaneStreamSubscribeInput,
   TmuxPaneWriteInput,
   TmuxPaneWriteResult,
+  TmuxPaneZoomInput,
+  TmuxWindow,
   TmuxWindowCloseInput,
   TmuxWindowCreateInput,
   TmuxWindowFocusInput,
+  TmuxWindowRenameInput,
+  TmuxWindowResizeInput,
   TmuxWorkspaceEnsureInput,
   TmuxWorkspaceGetSnapshotInput,
   TmuxWorkspaceListResult,
@@ -65,9 +71,21 @@ export const WsTmuxWindowCreateRpc = Rpc.make(WS_METHODS.tmuxWindowCreate, {
   error: TmuxKernelError,
 });
 
+export const WsTmuxWindowRenameRpc = Rpc.make(WS_METHODS.tmuxWindowRename, {
+  payload: TmuxWindowRenameInput,
+  success: TmuxWindow,
+  error: TmuxKernelError,
+});
+
 export const WsTmuxWindowFocusRpc = Rpc.make(WS_METHODS.tmuxWindowFocus, {
   payload: TmuxWindowFocusInput,
   success: TmuxWorkspaceSnapshot,
+  error: TmuxKernelError,
+});
+
+export const WsTmuxWindowResizeRpc = Rpc.make(WS_METHODS.tmuxWindowResize, {
+  payload: TmuxWindowResizeInput,
+  success: TmuxWindow,
   error: TmuxKernelError,
 });
 
@@ -125,6 +143,12 @@ export const WsTmuxPaneResizeRpc = Rpc.make(WS_METHODS.tmuxPaneResize, {
   error: TmuxKernelError,
 });
 
+export const WsTmuxPaneZoomRpc = Rpc.make(WS_METHODS.tmuxPaneZoom, {
+  payload: TmuxPaneZoomInput,
+  success: TmuxWorkspaceSnapshot,
+  error: TmuxKernelError,
+});
+
 export const WsTmuxPaneWriteRpc = Rpc.make(WS_METHODS.tmuxPaneWrite, {
   payload: TmuxPaneWriteInput,
   success: TmuxPaneWriteResult,
@@ -136,4 +160,10 @@ export const WsTmuxPaneSubscribeStreamRpc = Rpc.make(WS_METHODS.tmuxPaneSubscrib
   success: TmuxPaneStreamEvent,
   error: TmuxKernelError,
   stream: true,
+});
+
+export const WsTmuxKeymapGetRpc = Rpc.make(WS_METHODS.tmuxKeymapGet, {
+  payload: TmuxKeymapGetInput,
+  success: TmuxEffectiveKeymap,
+  error: TmuxKernelError,
 });

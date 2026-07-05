@@ -127,6 +127,22 @@ export const TmuxPaneStreamServiceLive = Layer.effect(
   TmuxPaneStreamService,
   Effect.gen(function* () {
     const panesRef = yield* Ref.make(new Map<TmuxPaneId, PaneStreamState>());
+    const gapHandlerRef = yield* Ref.make<((paneId: TmuxPaneId) => Effect.Effect<void>) | null>(
+      null,
+    );
+
+    const notifySubscriberGap = (paneId: TmuxPaneId): Effect.Effect<void> =>
+      Ref.get(gapHandlerRef).pipe(
+        Effect.flatMap((handler) =>
+          handler
+            ? handler(paneId).pipe(
+                Effect.catchCause(() => Effect.void),
+                Effect.forkDetach,
+              )
+            : Effect.void,
+        ),
+        Effect.asVoid,
+      );
 
     const getPane = (paneId: TmuxPaneId): Effect.Effect<PaneStreamState, TmuxKernelError> =>
       Ref.get(panesRef).pipe(
@@ -172,6 +188,9 @@ export const TmuxPaneStreamServiceLive = Layer.effect(
           subscriber.queue,
           gapEvent(state.descriptor, null, state.descriptor.highSeq, "slow-client"),
         );
+        // The fast-forwarded subscriber now has a hole in its byte stream;
+        // ask the owner to reinject a full screen repaint.
+        yield* notifySubscriberGap(state.descriptor.paneId);
       });
 
     const publish = (state: PaneStreamState, event: TmuxPaneStreamEvent): Effect.Effect<void> =>
@@ -349,6 +368,8 @@ export const TmuxPaneStreamServiceLive = Layer.effect(
             ),
           );
         }),
+
+      setSubscriberGapHandler: (handler) => Ref.set(gapHandlerRef, handler),
     };
 
     return service;

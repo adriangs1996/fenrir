@@ -78,6 +78,14 @@
             core.surface
         }
 
+        /// True while the running program has enabled mouse reporting/tracking
+        /// (DECSET 1000/1002/1003/1006). Full-screen apps such as nvim and fzf
+        /// turn this on when they take over the alternate screen, so hosts can
+        /// treat it as a live "the app owns the keyboard" signal.
+        open var isMouseReportingActive: Bool {
+            surface?.isMouseCaptured ?? false
+        }
+
         open var hasText: Bool {
             true
         }

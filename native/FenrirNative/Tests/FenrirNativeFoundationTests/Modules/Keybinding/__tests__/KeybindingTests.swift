@@ -44,9 +44,9 @@ struct KeybindingTests {
         #expect(result.action(forPrefixKey: ")") == .switchSession(.next))
         #expect(result.action(forPrefixKey: "(") == .switchSession(.previous))
         #expect(result.action(forPrefixKey: "L") == .switchSession(.last))
-        #expect(result.action(forPrefixKey: "%") == .splitPane(.horizontal))
-        #expect(result.action(forPrefixKey: "\"") == .splitPane(.vertical))
-        #expect(result.action(forPrefixKey: "c") == .newWindow)
+        #expect(result.action(forPrefixKey: "%") == .splitPane(axis: .horizontal, followPaneCwd: false))
+        #expect(result.action(forPrefixKey: "\"") == .splitPane(axis: .vertical, followPaneCwd: false))
+        #expect(result.action(forPrefixKey: "c") == .newWindow(followPaneCwd: false))
         #expect(result.binding(forPrefixKey: "h")?.sourceTable == .prefix)
         #expect(result.unsupportedBindings.isEmpty)
     }
@@ -56,7 +56,7 @@ struct KeybindingTests {
         let result = try await importMap(
             prefix2: .control("a"),
             bindings: [
-                .init(table: .root, key: .init("F1"), command: "choose-tree"),
+                .init(table: .root, key: .init("F1"), command: "last-window"),
                 .init(table: .prefix2, key: .init("n"), command: "next-window"),
                 .init(table: .custom("copy-mode-vi"), key: .init("h"), command: "select-pane -L"),
                 .init(table: .prefix, key: .init("x"), command: "switch-client -T copy-mode-vi")
@@ -65,11 +65,27 @@ struct KeybindingTests {
 
         #expect(result.prefix == .control("b"))
         #expect(result.prefix2 == .control("a"))
-        #expect(result.action(forTable: .root, key: "F1") == .openPalette(prefix: .shell))
+        #expect(result.action(forTable: .root, key: "F1") == .switchWindow(.last))
         #expect(result.action(forTable: .prefix2, key: "n") == .switchWindow(.next))
         #expect(result.action(forTable: .custom("copy-mode-vi"), key: "h") == .focusPane(.left))
         #expect(result.action(forPrefixKey: "x") == .activateTmuxKeyTable(.custom("copy-mode-vi")))
         #expect(result.binding(forTable: .custom("copy-mode-vi"), key: "h")?.sourceTable == .custom("copy-mode-vi"))
+    }
+
+    @Test("ImportTmuxKeymap refuses command-string surfaces per D-028")
+    func chooserCommandsAreDiagnosticsOnly() async throws {
+        let result = try await importMap(bindings: [
+            .init(table: .root, key: .init("F1"), command: "choose-tree"),
+            .init(key: .init("w"), command: "list-sessions"),
+            .init(key: .init("["), command: "copy-mode")
+        ])
+
+        #expect(result.action(forTable: .root, key: "F1") == nil)
+        #expect(result.action(forPrefixKey: "w") == nil)
+        #expect(result.action(forPrefixKey: "[") == nil)
+        #expect(result.unsupportedBindings.count == 3)
+        #expect(result.unsupportedBindings.contains { $0.reason.contains("D-028") && $0.binding.command == "choose-tree" })
+        #expect(result.unsupportedBindings.contains { $0.reason.contains("copy-mode") && $0.binding.command == "copy-mode" })
     }
 
     @Test("Native defaults open the palette and agent composer context modes")
@@ -172,7 +188,7 @@ struct KeybindingTests {
     @Test("Terminal root table bindings resolve before shell pass-through")
     func rootTableBindingsResolveFromTerminalKeys() async throws {
         let importedMap = try await importMap(bindings: [
-            .init(table: .root, key: .init("F1"), command: "choose-tree")
+            .init(table: .root, key: .init("F1"), command: "next-window")
         ])
         let action = Keybinding.ResolveKeybinding(clock: FixedClock())
 
@@ -183,7 +199,7 @@ struct KeybindingTests {
             importedMap: importedMap
         )).get()
 
-        #expect(resolved.resolution == .fenrirAction(.openPalette(prefix: .shell)))
+        #expect(resolved.resolution == .fenrirAction(.switchWindow(.next)))
         #expect(!resolved.emitsShellBytes)
     }
 

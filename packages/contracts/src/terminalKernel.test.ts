@@ -15,6 +15,8 @@ import {
   TmuxPaneStreamSubscribeInput,
   TmuxPaneWriteInput,
   TmuxPaneWriteResult,
+  TmuxPaneZoomInput,
+  TmuxWindowRenameInput,
   TmuxWorkspaceListResult,
   TmuxWorkspaceSnapshot,
 } from "./terminalKernel";
@@ -30,6 +32,8 @@ const decodeOperationalPaneStatusResult = Schema.decodeUnknownEffect(
 const decodePaneCreateInput = Schema.decodeUnknownEffect(TmuxPaneCreateInput);
 const decodeNeovimPaneInput = Schema.decodeUnknownEffect(TmuxNeovimPaneInput);
 const decodePaneResizeInput = Schema.decodeUnknownEffect(TmuxPaneResizeInput);
+const decodePaneZoomInput = Schema.decodeUnknownEffect(TmuxPaneZoomInput);
+const decodeWindowRenameInput = Schema.decodeUnknownEffect(TmuxWindowRenameInput);
 const decodePaneWriteInput = Schema.decodeUnknownEffect(TmuxPaneWriteInput);
 const decodePaneWriteResult = Schema.decodeUnknownEffect(TmuxPaneWriteResult);
 const decodePaneStreamSubscribeInput = Schema.decodeUnknownEffect(TmuxPaneStreamSubscribeInput);
@@ -505,6 +509,47 @@ it.effect("rejects pane resize below minimum dimensions", () =>
       }),
     );
 
+    assert.strictEqual(result._tag, "Failure");
+  }),
+);
+
+it.effect("decodes pane zoom input and rejects a missing pane target", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodePaneZoomInput({
+      actor: workspace.grants[0]!.actor,
+      workspaceId: "workspace-1",
+      paneId: "pane-1",
+    });
+    assert.strictEqual(parsed.paneId, "pane-1");
+
+    const result = yield* Effect.exit(
+      decodePaneZoomInput({
+        actor: workspace.grants[0]!.actor,
+        workspaceId: "workspace-1",
+      }),
+    );
+    assert.strictEqual(result._tag, "Failure");
+  }),
+);
+
+it.effect("decodes window rename input and rejects blank names", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeWindowRenameInput({
+      actor: workspace.grants[0]!.actor,
+      workspaceId: "workspace-1",
+      windowId: "window-1",
+      name: "ops-renamed",
+    });
+    assert.strictEqual(parsed.name, "ops-renamed");
+
+    const result = yield* Effect.exit(
+      decodeWindowRenameInput({
+        actor: workspace.grants[0]!.actor,
+        workspaceId: "workspace-1",
+        windowId: "window-1",
+        name: "   ",
+      }),
+    );
     assert.strictEqual(result._tag, "Failure");
   }),
 );

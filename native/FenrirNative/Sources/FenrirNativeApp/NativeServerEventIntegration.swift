@@ -106,6 +106,11 @@ actor NativeServerEventIntegrationGraph {
     private let workflowRefresher: any NativeWorkflowProjectionRefreshing
     private let notificationRefresher: any NativeNotificationProjectionRefreshing
     private let agentRefresher: any NativeAgentInteractionRefreshing
+    /// Each session-reconnect dispatch retries the transport probe internally
+    /// with exponential backoff before giving up, so a transient link blip (a
+    /// few hundred ms of packet loss on a remote link) recovers within one
+    /// dispatch instead of relying on the next failing RPC to re-trigger.
+    private let reconnectPolicy: ServerConnection.ReconnectPolicy
 
     private var workspacesByID: [WorkspaceID: NativeServerEventGraphWorkspace] = [:]
     private var workflowRunCursors: [WorkflowControl.WorkflowRunID: Int?] = [:]
@@ -120,14 +125,29 @@ actor NativeServerEventIntegrationGraph {
         workspaceHandler: any NativeWorkspaceExperienceReconnectHandling,
         workflowRefresher: any NativeWorkflowProjectionRefreshing,
         notificationRefresher: any NativeNotificationProjectionRefreshing,
-        agentRefresher: any NativeAgentInteractionRefreshing
+        agentRefresher: any NativeAgentInteractionRefreshing,
+        reconnectPolicy: ServerConnection.ReconnectPolicy = NativeServerEventIntegrationGraph.defaultReconnectPolicy
     ) {
         self.sessionHandler = sessionHandler
         self.workspaceHandler = workspaceHandler
         self.workflowRefresher = workflowRefresher
         self.notificationRefresher = notificationRefresher
         self.agentRefresher = agentRefresher
+        self.reconnectPolicy = reconnectPolicy
     }
+
+    /// Six probe attempts with 250 ms→4 s exponential backoff (~7.75 s of
+    /// retrying) before a dispatch gives up. A remote link that drops briefly
+    /// recovers inside one dispatch; a longer outage is re-armed by the next
+    /// failing RPC (the once-per-generation guard clears when a dispatch ends).
+    static let defaultReconnectPolicy = ServerConnection.ReconnectPolicy(
+        maxAttempts: 6,
+        backoff: ServerConnection.ReconnectBackoff(
+            initialDelayMilliseconds: 250,
+            maxDelayMilliseconds: 5_000,
+            multiplier: 2
+        )
+    )
 
     func trackWorkspace(_ workspace: NativeServerEventGraphWorkspace, workspaceID: WorkspaceID) {
         workspacesByID[workspaceID] = workspace
@@ -163,7 +183,8 @@ actor NativeServerEventIntegrationGraph {
 
         let reconnectInput = ServerConnection.ReconnectServerSessionInput(
             requestID: input.requestID,
-            sessionID: input.sessionID
+            sessionID: input.sessionID,
+            policy: reconnectPolicy
         )
         switch await sessionHandler.reconnectSession(reconnectInput) {
         case .failure(let error):

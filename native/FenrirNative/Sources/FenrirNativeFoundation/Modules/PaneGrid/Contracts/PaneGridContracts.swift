@@ -84,6 +84,10 @@ public extension PaneGrid {
         public let index: Int
         public let title: String
         public let activePaneID: PaneID?
+        /// tmux `window_zoomed_flag` projection: the pane that temporarily
+        /// spans the whole window. The other panes stay in `panes` (their
+        /// views and streams remain alive) but are not rendered while zoomed.
+        public let zoomedPaneID: PaneID?
         public let panes: [PaneSnapshot]
 
         public init(
@@ -92,6 +96,7 @@ public extension PaneGrid {
             index: Int,
             title: String,
             activePaneID: PaneID?,
+            zoomedPaneID: PaneID? = nil,
             panes: [PaneSnapshot]
         ) {
             self.windowID = windowID
@@ -99,6 +104,7 @@ public extension PaneGrid {
             self.index = index
             self.title = title
             self.activePaneID = activePaneID
+            self.zoomedPaneID = zoomedPaneID
             self.panes = panes
         }
     }
@@ -162,6 +168,9 @@ public extension PaneGrid {
         public let title: String
         public let root: LayoutNode
         public let activePaneID: PaneID
+        /// tmux zoom: when set, `root` renders only this pane while the full
+        /// pane set stays in `panes` so hidden viewports/streams stay alive.
+        public let zoomedPaneID: PaneID?
         public let panes: [PanePresentation]
 
         public init(
@@ -171,6 +180,7 @@ public extension PaneGrid {
             title: String,
             root: LayoutNode,
             activePaneID: PaneID,
+            zoomedPaneID: PaneID? = nil,
             panes: [PanePresentation]
         ) {
             self.windowID = windowID
@@ -179,6 +189,7 @@ public extension PaneGrid {
             self.title = title
             self.root = root
             self.activePaneID = activePaneID
+            self.zoomedPaneID = zoomedPaneID
             self.panes = panes
         }
     }

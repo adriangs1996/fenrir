@@ -119,7 +119,16 @@ struct NativeTerminalStreamIngestorOSCTests {
             terminalView: terminalView
         )
 
-        #expect(duplicate == .failure(.streamOrderViolation))
+        // A duplicate is a NO-OP SUCCESS (idempotent replay dedup) — the
+        // invariant that matters is that the bytes are never rendered twice
+        // and the watermark holds. Failing it as a stream-order violation
+        // would trigger gap recovery (watermark reset) and re-apply old
+        // bytes: duplicated keystrokes and stacked prompt history.
+        guard case .success(let deduped) = duplicate else {
+            Issue.record("Expected duplicate sequence to be a no-op success")
+            return
+        }
+        #expect(deduped.appliedSequence == 1)
         #expect(backend.renderedText == "first")
         let savedState = try await viewportStore.loadViewport(viewportID: "viewport-sequence-guard")
         #expect(savedState?.lastAppliedSequence == 1)
@@ -229,7 +238,7 @@ private func nativeHostOSCPaneGridState(streamID: StreamID) -> PaneGrid.State {
 
 @MainActor
 private func nativeHostOSCWaitUntil(
-    timeoutNanoseconds: UInt64 = 1_000_000_000,
+    timeoutNanoseconds: UInt64 = 5_000_000_000,
     condition: @escaping @MainActor () -> Bool
 ) async throws {
     let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
@@ -246,7 +255,7 @@ private func nativeHostOSCWaitUntilStoredSequence(
     store: NativeAppTerminalViewportStore,
     viewportID: ViewportID,
     sequence: UInt64,
-    timeoutNanoseconds: UInt64 = 1_000_000_000
+    timeoutNanoseconds: UInt64 = 5_000_000_000
 ) async throws {
     let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
     while true {

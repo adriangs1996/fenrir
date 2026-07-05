@@ -328,6 +328,132 @@ struct NativeWorkspaceShellControllerTests {
         ])
     }
 
+    @Test("Grid apply reports the whole-window viewport size once and is idempotent")
+    @MainActor
+    func gridApplyReportsWindowViewportSizeIdempotently() async {
+        let actions = FakePaneGridActions()
+        let host = NativeTerminalPaneHostView(
+            paneGridState: shellPaneGridState(includeSecondWindow: false),
+            paneGridActions: actions
+        )
+        // Classic tmux client model: ONE whole-viewport report, never per-pane.
+        host.windowSizeOverrideForTesting = {
+            TerminalViewport.Size(columns: 146, rows: 28, pixelWidth: 2932, pixelHeight: 1920)
+        }
+
+        host.applyPaneGrid(shellPaneGridState(includeSecondWindow: false))
+        await host.waitForPaneGridActions()
+        #expect(actions.calls.contains("window-resize:146:28"))
+        // No per-pane resize echo ever leaves the client.
+        #expect(!actions.calls.contains { $0.hasPrefix("resize-absolute:") })
+
+        let reportsAfterFirstApply = actions.calls.filter { $0.hasPrefix("window-resize:") }.count
+        host.applyPaneGrid(shellPaneGridState(includeSecondWindow: false))
+        await host.waitForPaneGridActions()
+        let reportsAfterSecondApply = actions.calls.filter { $0.hasPrefix("window-resize:") }.count
+        // Identical viewport → deduplicated → no new report (idempotent, no drift).
+        #expect(reportsAfterSecondApply == reportsAfterFirstApply)
+    }
+
+    @Test("Server-backing forces a fresh viewport report even when the measured size is unchanged")
+    @MainActor
+    func serverBackingReannouncesWindowViewportDespiteUnchangedSize() async {
+        let actions = FakePaneGridActions()
+        let host = NativeTerminalPaneHostView(
+            paneGridState: shellPaneGridState(includeSecondWindow: false),
+            paneGridActions: actions
+        )
+        // Same measured size before and after backing (measuredViewportSize is
+        // independent of server-backing and window identity), reproducing the
+        // dedup that dropped the very first `resize-window`.
+        host.windowSizeOverrideForTesting = {
+            TerminalViewport.Size(columns: 146, rows: 28, pixelWidth: 2932, pixelHeight: 1920)
+        }
+
+        // Pre-connection report: memoized locally, but the real runtime drops
+        // the downstream resize-window because the target is not server-backed.
+        host.applyPaneGrid(shellPaneGridState(includeSecondWindow: false))
+        await host.waitForPaneGridActions()
+        let reportsBeforeBacking = actions.calls.filter { $0.hasPrefix("window-resize:") }.count
+        #expect(reportsBeforeBacking >= 1)
+
+        // A plain re-apply at the same size is still correctly deduped.
+        host.applyPaneGrid(shellPaneGridState(includeSecondWindow: false))
+        await host.waitForPaneGridActions()
+        #expect(actions.calls.filter { $0.hasPrefix("window-resize:") }.count == reportsBeforeBacking)
+
+        // Server-backing must force one fresh announcement despite the unchanged
+        // size so the newly-backed tmux window actually learns its viewport
+        // (single pane: the resize-window that arms the zsh `%` prompt fix).
+        host.announceWindowSizeAfterServerBacking(tmuxWindowID: "@1")
+        await host.waitForPaneGridActions()
+        #expect(actions.calls.filter { $0.hasPrefix("window-resize:") }.count == reportsBeforeBacking + 1)
+        #expect(actions.calls.contains("window-resize:146:28"))
+
+        // Event-driven re-projections of the SAME backed window must NOT force
+        // again — a forced announcement per projection round-trips through
+        // resize-window → reconcile → snapshot event → projection and loops
+        // forever, visibly shaking every pane.
+        host.announceWindowSizeAfterServerBacking(tmuxWindowID: "@1")
+        await host.waitForPaneGridActions()
+        #expect(actions.calls.filter { $0.hasPrefix("window-resize:") }.count == reportsBeforeBacking + 1)
+
+        // A genuinely new backed window identity forces one fresh report.
+        host.announceWindowSizeAfterServerBacking(tmuxWindowID: "@2")
+        await host.waitForPaneGridActions()
+        #expect(actions.calls.filter { $0.hasPrefix("window-resize:") }.count == reportsBeforeBacking + 2)
+    }
+
+    @Test("Multi-pane grid apply reports the viewport once and never per-pane")
+    @MainActor
+    func multiPaneGridApplyReportsViewportOnceNeverPerPane() async {
+        let actions = FakePaneGridActions()
+        let host = NativeTerminalPaneHostView(
+            paneGridState: multiPaneShellState(),
+            paneGridActions: actions
+        )
+        host.windowSizeOverrideForTesting = {
+            TerminalViewport.Size(columns: 200, rows: 50, pixelWidth: 1600, pixelHeight: 900)
+        }
+
+        host.applyPaneGrid(multiPaneShellState())
+        await host.waitForPaneGridActions()
+
+        // The active window has two panes, yet exactly ONE whole-viewport
+        // report leaves the client — never one resize per visible pane.
+        #expect(actions.calls.filter { $0.hasPrefix("window-resize:") } == ["window-resize:200:50"])
+        #expect(!actions.calls.contains { $0.hasPrefix("resize-absolute:") })
+    }
+
+    @Test("Window select reports the whole viewport once, never per visible pane")
+    @MainActor
+    func windowSelectReportsWholeViewportOnce() async throws {
+        let actions = WindowReportRecordingPaneGridActions(
+            selectNextState: multiPaneShellState(activeWindowID: "window-b")
+        )
+        let host = NativeTerminalPaneHostView(
+            paneGridState: multiPaneShellState(activeWindowID: "window-a"),
+            paneGridActions: actions
+        )
+        host.windowSizeOverrideForTesting = {
+            TerminalViewport.Size(columns: 160, rows: 44, pixelWidth: 1280, pixelHeight: 800)
+        }
+
+        host.applyPaneGrid(multiPaneShellState(activeWindowID: "window-a"))
+        await host.waitForPaneGridActions()
+        let reportsBeforeSelect = actions.calls.filter { $0.hasPrefix("window-resize:") }.count
+
+        _ = host.paneGridView.selectWindow("window-b", requestID: "select-b")
+        try await waitUntil {
+            actions.calls.filter { $0.hasPrefix("window-resize:") }.count == reportsBeforeSelect + 1
+        }
+
+        // Selecting a multi-pane window announces ONE viewport for the newly
+        // active window — not one resize per visible pane (the old resync bug).
+        #expect(actions.calls.filter { $0.hasPrefix("window-resize:") }.count == reportsBeforeSelect + 1)
+        #expect(!actions.calls.contains { $0.hasPrefix("resize-absolute:") })
+    }
+
     @Test("Root controller wires PaneGrid interactions through runtime command port")
     @MainActor
     func rootControllerWiresPaneGridInteractionsThroughRuntimeCommandPort() async throws {
@@ -482,9 +608,9 @@ struct NativeWorkspaceShellControllerTests {
         #expect(listed.activeWorkspaceID == WorkspaceID(rawValue: "fenrir-native-active-a"))
     }
 
-    @Test("PaneGrid layout resize reaches runtime with measured size")
+    @Test("PaneGrid layout reports the whole-window viewport size to runtime, never per-pane")
     @MainActor
-    func paneGridLayoutResizeReachesRuntimeWithMeasuredSize() async throws {
+    func paneGridLayoutReportsWindowViewportSizeToRuntime() async throws {
         let runtime = RecordingPaneGridRuntimeController()
         let controller = NativeWorkspaceRootViewController(
             controller: NativeWorkspaceShellController(state: state()),
@@ -499,7 +625,11 @@ struct NativeWorkspaceShellControllerTests {
 
         await root.terminalPaneHost.waitForPaneGridActions()
 
-        #expect(runtime.calls.contains { $0.hasPrefix("resize-absolute:pane-a:%1:") })
+        // Classic tmux client model (D-011): laying out the pane host reports
+        // ONE whole-window size via tmux.window.resize; the client never
+        // pushes an auto-measured per-pane size back.
+        #expect(runtime.calls.contains { $0.hasPrefix("resize-window:") })
+        #expect(!runtime.calls.contains { $0.hasPrefix("resize-absolute:") })
     }
 
     @Test("Runtime command port maps PaneGrid interactions to server RPC requests")
@@ -585,16 +715,15 @@ struct NativeWorkspaceShellControllerTests {
             unit: .pixels,
             direction: .right
         ), in: state)
-        await controller.resizePane(
-            pane.target(workspaceID: state.workspaceID, window: window),
-            size: TerminalViewport.Size(columns: 140, rows: 42, pixelWidth: 1120, pixelHeight: 756),
+        await controller.reportWindowSize(
+            TerminalViewport.Size(columns: 140, rows: 42, pixelWidth: 1120, pixelHeight: 756),
             in: state
         )
 
         #expect(await requestSender.methods == [])
     }
 
-    @Test("Runtime resize emits after projection marks pane server-backed")
+    @Test("Runtime window resize emits after projection marks pane server-backed")
     @MainActor
     func runtimeResizeEmitsAfterProjectionMarksPaneServerBacked() async throws {
         let requestSender = RecordingServerRequestSender()
@@ -618,40 +747,44 @@ struct NativeWorkspaceShellControllerTests {
         let controller = NativePaneGridActionController(initialState: state, runtime: runtime)
 
         controller.markServerBackedPaneGridState(state)
-        await controller.resizePane(
-            pane.target(workspaceID: state.workspaceID, window: window),
-            size: TerminalViewport.Size(columns: 140, rows: 42, pixelWidth: 1120, pixelHeight: 756),
+        await controller.reportWindowSize(
+            TerminalViewport.Size(columns: 140, rows: 42, pixelWidth: 1120, pixelHeight: 756),
             in: state
         )
 
-        #expect(await requestSender.methods == ["tmux.pane.resize"])
+        #expect(await requestSender.methods == ["tmux.window.resize"])
         #expect(await requestSender.stringPayloadValue(at: 0, key: "workspaceId") == "workspace-a")
-        #expect(await requestSender.stringPayloadValue(at: 0, key: "paneId") == "pane-a")
+        #expect(await requestSender.stringPayloadValue(at: 0, key: "windowId") == "window-a")
         #expect(await requestSender.intPayloadValue(at: 0, key: "cols") == 140)
         #expect(await requestSender.intPayloadValue(at: 0, key: "rows") == 42)
     }
 
-    @Test("Runtime resize preserves projected pane stream identity")
+    @Test("Window resize never mutates local pane rects (no round-trip drift)")
     @MainActor
-    func runtimeResizePreservesProjectedPaneStreamIdentity() async {
+    func windowResizeDoesNotMutateLocalPaneRects() async {
         let runtime = RecordingPaneGridRuntimeController()
         let streamID = StreamID(rawValue: "stream-pane-a")
         let state = shellPaneGridState(streamID: streamID)
         let window = state.windows[0]
-        let pane = window.panes[0]
+        let originalColumns = window.panes[0].rect.columns
+        let originalRows = window.panes[0].rect.rows
         let controller = NativePaneGridActionController(initialState: state, runtime: runtime)
 
         controller.markServerBackedPaneGridState(state)
-        await controller.resizePane(
-            pane.target(workspaceID: state.workspaceID, window: window),
-            size: TerminalViewport.Size(columns: 140, rows: 42, pixelWidth: 1120, pixelHeight: 756),
+        await controller.reportWindowSize(
+            TerminalViewport.Size(columns: 140, rows: 42, pixelWidth: 1120, pixelHeight: 756),
             in: state
         )
 
-        let resizedPane = runtime.appliedStates.last?.windows[0].panes[0]
-        #expect(resizedPane?.streamID == streamID)
-        #expect(resizedPane?.rect.columns == 140)
-        #expect(resizedPane?.rect.rows == 42)
+        // The server owns pane layout and broadcasts the reflowed rects back.
+        // Locally overwriting the pane rect with the reported size is exactly
+        // what drove the non-idempotent drift (panes shrinking on focus move),
+        // so the client must leave the local rect untouched.
+        let latestPane = runtime.appliedStates.last?.windows[0].panes[0]
+        #expect(latestPane?.streamID == streamID)
+        #expect(latestPane?.rect.columns == originalColumns)
+        #expect(latestPane?.rect.rows == originalRows)
+        #expect(runtime.calls.contains { $0.hasPrefix("resize-window:window-a:") })
     }
 
     @Test("NativeHost agent presence OSC forwarder stores valid terminal viewport presence")
@@ -1225,24 +1358,25 @@ struct NativeWorkspaceShellControllerTests {
             unit: .cells,
             direction: .down
         ), in: state)
-        await controller.resizePane(
-            pane.target(workspaceID: state.workspaceID, window: window),
-            size: TerminalViewport.Size(columns: 1, rows: 1, pixelWidth: 8, pixelHeight: 16),
+        await controller.reportWindowSize(
+            TerminalViewport.Size(columns: 1, rows: 1, pixelWidth: 8, pixelHeight: 16),
             in: state
         )
-        await controller.resizePane(
-            pane.target(workspaceID: state.workspaceID, window: window),
-            size: TerminalViewport.Size(columns: 2000, rows: 900, pixelWidth: 16_000, pixelHeight: 14_400),
+        await controller.reportWindowSize(
+            TerminalViewport.Size(columns: 2000, rows: 900, pixelWidth: 16_000, pixelHeight: 14_400),
             in: state
         )
 
+        // The four allocation gestures resize a pane split; the two
+        // whole-viewport reports resize the window — both clamp to the server
+        // contract bounds (cols 20…1000, rows 5…500).
         #expect(await requestSender.methods == [
             "tmux.pane.resize",
             "tmux.pane.resize",
             "tmux.pane.resize",
             "tmux.pane.resize",
-            "tmux.pane.resize",
-            "tmux.pane.resize"
+            "tmux.window.resize",
+            "tmux.window.resize"
         ])
         #expect(await requestSender.intPayloadValue(at: 0, key: "cols") == 20)
         #expect(await requestSender.intPayloadValue(at: 0, key: "rows") == 6)
@@ -1999,6 +2133,10 @@ struct NativeWorkspaceShellControllerTests {
         #expect(second.failures.isEmpty)
         #expect(await sessionHandler.closeCalls == 1)
         #expect(await sessionHandler.reconnectCalls == 2)
+        // Each reconnect uses the hardened default policy (multi-attempt with
+        // exponential backoff), not the framework's single-attempt default.
+        #expect(await sessionHandler.reconnectPolicies.allSatisfy { $0.maxAttempts == 6 })
+        #expect(await sessionHandler.reconnectPolicies.allSatisfy { $0.backoff.initialDelayMilliseconds == 250 })
         #expect(await workspaceHandler.reconnectWorkspaceIDs == ["workspace-a", "workspace-a"])
         #expect(await workflowRefresher.observedAfterSequences == [nil, 3])
         #expect(await notificationRefresher.recordedNotificationEventIDs == ["workflow-event-2", "workflow-event-2"])
@@ -2115,6 +2253,106 @@ struct NativeWorkspaceShellControllerTests {
         #expect(await transport.methods == ["tmux.workspace.getSnapshot"])
         #expect(await dispatcher.calls.isEmpty)
         #expect(await integration.inputs.isEmpty)
+    }
+
+    @Test("A failed reconnect dispatch re-arms so the next transport failure dispatches again")
+    func failedReconnectReArmsForNextTransportFailure() async throws {
+        let transport = FailingNativeAppServerRPCTransport()
+        let context = NativeAppServerConnectionContext.localDefault(
+            transport: transport,
+            bootstrapCredential: "bootstrap-token"
+        )
+        // Integration returns failure: the session generation never advances,
+        // so both failing RPCs form the same reconnect key. The old
+        // once-per-generation guard would suppress the second forever.
+        let integration = ControllableReconnectIntegration(
+            session: serverSession(
+                sessionID: context.sessionID,
+                endpoint: ServerConnection.LocalServerSpec(
+                    httpBaseURL: "http://127.0.0.1:31337",
+                    webSocketURL: "ws://127.0.0.1:31337/ws"
+                ).endpoint
+            ),
+            succeeds: false
+        )
+        await context.serverEventSource.setController(NativeHostServerEventController(
+            controller: NativeHostControlController(dispatcher: RecordingNativeHostClientControlDispatcher()),
+            integration: integration,
+            defaultSessionID: context.sessionID
+        ))
+
+        for index in 0..<2 {
+            _ = await context.sendServerRequest.run(ServerConnection.SendServerRequestInput(
+                requestID: RequestID(rawValue: "rpc-failure-\(index)"),
+                sessionID: context.sessionID,
+                request: ServerConnection.RequestEnvelope(
+                    method: "tmux.workspace.getSnapshot",
+                    payload: #"{"workspaceId":"workspace-a"}"#
+                )
+            ))
+        }
+
+        #expect(await integration.inputs.count == 2)
+    }
+
+    @Test("Concurrent transport failures for one workspace coalesce into a single in-flight reconnect")
+    func concurrentTransportFailuresCoalesceWhileReconnectInFlight() async throws {
+        let transport = FailingNativeAppServerRPCTransport()
+        let context = NativeAppServerConnectionContext.localDefault(
+            transport: transport,
+            bootstrapCredential: "bootstrap-token"
+        )
+        let integration = ControllableReconnectIntegration(
+            session: serverSession(
+                sessionID: context.sessionID,
+                endpoint: ServerConnection.LocalServerSpec(
+                    httpBaseURL: "http://127.0.0.1:31337",
+                    webSocketURL: "ws://127.0.0.1:31337/ws"
+                ).endpoint
+            ),
+            succeeds: false,
+            blocking: true
+        )
+        await context.serverEventSource.setController(NativeHostServerEventController(
+            controller: NativeHostControlController(dispatcher: RecordingNativeHostClientControlDispatcher()),
+            integration: integration,
+            defaultSessionID: context.sessionID
+        ))
+
+        func fireFailingRequest(_ index: Int) -> Task<Void, Never> {
+            Task {
+                _ = await context.sendServerRequest.run(ServerConnection.SendServerRequestInput(
+                    requestID: RequestID(rawValue: "rpc-concurrent-\(index)"),
+                    sessionID: context.sessionID,
+                    request: ServerConnection.RequestEnvelope(
+                        method: "tmux.workspace.getSnapshot",
+                        payload: #"{"workspaceId":"workspace-a"}"#
+                    )
+                ))
+            }
+        }
+
+        let first = fireFailingRequest(0)
+        let second = fireFailingRequest(1)
+
+        // Wait until the first reconnect is in flight (blocked in the fake).
+        var spins = 0
+        while await integration.inputs.count < 1 {
+            await Task.yield()
+            spins += 1
+            if spins > 100_000 {
+                Issue.record("reconnect never dispatched")
+                break
+            }
+        }
+        // The second failure, arriving while the first reconnect is in flight,
+        // is coalesced — still exactly one dispatch.
+        #expect(await integration.inputs.count == 1)
+
+        await integration.release()
+        _ = await first.value
+        _ = await second.value
+        #expect(await integration.inputs.count == 1)
     }
 
     @Test("Production server event graph restores pane layout from tmux runtime snapshot")
@@ -2297,6 +2535,7 @@ private actor RecordingNativeServerSessionReconnectHandler: NativeServerSessionR
     private let session: ServerConnection.Session
     private(set) var closeCalls = 0
     private(set) var reconnectCalls = 0
+    private(set) var reconnectPolicies: [ServerConnection.ReconnectPolicy] = []
 
     init(session: ServerConnection.Session) {
         self.session = session
@@ -2309,6 +2548,7 @@ private actor RecordingNativeServerSessionReconnectHandler: NativeServerSessionR
 
     func reconnectSession(_ input: ServerConnection.ReconnectServerSessionInput) async -> Result<ServerConnection.Session, ServerConnection.ServerConnectionError> {
         reconnectCalls += 1
+        reconnectPolicies.append(input.policy)
         return .success(session.withStatus(.connected, generation: UInt64(reconnectCalls)))
     }
 }
@@ -2356,6 +2596,49 @@ private actor RecordingNativeServerEventReconnectIntegration: NativeServerEventR
             workspaces: [
                 WorkspaceCoordinator.WorkspaceExperience(workspace: workspace, serverSelection: .local)
             ],
+            workflowRuns: [],
+            workflowTimelines: [],
+            notifications: [],
+            agentInteractions: [],
+            failures: []
+        ))
+    }
+}
+
+private actor ControllableReconnectIntegration: NativeServerEventReconnectIntegrating {
+    private let session: ServerConnection.Session
+    private let succeeds: Bool
+    private let blocking: Bool
+    private(set) var inputs: [NativeServerWorkspaceReconnectEventInput] = []
+    private var gate: CheckedContinuation<Void, Never>?
+
+    init(session: ServerConnection.Session, succeeds: Bool, blocking: Bool = false) {
+        self.session = session
+        self.succeeds = succeeds
+        self.blocking = blocking
+    }
+
+    func release() {
+        gate?.resume()
+        gate = nil
+    }
+
+    func reconnectWorkspaceFromServerEvent(
+        _ input: NativeServerWorkspaceReconnectEventInput
+    ) async -> Result<NativeServerReconnectProjection, ServerConnection.ServerConnectionError> {
+        inputs.append(input)
+        if blocking {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                gate = continuation
+            }
+        }
+        guard succeeds else {
+            return .failure(.sessionReconnectFailed)
+        }
+        return .success(NativeServerReconnectProjection(
+            requestID: input.requestID,
+            session: session,
+            workspaces: [],
             workflowRuns: [],
             workflowTimelines: [],
             notifications: [],
@@ -2883,6 +3166,47 @@ private func shellPaneGridState(
     )
 }
 
+/// Two-pane-per-window state so tests can prove a whole-window resize never
+/// fans out into one report per visible pane.
+private func multiPaneShellState(activeWindowID: FenrirWindowID = "window-a") -> PaneGrid.State {
+    func window(_ id: FenrirWindowID, tmux: String, index: Int, prefix: String, active: Bool) -> PaneGrid.WindowPresentation {
+        let left = PaneGrid.PanePresentation(
+            paneID: PaneID(rawValue: "\(prefix)-left"),
+            tmuxPaneID: NativeRuntime.TmuxPaneID(rawValue: "%\(prefix)-1"),
+            viewportID: ViewportID(rawValue: "viewport-\(prefix)-left"),
+            title: "left",
+            rect: PaneGrid.PaneRect(x: 0, y: 0, columns: 80, rows: 24),
+            isFocused: active
+        )
+        let right = PaneGrid.PanePresentation(
+            paneID: PaneID(rawValue: "\(prefix)-right"),
+            tmuxPaneID: NativeRuntime.TmuxPaneID(rawValue: "%\(prefix)-2"),
+            viewportID: ViewportID(rawValue: "viewport-\(prefix)-right"),
+            title: "right",
+            rect: PaneGrid.PaneRect(x: 80, y: 0, columns: 80, rows: 24),
+            isFocused: false
+        )
+        return PaneGrid.WindowPresentation(
+            windowID: id,
+            tmuxWindowID: tmux,
+            index: index,
+            title: "win-\(prefix)",
+            root: .split(axis: .horizontal, children: [.pane(left), .pane(right)]),
+            activePaneID: left.paneID,
+            panes: [left, right]
+        )
+    }
+    return PaneGrid.State(
+        workspaceID: "workspace-a",
+        tmuxSessionID: "tmux-session-a",
+        activeWindowID: activeWindowID,
+        windows: [
+            window("window-a", tmux: "tmux-window-a", index: 0, prefix: "a", active: activeWindowID == "window-a"),
+            window("window-b", tmux: "tmux-window-b", index: 1, prefix: "b", active: activeWindowID == "window-b")
+        ]
+    )
+}
+
 private func nativeHostTerminalViewportState(
     viewportID: ViewportID,
     streamID: StreamID? = nil,
@@ -3004,8 +3328,8 @@ private final class FakePaneGridActions: NativePaneGridActionDispatching, @unche
         append("resize:\(allocation.paneID.rawValue):\(allocation.delta):\(allocation.unit.rawValue):\(allocation.direction.rawValue)")
     }
 
-    func resizePane(_ target: PaneGrid.PaneKernelTarget, size: TerminalViewport.Size, in state: PaneGrid.State) async {
-        append("resize-absolute:\(target.paneID.rawValue):\(target.tmuxPaneID.rawValue):\(size.columns):\(size.rows)")
+    func reportWindowSize(_ size: TerminalViewport.Size, in state: PaneGrid.State) async {
+        append("window-resize:\(size.columns):\(size.rows)")
     }
 
     private func append(_ call: String) {
@@ -3028,7 +3352,48 @@ private final class SelectReturningPaneGridActions: NativePaneGridActionDispatch
     func selectWindow(_ command: PaneGrid.SelectTabWindowCommand) async -> PaneGrid.State? { nextState }
     func writeInput(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) async {}
     func resizePane(_ allocation: PaneGrid.PaneResizeAllocation, in state: PaneGrid.State) async {}
-    func resizePane(_ target: PaneGrid.PaneKernelTarget, size: TerminalViewport.Size, in state: PaneGrid.State) async {}
+    func reportWindowSize(_ size: TerminalViewport.Size, in state: PaneGrid.State) async {}
+}
+
+/// Records whole-viewport reports and returns a projected next state from
+/// `selectWindow`, so the host's post-select `reportWindowSize(force:)` path
+/// (each tmux window tracks its own client size) is exercised.
+private final class WindowReportRecordingPaneGridActions: NativePaneGridActionDispatching, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedCalls: [String] = []
+    private let selectNextState: PaneGrid.State?
+
+    init(selectNextState: PaneGrid.State? = nil) {
+        self.selectNextState = selectNextState
+    }
+
+    var calls: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedCalls
+    }
+
+    func applyPaneGridState(_ state: PaneGrid.State) {}
+    func markServerBackedPaneGridState(_ state: PaneGrid.State) {}
+    func focusPane(_ target: PaneGrid.PaneKernelTarget) async -> PaneGrid.State? { nil }
+
+    func selectWindow(_ command: PaneGrid.SelectTabWindowCommand) async -> PaneGrid.State? {
+        append("select:\(command.windowID.rawValue)")
+        return selectNextState
+    }
+
+    func writeInput(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) async {}
+    func resizePane(_ allocation: PaneGrid.PaneResizeAllocation, in state: PaneGrid.State) async {}
+
+    func reportWindowSize(_ size: TerminalViewport.Size, in state: PaneGrid.State) async {
+        append("window-resize:\(size.columns):\(size.rows)")
+    }
+
+    private func append(_ call: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        recordedCalls.append(call)
+    }
 }
 
 private final class StreamSubscriptionRecorder: @unchecked Sendable {
@@ -3137,8 +3502,8 @@ private final class RecordingPaneGridRuntimeController: NativePaneGridRuntimeCon
         append("resize:\(command.target.paneID.rawValue):\(command.delta):\(command.unit.rawValue):\(command.direction.rawValue)")
     }
 
-    func resizePane(_ target: PaneGrid.PaneKernelTarget, size: NativeRuntime.PaneSize) async throws {
-        append("resize-absolute:\(target.paneID.rawValue):\(target.tmuxPaneID.rawValue):\(size.columns):\(size.rows)")
+    func resizeWindow(_ target: PaneGrid.PaneKernelTarget, size: NativeRuntime.PaneSize) async throws {
+        append("resize-window:\(target.windowID.rawValue):\(target.tmuxWindowID):\(size.columns):\(size.rows)")
     }
 
     func selectWindow(_ command: PaneGrid.SelectTabWindowCommand) async throws {

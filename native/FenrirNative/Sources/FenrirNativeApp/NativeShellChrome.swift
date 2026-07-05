@@ -695,6 +695,9 @@ final class NativeShellStatusBarView: NSView {
 
     private let connectionLabel = NSTextField(labelWithString: "")
     private let tmuxLabel = NSTextField(labelWithString: "")
+    /// D-028 prefix-mode indicator: visible while the tmux prefix key table
+    /// or a `bind-key -r` repeat window is active ("C-s …" / "C-s (repeat)").
+    private let tmuxPrefixChip = NSTextField(labelWithString: "")
     private let attentionLabel = NSTextField(labelWithString: "")
     private let hintsLabel = NSTextField(labelWithString: "⌘P palette · ⌘B sidebar")
     private let topHairline = NSView()
@@ -721,6 +724,18 @@ final class NativeShellStatusBarView: NSView {
         attentionLabel.stringValue = attentionText.map { "◉ \($0)" } ?? ""
     }
 
+    func applyTmuxPrefixChip(_ text: String?) {
+        tmuxPrefixChip.isHidden = text == nil
+        tmuxPrefixChip.stringValue = text.map { " \($0) " } ?? ""
+    }
+
+    func visibleTmuxPrefixChipText() -> String? {
+        guard !tmuxPrefixChip.isHidden else {
+            return nil
+        }
+        return tmuxPrefixChip.stringValue.trimmingCharacters(in: .whitespaces)
+    }
+
     private func build() {
         wantsLayer = true
         layer?.backgroundColor = themeTokens.panelBackground.cgColor
@@ -735,10 +750,19 @@ final class NativeShellStatusBarView: NSView {
         attentionLabel.lineBreakMode = .byTruncatingTail
         attentionLabel.isHidden = true
 
+        tmuxPrefixChip.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .medium)
+        tmuxPrefixChip.textColor = themeTokens.accent
+        tmuxPrefixChip.lineBreakMode = .byClipping
+        tmuxPrefixChip.wantsLayer = true
+        tmuxPrefixChip.layer?.cornerRadius = 4
+        tmuxPrefixChip.layer?.backgroundColor = themeTokens.selectedRowBackground.cgColor
+        tmuxPrefixChip.isHidden = true
+        tmuxPrefixChip.identifier = NSUserInterfaceItemIdentifier("statusbar-tmux-prefix-chip")
+
         topHairline.wantsLayer = true
         topHairline.layer?.backgroundColor = themeTokens.hairline.cgColor
 
-        [connectionLabel, tmuxLabel, attentionLabel, hintsLabel, topHairline].forEach {
+        [connectionLabel, tmuxLabel, tmuxPrefixChip, attentionLabel, hintsLabel, topHairline].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
@@ -757,7 +781,10 @@ final class NativeShellStatusBarView: NSView {
             tmuxLabel.leadingAnchor.constraint(equalTo: connectionLabel.trailingAnchor, constant: 20),
             tmuxLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            attentionLabel.leadingAnchor.constraint(equalTo: tmuxLabel.trailingAnchor, constant: 20),
+            tmuxPrefixChip.leadingAnchor.constraint(equalTo: tmuxLabel.trailingAnchor, constant: 16),
+            tmuxPrefixChip.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            attentionLabel.leadingAnchor.constraint(equalTo: tmuxPrefixChip.trailingAnchor, constant: 16),
             attentionLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             attentionLabel.trailingAnchor.constraint(lessThanOrEqualTo: hintsLabel.leadingAnchor, constant: -16),
 
@@ -2331,5 +2358,160 @@ final class NativeManageScriptsPanelView: NSView {
             return
         }
         onRemoveScript?(Settings.ScriptID(rawValue: rawValue))
+    }
+}
+
+// MARK: - D-028 keymap confirmation / rename prompts
+
+/// Themed confirmation panel for destructive keymap actions (`kill-pane`,
+/// `kill-window` wrapped in `confirm-before`). Never an NSAlert: it renders
+/// inside the workspace overlay host with theme tokens.
+@MainActor
+final class NativeTmuxKeymapConfirmPanelView: NSView {
+    var onConfirm: (() -> Void)?
+    var onCancel: (() -> Void)?
+
+    private let themeTokens: NativeShellThemeTokens
+
+    init(message: String, confirmTitle: String, themeTokens: NativeShellThemeTokens) {
+        self.themeTokens = themeTokens
+        super.init(frame: .zero)
+        build(message: message, confirmTitle: confirmTitle)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    private func build(message: String, confirmTitle: String) {
+        let messageLabel = NSTextField(labelWithString: message)
+        messageLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        messageLabel.textColor = themeTokens.primaryText
+        messageLabel.lineBreakMode = .byWordWrapping
+        messageLabel.maximumNumberOfLines = 3
+
+        let confirmButton = NSButton(title: confirmTitle, target: self, action: #selector(confirmPressed))
+        confirmButton.bezelStyle = .accessoryBarAction
+        confirmButton.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+        confirmButton.contentTintColor = themeTokens.failureBadge
+        confirmButton.identifier = NSUserInterfaceItemIdentifier("keymap-confirm-accept")
+        confirmButton.keyEquivalent = "\r"
+
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelPressed))
+        cancelButton.bezelStyle = .accessoryBarAction
+        cancelButton.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        cancelButton.identifier = NSUserInterfaceItemIdentifier("keymap-confirm-cancel")
+
+        let buttonsRow = NSStackView(views: [cancelButton, confirmButton])
+        buttonsRow.orientation = .horizontal
+        buttonsRow.spacing = 10
+
+        [messageLabel, buttonsRow].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            addSubview($0)
+        }
+
+        NSLayoutConstraint.activate([
+            messageLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            messageLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            messageLabel.topAnchor.constraint(equalTo: topAnchor),
+
+            buttonsRow.trailingAnchor.constraint(equalTo: trailingAnchor),
+            buttonsRow.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 14),
+            buttonsRow.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    @objc private func confirmPressed() {
+        onConfirm?()
+    }
+
+    @objc private func cancelPressed() {
+        onCancel?()
+    }
+}
+
+/// Themed single-field prompt for the D-028 `rename-window` keymap action.
+/// A key binding cannot carry the final name, so the native surface always
+/// prompts and dispatches the typed rename RPC on submit.
+@MainActor
+final class NativeTmuxKeymapRenamePanelView: NSView {
+    var onSubmit: ((String) -> Void)?
+    var onCancel: (() -> Void)?
+
+    private let themeTokens: NativeShellThemeTokens
+    private let nameField = NSTextField(string: "")
+
+    init(currentName: String, themeTokens: NativeShellThemeTokens) {
+        self.themeTokens = themeTokens
+        super.init(frame: .zero)
+        build(currentName: currentName)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    func focusField(in window: NSWindow?) {
+        window?.makeFirstResponder(nameField)
+        nameField.currentEditor()?.selectAll(nil)
+    }
+
+    func submittedName() -> String {
+        nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func build(currentName: String) {
+        nameField.stringValue = currentName
+        nameField.placeholderString = "Window name"
+        nameField.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        nameField.identifier = NSUserInterfaceItemIdentifier("keymap-rename-field")
+        nameField.target = self
+        nameField.action = #selector(submitPressed)
+
+        let renameButton = NSButton(title: "Rename", target: self, action: #selector(submitPressed))
+        renameButton.bezelStyle = .accessoryBarAction
+        renameButton.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+        renameButton.contentTintColor = themeTokens.accent
+        renameButton.identifier = NSUserInterfaceItemIdentifier("keymap-rename-submit")
+
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelPressed))
+        cancelButton.bezelStyle = .accessoryBarAction
+        cancelButton.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        cancelButton.identifier = NSUserInterfaceItemIdentifier("keymap-rename-cancel")
+
+        let buttonsRow = NSStackView(views: [cancelButton, renameButton])
+        buttonsRow.orientation = .horizontal
+        buttonsRow.spacing = 10
+
+        [nameField, buttonsRow].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            addSubview($0)
+        }
+
+        NSLayoutConstraint.activate([
+            nameField.leadingAnchor.constraint(equalTo: leadingAnchor),
+            nameField.trailingAnchor.constraint(equalTo: trailingAnchor),
+            nameField.topAnchor.constraint(equalTo: topAnchor),
+            nameField.widthAnchor.constraint(greaterThanOrEqualToConstant: 260),
+
+            buttonsRow.trailingAnchor.constraint(equalTo: trailingAnchor),
+            buttonsRow.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 12),
+            buttonsRow.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    @objc private func submitPressed() {
+        let name = submittedName()
+        guard !name.isEmpty else {
+            return
+        }
+        onSubmit?(name)
+    }
+
+    @objc private func cancelPressed() {
+        onCancel?()
     }
 }

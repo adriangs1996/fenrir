@@ -99,20 +99,33 @@ struct PaneGridAppKitViewTests {
         #expect(factory.backend(for: "pane-2")?.resizes.isEmpty == false)
     }
 
-    @Test("Pane layout emits measured tmux resize target")
-    func paneLayoutEmitsMeasuredTmuxResizeTarget() {
+    @Test("Pane layout reports one whole-window viewport size, never per-pane")
+    func paneLayoutReportsWholeViewportSize() {
         let view = PaneGrid.AppKitPaneGridView(state: appKitState(), terminalFactory: TerminalFactory().makeTerminal)
-        var resizes: [(PaneGrid.PaneKernelTarget, TerminalViewport.Size)] = []
-        view.onResizePaneToSize = { target, size in
-            resizes.append((target, size))
-        }
+        var reports: [TerminalViewport.Size] = []
+        view.onReportWindowSize = { reports.append($0) }
 
         view.frame = NSRect(x: 0, y: 0, width: 640, height: 400)
         view.layoutSubtreeIfNeeded()
 
-        #expect(resizes.map { $0.0.tmuxPaneID.rawValue }.contains("%1"))
-        #expect(resizes.map { $0.0.tmuxPaneID.rawValue }.contains("%2"))
-        #expect(resizes.allSatisfy { $0.1.columns > 0 && $0.1.rows > 0 })
+        // Classic tmux client model: the grid announces ONE overall viewport
+        // size for the whole pane area, never a per-pane measured size.
+        #expect(!reports.isEmpty)
+        #expect(reports.allSatisfy { $0.columns > 0 && $0.rows > 0 })
+    }
+
+    @Test("Surface grid size follows the server-assigned pane rect")
+    func surfaceGridSizeFollowsServerPaneRect() {
+        let factory = TerminalFactory()
+        let view = PaneGrid.AppKitPaneGridView(state: nestedAppKitState(), terminalFactory: factory.makeTerminal)
+        view.frame = NSRect(x: 0, y: 0, width: 640, height: 400)
+        view.layoutSubtreeIfNeeded()
+
+        // tmux owns pane layout (D-011): each surface renders at the cell count
+        // the server assigned in `pane.rect`, not a lossy AppKit pixel measure.
+        // nestedAppKitState: pane-1 40x48, pane-2 120x24, pane-3 120x24.
+        #expect(factory.backend(for: "pane-1")?.resizes.contains { $0.columns == 40 && $0.rows == 48 } == true)
+        #expect(factory.backend(for: "pane-2")?.resizes.contains { $0.columns == 120 && $0.rows == 24 } == true)
     }
 
     @Test("Keyboard focus movement targets adjacent tmux pane")
@@ -187,6 +200,64 @@ struct PaneGridAppKitViewTests {
             return true
         }
         return view.subviews.contains { hasAmbiguousLayout($0) }
+    }
+}
+
+@Suite("PaneGrid viewport chrome insets")
+struct PaneGridViewportChromeInsetsTests {
+    private static let header: CGFloat = 24
+    private static let divider: CGFloat = 6
+
+    private func insets(_ root: PaneGrid.LayoutNode?) -> PaneGrid.ViewportChromeInsets {
+        PaneGrid.viewportChromeInsets(for: root, headerHeight: Self.header, dividerThickness: Self.divider)
+    }
+
+    @Test("Single pane subtracts one header and no divider")
+    func singlePane() {
+        let root = PaneGrid.LayoutNode.pane(pane("pane-1", tmuxPaneID: "%1", viewportID: "vp-1", focused: true, x: 0, y: 0))
+        #expect(insets(root) == PaneGrid.ViewportChromeInsets(horizontal: 0, vertical: 24))
+    }
+
+    @Test("No active window (nil root) is treated as a single pane")
+    func nilRootIsSinglePane() {
+        #expect(insets(nil) == PaneGrid.ViewportChromeInsets(horizontal: 0, vertical: 24))
+    }
+
+    @Test("Vertical stack subtracts one header per pane plus the dividers between them")
+    func verticalStackScalesWithPaneCount() {
+        // 3 stacked panes: 3 headers + 2 dividers vertically; no side chrome.
+        let root = PaneGrid.LayoutNode.split(axis: .vertical, children: [
+            .pane(pane("p1", tmuxPaneID: "%1", viewportID: "vp-1", focused: true, x: 0, y: 0)),
+            .pane(pane("p2", tmuxPaneID: "%2", viewportID: "vp-2", focused: false, x: 0, y: 24)),
+            .pane(pane("p3", tmuxPaneID: "%3", viewportID: "vp-3", focused: false, x: 0, y: 48))
+        ])
+        // 3*24 + 2*6 = 84
+        #expect(insets(root) == PaneGrid.ViewportChromeInsets(horizontal: 0, vertical: 84))
+    }
+
+    @Test("Horizontal split subtracts one header and the vertical dividers between columns")
+    func horizontalSplitSubtractsColumnDividers() {
+        let root = PaneGrid.LayoutNode.split(axis: .horizontal, children: [
+            .pane(pane("p1", tmuxPaneID: "%1", viewportID: "vp-1", focused: true, x: 0, y: 0)),
+            .pane(pane("p2", tmuxPaneID: "%2", viewportID: "vp-2", focused: false, x: 80, y: 0))
+        ])
+        // Side-by-side: 1 divider wide (6pt); each column keeps its single 24pt header.
+        #expect(insets(root) == PaneGrid.ViewportChromeInsets(horizontal: 6, vertical: 24))
+    }
+
+    @Test("Nested layout takes the tallest column's header stack, not a fixed header")
+    func nestedLayoutUsesWorstCaseColumn() {
+        // Left: one full-height pane. Right: three stacked panes.
+        let root = PaneGrid.LayoutNode.split(axis: .horizontal, children: [
+            .pane(pane("p1", tmuxPaneID: "%1", viewportID: "vp-1", focused: true, x: 0, y: 0)),
+            .split(axis: .vertical, children: [
+                .pane(pane("p2", tmuxPaneID: "%2", viewportID: "vp-2", focused: false, x: 80, y: 0)),
+                .pane(pane("p3", tmuxPaneID: "%3", viewportID: "vp-3", focused: false, x: 80, y: 24)),
+                .pane(pane("p4", tmuxPaneID: "%4", viewportID: "vp-4", focused: false, x: 80, y: 48))
+            ])
+        ])
+        // Vertical: max(24, 3*24 + 2*6) = 84. Horizontal: 1 divider = 6.
+        #expect(insets(root) == PaneGrid.ViewportChromeInsets(horizontal: 6, vertical: 84))
     }
 }
 

@@ -60,7 +60,11 @@ struct NativeShellThemeTokens {
         case .pierreDarkSoft:
             return NativeShellThemeTokens(themeID: themeID, root: 0x171717, sidebar: 0x101010, toolbar: 0x101010, terminal: 0x101010, overlay: 0x101010, border: 0x262626, primary: 0xD4D4D4, secondary: 0xB8B8B8, tertiary: 0x8A8A8A, accent: 0x69B1FF, attention: 0xFFD452, ok: 0x60D199, failure: 0xFF6762, workflow: 0xBA8FFD)
         case .catppuccinMocha:
-            return NativeShellThemeTokens(themeID: themeID, root: 0x11111B, sidebar: 0x181825, toolbar: 0x1E1E2E, terminal: 0x0B0B14, overlay: 0x1E1E2E, border: 0x313244, primary: 0xCDD6F4, secondary: 0xA6ADC8, tertiary: 0x6C7086, accent: 0xCBA6F7, attention: 0xF9E2AF, ok: 0xA6E3A1, failure: 0xF38BA8, workflow: 0xB4BEFE)
+            // `terminal` is Catppuccin Mocha base (#1e1e2e) so the region behind
+            // and around the Ghostty surface matches Ghostty's own catppuccin
+            // background (from the user's `~/.config/ghostty/config` theme)
+            // instead of a near-black that clashes at the edges.
+            return NativeShellThemeTokens(themeID: themeID, root: 0x11111B, sidebar: 0x181825, toolbar: 0x1E1E2E, terminal: 0x1E1E2E, overlay: 0x1E1E2E, border: 0x313244, primary: 0xCDD6F4, secondary: 0xA6ADC8, tertiary: 0x6C7086, accent: 0xCBA6F7, attention: 0xF9E2AF, ok: 0xA6E3A1, failure: 0xF38BA8, workflow: 0xB4BEFE)
         case .rosePine:
             return NativeShellThemeTokens(themeID: themeID, root: 0x191724, sidebar: 0x1B192A, toolbar: 0x1F1D2E, terminal: 0x12101B, overlay: 0x1F1D2E, border: 0x403D52, primary: 0xE0DEF4, secondary: 0x908CAA, tertiary: 0x6E6A86, accent: 0x9CCFD8, attention: 0xF6C177, ok: 0x95B1AC, failure: 0xEB6F92, workflow: 0xC4A7E7)
         case .kanagawa:
@@ -487,6 +491,13 @@ final class NativeTerminalStreamIngestor {
     private let clock: any TerminalViewport.TerminalViewportClock
     private let reservedOSCForwarder: (any TerminalViewport.TerminalReservedOSCForwarding)?
     private let notificationForwarder: (any TerminalViewport.TerminalNotificationForwarding)?
+    /// Per-viewport serial ingest chain. Subscriptions can briefly overlap
+    /// (stream re-attach, cancellation races); their ingests interleave at
+    /// await points and all validate against the same stale watermark, so
+    /// each renders the same bytes — duplicated keystrokes and interleaved
+    /// frames. Serializing per viewport makes the watermark check atomic:
+    /// the first delivery applies, every duplicate no-ops.
+    private var ingestChainsByViewportID: [ViewportID: Task<Void, Never>] = [:]
 
     init(
         store: NativeAppTerminalViewportStore,
@@ -509,29 +520,114 @@ final class NativeTerminalStreamIngestor {
         bytes: Data,
         terminalView: FenrirTerminalView
     ) async -> Result<TerminalViewport.IngestTerminalOutputResult, TerminalViewport.TerminalViewportError> {
-        do {
-            try await ensureAttachedState(workspaceID: workspaceID, windowID: windowID, pane: pane, streamID: streamID)
-            let action = TerminalViewport.IngestTerminalOutput(
-                store: store,
-                rendererWriter: NativeTerminalViewRendererWriter(terminalView: terminalView),
-                reservedOSCForwarder: reservedOSCForwarder,
-                notificationForwarder: notificationForwarder,
-                clock: clock
-            )
-            return await action.run(TerminalViewport.IngestTerminalOutputInput(
-                requestID: RequestID(rawValue: "native-terminal-output-\(pane.viewportID.rawValue)-\(sequence)"),
-                viewportID: pane.viewportID,
-                paneID: pane.paneID,
-                streamID: streamID,
-                sequence: sequence,
-                bytes: bytes,
-                source: .nativeHost
-            ))
-        } catch let error as TerminalViewport.TerminalViewportError {
-            return .failure(error)
-        } catch {
-            return .failure(.outputApplyFailed)
+        await serialized(viewportID: pane.viewportID) { [self] in
+            do {
+                try await ensureAttachedState(workspaceID: workspaceID, windowID: windowID, pane: pane, streamID: streamID)
+                let action = TerminalViewport.IngestTerminalOutput(
+                    store: store,
+                    rendererWriter: NativeTerminalViewRendererWriter(terminalView: terminalView),
+                    reservedOSCForwarder: reservedOSCForwarder,
+                    notificationForwarder: notificationForwarder,
+                    clock: clock
+                )
+                return await action.run(TerminalViewport.IngestTerminalOutputInput(
+                    requestID: RequestID(rawValue: "native-terminal-output-\(pane.viewportID.rawValue)-\(sequence)"),
+                    viewportID: pane.viewportID,
+                    paneID: pane.paneID,
+                    streamID: streamID,
+                    sequence: sequence,
+                    bytes: bytes,
+                    source: .nativeHost
+                ))
+            } catch let error as TerminalViewport.TerminalViewportError {
+                return .failure(error)
+            } catch {
+                return .failure(.outputApplyFailed)
+            }
         }
+    }
+
+    /// Batch variant of `ingestOutput`: one store round trip, one scan pass,
+    /// and coalesced renderer writes for a whole run of contiguous chunks.
+    func ingestOutputBatch(
+        workspaceID: WorkspaceID,
+        windowID: FenrirWindowID,
+        pane: PaneGrid.PanePresentation,
+        streamID: StreamID,
+        chunks: [TerminalViewport.TerminalOutputChunk],
+        terminalView: FenrirTerminalView
+    ) async -> Result<TerminalViewport.IngestTerminalOutputBatchResult, TerminalViewport.TerminalViewportError> {
+        guard let firstSequence = chunks.first?.sequence else {
+            return .failure(.streamOrderViolation)
+        }
+        return await serialized(viewportID: pane.viewportID) { [self] in
+            do {
+                try await ensureAttachedState(workspaceID: workspaceID, windowID: windowID, pane: pane, streamID: streamID)
+                let action = TerminalViewport.IngestTerminalOutputBatch(
+                    store: store,
+                    rendererWriter: NativeTerminalViewRendererWriter(terminalView: terminalView),
+                    reservedOSCForwarder: reservedOSCForwarder,
+                    notificationForwarder: notificationForwarder,
+                    clock: clock
+                )
+                return await action.run(TerminalViewport.IngestTerminalOutputBatchInput(
+                    requestID: RequestID(rawValue: "native-terminal-output-\(pane.viewportID.rawValue)-\(firstSequence)"),
+                    viewportID: pane.viewportID,
+                    paneID: pane.paneID,
+                    streamID: streamID,
+                    chunks: chunks,
+                    source: .nativeHost
+                ))
+            } catch let error as TerminalViewport.TerminalViewportError {
+                return .failure(error)
+            } catch {
+                return .failure(.outputApplyFailed)
+            }
+        }
+    }
+
+    /// Accepts a server-declared stream gap: resets the viewport's sequence
+    /// watermark and drops partially buffered escape sequences so the stream
+    /// resumes cleanly at the post-gap sequence. Screen content recovery
+    /// arrives separately as a server-reseeded repaint chunk.
+    func acknowledgeStreamGap(
+        workspaceID: WorkspaceID,
+        windowID: FenrirWindowID,
+        pane: PaneGrid.PanePresentation,
+        streamID: StreamID
+    ) async {
+        await serialized(viewportID: pane.viewportID) { [self] in
+            do {
+                try await ensureAttachedState(workspaceID: workspaceID, windowID: windowID, pane: pane, streamID: streamID)
+                let action = TerminalViewport.HandleTerminalStreamGap(store: store, clock: clock)
+                _ = await action.run(TerminalViewport.HandleTerminalStreamGapInput(
+                    requestID: RequestID(rawValue: "native-terminal-gap-\(pane.viewportID.rawValue)"),
+                    viewportID: pane.viewportID,
+                    paneID: pane.paneID,
+                    streamID: streamID,
+                    source: .nativeHost
+                ))
+            } catch {
+                NSLog("Fenrir Native terminal gap acknowledge failed pane=\(pane.paneID.rawValue): \(String(describing: error))")
+            }
+        }
+    }
+
+    /// Runs `operation` after every previously enqueued ingest for the same
+    /// viewport has finished. MainActor-confined, so chaining is race-free.
+    private func serialized<T: Sendable>(
+        viewportID: ViewportID,
+        _ operation: @escaping @MainActor () async -> T
+    ) async -> T {
+        let previous = ingestChainsByViewportID[viewportID]
+        let task = Task { @MainActor in
+            await previous?.value
+            return await operation()
+        }
+        ingestChainsByViewportID[viewportID] = Task { @MainActor in
+            _ = await task.value
+        }
+        return await task.value
     }
 
     private func ensureAttachedState(workspaceID: WorkspaceID, windowID: FenrirWindowID, pane: PaneGrid.PanePresentation, streamID: StreamID) async throws {
@@ -557,6 +653,58 @@ final class NativeTerminalStreamIngestor {
             size: nil,
             pendingReservedOSCSequence: Data()
         ))
+    }
+}
+
+/// Accumulates pane stream envelopes while a flush is in flight so the
+/// websocket reader never blocks on per-envelope ingest round trips. Under
+/// load batches grow naturally (everything that arrived during the previous
+/// flush is applied in one pass); when idle each envelope flushes immediately,
+/// adding zero latency. MainActor-confined: producer and flusher interleave
+/// only at suspension points, so no locking is needed.
+@MainActor
+final class NativePaneStreamEnvelopeBatcher {
+    private var pending: [NativeRuntime.PaneStreamEnvelope] = []
+    private var flushTask: Task<Void, Never>?
+    private var isCancelled = false
+    private let applyBatch: @MainActor ([NativeRuntime.PaneStreamEnvelope]) async -> Void
+
+    init(applyBatch: @escaping @MainActor ([NativeRuntime.PaneStreamEnvelope]) async -> Void) {
+        self.applyBatch = applyBatch
+    }
+
+    func enqueue(_ envelope: NativeRuntime.PaneStreamEnvelope) {
+        guard !isCancelled else { return }
+        pending.append(envelope)
+        guard flushTask == nil else { return }
+        flushTask = Task { @MainActor [weak self] in
+            await self?.drainPending()
+            self?.flushTask = nil
+        }
+    }
+
+    /// Waits until everything enqueued so far has been applied. Called when
+    /// the stream ends so late envelopes are not dropped.
+    func finish() async {
+        while let task = flushTask {
+            await task.value
+        }
+    }
+
+    /// Drops anything not yet applied. Called when the subscription is
+    /// cancelled (pane re-attach): a replacement subscription takes over and
+    /// applying the stale tail would race it.
+    func cancel() {
+        isCancelled = true
+        pending.removeAll()
+    }
+
+    private func drainPending() async {
+        while !pending.isEmpty, !isCancelled {
+            var batch: [NativeRuntime.PaneStreamEnvelope] = []
+            swap(&batch, &pending)
+            await applyBatch(batch)
+        }
     }
 }
 
@@ -669,9 +817,17 @@ final class NativeApplicationBootstrapCoordinator {
                 tmuxChecker: NativeDistribution.pathTmuxDependencyChecker(),
                 serverAssetLocator: NativeDistribution.appResourceServerAssetLocator()
             )
+            // Remote attach skips the local tmux/server-asset probes: tmux and
+            // the server binary live on the remote host, not this machine.
+            let mode: NativeDistribution.StartupMode
+            if await NativeRemoteServerConfiguration.resolveTarget() != nil {
+                mode = .remoteAttach
+            } else {
+                mode = NativeApplicationBootstrapCoordinator.distributionStartupMode()
+            }
             switch await action.run(NativeDistribution.AssessStartupReadinessInput(
                 requestID: "native-startup-readiness",
-                mode: NativeApplicationBootstrapCoordinator.distributionStartupMode(),
+                mode: mode,
                 allowBootstrapRendererFallback: NativeBootstrapTerminalBackend.isExplicitlyAllowed,
                 source: .nativeHost
             )) {
@@ -682,7 +838,10 @@ final class NativeApplicationBootstrapCoordinator {
             }
         },
         prepareLocalDefault: @escaping PrepareLocalDefault = {
-            await NativeAppServerConnectionContext.preparedLocalDefault()
+            if let remoteTarget = await NativeRemoteServerConfiguration.resolveTarget() {
+                return await NativeAppServerConnectionContext.preparedRemote(target: remoteTarget)
+            }
+            return await NativeAppServerConnectionContext.preparedLocalDefault()
         },
         fallbackLocalDefault: @escaping FallbackLocalDefault = {
             NativeAppServerConnectionContext.localDefault()
@@ -981,6 +1140,8 @@ final class NativeApplicationRuntime {
             gitProbeProvider: serverConnection.workspaceGitProbeProvider,
             approvalFeedEventStream: serverConnection.approvalFeedEventStream,
             approvalFeedDecider: serverConnection.approvalFeedDecider,
+            tmuxKeymapProvider: serverConnection.workspaceTmuxKeymapProvider,
+            tmuxKeymapRuntime: serverConnection.tmuxKeymapRuntimeController,
             themeTokens: themeTokens
         )
         workspaceWindowRegistry.value = workspaceWindows
@@ -992,6 +1153,10 @@ final class NativeApplicationRuntime {
             serverConnection: serverConnection,
             workspaceWindows: workspaceWindows,
             workspaceWindowRegistry: workspaceWindowRegistry
+        )
+        installWorkspaceEventRelay(
+            serverConnection: serverConnection,
+            workspaceWindows: workspaceWindows
         )
         // D-042: approval banner action buttons decide directly through the
         // decide RPC; the settled stream event then clears cards/banners.
@@ -1085,14 +1250,44 @@ final class NativeApplicationRuntime {
             viewportHost: NativeAppPaneViewportHost(),
             clock: NativeAppServerConnectionClock()
         )
+        let workspaceRootPath = NativeLocalServerSupervisor.defaultWorkspaceRootURL().path
         workspaceWindows.setWorkspaceLayoutRefresher { workspaceID in
             do {
-                let enumerated = try await runtime.enumerateWorkspaceRuntime(NativeRuntime.EnumerateWorkspaceRuntimeInput(
-                    requestID: RequestID(rawValue: "native-layout-refresh-\(workspaceID.rawValue)-\(UUID().uuidString.lowercased())"),
-                    workspaceID: workspaceID,
-                    actor: actor,
-                    source: .workspaceShell
-                ))
+                func enumerate() async throws -> (workspace: NativeRuntime.WorkspaceRuntimeState, panes: [NativeRuntime.PaneRuntimeState]) {
+                    try await runtime.enumerateWorkspaceRuntime(NativeRuntime.EnumerateWorkspaceRuntimeInput(
+                        requestID: RequestID(rawValue: "native-layout-refresh-\(workspaceID.rawValue)-\(UUID().uuidString.lowercased())"),
+                        workspaceID: workspaceID,
+                        actor: actor,
+                        source: .workspaceShell
+                    ))
+                }
+                var enumerated: (workspace: NativeRuntime.WorkspaceRuntimeState, panes: [NativeRuntime.PaneRuntimeState])
+                do {
+                    enumerated = try await enumerate()
+                } catch NativeRuntime.NativeRuntimeError.orphanedTmuxResource {
+                    // Last pane exited -> tmux destroyed the whole session. Recreate
+                    // it (ensure is keyed by the stable workspace id, so the fresh
+                    // session reuses the same name) so the user gets a working shell
+                    // back instead of a stranded zombie pane they can't restore from.
+                    enumerated = try await Self.recreateWorkspaceSession(
+                        runtime: runtime,
+                        actor: actor,
+                        workspaceID: workspaceID,
+                        workspaceRootPath: workspaceRootPath,
+                        enumerate: enumerate
+                    )
+                }
+                if enumerated.panes.allSatisfy({ $0.status == .closed }) || enumerated.panes.isEmpty {
+                    // Session exists but has no live panes (e.g. every pane exited
+                    // in the same burst) -> recreate a fresh shell pane.
+                    enumerated = try await Self.recreateWorkspaceSession(
+                        runtime: runtime,
+                        actor: actor,
+                        workspaceID: workspaceID,
+                        workspaceRootPath: workspaceRootPath,
+                        enumerate: enumerate
+                    )
+                }
                 guard let snapshot = nativeTmuxLayoutSnapshot(from: enumerated.workspace, panes: enumerated.panes) else {
                     return
                 }
@@ -1111,6 +1306,121 @@ final class NativeApplicationRuntime {
                 NSLog("Fenrir Native workspace layout refresh failed: \(String(describing: error))")
             }
         }
+    }
+
+    /// Diagnostics gate shared by the workspace event relay logging below.
+    private enum NativeDebugFlags {
+        static let terminalDebugLoggingEnabled: Bool = {
+            let value = ProcessInfo.processInfo.environment["FENRIR_TERMINAL_DEBUG"] ?? ""
+            return !value.isEmpty && value != "0"
+        }()
+    }
+
+    /// Relays workspace kernel events (`tmux.workspace.subscribe`) into the
+    /// enumerate-only layout refresher, so focus/layout changes that originate
+    /// INSIDE tmux — vim-tmux-navigator's `select-pane`, `tmux split-window`
+    /// from a shell, another attached client — move the native grid and
+    /// keyboard focus live instead of waiting for a reconnect. The stream
+    /// reconnects with a fixed backoff on transport drops (server restart).
+    private static func installWorkspaceEventRelay(
+        serverConnection: NativeAppServerConnectionContext,
+        workspaceWindows: NativeWorkspaceWindowRegistry
+    ) {
+        let actor = NativeRuntime.RuntimeActorIdentity(
+            profileID: "local",
+            authSessionID: serverConnection.sessionID.rawValue,
+            subject: "native-app"
+        )
+        let runtime = NativeRuntime.ServerTmuxRuntimeAdapter(transport: NativeServerConnectionRuntimeRPCTransport(
+            sessionID: serverConnection.sessionID,
+            sendServerRequest: serverConnection.sendServerRequest,
+            streamServerRequest: serverConnection.streamServerRequest
+        ))
+        let workspaceRootPath = NativeLocalServerSupervisor.defaultWorkspaceRootURL().path
+        workspaceWindows.setWorkspaceEventRelay { [weak workspaceWindows] workspaceID in
+            // Exponential backoff with jitter for reconnecting the workspace
+            // event subscription. A fixed delay made every workspace retry in
+            // lockstep after a server restart (thundering herd) and recovered
+            // no faster on a brief blip than on a long outage. `backoffMs` is a
+            // per-workspace local, so the jitter decorrelates workspaces.
+            let initialBackoffMs = 500
+            let maxBackoffMs = 30_000
+            var backoffMs = initialBackoffMs
+            while !Task.isCancelled {
+                do {
+                    // Grants are per (auth session, subject) and this app run's
+                    // bearer session starts with none on an attach-only boot;
+                    // `tmux.workspace.ensure` is idempotent (`new-session -A`)
+                    // and seeds this actor's grants so the subscribe below is
+                    // not permission-denied forever.
+                    _ = try await runtime.openWorkspaceRuntime(NativeRuntime.OpenWorkspaceRuntimeInput(
+                        requestID: RequestID(rawValue: "native-workspace-events-ensure-\(workspaceID.rawValue)-\(UUID().uuidString.lowercased())"),
+                        workspaceID: workspaceID,
+                        projectID: workspaceID.rawValue,
+                        workingDirectory: workspaceRootPath,
+                        actor: actor,
+                        source: .workspaceShell
+                    ))
+                    let events = runtime.subscribeWorkspaceEvents(
+                        requestID: RequestID(rawValue: "native-workspace-events-\(workspaceID.rawValue)-\(UUID().uuidString.lowercased())"),
+                        workspaceID: workspaceID,
+                        actor: actor
+                    )
+                    for try await event in events {
+                        // A delivered event proves the link is healthy, so reset
+                        // the backoff: a later drop retries promptly instead of
+                        // inheriting a grown delay.
+                        backoffMs = initialBackoffMs
+                        if NativeDebugFlags.terminalDebugLoggingEnabled {
+                            NSLog("Fenrir Native workspace event relay tick workspace=%@ kind=%@", workspaceID.rawValue, String(describing: event))
+                        }
+                        guard event == .layoutOrFocusChanged else { continue }
+                        guard let workspaceWindows else { return }
+                        await workspaceWindows.refreshWorkspaceLayoutFromServer(workspaceID)
+                        if NativeDebugFlags.terminalDebugLoggingEnabled {
+                            NSLog("Fenrir Native workspace event relay refreshed workspace=%@", workspaceID.rawValue)
+                        }
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    NSLog("Fenrir Native workspace event relay dropped workspace=\(workspaceID.rawValue): \(String(describing: error))")
+                }
+                guard !Task.isCancelled else { return }
+                // ±50% jitter on the lower half: sleep ∈ [backoffMs/2, backoffMs].
+                let jitteredMs = backoffMs / 2 + Int.random(in: 0...(backoffMs / 2))
+                try? await Task.sleep(nanoseconds: UInt64(jitteredMs) * 1_000_000)
+                backoffMs = min(maxBackoffMs, backoffMs * 2)
+            }
+        }
+    }
+
+    /// Recreates a destroyed workspace tmux session (last pane exited) and
+    /// returns its fresh enumeration. `tmux.workspace.ensure` is keyed by the
+    /// stable workspace id, so the new session reuses the same name.
+    private static func recreateWorkspaceSession(
+        runtime: NativeRuntime.ServerTmuxRuntimeAdapter,
+        actor: NativeRuntime.RuntimeActorIdentity,
+        workspaceID: WorkspaceID,
+        workspaceRootPath: String,
+        enumerate: () async throws -> (workspace: NativeRuntime.WorkspaceRuntimeState, panes: [NativeRuntime.PaneRuntimeState])
+    ) async throws -> (workspace: NativeRuntime.WorkspaceRuntimeState, panes: [NativeRuntime.PaneRuntimeState]) {
+        NSLog("Fenrir Native workspace session gone; recreating \(workspaceID.rawValue)")
+        _ = try await runtime.openWorkspaceRuntime(NativeRuntime.OpenWorkspaceRuntimeInput(
+            requestID: RequestID(rawValue: "native-layout-refresh-ensure-\(workspaceID.rawValue)-\(UUID().uuidString.lowercased())"),
+            workspaceID: workspaceID,
+            projectID: workspaceID.rawValue,
+            workingDirectory: workspaceRootPath,
+            actor: actor,
+            source: .workspaceShell
+        ))
+        _ = try await runtime.reconnectWorkspaceRuntime(NativeRuntime.ReconnectWorkspaceRuntimeInput(
+            requestID: RequestID(rawValue: "native-layout-refresh-reconnect-\(workspaceID.rawValue)-\(UUID().uuidString.lowercased())"),
+            workspaceID: workspaceID,
+            actor: actor,
+            source: .workspaceShell
+        ))
+        return try await enumerate()
     }
 
     func openInitialWorkspace() {
@@ -1181,6 +1491,11 @@ final class NativeWorkspaceWindowRegistry {
     /// Enumerate-only live layout refresh (D-045 run-script loop); installed
     /// by the application runtime once the server-backed projection exists.
     private var workspaceLayoutRefresher: (@Sendable (WorkspaceID) async -> Void)?
+    /// Long-running per-workspace kernel event relay (tmux → native focus and
+    /// layout sync); installed by the application runtime, started per open
+    /// workspace and cancelled when its window closes.
+    private var workspaceEventRelay: (@Sendable (WorkspaceID) async -> Void)?
+    private var workspaceEventRelayTasks: [WorkspaceID: Task<Void, Never>] = [:]
     private let paneGridRuntimeFactory: any NativePaneGridRuntimeMaking
     private let paneStreamSubscriber: NativePaneStreamSubscriber?
     private let terminalStreamIngestor: NativeTerminalStreamIngestor?
@@ -1200,6 +1515,10 @@ final class NativeWorkspaceWindowRegistry {
     /// D-042 approval feed relay stream + decide RPC ports.
     private let approvalFeedEventStream: (any NativeApprovalFeedEventStreaming)?
     private let approvalFeedDecider: (any NativeApprovalFeedDeciding)?
+    /// D-028 keymap ports: effective-keymap fetch (`tmux.keymap.get`) and
+    /// the typed split/window/zoom action runtime.
+    private let tmuxKeymapProvider: (any NativeWorkspaceTmuxKeymapProviding)?
+    private let tmuxKeymapRuntime: (any NativeShellTmuxKeymapRuntimeControlling)?
     private let themeTokens: NativeShellThemeTokens
     private let diagnosticsActions: NativeDiagnosticsActionController
     private var notificationRoutingDiagnosticsTask: Task<Void, Never>?
@@ -1223,6 +1542,8 @@ final class NativeWorkspaceWindowRegistry {
         gitProbeProvider: (any NativeWorkspaceGitProbeProviding)? = nil,
         approvalFeedEventStream: (any NativeApprovalFeedEventStreaming)? = nil,
         approvalFeedDecider: (any NativeApprovalFeedDeciding)? = nil,
+        tmuxKeymapProvider: (any NativeWorkspaceTmuxKeymapProviding)? = nil,
+        tmuxKeymapRuntime: (any NativeShellTmuxKeymapRuntimeControlling)? = nil,
         themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID),
         diagnosticsActions: NativeDiagnosticsActionController = NativeDiagnosticsActionController()
     ) {
@@ -1244,6 +1565,8 @@ final class NativeWorkspaceWindowRegistry {
         self.gitProbeProvider = gitProbeProvider
         self.approvalFeedEventStream = approvalFeedEventStream
         self.approvalFeedDecider = approvalFeedDecider
+        self.tmuxKeymapProvider = tmuxKeymapProvider
+        self.tmuxKeymapRuntime = tmuxKeymapRuntime
         self.themeTokens = themeTokens
         self.diagnosticsActions = diagnosticsActions
     }
@@ -1311,9 +1634,13 @@ final class NativeWorkspaceWindowRegistry {
         guard let controller = controllers.removeValue(forKey: workspaceID) else {
             return nil
         }
+        workspaceEventRelayTasks.removeValue(forKey: workspaceID)?.cancel()
         if activeWorkspaceID == workspaceID {
             activeWorkspaceID = controllers.keys.sorted { $0.rawValue < $1.rawValue }.first
         }
+        // The delegate is detached before close(), so windowWillClose never
+        // fires here — tear the keymap key monitor down explicitly.
+        controller.removeTmuxKeymapKeyMonitor()
         controller.window?.delegate = nil
         controller.close()
         return NativeWorkspaceWindowRegistry.summary(for: workspaceID)
@@ -1335,6 +1662,28 @@ final class NativeWorkspaceWindowRegistry {
         workspaceLayoutRefresher = refresher
     }
 
+    func setWorkspaceEventRelay(_ relay: @escaping @Sendable (WorkspaceID) async -> Void) {
+        workspaceEventRelay = relay
+        for workspaceID in controllers.keys {
+            startWorkspaceEventRelay(workspaceID)
+        }
+    }
+
+    /// Re-runs the enumerate-only layout refresh; used by the workspace event
+    /// relay so server-side focus/layout changes (vim-tmux-navigator, other
+    /// clients) are applied to the native grid.
+    func refreshWorkspaceLayoutFromServer(_ workspaceID: WorkspaceID) async {
+        guard let workspaceLayoutRefresher else { return }
+        await workspaceLayoutRefresher(workspaceID)
+    }
+
+    private func startWorkspaceEventRelay(_ workspaceID: WorkspaceID) {
+        guard let workspaceEventRelay, workspaceEventRelayTasks[workspaceID] == nil else { return }
+        workspaceEventRelayTasks[workspaceID] = Task {
+            await workspaceEventRelay(workspaceID)
+        }
+    }
+
     func visibleNotificationState(workspaceID: WorkspaceID) -> WorkspaceIndex.WorkspaceNotificationState? {
         controllers[workspaceID]?.visibleNotificationState()
     }
@@ -1348,6 +1697,13 @@ final class NativeWorkspaceWindowRegistry {
             return nil
         }
         return await controller.runKeybindingPaletteSmoke()
+    }
+
+    func runKeybindingSmoke(workspaceID: WorkspaceID?, keys: String, execute: Bool) async -> [String: String]? {
+        guard let controller = controller(for: workspaceID) else {
+            return nil
+        }
+        return await controller.runKeybindingSmoke(keys: keys, execute: execute)
     }
 
     func runAgentComposerContextSmoke(
@@ -1483,6 +1839,8 @@ final class NativeWorkspaceWindowRegistry {
             gitProbeProvider: gitProbeProvider,
             approvalFeedEventStream: approvalFeedEventStream,
             approvalFeedDecider: approvalFeedDecider,
+            tmuxKeymapProvider: tmuxKeymapProvider,
+            tmuxKeymapRuntime: tmuxKeymapRuntime,
             refreshWorkspaceLayout: { [weak self] in
                 let refresher = await MainActor.run { self?.workspaceLayoutRefresher }
                 await refresher?(workspaceID)
@@ -1493,6 +1851,7 @@ final class NativeWorkspaceWindowRegistry {
         )
         controllers[workspaceID] = controller
         activeWorkspaceID = workspaceID
+        startWorkspaceEventRelay(workspaceID)
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         return NativeWorkspaceOpenResult(
@@ -1944,6 +2303,32 @@ final class NativeHostVisibleStateDispatcher: NativeHostClientControlDispatching
                 payload: payload
             ))
         }
+        if input.operation == "keybinding-smoke" {
+            // D-028 keymap diagnostics: resolution-only replay of a key
+            // sequence through the LIVE state machine is read-only and always
+            // allowed; actually executing the resolved actions is an
+            // arbitrary-effect surface and stays behind FENRIR_SMOKE_OPS=1.
+            if input.execute, !smokeOpsEnabled {
+                return .failure(.permissionError)
+            }
+            guard let keys = input.keys, !keys.isEmpty else {
+                return .failure(.decodeError)
+            }
+            guard let workspaceWindows,
+                  let payload = await workspaceWindows.runKeybindingSmoke(
+                      workspaceID: input.workspaceID,
+                      keys: keys,
+                      execute: input.execute
+                  )
+            else {
+                return .failure(.workspaceNotOpen)
+            }
+            return .success(NativeHostProductCommandResult(
+                requestID: input.requestID,
+                resultKind: "KeybindingSmokeObserved",
+                payload: payload
+            ))
+        }
         if input.operation == "agent-composer-context-smoke" {
             guard let workspaceWindows,
                   let payload = await workspaceWindows.runAgentComposerContextSmoke(
@@ -2154,6 +2539,11 @@ final class NativeHostVisibleStateDispatcher: NativeHostClientControlDispatching
 final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegate {
     private let shellViewController: NativeWorkspaceRootViewController
     let workspaceID: WorkspaceID
+    /// D-028 key interception: a per-window LOCAL keyDown monitor runs before
+    /// AppKit dispatches the event to the ghostty view, so imported tmux
+    /// prefix bindings can be consumed (return nil) while everything else
+    /// falls through to the terminal untouched.
+    private var tmuxKeymapKeyMonitor: Any?
 
     init(
         state: NativeWorkspaceShellState,
@@ -2162,8 +2552,8 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
         terminalStreamIngestor: NativeTerminalStreamIngestor? = nil,
         themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID),
         agentPromptSubmitter: any AgentInteraction.AgentPromptSubmitting,
-        neovimBridgeController: NativeNeovimBridgeActionController,
-        workflowServerClient: any WorkflowControl.WorkflowServerClient,
+        neovimBridgeController: NativeNeovimBridgeActionController = NativeNeovimBridgeActionController.unavailable(),
+        workflowServerClient: any WorkflowControl.WorkflowServerClient = NativeWorkflowUnavailableServerClient(),
         workflowEventStream: any WorkflowControl.WorkflowEventStreaming = NativeWorkflowUnavailableEventStream(),
         workflowNotificationStore: any Notifications.NotificationStore = Notifications.inMemoryNotificationStore(),
         productivityPreferences: NativeShellProductivityPreferencesStore? = nil,
@@ -2176,6 +2566,8 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
         gitProbeProvider: (any NativeWorkspaceGitProbeProviding)? = nil,
         approvalFeedEventStream: (any NativeApprovalFeedEventStreaming)? = nil,
         approvalFeedDecider: (any NativeApprovalFeedDeciding)? = nil,
+        tmuxKeymapProvider: (any NativeWorkspaceTmuxKeymapProviding)? = nil,
+        tmuxKeymapRuntime: (any NativeShellTmuxKeymapRuntimeControlling)? = nil,
         refreshWorkspaceLayout: (@Sendable () async -> Void)? = nil,
         switchWorkspace: @MainActor @escaping (WorkspaceID) -> Void = { _ in }
     ) {
@@ -2201,6 +2593,8 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
             gitProbeProvider: gitProbeProvider,
             approvalFeedEventStream: approvalFeedEventStream,
             approvalFeedDecider: approvalFeedDecider,
+            tmuxKeymapProvider: tmuxKeymapProvider,
+            tmuxKeymapRuntime: tmuxKeymapRuntime,
             refreshWorkspaceLayout: refreshWorkspaceLayout,
             switchWorkspace: switchWorkspace
         )
@@ -2219,6 +2613,7 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
         window.contentViewController = shellViewController
         super.init(window: window)
         window.delegate = self
+        installTmuxKeymapKeyMonitor()
     }
 
     @available(*, unavailable)
@@ -2227,7 +2622,47 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        // Reinstalls after a user-initiated close (windowWillClose removed
+        // the monitor) followed by a reopen through the registry's reuse
+        // branch — otherwise every imported tmux keybinding silently dies
+        // for this workspace until relaunch. Idempotent via the nil guard.
+        installTmuxKeymapKeyMonitor()
         shellViewController.restoreDeterministicFocus()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        removeTmuxKeymapKeyMonitor()
+    }
+
+    /// Installs the D-028 local keyDown monitor for THIS window. The monitor
+    /// consults the root controller's keymap state machine only when the
+    /// focused surface is the terminal; a consumed event returns nil,
+    /// everything else falls through untouched.
+    private func installTmuxKeymapKeyMonitor() {
+        guard tmuxKeymapKeyMonitor == nil else {
+            return
+        }
+        tmuxKeymapKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                  let window = self.window,
+                  event.window === window
+            else {
+                return event
+            }
+            return self.shellViewController.interceptKeyDownForTmuxKeymap(event) ? nil : event
+        }
+    }
+
+    func removeTmuxKeymapKeyMonitor() {
+        guard let tmuxKeymapKeyMonitor else {
+            return
+        }
+        NSEvent.removeMonitor(tmuxKeymapKeyMonitor)
+        self.tmuxKeymapKeyMonitor = nil
+    }
+
+    var isTmuxKeymapKeyMonitorInstalledForTesting: Bool {
+        tmuxKeymapKeyMonitor != nil
     }
 
     func presentCommandPalette(query: String? = nil) {
@@ -2282,6 +2717,10 @@ final class NativeWorkspaceWindowController: NSWindowController, NSWindowDelegat
 
     func runKeybindingPaletteSmoke() async -> [String: String] {
         await shellViewController.runKeybindingPaletteSmoke()
+    }
+
+    func runKeybindingSmoke(keys: String, execute: Bool) async -> [String: String] {
+        await shellViewController.runKeybindingSmoke(keys: keys, execute: execute)
     }
 
     func runAgentComposerContextSmoke(
@@ -2376,6 +2815,21 @@ final class NativeWorkspaceRootViewController: NSViewController {
     /// run after script pane create/close and when a running script's pane
     /// stream ends, so the grid and the run button track live pane state.
     private let refreshWorkspaceLayout: (@Sendable () async -> Void)?
+    /// D-028 effective-keymap import ports and state machine host. The keymap
+    /// comes exclusively from the runtime tmux server via `tmux.keymap.get`.
+    private let tmuxKeymapProvider: (any NativeWorkspaceTmuxKeymapProviding)?
+    private let tmuxKeymapRuntime: any NativeShellTmuxKeymapRuntimeControlling
+    private let loadKeybindingImportPreferences: @Sendable () async -> Settings.KeybindingImportPreferences
+    let tmuxKeymapEngine = NativeWorkspaceTmuxKeymapEngine()
+    private var tmuxKeymapImportTask: Task<Void, Never>?
+    private var tmuxKeymapActionTask: Task<Void, Never>?
+    private var tmuxRepeatTimeoutTask: Task<Void, Never>?
+    /// select-window -l target: the previously active window observed by the
+    /// shell (server snapshots + local selects), no raw "-l" command path.
+    private var previousActiveTmuxWindowID: FenrirWindowID?
+    private var lastObservedActiveTmuxWindowID: FenrirWindowID?
+    /// Pending destructive keymap action awaiting the themed confirm overlay.
+    private var pendingTmuxKeymapConfirmAction: (@MainActor () -> Void)?
     private let isAppActive: @MainActor () -> Bool
     private var agentComposerTask: Task<Void, Never>?
     private var neovimTask: Task<Void, Never>?
@@ -2392,6 +2846,7 @@ final class NativeWorkspaceRootViewController: NSViewController {
     private var diagnosticsTask: Task<Void, Never>?
     private var agentIntegrationTask: Task<Void, Never>?
     private var productivityTask: Task<Void, Never>?
+    private var paneStreamEndedTask: Task<Void, Never>?
     private var didRunFirstRunAgentIntegrationRefresh = false
     private var runningScript: (script: Settings.ScriptDefinition, paneID: PaneID)?
     /// In-flight guard for the run/stop split-button actions: a double-click
@@ -2430,6 +2885,9 @@ final class NativeWorkspaceRootViewController: NSViewController {
         approvalFeedDecider: (any NativeApprovalFeedDeciding)? = nil,
         approvalFeedStore: (any Notifications.ApprovalFeedStoring)? = nil,
         approvalBannerPresenter: (any Notifications.ApprovalBannerPresenting)? = nil,
+        tmuxKeymapProvider: (any NativeWorkspaceTmuxKeymapProviding)? = nil,
+        tmuxKeymapRuntime: (any NativeShellTmuxKeymapRuntimeControlling)? = nil,
+        loadKeybindingImportPreferences: (@Sendable () async -> Settings.KeybindingImportPreferences)? = nil,
         refreshWorkspaceLayout: (@Sendable () async -> Void)? = nil,
         isAppActive: @MainActor @escaping () -> Bool = { NSApplication.shared.isActive },
         switchWorkspace: @MainActor @escaping (WorkspaceID) -> Void = { _ in }
@@ -2471,6 +2929,10 @@ final class NativeWorkspaceRootViewController: NSViewController {
         self.approvalFeedStore = approvalFeedStore ?? Notifications.inMemoryApprovalFeedStore()
         self.approvalBannerPresenter = approvalBannerPresenter
             ?? Notifications.UserNotificationCenterApprovalBannerPresenter()
+        self.tmuxKeymapProvider = tmuxKeymapProvider
+        self.tmuxKeymapRuntime = tmuxKeymapRuntime ?? NativeUnavailableTmuxKeymapRuntimeController()
+        self.loadKeybindingImportPreferences = loadKeybindingImportPreferences
+            ?? NativeWorkspaceRootViewController.persistedKeybindingImportPreferences
         self.refreshWorkspaceLayout = refreshWorkspaceLayout
         self.isAppActive = isAppActive
         super.init(nibName: nil, bundle: nil)
@@ -2603,8 +3065,29 @@ final class NativeWorkspaceRootViewController: NSViewController {
         rootView.onRemoveScript = { [weak self] scriptID in
             self?.removeWorkspaceScript(scriptID)
         }
+        rootView.onConfirmTmuxKeymapAction = { [weak self] in
+            self?.confirmPendingTmuxKeymapAction()
+        }
+        rootView.onCancelTmuxKeymapPrompt = { [weak self] overlayID in
+            self?.cancelTmuxKeymapPrompt(overlayID)
+        }
+        rootView.onSubmitTmuxKeymapRename = { [weak self] name in
+            self?.submitTmuxKeymapRename(name)
+        }
         rootView.terminalPaneHost.onPaneStreamEnded = { [weak self] paneID in
             self?.handlePaneStreamEnded(paneID)
+        }
+        // Bottom-up grid sync: keymap/click focus and window selects apply
+        // their new grid state directly to the pane-grid view; mirror it into
+        // the shell controller so the model-level active pane (destructive
+        // keymap confirms, diagnostics, titlebar/status chrome) matches the
+        // view instead of lagging until the next full layout projection.
+        rootView.terminalPaneHost.onPaneGridStateChanged = { [weak self] gridState in
+            guard let self else {
+                return
+            }
+            self.shellController.updatePaneGrid(gridState)
+            self.rootView.applyChromeOnly(self.shellController.state)
         }
     }
 
@@ -2619,6 +3102,7 @@ final class NativeWorkspaceRootViewController: NSViewController {
         refreshWorkspaceBranch()
         refreshWorkspaceGitProbe()
         startGitProbePollingIfNeeded()
+        importTmuxKeymap()
     }
 
     deinit {
@@ -2628,6 +3112,8 @@ final class NativeWorkspaceRootViewController: NSViewController {
         approvalFeedRefreshTask?.cancel()
         gitProbeRefreshTask?.cancel()
         gitProbePollTask?.cancel()
+        tmuxKeymapImportTask?.cancel()
+        tmuxRepeatTimeoutTask?.cancel()
     }
 
     func restoreDeterministicFocus() {
@@ -2655,7 +3141,24 @@ final class NativeWorkspaceRootViewController: NSViewController {
         prunePresenceState(for: layout)
         refreshWorkspaceBranch()
         refreshWorkspaceGitProbe()
+        trackActiveTmuxWindow(layout.activeWindowID)
+        // D-028: layout projections run on connect AND reconnect — refresh
+        // the effective keymap so server-side rebinds arrive without a
+        // relaunch. Throttled inside importTmuxKeymap (script-pane refreshes
+        // reuse this path).
+        importTmuxKeymap()
         restoreDeterministicFocus()
+        // The runtime is now server-backed (marked above): force a fresh
+        // whole-viewport report so tmux learns this window's size even when the
+        // measured size is unchanged from a pre-connection report whose
+        // downstream resize-window was dropped (single-pane `%` fix survives on
+        // connect; recreated windows are re-announced on reconnect). Forcing is
+        // keyed by window identity — event-driven re-projections of the same
+        // window must stay deduped or the report/publish round trip loops.
+        let activeTmuxWindowID = layout.windows
+            .first { $0.windowID == layout.activeWindowID }?
+            .tmuxWindowID
+        rootView.terminalPaneHost.announceWindowSizeAfterServerBacking(tmuxWindowID: activeTmuxWindowID)
     }
 
     /// Subscribes to the server's localServers discovery stream and projects
@@ -2917,7 +3420,12 @@ final class NativeWorkspaceRootViewController: NSViewController {
     }
 
     func runKeybindingPaletteSmoke() async -> [String: String] {
-        let keymap = NativeTmuxKeymapLoader.effectiveKeymap()
+        // D-028: the keymap comes from the runtime tmux server import (never
+        // a client-side `.tmux.conf`/`list-keys` parse). An unloaded keymap
+        // reports zero bindings rather than probing tmux locally.
+        await tmuxKeymapImportTask?.value
+        let keymap = tmuxKeymapEngine.effectiveKeymap
+            ?? Keybinding.EffectiveTmuxKeymap(bindings: [])
         let imported = try? await Keybinding.ImportTmuxKeymap(clock: NativeKeybindingClock())
             .run(Keybinding.ImportTmuxKeymapInput(
                 requestID: "native-e2e-keybinding-import",
@@ -3209,14 +3717,19 @@ final class NativeWorkspaceRootViewController: NSViewController {
         }
     }
 
-    /// F3 (D-045 attention loop): when the running script's pane stream ends
-    /// (process exit, kill from another client), re-project the layout so
-    /// `reconcileRunningScript` flips the Stop button back without a reconnect.
+    /// When ANY pane's stream ends — the shell exited (`exit`, Ctrl-D), the
+    /// process crashed, or another client killed it — the server-owned tmux
+    /// layout has changed (that pane is gone). Re-enumerate and re-project so
+    /// the dead pane is removed from the grid instead of lingering as a
+    /// zombie the user can still focus but that receives no input. This also
+    /// covers the D-045 running-script case (downstream `reconcileRunningScript`
+    /// flips the Stop button back) without waiting for a reconnect.
     private func handlePaneStreamEnded(_ paneID: PaneID) {
-        guard runningScript?.paneID == paneID, let refreshWorkspaceLayout else {
+        _ = paneID
+        guard let refreshWorkspaceLayout else {
             return
         }
-        productivityTask = Task { @MainActor in
+        paneStreamEndedTask = Task { @MainActor in
             await refreshWorkspaceLayout()
         }
     }
@@ -3802,6 +4315,617 @@ final class NativeWorkspaceRootViewController: NSViewController {
         ]
     }
 
+    // MARK: - D-028 tmux keymap: import lifecycle
+
+    /// Reads the persisted keybinding-import preferences (Settings module,
+    /// Application Support domain); decode failures fall back to defaults.
+    private static let persistedKeybindingImportPreferences: @Sendable () async -> Settings.KeybindingImportPreferences = {
+        guard let persistence = try? Settings.applicationSupportSettingsPersistence() else {
+            return Settings.KeybindingImportPreferences()
+        }
+        let result = await Settings.ReadSettings(
+            clock: NativeSettingsClock(),
+            persistence: persistence
+        ).run(Settings.ReadSettingsInput(
+            requestID: "native-keybinding-import-preferences-read",
+            source: .nativeHost
+        ))
+        guard case .success(let settings) = result else {
+            return Settings.KeybindingImportPreferences()
+        }
+        return settings.configuration.keybindingImport
+    }
+
+    /// Fetches the workspace's effective keymap through `tmux.keymap.get`
+    /// and compiles it into the prefix state machine. Respects
+    /// `keybindingImport.importTmuxKeybindings` (skips everything when
+    /// false) and applies the conflict policy against reserved Fenrir shell
+    /// shortcuts. In-flight imports coalesce; non-forced calls throttle so
+    /// frequent layout refreshes stay cheap.
+    func importTmuxKeymap(force: Bool = false) {
+        guard let tmuxKeymapProvider else {
+            return
+        }
+        guard tmuxKeymapImportTask == nil else {
+            return
+        }
+        if !force,
+           let lastImportedAt = tmuxKeymapEngine.lastImportedAt,
+           Date().timeIntervalSince(lastImportedAt) < 5 {
+            return
+        }
+        let workspaceID = shellController.state.workspaceID
+        let loadPreferences = loadKeybindingImportPreferences
+        tmuxKeymapImportTask = Task { @MainActor [weak self] in
+            defer { self?.tmuxKeymapImportTask = nil }
+            let preferences = await loadPreferences()
+            guard let self else {
+                return
+            }
+            guard preferences.importTmuxKeybindings else {
+                self.tmuxKeymapEngine.deactivate()
+                self.clearTmuxPrefixIndicator()
+                return
+            }
+            do {
+                let payload = try await tmuxKeymapProvider.fetchKeymap(workspaceID: workspaceID)
+                let result = try await Keybinding.ImportServerTmuxKeymap(clock: NativeKeybindingClock())
+                    .run(Keybinding.ImportServerTmuxKeymapInput(
+                        requestID: RequestID(rawValue: "native-tmux-keymap-import-\(workspaceID.rawValue)"),
+                        source: .workspaceShell,
+                        payload: payload
+                    ))
+                    .get()
+                self.tmuxKeymapEngine.apply(result, preferences: preferences)
+                self.clearTmuxPrefixIndicator()
+                await self.diagnosticsActions.record(
+                    category: .keybinding,
+                    severity: .info,
+                    workspaceID: workspaceID,
+                    title: "tmux keymap imported",
+                    message: "Effective keymap imported from the runtime tmux server (D-028).",
+                    metadata: [
+                        "prefix": self.tmuxKeymapEngine.prefixDisplay,
+                        "bindingCount": "\(self.tmuxKeymapEngine.importedBindingCount)",
+                        "unsupportedCount": "\(self.tmuxKeymapEngine.unsupportedBindingCount)",
+                        "unparseableCount": "\(self.tmuxKeymapEngine.unparseableBindingCount)",
+                        "conflictCount": "\(self.tmuxKeymapEngine.conflicts.count)"
+                    ]
+                )
+            } catch {
+                // Keep the previously imported keymap on transient failures;
+                // interception simply stays inactive when none exists yet.
+                await self.diagnosticsActions.record(
+                    category: .keybinding,
+                    severity: .warning,
+                    workspaceID: workspaceID,
+                    title: "tmux keymap import failed",
+                    message: String(describing: error),
+                    metadata: ["method": "tmux.keymap.get"]
+                )
+            }
+        }
+    }
+
+    func waitForTmuxKeymapImport() async {
+        await tmuxKeymapImportTask?.value
+    }
+
+    // MARK: - D-028 tmux keymap: key interception
+
+    /// Entry point for the window's local keyDown monitor. Returns true when
+    /// the event was captured by the tmux keymap state machine (the monitor
+    /// swallows it); false lets the event continue to the terminal untouched
+    /// (D-028: uncaptured input falls through).
+    func interceptKeyDownForTmuxKeymap(_ event: NSEvent) -> Bool {
+        guard tmuxKeymapEngine.isActive else {
+            return false
+        }
+        // Only the terminal surface routes through the tmux state machine:
+        // overlays, the palette, the composer, and the sidebar keep native
+        // key handling.
+        guard case .terminal = shellController.state.focusedSurface,
+              shellController.state.activeOverlayIDs.isEmpty
+        else {
+            return false
+        }
+        // IME parity: while the focused terminal composes marked text the
+        // input method owns every key event (the monitor runs BEFORE the
+        // responder chain / interpretKeyEvents). Consuming a key here would
+        // strand or corrupt the preedit mid-composition.
+        guard !rootView.terminalPaneHost.focusedTerminalHasMarkedText() else {
+            return false
+        }
+        guard let stroke = NativeTmuxKeyEventTranslator.keyStroke(for: event) else {
+            return false
+        }
+        let effects = tmuxKeymapEngine.handleKey(stroke, at: FenrirTimestamp(Date()))
+        return processTmuxKeymapEffects(effects)
+    }
+
+    /// Applies state-machine effects. Returns true when the key was consumed
+    /// (never forwarded to the terminal).
+    @discardableResult
+    private func processTmuxKeymapEffects(_ effects: [Keybinding.TmuxPrefixStateMachine.Effect]) -> Bool {
+        guard !effects.isEmpty else {
+            return false
+        }
+        var consumed = false
+        for effect in effects {
+            switch effect {
+            case .consumeKey:
+                consumed = true
+            case .enterPrefix:
+                updateTmuxPrefixIndicator()
+            case let .executeAction(action):
+                executeTmuxKeyAction(action)
+            case let .stayInRepeat(deadline):
+                updateTmuxPrefixIndicator()
+                scheduleTmuxRepeatTimeout(deadline: deadline)
+            case let .unsupportedFeedback(resolution):
+                presentUnsupportedTmuxBindingFeedback(resolution)
+            case .exitPrefix:
+                clearTmuxPrefixIndicator()
+            case .passThroughToTerminal:
+                // The event itself continues to the terminal; nothing to
+                // re-inject (the state machine never replays swallowed keys).
+                break
+            }
+        }
+        return consumed
+    }
+
+    private func scheduleTmuxRepeatTimeout(deadline: FenrirTimestamp) {
+        tmuxRepeatTimeoutTask?.cancel()
+        let interval = max(0, deadline.date.timeIntervalSinceNow)
+        tmuxRepeatTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            guard let self, !Task.isCancelled else {
+                return
+            }
+            let effects = self.tmuxKeymapEngine.handleTimeout(at: FenrirTimestamp(Date()))
+            self.processTmuxKeymapEffects(effects)
+            self.updateTmuxPrefixIndicator()
+        }
+    }
+
+    /// D-028 prefix-mode indicator: themed status-bar chip while a prefix
+    /// table or repeat window is active.
+    private func updateTmuxPrefixIndicator() {
+        guard let machine = tmuxKeymapEngine.machine else {
+            rootView.updateTmuxPrefixChip(nil)
+            return
+        }
+        switch machine.state {
+        case .idle:
+            rootView.updateTmuxPrefixChip(nil)
+        case .prefixPending:
+            rootView.updateTmuxPrefixChip("\(tmuxKeymapEngine.prefixDisplay) …")
+        case .repeatPending:
+            rootView.updateTmuxPrefixChip("\(tmuxKeymapEngine.prefixDisplay) (repeat)")
+        }
+    }
+
+    private func clearTmuxPrefixIndicator() {
+        tmuxRepeatTimeoutTask?.cancel()
+        tmuxRepeatTimeoutTask = nil
+        rootView.updateTmuxPrefixChip(nil)
+    }
+
+    /// Discrete D-028 feedback for bindings without a native mapping: a
+    /// coalesced workspace toast through the notifications hub — never a
+    /// macOS banner and never raw command execution.
+    private func presentUnsupportedTmuxBindingFeedback(_ resolution: Keybinding.UnsupportedKeybindingResolution) {
+        let detail = resolution.rawCommand
+            ?? "\(NativeWorkspaceTmuxKeymapEngine.display(resolution.key)) is not bound"
+        let workspaceID = shellController.state.workspaceID
+        let hub = notificationsHub
+        tmuxKeymapActionTask = Task { @MainActor [weak self] in
+            // isAppActive: true — this is in-window feedback; the D-043 hub
+            // must never escalate it to a macOS banner.
+            _ = await hub.ingest(
+                Notifications.WorkspaceNotificationDraft(
+                    workspaceID: workspaceID,
+                    paneID: nil,
+                    title: "tmux keybinding",
+                    body: "tmux binding not supported natively: \(detail)",
+                    source: .system
+                ),
+                isAppActive: true
+            )
+            await self?.refreshNotificationsProjectionNow()
+        }
+    }
+
+    // MARK: - D-028 tmux keymap: typed action execution
+
+    private func executeTmuxKeyAction(_ action: Keybinding.FenrirKeyAction) {
+        let gridState = rootView.terminalPaneHost.paneGridView.state
+        let activeWindow = gridState.windows.first { $0.windowID == gridState.activeWindowID }
+        switch action {
+        case let .openPalette(prefix):
+            shellController.presentCommandPalette()
+            rootView.apply(shellController.state)
+            if let prefix {
+                rootView.setPaletteQuery(prefix.rawValue)
+            }
+            restoreDeterministicFocus()
+        case let .openAgentComposer(context):
+            presentAgentComposer(context)
+        case let .focusPane(direction):
+            executeTmuxFocusPane(direction, in: activeWindow)
+        case let .navigatePaneVimAware(direction):
+            executeTmuxNavigatePaneVimAware(direction, in: activeWindow)
+        case let .switchWindow(target):
+            executeTmuxSwitchWindow(target, in: gridState)
+        case .switchSession:
+            presentUnsupportedTmuxBindingFeedback(Keybinding.UnsupportedKeybindingResolution(
+                table: nil,
+                key: Keybinding.KeyStroke(""),
+                reason: "tmux session switching has no native mapping yet",
+                rawCommand: "switch-client"
+            ))
+        case let .splitPane(axis, followPaneCwd):
+            guard let activeWindow else {
+                return
+            }
+            let workspaceID = shellController.state.workspaceID
+            // `-c "#{pane_current_path}"` fidelity: tmux expands the token
+            // against the target window's ACTIVE pane at execution time (the
+            // native focus is mirrored to tmux via select-pane), so the new
+            // pane opens in the live pane cwd — never the workspace root.
+            let cwd = followPaneCwd ? NativeTmuxKeymapPaneCwd.followPaneCurrentPathToken : nil
+            runTmuxKeymapRuntimeAction("split-pane") { [tmuxKeymapRuntime] in
+                try await tmuxKeymapRuntime.splitPane(
+                    workspaceID: workspaceID,
+                    windowID: activeWindow.windowID,
+                    axis: axis,
+                    workingDirectory: cwd
+                )
+            }
+        case let .newWindow(followPaneCwd):
+            let workspaceID = shellController.state.workspaceID
+            let cwd = followPaneCwd ? NativeTmuxKeymapPaneCwd.followPaneCurrentPathToken : nil
+            runTmuxKeymapRuntimeAction("new-window") { [tmuxKeymapRuntime] in
+                try await tmuxKeymapRuntime.createWindow(workspaceID: workspaceID, workingDirectory: cwd)
+            }
+        case .renameWindowPrompt:
+            presentTmuxKeymapRenamePrompt(currentName: activeWindow?.title ?? "")
+        case let .resizePane(direction, amount):
+            executeTmuxResizePane(direction, amount: amount)
+        case .zoomPane:
+            guard let activeWindow else {
+                return
+            }
+            let workspaceID = shellController.state.workspaceID
+            let paneID = activeWindow.activePaneID
+            runTmuxKeymapRuntimeAction("zoom-pane") { [tmuxKeymapRuntime] in
+                try await tmuxKeymapRuntime.zoomPane(workspaceID: workspaceID, paneID: paneID)
+            }
+        case let .closePane(needsConfirmation):
+            guard let activeWindow else {
+                return
+            }
+            let workspaceID = shellController.state.workspaceID
+            let paneID = activeWindow.activePaneID
+            let runtime = tmuxKeymapRuntime
+            let close: @MainActor () -> Void = { [weak self] in
+                self?.runTmuxKeymapRuntimeAction("close-pane") {
+                    try await runtime.closePane(workspaceID: workspaceID, paneID: paneID)
+                }
+            }
+            if needsConfirmation {
+                presentTmuxKeymapConfirm(
+                    message: "Kill pane \(paneID.rawValue)?",
+                    confirmTitle: "Kill Pane",
+                    action: close
+                )
+            } else {
+                close()
+            }
+        case let .closeWindow(needsConfirmation):
+            guard let activeWindow else {
+                return
+            }
+            let workspaceID = shellController.state.workspaceID
+            let windowID = activeWindow.windowID
+            let runtime = tmuxKeymapRuntime
+            let close: @MainActor () -> Void = { [weak self] in
+                self?.runTmuxKeymapRuntimeAction("close-window") {
+                    try await runtime.closeWindow(workspaceID: workspaceID, windowID: windowID)
+                }
+            }
+            if needsConfirmation {
+                presentTmuxKeymapConfirm(
+                    message: "Kill window \(activeWindow.title)?",
+                    confirmTitle: "Kill Window",
+                    action: close
+                )
+            } else {
+                close()
+            }
+        case .sendTmuxPrefix:
+            guard let machine = tmuxKeymapEngine.machine,
+                  let bytes = NativeTmuxPrefixKeyBytes.bytes(for: machine.keymap.prefix)
+            else {
+                return
+            }
+            rootView.terminalPaneHost.writeBytesToActivePane(bytes)
+        case .activateTmuxKeyTable:
+            presentUnsupportedTmuxBindingFeedback(Keybinding.UnsupportedKeybindingResolution(
+                table: nil,
+                key: Keybinding.KeyStroke(""),
+                reason: "custom tmux key tables have no native mapping yet",
+                rawCommand: "switch-client -T"
+            ))
+        }
+    }
+
+    private func executeTmuxFocusPane(
+        _ direction: Keybinding.PaneNavigationDirection,
+        in activeWindow: PaneGrid.WindowPresentation?
+    ) {
+        switch direction {
+        case .left:
+            _ = rootView.terminalPaneHost.paneGridView.moveFocus(.left)
+        case .right:
+            _ = rootView.terminalPaneHost.paneGridView.moveFocus(.right)
+        case .up:
+            _ = rootView.terminalPaneHost.paneGridView.moveFocus(.up)
+        case .down:
+            _ = rootView.terminalPaneHost.paneGridView.moveFocus(.down)
+        case .next, .previous:
+            guard let activeWindow, activeWindow.panes.count > 1,
+                  let activeIndex = activeWindow.panes.firstIndex(where: { $0.paneID == activeWindow.activePaneID })
+            else {
+                return
+            }
+            let offset = direction == .next ? 1 : activeWindow.panes.count - 1
+            let target = activeWindow.panes[(activeIndex + offset) % activeWindow.panes.count]
+            _ = rootView.terminalPaneHost.paneGridView.focusPane(target.paneID)
+        }
+    }
+
+    /// vim-tmux-navigator (christoomey) root C-h/j/k/l. Approximates the
+    /// binding's `if-shell` at execution time against the LIVE focused surface:
+    /// when the pane's program has enabled MOUSE REPORTING (DECSET
+    /// 1000/1002/1003/1006 — the only signal libghostty exposes; NOT alt-screen)
+    /// the literal control byte is passed through so mouse-enabled apps
+    /// (nvim `mouse=nvi`, fzf) keep the key; otherwise native pane focus moves
+    /// in `direction`. Mouse mode is absent for a plain shell, so navigation is
+    /// the default. Limitation vs. christoomey's `ps` foreground-process check:
+    /// a full-screen app that does NOT enable mouse reporting (classic vim, nvim
+    /// `set mouse=`, non-mouse TUIs/pagers) is misread as a shell and has its
+    /// C-h/j/k/l stolen for pane focus.
+    private func executeTmuxNavigatePaneVimAware(
+        _ direction: Keybinding.PaneNavigationDirection,
+        in activeWindow: PaneGrid.WindowPresentation?
+    ) {
+        if rootView.terminalPaneHost.focusedSurfaceIsMouseReporting(),
+           let controlByte = direction.vimNavigationControlByte {
+            rootView.terminalPaneHost.writeBytesToActivePane(Data([controlByte]))
+            return
+        }
+        // Not a full-screen app: navigate native pane focus. Only the four
+        // spatial directions are ever produced for this action.
+        executeTmuxFocusPane(direction, in: activeWindow)
+    }
+
+    private func executeTmuxSwitchWindow(
+        _ target: Keybinding.WindowSwitchTarget,
+        in gridState: PaneGrid.State
+    ) {
+        let ordered = gridState.windows.sorted {
+            $0.index == $1.index ? $0.windowID.rawValue < $1.windowID.rawValue : $0.index < $1.index
+        }
+        guard !ordered.isEmpty else {
+            return
+        }
+        let activeOrderedIndex = ordered.firstIndex { $0.windowID == gridState.activeWindowID }
+        var destination: FenrirWindowID?
+        switch target {
+        case .next:
+            if let activeOrderedIndex {
+                destination = ordered[(activeOrderedIndex + 1) % ordered.count].windowID
+            }
+        case .previous:
+            if let activeOrderedIndex {
+                destination = ordered[(activeOrderedIndex + ordered.count - 1) % ordered.count].windowID
+            }
+        case .last:
+            destination = previousActiveTmuxWindowID
+        case let .index(index):
+            // Raw tmux index passthrough (base-index alignment is the window
+            // model's job — window records carry the server's tmux index).
+            destination = ordered.first { $0.index == index }?.windowID
+        case let .named(name):
+            destination = ordered.first { $0.title == name }?.windowID
+        }
+        guard let destination, destination != gridState.activeWindowID else {
+            return
+        }
+        trackActiveTmuxWindow(destination)
+        _ = rootView.terminalPaneHost.paneGridView.selectWindow(
+            destination,
+            requestID: RequestID(rawValue: "native-keymap-select-window-\(destination.rawValue)")
+        )
+    }
+
+    /// Maps `resize-pane -L/-D/-U/-R <amount>` onto the existing measured
+    /// resize dispatch: left/up shrink, right/down grow, in tmux cells.
+    private func executeTmuxResizePane(_ direction: Keybinding.PaneNavigationDirection, amount: Int) {
+        let magnitude = max(1, amount)
+        switch direction {
+        case .left:
+            _ = rootView.terminalPaneHost.paneGridView.requestResizeFocusedPane(
+                delta: -magnitude, unit: .cells, direction: .left
+            )
+        case .right:
+            _ = rootView.terminalPaneHost.paneGridView.requestResizeFocusedPane(
+                delta: magnitude, unit: .cells, direction: .right
+            )
+        case .up:
+            _ = rootView.terminalPaneHost.paneGridView.requestResizeFocusedPane(
+                delta: -magnitude, unit: .cells, direction: .up
+            )
+        case .down:
+            _ = rootView.terminalPaneHost.paneGridView.requestResizeFocusedPane(
+                delta: magnitude, unit: .cells, direction: .down
+            )
+        case .next, .previous:
+            break
+        }
+    }
+
+    private func trackActiveTmuxWindow(_ windowID: FenrirWindowID) {
+        guard windowID != lastObservedActiveTmuxWindowID else {
+            return
+        }
+        previousActiveTmuxWindowID = lastObservedActiveTmuxWindowID
+        lastObservedActiveTmuxWindowID = windowID
+    }
+
+    /// Runs a typed keymap runtime action; failures surface in diagnostics
+    /// and as a content-free workspace notification. The server-owned layout
+    /// is re-projected afterwards (D-019) so the grid tracks the change live.
+    private func runTmuxKeymapRuntimeAction(
+        _ name: String,
+        operation: @escaping @Sendable () async throws -> Void
+    ) {
+        let workspaceID = shellController.state.workspaceID
+        tmuxKeymapActionTask = Task { @MainActor [weak self] in
+            do {
+                try await operation()
+                await self?.refreshWorkspaceLayout?()
+            } catch {
+                guard let self else {
+                    return
+                }
+                await self.diagnosticsActions.record(
+                    category: .keybinding,
+                    severity: .error,
+                    workspaceID: workspaceID,
+                    title: "tmux keymap action failed",
+                    message: String(describing: error),
+                    metadata: ["action": name]
+                )
+                _ = await self.notificationsHub.ingest(
+                    Notifications.WorkspaceNotificationDraft(
+                        workspaceID: workspaceID,
+                        paneID: nil,
+                        title: "tmux keybinding",
+                        body: "tmux \(name) action failed; see diagnostics.",
+                        source: .system
+                    ),
+                    isAppActive: true
+                )
+                await self.refreshNotificationsProjectionNow()
+            }
+        }
+    }
+
+    func waitForTmuxKeymapActions() async {
+        await tmuxKeymapActionTask?.value
+    }
+
+    // MARK: - D-028 tmux keymap: themed confirm / rename prompts
+
+    private func presentTmuxKeymapConfirm(
+        message: String,
+        confirmTitle: String,
+        action: @escaping @MainActor () -> Void
+    ) {
+        pendingTmuxKeymapConfirmAction = action
+        rootView.updateTmuxKeymapConfirm(message: message, confirmTitle: confirmTitle)
+        shellController.presentOverlay(NativeOverlayHostView.tmuxKeymapConfirmOverlayID)
+        clearTmuxPrefixIndicator()
+        restoreDeterministicFocus()
+    }
+
+    private func confirmPendingTmuxKeymapAction() {
+        let action = pendingTmuxKeymapConfirmAction
+        pendingTmuxKeymapConfirmAction = nil
+        shellController.closeOverlay(NativeOverlayHostView.tmuxKeymapConfirmOverlayID)
+        restoreDeterministicFocus()
+        action?()
+    }
+
+    private func presentTmuxKeymapRenamePrompt(currentName: String) {
+        rootView.updateTmuxKeymapRename(currentName: currentName)
+        shellController.presentOverlay(NativeOverlayHostView.tmuxKeymapRenameOverlayID)
+        clearTmuxPrefixIndicator()
+        restoreDeterministicFocus()
+    }
+
+    private func submitTmuxKeymapRename(_ name: String) {
+        shellController.closeOverlay(NativeOverlayHostView.tmuxKeymapRenameOverlayID)
+        restoreDeterministicFocus()
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return
+        }
+        let gridState = rootView.terminalPaneHost.paneGridView.state
+        guard let activeWindow = gridState.windows.first(where: { $0.windowID == gridState.activeWindowID }) else {
+            return
+        }
+        let workspaceID = shellController.state.workspaceID
+        let windowID = activeWindow.windowID
+        runTmuxKeymapRuntimeAction("rename-window") { [tmuxKeymapRuntime] in
+            try await tmuxKeymapRuntime.renameWindow(workspaceID: workspaceID, windowID: windowID, name: trimmed)
+        }
+    }
+
+    private func cancelTmuxKeymapPrompt(_ overlayID: WorkspaceOverlays.OverlayID) {
+        if overlayID == NativeOverlayHostView.tmuxKeymapConfirmOverlayID {
+            pendingTmuxKeymapConfirmAction = nil
+        }
+        shellController.closeOverlay(overlayID)
+        restoreDeterministicFocus()
+    }
+
+    // MARK: - D-028 tmux keymap: diagnostics smoke
+
+    /// keybinding-smoke: replays space-separated tmux key specs through the
+    /// LIVE state machine. Resolution-only by default (a value copy of the
+    /// machine — pending prefix state is untouched); `execute` additionally
+    /// feeds the live machine and dispatches the resolved actions
+    /// (FENRIR_SMOKE_OPS gated at the dispatcher).
+    func runKeybindingSmoke(keys: String, execute: Bool) async -> [String: String] {
+        await tmuxKeymapImportTask?.value
+        var strokes: [Keybinding.KeyStroke] = []
+        var parseErrors: [String] = []
+        for spec in keys.split(separator: " ").map(String.init) {
+            switch Keybinding.TmuxKeySpecParser.parse(spec) {
+            case let .success(stroke):
+                strokes.append(stroke)
+            case let .failure(error):
+                parseErrors.append(Keybinding.TmuxKeySpecParser.reason(for: error))
+            }
+        }
+        let now = FenrirTimestamp(Date())
+        let resolved = tmuxKeymapEngine.resolveWithoutExecuting(strokes, at: now)
+        if execute, parseErrors.isEmpty {
+            for stroke in strokes {
+                processTmuxKeymapEffects(tmuxKeymapEngine.handleKey(stroke, at: FenrirTimestamp(Date())))
+            }
+            updateTmuxPrefixIndicator()
+            await tmuxKeymapActionTask?.value
+        }
+        return [
+            "workspaceID": shellController.state.workspaceID.rawValue,
+            "keys": keys,
+            "keymapLoaded": String(tmuxKeymapEngine.isActive),
+            "resolvedEffects": resolved.joined(separator: ","),
+            "importedBindingCount": String(tmuxKeymapEngine.importedBindingCount),
+            "prefix": tmuxKeymapEngine.prefixDisplay,
+            "unsupportedCount": String(tmuxKeymapEngine.unsupportedBindingCount),
+            "unparseableCount": String(tmuxKeymapEngine.unparseableBindingCount),
+            "conflictCount": String(tmuxKeymapEngine.conflicts.count),
+            "parseErrors": parseErrors.joined(separator: ","),
+            "executed": String(execute && parseErrors.isEmpty)
+        ]
+    }
+
     private func toggleSidebar() {
         shellController.toggleSidebarVisibility()
         restoreDeterministicFocus()
@@ -3823,6 +4947,11 @@ final class NativeWorkspaceRootViewController: NSViewController {
     }
 
     private func closeOverlay(_ overlayID: WorkspaceOverlays.OverlayID) {
+        if overlayID == NativeOverlayHostView.tmuxKeymapConfirmOverlayID {
+            // Escape/other dismissal of the confirm prompt cancels the
+            // pending destructive keymap action.
+            pendingTmuxKeymapConfirmAction = nil
+        }
         shellController.closeOverlay(overlayID)
         restoreDeterministicFocus()
     }
@@ -3889,6 +5018,11 @@ final class NativeWorkspaceRootViewController: NSViewController {
         }
         if actionID.hasPrefix("action-resume-agent:") {
             executeResumeAgentPaletteAction(actionID)
+            rootView.apply(shellController.state)
+            return
+        }
+        if actionID == "action-reload-tmux-keymap" {
+            importTmuxKeymap(force: true)
             rootView.apply(shellController.state)
             return
         }
@@ -4237,6 +5371,9 @@ final class NativeWorkspaceRootViewController: NSViewController {
         case .runAction(let actionID) where actionID.hasPrefix("action-resume-agent:"):
             shellController.dismissCommandPalette()
             executeResumeAgentPaletteAction(actionID)
+        case .runAction("action-reload-tmux-keymap"):
+            shellController.dismissCommandPalette()
+            importTmuxKeymap(force: true)
         case .openFile(let path):
             shellController.dismissCommandPalette()
             let state = shellController.state
@@ -4285,6 +5422,8 @@ final class NativeWorkspaceRootViewController: NSViewController {
             rootView.terminalPaneHost.setTerminalFocused(false)
             if let composerView = rootView.overlayHost.visibleAgentComposerView() {
                 composerView.focusPrompt(in: view.window)
+            } else if let renameView = rootView.overlayHost.visibleTmuxKeymapRenameView() {
+                renameView.focusField(in: view.window)
             } else {
                 view.window?.makeFirstResponder(rootView.overlayHost)
             }
@@ -4396,6 +5535,10 @@ final class NativeWorkspaceRootView: NSView {
     var onRemoveScript: ((Settings.ScriptID) -> Void)?
     /// D-044: user-initiated resume of a dead agent session.
     var onResumeAgentSession: ((AgentIntegration.AgentCLIIdentifier, String) -> Void)?
+    /// D-028 keymap prompt callbacks (themed confirm / rename overlays).
+    var onConfirmTmuxKeymapAction: (() -> Void)?
+    var onCancelTmuxKeymapPrompt: ((WorkspaceOverlays.OverlayID) -> Void)?
+    var onSubmitTmuxKeymapRename: ((String) -> Void)?
 
     private let titlebar: NativeShellTitlebarView
     private let statusBar: NativeShellStatusBarView
@@ -4610,6 +5753,23 @@ final class NativeWorkspaceRootView: NSView {
         terminalPaneHost.paneGridView.applyAttentionPaneIDs(paneIDs)
     }
 
+    /// D-028 prefix-mode indicator (status bar chip); nil clears it.
+    func updateTmuxPrefixChip(_ text: String?) {
+        statusBar.applyTmuxPrefixChip(text)
+    }
+
+    func visibleTmuxPrefixChipText() -> String? {
+        statusBar.visibleTmuxPrefixChipText()
+    }
+
+    func updateTmuxKeymapConfirm(message: String, confirmTitle: String) {
+        overlayHost.updateTmuxKeymapConfirm(message: message, confirmTitle: confirmTitle)
+    }
+
+    func updateTmuxKeymapRename(currentName: String) {
+        overlayHost.updateTmuxKeymapRename(currentName: currentName)
+    }
+
     func updateManageableScripts(_ scripts: [Settings.ScriptDefinition]) {
         manageableScripts = scripts
         overlayHost.updateManageScripts(scripts)
@@ -4710,6 +5870,15 @@ final class NativeWorkspaceRootView: NSView {
             diagnosticsViewModel: diagnosticsViewModel,
             agentIntegrationState: agentIntegrationState
         )
+    }
+
+    /// Chrome-only re-render for bottom-up grid state syncs (focus/window
+    /// select applied by the pane host itself): refreshes the titlebar,
+    /// sidebar and status projections without re-applying the pane grid to
+    /// the host — the host already holds the state that triggered the sync.
+    func applyChromeOnly(_ state: NativeWorkspaceShellState) {
+        lastAppliedState = state
+        applyChrome(state)
     }
 
     private func applyChrome(_ state: NativeWorkspaceShellState) {
@@ -4898,6 +6067,9 @@ final class NativeWorkspaceRootView: NSView {
         overlayHost.onJumpToLatestUnread = { [weak self] in self?.onJumpToLatestUnread?() }
         overlayHost.onAddScript = { [weak self] name, command in self?.onAddScript?(name, command) }
         overlayHost.onRemoveScript = { [weak self] scriptID in self?.onRemoveScript?(scriptID) }
+        overlayHost.onConfirmTmuxKeymapAction = { [weak self] in self?.onConfirmTmuxKeymapAction?() }
+        overlayHost.onCancelTmuxKeymapPrompt = { [weak self] overlayID in self?.onCancelTmuxKeymapPrompt?(overlayID) }
+        overlayHost.onSubmitTmuxKeymapRename = { [weak self] name in self?.onSubmitTmuxKeymapRename?(name) }
         terminalPaneHost.onFocusRequested = { [weak self] in self?.onFocusTerminal?() }
 
         bannerHeightConstraint = reconnectBanner.heightAnchor.constraint(equalToConstant: 0)
@@ -5052,6 +6224,15 @@ final class NativeWorkspaceRootView: NSView {
                 baseScore: 70
             ),
             WorkspaceOverlays.PaletteItem(
+                id: "action-reload-tmux-keymap",
+                domain: .actions,
+                title: "Reload tmux Keymap",
+                subtitle: "Re-import the effective keymap from the runtime tmux server (D-028)",
+                keywords: ["tmux", "keymap", "keybinding", "prefix", "reload", "import"],
+                action: .runAction("action-reload-tmux-keymap"),
+                baseScore: 62
+            ),
+            WorkspaceOverlays.PaletteItem(
                 id: "help-keyboard",
                 domain: .help,
                 title: "Keyboard Help",
@@ -5087,7 +6268,10 @@ private final class NativeTerminalInputRouter {
         if host == nil {
             NSLog("Fenrir Native terminal resize dropped: router has no host pane=%@", paneID.rawValue)
         }
-        host?.dispatchTerminalResize(size, paneID: paneID)
+        // A ghostty surface re-measured itself (window/relayout). tmux owns
+        // pane layout, so the client never echoes this per-pane size back;
+        // it re-reports the ONE whole-viewport size instead (D-011).
+        host?.reportViewportSizeFromSurfaceResize()
     }
 }
 
@@ -5097,12 +6281,19 @@ final class NativeTerminalPaneHostView: NSView {
     let themeTokens: NativeShellThemeTokens
     private let paneGridActions: any NativePaneGridActionDispatching
     private let paneGridActionQueue = NativePaneGridActionQueue()
+    /// Keystrokes bypass `paneGridActionQueue` and coalesce per pane so remote
+    /// typing is not capped at one character per round trip. Lazily built so
+    /// it can capture `paneGridActions` after init.
+    private lazy var paneInputPipeline = NativePaneInputPipeline { [paneGridActions] bytes, target in
+        await paneGridActions.writeInput(bytes, to: target)
+    }
     private let paneStreamSubscriber: NativePaneStreamSubscriber?
     private let terminalStreamIngestor: NativeTerminalStreamIngestor?
     private let terminalInputRouter: NativeTerminalInputRouter
     private var streamTasksByViewportID: [ViewportID: Task<Void, Never>] = [:]
     private var streamSubscriptionsByViewportID: [ViewportID: NativeVisiblePaneStreamSubscription] = [:]
     private var lastObservedSequenceByPaneID: [PaneID: UInt64] = [:]
+    private var lastReportedWindowSize: TerminalViewport.Size?
     var terminalView: FenrirTerminalView {
         guard let terminal = paneGridView.focusedTerminalView() else {
             fatalError("PaneGrid must expose a focused terminal for the active tmux pane")
@@ -5114,6 +6305,45 @@ final class NativeTerminalPaneHostView: NSView {
     /// resubscribe (server closed it or it failed) — the live signal that the
     /// pane process likely died (D-045 run-script reconcile).
     var onPaneStreamEnded: ((PaneID) -> Void)?
+    /// Bottom-up state sync: fires whenever a host-dispatched pane-grid
+    /// action (focus, window select) applied a NEW grid state to the view.
+    /// The shell controller mirrors it so model readers (destructive keymap
+    /// confirms, diagnostics, chrome) never act on a stale active pane.
+    /// Never fired for top-down `applyPaneGrid` applications.
+    var onPaneGridStateChanged: ((PaneGrid.State) -> Void)?
+
+    /// Headless tests cannot drive a real input method; the override stands
+    /// in for the ghostty view's NSTextInputClient marked-text state.
+    var markedTextOverrideForTesting: (() -> Bool)?
+
+    /// Headless tests cannot run a real full-screen app; the override stands
+    /// in for the ghostty surface's live mouse-reporting state.
+    var mouseReportingOverrideForTesting: (() -> Bool)?
+
+    /// True while the focused pane's terminal is composing IME marked text
+    /// (D-028: the keymap monitor must never consume keys mid-composition).
+    func focusedTerminalHasMarkedText() -> Bool {
+        if let markedTextOverrideForTesting {
+            return markedTextOverrideForTesting()
+        }
+        return paneGridView.focusedTerminalView()?.hasMarkedText ?? false
+    }
+
+    /// True while the focused pane's program has enabled terminal MOUSE
+    /// REPORTING (DECSET 1000/1002/1003/1006) — mouse tracking only, NOT the
+    /// alternate screen (libghostty exposes no alt-screen getter). The LIVE,
+    /// instant heuristic vim-aware navigation (christoomey C-h/j/k/l) uses to
+    /// decide whether to pass the key through to the app instead of moving
+    /// native pane focus. A full-screen app that does not enable mouse reporting
+    /// (classic vim, nvim `set mouse=`) reads false, so the key is consumed for
+    /// pane focus — the known limitation of gating on mouse mode instead of the
+    /// foreground process.
+    func focusedSurfaceIsMouseReporting() -> Bool {
+        if let mouseReportingOverrideForTesting {
+            return mouseReportingOverrideForTesting()
+        }
+        return paneGridView.focusedTerminalView()?.isMouseReportingActive ?? false
+    }
 
     init(
         paneGridState: PaneGrid.State,
@@ -5176,8 +6406,8 @@ final class NativeTerminalPaneHostView: NSView {
         paneGridView.onResizePane = { [weak self] allocation in
             self?.dispatchResize(allocation)
         }
-        paneGridView.onResizePaneToSize = { [weak self] target, size in
-            self?.dispatchMeasuredResize(target, size: size)
+        paneGridView.onReportWindowSize = { [weak self] _ in
+            self?.reportWindowSize()
         }
     }
 
@@ -5243,56 +6473,126 @@ final class NativeTerminalPaneHostView: NSView {
             let workspaceID = paneGridView.state.workspaceID
             streamSubscriptionsByViewportID[pane.viewportID] = NativeVisiblePaneStreamSubscription(paneID: pane.paneID, streamID: streamID)
             streamTasksByViewportID[pane.viewportID] = Task { [weak self, workspaceID, pane, terminal, paneStreamSubscriber] in
+                let batcher = NativePaneStreamEnvelopeBatcher { [weak self] envelopes in
+                    await self?.apply(envelopes, pane: pane, to: terminal)
+                }
                 do {
                     let stream = await paneStreamSubscriber(workspaceID, pane, backfill)
                     for try await envelope in stream {
-                        await self?.apply(envelope, pane: pane, to: terminal)
+                        batcher.enqueue(envelope)
                     }
+                    await batcher.finish()
                     self?.onPaneStreamEnded?(pane.paneID)
                 } catch is CancellationError {
+                    batcher.cancel()
                 } catch {
                     NSLog("Fenrir Native pane stream failed pane=\(pane.paneID.rawValue): \(String(describing: error))")
+                    await batcher.finish()
                     self?.onPaneStreamEnded?(pane.paneID)
                 }
             }
         }
     }
 
-    private func apply(_ envelope: NativeRuntime.PaneStreamEnvelope, pane: PaneGrid.PanePresentation, to terminal: FenrirTerminalView) async {
-        switch envelope.kind {
-        case .output:
-            var didAcceptOutput = false
-            if let bytes = envelope.bytes {
-                if let sequence = envelope.sequence, let terminalStreamIngestor {
-                    let result = await terminalStreamIngestor.ingestOutput(
-                        workspaceID: paneGridView.state.workspaceID,
-                        windowID: paneGridView.state.activeWindowID,
-                        pane: pane,
-                        streamID: envelope.streamID,
-                        sequence: sequence,
-                        bytes: bytes,
-                        terminalView: terminal
-                    )
-                    switch result {
-                    case .success:
-                        didAcceptOutput = true
-                    case .failure(let error):
-                        NSLog("Fenrir Native terminal viewport ingest failed pane=\(pane.paneID.rawValue) sequence=\(sequence): \(String(describing: error))")
+    /// Applies a batch of stream envelopes in order. Runs of contiguous
+    /// sequenced output envelopes collapse into single batch-ingest calls
+    /// (one store round trip + coalesced renderer writes); gap/overflow
+    /// envelopes reset the viewport's sequence watermark so the stream
+    /// resumes after a server-side drop instead of freezing the pane.
+    private func apply(_ envelopes: [NativeRuntime.PaneStreamEnvelope], pane: PaneGrid.PanePresentation, to terminal: FenrirTerminalView) async {
+        var chunks: [TerminalViewport.TerminalOutputChunk] = []
+        var chunksStreamID: StreamID?
+
+        func flushChunks() async {
+            guard let streamID = chunksStreamID, !chunks.isEmpty else { return }
+            await ingestChunkRun(chunks, streamID: streamID, pane: pane, terminal: terminal)
+            chunks.removeAll(keepingCapacity: true)
+        }
+
+        for envelope in envelopes {
+            switch envelope.kind {
+            case .output:
+                guard let bytes = envelope.bytes else { continue }
+                if let sequence = envelope.sequence, terminalStreamIngestor != nil {
+                    if chunksStreamID != envelope.streamID {
+                        await flushChunks()
+                        chunksStreamID = envelope.streamID
                     }
+                    chunks.append(TerminalViewport.TerminalOutputChunk(sequence: sequence, bytes: bytes))
                 } else {
+                    await flushChunks()
                     terminal.applyRuntimeOutput(bytes)
-                    didAcceptOutput = true
+                    if let sequence = envelope.sequence {
+                        lastObservedSequenceByPaneID[envelope.paneID] = sequence
+                    }
                 }
+            case .gap, .overflow:
+                await flushChunks()
+                await terminalStreamIngestor?.acknowledgeStreamGap(
+                    workspaceID: paneGridView.state.workspaceID,
+                    windowID: paneGridView.state.activeWindowID,
+                    pane: pane,
+                    streamID: envelope.streamID
+                )
+                if let highReplaySeq = envelope.highReplaySeq {
+                    lastObservedSequenceByPaneID[envelope.paneID] = highReplaySeq
+                }
+            case .backfillStarted, .closed:
+                await flushChunks()
             }
-            if didAcceptOutput, let sequence = envelope.sequence {
-                lastObservedSequenceByPaneID[envelope.paneID] = sequence
+        }
+        await flushChunks()
+    }
+
+    /// Ingests one contiguous run of sequenced chunks, slicing to the batch
+    /// backpressure policy. A `streamOrderViolation` self-heals: the sequence
+    /// watermark is reset (server-declared gaps normally do this first, this
+    /// covers unexpected jumps) and the slice is retried once.
+    private func ingestChunkRun(_ chunks: [TerminalViewport.TerminalOutputChunk], streamID: StreamID, pane: PaneGrid.PanePresentation, terminal: FenrirTerminalView) async {
+        guard let terminalStreamIngestor else { return }
+        let workspaceID = paneGridView.state.workspaceID
+        let windowID = paneGridView.state.activeWindowID
+        let policy = TerminalViewport.TerminalOutputBackpressurePolicy.defaults
+
+        var start = 0
+        while start < chunks.count {
+            var end = start
+            var sliceBytes = 0
+            while end < chunks.count, end - start < policy.maxChunksPerBatch {
+                let nextBytes = sliceBytes + chunks[end].bytes.count
+                if end > start, nextBytes > policy.maxBytesPerBatch { break }
+                sliceBytes = nextBytes
+                end += 1
             }
-        case .gap, .overflow:
-            if let highReplaySeq = envelope.highReplaySeq {
-                lastObservedSequenceByPaneID[envelope.paneID] = highReplaySeq
+            let slice = Array(chunks[start ..< end])
+
+            var result = await terminalStreamIngestor.ingestOutputBatch(
+                workspaceID: workspaceID,
+                windowID: windowID,
+                pane: pane,
+                streamID: streamID,
+                chunks: slice,
+                terminalView: terminal
+            )
+            if case .failure(.streamOrderViolation) = result {
+                await terminalStreamIngestor.acknowledgeStreamGap(workspaceID: workspaceID, windowID: windowID, pane: pane, streamID: streamID)
+                result = await terminalStreamIngestor.ingestOutputBatch(
+                    workspaceID: workspaceID,
+                    windowID: windowID,
+                    pane: pane,
+                    streamID: streamID,
+                    chunks: slice,
+                    terminalView: terminal
+                )
             }
-        case .backfillStarted, .closed:
-            break
+
+            switch result {
+            case .success(let batchResult):
+                lastObservedSequenceByPaneID[pane.paneID] = batchResult.appliedSequence
+            case .failure(let error):
+                NSLog("Fenrir Native terminal viewport batch ingest failed pane=\(pane.paneID.rawValue) chunks=\(slice.count): \(String(describing: error))")
+            }
+            start = end
         }
     }
 
@@ -5304,10 +6604,87 @@ final class NativeTerminalPaneHostView: NSView {
         }
     }
 
+    override func layout() {
+        super.layout()
+        reportWindowSize()
+    }
+
     func applyPaneGrid(_ state: PaneGrid.State) {
         paneGridActions.applyPaneGridState(state)
         paneGridView.apply(state)
         attachVisiblePaneStreams()
+        reportWindowSize()
+    }
+
+    /// Test seam: supplies the whole-viewport size directly. Headless tests
+    /// have no rendered ghostty surface, so `measuredViewportSize()` cannot
+    /// derive real cell metrics; this stands in for the measured size.
+    var windowSizeOverrideForTesting: (() -> TerminalViewport.Size?)?
+
+    /// A ghostty surface re-measured itself (window/relayout); re-report the
+    /// whole viewport. tmux owns pane layout, so the client never echoes the
+    /// per-pane size — it re-announces the ONE overall viewport size.
+    func reportViewportSizeFromSurfaceResize() {
+        reportWindowSize()
+    }
+
+    /// Classic tmux client model (D-011): announce ONE overall viewport size
+    /// for the whole pane area so tmux lays the panes out. The client renders
+    /// each surface at the server-assigned `pane.rect` and NEVER pushes an
+    /// auto-measured per-pane size back — that non-idempotent echo made panes
+    /// shrink on focus moves and blocked splitting the same direction twice.
+    /// Deduplicated by size so repeated layout passes are idempotent (single
+    /// pane: this maps to `resize-window`, preserving the zsh `%` fix). `force`
+    /// re-announces on window select because each tmux window tracks its own
+    /// client size.
+    private func reportWindowSize(force: Bool = false) {
+        let state = paneGridView.state
+        guard let size = windowSizeOverrideForTesting?() ?? paneGridView.measuredViewportSize(),
+              size.columns > 0, size.rows > 0
+        else {
+            return
+        }
+        if !force, lastReportedWindowSize == size {
+            return
+        }
+        // NO hysteresis here: tmux's grid and the rendered surfaces must
+        // agree EXACTLY or every wrap/redraw lands off-by-one and the pane
+        // visually duplicates content. Report loops are broken server-side
+        // instead (idempotent resize-window + fingerprinted reconcile
+        // publishes) and by the stable metrics-derived cell size.
+        lastReportedWindowSize = size
+        enqueuePaneGridAction { [paneGridActions] in
+            await paneGridActions.reportWindowSize(size, in: state)
+        }
+    }
+
+    /// tmux window identity of the last forced post-backing announcement.
+    /// Layout projections now run on EVERY workspace event (focus moves,
+    /// renames, reflows) — forcing an announcement each time would defeat the
+    /// dedup and close an infinite resize/publish loop through the server.
+    private var lastServerBackedTmuxWindowID: String?
+
+    /// The grid just became server-backed — initial connect, or a reconnect
+    /// that recreated the tmux window. A whole-viewport size measured while the
+    /// runtime was NOT yet server-backed gets memoized here, but its downstream
+    /// `resize-window` is silently dropped (the runtime guards the send on
+    /// server-backing). Because `measuredViewportSize()` depends only on the
+    /// host bounds — not on server-backing or window identity — the size does
+    /// not change when the runtime flips backed, so the ordinary dedup would
+    /// suppress the very first post-backing report and tmux would NEVER learn
+    /// the new window's size (single pane: the `resize-window` that arms the zsh
+    /// `%` prompt fix is lost; reconnect: a recreated window is never told its
+    /// size). Clear the dedup memo and force one fresh announcement — but only
+    /// when the backed WINDOW IDENTITY actually changed; repeat projections of
+    /// the same window go through the ordinary deduped report.
+    func announceWindowSizeAfterServerBacking(tmuxWindowID: String?) {
+        guard let tmuxWindowID, lastServerBackedTmuxWindowID != tmuxWindowID else {
+            reportWindowSize()
+            return
+        }
+        lastServerBackedTmuxWindowID = tmuxWindowID
+        lastReportedWindowSize = nil
+        reportWindowSize(force: true)
     }
 
     func focusedAgentContextTarget() -> NativeAgentComposerTarget? {
@@ -5327,6 +6704,9 @@ final class NativeTerminalPaneHostView: NSView {
 
     func waitForPaneGridActions() async {
         await paneGridActionQueue.waitForIdle()
+        // Keystrokes are dispatched off the action queue through the coalescing
+        // pipeline; a test that types and then asserts on writes must drain it.
+        await paneInputPipeline.waitForIdleForTesting()
     }
 
     private func dispatchFocus(_ target: PaneGrid.PaneKernelTarget) {
@@ -5335,6 +6715,7 @@ final class NativeTerminalPaneHostView: NSView {
             if let next = await paneGridActions.focusPane(target) {
                 await MainActor.run {
                     self?.paneGridView.apply(next)
+                    self?.onPaneGridStateChanged?(next)
                 }
             }
         }
@@ -5346,6 +6727,10 @@ final class NativeTerminalPaneHostView: NSView {
                 await MainActor.run {
                     self?.paneGridView.apply(next)
                     self?.attachVisiblePaneStreams()
+                    // Each tmux window tracks its own client size; force a
+                    // fresh whole-viewport report for the newly active window.
+                    self?.reportWindowSize(force: true)
+                    self?.onPaneGridStateChanged?(next)
                 }
             }
         }
@@ -5358,36 +6743,27 @@ final class NativeTerminalPaneHostView: NSView {
         }
     }
 
-    private func dispatchMeasuredResize(_ target: PaneGrid.PaneKernelTarget, size: TerminalViewport.Size) {
-        let state = paneGridView.state
-        enqueuePaneGridAction { [paneGridActions] in
-            await paneGridActions.resizePane(target, size: size, in: state)
-        }
-    }
-
     fileprivate func dispatchTerminalInput(_ bytes: Data, paneID: PaneID) {
         guard !bytes.isEmpty, let target = target(for: paneID) else {
             return
         }
-        enqueuePaneGridAction { [paneGridActions] in
-            await paneGridActions.writeInput(bytes, to: target)
-        }
+        // Keystrokes take the coalescing pipeline, NOT the serial action queue:
+        // one write per pane may be in flight, and bytes typed meanwhile ride
+        // the next write. Focus/resize/window ops stay on the action queue and
+        // no longer wait behind pending keystrokes (writes carry their own
+        // pane target, so they never depended on focus ordering).
+        paneInputPipeline.submit(bytes, to: target)
     }
 
-    fileprivate func dispatchTerminalResize(_ size: TerminalViewport.Size, paneID: PaneID) {
-        guard size.columns > 0, size.rows > 0 else {
+    /// D-028 `send-prefix`: writes literal bytes to the active pane through
+    /// the normal input router (the same `tmux.pane.write` path user typing
+    /// takes) — never a client-side key replay.
+    func writeBytesToActivePane(_ bytes: Data) {
+        let state = paneGridView.state
+        guard let activeWindow = state.windows.first(where: { $0.windowID == state.activeWindowID }) else {
             return
         }
-        guard let target = target(for: paneID) else {
-            NSLog(
-                "Fenrir Native terminal resize dropped: no kernel target pane=%@ cols=%d rows=%d",
-                paneID.rawValue,
-                size.columns,
-                size.rows
-            )
-            return
-        }
-        dispatchMeasuredResize(target, size: size)
+        dispatchTerminalInput(bytes, paneID: activeWindow.activePaneID)
     }
 
     private func target(for paneID: PaneID) -> PaneGrid.PaneKernelTarget? {
@@ -5553,74 +6929,10 @@ private struct NativeKeybindingClock: Keybinding.KeybindingClock {
     }
 }
 
-private enum NativeTmuxKeymapLoader {
-    static func effectiveKeymap() -> Keybinding.EffectiveTmuxKeymap {
-        Keybinding.EffectiveTmuxKeymap(prefix: .control("b"), bindings: loadPrefixBindings())
-    }
-
-    private static func loadPrefixBindings() -> [Keybinding.TmuxKeyBinding] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["tmux", "list-keys", "-T", "prefix"]
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                return []
-            }
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            return String(decoding: data, as: UTF8.self)
-                .split(separator: "\n")
-                .compactMap { binding(from: String($0)) }
-        } catch {
-            return []
-        }
-    }
-
-    private static func binding(from line: String) -> Keybinding.TmuxKeyBinding? {
-        let tokens = line.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard tokens.first == "bind-key",
-              let tableFlag = tokens.firstIndex(of: "-T"),
-              tokens.indices.contains(tableFlag + 2)
-        else {
-            return nil
-        }
-        let table = tokens[tableFlag + 1]
-        let key = keyStroke(from: tokens[tableFlag + 2])
-        let commandStart = tableFlag + 3
-        guard commandStart < tokens.endIndex else {
-            return nil
-        }
-        return Keybinding.TmuxKeyBinding(
-            table: table,
-            key: key,
-            command: tokens[commandStart...].joined(separator: " ")
-        )
-    }
-
-    private static func keyStroke(from rawKey: String) -> Keybinding.KeyStroke {
-        let key = rawKey.removingTmuxEscapedPrefix()
-        if key.hasPrefix("C-"), key.count > 2 {
-            return .control(String(key.dropFirst(2)).lowercased())
-        }
-        if key.hasPrefix("M-"), key.count > 2 {
-            return Keybinding.KeyStroke(String(key.dropFirst(2)).lowercased(), modifiers: [.option])
-        }
-        return Keybinding.KeyStroke(key)
-    }
-}
-
-private extension String {
-    func removingTmuxEscapedPrefix() -> String {
-        guard hasPrefix("\\") else {
-            return self
-        }
-        return String(dropFirst())
-    }
-}
+// D-028: the former NativeTmuxKeymapLoader (client-side `tmux list-keys`
+// subprocess against the default socket) is gone. The effective keymap is
+// imported exclusively from the runtime tmux server via `tmux.keymap.get`
+// (see NativeShellTmuxKeymap.swift).
 
 private enum NativeWorkspaceFilePalette {
     static func items(in directory: String, fileManager: FileManager = .default) -> [WorkspaceOverlays.PaletteItem] {
@@ -6702,6 +8014,26 @@ struct NativeAppServerConnectionContext: Sendable {
         )
     }
 
+    /// D-028 effective-keymap import (`tmux.keymap.get`).
+    var workspaceTmuxKeymapProvider: any NativeWorkspaceTmuxKeymapProviding {
+        NativeTmuxKeymapServerConnectionProvider(
+            sessionID: sessionID,
+            sendServerRequest: sendServerRequest
+        )
+    }
+
+    /// D-028 typed keymap actions (split/new-window/rename/close/zoom).
+    var tmuxKeymapRuntimeController: any NativeShellTmuxKeymapRuntimeControlling {
+        NativeServerTmuxKeymapRuntimeController(
+            actor: NativeAppServerConnectionContext.runtimeActor(sessionID: sessionID),
+            transport: NativeServerConnectionRuntimeRPCTransport(
+                sessionID: sessionID,
+                sendServerRequest: sendServerRequest,
+                streamServerRequest: streamServerRequest
+            )
+        )
+    }
+
     static func localDefault(
         transport: any ServerConnection.NativeServerRPCTransporting = ServerConnection.NativeURLSessionServerRPCTransport(),
         bootstrapCredential: String? = NativeAppServerConnectionContext.localBootstrapCredential()
@@ -6714,6 +8046,53 @@ struct NativeAppServerConnectionContext: Sendable {
             transport: transport,
             bootstrapCredential: bootstrapCredential
         )
+    }
+
+    /// Connects the app to a REMOTE Fenrir server: no discovery, spawn, or
+    /// orphan termination — the endpoint is taken as-is and the exchanged
+    /// bearer is persisted in the Keychain per endpoint so pairing tokens only
+    /// need to be supplied once (see `NativeRemoteServerConfiguration`).
+    static func preparedRemote(
+        target: NativeRemoteServerConfiguration.Target,
+        transport: (any ServerConnection.NativeServerRPCTransporting)? = nil,
+        bootstrapCredential: String = NativeRemoteServerConfiguration.bootstrapCredential(),
+        requestID: RequestID = "native-remote-prepare"
+    ) async -> Result<NativeAppServerConnectionContext, ServerConnection.ServerConnectionError> {
+        let sessionID = ServerConnection.SessionID(rawValue: "native-app-remote")
+        let supervisorStub = NativeRemoteServerSupervisorStub()
+        let resolvedTransport = transport ?? ServerConnection.NativeURLSessionServerRPCTransport(
+            bearerTokenStore: AuthSession.SecureStorageBearerTokenStore(
+                storage: AuthSession.KeychainAuthSecureStorage()
+            ),
+            bearerTokenScope: target.endpoint.authEndpointScope
+        )
+        let prepareResult = await ServerConnection.PrepareLocalServerConnection(
+            discovery: supervisorStub,
+            spawner: supervisorStub,
+            readiness: supervisorStub,
+            processManager: supervisorStub,
+            stateStore: ServerConnection.InMemoryServerConnectionStore(),
+            clock: NativeAppServerConnectionClock()
+        ).run(ServerConnection.PrepareLocalServerConnectionInput(
+            requestID: requestID,
+            mode: .remote(target.endpoint),
+            restartPolicy: ServerConnection.LocalServerRestartPolicy(),
+            attachPolicy: .attachIfHealthy
+        ))
+
+        switch prepareResult {
+        case .success(let prepared):
+            return .success(NativeAppServerConnectionContext.connectedLocalDefault(
+                sessionID: sessionID,
+                endpoint: prepared.endpoint,
+                supervisorState: prepared.supervisorState,
+                localServerProcessManager: supervisorStub,
+                transport: resolvedTransport,
+                bootstrapCredential: bootstrapCredential
+            ))
+        case .failure(let error):
+            return .failure(error)
+        }
     }
 
     static func preparedLocalDefault(
@@ -6907,7 +8286,11 @@ struct NativeAppServerConnectionContext: Sendable {
                     ),
                     streams: NativeAppServerStreamOpening(bootstrapCredential: bootstrapCredential),
                     store: store,
-                    clock: clock
+                    clock: clock,
+                    // The default delayer is a no-op; without a real one the
+                    // reconnect policy's exponential backoff would spin its
+                    // attempts back-to-back and hammer a down server.
+                    reconnectDelay: NativeTaskSleepReconnectDelayer()
                 )
             ),
             workspaceHandler: NativeRuntimeWorkspaceExperienceReconnectHandler(
@@ -7198,12 +8581,19 @@ func nativeTmuxLayoutSnapshot(
         guard !panes.isEmpty else {
             return nil
         }
+        // tmux zoom projection: the zoomed pane is the window's active pane
+        // (window_zoomed_flag is per-window). Only projected when that pane
+        // survived the attached-pane filter above.
+        let zoomedPaneID = window.isZoomed
+            ? window.activePaneID.flatMap { active in panes.contains { $0.paneID == active } ? active : nil }
+            : nil
         return PaneGrid.WindowSnapshot(
             windowID: window.windowID,
             tmuxWindowID: window.tmuxWindowID.rawValue,
             index: window.index,
             title: window.title,
             activePaneID: window.activePaneID,
+            zoomedPaneID: zoomedPaneID,
             panes: panes
         )
     }
@@ -7516,10 +8906,29 @@ private struct NativeAppServerConnectionClock: ServerConnection.ServerConnection
     }
 }
 
+/// Real sleeping delayer for reconnect backoff. The framework default
+/// (`ImmediateReconnectDelayer`) returns instantly, so multi-attempt reconnect
+/// policies need this to actually pace their retries.
+struct NativeTaskSleepReconnectDelayer: ServerConnection.ServerReconnectDelaying {
+    func delayBeforeReconnectAttempt(milliseconds: Int) async {
+        guard milliseconds > 0 else {
+            return
+        }
+        try? await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
+    }
+}
+
 actor NativeAppServerEventSource {
     private let sessionID: ServerConnection.SessionID
     private var controller: NativeHostServerEventController?
-    private var emittedReconnectKeys: Set<String> = []
+    /// Reconnect dispatches currently in flight, keyed by
+    /// session:generation:workspace. This de-dupes the burst of failing RPCs a
+    /// single drop produces, but — unlike the previous permanent suppression —
+    /// the key clears when the dispatch finishes, so if that reconnect failed
+    /// (leaving the session on its original generation) the next failing RPC
+    /// re-arms another attempt instead of wedging until the relay loop happens
+    /// to recover.
+    private var inFlightReconnectKeys: Set<String> = []
 
     init(sessionID: ServerConnection.SessionID) {
         self.sessionID = sessionID
@@ -7544,10 +8953,10 @@ actor NativeAppServerEventSource {
             return
         }
         let key = "\(session.sessionID.rawValue):\(session.reconnectGeneration):\(workspaceID.rawValue)"
-        guard !emittedReconnectKeys.contains(key) else {
+        guard !inFlightReconnectKeys.contains(key) else {
             return
         }
-        emittedReconnectKeys.insert(key)
+        inFlightReconnectKeys.insert(key)
         _ = error
         _ = await controller.dispatch(.reconnectWorkspace(
             requestID: RequestID(rawValue: "\(requestID.rawValue)-server-reconnect"),
@@ -7557,6 +8966,9 @@ actor NativeAppServerEventSource {
             sessionID: sessionID,
             generation: session.reconnectGeneration
         ))
+        // Cleared only after the dispatch resolves: concurrent failures during
+        // the attempt stay coalesced, a later failure re-triggers.
+        inFlightReconnectKeys.remove(key)
     }
 
     private static func shouldDispatchReconnect(for error: Error) -> Bool {
@@ -7973,14 +9385,87 @@ private final class NativePaneGridActionQueue: @unchecked Sendable {
     }
 }
 
+/// Coalescing keystroke pipeline (D-011 remote typing).
+///
+/// The pane-grid action queue serializes every operation: each keystroke's
+/// `tmux.pane.write` awaited the previous one, capping throughput at one
+/// keystroke per round trip (~10 chars/s at 100 ms RTT) and stalling focus/
+/// resize behind pending writes. This pipeline decouples writes from that
+/// queue and coalesces them per pane:
+///
+/// - Bytes are appended to a per-pane buffer synchronously on the main actor,
+///   so they can never reorder relative to how they were typed.
+/// - At most one write is in flight per pane. Everything typed while a write
+///   is in flight accumulates and rides the next write as a single RPC, so a
+///   burst of N keystrokes typed within one RTT collapses to one round trip
+///   instead of N. Echo latency stays at one RTT (unavoidable — the echo is
+///   PTY output, not a write ack); only the *backlog* is eliminated.
+/// - Panes drain independently, so typing in one pane never blocks another.
+///
+/// Single-in-flight-per-pane also preserves server ordering: the control-mode
+/// connection serializes commands with a semaphore, but the acquisition order
+/// of concurrent writes is unspecified, so overlapping writes to one pane
+/// could interleave bytes. Draining one at a time avoids that entirely.
+@MainActor
+final class NativePaneInputPipeline {
+    private let write: (Data, PaneGrid.PaneKernelTarget) async -> Void
+    private var buffers: [PaneID: Data] = [:]
+    private var targets: [PaneID: PaneGrid.PaneKernelTarget] = [:]
+    private var draining: Set<PaneID> = []
+
+    init(write: @escaping (Data, PaneGrid.PaneKernelTarget) async -> Void) {
+        self.write = write
+    }
+
+    func submit(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) {
+        guard !bytes.isEmpty else {
+            return
+        }
+        buffers[target.paneID, default: Data()].append(bytes)
+        targets[target.paneID] = target
+        guard !draining.contains(target.paneID) else {
+            return
+        }
+        draining.insert(target.paneID)
+        Task { @MainActor in
+            await self.drain(target.paneID)
+        }
+    }
+
+    /// Test seam: awaits until every pane has drained. Never call from the
+    /// keystroke path — the pipeline is intentionally fire-and-forget there.
+    func waitForIdleForTesting() async {
+        while !draining.isEmpty {
+            await Task.yield()
+        }
+    }
+
+    private func drain(_ paneID: PaneID) async {
+        // Reads and the buffer reset happen without an intervening suspension,
+        // so `submit` (also main-actor) can only interleave during the write
+        // await — where it appends to `buffers[paneID]` and sees this pane
+        // already draining, so it never starts a second drain.
+        while let pending = buffers[paneID], !pending.isEmpty, let target = targets[paneID] {
+            buffers[paneID] = Data()
+            await write(pending, target)
+        }
+        draining.remove(paneID)
+        buffers.removeValue(forKey: paneID)
+        targets.removeValue(forKey: paneID)
+    }
+}
+
 protocol NativePaneGridActionDispatching: Sendable {
     func applyPaneGridState(_ state: PaneGrid.State)
     func markServerBackedPaneGridState(_ state: PaneGrid.State)
     func focusPane(_ target: PaneGrid.PaneKernelTarget) async -> PaneGrid.State?
     func selectWindow(_ command: PaneGrid.SelectTabWindowCommand) async -> PaneGrid.State?
     func writeInput(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) async
+    /// Explicit resize GESTURE (D-028): adjusts one pane's split ratio.
     func resizePane(_ allocation: PaneGrid.PaneResizeAllocation, in state: PaneGrid.State) async
-    func resizePane(_ target: PaneGrid.PaneKernelTarget, size: TerminalViewport.Size, in state: PaneGrid.State) async
+    /// Whole-viewport report (classic tmux client model, D-011): sets the
+    /// active window's overall size; the server lays panes out.
+    func reportWindowSize(_ size: TerminalViewport.Size, in state: PaneGrid.State) async
 }
 
 struct NativePaneGridActionController: NativePaneGridActionDispatching {
@@ -8051,15 +9536,30 @@ struct NativePaneGridActionController: NativePaneGridActionDispatching {
         )).get()
     }
 
-    func resizePane(_ target: PaneGrid.PaneKernelTarget, size: TerminalViewport.Size, in state: PaneGrid.State) async {
+    func reportWindowSize(_ size: TerminalViewport.Size, in state: PaneGrid.State) async {
+        guard let window = state.windows.first(where: { $0.windowID == state.activeWindowID }),
+              let activePane = window.panes.first(where: { $0.paneID == window.activePaneID }) ?? window.panes.first
+        else {
+            return
+        }
         let clampedSize = NativePaneGridPaneSizeBounds.clamp(columns: size.columns, rows: size.rows)
-        applyPaneGridState(state.resizing(paneID: target.paneID, size: clampedSize))
+        // Report the whole active-window viewport; do NOT mutate local pane
+        // rects. The server owns pane layout and broadcasts the reflowed rects
+        // back — locally overwriting them here is what drove the
+        // non-idempotent round-trip drift (panes shrinking on focus moves).
+        let target = PaneGrid.PaneKernelTarget(
+            workspaceID: state.workspaceID,
+            windowID: window.windowID,
+            tmuxWindowID: window.tmuxWindowID,
+            paneID: activePane.paneID,
+            tmuxPaneID: activePane.tmuxPaneID
+        )
         do {
-            try await runtime?.resizePane(target, size: clampedSize)
+            try await runtime?.resizeWindow(target, size: clampedSize)
         } catch {
             NSLog(
-                "Fenrir Native pane resize failed pane=%@ cols=%d rows=%d error=%@",
-                target.tmuxPaneID.rawValue,
+                "Fenrir Native window resize failed window=%@ cols=%d rows=%d error=%@",
+                target.tmuxWindowID,
                 clampedSize.columns,
                 clampedSize.rows,
                 String(describing: error)
@@ -8110,8 +9610,12 @@ protocol NativePaneGridRuntimeControlling: Sendable {
     func markServerBackedPaneGridState(_ state: PaneGrid.State)
     func focusPane(_ command: PaneGrid.FocusPaneCommand) async throws
     func writeInput(_ bytes: Data, to target: PaneGrid.PaneKernelTarget) async throws
+    /// Explicit resize gesture: one pane's split ratio (`tmux.pane.resize`).
     func resizePaneAllocation(_ command: PaneGrid.ResizePaneAllocationCommand) async throws
-    func resizePane(_ target: PaneGrid.PaneKernelTarget, size: NativeRuntime.PaneSize) async throws
+    /// Whole active-window viewport size (`tmux.window.resize`). `target`
+    /// carries the active pane only for the server-backed gate; the RPC uses
+    /// its workspace + window ids.
+    func resizeWindow(_ target: PaneGrid.PaneKernelTarget, size: NativeRuntime.PaneSize) async throws
     func selectWindow(_ command: PaneGrid.SelectTabWindowCommand) async throws
 }
 
@@ -8144,7 +9648,7 @@ struct NativePaneGridUnavailableRuntimeController: NativePaneGridRuntimeControll
         throw NativeRuntime.NativeRuntimeError.serverUnavailable
     }
 
-    func resizePane(_ target: PaneGrid.PaneKernelTarget, size: NativeRuntime.PaneSize) async throws {
+    func resizeWindow(_ target: PaneGrid.PaneKernelTarget, size: NativeRuntime.PaneSize) async throws {
         throw NativeRuntime.NativeRuntimeError.serverUnavailable
     }
 
@@ -8209,12 +9713,12 @@ struct NativePaneGridAppRuntimeController: NativePaneGridRuntimeControlling {
         try await commandPort.send(.resizePane(command, size))
     }
 
-    func resizePane(_ target: PaneGrid.PaneKernelTarget, size: NativeRuntime.PaneSize) async throws {
+    func resizeWindow(_ target: PaneGrid.PaneKernelTarget, size: NativeRuntime.PaneSize) async throws {
         guard stateStore.isServerBacked(target) else {
             return
         }
-        try await commandPort.send(.resizePaneToSize(
-            RequestID(rawValue: "appkit-pane-layout-resize-\(target.paneID.rawValue)"),
+        try await commandPort.send(.resizeWindow(
+            RequestID(rawValue: "appkit-window-resize-\(target.windowID.rawValue)"),
             target,
             size
         ))
@@ -8259,7 +9763,7 @@ enum NativePaneGridRuntimeCommand: Sendable, Equatable {
     case focusPane(PaneGrid.FocusPaneCommand)
     case writePaneInput(RequestID, PaneGrid.PaneKernelTarget, Data)
     case resizePane(PaneGrid.ResizePaneAllocationCommand, NativeRuntime.PaneSize)
-    case resizePaneToSize(RequestID, PaneGrid.PaneKernelTarget, NativeRuntime.PaneSize)
+    case resizeWindow(RequestID, PaneGrid.PaneKernelTarget, NativeRuntime.PaneSize)
     case selectWindow(PaneGrid.SelectTabWindowCommand)
 }
 
@@ -8450,14 +9954,14 @@ struct NativePaneGridServerRuntimeCommandPort: NativePaneGridRuntimeCommandSendi
                     rows: size.rows
                 )
             )
-        case .resizePaneToSize(let requestID, let target, let size):
+        case .resizeWindow(let requestID, let target, let size):
             try encode(
                 requestID: requestID,
-                method: "tmux.pane.resize",
-                payload: NativePaneGridPaneResizeRPCInput(
+                method: "tmux.window.resize",
+                payload: NativePaneGridWindowResizeRPCInput(
                     actor: actor.rpcActor,
                     workspaceId: target.workspaceID.rawValue,
-                    paneId: target.paneID.rawValue,
+                    windowId: target.windowID.rawValue,
                     cols: size.columns,
                     rows: size.rows
                 )
@@ -8515,6 +10019,16 @@ private struct NativePaneGridPaneResizeRPCInput: Codable, Equatable, Sendable {
     let rows: Int
 }
 
+/// Wire shape of the server's `TmuxWindowResizeInput` (`tmux.window.resize`):
+/// the client's ONE overall viewport size for the whole window.
+private struct NativePaneGridWindowResizeRPCInput: Codable, Equatable, Sendable {
+    let actor: NativePaneGridRPCActor
+    let workspaceId: String
+    let windowId: String
+    let cols: Int
+    let rows: Int
+}
+
 private struct NativePaneGridWindowSelectRPCInput: Codable, Equatable, Sendable {
     let actor: NativePaneGridRPCActor
     let workspaceId: String
@@ -8554,53 +10068,8 @@ private actor NativePaneGridKernelBridge: PaneGrid.PaneKernelControlling {
         try await runtime.resizePaneAllocation(command)
     }
 
-    func resizePane(_ target: PaneGrid.PaneKernelTarget, size: NativeRuntime.PaneSize) async throws {
-        try await runtime.resizePane(target, size: size)
-    }
-
     func selectWindow(_ command: PaneGrid.SelectTabWindowCommand) async throws {
         try await runtime.selectWindow(command)
-    }
-}
-
-private extension PaneGrid.State {
-    func resizing(paneID: PaneID, size: NativeRuntime.PaneSize) -> PaneGrid.State {
-        PaneGrid.State(
-            workspaceID: workspaceID,
-            tmuxSessionID: tmuxSessionID,
-            activeWindowID: activeWindowID,
-            windows: windows.map { window in
-                let panes = window.panes.map { pane in
-                    guard pane.paneID == paneID else {
-                        return pane
-                    }
-                    return PaneGrid.PanePresentation(
-                        paneID: pane.paneID,
-                        tmuxPaneID: pane.tmuxPaneID,
-                        streamID: pane.streamID,
-                        viewportID: pane.viewportID,
-                        title: pane.title,
-                        rect: PaneGrid.PaneRect(
-                            x: pane.rect.x,
-                            y: pane.rect.y,
-                            columns: size.columns,
-                            rows: size.rows
-                        ),
-                        isFocused: pane.isFocused
-                    )
-                }
-                return PaneGrid.WindowPresentation(
-                    windowID: window.windowID,
-                    tmuxWindowID: window.tmuxWindowID,
-                    index: window.index,
-                    title: window.title,
-                    root: window.root,
-                    activePaneID: window.activePaneID,
-                    panes: panes
-                )
-            },
-            generation: generation
-        )
     }
 }
 
@@ -8757,6 +10226,10 @@ final class NativeOverlayHostView: NSView {
     var onDecideApproval: ((String, String) -> Void)?
     var onAddScript: ((String, String) -> Void)?
     var onRemoveScript: ((Settings.ScriptID) -> Void)?
+    /// D-028 keymap prompts: confirm destructive actions / rename window.
+    var onConfirmTmuxKeymapAction: (() -> Void)?
+    var onCancelTmuxKeymapPrompt: ((WorkspaceOverlays.OverlayID) -> Void)?
+    var onSubmitTmuxKeymapRename: ((String) -> Void)?
 
     private let dimmingView = NSView()
     private let contentContainer = NSView()
@@ -8790,6 +10263,11 @@ final class NativeOverlayHostView: NSView {
     private var approvalsPanelView: NativeApprovalFeedPanelView?
     private var manageableScripts: [Settings.ScriptDefinition] = []
     private var manageScriptsView: NativeManageScriptsPanelView?
+    private var tmuxKeymapConfirmMessage = ""
+    private var tmuxKeymapConfirmTitle = "Confirm"
+    private var tmuxKeymapConfirmView: NativeTmuxKeymapConfirmPanelView?
+    private var tmuxKeymapRenameCurrentName = ""
+    private var tmuxKeymapRenameView: NativeTmuxKeymapRenamePanelView?
     private var diagnosticsViewModel = Diagnostics.DiagnosticsOverlayViewModel(report: Diagnostics.DiagnosticsReport(
         generatedAt: FenrirTimestamp(Date(timeIntervalSince1970: 0)),
         policy: .defaults,
@@ -8803,6 +10281,8 @@ final class NativeOverlayHostView: NSView {
     static let notificationsOverlayID: WorkspaceOverlays.OverlayID = "notifications"
     static let approvalsOverlayID: WorkspaceOverlays.OverlayID = "approvals"
     static let manageScriptsOverlayID: WorkspaceOverlays.OverlayID = "manage-scripts"
+    static let tmuxKeymapConfirmOverlayID: WorkspaceOverlays.OverlayID = "tmux-keymap-confirm"
+    static let tmuxKeymapRenameOverlayID: WorkspaceOverlays.OverlayID = "tmux-keymap-rename"
 
     init(
         themeTokens: NativeShellThemeTokens = .resolve(Settings.NativeSettingsConfiguration.defaults.appearance.themeID),
@@ -8925,6 +10405,25 @@ final class NativeOverlayHostView: NSView {
         manageableScripts = scripts
         manageScriptsView?.apply(scripts: scripts)
         render()
+    }
+
+    func updateTmuxKeymapConfirm(message: String, confirmTitle: String) {
+        tmuxKeymapConfirmMessage = message
+        tmuxKeymapConfirmTitle = confirmTitle
+        render()
+    }
+
+    func updateTmuxKeymapRename(currentName: String) {
+        tmuxKeymapRenameCurrentName = currentName
+        render()
+    }
+
+    func visibleTmuxKeymapRenameView() -> NativeTmuxKeymapRenamePanelView? {
+        tmuxKeymapRenameView
+    }
+
+    func visibleTmuxKeymapConfirmView() -> NativeTmuxKeymapConfirmPanelView? {
+        tmuxKeymapConfirmView
     }
 
     func setPaletteQuery(_ query: String) {
@@ -9204,6 +10703,18 @@ final class NativeOverlayHostView: NSView {
         guard let overlayID = focusedOverlayID() ?? activeOverlayIDs.last else {
             return
         }
+        // The keymap prompt views are rebuilt on demand; drop stale
+        // references whenever another overlay renders.
+        tmuxKeymapConfirmView = nil
+        tmuxKeymapRenameView = nil
+        if overlayID == Self.tmuxKeymapConfirmOverlayID {
+            renderTmuxKeymapConfirmPanel()
+            return
+        }
+        if overlayID == Self.tmuxKeymapRenameOverlayID {
+            renderTmuxKeymapRenamePanel()
+            return
+        }
         if overlayID == NativeAgentComposerOverlay.overlayID {
             renderAgentComposerPanel()
             return
@@ -9363,6 +10874,51 @@ final class NativeOverlayHostView: NSView {
         view.widthAnchor.constraint(equalTo: overlayRows.widthAnchor).isActive = true
     }
 
+    private func renderTmuxKeymapConfirmPanel() {
+        overlayTitle.stringValue = "Confirm tmux Action"
+        overlaySubtitle.stringValue = "Destructive keymap actions confirm before dispatching (D-028)"
+        clearArrangedSubviews(from: overlayRows)
+        agentComposerView = nil
+        workflowView = nil
+        agentIntegrationView = nil
+        notificationsPanelView = nil
+        approvalsPanelView = nil
+        manageScriptsView = nil
+
+        let view = NativeTmuxKeymapConfirmPanelView(
+            message: tmuxKeymapConfirmMessage,
+            confirmTitle: tmuxKeymapConfirmTitle,
+            themeTokens: themeTokens
+        )
+        view.onConfirm = { [weak self] in self?.onConfirmTmuxKeymapAction?() }
+        view.onCancel = { [weak self] in self?.onCancelTmuxKeymapPrompt?(Self.tmuxKeymapConfirmOverlayID) }
+        tmuxKeymapConfirmView = view
+        overlayRows.addArrangedSubview(view)
+        view.widthAnchor.constraint(equalTo: overlayRows.widthAnchor).isActive = true
+    }
+
+    private func renderTmuxKeymapRenamePanel() {
+        overlayTitle.stringValue = "Rename Window"
+        overlaySubtitle.stringValue = "Dispatches tmux.window.rename for the active window"
+        clearArrangedSubviews(from: overlayRows)
+        agentComposerView = nil
+        workflowView = nil
+        agentIntegrationView = nil
+        notificationsPanelView = nil
+        approvalsPanelView = nil
+        manageScriptsView = nil
+
+        let view = NativeTmuxKeymapRenamePanelView(
+            currentName: tmuxKeymapRenameCurrentName,
+            themeTokens: themeTokens
+        )
+        view.onSubmit = { [weak self] name in self?.onSubmitTmuxKeymapRename?(name) }
+        view.onCancel = { [weak self] in self?.onCancelTmuxKeymapPrompt?(Self.tmuxKeymapRenameOverlayID) }
+        tmuxKeymapRenameView = view
+        overlayRows.addArrangedSubview(view)
+        view.widthAnchor.constraint(equalTo: overlayRows.widthAnchor).isActive = true
+    }
+
     private func renderManageScriptsPanel() {
         overlayTitle.stringValue = "Manage Scripts"
         overlaySubtitle.stringValue = "Scripts run as server-owned tmux panes (repository scope)"
@@ -9454,6 +11010,12 @@ final class NativeOverlayHostView: NSView {
         }
         if overlayID == Self.manageScriptsOverlayID {
             return "Manage Scripts"
+        }
+        if overlayID == Self.tmuxKeymapConfirmOverlayID {
+            return "Confirm tmux Action"
+        }
+        if overlayID == Self.tmuxKeymapRenameOverlayID {
+            return "Rename Window"
         }
         if raw.contains("diagnostic") {
             return "Diagnostics"

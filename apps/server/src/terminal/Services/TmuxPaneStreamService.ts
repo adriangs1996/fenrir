@@ -31,6 +31,15 @@ export interface TmuxPaneStreamServiceShape {
   readonly subscribe: (
     input: TmuxPaneStreamSubscribeInput,
   ) => Effect.Effect<Stream.Stream<TmuxPaneStreamEvent, never>, TmuxKernelError>;
+  /**
+   * Registers the recovery hook invoked (detached, debounce is the handler's
+   * responsibility) whenever a live subscriber loses chunks — a fast-forward
+   * slow-client drop leaves the subscriber's terminal missing a byte range
+   * mid-escape-sequence, so the owner must reinject a full screen repaint.
+   */
+  readonly setSubscriberGapHandler: (
+    handler: (paneId: TmuxPaneId) => Effect.Effect<void>,
+  ) => Effect.Effect<void>;
 }
 
 export class TmuxPaneStreamService extends Context.Service<

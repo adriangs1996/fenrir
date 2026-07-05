@@ -133,7 +133,8 @@ let package = Package(
                 "FenrirNativeShared",
                 "NativeRuntime",
                 "Keybinding",
-                .product(name: "GhosttyTerminal", package: "libghostty-spm")
+                .product(name: "GhosttyTerminal", package: "libghostty-spm"),
+                .product(name: "GhosttyTheme", package: "libghostty-spm")
             ],
             path: "Sources/FenrirNativeFoundation/Modules/TerminalViewport",
             exclude: ["MODULE.md", "__tests__"]
@@ -226,7 +227,8 @@ let package = Package(
                 "Diagnostics",
                 "NativeDistribution",
                 "NeovimBridge",
-                "FenrirNativeApp"
+                "FenrirNativeApp",
+                .product(name: "GhosttyTheme", package: "libghostty-spm")
             ],
             path: "Tests/FenrirNativeFoundationTests"
         )
